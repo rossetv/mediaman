@@ -23,14 +23,14 @@ def conn(db_path):
 
 class TestCreateUser:
     def test_creates_user(self, conn):
-        create_user(conn, "admin", "password123")
+        create_user(conn, "admin", "password123", enforce_policy=False)
         row = conn.execute(
             "SELECT username FROM admin_users WHERE username=?", ("admin",)
         ).fetchone()
         assert row["username"] == "admin"
 
     def test_password_is_hashed(self, conn):
-        create_user(conn, "admin", "password123")
+        create_user(conn, "admin", "password123", enforce_policy=False)
         row = conn.execute(
             "SELECT password_hash FROM admin_users WHERE username=?", ("admin",)
         ).fetchone()
@@ -38,18 +38,18 @@ class TestCreateUser:
         assert row["password_hash"].startswith("$2b$")
 
     def test_duplicate_username_raises(self, conn):
-        create_user(conn, "admin", "pass1")
+        create_user(conn, "admin", "pass1", enforce_policy=False)
         with pytest.raises(ValueError, match="already exists"):
-            create_user(conn, "admin", "pass2")
+            create_user(conn, "admin", "pass2", enforce_policy=False)
 
 
 class TestAuthenticate:
     def test_valid_credentials(self, conn):
-        create_user(conn, "admin", "correct-password")
+        create_user(conn, "admin", "correct-password", enforce_policy=False)
         assert authenticate(conn, "admin", "correct-password") is True
 
     def test_wrong_password(self, conn):
-        create_user(conn, "admin", "correct-password")
+        create_user(conn, "admin", "correct-password", enforce_policy=False)
         assert authenticate(conn, "admin", "wrong-password") is False
 
     def test_nonexistent_user(self, conn):
@@ -58,19 +58,19 @@ class TestAuthenticate:
 
 class TestSessions:
     def test_create_and_validate(self, conn):
-        create_user(conn, "admin", "pass")
+        create_user(conn, "admin", "pass", enforce_policy=False)
         token = create_session(conn, "admin")
         assert len(token) == 64
         username = validate_session(conn, token)
         assert username == "admin"
 
     def test_expired_session_rejected(self, conn):
-        create_user(conn, "admin", "pass")
+        create_user(conn, "admin", "pass", enforce_policy=False)
         token = create_session(conn, "admin", ttl_seconds=-1)
         assert validate_session(conn, token) is None
 
     def test_destroy_session(self, conn):
-        create_user(conn, "admin", "pass")
+        create_user(conn, "admin", "pass", enforce_policy=False)
         token = create_session(conn, "admin")
         destroy_session(conn, token)
         assert validate_session(conn, token) is None
@@ -84,37 +84,37 @@ class TestDeleteUser:
         return int(row["id"])
 
     def test_deletes_existing_user(self, conn):
-        create_user(conn, "alice", "pass1")
-        create_user(conn, "bob", "pass2")
+        create_user(conn, "alice", "pass1", enforce_policy=False)
+        create_user(conn, "bob", "pass2", enforce_policy=False)
         ok = delete_user(conn, self._user_id(conn, "bob"), current_username="alice")
         assert ok is True
         assert [u["username"] for u in list_users(conn)] == ["alice"]
 
     def test_refuses_self_delete(self, conn):
-        create_user(conn, "alice", "pass1")
-        create_user(conn, "bob", "pass2")
+        create_user(conn, "alice", "pass1", enforce_policy=False)
+        create_user(conn, "bob", "pass2", enforce_policy=False)
         ok = delete_user(conn, self._user_id(conn, "alice"), current_username="alice")
         assert ok is False
         # Both users still present.
         assert {u["username"] for u in list_users(conn)} == {"alice", "bob"}
 
     def test_refuses_last_admin(self, conn):
-        create_user(conn, "solo", "pass")
+        create_user(conn, "solo", "pass", enforce_policy=False)
         ok = delete_user(conn, self._user_id(conn, "solo"), current_username="other")
         assert ok is False
         # Solo still exists — we must never zero out the admin table.
         assert [u["username"] for u in list_users(conn)] == ["solo"]
 
     def test_unknown_user_returns_false(self, conn):
-        create_user(conn, "alice", "pass")
+        create_user(conn, "alice", "pass", enforce_policy=False)
         ok = delete_user(conn, 9999, current_username="alice")
         assert ok is False
 
     def test_atomic_last_admin_guard(self, conn):
         """The "last admin" check happens inside the DELETE statement so a
         racing call cannot bypass it by observing a stale count."""
-        create_user(conn, "alice", "pass1")
-        create_user(conn, "bob", "pass2")
+        create_user(conn, "alice", "pass1", enforce_policy=False)
+        create_user(conn, "bob", "pass2", enforce_policy=False)
 
         alice_id = self._user_id(conn, "alice")
         bob_id = self._user_id(conn, "bob")
@@ -138,8 +138,8 @@ class TestDeleteUser:
 
     def test_deletes_user_sessions(self, conn):
         """Deleting a user also destroys any of their active sessions."""
-        create_user(conn, "alice", "pass")
-        create_user(conn, "bob", "pass")
+        create_user(conn, "alice", "pass", enforce_policy=False)
+        create_user(conn, "bob", "pass", enforce_policy=False)
         token = create_session(conn, "bob")
         assert validate_session(conn, token) == "bob"
 

@@ -100,6 +100,37 @@ def _ensure_session_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE admin_sessions ADD COLUMN fingerprint TEXT")
     if "issued_ip" not in cols:
         conn.execute("ALTER TABLE admin_sessions ADD COLUMN issued_ip TEXT")
+    # Admin-users flag — not on admin_sessions but cheap to colocate.
+    user_cols = {row[1] for row in conn.execute("PRAGMA table_info(admin_users)").fetchall()}
+    if "must_change_password" not in user_cols:
+        conn.execute(
+            "ALTER TABLE admin_users ADD COLUMN "
+            "must_change_password INTEGER NOT NULL DEFAULT 0"
+        )
+
+
+def user_must_change_password(conn: sqlite3.Connection, username: str) -> bool:
+    """Return True when *username*'s account is flagged to force a rotation."""
+    _ensure_session_columns(conn)
+    row = conn.execute(
+        "SELECT must_change_password FROM admin_users WHERE username = ?",
+        (username,),
+    ).fetchone()
+    if row is None:
+        return False
+    return bool(row["must_change_password"])
+
+
+def set_must_change_password(
+    conn: sqlite3.Connection, username: str, flag: bool
+) -> None:
+    """Set / clear the force-rotation flag for *username*."""
+    _ensure_session_columns(conn)
+    conn.execute(
+        "UPDATE admin_users SET must_change_password = ? WHERE username = ?",
+        (1 if flag else 0, username),
+    )
+    conn.commit()
 
 
 def _get_dummy_hash() -> bytes:
@@ -116,16 +147,37 @@ def _get_dummy_hash() -> bytes:
         return _DUMMY_HASH
 
 
-def create_user(conn: sqlite3.Connection, username: str, password: str) -> None:
+def create_user(
+    conn: sqlite3.Connection,
+    username: str,
+    password: str,
+    *,
+    enforce_policy: bool = True,
+) -> None:
     """Insert an admin user with a bcrypt-hashed password (cost 12).
 
-    Raises ValueError if the username already exists.
+    Raises ``ValueError`` if the username already exists OR if the
+    password fails the shared strength policy (when
+    ``enforce_policy=True``, the default).
+
+    ``enforce_policy=False`` is reserved for tests and legacy
+    migration paths — production callers (CLI, settings UI) must
+    keep the policy enforced.
     """
+    if enforce_policy:
+        from mediaman.auth.password_policy import password_issues
+
+        issues = password_issues(password, username=username)
+        if issues:
+            raise ValueError("Password does not meet strength policy: " + "; ".join(issues))
+
+    _ensure_session_columns(conn)
     password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode()
     now = datetime.now(timezone.utc).isoformat()
     try:
         conn.execute(
-            "INSERT INTO admin_users (username, password_hash, created_at) VALUES (?, ?, ?)",
+            "INSERT INTO admin_users (username, password_hash, created_at, must_change_password) "
+            "VALUES (?, ?, ?, 0)",
             (username, password_hash, now),
         )
         conn.commit()
@@ -337,13 +389,38 @@ def list_sessions_for(conn: sqlite3.Connection, username: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def change_password(conn: sqlite3.Connection, username: str, old_password: str, new_password: str) -> bool:
-    """Change a user's password. Returns True on success, False if old password is wrong."""
+def change_password(
+    conn: sqlite3.Connection,
+    username: str,
+    old_password: str,
+    new_password: str,
+    *,
+    enforce_policy: bool = True,
+) -> bool:
+    """Change a user's password. Returns True on success, False if old password is wrong.
+
+    Raises ``ValueError`` if the new password fails the shared strength
+    policy (and ``enforce_policy`` is True, which is the default).
+    The caller is responsible for catching and surfacing the policy
+    issues to the user. ``enforce_policy=False`` is reserved for tests
+    and legacy migration paths.
+    """
     if not authenticate(conn, username, old_password):
         return False
+
+    if enforce_policy:
+        from mediaman.auth.password_policy import password_issues
+
+        issues = password_issues(new_password, username=username)
+        if issues:
+            raise ValueError(
+                "Password does not meet strength policy: " + "; ".join(issues)
+            )
+
+    _ensure_session_columns(conn)
     new_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt(rounds=12)).decode()
     conn.execute(
-        "UPDATE admin_users SET password_hash=? WHERE username=?",
+        "UPDATE admin_users SET password_hash=?, must_change_password=0 WHERE username=?",
         (new_hash, username),
     )
     # Invalidate all existing sessions for this user

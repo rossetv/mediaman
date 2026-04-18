@@ -193,6 +193,86 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+class ForcePasswordChangeMiddleware(BaseHTTPMiddleware):
+    """Funnel flagged admins to /force-password-change.
+
+    When an admin signs in with a plaintext password that fails the
+    current strength policy, ``auth_routes.login_submit`` flips the
+    ``must_change_password`` flag on their row. Any subsequent
+    request that carries their session cookie gets intercepted here:
+
+    - ``GET`` requests for anything other than the force-change page,
+      static assets, logout, or the login page itself are 302-
+      redirected to ``/force-password-change``.
+    - ``POST`` / state-changing methods get a 403 JSON response so
+      JS callers see a clean failure rather than a redirect.
+
+    The check is cheap: cookie lookup + single-row SELECT; no
+    validation, no HMAC, no crypto.
+    """
+
+    # Paths that are always allowed even when a user is flagged —
+    # the force-change page itself, its POST, static assets, logout,
+    # and the login page (so the user can switch accounts if they
+    # don't remember their own password).
+    _ALLOWED_PREFIXES = (
+        "/force-password-change",
+        "/static/",
+        "/login",
+        "/api/auth/logout",
+    )
+
+    async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]
+        token = request.cookies.get("session_token")
+        if not token:
+            return await call_next(request)
+
+        path = request.url.path
+        if any(path == p or path.startswith(p) for p in self._ALLOWED_PREFIXES):
+            return await call_next(request)
+
+        # Cheap check — avoid importing the DB layer at module load
+        # to keep this middleware testable in isolation.
+        try:
+            from mediaman.auth.session import (
+                user_must_change_password,
+                validate_session,
+            )
+            from mediaman.db import get_db
+        except Exception:
+            return await call_next(request)
+
+        try:
+            conn = get_db()
+        except RuntimeError:
+            return await call_next(request)
+
+        username = validate_session(conn, token)
+        if username is None:
+            return await call_next(request)
+
+        if not user_must_change_password(conn, username):
+            return await call_next(request)
+
+        # Flagged: funnel.
+        if request.method == "GET":
+            return Response(
+                status_code=302,
+                headers={"Location": "/force-password-change"},
+            )
+        import json as _json
+        body = _json.dumps({
+            "detail": "password_change_required",
+            "message": "You must change your password before continuing.",
+            "redirect": "/force-password-change",
+        }).encode()
+        return Response(
+            content=body,
+            status_code=403,
+            media_type="application/json",
+        )
+
+
 class Obscure405Middleware(BaseHTTPMiddleware):
     """Replace 405 Method-Not-Allowed with 401 on auth-gated paths.
 
@@ -235,6 +315,10 @@ def register_security_middleware(app) -> None:
     # rejected requests never hit the handler. 405-obscure runs second
     # so downstream security headers wrap its replacement response too.
     # Security headers wrap everything.
+    # Order (outermost last): ForcePasswordChange runs first so a
+    # flagged admin is funnelled immediately; CSRF + Obscure405
+    # apply next; SecurityHeaders wraps everything.
+    app.add_middleware(ForcePasswordChangeMiddleware)
     app.add_middleware(CSRFOriginMiddleware)
     app.add_middleware(Obscure405Middleware)
     app.add_middleware(SecurityHeadersMiddleware)
@@ -244,5 +328,6 @@ __all__ = [
     "SecurityHeadersMiddleware",
     "CSRFOriginMiddleware",
     "Obscure405Middleware",
+    "ForcePasswordChangeMiddleware",
     "register_security_middleware",
 ]

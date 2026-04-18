@@ -27,7 +27,7 @@ def app(db_path, secret_key):
 @pytest.fixture
 def authed_client(app):
     from mediaman.auth.session import create_session, create_user
-    create_user(app.state.db, "admin", "password123")
+    create_user(app.state.db, "admin", "password123", enforce_policy=False)
     token = create_session(app.state.db, "admin")
     client = TestClient(app)
     client.cookies.set("session_token", token)
@@ -225,7 +225,7 @@ class TestDiscoverEndpoint:
         from mediaman.auth.session import create_session, create_user
         app.state.db.execute("DELETE FROM settings WHERE key='tmdb_read_token'")
         app.state.db.commit()
-        create_user(app.state.db, "admin", "password123")
+        create_user(app.state.db, "admin", "password123", enforce_policy=False)
         token = create_session(app.state.db, "admin")
         client = TestClient(app)
         client.cookies.set("session_token", token)

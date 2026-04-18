@@ -191,7 +191,7 @@ class TestPosterEndpointAuth:
         client, conn = self._build_test_app(tmp_path, self._KEY)
 
         from mediaman.auth.session import create_session, create_user
-        create_user(conn, "admin", "long-enough-test-password-please")
+        create_user(conn, "admin", "long-enough-test-password-please", enforce_policy=False)
         token = create_session(conn, "admin")
 
         client.cookies.set("session_token", token)
@@ -209,7 +209,7 @@ class TestPosterEndpointAuth:
         client, conn = self._build_test_app(tmp_path, self._KEY, stub_cache=False)
 
         from mediaman.auth.session import create_session, create_user
-        create_user(conn, "admin", "long-enough-test-password-please")
+        create_user(conn, "admin", "long-enough-test-password-please", enforce_policy=False)
         token = create_session(conn, "admin")
 
         client.cookies.set("session_token", token)

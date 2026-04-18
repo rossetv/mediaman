@@ -17,13 +17,12 @@ def create_user_cli() -> None:
     args = parser.parse_args()
 
     password = args.password or getpass.getpass("Password: ")
-    if len(password) < 12:
-        print("Error: password must be at least 12 characters", file=sys.stderr)
-        sys.exit(1)
-    if password.lower() == args.username.lower() or password.lower() in {
-        "password", "password1", "admin", "changeme",
-    }:
-        print("Error: password is too weak or matches the username", file=sys.stderr)
+    from mediaman.auth.password_policy import password_issues
+    issues = password_issues(password, username=args.username)
+    if issues:
+        print("Error: password does not meet the strength policy:", file=sys.stderr)
+        for item in issues:
+            print(f"  - {item}", file=sys.stderr)
         sys.exit(1)
 
     config = load_config()

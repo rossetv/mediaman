@@ -31,7 +31,7 @@ def _make_app(conn, secret_key: str) -> FastAPI:
 
 def _auth_client(app: FastAPI, conn) -> TestClient:
     """Return a TestClient with a valid admin session cookie set."""
-    create_user(conn, "admin", "password1234")
+    create_user(conn, "admin", "password1234", enforce_policy=False)
     token = create_session(conn, "admin")
     client = TestClient(app, raise_server_exceptions=True)
     client.cookies.set("session_token", token)

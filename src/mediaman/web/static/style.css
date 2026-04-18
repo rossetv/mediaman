@@ -766,6 +766,138 @@ a:hover { text-decoration: none; }
   line-height: 1.5;
 }
 
+/* ===== FORCE-PASSWORD-CHANGE (/force-password-change) ===== */
+/* Reuses .login-card scaffolding; the additions below give the page
+   a visually distinct but family-resembling look: a subtle security
+   badge, a policy checklist with live tick-marks, and a strength
+   meter. Matches DESIGN.md: dark surface card, Apple-blue accent,
+   SF Pro typography, compressed vertical rhythm. */
+
+.force-change-card { max-width: 440px; }
+
+.force-change-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(41, 151, 255, 0.12);
+  border: 1px solid rgba(41, 151, 255, 0.28);
+  border-radius: 980px;
+  color: #2997ff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.12px;
+  margin: 0 auto 16px;
+  width: fit-content;
+}
+.force-change-badge svg { display: block; }
+
+.policy-issues {
+  background: rgba(255, 69, 58, 0.08);
+  border: 1px solid rgba(255, 69, 58, 0.2);
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--danger, #ff453a);
+  letter-spacing: -0.224px;
+  margin-bottom: 16px;
+}
+.policy-issues-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.policy-issues ul {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.5;
+}
+
+.pw-strength {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.pw-meter {
+  flex: 1;
+  height: 4px;
+  border-radius: 980px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.pw-meter-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 980px;
+  background: rgba(255, 255, 255, 0.2);
+  transition: width 140ms ease-out, background 140ms ease-out;
+}
+.pw-meter-fill.weak   { background: #ff453a; }
+.pw-meter-fill.decent { background: #ff9f0a; }
+.pw-meter-fill.strong { background: #30d158; }
+.pw-strength-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: -0.12px;
+  min-width: 110px;
+  text-align: right;
+}
+
+.pw-match {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  letter-spacing: -0.12px;
+  min-height: 14px;
+}
+.pw-match.ok   { color: #30d158; }
+.pw-match.warn { color: #ff9f0a; }
+
+.policy-list {
+  list-style: none;
+  margin: 8px 0 20px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.policy-list li {
+  font-size: 13px;
+  color: var(--text-secondary);
+  letter-spacing: -0.224px;
+  padding-left: 22px;
+  position: relative;
+  transition: color 120ms ease-out;
+}
+.policy-list li::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 50%;
+  width: 14px; height: 14px;
+  margin-top: -7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  transition: background 120ms ease-out, border-color 120ms ease-out;
+}
+.policy-list li.ok {
+  color: var(--text-primary, #fff);
+}
+.policy-list li.ok::before {
+  background: #30d158;
+  border-color: #30d158;
+}
+.policy-list li.ok::after {
+  content: "";
+  position: absolute;
+  left: 3px; top: 50%;
+  width: 8px; height: 5px;
+  margin-top: -3px;
+  border-left: 1.5px solid #000;
+  border-bottom: 1.5px solid #000;
+  transform: rotate(-45deg);
+}
+
 /* ===== FORM ELEMENTS (shared) ===== */
 /* width:100% covers stacked layouts (login) while flex:1 distributes groups
    evenly when they're laid out inside a .form-row (settings). */

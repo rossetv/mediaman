@@ -216,7 +216,7 @@ class TestSessionFingerprint:
         from mediaman.auth.session import create_session, create_user, validate_session
 
         conn = self._conn(tmp_path)
-        create_user(conn, "alice", "test-password-long-enough")
+        create_user(conn, "alice", "test-password-long-enough", enforce_policy=False)
         token = create_session(
             conn, "alice", user_agent="Mozilla/5.0 X", client_ip="192.0.2.1",
         )
@@ -236,7 +236,7 @@ class TestSessionFingerprint:
         from mediaman.auth.session import create_session, create_user, validate_session
 
         conn = self._conn(tmp_path)
-        create_user(conn, "bob", "test-password-long-enough")
+        create_user(conn, "bob", "test-password-long-enough", enforce_policy=False)
         token = create_session(conn, "bob")
 
         # No fingerprint stored → any client succeeds.
@@ -249,7 +249,7 @@ class TestSessionFingerprint:
         from mediaman.auth.session import create_session, create_user
 
         conn = self._conn(tmp_path)
-        create_user(conn, "carol", "test-password-long-enough")
+        create_user(conn, "carol", "test-password-long-enough", enforce_policy=False)
         token = create_session(conn, "carol", user_agent="UA", client_ip="1.1.1.1")
 
         row = conn.execute(
@@ -270,7 +270,7 @@ class TestSessionIdleTimeout:
 
         from mediaman.db import init_db
         conn = init_db(str(tmp_path / "mm.db"))
-        create_user(conn, "dan", "test-password-long-enough")
+        create_user(conn, "dan", "test-password-long-enough", enforce_policy=False)
         token = create_session(conn, "dan")
 
         # Poke last_used_at into the past (25 h ago — beyond idle window).

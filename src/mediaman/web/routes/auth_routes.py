@@ -13,10 +13,13 @@ from mediaman.auth.rate_limit import (
     get_client_ip,
 )
 from mediaman.auth.audit import security_event
+from mediaman.auth.password_policy import is_strong
 from mediaman.auth.session import (
     authenticate,
     create_session,
     destroy_session,
+    set_must_change_password,
+    user_must_change_password,
     validate_session,
 )
 from mediaman.db import get_db
@@ -107,13 +110,31 @@ def login_submit(
         })
 
     user_agent = request.headers.get("user-agent", "")
+
+    # Evaluate plaintext against the strength policy BEFORE we've
+    # stashed it elsewhere. If it fails, flip the must-change-password
+    # flag so the session-guard middleware funnels this user to the
+    # force-change page after login. We still issue a session — the
+    # force-change page needs authenticated access to update the
+    # password. We do NOT log the password anywhere.
+    weak_password = not is_strong(password, username=username)
+    if weak_password:
+        set_must_change_password(conn, username, True)
+        logger.info(
+            "auth.weak_password_detected user=%s ip=%s — flagged for rotation",
+            username, client_ip,
+        )
+        security_event(
+            conn, event="password.weak_detected", actor=username, ip=client_ip,
+        )
+
     token = create_session(
         conn, username, user_agent=user_agent, client_ip=client_ip,
     )
     logger.info("auth.login_success user=%s ip=%s", username, client_ip)
     security_event(
         conn, event="login.success", actor=username, ip=client_ip,
-        detail={"ua_hash": user_agent[:80]},
+        detail={"ua_hash": user_agent[:80], "force_rotation": weak_password},
     )
     response = RedirectResponse("/", status_code=302)
     response.set_cookie(

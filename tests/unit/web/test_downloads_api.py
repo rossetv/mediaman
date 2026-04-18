@@ -246,7 +246,7 @@ class TestDownloadStatusAPI:
         """GET /api/download/status returns the new item shape with state field."""
         conn = init_db(str(db_path))
         app = _make_download_app(conn, secret_key)
-        create_user(conn, "admin", "password1234")
+        create_user(conn, "admin", "password1234", enforce_policy=False)
         token = create_session(conn, "admin")
         client = TestClient(app)
         client.cookies.set("session_token", token)
@@ -282,7 +282,7 @@ class TestDownloadStatusAPI:
         """Missing service returns unknown state."""
         conn = init_db(str(db_path))
         app = _make_download_app(conn, secret_key)
-        create_user(conn, "admin", "password1234")
+        create_user(conn, "admin", "password1234", enforce_policy=False)
         token = create_session(conn, "admin")
         client = TestClient(app)
         client.cookies.set("session_token", token)
@@ -296,7 +296,7 @@ class TestDownloadStatusAPI:
         """Movie with hasFile=True returns state=ready with progress=100."""
         conn = init_db(str(db_path))
         app = _make_download_app(conn, secret_key)
-        create_user(conn, "admin", "password1234")
+        create_user(conn, "admin", "password1234", enforce_policy=False)
         token = create_session(conn, "admin")
         client = TestClient(app)
         client.cookies.set("session_token", token)
@@ -321,7 +321,7 @@ class TestDownloadStatusAPI:
         """Movie not in queue and no file → state=searching."""
         conn = init_db(str(db_path))
         app = _make_download_app(conn, secret_key)
-        create_user(conn, "admin", "password1234")
+        create_user(conn, "admin", "password1234", enforce_policy=False)
         token = create_session(conn, "admin")
         client = TestClient(app)
         client.cookies.set("session_token", token)
@@ -341,7 +341,7 @@ class TestDownloadStatusAPI:
         """timeleft HH:MM:SS is formatted as human-readable eta."""
         conn = init_db(str(db_path))
         app = _make_download_app(conn, secret_key)
-        create_user(conn, "admin", "password1234")
+        create_user(conn, "admin", "password1234", enforce_policy=False)
         token = create_session(conn, "admin")
         client = TestClient(app)
         client.cookies.set("session_token", token)

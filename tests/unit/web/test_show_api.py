@@ -27,7 +27,7 @@ def app(db_path, secret_key):
 def authed_client(app):
     from mediaman.auth.session import create_session, create_user
     conn = app.state.db
-    create_user(conn, "testadmin", "testpass123")
+    create_user(conn, "testadmin", "testpass123", enforce_policy=False)
     token = create_session(conn, "testadmin")
     client = TestClient(app)
     client.cookies.set("session_token", token)

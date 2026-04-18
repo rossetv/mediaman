@@ -565,14 +565,16 @@ def api_create_user(
             {"ok": False, "error": "Username must be between 3 and 64 characters"},
             status_code=400,
         )
-    if len(password) < 12:
+
+    from mediaman.auth.password_policy import password_issues
+    issues = password_issues(password, username=username)
+    if issues:
         return JSONResponse(
-            {"ok": False, "error": "Password must be at least 12 characters"},
-            status_code=400,
-        )
-    if password.lower() == username.lower() or password.lower() in {"password", "password1", "admin", "changeme"}:
-        return JSONResponse(
-            {"ok": False, "error": "Password is too weak or matches the username"},
+            {
+                "ok": False,
+                "error": "Password does not meet the strength policy",
+                "issues": issues,
+            },
             status_code=400,
         )
 
@@ -631,14 +633,21 @@ def api_change_password(
     old_password = body.old_password
     new_password = body.new_password
 
-    if len(new_password) < 12:
-        return JSONResponse(
-            {"ok": False, "error": "New password must be at least 12 characters"},
-            status_code=400,
-        )
     if new_password == old_password:
         return JSONResponse(
             {"ok": False, "error": "New password must differ from the old password"},
+            status_code=400,
+        )
+
+    from mediaman.auth.password_policy import password_issues
+    issues = password_issues(new_password, username=admin)
+    if issues:
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": "Password does not meet the strength policy",
+                "issues": issues,
+            },
             status_code=400,
         )
 
