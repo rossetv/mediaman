@@ -767,132 +767,187 @@ a:hover { text-decoration: none; }
 }
 
 /* ===== FORCE-PASSWORD-CHANGE (/force-password-change) ===== */
-/* Reuses .login-card scaffolding; the additions below give the page
-   a visually distinct but family-resembling look: a subtle security
-   badge, a policy checklist with live tick-marks, and a strength
-   meter. Matches DESIGN.md: dark surface card, Apple-blue accent,
-   SF Pro typography, compressed vertical rhythm. */
+/* Matches DESIGN.md: cinematic dark card, Apple Blue accent,
+   tight SF Pro hierarchy, pill CTAs, generous negative space. */
 
-.force-change-card { max-width: 440px; }
+.fpc-card {
+  max-width: 440px;
+  padding: clamp(32px, 5vw, 44px) clamp(28px, 4.5vw, 40px);
+}
 
-.force-change-badge {
+/* Title block centred hero-style; form is left-aligned below. */
+.fpc-card { text-align: center; }
+
+/* Small blue pill above the title — restrained, not shouty.
+   ``display: inline-flex`` + text-align:center on the parent gives
+   natural centring without needing a wrapper. ``margin-bottom`` only —
+   margin:0 auto doesn't centre inline-flex. */
+.fpc-eyebrow {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: rgba(41, 151, 255, 0.12);
+  gap: 6px;
+  padding: 5px 12px 5px 10px;
+  margin-bottom: 14px;
+  background: rgba(41, 151, 255, 0.10);
   border: 1px solid rgba(41, 151, 255, 0.28);
   border-radius: 980px;
-  color: #2997ff;
+  color: var(--accent);
+  font-family: var(--font-text, inherit);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: -0.12px;
-  margin: 0 auto 16px;
-  width: fit-content;
+  line-height: 1;
 }
-.force-change-badge svg { display: block; }
+.fpc-eyebrow-icon {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  color: var(--accent);
+}
 
+.fpc-title {
+  font-family: var(--font-display, inherit);
+  font-size: clamp(24px, 3.4vw, 30px);
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.4px;
+  color: var(--text);
+  margin: 0 0 8px;
+}
+.fpc-subtitle {
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: -0.224px;
+  color: var(--text-secondary);
+  margin: 0 auto 24px;
+  max-width: 36ch;
+}
+.fpc-subtitle strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* The form below reverts to left-alignment — only the header is
+   centred in the Apple-hero style. */
+.fpc-card form,
+.fpc-card .error-msg,
+.fpc-card .policy-issues,
+.fpc-card .security-note,
+.fpc-card .fpc-checklist {
+  text-align: left;
+}
+
+/* Inline issue panel shown when server-side validation rejected the
+   previous POST. Uses a red stroke/tint consistent with .error-msg. */
 .policy-issues {
   background: rgba(255, 69, 58, 0.08);
-  border: 1px solid rgba(255, 69, 58, 0.2);
+  border: 1px solid rgba(255, 69, 58, 0.24);
   border-radius: 10px;
-  padding: 12px 16px;
+  padding: 12px 14px 12px 14px;
   font-size: 13px;
   color: var(--danger, #ff453a);
   letter-spacing: -0.224px;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 .policy-issues-title {
   font-weight: 600;
   margin-bottom: 4px;
+  color: var(--danger, #ff453a);
 }
 .policy-issues ul {
   margin: 0;
-  padding-left: 18px;
+  padding-left: 16px;
   line-height: 1.5;
 }
+.policy-issues li { margin: 2px 0; }
 
-.pw-strength {
+/* Thin strength meter sitting just below the new-password input. */
+.fpc-new-field { margin-bottom: 14px; }
+.fpc-meter {
   margin-top: 8px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.pw-meter {
-  flex: 1;
   height: 4px;
   border-radius: 980px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.07);
   overflow: hidden;
+  position: relative;
 }
-.pw-meter-fill {
+.fpc-meter-fill {
+  display: block;
   height: 100%;
   width: 0;
   border-radius: 980px;
   background: rgba(255, 255, 255, 0.2);
-  transition: width 140ms ease-out, background 140ms ease-out;
+  transition:
+    width 180ms cubic-bezier(0.22, 1, 0.36, 1),
+    background 180ms ease-out;
 }
-.pw-meter-fill.weak   { background: #ff453a; }
-.pw-meter-fill.decent { background: #ff9f0a; }
-.pw-meter-fill.strong { background: #30d158; }
-.pw-strength-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  letter-spacing: -0.12px;
-  min-width: 110px;
-  text-align: right;
-}
+.fpc-meter-fill.weak   { background: #ff453a; }
+.fpc-meter-fill.ok     { background: #ff9f0a; }
+.fpc-meter-fill.strong { background: #30d158; }
 
-.pw-match {
+/* Small caption below the meter (and below the confirm input). */
+.fpc-caption {
   margin-top: 6px;
   font-size: 12px;
-  color: var(--text-tertiary);
+  font-weight: 600;
+  line-height: 1.3;
   letter-spacing: -0.12px;
-  min-height: 14px;
+  color: var(--text-tertiary);
+  min-height: 15px;
 }
-.pw-match.ok   { color: #30d158; }
-.pw-match.warn { color: #ff9f0a; }
+.fpc-caption-weak   { color: #ff453a; }
+.fpc-caption-ok     { color: #ff9f0a; }
+.fpc-caption-strong { color: #30d158; }
 
-.policy-list {
-  list-style: none;
-  margin: 8px 0 20px;
+/* Policy checklist — bulletless <ul> with animated circular ticks.
+   list-style reset is important: base.html doesn't apply a reset, so
+   we're overriding the browser default here. */
+.fpc-checklist {
+  list-style: none !important;
+  margin: 4px 0 22px;
   padding: 0;
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
-.policy-list li {
+.fpc-checklist li {
+  position: relative;
+  padding-left: 26px;
   font-size: 13px;
+  line-height: 1.4;
   color: var(--text-secondary);
   letter-spacing: -0.224px;
-  padding-left: 22px;
-  position: relative;
-  transition: color 120ms ease-out;
+  transition: color 140ms ease-out;
 }
-.policy-list li::before {
+.fpc-checklist li::before {
   content: "";
   position: absolute;
-  left: 0; top: 50%;
-  width: 14px; height: 14px;
-  margin-top: -7px;
+  left: 0;
+  top: 2px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  transition: background 120ms ease-out, border-color 120ms ease-out;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  transition:
+    background 160ms ease-out,
+    border-color 160ms ease-out,
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
 }
-.policy-list li.ok {
-  color: var(--text-primary, #fff);
+.fpc-checklist li.is-ok {
+  color: var(--text);
 }
-.policy-list li.ok::before {
+.fpc-checklist li.is-ok::before {
   background: #30d158;
   border-color: #30d158;
+  transform: scale(1.05);
 }
-.policy-list li.ok::after {
+.fpc-checklist li.is-ok::after {
   content: "";
   position: absolute;
-  left: 3px; top: 50%;
-  width: 8px; height: 5px;
-  margin-top: -3px;
+  left: 4px;
+  top: 6px;
+  width: 9px;
+  height: 5px;
   border-left: 1.5px solid #000;
   border-bottom: 1.5px solid #000;
   transform: rotate(-45deg);
