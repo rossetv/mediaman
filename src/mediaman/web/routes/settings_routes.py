@@ -84,13 +84,21 @@ router = APIRouter()
 
 SECRET_FIELDS = {"plex_token", "sonarr_api_key", "radarr_api_key", "nzbget_password", "mailgun_api_key", "tmdb_api_key", "tmdb_read_token", "openai_api_key", "omdb_api_key"}
 
-# All known settings keys — used to initialise missing values gracefully
+# All known settings keys — used to initialise missing values gracefully.
+# ``*_public_url`` is the optional user-facing URL (what a browser can
+# reach) — separate from ``*_url`` which is the internal address
+# mediaman itself uses to call the API. When unset, the internal URL
+# is used as the public URL as well.
 _ALL_KEYS = SECRET_FIELDS | {
     "plex_url",
+    "plex_public_url",
     "plex_libraries",
     "sonarr_url",
+    "sonarr_public_url",
     "radarr_url",
+    "radarr_public_url",
     "nzbget_url",
+    "nzbget_public_url",
     "nzbget_username",
     "mailgun_domain",
     "mailgun_from_address",
@@ -258,7 +266,11 @@ def api_update_settings(
     from urllib.parse import urlparse as _urlparse
 
     _URL_FIELDS = {
-        "base_url", "plex_url", "sonarr_url", "radarr_url", "nzbget_url",
+        "base_url",
+        "plex_url", "plex_public_url",
+        "sonarr_url", "sonarr_public_url",
+        "radarr_url", "radarr_public_url",
+        "nzbget_url", "nzbget_public_url",
     }
 
     for _url_key in _URL_FIELDS:

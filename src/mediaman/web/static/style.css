@@ -3289,6 +3289,32 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
   border-color: rgba(41,151,255,0.5); background: var(--surface-3);
 }
 
+/* Muted helper text shown below a form-input (for optional fields /
+   explanatory hints). Matches DESIGN.md's caption-size + tertiary-
+   text-colour tone. */
+.form-help {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  letter-spacing: -0.12px;
+  line-height: 1.4;
+}
+
+/* Small "optional" chip beside a form-label. */
+.form-label-hint {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  background: rgba(255,255,255,0.06);
+  border-radius: 980px;
+  letter-spacing: -0.06px;
+  vertical-align: 2px;
+  text-transform: lowercase;
+}
+
 /* --- Filter pills wrapper: horizontally scrollable when the row overflows.
    Used on library, history, search, recommended toolbars. */
 .filter-pills {

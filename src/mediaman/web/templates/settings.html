@@ -290,9 +290,19 @@
           <input class="form-input" type="text" id="plex_url"
             value="{{ settings.get('plex_url', '') }}"
             placeholder="http://plex:32400">
+          <div class="form-help">Used by mediaman to reach Plex (container-to-container).</div>
         </div>
         <div style="padding-top: 24px;">
           <button class="btn-test" onclick="testService('plex', this)">Test</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Public URL <span class="form-label-hint">optional</span></label>
+          <input class="form-input" type="text" id="plex_public_url"
+            value="{{ settings.get('plex_public_url', '') }}"
+            placeholder="https://plex.example.com">
+          <div class="form-help">External URL for "Open in Plex" links shown to users. Leave blank to reuse the Plex URL above.</div>
         </div>
       </div>
       <div class="form-row">
@@ -343,9 +353,19 @@
           <input class="form-input" type="text" id="sonarr_url"
             value="{{ settings.get('sonarr_url', '') }}"
             placeholder="http://sonarr:8989">
+          <div class="form-help">Used by mediaman to reach Sonarr (container-to-container).</div>
         </div>
         <div style="padding-top: 24px;">
           <button class="btn-test" onclick="testService('sonarr', this)">Test</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Public URL <span class="form-label-hint">optional</span></label>
+          <input class="form-input" type="text" id="sonarr_public_url"
+            value="{{ settings.get('sonarr_public_url', '') }}"
+            placeholder="https://sonarr.example.com">
+          <div class="form-help">External URL for "View in Sonarr" links. Leave blank to reuse the Sonarr URL above.</div>
         </div>
       </div>
       <div class="form-row">
@@ -386,9 +406,19 @@
           <input class="form-input" type="text" id="radarr_url"
             value="{{ settings.get('radarr_url', '') }}"
             placeholder="http://radarr:7878">
+          <div class="form-help">Used by mediaman to reach Radarr (container-to-container).</div>
         </div>
         <div style="padding-top: 24px;">
           <button class="btn-test" onclick="testService('radarr', this)">Test</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Public URL <span class="form-label-hint">optional</span></label>
+          <input class="form-input" type="text" id="radarr_public_url"
+            value="{{ settings.get('radarr_public_url', '') }}"
+            placeholder="https://radarr.example.com">
+          <div class="form-help">External URL for "View in Radarr" links. Leave blank to reuse the Radarr URL above.</div>
         </div>
       </div>
       <div class="form-row">
@@ -429,9 +459,19 @@
           <input class="form-input" type="text" id="nzbget_url"
             value="{{ settings.get('nzbget_url', '') }}"
             placeholder="http://nzbget:6789">
+          <div class="form-help">Used by mediaman to reach NZBGet (container-to-container).</div>
         </div>
         <div style="padding-top: 24px;">
           <button class="btn-test" onclick="testService('nzbget', this)">Test</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Public URL <span class="form-label-hint">optional</span></label>
+          <input class="form-input" type="text" id="nzbget_public_url"
+            value="{{ settings.get('nzbget_public_url', '') }}"
+            placeholder="https://nzbget.example.com">
+          <div class="form-help">External URL for "Open in NZBGet" links. Leave blank to reuse the NZBGet URL above.</div>
         </div>
       </div>
       <div class="form-row">
@@ -926,13 +966,17 @@
 
     var body = {
       plex_url:             document.getElementById('plex_url').value,
+      plex_public_url:      document.getElementById('plex_public_url').value,
       plex_token:           document.getElementById('plex_token').value,
       plex_libraries:       _selectedLibraries,
       sonarr_url:           document.getElementById('sonarr_url').value,
+      sonarr_public_url:    document.getElementById('sonarr_public_url').value,
       sonarr_api_key:       document.getElementById('sonarr_api_key').value,
       radarr_url:           document.getElementById('radarr_url').value,
+      radarr_public_url:    document.getElementById('radarr_public_url').value,
       radarr_api_key:       document.getElementById('radarr_api_key').value,
       nzbget_url:           document.getElementById('nzbget_url').value,
+      nzbget_public_url:    document.getElementById('nzbget_public_url').value,
       nzbget_username:      document.getElementById('nzbget_username').value,
       nzbget_password:      document.getElementById('nzbget_password').value,
       mailgun_domain:       document.getElementById('mailgun_domain').value,

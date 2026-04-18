@@ -603,10 +603,17 @@ def _get_arr_queue(conn: sqlite3.Connection) -> list[dict]:
 def _arr_base_urls(conn: sqlite3.Connection) -> dict[str, str]:
     """Return ``{"radarr": url, "sonarr": url}`` for deep-link building.
 
-    Values are the user's configured base URLs with any trailing slash
-    stripped; missing settings (or a missing/invalid SECRET_KEY in a
-    test fixture) map to ``""`` so callers can safely skip link
-    rendering when the service isn't configured.
+    Prefers the **public** URL (``radarr_public_url``, ``sonarr_public_url``)
+    when configured, because the value set in ``*_url`` is usually the
+    in-cluster hostname (e.g. ``http://radarr:7878``) used by mediaman to
+    reach the container directly — that URL is meaningless to a user's
+    browser. Falls back to ``*_url`` when the public variant is empty
+    so the default single-URL setup keeps working.
+
+    Values have any trailing slash stripped. Missing settings (or a
+    missing/invalid SECRET_KEY in a test fixture) map to ``""`` so
+    callers can safely skip link rendering when the service isn't
+    configured.
     """
     try:
         from mediaman.config import load_config
@@ -614,9 +621,15 @@ def _arr_base_urls(conn: sqlite3.Connection) -> dict[str, str]:
 
         secret_key = load_config().secret_key
         out = {}
-        for service, key in (("radarr", "radarr_url"), ("sonarr", "sonarr_url")):
-            url = get_string_setting(conn, key, secret_key=secret_key) or ""
-            out[service] = url.rstrip("/")
+        for service in ("radarr", "sonarr"):
+            public = get_string_setting(
+                conn, f"{service}_public_url", secret_key=secret_key,
+            ) or ""
+            internal = get_string_setting(
+                conn, f"{service}_url", secret_key=secret_key,
+            ) or ""
+            chosen = public.strip() or internal.strip()
+            out[service] = chosen.rstrip("/")
         return out
     except Exception:
         logger.debug("Failed to load arr base URLs for deep links", exc_info=True)
