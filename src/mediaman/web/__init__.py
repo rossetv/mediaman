@@ -14,16 +14,21 @@ from mediaman.auth.rate_limit import _peer_is_trusted, _trusted_proxies
 # - ``'unsafe-inline'`` on script/style is still present because several
 #   templates ship inline ``onclick=`` / ``style=`` attributes; removing
 #   them is a separate refactor and should be done next.
-# - ``img-src`` is tightened to the image hosts the app actually uses
-#   (TMDB, self, blob/data) instead of the previous ``https:`` wildcard,
-#   which doubled as a generic exfil channel if any XSS ever landed.
+# - ``img-src`` allows any HTTPS image source. Posters in this app come
+#   from a shifting set of CDNs (TMDB, TVDB, fanart.tv, Amazon Images,
+#   Plex's own metadata server, etc.) whose exact hosts we can't predict
+#   because Radarr/Sonarr choose them at runtime. A strict allowlist
+#   caused silent broken-image icons across Downloads/Library/Recommended.
+#   Images can't execute code, so the blast radius of an overly-broad
+#   img-src is limited to pixel tracking if an integrated service ever
+#   got compromised and started serving adversary-chosen URLs — which
+#   is already outside our trust model (admins are trusted).
 # - ``object-src 'none'`` defangs plugin-based XSS.
 # - ``frame-ancestors 'none'`` + ``X-Frame-Options: DENY`` belt-and-braces
 #   clickjacking defence.
 _CSP = (
     "default-src 'self'; "
-    "img-src 'self' data: blob: "
-    "https://image.tmdb.org https://www.themoviedb.org https://m.media-amazon.com; "
+    "img-src 'self' data: blob: https:; "
     "style-src 'self' 'unsafe-inline'; "
     "script-src 'self' 'unsafe-inline'; "
     "connect-src 'self'; "

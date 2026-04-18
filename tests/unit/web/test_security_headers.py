@@ -47,9 +47,9 @@ class TestSecurityHeadersMiddleware:
         assert "base-uri 'self'" in csp
         assert "form-action 'self'" in csp
         assert "frame-src https://www.youtube.com" in csp
-        # img-src is tightened — no ``https:`` wildcard.
-        assert "image.tmdb.org" in csp
-        assert "img-src 'self' data: blob:" in csp
+        # img-src allows any HTTPS source (Radarr/Sonarr/Plex return
+        # posters from shifting CDNs we can't enumerate).
+        assert "img-src 'self' data: blob: https:" in csp
 
     def test_hsts_emitted_by_default(self, monkeypatch):
         """Public-facing mediaman must emit HSTS unless the operator opts out."""

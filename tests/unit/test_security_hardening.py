@@ -225,15 +225,20 @@ class TestUnsubscribeToken:
 
 
 class TestCsp:
-    def test_no_https_wildcard_img_src(self):
-        """Previously ``img-src 'self' data: https:`` allowed any CDN — fixed."""
+    def test_img_src_permissive_but_scoped(self):
+        """img-src allows any HTTPS (posters come from many CDNs).
+
+        The attack surface from a permissive img-src is limited —
+        images can't execute code — and a strict allowlist breaks
+        the Downloads/Library/Recommended pages whenever Radarr or
+        Sonarr return a poster from a CDN we didn't enumerate.
+        """
         from mediaman.web import _CSP
 
-        # img-src must explicitly list allowed hosts, not just ``https:``.
-        assert "img-src 'self' data: blob: " in _CSP
-        assert "image.tmdb.org" in _CSP
-        # The wildcard is gone.
-        assert " https:" not in _CSP or "img-src" not in _CSP.split("img-src")[1].split(";")[0] + "; "
+        # img-src accepts self, inline data, blobs, and any https: origin.
+        assert "img-src 'self' data: blob: https:" in _CSP
+        # script-src remains scoped (no wildcards beyond unsafe-inline).
+        assert " https:" not in _CSP.split("script-src")[1].split(";")[0]
 
     def test_object_src_none(self):
         from mediaman.web import _CSP
