@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from mediaman.auth.middleware import get_optional_admin
+from mediaman.auth.middleware import get_optional_admin_from_token
 from mediaman.auth.rate_limit import RateLimiter, get_client_ip
 from mediaman.config import load_config
 from mediaman.crypto import validate_keep_token
@@ -103,7 +103,7 @@ def keep_page(request: Request, token: str):
         item_dict["added_display"] = raw_added[:10] if raw_added else ""
 
     # Check if admin is logged in
-    is_admin = get_optional_admin(request.cookies.get("session_token")) is not None
+    is_admin = get_optional_admin_from_token(request.cookies.get("session_token"), request=request) is not None
 
     # Compute "days left" server-side in the scheduled action's timezone
     # (UTC). Doing this in the template via ``execute_at.today()`` fails
@@ -121,7 +121,7 @@ def keep_page(request: Request, token: str):
 
 
 @router.post("/keep/{token}", response_class=HTMLResponse)
-def keep_submit(request: Request, token: str, duration: str = Form(...)):
+def keep_submit(request: Request, token: str, duration: str = Form(default="")):
     """Apply a snooze via the keep page.
 
     The UPDATE filters on ``token_used = 0`` and inspects ``rowcount`` so
@@ -149,7 +149,7 @@ def keep_submit(request: Request, token: str, duration: str = Form(...)):
     row = verified
 
     # Only admins can use "forever"
-    is_admin = get_optional_admin(request.cookies.get("session_token")) is not None
+    is_admin = get_optional_admin_from_token(request.cookies.get("session_token"), request=request) is not None
     if duration == "forever" and not is_admin:
         return RedirectResponse(f"/keep/{token}", status_code=302)
 

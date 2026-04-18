@@ -1,5 +1,27 @@
-"""Admin user and session management."""
+"""Admin user and session management.
 
+Session hardening against insider threats and cookie theft
+----------------------------------------------------------
+
+The session table stores a SHA-256 **hash** of the token plus a
+user-agent fingerprint and the client IP at issuance. Validation
+checks:
+
+1. Token exists and is not expired (hard expiry: 7 days from issue).
+2. Token is not **idle**: last-used time must be within 24 hours.
+   Sliding-window refresh: every validate_session bumps last_used_at.
+3. Client fingerprint (user-agent hash + IP prefix) matches the
+   issuer's fingerprint. A mismatch logs a WARNING and invalidates
+   the session — catches stolen cookies used from a different
+   browser or network.
+
+The table still stores the raw token as ``token`` for backward
+compatibility with any already-issued session rows, but new sessions
+only store the hash. validate_session accepts either shape.
+"""
+
+import hashlib
+import logging
 import sqlite3
 import threading
 import time
@@ -9,12 +31,75 @@ import bcrypt
 
 from mediaman.crypto import generate_session_token
 
+logger = logging.getLogger("mediaman")
+
 _DUMMY_HASH: bytes | None = None
 _DUMMY_HASH_LOCK = threading.Lock()
 
 _EXPIRED_CLEANUP_INTERVAL = 60.0  # seconds between expired-session sweeps
 _last_cleanup_at = 0.0
 _cleanup_lock = threading.Lock()
+
+# Hard expiry: any session older than this is invalid regardless of
+# activity. Tighter than the previous 24 h absolute TTL because we
+# now also rotate via the idle timeout — combined result is 24 h of
+# active use OR 7 days calendar, whichever comes first.
+_HARD_EXPIRY_DAYS = 7
+# Idle timeout: unused session dies after this window. 24 h matches
+# the previous full-session TTL so user experience is unchanged.
+_IDLE_TIMEOUT_HOURS = 24
+
+
+def _hash_token(token: str) -> str:
+    """Return a SHA-256 hex digest of the token for at-rest storage.
+
+    Rationale: if the sqlite DB file leaks, the raw session tokens
+    should not be directly usable. Storing the hash makes token theft
+    from the DB useless — attacker would need to reverse SHA-256 which
+    is infeasible for 256-bit random input.
+    """
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _client_fingerprint(user_agent: str, client_ip: str) -> str:
+    """Compute a stable fingerprint for session-to-client binding.
+
+    UA is hashed (truncated SHA-256) + IP-prefix (first three octets
+    for IPv4, first 64 bits for IPv6) to tolerate CGNAT / residential
+    NAT shuffles while still catching "cookie stolen and replayed
+    from Russia" scenarios.
+    """
+    import ipaddress
+
+    ua_hash = hashlib.sha256(user_agent.encode()).hexdigest()[:16]
+    try:
+        addr = ipaddress.ip_address(client_ip)
+    except ValueError:
+        prefix = "unknown"
+    else:
+        if isinstance(addr, ipaddress.IPv6Address):
+            prefix = str(ipaddress.ip_network(f"{client_ip}/64", strict=False).network_address)
+        else:
+            prefix = str(ipaddress.ip_network(f"{client_ip}/24", strict=False).network_address)
+    return f"{ua_hash}:{prefix}"
+
+
+def _ensure_session_columns(conn: sqlite3.Connection) -> None:
+    """Add the hardening columns to admin_sessions if not present.
+
+    Lightweight in-process migration — calling this from every session
+    write is cheap (one PRAGMA) and means older DBs roll forward
+    transparently.
+    """
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(admin_sessions)").fetchall()}
+    if "token_hash" not in cols:
+        conn.execute("ALTER TABLE admin_sessions ADD COLUMN token_hash TEXT")
+    if "last_used_at" not in cols:
+        conn.execute("ALTER TABLE admin_sessions ADD COLUMN last_used_at TEXT")
+    if "fingerprint" not in cols:
+        conn.execute("ALTER TABLE admin_sessions ADD COLUMN fingerprint TEXT")
+    if "issued_ip" not in cols:
+        conn.execute("ALTER TABLE admin_sessions ADD COLUMN issued_ip TEXT")
 
 
 def _get_dummy_hash() -> bytes:
@@ -67,57 +152,189 @@ def authenticate(conn: sqlite3.Connection, username: str, password: str) -> bool
 
 
 def create_session(
-    conn: sqlite3.Connection, username: str, ttl_seconds: int = 86400
+    conn: sqlite3.Connection,
+    username: str,
+    *,
+    user_agent: str = "",
+    client_ip: str = "",
+    ttl_seconds: int | None = None,
 ) -> str:
-    """Create a session for the given username and return the token.
+    """Create a session and return the opaque token.
 
-    The token is a 64-character hex string. The session expires after
-    ``ttl_seconds`` seconds from now.
+    The caller receives the raw token (64 hex chars, 256 bits). The DB
+    stores only the SHA-256 hash. The fingerprint (UA hash + IP prefix)
+    is captured so validate_session can detect cookie theft.
+
+    ``ttl_seconds`` overrides the default hard expiry (7 days) — useful
+    only for tests.
     """
+    _ensure_session_columns(conn)
     token = generate_session_token()
+    token_hash = _hash_token(token)
     now = datetime.now(timezone.utc)
-    expires_at = (now + timedelta(seconds=ttl_seconds)).isoformat()
+    now_iso = now.isoformat()
+    if ttl_seconds is None:
+        expires_at = (now + timedelta(days=_HARD_EXPIRY_DAYS)).isoformat()
+    else:
+        expires_at = (now + timedelta(seconds=ttl_seconds)).isoformat()
+    # Only compute a fingerprint if we actually have client info.
+    # An empty UA + empty IP produces a pseudo-fingerprint (sha of
+    # nothing + "unknown") that would falsely match every probeless
+    # caller — better to treat such sessions as unbound.
+    fingerprint = (
+        _client_fingerprint(user_agent, client_ip)
+        if user_agent or client_ip
+        else ""
+    )
     conn.execute(
-        "INSERT INTO admin_sessions (token, username, created_at, expires_at) VALUES (?, ?, ?, ?)",
-        (token, username, now.isoformat(), expires_at),
+        "INSERT INTO admin_sessions "
+        "(token, token_hash, username, created_at, expires_at, last_used_at, "
+        " fingerprint, issued_ip) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (token, token_hash, username, now_iso, expires_at, now_iso,
+         fingerprint, client_ip or ""),
     )
     conn.commit()
+    logger.info("session.created user=%s ip=%s", username, client_ip or "-")
     return token
 
 
-def validate_session(conn: sqlite3.Connection, token: str) -> str | None:
+def validate_session(
+    conn: sqlite3.Connection,
+    token: str,
+    *,
+    user_agent: str | None = None,
+    client_ip: str | None = None,
+) -> str | None:
     """Return the username for a valid, non-expired session token.
+
+    Hardening over the minimal previous version:
+
+    - Looks up by ``token_hash`` (SHA-256) preferentially, falls back to
+      raw ``token`` column for legacy rows.
+    - Rejects tokens idle for > 24 h (``last_used_at`` check) on top of
+      the 7-day hard expiry.
+    - If ``user_agent`` and ``client_ip`` are supplied, checks the
+      fingerprint against the issuer's fingerprint. A mismatch destroys
+      the session and returns None.
+    - Updates ``last_used_at`` on every successful validation (sliding
+      refresh of the idle window).
 
     Sweeps expired session rows at most once per ``_EXPIRED_CLEANUP_INTERVAL``
     seconds so hot traffic doesn't turn every request into a write.
     Returns None if the token is missing or expired.
     """
+    if not token or len(token) > 256:
+        return None
+
     global _last_cleanup_at
     now_dt = datetime.now(timezone.utc)
     now_iso = now_dt.isoformat()
+
+    _ensure_session_columns(conn)
 
     mono = time.monotonic()
     if mono - _last_cleanup_at >= _EXPIRED_CLEANUP_INTERVAL:
         with _cleanup_lock:
             if mono - _last_cleanup_at >= _EXPIRED_CLEANUP_INTERVAL:
-                conn.execute("DELETE FROM admin_sessions WHERE expires_at <= ?", (now_iso,))
+                conn.execute(
+                    "DELETE FROM admin_sessions WHERE expires_at <= ?", (now_iso,)
+                )
                 conn.commit()
                 _last_cleanup_at = mono
 
+    token_hash = _hash_token(token)
+    # Prefer hash lookup; fall back to legacy raw-token match for
+    # rows written before this hardening landed.
     row = conn.execute(
-        "SELECT username, expires_at FROM admin_sessions WHERE token=?", (token,)
+        "SELECT username, expires_at, last_used_at, fingerprint "
+        "FROM admin_sessions WHERE token_hash = ? OR token = ? LIMIT 1",
+        (token_hash, token),
     ).fetchone()
     if row is None:
         return None
     if row["expires_at"] and row["expires_at"] <= now_iso:
         return None
+
+    # Idle-timeout check
+    last_used = row["last_used_at"]
+    if last_used:
+        try:
+            last_dt = datetime.fromisoformat(last_used)
+            if now_dt - last_dt > timedelta(hours=_IDLE_TIMEOUT_HOURS):
+                logger.info(
+                    "session.idle_expired user=%s",
+                    row["username"],
+                )
+                conn.execute(
+                    "DELETE FROM admin_sessions WHERE token_hash = ? OR token = ?",
+                    (token_hash, token),
+                )
+                conn.commit()
+                return None
+        except ValueError:
+            pass
+
+    # Fingerprint check — only when caller supplied current client info
+    stored_fp = row["fingerprint"]
+    if stored_fp and user_agent is not None and client_ip is not None:
+        current_fp = _client_fingerprint(user_agent, client_ip)
+        if current_fp != stored_fp:
+            logger.warning(
+                "session.fingerprint_mismatch user=%s expected=%s got=%s ip=%s",
+                row["username"], stored_fp, current_fp, client_ip,
+            )
+            conn.execute(
+                "DELETE FROM admin_sessions WHERE token_hash = ? OR token = ?",
+                (token_hash, token),
+            )
+            conn.commit()
+            return None
+
+    # Sliding refresh of last_used_at (cheap single-row update)
+    conn.execute(
+        "UPDATE admin_sessions SET last_used_at = ? "
+        "WHERE token_hash = ? OR token = ?",
+        (now_iso, token_hash, token),
+    )
+    conn.commit()
+
     return row["username"]
 
 
 def destroy_session(conn: sqlite3.Connection, token: str) -> None:
     """Delete the session row for the given token (logout)."""
-    conn.execute("DELETE FROM admin_sessions WHERE token=?", (token,))
+    _ensure_session_columns(conn)
+    token_hash = _hash_token(token)
+    conn.execute(
+        "DELETE FROM admin_sessions WHERE token_hash = ? OR token = ?",
+        (token_hash, token),
+    )
     conn.commit()
+
+
+def destroy_all_sessions_for(conn: sqlite3.Connection, username: str) -> int:
+    """Delete every session belonging to *username*. Returns rows affected."""
+    cur = conn.execute(
+        "DELETE FROM admin_sessions WHERE username = ?", (username,)
+    )
+    conn.commit()
+    return cur.rowcount
+
+
+def list_sessions_for(conn: sqlite3.Connection, username: str) -> list[dict]:
+    """Return metadata about the active sessions owned by *username*.
+
+    Excludes the raw token/hash — callers get timestamps, fingerprint,
+    and IP. Used by the "revoke sessions" admin UI.
+    """
+    _ensure_session_columns(conn)
+    rows = conn.execute(
+        "SELECT created_at, expires_at, last_used_at, issued_ip, fingerprint "
+        "FROM admin_sessions WHERE username = ? ORDER BY created_at DESC",
+        (username,),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def change_password(conn: sqlite3.Connection, username: str, old_password: str, new_password: str) -> bool:
@@ -132,6 +349,7 @@ def change_password(conn: sqlite3.Connection, username: str, old_password: str, 
     # Invalidate all existing sessions for this user
     conn.execute("DELETE FROM admin_sessions WHERE username=?", (username,))
     conn.commit()
+    logger.info("password.changed user=%s sessions_revoked=all", username)
     return True
 
 

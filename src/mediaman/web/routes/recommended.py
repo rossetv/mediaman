@@ -24,8 +24,12 @@ def _fetch_recommendations(conn) -> list[dict]:
 
 
 @router.get("/suggestions")
-def _legacy_suggestions_redirect():
-    """Permanent redirect for bookmarked /suggestions URLs."""
+def _legacy_suggestions_redirect(request: Request):
+    """Permanent redirect for bookmarked /suggestions URLs — auth-gated."""
+    from mediaman.auth.session import validate_session
+    token = request.cookies.get("session_token")
+    if not token or validate_session(get_db(), token) is None:
+        return RedirectResponse("/login", status_code=302)
     return RedirectResponse("/recommended", status_code=301)
 
 

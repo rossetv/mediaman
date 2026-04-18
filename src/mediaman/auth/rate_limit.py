@@ -28,6 +28,45 @@ import time
 _MAX_BUCKETS = 10_000
 
 
+class ActionRateLimiter:
+    """Per-actor rate limiter for authenticated admin operations.
+
+    Distinct from the IP-bucket limiter because the goal is different:
+    this caps what a compromised-credential attacker can do with a
+    valid session before the real admin notices and kicks them out.
+    Keyed on username. Thread-safe; enforces both a short burst window
+    and a daily cap.
+    """
+
+    def __init__(self, max_in_window: int, window_seconds: float, max_per_day: int = 0):
+        self._max_in_window = max_in_window
+        self._window = window_seconds
+        self._max_per_day = max_per_day
+        self._attempts: dict[str, list[float]] = {}
+        self._day_counts: dict[str, tuple[str, int]] = {}
+        self._lock = threading.Lock()
+
+    def check(self, actor: str) -> bool:
+        """Return True if the action is allowed, False if rate-limited."""
+        now = time.monotonic()
+        today = time.strftime("%Y-%m-%d", time.gmtime())
+        with self._lock:
+            attempts = [t for t in self._attempts.get(actor, []) if now - t < self._window]
+            if len(attempts) >= self._max_in_window:
+                self._attempts[actor] = attempts
+                return False
+            if self._max_per_day > 0:
+                day_key, day_count = self._day_counts.get(actor, ("", 0))
+                if day_key != today:
+                    day_count = 0
+                if day_count >= self._max_per_day:
+                    return False
+                self._day_counts[actor] = (today, day_count + 1)
+            attempts.append(now)
+            self._attempts[actor] = attempts
+            return True
+
+
 def _bucket_key(ip: str) -> str:
     """Collapse an IP into a network-prefix bucket key.
 
@@ -150,23 +189,47 @@ def _peer_is_trusted(peer: str | None, trusted: list[ipaddress._BaseNetwork]) ->
 def get_client_ip(request) -> str:
     """Extract the real client IP, respecting forwarded headers only from trusted proxies.
 
-    When ``MEDIAMAN_TRUSTED_PROXIES`` is set and the direct peer is
-    within a trusted range, the ``X-Forwarded-For`` header is walked
-    from RIGHT TO LEFT, skipping entries that are themselves in the
-    trusted-proxy allowlist. The first untrusted entry is returned.
-    This resists the classic "rightmost wins" bypass where an attacker
-    includes a spoofed leftmost entry — well-behaved proxies only
-    append their own identity and do not strip client-supplied XFF
-    values, so only the trailing trusted entries are reliable.
+    Resolution order:
 
-    When the peer is not trusted, the XFF header is ignored entirely.
-    The ``X-Real-IP`` fallback is similarly only honoured for trusted
-    peers and represents a single-value header set by upstream.
+    1. If the direct peer is a trusted proxy AND it sent
+       ``CF-Connecting-IP`` (Cloudflare) — use that. Cloudflare strips
+       client-supplied ``CF-Connecting-IP`` at the edge, so this header
+       is attacker-unforgeable when CF fronts the origin.
+    2. If the direct peer is a trusted proxy, walk ``X-Forwarded-For``
+       from RIGHT TO LEFT, skipping entries that are themselves trusted
+       proxies, and return the first untrusted entry. This resists the
+       "leftmost wins" bypass.
+    3. If the direct peer is trusted but no XFF is present, honour
+       ``X-Real-IP`` (single-value header).
+    4. Otherwise (no trusted proxy configured, or peer is not in the
+       list) — return the direct peer. Do NOT trust forwarded headers,
+       because an attacker can put anything in them.
+
+    The right way to configure this on a real deployment: set
+    ``MEDIAMAN_TRUSTED_PROXIES`` to the CIDR of the reverse-proxy
+    network (e.g. Cloudflare's published IPs, or a specific internal
+    proxy) and ensure nothing else is reachable. If unset, we fail
+    closed: every request buckets on the CF-edge IP instead of the
+    real client, which costs availability (more false rate-limit hits)
+    but gains security (no spoof bypass).
     """
     peer = request.client.host if request.client else None
     trusted = _trusted_proxies()
     if not _peer_is_trusted(peer, trusted):
         return peer or "unknown"
+
+    # Cloudflare's CF-Connecting-IP is the real client IP and CF
+    # strips any client-supplied value at the edge — always prefer
+    # it when present.
+    cf_ip = request.headers.get("cf-connecting-ip")
+    if cf_ip:
+        cf_ip = cf_ip.strip()
+        # Minimal sanity check — a bad value falls through to XFF.
+        try:
+            ipaddress.ip_address(cf_ip)
+            return cf_ip
+        except ValueError:
+            pass
 
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:

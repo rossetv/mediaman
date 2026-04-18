@@ -477,6 +477,15 @@ def api_library(
     })
 
 
+from mediaman.auth.rate_limit import ActionRateLimiter as _ActionRateLimiter
+
+# Per-admin cap on media deletes — ample for legitimate cleanup,
+# stops a compromised session nuking a library in an afternoon.
+_DELETE_LIMITER = _ActionRateLimiter(
+    max_in_window=20, window_seconds=60, max_per_day=300,
+)
+
+
 @router.post("/api/media/{media_id}/delete")
 def api_media_delete(
     media_id: str,
@@ -484,6 +493,12 @@ def api_media_delete(
     username: str = Depends(get_current_admin),
 ):
     """Delete a media item via Radarr/Sonarr (deletes files + adds to exclusion list)."""
+    if not _DELETE_LIMITER.check(username):
+        logger.warning("media.delete_throttled user=%s", username)
+        return JSONResponse(
+            {"error": "Too many delete operations — slow down"},
+            status_code=429,
+        )
     conn = get_db()
 
     row = conn.execute(

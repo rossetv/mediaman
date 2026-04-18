@@ -15,12 +15,25 @@ from fastapi import APIRouter, Body, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
+from mediaman.auth.audit import security_event
 from mediaman.auth.middleware import get_current_admin
+from mediaman.auth.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.services.storage import get_disk_usage
+
+# Per-admin rate limits for destructive or high-cost operations.
+# Values chosen to be generous for legitimate ops but to cap the
+# damage a compromised session can inflict in a short window.
+_DELETE_LIMITER = ActionRateLimiter(max_in_window=20, window_seconds=60, max_per_day=500)
+_USER_MGMT_LIMITER = ActionRateLimiter(max_in_window=5, window_seconds=60, max_per_day=20)
+_SETTINGS_WRITE_LIMITER = ActionRateLimiter(max_in_window=20, window_seconds=60, max_per_day=200)
+_NEWSLETTER_LIMITER = ActionRateLimiter(max_in_window=3, window_seconds=300, max_per_day=10)
 from mediaman.auth.session import (
+    authenticate,
     change_password,
     create_user,
     delete_user,
+    destroy_all_sessions_for,
+    list_sessions_for,
     list_users,
     validate_session,
 )
@@ -40,6 +53,30 @@ class _ChangePasswordBody(BaseModel):
 
     old_password: str = ""
     new_password: str = ""
+
+
+class _ReauthBody(BaseModel):
+    """Body shape for endpoints that require password re-confirmation.
+
+    Extends whatever the handler accepts — callers can merge this into
+    their request body shape. Kept as a separate class so the pattern
+    is visible and consistent.
+    """
+
+    confirm_password: str = ""
+
+
+def _require_reauth(conn, admin: str, password: str) -> bool:
+    """Return True if *password* matches *admin*'s current hash.
+
+    Used to gate destructive operations: delete user, delete
+    subscriber, send newsletter, change settings that contain
+    plaintext secrets. A compromised session cookie WITHOUT the
+    password cannot trigger these flows.
+    """
+    if not password:
+        return False
+    return authenticate(conn, admin, password)
 
 logger = logging.getLogger("mediaman")
 
@@ -203,6 +240,12 @@ def api_update_settings(
     Secret fields are encrypted before storage. If a secret field value is
     "****" or empty, the existing stored value is left untouched.
     """
+    if not _SETTINGS_WRITE_LIMITER.check(admin):
+        logger.warning("settings.write_throttled user=%s", admin)
+        return JSONResponse(
+            {"error": "Too many settings changes — slow down"},
+            status_code=429,
+        )
     conn = get_db()
     config = request.app.state.config
     now = datetime.now(timezone.utc).isoformat()
@@ -262,6 +305,11 @@ def api_update_settings(
             )
 
     conn.commit()
+    security_event(
+        conn, event="settings.write", actor=admin,
+        ip=get_client_ip(request),
+        detail={"keys": sorted(k for k in body.keys() if k in _ALL_KEYS)},
+    )
     return {"status": "saved"}
 
 
@@ -537,10 +585,38 @@ def api_create_user(
 
 
 @router.delete("/api/users/{user_id}")
-def api_delete_user(user_id: int, admin: str = Depends(get_current_admin)):
-    """Delete an admin user. Cannot delete yourself."""
+def api_delete_user(
+    user_id: int,
+    request: Request,
+    admin: str = Depends(get_current_admin),
+    confirm_password: str = "",
+):
+    """Delete an admin user. Cannot delete yourself.
+
+    Requires the caller's password as a query string ``confirm_password``
+    parameter so a compromised session cookie alone cannot delete
+    other admins (or, via chained exploits, the last remaining admin
+    after wider account-takeover).
+    """
     conn = get_db()
+    if not _USER_MGMT_LIMITER.check(admin):
+        return JSONResponse(
+            {"ok": False, "error": "Too many user-management operations"},
+            status_code=429,
+        )
+    if not _require_reauth(conn, admin, confirm_password):
+        logger.warning("user.delete_rejected user=%s reason=reauth_required", admin)
+        return JSONResponse(
+            {"ok": False, "error": "Password confirmation required"},
+            status_code=403,
+        )
     if delete_user(conn, user_id, admin):
+        logger.info("user.deleted actor=%s target_id=%d", admin, user_id)
+        security_event(
+            conn, event="user.deleted", actor=admin,
+            ip=get_client_ip(request),
+            detail={"target_id": user_id},
+        )
         return {"ok": True}
     return JSONResponse({"ok": False, "error": "Cannot delete yourself or user not found"}, status_code=400)
 
@@ -569,8 +645,13 @@ def api_change_password(
     conn = get_db()
     if change_password(conn, admin, old_password, new_password):
         # Create a new session since the old ones were invalidated
+        from mediaman.auth.rate_limit import get_client_ip
         from mediaman.auth.session import create_session
-        new_token = create_session(conn, admin)
+        new_token = create_session(
+            conn, admin,
+            user_agent=request.headers.get("user-agent", ""),
+            client_ip=get_client_ip(request),
+        )
         from mediaman.web.routes.auth_routes import _is_request_secure
         response = JSONResponse({"ok": True, "message": "Password changed. You will be re-authenticated."})
         response.set_cookie(
@@ -579,4 +660,59 @@ def api_change_password(
             secure=_is_request_secure(request),
         )
         return response
+    logger.warning("password.change_rejected user=%s reason=wrong_old_password", admin)
     return JSONResponse({"ok": False, "error": "Current password is incorrect"}, status_code=403)
+
+
+@router.get("/api/users/sessions")
+def api_list_sessions(admin: str = Depends(get_current_admin)):
+    """List active sessions for the current admin.
+
+    Returns metadata only (timestamps, issued IP, fingerprint) — never
+    raw tokens. Use `/api/users/sessions/revoke-others` to log out
+    other devices.
+    """
+    conn = get_db()
+    return {"sessions": list_sessions_for(conn, admin)}
+
+
+@router.post("/api/users/sessions/revoke-others")
+def api_revoke_other_sessions(
+    request: Request,
+    admin: str = Depends(get_current_admin),
+):
+    """Revoke every session for the current admin EXCEPT the current one.
+
+    Useful after "I think my cookie leaked" — the admin keeps working
+    on their current tab while every other device is logged out.
+    """
+    conn = get_db()
+    current_token = request.cookies.get("session_token") or ""
+    # Delete all, then re-issue a session bound to the current request
+    # (preserves continuity for the admin).
+    destroyed = destroy_all_sessions_for(conn, admin)
+    from mediaman.auth.rate_limit import get_client_ip
+    from mediaman.auth.session import create_session
+    new_token = create_session(
+        conn, admin,
+        user_agent=request.headers.get("user-agent", ""),
+        client_ip=get_client_ip(request),
+    )
+    from mediaman.web.routes.auth_routes import _is_request_secure
+    response = JSONResponse({
+        "ok": True,
+        "revoked": destroyed,
+        "message": "Other sessions revoked. You are now logged in with a fresh token.",
+    })
+    response.set_cookie(
+        "session_token", new_token,
+        httponly=True, samesite="strict", max_age=86400,
+        secure=_is_request_secure(request),
+    )
+    logger.info("session.revoke_all user=%s revoked=%d", admin, destroyed)
+    security_event(
+        conn, event="session.revoke_all", actor=admin,
+        ip=get_client_ip(request),
+        detail={"revoked": destroyed},
+    )
+    return response

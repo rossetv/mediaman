@@ -113,8 +113,16 @@ def _fetch_protected(conn) -> tuple[list[dict], list[dict]]:
 # ---------------------------------------------------------------------------
 
 @router.get("/kept")
-def redirect_kept_to_library():
-    """Redirect /kept to the library Kept filter."""
+def redirect_kept_to_library(request: Request):
+    """Redirect /kept to the library Kept filter — auth-gated.
+
+    Gated so an unauthenticated caller can't use the 301 target to
+    enumerate internal URL structure; unauth callers just see the
+    login redirect.
+    """
+    token = request.cookies.get("session_token")
+    if not token or validate_session(get_db(), token) is None:
+        return RedirectResponse("/login", status_code=302)
     return RedirectResponse("/library?type=kept", status_code=301)
 
 
@@ -402,6 +410,9 @@ def api_remove_show_keep(show_rating_key: str, admin: str = Depends(get_current_
 # ---------------------------------------------------------------------------
 
 @router.get("/protected")
-def redirect_protected_page():
-    """Redirect old /protected URL to library kept filter."""
+def redirect_protected_page(request: Request):
+    """Redirect old /protected URL to library kept filter — auth-gated."""
+    token = request.cookies.get("session_token")
+    if not token or validate_session(get_db(), token) is None:
+        return RedirectResponse("/login", status_code=302)
     return RedirectResponse("/library?type=kept", status_code=301)

@@ -16,7 +16,9 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from mediaman.auth.middleware import get_current_admin
-from mediaman.auth.rate_limit import RateLimiter, get_client_ip
+from mediaman.auth.rate_limit import ActionRateLimiter, RateLimiter, get_client_ip
+
+_NEWSLETTER_LIMITER = ActionRateLimiter(max_in_window=3, window_seconds=300, max_per_day=10)
 from mediaman.crypto import (
     generate_unsubscribe_token as _generate_unsubscribe_token,
     validate_unsubscribe_token,
@@ -141,6 +143,13 @@ def api_send_newsletter(
     them as notified, so the regular scan newsletter still sends normally.
     """
     from mediaman.services.newsletter import send_newsletter
+
+    if not _NEWSLETTER_LIMITER.check(admin):
+        logger.warning("newsletter.send_throttled user=%s", admin)
+        return JSONResponse(
+            {"ok": False, "error": "Newsletter send is rate-limited"},
+            status_code=429,
+        )
 
     raw_recipients = body.recipients
 

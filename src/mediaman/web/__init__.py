@@ -114,11 +114,33 @@ _CSRF_PROTECTED_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 # get hit from email clients where the browser's Origin is whichever
 # mail host the user used). The token IS the authorisation — SameSite
 # doesn't apply to in-email links because the user clicks through.
+# All entries end with ``/`` (or explicitly cover the path via
+# _CSRF_EXEMPT_EXACT) so a future route starting with the same substring
+# can't accidentally inherit the exemption.
 _CSRF_EXEMPT_PREFIXES = (
     "/keep/",
     "/download/",  # /download/{token} + /download/{token} POST
-    "/unsubscribe",
+    "/unsubscribe/",
 )
+_CSRF_EXEMPT_EXACT = frozenset({
+    "/unsubscribe",  # bare path without query string
+})
+
+
+def _normalise_host(netloc: str) -> str:
+    """Return host without default port (80 for http, 443 for https).
+
+    Without this, an ``Origin: https://mediaman.example:443`` header
+    (which some legacy webviews emit) fails the same-origin check
+    against ``request.url.netloc == "mediaman.example"``. Scheme is
+    ignored because the middleware already runs behind HTTPS in
+    production and the Origin header's scheme should match the
+    request URL regardless.
+    """
+    host = netloc.lower().strip()
+    if host.endswith(":443") or host.endswith(":80"):
+        host = host.rsplit(":", 1)[0]
+    return host
 
 
 class CSRFOriginMiddleware(BaseHTTPMiddleware):
@@ -140,13 +162,15 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         path = request.url.path
+        if path in _CSRF_EXEMPT_EXACT:
+            return await call_next(request)
         for prefix in _CSRF_EXEMPT_PREFIXES:
             if path.startswith(prefix):
                 return await call_next(request)
 
         origin = request.headers.get("origin")
         referer = request.headers.get("referer")
-        expected_host = (request.url.netloc or "").lower()
+        expected_host = _normalise_host(request.url.netloc or "")
 
         # If neither header is present, assume a non-browser client
         # (curl, scripts). Those callers don't have CSRF exposure —
@@ -158,7 +182,7 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
         def _host_of(url: str) -> str:
             try:
                 from urllib.parse import urlparse
-                return (urlparse(url).netloc or "").lower()
+                return _normalise_host(urlparse(url).netloc or "")
             except Exception:
                 return ""
 
@@ -169,6 +193,38 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+class Obscure405Middleware(BaseHTTPMiddleware):
+    """Replace 405 Method-Not-Allowed with 401 on auth-gated paths.
+
+    FastAPI checks method-match before dependency resolution, so an
+    unauthenticated attacker can tell real endpoints from non-existent
+    ones by seeing 401 vs 405 vs 404. That's a free API enumeration
+    gift. This middleware normalises: on ``/api/*`` paths, a 405
+    becomes a generic 401 with no ``Allow`` header so the method
+    surface is no longer readable pre-auth.
+
+    We only do this for ``/api/*`` — HTML pages at ``/login`` can
+    legitimately return 405 and callers expect that shape.
+    """
+
+    async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]
+        response = await call_next(request)
+        if (
+            response.status_code == 405
+            and request.url.path.startswith("/api/")
+        ):
+            body = b'{"detail":"Not authenticated"}'
+            replaced = Response(
+                content=body,
+                status_code=401,
+                media_type="application/json",
+            )
+            # Keep the security headers the outer middleware will apply;
+            # drop the Allow header that leaked method info.
+            return replaced
+        return response
+
+
 def register_security_middleware(app) -> None:
     """Register security middleware on a FastAPI/Starlette app.
 
@@ -176,15 +232,17 @@ def register_security_middleware(app) -> None:
     having to import Starlette primitives directly.
     """
     # Order matters: outermost is added last. CSRF check runs first so
-    # rejected requests never hit the handler. Security headers wrap
-    # everything so every response (including the 403s) gets the safe
-    # header set.
+    # rejected requests never hit the handler. 405-obscure runs second
+    # so downstream security headers wrap its replacement response too.
+    # Security headers wrap everything.
     app.add_middleware(CSRFOriginMiddleware)
+    app.add_middleware(Obscure405Middleware)
     app.add_middleware(SecurityHeadersMiddleware)
 
 
 __all__ = [
     "SecurityHeadersMiddleware",
     "CSRFOriginMiddleware",
+    "Obscure405Middleware",
     "register_security_middleware",
 ]

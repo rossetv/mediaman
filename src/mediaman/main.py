@@ -174,23 +174,40 @@ def cli_main() -> None:
     config = load_config()
     app = create_app()
 
-    # When mediaman sits behind a reverse proxy, uvicorn's proxy-headers
-    # middleware rewrites ``request.url.scheme`` to match
-    # ``X-Forwarded-Proto`` only if the immediate peer IP is in
-    # ``forwarded_allow_ips``. Without that rewrite, HSTS and the
-    # Secure-cookie heuristic both fail-open to plaintext. Default to
-    # ``"*"`` (trust any peer to set the scheme) so the typical Docker
-    # deployment behind Caddy/Traefik/Cloudflare Just Works; operators
-    # can narrow via ``MEDIAMAN_TRUSTED_PROXIES`` when they want a
-    # tighter scope (it is honoured for IP-extraction either way).
-    forwarded_allow_ips = os.environ.get("MEDIAMAN_TRUSTED_PROXIES", "*").strip() or "*"
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=config.port,
-        forwarded_allow_ips=forwarded_allow_ips,
-        proxy_headers=True,
-    )
+    # Uvicorn's ``proxy_headers`` machinery rewrites BOTH
+    # ``request.url.scheme`` (from X-Forwarded-Proto) AND
+    # ``request.client.host`` (from the first X-Forwarded-For entry)
+    # whenever the direct peer is in ``forwarded_allow_ips``. The
+    # second rewrite is a rate-limit-bypass footgun: if we trust any
+    # peer, an attacker supplying ``X-Forwarded-For: 1.2.3.4`` gets
+    # ``client.host`` replaced with their spoofed value, breaking the
+    # per-prefix bucketing.
+    #
+    # So: only enable uvicorn's proxy_headers rewrite when the
+    # operator has EXPLICITLY set ``MEDIAMAN_TRUSTED_PROXIES`` to the
+    # reverse-proxy CIDR they control. Default is off. The app's own
+    # HSTS / Secure-cookie logic defaults to "secure" regardless so
+    # the plaintext-scheme deployment still ships a Secure cookie.
+    trusted_proxies = os.environ.get("MEDIAMAN_TRUSTED_PROXIES", "").strip()
+    if trusted_proxies:
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=config.port,
+            forwarded_allow_ips=trusted_proxies,
+            proxy_headers=True,
+        )
+    else:
+        # No trusted proxy → don't let uvicorn rewrite client.host at
+        # all. Rate limiter sees the actual peer, which is good on
+        # bare metal and correct (if imperfect) behind a single proxy
+        # whose IP isn't available at config time.
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=config.port,
+            proxy_headers=False,
+        )
 
 
 app = create_app()

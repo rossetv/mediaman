@@ -1,9 +1,10 @@
 """Login and logout routes."""
 
+import logging
 import os
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from mediaman.auth.rate_limit import (
     RateLimiter,
@@ -11,8 +12,16 @@ from mediaman.auth.rate_limit import (
     _trusted_proxies,
     get_client_ip,
 )
-from mediaman.auth.session import authenticate, create_session, destroy_session
+from mediaman.auth.audit import security_event
+from mediaman.auth.session import (
+    authenticate,
+    create_session,
+    destroy_session,
+    validate_session,
+)
 from mediaman.db import get_db
+
+logger = logging.getLogger("mediaman")
 
 router = APIRouter()
 _limiter = RateLimiter(max_attempts=5, window_seconds=60)
@@ -87,12 +96,25 @@ def login_submit(
 
     conn = get_db()
     if not authenticate(conn, username, password):
+        logger.info("auth.login_failed user=%s ip=%s", username, client_ip)
+        security_event(
+            conn, event="login.failed", actor=username, ip=client_ip,
+            detail={"reason": "bad_credentials"},
+        )
         templates = request.app.state.templates
         return templates.TemplateResponse(request, "login.html", {
             "error": "Invalid username or password.",
         })
 
-    token = create_session(conn, username)
+    user_agent = request.headers.get("user-agent", "")
+    token = create_session(
+        conn, username, user_agent=user_agent, client_ip=client_ip,
+    )
+    logger.info("auth.login_success user=%s ip=%s", username, client_ip)
+    security_event(
+        conn, event="login.success", actor=username, ip=client_ip,
+        detail={"ua_hash": user_agent[:80]},
+    )
     response = RedirectResponse("/", status_code=302)
     response.set_cookie(
         "session_token", token,
@@ -104,10 +126,32 @@ def login_submit(
 
 @router.post("/api/auth/logout")
 def logout(request: Request):
+    """Log out the current session.
+
+    Requires a valid session cookie — a cross-origin POST (including
+    CSRF from an attacker page) without a legitimate session in the
+    request's cookies gets a 401 and no ``Set-Cookie`` clear. This
+    closes the "forced-logout" CSRF where any third-party page could
+    clear an admin's session by submitting a POST.
+
+    The ``CSRFOriginMiddleware`` already blocks cross-origin POSTs
+    from a *browser* that ships Origin, but some legacy webviews and
+    programmatic clients omit ``Origin`` on the same-site heuristic.
+    Requiring a valid session on top means the worst an unauthenticated
+    CSRF can do is trigger a 401 — not mutate cookie state.
+    """
     token = request.cookies.get("session_token")
-    if token:
-        conn = get_db()
-        destroy_session(conn, token)
+    if not token:
+        return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+    conn = get_db()
+    username = validate_session(conn, token)
+    if username is None:
+        return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+    destroy_session(conn, token)
+    logger.info("logout: session terminated for user=%s", username)
+    security_event(
+        conn, event="logout", actor=username, ip=get_client_ip(request),
+    )
     response = RedirectResponse("/login", status_code=302)
     response.delete_cookie("session_token")
     return response
