@@ -655,10 +655,10 @@
           <div class="users-self-name">{{ username }}</div>
         </div>
         <div class="users-self-actions">
-          <button class="btn-ghost" type="button" onclick="toggleSelfAction('password', this)">
+          <button class="users-btn users-btn--ghost" type="button" onclick="toggleSelfAction('password', this)">
             Change password
           </button>
-          <button class="btn-ghost" type="button" onclick="revokeOtherSessions(this)">
+          <button class="users-btn users-btn--ghost" type="button" onclick="revokeOtherSessions(this)">
             Sign out other devices
           </button>
         </div>
@@ -684,8 +684,8 @@
           </label>
         </div>
         <div class="users-inline-form-actions">
-          <button class="btn-ghost" type="button" onclick="toggleSelfAction('password', null, false)">Cancel</button>
-          <button class="btn-keep" type="button" onclick="changePassword(this)">Update password</button>
+          <button class="users-btn users-btn--ghost" type="button" onclick="toggleSelfAction('password', null, false)">Cancel</button>
+          <button class="users-btn users-btn--primary" type="button" onclick="changePassword(this)">Update password</button>
         </div>
         <div class="users-form-msg" id="password-result"></div>
       </div>
@@ -701,7 +701,7 @@
           <div class="users-list-title">Team</div>
           <div class="users-list-desc">Every account below has full admin access</div>
         </div>
-        <button class="btn-add" type="button" id="btn-add-user" onclick="toggleAddUser(this)">
+        <button class="users-btn users-btn--primary" type="button" id="btn-add-user" onclick="toggleAddUser(this)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           Add user
         </button>
@@ -722,8 +722,8 @@
           </label>
         </div>
         <div class="users-inline-form-actions">
-          <button class="btn-ghost" type="button" onclick="toggleAddUser(null, false)">Cancel</button>
-          <button class="btn-keep" type="button" onclick="createUser(this)">Create user</button>
+          <button class="users-btn users-btn--ghost" type="button" onclick="toggleAddUser(null, false)">Cancel</button>
+          <button class="users-btn users-btn--primary" type="button" onclick="createUser(this)">Create user</button>
         </div>
         <div class="users-form-msg" id="create-user-result"></div>
       </div>
@@ -1397,7 +1397,7 @@
 
       if (user.username !== data.current) {
         var del = document.createElement('button');
-        del.className = 'btn-remove users-row-del';
+        del.className = 'users-btn users-btn--danger-ghost users-row-del';
         del.type = 'button';
         del.textContent = 'Delete';
         del.onclick = function () { _openDeleteDrawer(user, row); };
@@ -1448,13 +1448,13 @@
     var actions = document.createElement('div');
     actions.className = 'users-inline-form-actions';
     var cancel = document.createElement('button');
-    cancel.className = 'btn-ghost';
+    cancel.className = 'users-btn users-btn--ghost';
     cancel.type = 'button';
     cancel.textContent = 'Cancel';
     cancel.onclick = function () { drawer.remove(); };
     actions.appendChild(cancel);
     var confirm = document.createElement('button');
-    confirm.className = 'btn-remove btn-remove--primary';
+    confirm.className = 'users-btn users-btn--danger';
     confirm.type = 'button';
     confirm.textContent = 'Delete user';
     actions.appendChild(confirm);

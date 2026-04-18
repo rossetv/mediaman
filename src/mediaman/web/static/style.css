@@ -960,6 +960,78 @@ a:hover { text-decoration: none; }
    surface tones, Apple-blue accent, pill CTAs, generous negative
    space, SF Pro hierarchy. */
 
+/* Dedicated button primitives so the Users tab doesn't depend on the
+   .btn base class or any other modifier stack. Every rule sets radius,
+   padding, font size, and transitions explicitly — no inheritance
+   surprises. */
+.users-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--pill-radius);
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.224px;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 160ms ease-out,
+    border-color 160ms ease-out,
+    color 160ms ease-out,
+    filter 160ms ease-out,
+    transform 120ms ease-out;
+}
+.users-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.users-btn:active   { transform: scale(0.98); }
+
+/* Primary (Apple Blue filled pill). */
+.users-btn--primary {
+  background: var(--accent-cta);
+  color: #fff;
+}
+.users-btn--primary:hover { filter: brightness(1.08); }
+.users-btn--primary.is-active { filter: brightness(0.88); }
+/* Slightly larger and more prominent when used as the section header
+   CTA — matches DESIGN.md "pill CTA" footprint. */
+#btn-add-user {
+  padding: 9px 18px;
+  font-size: 14px;
+}
+
+/* Ghost (transparent with thin blue outline → Apple's "Learn more"). */
+.users-btn--ghost {
+  background: transparent;
+  color: var(--accent);
+  border-color: rgba(41, 151, 255, 0.35);
+}
+.users-btn--ghost:hover {
+  border-color: var(--accent);
+  background: rgba(41, 151, 255, 0.08);
+}
+
+/* Danger solid (used for the final Delete confirmation). */
+.users-btn--danger {
+  background: var(--danger);
+  color: #fff;
+}
+.users-btn--danger:hover { filter: brightness(1.08); }
+
+/* Danger ghost (used for the per-row "Delete" trigger, subdued). */
+.users-btn--danger-ghost {
+  background: transparent;
+  color: var(--danger);
+  border-color: rgba(255, 69, 58, 0.28);
+}
+.users-btn--danger-ghost:hover {
+  border-color: var(--danger);
+  background: rgba(255, 69, 58, 0.08);
+}
+
 .users-self-card,
 .users-list-card {
   background: var(--surface);
@@ -1028,10 +1100,10 @@ a:hover { text-decoration: none; }
 .users-inline-form,
 .users-delete-drawer {
   margin-top: 16px;
-  padding: 16px;
+  padding: 18px;
   background: rgba(255,255,255,0.02);
   border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 10px;
+  border-radius: 12px;
   animation: users-slide-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 @keyframes users-slide-in {
@@ -1039,56 +1111,91 @@ a:hover { text-decoration: none; }
   to   { opacity: 1; transform: translateY(0);    }
 }
 .users-inline-form[hidden] { display: none; }
+
+/* Grid layout for the field pairs. ``align-items: start`` stops one
+   cell stretching to match a taller sibling (fixes the earlier bug
+   where the Username input stretched to ~120px because the Password
+   field had the meter + caption underneath). */
 .users-inline-form-grid {
   display: grid;
-  gap: 14px;
-  margin-bottom: 14px;
+  gap: 16px 20px;
+  margin-bottom: 16px;
+  align-items: start;
 }
 @media (min-width: 640px) {
   .users-inline-form-grid {
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   }
-  /* Change-password drawer is 3 fields — keep them evenly wide. */
+  /* Change-password drawer has 3 fields — keep them evenly wide. */
   #self-password-form .users-inline-form-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
 .users-field {
   display: flex;
   flex-direction: column;
   gap: 6px;
   min-width: 0;
+  /* Keep fields top-aligned when an adjacent field is taller. */
+  align-self: start;
 }
 .users-field-label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
-  letter-spacing: -0.224px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
+
+/* Scoped input rule — overrides the global ``flex: 1`` that would
+   otherwise stretch this input to match the tallest grid sibling. */
 .users-inline-form .form-input,
 .users-delete-drawer .form-input {
+  flex: 0 0 auto;
   width: 100%;
-  padding: 12px 14px;
+  height: 44px;
+  padding: 10px 14px;
   background: var(--surface-2);
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 10px;
   color: var(--text);
   font-size: 15px;
+  font-family: inherit;
   letter-spacing: -0.374px;
+  outline: none;
+  transition:
+    border-color 140ms ease-out,
+    background 140ms ease-out,
+    box-shadow 140ms ease-out;
+}
+.users-inline-form .form-input::placeholder,
+.users-delete-drawer .form-input::placeholder {
+  color: var(--text-tertiary);
+}
+.users-inline-form .form-input:hover,
+.users-delete-drawer .form-input:hover {
+  border-color: rgba(255,255,255,0.16);
 }
 .users-inline-form .form-input:focus,
 .users-delete-drawer .form-input:focus {
   border-color: var(--accent);
   background: var(--surface-3);
-  box-shadow: 0 0 0 3px rgba(41,151,255,0.15);
-  outline: none;
+  box-shadow: 0 0 0 3px rgba(41,151,255,0.18);
 }
+
 .users-inline-form-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
 }
+
+/* Meter + caption inside the inline drawers should keep a fixed
+   minimum vertical footprint so the layout doesn't jump as the user
+   types. */
+.users-field .fpc-meter  { margin-top: 10px; }
+.users-field .fpc-caption { min-height: 14px; }
 
 /* Result/message area beneath inline forms. */
 .users-form-msg {
@@ -1212,14 +1319,6 @@ a:hover { text-decoration: none; }
   margin-bottom: 14px;
 }
 .users-delete-drawer .users-field { margin-bottom: 14px; }
-
-/* Primary red "Delete user" button (sharper than the row-level one). */
-.btn-remove--primary {
-  background: var(--danger);
-  color: #fff;
-  border: none;
-}
-.btn-remove--primary:hover { filter: brightness(1.08); }
 
 /* Skeleton + empty state for the list. */
 .users-skeleton,
