@@ -46,6 +46,7 @@ from mediaman.services.download_format import (
     _classify_series_upcoming,
     _fmt_bytes,
     _fmt_eta,
+    _fmt_relative_time,
     _looks_like_series_nzb,
     _map_episode_state,
     _map_state,
@@ -74,8 +75,13 @@ def _reset_previous_queue() -> None:
 # Maps dl_id -> epoch seconds of last trigger.
 _last_search_trigger: dict[str, float] = {}
 
-# Lock guarding both _last_search_trigger (in _maybe_trigger_search) and
-# _previous_queue/_previous_initialised (in build_downloads_response).
+# Parallel map: dl_id -> number of times we've triggered a search for this
+# item since process start. Powers the "Searched N times" UI hint so users
+# can see mediaman is actually poking Radarr/Sonarr rather than idling.
+_search_count: dict[str, int] = {}
+
+# Lock guarding _last_search_trigger, _search_count (in _maybe_trigger_search)
+# and _previous_queue/_previous_initialised (in build_downloads_response).
 _state_lock = threading.Lock()
 
 _SEARCH_STALE_SECONDS = 5 * 60     # trigger if item has been searching > 5 min
@@ -85,6 +91,19 @@ _SEARCH_THROTTLE_SECONDS = 15 * 60  # don't re-trigger within 15 min
 def _reset_search_triggers() -> None:
     """Clear the in-memory search-trigger snapshot. Used by tests."""
     _last_search_trigger.clear()
+    _search_count.clear()
+
+
+def _get_search_info(dl_id: str) -> tuple[int, float]:
+    """Return ``(count, last_epoch_seconds)`` for a dl_id.
+
+    ``(0, 0.0)`` means mediaman has never fired a search for this item
+    (e.g. it's still within the 5-min staleness window, or the process
+    was restarted since). Callers render this as "Added Xm ago" using
+    the item's own added_at, rather than a misleading "Never searched".
+    """
+    with _state_lock:
+        return _search_count.get(dl_id, 0), _last_search_trigger.get(dl_id, 0.0)
 
 
 def _get_nzbget_client(conn: sqlite3.Connection):
@@ -170,6 +189,7 @@ def _maybe_trigger_search(
             else:
                 return
             _last_search_trigger[dl_id] = now
+            _search_count[dl_id] = _search_count.get(dl_id, 0) + 1
             logger.info("Triggered search for stalled item %s", dl_id)
         except Exception:
             logger.warning(
@@ -363,6 +383,7 @@ def _get_arr_queue(conn: sqlite3.Connection) -> list[dict]:
                         "timeleft": "",
                         "status": "searching",
                         "arr_id": movie.get("id", 0),
+                        "title_slug": movie.get("titleSlug", ""),
                         "added_at": added_at,
                         "is_upcoming": is_upcoming,
                         "release_label": release_label,
@@ -564,6 +585,7 @@ def _get_arr_queue(conn: sqlite3.Connection) -> list[dict]:
                         "size_str": "0 B",
                         "done_str": "0 B",
                         "arr_id": series_id,
+                        "title_slug": series.get("titleSlug", ""),
                         "added_at": added_at,
                         "is_upcoming": is_upcoming,
                         "release_label": release_label,
@@ -578,6 +600,73 @@ def _get_arr_queue(conn: sqlite3.Connection) -> list[dict]:
     return items
 
 
+def _arr_base_urls(conn: sqlite3.Connection) -> dict[str, str]:
+    """Return ``{"radarr": url, "sonarr": url}`` for deep-link building.
+
+    Values are the user's configured base URLs with any trailing slash
+    stripped; missing settings (or a missing/invalid SECRET_KEY in a
+    test fixture) map to ``""`` so callers can safely skip link
+    rendering when the service isn't configured.
+    """
+    try:
+        from mediaman.config import load_config
+        from mediaman.services.settings_reader import get_string_setting
+
+        secret_key = load_config().secret_key
+        out = {}
+        for service, key in (("radarr", "radarr_url"), ("sonarr", "sonarr_url")):
+            url = get_string_setting(conn, key, secret_key=secret_key) or ""
+            out[service] = url.rstrip("/")
+        return out
+    except Exception:
+        logger.debug("Failed to load arr base URLs for deep links", exc_info=True)
+        return {"radarr": "", "sonarr": ""}
+
+
+def _build_search_hint(
+    search_count: int,
+    last_search_ts: float,
+    added_at: float,
+    now: float,
+) -> str:
+    """Build the "Last searched 12m ago" subline shown under the pill.
+
+    Falls back to "Added Xm ago" when mediaman hasn't fired a search yet
+    — either the item is still inside the 5-min staleness window, or the
+    process was restarted so the in-memory trigger log is empty. Returns
+    "" only when we genuinely have nothing to say.
+    """
+    if search_count > 0 and last_search_ts > 0:
+        rel = _fmt_relative_time(last_search_ts, now)
+        if not rel:
+            return ""
+        if search_count == 1:
+            return f"Searched once · last attempt {rel}"
+        return f"Searched {search_count}\u00d7 · last attempt {rel}"
+    if added_at > 0:
+        rel = _fmt_relative_time(added_at, now)
+        if rel:
+            return f"Added {rel} · waiting for first search"
+    return ""
+
+
+def _build_arr_link(arr: dict, base_urls: dict[str, str]) -> str:
+    """Build a deep-link URL into Radarr/Sonarr for a stalled item.
+
+    Returns ``""`` when the base URL isn't configured or the item has no
+    title slug — we'd rather render nothing than a broken link.
+    """
+    slug = arr.get("title_slug") or ""
+    if not slug:
+        return ""
+    kind = arr.get("kind")
+    if kind == "movie" and base_urls.get("radarr"):
+        return f"{base_urls['radarr'].rstrip('/')}/movie/{slug}"
+    if kind == "series" and base_urls.get("sonarr"):
+        return f"{base_urls['sonarr'].rstrip('/')}/series/{slug}"
+    return ""
+
+
 def build_downloads_response(conn: sqlite3.Connection) -> dict:
     """Build the simplified download queue with hero selection.
 
@@ -590,6 +679,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
     """
     # 1. Fetch *arr queue
     arr_items = _get_arr_queue(conn)
+    arr_base_urls = _arr_base_urls(conn)
 
     # 2. Fetch NZBGet queue + status
     nzb_client = _get_nzbget_client(conn)
@@ -795,6 +885,8 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
                     state = "downloading"
                 else:
                     state = _map_state(None, has_nzbget_match=False)
+                search_count, last_search_ts = _get_search_info(arr.get("dl_id", ""))
+                added_at = arr.get("added_at", 0.0)
                 items.append(_build_item(
                     dl_id=arr.get("dl_id", ""),
                     title=arr.get("title", "Unknown"),
@@ -808,6 +900,14 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
                     episodes=episodes,
                     episode_summary=episode_summary,
                     has_pack=arr.get("has_pack", False),
+                    search_count=search_count,
+                    last_search_ts=last_search_ts,
+                    added_at=added_at,
+                    search_hint=_build_search_hint(
+                        search_count, last_search_ts, added_at, time.time()
+                    ) if state == "searching" else "",
+                    arr_link=_build_arr_link(arr, arr_base_urls),
+                    arr_source=arr.get("source", ""),
                 ))
             else:
                 # Movie: same "arr done, NZB gone" transient — if Radarr
@@ -816,6 +916,8 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
                     state = "almost_ready"
                 else:
                     state = _map_state(None, has_nzbget_match=False)
+                search_count, last_search_ts = _get_search_info(arr.get("dl_id", ""))
+                added_at = arr.get("added_at", 0.0)
                 items.append(_build_item(
                     dl_id=arr.get("dl_id", ""),
                     title=arr.get("title", "Unknown"),
@@ -826,6 +928,14 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
                     eta="Post-processing\u2026" if state == "almost_ready" else "",
                     size_done=arr.get("done_str", "0 B"),
                     size_total=arr.get("size_str", "0 B"),
+                    search_count=search_count,
+                    last_search_ts=last_search_ts,
+                    added_at=added_at,
+                    search_hint=_build_search_hint(
+                        search_count, last_search_ts, added_at, time.time()
+                    ) if state == "searching" else "",
+                    arr_link=_build_arr_link(arr, arr_base_urls),
+                    arr_source=arr.get("source", ""),
                 ))
             _maybe_trigger_search(conn, arr, matched_nzb=False)
 

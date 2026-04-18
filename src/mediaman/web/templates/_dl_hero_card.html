@@ -26,6 +26,9 @@
           {% endif %}
         </span>
       </div>
+      <div class="dl-search-hint" data-v="search-hint"{% if item.state != 'searching' or not (item.search_hint or item.arr_link) %} style="display:none;"{% endif %}>
+        {% if item.state == 'searching' %}<span data-v="search-hint-text">{{ item.search_hint or '' }}</span>{% if item.arr_link %}{% if item.search_hint %} · {% endif %}<a class="dl-arr-link" data-v="arr-link" href="{{ item.arr_link }}" target="_blank" rel="noopener">View in {{ item.arr_source or 'Radarr/Sonarr' }} &#8599;</a>{% endif %}{% endif %}
+      </div>
       <div class="dl-hero-progress" data-v="progress-wrap"{% if item.state == 'searching' %} style="display:none;"{% endif %}>
         <div class="dl-hero-bar">
           <div class="dl-hero-fill {% if item.state == 'almost_ready' %}green{% endif %}" data-v="fill" style="width:{{ item.progress }}%;"></div>

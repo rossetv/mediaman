@@ -11,6 +11,28 @@ import re
 from datetime import datetime, timezone
 
 
+def _fmt_relative_time(ts: float, now: float) -> str:
+    """Render a relative-time string like ``"12m ago"`` or ``"3d ago"``.
+
+    Returns ``""`` when ``ts`` is non-positive (meaning "unknown"). Used
+    for the "Last searched Xm ago" subline under the searching pill —
+    kept identical shape to the JS helper in the download templates so
+    server-rendered and poll-updated labels don't jitter.
+    """
+    if ts <= 0:
+        return ""
+    delta = int(now - ts)
+    if delta < 0:
+        delta = 0
+    if delta < 60:
+        return "just now"
+    if delta < 3600:
+        return f"{delta // 60}m ago"
+    if delta < 86400:
+        return f"{delta // 3600}h ago"
+    return f"{delta // 86400}d ago"
+
+
 def _fmt_bytes(n: int) -> str:
     """Human-readable byte string."""
     if n <= 0:
@@ -212,8 +234,24 @@ def _build_item(
     episode_summary: str = "",
     release_label: str = "",
     has_pack: bool = False,
+    search_count: int = 0,
+    last_search_ts: float = 0.0,
+    added_at: float = 0.0,
+    search_hint: str = "",
+    arr_link: str = "",
+    arr_source: str = "",
 ) -> dict:
-    """Build a simplified download item for the API response."""
+    """Build a simplified download item for the API response.
+
+    ``search_count`` / ``last_search_ts`` are populated only for items in
+    the ``searching`` state and power the "Last searched Xm ago" subline
+    in the UI. ``added_at`` is used as a fallback when mediaman hasn't
+    fired a search yet (first 5 min, or across a restart).
+
+    ``arr_link`` is the deep-link URL into Radarr/Sonarr for the item,
+    and ``arr_source`` is ``"Radarr"`` or ``"Sonarr"`` — used to label
+    the deep-link button.
+    """
     return {
         "id": dl_id,
         "title": title,
@@ -228,6 +266,12 @@ def _build_item(
         "episode_summary": episode_summary,
         "release_label": release_label,
         "has_pack": has_pack,
+        "search_count": search_count,
+        "last_search_ts": last_search_ts,
+        "added_at": added_at,
+        "search_hint": search_hint,
+        "arr_link": arr_link,
+        "arr_source": arr_source,
     }
 
 

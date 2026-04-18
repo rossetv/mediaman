@@ -158,6 +158,8 @@
       setText(pill, stateLabel(item.state));
     }
 
+    updateSearchHint(card, item);
+
     /* Progress wrap (hide entirely while searching) */
     var progressWrap = q('[data-v="progress-wrap"]', card);
     if (progressWrap) progressWrap.style.display = (item.state === 'searching') ? 'none' : '';
@@ -207,6 +209,40 @@
     }
   }
 
+  /* ── Refresh the "Searched N× · last attempt Xm ago · View in Radarr" line.
+         Kept alongside the state pill so the user has visible proof that
+         mediaman *is* poking Radarr/Sonarr on a cadence — absence of Activity
+         in *arr does not mean nothing is happening. Only shown in the
+         `searching` state; hidden otherwise so it doesn't linger after the
+         item starts downloading. ── */
+  function updateSearchHint(card, item) {
+    var hint = q('[data-v="search-hint"]', card);
+    if (!hint) return;
+    if (item.state !== 'searching' || (!item.search_hint && !item.arr_link)) {
+      hint.style.display = 'none';
+      return;
+    }
+    hint.style.display = '';
+    while (hint.firstChild) hint.removeChild(hint.firstChild);
+    if (item.search_hint) {
+      var text = document.createElement('span');
+      text.setAttribute('data-v', 'search-hint-text');
+      text.textContent = item.search_hint;
+      hint.appendChild(text);
+    }
+    if (item.arr_link) {
+      if (item.search_hint) hint.appendChild(document.createTextNode(' \u00b7 '));
+      var a = document.createElement('a');
+      a.className = 'dl-arr-link';
+      a.setAttribute('data-v', 'arr-link');
+      a.href = item.arr_link;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = 'View in ' + (item.arr_source || 'Radarr/Sonarr') + ' \u2197';
+      hint.appendChild(a);
+    }
+  }
+
   /* ── Update compact row in-place ── */
   function updateCompactRow(row, item) {
     setText(q('.dl-compact-title', row), item.title);
@@ -216,6 +252,7 @@
       pill.style.fontSize = '9px';
       setText(pill, stateLabel(item.state));
     }
+    updateSearchHint(row, item);
     var fill = q('[data-v="fill"]', row);
     if (fill) {
       fill.style.width = item.progress + '%';
@@ -400,6 +437,13 @@
     pill.className = 'dl-state-pill';
     status.appendChild(pill);
     info.appendChild(status);
+
+    /* Empty hint container — updateSearchHint fills it in on first poll. */
+    var hint = document.createElement('div');
+    hint.className = 'dl-search-hint';
+    hint.setAttribute('data-v', 'search-hint');
+    hint.style.display = 'none';
+    info.appendChild(hint);
 
     var progress = document.createElement('div');
     progress.className = 'dl-hero-progress';

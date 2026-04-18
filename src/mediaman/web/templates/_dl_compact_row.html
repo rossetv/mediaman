@@ -23,6 +23,9 @@
         </span>
         {% if item.episodes %} · {{ item.episodes|length }} episode{{ 's' if item.episodes|length != 1 else '' }}{% endif %}
       </div>
+      <div class="dl-search-hint" data-v="search-hint"{% if item.state != 'searching' or not (item.search_hint or item.arr_link) %} style="display:none;"{% endif %}>
+        {% if item.state == 'searching' %}<span data-v="search-hint-text">{{ item.search_hint or '' }}</span>{% if item.arr_link %}{% if item.search_hint %} · {% endif %}<a class="dl-arr-link" data-v="arr-link" href="{{ item.arr_link }}" target="_blank" rel="noopener">View in {{ item.arr_source or 'Radarr/Sonarr' }} &#8599;</a>{% endif %}{% endif %}
+      </div>
       <div class="dl-compact-bar">
         <div class="dl-compact-fill {% if item.state == 'almost_ready' %}green{% endif %}" data-v="fill" style="width:{{ item.progress }}%;"></div>
       </div>
