@@ -1,0 +1,1465 @@
+{% extends "base.html" %}
+
+{% block title %}Settings · Mediaman{% endblock %}
+
+{% block nav %}{% include "_nav.html" %}{% endblock %}
+
+{% block content %}
+<div class="container container--narrow">
+  <div class="page-header">
+    <h1>Settings</h1>
+    <p>Configure connections, notifications, and cleanup rules</p>
+  </div>
+</div>
+
+<div class="tab-bar">
+  <div class="segmented">
+    <button class="seg-btn active" onclick="showTab('newsletter', this)">Newsletter</button>
+    <button class="seg-btn" onclick="showTab('scanning', this)">Scanning</button>
+    <button class="seg-btn" onclick="showTab('integrations', this)">Integrations</button>
+    <button class="seg-btn" onclick="showTab('admin', this)">Admin</button>
+  </div>
+</div>
+
+{% set chevron_svg %}
+  <svg class="settings-section-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+{% endset %}
+
+<div class="container container--narrow">
+
+<div id="tab-newsletter" class="tab-panel active">
+
+  {# ===== SUBSCRIBERS ===== #}
+  <div class="settings-section expanded">
+    <div class="settings-section-header" onclick="toggleSection(this)">
+      <div class="settings-section-icon" style="background: rgba(191,90,242,0.15);">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#bf5af2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      </div>
+      <div>
+        <div class="settings-section-title">Newsletter Subscribers</div>
+        <div class="settings-section-desc">Email addresses that receive the daily deletion digest</div>
+      </div>
+      <div style="margin-left: auto;">{{ chevron_svg }}</div>
+    </div>
+    <div class="settings-section-body"><div class="settings-section-inner">
+    <div class="settings-card">
+      <div class="subscriber-list" id="subscriber-list">
+        <div style="color: var(--text-tertiary); font-size: 14px; padding: 8px 0;">Loading…</div>
+      </div>
+      <div class="add-subscriber-row">
+        <input class="form-input" type="email" id="new-subscriber-email" placeholder="Add email address…">
+        <button class="btn-add" onclick="addSubscriber()">Add</button>
+      </div>
+      <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.06);">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <div>
+            <div style="font-size: 15px; font-weight: 600; letter-spacing: -0.374px;">Send Newsletter</div>
+            <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 2px;">
+              Send the current newsletter to selected subscribers without affecting the automated schedule
+            </div>
+          </div>
+          <button class="btn-test" id="btn-send-newsletter" onclick="toggleNewsletterSend()" style="white-space: nowrap;">Select Recipients</button>
+        </div>
+        <div id="newsletter-send-panel" style="display: none; margin-top: 12px;">
+          <div id="newsletter-recipient-list" style="margin-bottom: 12px;"></div>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <button class="btn-add" id="btn-confirm-newsletter" onclick="sendNewsletter(this)">Send Newsletter</button>
+            <button class="btn-test" onclick="toggleNewsletterSend()">Cancel</button>
+            <span id="newsletter-send-status" style="font-size: 13px; font-weight: 600;"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    </div></div>
+  </div>
+
+</div>{# end tab-newsletter #}
+
+<div id="tab-scanning" class="tab-panel">
+
+  {# ===== GENERAL ===== #}
+  <div class="settings-section expanded">
+    <div class="settings-section-header" onclick="toggleSection(this)">
+      <div class="settings-section-icon" style="background: rgba(255,255,255,0.06);">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.56)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </div>
+      <div>
+        <div class="settings-section-title">General</div>
+        <div class="settings-section-desc">Application URL, scan schedule, and timezone</div>
+      </div>
+      <div style="margin-left: auto;">{{ chevron_svg }}</div>
+    </div>
+    <div class="settings-section-body"><div class="settings-section-inner">
+    <div class="settings-card">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Base URL</label>
+          <input class="form-input" type="text" id="base_url"
+            value="{{ settings.get('base_url', '') }}"
+            placeholder="https://mediaman.example.com">
+          <div class="form-hint">Used for generating email links. Must be publicly accessible.</div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Scan Day</label>
+          <select class="form-select" id="scan_day" style="max-width: 160px;">
+            {% for day in ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] %}
+            <option value="{{ day }}"
+              {% if settings.get('scan_day', 'mon') == day %}selected{% endif %}>
+              {{ day | capitalize }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Scan Time</label>
+          <input class="form-input" type="time" id="scan_time"
+            value="{{ settings.get('scan_time', '09:00') }}"
+            style="max-width: 160px;">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Timezone</label>
+          <select class="form-select" id="scan_timezone">
+            {% for tz in [
+              'UTC',
+              'Europe/London',
+              'Europe/Dublin',
+              'Europe/Paris',
+              'Europe/Berlin',
+              'Europe/Amsterdam',
+              'America/New_York',
+              'America/Chicago',
+              'America/Denver',
+              'America/Los_Angeles',
+              'Australia/Sydney',
+              'Asia/Tokyo',
+            ] %}
+            <option value="{{ tz }}"
+              {% if settings.get('scan_timezone', 'UTC') == tz %}selected{% endif %}>
+              {{ tz }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;padding:14px 0;border-top:1px solid rgba(255,255,255,0.04);margin-top:12px;">
+        <div style="flex:1;">
+          <div class="threshold-name">AI Recommendations</div>
+          <div class="threshold-desc">Generate GPT-powered recommendations during scans and include in newsletters</div>
+        </div>
+        <label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer;">
+          <input type="checkbox" id="suggestions_enabled"
+            {% if settings.get('suggestions_enabled', true) != false and settings.get('suggestions_enabled', 'true') != 'false' %}checked{% endif %}
+            style="opacity:0;width:0;height:0;">
+          <span style="position:absolute;inset:0;background:rgba(255,255,255,0.12);border-radius:12px;transition:all 0.2s;"></span>
+          <span style="position:absolute;top:2px;left:2px;width:20px;height:20px;background:#fff;border-radius:50%;transition:all 0.2s;"></span>
+        </label>
+      </div>
+    </div>
+    </div></div>
+  </div>
+
+  {# ===== LIBRARY SYNC ===== #}
+  <div class="settings-section">
+    <div class="settings-section-header" onclick="toggleSection(this)">
+      <div class="settings-section-icon" style="background: rgba(48,209,88,0.15);">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#30d158" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      </div>
+      <div>
+        <div class="settings-section-title">Library Sync</div>
+        <div class="settings-section-desc">Keep the Library page current between weekly scans</div>
+      </div>
+      <div style="margin-left: auto;">{{ chevron_svg }}</div>
+    </div>
+    <div class="settings-section-body"><div class="settings-section-inner">
+    <div class="settings-card">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Sync Interval</label>
+          <select class="form-select" id="library_sync_interval" style="max-width: 200px;">
+            {% for val, label in [('1', 'Every minute'), ('2', 'Every 2 minutes'), ('5', 'Every 5 minutes'), ('10', 'Every 10 minutes'), ('15', 'Every 15 minutes'), ('30', 'Every 30 minutes'), ('60', 'Every hour'), ('120', 'Every 2 hours'), ('0', 'Disabled')] %}
+            <option value="{{ val }}"
+              {% if settings.get('library_sync_interval', '30') == val %}selected{% endif %}>
+              {{ label }}
+            </option>
+            {% endfor %}
+          </select>
+          <div class="form-hint">Syncs media items and watch history from Plex. Does not evaluate deletions.</div>
+        </div>
+        <div style="padding-top: 24px;">
+          <button class="btn-test" onclick="syncLibrary(this)">Sync Now</button>
+        </div>
+      </div>
+    </div>
+    </div></div>
+  </div>
+
+  {# ===== CLEANUP RULES ===== #}
+  <div class="settings-section">
+    <div class="settings-section-header" onclick="toggleSection(this)">
+      <div class="settings-section-icon" style="background: rgba(255,69,58,0.15);">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ff453a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+      </div>
+      <div>
+        <div class="settings-section-title">Cleanup Rules</div>
+        <div class="settings-section-desc">Thresholds that determine when media becomes eligible for deletion</div>
+      </div>
+      <div style="margin-left: auto;">{{ chevron_svg }}</div>
+    </div>
+    <div class="settings-section-body"><div class="settings-section-inner">
+    <div class="settings-card">
+      <div class="threshold-row">
+        <div class="threshold-label">
+          <div class="threshold-name">Minimum age</div>
+          <div class="threshold-desc">Media must be added to Plex at least this many days ago to be eligible</div>
+        </div>
+        <input class="threshold-input" type="number" id="min_age_days"
+          value="{{ settings.get('min_age_days', 30) }}" min="1" max="365">
+        <div class="threshold-unit">days</div>
+      </div>
+      <div class="threshold-row">
+        <div class="threshold-label">
+          <div class="threshold-name">Watch inactivity</div>
+          <div class="threshold-desc">No plays by any user within this period triggers eligibility</div>
+        </div>
+        <input class="threshold-input" type="number" id="inactivity_days"
+          value="{{ settings.get('inactivity_days', 30) }}" min="1" max="365">
+        <div class="threshold-unit">days</div>
+      </div>
+      <div class="threshold-row">
+        <div class="threshold-label">
+          <div class="threshold-name">Grace period</div>
+          <div class="threshold-desc">Days between scheduling and actual deletion — time for users to keep items</div>
+        </div>
+        <input class="threshold-input" type="number" id="grace_days"
+          value="{{ settings.get('grace_days', 7) }}" min="1" max="90">
+        <div class="threshold-unit">days</div>
+      </div>
+    </div>
+    </div></div>
+  </div>
+
+  {# ===== DISK THRESHOLDS ===== #}
+  <div class="settings-section">
+    <div class="settings-section-header" onclick="toggleSection(this)">
+      <div class="settings-section-icon" style="background: rgba(100,210,255,0.15);">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64d2ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 12H16c-.7 2-2 3-4 3s-3.3-1-4-3H2.5"/><path d="M5.5 5.1L2 12v6c0 1.1.9 2 2 2h16a2 2 0 0 0 2-2v-6l-3.4-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.8 1.1z"/></svg>
+      </div>
+      <div>
+        <div class="settings-section-title">Disk Thresholds</div>
+        <div class="settings-section-desc">Skip scanning libraries when their disk is below the usage threshold</div>
+      </div>
+      <div style="margin-left: auto;">{{ chevron_svg }}</div>
+    </div>
+    <div class="settings-section-body"><div class="settings-section-inner">
+    <div class="settings-card">
+      <div id="disk-threshold-rows">
+        <div style="color: var(--text-tertiary); font-size: 14px; padding: 8px 0;">
+          Select Plex libraries above to configure disk thresholds.
+        </div>
+      </div>
+    </div>
+    </div></div>
+  </div>
+
+</div>{# end tab-scanning #}
+
+<div id="tab-integrations" class="tab-panel">
+
+  {# ===== PLEX ===== #}
+  <div class="settings-section">
+    <div class="settings-section-header" onclick="toggleSection(this)">
+      <div class="settings-section-icon" style="background: rgba(229,160,13,0.15);">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="#e5a00d"><path d="M12 2L4 7v10l8 5 8-5V7l-8-5zm0 2.18L18 8v8l-6 3.75L6 16V8l6-3.82z"/></svg>
+      </div>
+      <div>
+        <div class="settings-section-title">Plex</div>
+        <div class="settings-section-desc">Media server connection for library scanning and watch history</div>
+      </div>
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+        <span class="conn-status conn-unknown" id="plex-status"><span class="conn-dot"></span> Untested</span>
+        {{ chevron_svg }}
+      </div>
+    </div>
+    <div class="settings-section-body"><div class="settings-section-inner">
+    <div class="settings-card">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Plex URL</label>
+          <input class="form-input" type="text" id="plex_url"
+            value="{{ settings.get('plex_url', '') }}"
+            placeholder="http://plex:32400">
+        </div>
+        <div style="padding-top: 24px;">
+          <button class="btn-test" onclick="testService('plex', this)">Test</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Plex Token</label>
+          <div class="field-with-toggle">
+            <input class="form-input secret" type="password" id="plex_token"
+              value="{{ settings.get('plex_token', '') }}"
+              placeholder="Your X-Plex-Token">
+            <button class="secret-toggle" onclick="toggleSecret('plex_token', this)">Show</button>
+          </div>
+          <div class="form-hint">Found in Plex settings or Preferences.xml</div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Libraries to scan</label>
+          <div class="library-pills" id="plex-library-pills">
+            <span class="form-hint">Save Plex URL and token, then reload to see libraries.</span>
+          </div>
+          <div class="form-hint">Click to toggle. Only selected libraries are scanned for stale media.</div>
+        </div>
+      </div>
+    </div>
+    </div></div>
+  </div>
+
+  {# ===== SONARR ===== #}
+  <div class="settings-section">
+    <div class="settings-section-header" onclick="toggleSection(this)">
+      <div class="settings-section-icon" style="background: rgba(62,169,237,0.15);">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3ea9ed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><polyline points="17 2 12 7 7 2"/></svg>
+      </div>
+      <div>
+        <div class="settings-section-title">Sonarr</div>
+        <div class="settings-section-desc">TV show management — used for unmonitoring and re-downloading</div>
+      </div>
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+        <span class="conn-status conn-unknown" id="sonarr-status"><span class="conn-dot"></span> Untested</span>
+        {{ chevron_svg }}
+      </div>
+    </div>
+    <div class="settings-section-body"><div class="settings-section-inner">
+    <div class="settings-card">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Sonarr URL</label>
+          <input class="form-input" type="text" id="sonarr_url"
+            value="{{ settings.get('sonarr_url', '') }}"
+            placeholder="http://sonarr:8989">
+        </div>
+        <div style="padding-top: 24px;">
+          <button class="btn-test" onclick="testService('sonarr', this)">Test</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">API Key</label>
+          <div class="field-with-toggle">
+            <input class="form-input secret" type="password" id="sonarr_api_key"
+              value="{{ settings.get('sonarr_api_key', '') }}"
+              placeholder="Sonarr API key">
+            <button class="secret-toggle" onclick="toggleSecret('sonarr_api_key', this)">Show</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    </div></div>
+  </div>
+
+  {# ===== RADARR ===== #}
+  <div class="settings-section">
+    <div class="settings-section-header" onclick="toggleSection(this)">
+      <div class="settings-section-icon" style="background: rgba(255,165,0,0.15);">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffa500" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M14.31 8l5.74 9.94M9.69 8h11.48M7.38 12l5.74-9.94M9.69 16L3.95 6.06M14.31 16H2.83M16.62 12l-5.74 9.94"/></svg>
+      </div>
+      <div>
+        <div class="settings-section-title">Radarr</div>
+        <div class="settings-section-desc">Movie management — used for unmonitoring and re-downloading</div>
+      </div>
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+        <span class="conn-status conn-unknown" id="radarr-status"><span class="conn-dot"></span> Untested</span>
+        {{ chevron_svg }}
+      </div>
+    </div>
+    <div class="settings-section-body"><div class="settings-section-inner">
+    <div class="settings-card">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Radarr URL</label>
+          <input class="form-input" type="text" id="radarr_url"
+            value="{{ settings.get('radarr_url', '') }}"
+            placeholder="http://radarr:7878">
+        </div>
+        <div style="padding-top: 24px;">
+          <button class="btn-test" onclick="testService('radarr', this)">Test</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">API Key</label>
+          <div class="field-with-toggle">
+            <input class="form-input secret" type="password" id="radarr_api_key"
+              value="{{ settings.get('radarr_api_key', '') }}"
+              placeholder="Radarr API key">
+            <button class="secret-toggle" onclick="toggleSecret('radarr_api_key', this)">Show</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    </div></div>
+  </div>
+
+  {# ===== NZBGET ===== #}
+  <div class="settings-section">
+    <div class="settings-section-header" onclick="toggleSection(this)">
+      <div class="settings-section-icon" style="background: rgba(255,255,255,0.06);">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.56)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg>
+      </div>
+      <div>
+        <div class="settings-section-title">NZBGet</div>
+        <div class="settings-section-desc">Download client for re-downloading deleted media</div>
+      </div>
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+        <span class="conn-status conn-unknown" id="nzbget-status"><span class="conn-dot"></span> Untested</span>
+        {{ chevron_svg }}
+      </div>
+    </div>
+    <div class="settings-section-body"><div class="settings-section-inner">
+    <div class="settings-card">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">NZBGet URL</label>
+          <input class="form-input" type="text" id="nzbget_url"
+            value="{{ settings.get('nzbget_url', '') }}"
+            placeholder="http://nzbget:6789">
+        </div>
+        <div style="padding-top: 24px;">
+          <button class="btn-test" onclick="testService('nzbget', this)">Test</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Username</label>
+          <input class="form-input" type="text" id="nzbget_username"
+            value="{{ settings.get('nzbget_username', '') }}"
+            placeholder="nzbget">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <div class="field-with-toggle">
+            <input class="form-input secret" type="password" id="nzbget_password"
+              value="{{ settings.get('nzbget_password', '') }}"
+              placeholder="NZBGet password">
+            <button class="secret-toggle" onclick="toggleSecret('nzbget_password', this)">Show</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    </div></div>
+  </div>
+
+  {# ===== MAILGUN ===== #}
+  <div class="settings-section">
+    <div class="settings-section-header" onclick="toggleSection(this)">
+      <div class="settings-section-icon" style="background: rgba(255,87,87,0.15);">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ff5757" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+      </div>
+      <div>
+        <div class="settings-section-title">Email (Mailgun)</div>
+        <div class="settings-section-desc">Newsletter delivery for deletion notifications</div>
+      </div>
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+        <span class="conn-status conn-unknown" id="mailgun-status"><span class="conn-dot"></span> Untested</span>
+        {{ chevron_svg }}
+      </div>
+    </div>
+    <div class="settings-section-body"><div class="settings-section-inner">
+    <div class="settings-card">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Mailgun Domain</label>
+          <input class="form-input" type="text" id="mailgun_domain"
+            value="{{ settings.get('mailgun_domain', '') }}"
+            placeholder="mg.example.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">From Address</label>
+          <input class="form-input" type="text" id="mailgun_from_address"
+            value="{{ settings.get('mailgun_from_address', '') }}"
+            placeholder="mediaman@example.com">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Mailgun API Key</label>
+          <div class="field-with-toggle">
+            <input class="form-input secret" type="password" id="mailgun_api_key"
+              value="{{ settings.get('mailgun_api_key', '') }}"
+              placeholder="key-...">
+            <button class="secret-toggle" onclick="toggleSecret('mailgun_api_key', this)">Show</button>
+          </div>
+        </div>
+        <div style="padding-top: 24px;">
+          <button class="btn-test" onclick="testService('mailgun', this)">Test</button>
+        </div>
+      </div>
+    </div>
+    </div></div>
+  </div>
+
+  {# ===== OPENAI ===== #}
+  <div class="settings-section">
+    <div class="settings-section-header" onclick="toggleSection(this)">
+      <div class="settings-section-icon" style="background: rgba(16,163,127,0.15);">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10a37f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><line x1="9" y1="21" x2="15" y2="21"/></svg>
+      </div>
+      <div>
+        <div class="settings-section-title">OpenAI</div>
+        <div class="settings-section-desc">Powers AI media recommendations</div>
+      </div>
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+        <span class="conn-status conn-unknown" id="openai-status"><span class="conn-dot"></span> Untested</span>
+        {{ chevron_svg }}
+      </div>
+    </div>
+    <div class="settings-section-body"><div class="settings-section-inner">
+    <div class="settings-card">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">API Key</label>
+          <div class="field-with-toggle">
+            <input class="form-input secret" type="password" id="openai_api_key"
+              value="{{ settings.get('openai_api_key', '') }}"
+              placeholder="sk-...">
+            <button class="secret-toggle" onclick="toggleSecret('openai_api_key', this)">Show</button>
+          </div>
+          <div class="form-hint">From <a href="https://platform.openai.com/api-keys" target="_blank" style="color:var(--accent);">platform.openai.com/api-keys</a></div>
+        </div>
+        <div style="padding-top: 24px;">
+          <button class="btn-test" onclick="testService('openai', this)">Test</button>
+        </div>
+      </div>
+    </div>
+    </div></div>
+  </div>
+
+  {# ===== TMDB ===== #}
+  <div class="settings-section">
+    <div class="settings-section-header" onclick="toggleSection(this)">
+      <div class="settings-section-icon" style="background: rgba(1,180,228,0.15);">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#01b4e4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/></svg>
+      </div>
+      <div>
+        <div class="settings-section-title">TMDB</div>
+        <div class="settings-section-desc">Poster images for media recommendations</div>
+      </div>
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+        <span class="conn-status conn-unknown" id="tmdb-status"><span class="conn-dot"></span> Untested</span>
+        {{ chevron_svg }}
+      </div>
+    </div>
+    <div class="settings-section-body"><div class="settings-section-inner">
+    <div class="settings-card">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">API Key</label>
+          <div class="field-with-toggle">
+            <input class="form-input secret" type="password" id="tmdb_api_key"
+              value="{{ settings.get('tmdb_api_key', '') }}"
+              placeholder="TMDB API key (v3 auth)">
+            <button class="secret-toggle" onclick="toggleSecret('tmdb_api_key', this)">Show</button>
+          </div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">API Read Token</label>
+          <div class="field-with-toggle">
+            <input class="form-input secret" type="password" id="tmdb_read_token"
+              value="{{ settings.get('tmdb_read_token', '') }}"
+              placeholder="eyJhbGci...">
+            <button class="secret-toggle" onclick="toggleSecret('tmdb_read_token', this)">Show</button>
+          </div>
+          <div class="form-hint">Get both from <a href="https://www.themoviedb.org/settings/api" target="_blank" style="color:var(--accent);">themoviedb.org/settings/api</a></div>
+        </div>
+        <div style="padding-top: 24px;">
+          <button class="btn-test" onclick="testService('tmdb', this)">Test</button>
+        </div>
+      </div>
+    </div>
+    </div></div>
+  </div>
+
+  {# ===== OMDB ===== #}
+  <div class="settings-section">
+    <div class="settings-section-header" onclick="toggleSection(this)">
+      <div class="settings-section-icon" style="background: rgba(245,197,24,0.15);">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f5c518" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      </div>
+      <div>
+        <div class="settings-section-title">OMDB</div>
+        <div class="settings-section-desc">Rotten Tomatoes ratings for media recommendations</div>
+      </div>
+      <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+        <span class="conn-status conn-unknown" id="omdb-status"><span class="conn-dot"></span> Untested</span>
+        {{ chevron_svg }}
+      </div>
+    </div>
+    <div class="settings-section-body"><div class="settings-section-inner">
+    <div class="settings-card">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">API Key</label>
+          <div class="field-with-toggle">
+            <input class="form-input secret" type="password" id="omdb_api_key"
+              value="{{ settings.get('omdb_api_key', '') }}"
+              placeholder="OMDb API key">
+            <button class="secret-toggle" onclick="toggleSecret('omdb_api_key', this)">Show</button>
+          </div>
+          <div class="form-hint">Free key from <a href="https://www.omdbapi.com/apikey.aspx" target="_blank" style="color:var(--accent);">omdbapi.com</a></div>
+        </div>
+        <div style="padding-top: 24px;">
+          <button class="btn-test" onclick="testService('omdb', this)">Test</button>
+        </div>
+      </div>
+    </div>
+    </div></div>
+  </div>
+
+</div>{# end tab-integrations #}
+
+<div id="tab-admin" class="tab-panel">
+
+  {# ===== USER MANAGEMENT ===== #}
+  <div class="settings-section expanded">
+    <div class="settings-section-header" onclick="toggleSection(this)">
+      <div class="settings-section-icon" style="background: rgba(41,151,255,0.15);">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2997ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      </div>
+      <div>
+        <div class="settings-section-title">Admin Users</div>
+        <div class="settings-section-desc">Manage admin accounts and change your password</div>
+      </div>
+      <div style="margin-left: auto;">{{ chevron_svg }}</div>
+    </div>
+    <div class="settings-section-body"><div class="settings-section-inner">
+
+    {# Change password #}
+    <div class="settings-card" style="margin-bottom: 16px;">
+      <h4 style="font-size: 15px; font-weight: 600; margin-bottom: 12px; letter-spacing: -0.374px;">Change Password</h4>
+      <p style="font-size: 13px; color: var(--text-tertiary); margin-bottom: 16px;">Logged in as <strong style="color: var(--text-secondary);">{{ username }}</strong></p>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Current Password</label>
+          <input class="form-input" type="password" id="old-password" placeholder="Enter current password" autocomplete="current-password">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">New Password</label>
+          <input class="form-input" type="password" id="new-password" placeholder="Min 8 characters" autocomplete="new-password">
+        </div>
+        <div style="padding-top: 24px;">
+          <button class="btn-test" onclick="changePassword(this)">Change</button>
+        </div>
+      </div>
+      <div id="password-result" style="margin-top: 8px;"></div>
+    </div>
+
+    {# User list + create #}
+    <div class="settings-card">
+      <h4 style="font-size: 15px; font-weight: 600; margin-bottom: 12px; letter-spacing: -0.374px;">Admin Accounts</h4>
+      <div id="user-list" class="subscriber-list" style="margin-bottom: 12px;">
+        <p style="font-size: 13px; color: var(--text-tertiary);">Loading...</p>
+      </div>
+      <h4 style="font-size: 15px; font-weight: 600; margin-bottom: 12px; margin-top: 20px; letter-spacing: -0.374px;">Create New Admin</h4>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Username</label>
+          <input class="form-input" type="text" id="new-username" placeholder="Min 3 characters" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input class="form-input" type="password" id="new-user-password" placeholder="Min 8 characters" autocomplete="new-password">
+        </div>
+        <div style="padding-top: 24px;">
+          <button class="btn-add" onclick="createUser(this)">Create</button>
+        </div>
+      </div>
+      <div id="create-user-result" style="margin-top: 8px;"></div>
+    </div>
+    </div></div>
+  </div>
+
+</div>{# end tab-admin #}
+
+</div>
+
+{# Sticky save bar #}
+<div class="save-bar">
+  <span id="save-status"></span>
+  <button class="btn-save" onclick="saveSettings(this)">Save Settings</button>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------------------------------------------------------------------------
+  // Tab switching
+  // ---------------------------------------------------------------------------
+  window.showTab = function (id, btn) {
+    document.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.remove('active'); });
+    document.querySelectorAll('.seg-btn').forEach(function (b) { b.classList.remove('active'); });
+    document.getElementById('tab-' + id).classList.add('active');
+    btn.classList.add('active');
+  };
+
+  // ---------------------------------------------------------------------------
+  // Secret field show/hide
+  // ---------------------------------------------------------------------------
+  window.toggleSecret = function (id, btn) {
+    var input = document.getElementById(id);
+    if (input.type === 'password') {
+      input.type = 'text';
+      btn.textContent = 'Hide';
+    } else {
+      input.type = 'password';
+      btn.textContent = 'Show';
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Plex library toggle pills — built with safe DOM APIs, never innerHTML
+  // ---------------------------------------------------------------------------
+  var _selectedLibraries = {{ plex_libraries_selected | tojson }};
+
+  function renderLibraryPills(libraries) {
+    var container = document.getElementById('plex-library-pills');
+    while (container.firstChild) { container.removeChild(container.firstChild); }
+
+    if (!libraries || libraries.length === 0) {
+      var msg = document.createElement('span');
+      msg.className = 'form-hint';
+      msg.textContent = 'No libraries found — check Plex URL and token.';
+      container.appendChild(msg);
+      return;
+    }
+
+    libraries.forEach(function (lib) {
+      var pill = document.createElement('span');
+      pill.className = 'lib-pill' + (_selectedLibraries.indexOf(String(lib.id)) !== -1 ? ' selected' : '');
+      pill.textContent = lib.title;
+      pill.dataset.id = String(lib.id);
+      pill.addEventListener('click', function () {
+        var idx = _selectedLibraries.indexOf(this.dataset.id);
+        if (idx === -1) {
+          _selectedLibraries.push(this.dataset.id);
+          this.classList.add('selected');
+        } else {
+          _selectedLibraries.splice(idx, 1);
+          this.classList.remove('selected');
+        }
+        renderDiskThresholdRows();
+      });
+      container.appendChild(pill);
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Collapsible integration sections
+  // ---------------------------------------------------------------------------
+  window.toggleSection = function (header) {
+    var section = header.parentElement;
+    section.classList.toggle('expanded');
+  };
+
+  // ---------------------------------------------------------------------------
+  // Connection tests
+  // ---------------------------------------------------------------------------
+  var _statusEls = {
+    plex:    document.getElementById('plex-status'),
+    sonarr:  document.getElementById('sonarr-status'),
+    radarr:  document.getElementById('radarr-status'),
+    nzbget:  document.getElementById('nzbget-status'),
+    mailgun: document.getElementById('mailgun-status'),
+    openai:  document.getElementById('openai-status'),
+    tmdb:    document.getElementById('tmdb-status'),
+    omdb:    document.getElementById('omdb-status'),
+  };
+
+  function setStatus(service, ok, msg) {
+    var el = _statusEls[service];
+    if (!el) { return; }
+    var dot = document.createElement('span');
+    dot.className = 'conn-dot';
+    var cls = ok === null ? 'conn-unknown' : (ok ? 'conn-ok' : 'conn-err');
+    var text = document.createTextNode(' ' + (msg || (ok ? 'Connected' : 'Error')));
+    el.className = 'conn-status ' + cls;
+    while (el.firstChild) { el.removeChild(el.firstChild); }
+    el.appendChild(dot);
+    el.appendChild(text);
+  }
+
+  window.testService = function (service, btn) {
+    var orig = btn.textContent;
+    btn.textContent = 'Testing\u2026';
+    btn.disabled = true;
+    fetch('/api/settings/test/' + encodeURIComponent(service), { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        setStatus(service, data.ok, data.ok ? 'Connected' : (data.error || 'Error'));
+        btn.textContent = data.ok ? 'OK \u2713' : 'Failed';
+        btn.style.color = data.ok ? 'var(--success)' : 'var(--danger)';
+        btn.style.borderColor = data.ok ? 'rgba(48,209,88,0.3)' : 'rgba(255,69,58,0.3)';
+        setTimeout(function () {
+          btn.textContent = orig;
+          btn.style.color = '';
+          btn.style.borderColor = '';
+          btn.disabled = false;
+        }, 2000);
+      })
+      .catch(function () {
+        setStatus(service, false, 'Request failed');
+        btn.textContent = orig;
+        btn.disabled = false;
+      });
+  };
+
+  // ---------------------------------------------------------------------------
+  // Save settings
+  // ---------------------------------------------------------------------------
+  function collectDiskThresholds() {
+    var result = {};
+    var rows = document.querySelectorAll('#disk-threshold-rows .disk-row');
+    rows.forEach(function (row) {
+      var libId = row.dataset.libId;
+      var path = row.querySelector('[data-field="path"]').value.trim();
+      var threshold = parseInt(row.querySelector('[data-field="threshold"]').value, 10) || 0;
+      if (path || threshold) {
+        result[libId] = { path: path, threshold: threshold };
+      }
+    });
+    return result;
+  }
+
+  window.syncLibrary = function(btn) {
+    var orig = btn.textContent;
+    btn.textContent = 'Syncing\u2026';
+    btn.disabled = true;
+    fetch('/api/library/sync', { method: 'POST' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.ok) {
+          btn.textContent = 'Synced \u2713';
+          btn.style.color = 'var(--success)';
+          btn.style.borderColor = 'rgba(48,209,88,0.3)';
+        } else {
+          btn.textContent = 'Failed';
+          btn.style.color = 'var(--danger)';
+          btn.style.borderColor = 'rgba(255,69,58,0.3)';
+        }
+        setTimeout(function() {
+          btn.textContent = orig;
+          btn.style.color = '';
+          btn.style.borderColor = '';
+          btn.disabled = false;
+        }, 2000);
+      })
+      .catch(function() {
+        btn.textContent = orig;
+        btn.disabled = false;
+      });
+  };
+
+  window.saveSettings = function (btn) {
+    var statusEl = document.getElementById('save-status');
+    btn.textContent = 'Saving\u2026';
+    btn.style.opacity = '0.7';
+    statusEl.textContent = '';
+
+    var body = {
+      plex_url:             document.getElementById('plex_url').value,
+      plex_token:           document.getElementById('plex_token').value,
+      plex_libraries:       _selectedLibraries,
+      sonarr_url:           document.getElementById('sonarr_url').value,
+      sonarr_api_key:       document.getElementById('sonarr_api_key').value,
+      radarr_url:           document.getElementById('radarr_url').value,
+      radarr_api_key:       document.getElementById('radarr_api_key').value,
+      nzbget_url:           document.getElementById('nzbget_url').value,
+      nzbget_username:      document.getElementById('nzbget_username').value,
+      nzbget_password:      document.getElementById('nzbget_password').value,
+      mailgun_domain:       document.getElementById('mailgun_domain').value,
+      mailgun_from_address: document.getElementById('mailgun_from_address').value,
+      mailgun_api_key:      document.getElementById('mailgun_api_key').value,
+      openai_api_key:       document.getElementById('openai_api_key').value,
+      tmdb_api_key:         document.getElementById('tmdb_api_key').value,
+      tmdb_read_token:      document.getElementById('tmdb_read_token').value,
+      omdb_api_key:         document.getElementById('omdb_api_key').value,
+      base_url:             document.getElementById('base_url').value,
+      scan_day:             document.getElementById('scan_day').value,
+      scan_time:            document.getElementById('scan_time').value,
+      scan_timezone:        document.getElementById('scan_timezone').value,
+      library_sync_interval: document.getElementById('library_sync_interval').value,
+      min_age_days:         parseInt(document.getElementById('min_age_days').value, 10),
+      inactivity_days:      parseInt(document.getElementById('inactivity_days').value, 10),
+      grace_days:           parseInt(document.getElementById('grace_days').value, 10),
+      disk_thresholds:      collectDiskThresholds(),
+      suggestions_enabled:  document.getElementById('suggestions_enabled').checked ? 'true' : 'false',
+    };
+
+    fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var ok = data.status === 'saved';
+        btn.textContent = ok ? 'Saved' : 'Error';
+        btn.style.background = ok ? 'var(--success)' : 'var(--danger)';
+        btn.style.opacity = '';
+        statusEl.textContent = ok ? 'Settings saved' : 'Save failed';
+        statusEl.style.color = ok ? 'var(--success)' : 'var(--danger)';
+        setTimeout(function () {
+          btn.textContent = 'Save Settings';
+          btn.style.background = '';
+          statusEl.textContent = '';
+        }, 3000);
+      })
+      .catch(function () {
+        btn.textContent = 'Error';
+        btn.style.opacity = '';
+        btn.style.background = 'var(--danger)';
+        statusEl.textContent = 'Request failed';
+        statusEl.style.color = 'var(--danger)';
+        setTimeout(function () {
+          btn.textContent = 'Save Settings';
+          btn.style.background = '';
+          statusEl.textContent = '';
+        }, 3000);
+      });
+  };
+
+  // ---------------------------------------------------------------------------
+  // Subscribers — built with safe DOM APIs, never innerHTML
+  // ---------------------------------------------------------------------------
+  function loadSubscribers() {
+    fetch('/api/subscribers')
+      .then(function (r) { return r.json(); })
+      .then(function (data) { renderSubscribers(data.subscribers || []); })
+      .catch(function () {
+        var list = document.getElementById('subscriber-list');
+        while (list.firstChild) { list.removeChild(list.firstChild); }
+        var msg = document.createElement('div');
+        msg.style.color = 'var(--danger)';
+        msg.style.fontSize = '14px';
+        msg.textContent = 'Failed to load subscribers';
+        list.appendChild(msg);
+      });
+  }
+
+  function renderSubscribers(subscribers) {
+    var list = document.getElementById('subscriber-list');
+    while (list.firstChild) { list.removeChild(list.firstChild); }
+
+    if (subscribers.length === 0) {
+      var empty = document.createElement('div');
+      empty.style.color = 'var(--text-tertiary)';
+      empty.style.fontSize = '14px';
+      empty.style.padding = '8px 0';
+      empty.textContent = 'No subscribers yet.';
+      list.appendChild(empty);
+      return;
+    }
+
+    subscribers.forEach(function (s) {
+      var item = document.createElement('div');
+      item.className = 'subscriber-item';
+      item.dataset.id = String(s.id);
+
+      var emailEl = document.createElement('div');
+      emailEl.className = 'subscriber-email';
+      emailEl.textContent = s.email;
+
+      var statusEl = document.createElement('div');
+      statusEl.className = 'subscriber-status' + (s.active ? '' : ' inactive');
+      statusEl.textContent = s.active ? 'Active' : 'Inactive';
+
+      var removeBtn = document.createElement('button');
+      removeBtn.className = 'btn-remove';
+      removeBtn.textContent = 'Remove';
+      removeBtn.addEventListener('click', function () {
+        removeSubscriber(s.id, removeBtn);
+      });
+
+      item.appendChild(emailEl);
+      item.appendChild(statusEl);
+      item.appendChild(removeBtn);
+      list.appendChild(item);
+    });
+  }
+
+  window.addSubscriber = function () {
+    var input = document.getElementById('new-subscriber-email');
+    var email = input.value.trim();
+    if (!email) { return; }
+    // Existing /api/subscribers POST expects form-encoded data
+    var body = new URLSearchParams({ email: email });
+    fetch('/api/subscribers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.ok) {
+          input.value = '';
+          loadSubscribers();
+        } else {
+          alert(data.error || 'Failed to add subscriber');
+        }
+      });
+  };
+
+  function removeSubscriber(id, btn) {
+    btn.disabled = true;
+    fetch('/api/subscribers/' + id, { method: 'DELETE' })
+      .then(function () { loadSubscribers(); });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Plex library loading (fixes pill rendering + powers disk thresholds)
+  // ---------------------------------------------------------------------------
+  var _plexLibraries = [];
+
+  function loadPlexLibraries() {
+    fetch('/api/plex/libraries')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        _plexLibraries = data.libraries || [];
+        renderLibraryPills(_plexLibraries);
+        renderDiskThresholdRows();
+      })
+      .catch(function () {
+        _plexLibraries = [];
+      });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Disk thresholds
+  // ---------------------------------------------------------------------------
+  var _diskThresholds = {{ settings.get('disk_thresholds', {}) | tojson }};
+
+  function renderDiskThresholdRows() {
+    var container = document.getElementById('disk-threshold-rows');
+    while (container.firstChild) { container.removeChild(container.firstChild); }
+
+    var selectedLibs = _plexLibraries.filter(function (lib) {
+      return _selectedLibraries.indexOf(String(lib.id)) !== -1;
+    });
+
+    if (selectedLibs.length === 0) {
+      var hint = document.createElement('div');
+      hint.style.color = 'var(--text-tertiary)';
+      hint.style.fontSize = '14px';
+      hint.style.padding = '8px 0';
+      hint.textContent = 'Select Plex libraries above to configure disk thresholds.';
+      container.appendChild(hint);
+      return;
+    }
+
+    selectedLibs.forEach(function (lib) {
+      var cfg = _diskThresholds[String(lib.id)] || {};
+      var row = document.createElement('div');
+      row.className = 'disk-row';
+      row.dataset.libId = String(lib.id);
+
+      var nameEl = document.createElement('div');
+      nameEl.className = 'disk-lib-name';
+      nameEl.textContent = lib.title;
+
+      var pathInput = document.createElement('input');
+      pathInput.className = 'disk-path-input';
+      pathInput.type = 'text';
+      pathInput.placeholder = '/media/...';
+      pathInput.value = cfg.path || '';
+      pathInput.dataset.field = 'path';
+
+      var thresholdInput = document.createElement('input');
+      thresholdInput.className = 'disk-threshold-input';
+      thresholdInput.type = 'number';
+      thresholdInput.min = '0';
+      thresholdInput.max = '100';
+      thresholdInput.value = cfg.threshold || 0;
+      thresholdInput.dataset.field = 'threshold';
+
+      var pctLabel = document.createElement('span');
+      pctLabel.style.cssText = 'font-size: 13px; color: var(--text-tertiary);';
+      pctLabel.textContent = '%';
+
+      var badge = document.createElement('span');
+      badge.className = 'disk-usage-badge disk-usage-off';
+      badge.textContent = cfg.threshold ? 'Checking\u2026' : 'Always scan';
+      badge.dataset.libId = String(lib.id);
+
+      row.appendChild(nameEl);
+      row.appendChild(pathInput);
+      row.appendChild(thresholdInput);
+      row.appendChild(pctLabel);
+      row.appendChild(badge);
+      container.appendChild(row);
+
+      if (cfg.path && cfg.threshold) {
+        fetchDiskUsage(String(lib.id), cfg.path, cfg.threshold);
+      }
+
+      pathInput.addEventListener('blur', function () {
+        var t = parseInt(thresholdInput.value, 10) || 0;
+        if (this.value && t > 0) {
+          fetchDiskUsage(String(lib.id), this.value, t);
+        } else {
+          updateBadge(String(lib.id), null, t);
+        }
+      });
+
+      thresholdInput.addEventListener('change', function () {
+        var t = parseInt(this.value, 10) || 0;
+        var p = pathInput.value;
+        if (p && t > 0) {
+          fetchDiskUsage(String(lib.id), p, t);
+        } else {
+          updateBadge(String(lib.id), null, t);
+        }
+      });
+    });
+  }
+
+  function fetchDiskUsage(libId, path, threshold, retries) {
+    if (retries === undefined) retries = 2;
+    var sel = '.disk-usage-badge[data-lib-id="' + libId + '"]';
+    var badge = document.querySelector(sel);
+    if (badge) {
+      badge.className = 'disk-usage-badge disk-usage-off';
+      badge.textContent = 'Checking\u2026';
+    }
+    fetch('/api/settings/disk-usage?path=' + encodeURIComponent(path))
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        badge = document.querySelector(sel);
+        if (data.error) {
+          if (badge) {
+            badge.className = 'disk-usage-badge disk-usage-crit';
+            badge.textContent = 'Path error';
+          }
+          return;
+        }
+        updateBadge(libId, data.usage_pct, threshold);
+      })
+      .catch(function () {
+        if (retries > 0) {
+          setTimeout(function () { fetchDiskUsage(libId, path, threshold, retries - 1); }, 1000);
+          return;
+        }
+        badge = document.querySelector(sel);
+        if (badge) {
+          badge.className = 'disk-usage-badge disk-usage-crit';
+          badge.textContent = 'Fetch error';
+        }
+      });
+  }
+
+  function updateBadge(libId, usagePct, threshold) {
+    var badge = document.querySelector('.disk-usage-badge[data-lib-id="' + libId + '"]');
+    if (!badge) return;
+    if (!threshold || threshold <= 0) {
+      badge.className = 'disk-usage-badge disk-usage-off';
+      badge.textContent = 'Always scan';
+      return;
+    }
+    if (usagePct === null || usagePct === undefined) {
+      badge.className = 'disk-usage-badge disk-usage-off';
+      badge.textContent = 'No path';
+      return;
+    }
+    var label = usagePct.toFixed(1) + '% used';
+    if (usagePct >= threshold) {
+      badge.className = 'disk-usage-badge disk-usage-crit';
+      badge.textContent = label + ' \u2014 will scan';
+    } else if (usagePct >= threshold - 10) {
+      badge.className = 'disk-usage-badge disk-usage-warn';
+      badge.textContent = label + ' \u2014 close';
+    } else {
+      badge.className = 'disk-usage-badge disk-usage-ok';
+      badge.textContent = label + ' \u2014 skip';
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Initialise on DOMContentLoaded
+  // ---------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // User management
+  // ---------------------------------------------------------------------------
+  function loadUsers() {
+    fetch('/api/users', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var container = document.getElementById('user-list');
+        if (!data.users || data.users.length === 0) {
+          container.textContent = 'No users found.';
+          return;
+        }
+        container.textContent = '';
+        data.users.forEach(function (user) {
+          var item = document.createElement('div');
+          item.className = 'subscriber-item';
+          var info = document.createElement('div');
+          info.className = 'subscriber-email';
+          info.textContent = user.username;
+          item.appendChild(info);
+          var badge = document.createElement('div');
+          badge.className = 'subscriber-status';
+          badge.textContent = user.username === data.current ? 'You' : '';
+          item.appendChild(badge);
+          if (user.username !== data.current) {
+            var btn = document.createElement('button');
+            btn.className = 'btn-remove';
+            btn.textContent = 'Delete';
+            btn.onclick = function () { deleteUser(user.id, btn); };
+            item.appendChild(btn);
+          }
+          container.appendChild(item);
+        });
+      });
+  }
+
+  window.createUser = function (btn) {
+    var username = document.getElementById('new-username').value.trim();
+    var password = document.getElementById('new-user-password').value;
+    var result = document.getElementById('create-user-result');
+    if (!username || username.length < 3) { result.textContent = 'Username must be at least 3 characters'; result.style.color = '#ff453a'; return; }
+    if (password.length < 8) { result.textContent = 'Password must be at least 8 characters'; result.style.color = '#ff453a'; return; }
+    btn.disabled = true;
+    fetch('/api/users', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username, password: password })
+    }).then(function (r) { return r.json(); }).then(function (data) {
+      btn.disabled = false;
+      if (data.ok) {
+        result.textContent = 'User "' + username + '" created.';
+        result.style.color = '#30d158';
+        document.getElementById('new-username').value = '';
+        document.getElementById('new-user-password').value = '';
+        loadUsers();
+      } else {
+        result.textContent = data.error || 'Failed';
+        result.style.color = '#ff453a';
+      }
+    });
+  };
+
+  function deleteUser(userId, btn) {
+    if (!window.confirm('Delete this admin user?')) return;
+    btn.disabled = true;
+    fetch('/api/users/' + userId, { method: 'DELETE', credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        btn.disabled = false;
+        if (data.ok) { loadUsers(); }
+      });
+  }
+
+  window.changePassword = function (btn) {
+    var oldPass = document.getElementById('old-password').value;
+    var newPass = document.getElementById('new-password').value;
+    var result = document.getElementById('password-result');
+    if (newPass.length < 8) { result.textContent = 'New password must be at least 8 characters'; result.style.color = '#ff453a'; return; }
+    btn.disabled = true;
+    fetch('/api/users/change-password', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ old_password: oldPass, new_password: newPass })
+    }).then(function (r) { return r.json(); }).then(function (data) {
+      btn.disabled = false;
+      if (data.ok) {
+        result.textContent = 'Password changed successfully.';
+        result.style.color = '#30d158';
+        document.getElementById('old-password').value = '';
+        document.getElementById('new-password').value = '';
+      } else {
+        result.textContent = data.error || 'Failed';
+        result.style.color = '#ff453a';
+      }
+    });
+  };
+
+  // ---------------------------------------------------------------------------
+  // Newsletter manual send
+  // ---------------------------------------------------------------------------
+  var _newsletterPanelOpen = false;
+
+  window.toggleNewsletterSend = function () {
+    var panel = document.getElementById('newsletter-send-panel');
+    var btn = document.getElementById('btn-send-newsletter');
+    _newsletterPanelOpen = !_newsletterPanelOpen;
+
+    if (_newsletterPanelOpen) {
+      panel.style.display = 'block';
+      btn.textContent = 'Cancel';
+      renderRecipientCheckboxes();
+    } else {
+      panel.style.display = 'none';
+      btn.textContent = 'Select Recipients';
+      document.getElementById('newsletter-send-status').textContent = '';
+    }
+  };
+
+  function renderRecipientCheckboxes() {
+    var container = document.getElementById('newsletter-recipient-list');
+    while (container.firstChild) { container.removeChild(container.firstChild); }
+
+    fetch('/api/subscribers')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var subs = (data.subscribers || []).filter(function (s) { return s.active; });
+        if (subs.length === 0) {
+          var msg = document.createElement('div');
+          msg.style.cssText = 'color: var(--text-tertiary); font-size: 14px; padding: 8px 0;';
+          msg.textContent = 'No active subscribers.';
+          container.appendChild(msg);
+          return;
+        }
+
+        // Select all / none toggle
+        var toggleRow = document.createElement('div');
+        toggleRow.style.cssText = 'margin-bottom: 8px; display: flex; gap: 12px;';
+        var selectAll = document.createElement('button');
+        selectAll.className = 'btn-test';
+        selectAll.style.cssText = 'padding: 4px 10px; font-size: 12px;';
+        selectAll.textContent = 'Select all';
+        selectAll.addEventListener('click', function () {
+          container.querySelectorAll('input[type="checkbox"]').forEach(function (cb) { cb.checked = true; });
+        });
+        var selectNone = document.createElement('button');
+        selectNone.className = 'btn-test';
+        selectNone.style.cssText = 'padding: 4px 10px; font-size: 12px;';
+        selectNone.textContent = 'Select none';
+        selectNone.addEventListener('click', function () {
+          container.querySelectorAll('input[type="checkbox"]').forEach(function (cb) { cb.checked = false; });
+        });
+        toggleRow.appendChild(selectAll);
+        toggleRow.appendChild(selectNone);
+        container.appendChild(toggleRow);
+
+        subs.forEach(function (s) {
+          var item = document.createElement('div');
+          item.className = 'recipient-item';
+
+          var cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.id = 'recipient-' + s.id;
+          cb.value = s.email;
+          cb.checked = true;
+
+          var lbl = document.createElement('label');
+          lbl.htmlFor = 'recipient-' + s.id;
+          lbl.textContent = s.email;
+
+          item.appendChild(cb);
+          item.appendChild(lbl);
+          container.appendChild(item);
+        });
+      });
+  }
+
+  window.sendNewsletter = function (btn) {
+    var checkboxes = document.querySelectorAll('#newsletter-recipient-list input[type="checkbox"]:checked');
+    var recipients = [];
+    checkboxes.forEach(function (cb) { recipients.push(cb.value); });
+
+    var statusEl = document.getElementById('newsletter-send-status');
+    if (recipients.length === 0) {
+      statusEl.textContent = 'Select at least one recipient';
+      statusEl.style.color = '#ff453a';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Sending\u2026';
+    statusEl.textContent = '';
+
+    fetch('/api/newsletter/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipients: recipients }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        btn.disabled = false;
+        if (data.ok) {
+          btn.textContent = 'Sent \u2713';
+          btn.style.background = 'var(--success)';
+          statusEl.textContent = 'Newsletter sent to ' + data.sent_to + ' recipient' + (data.sent_to !== 1 ? 's' : '');
+          statusEl.style.color = 'var(--success)';
+          setTimeout(function () {
+            btn.textContent = 'Send Newsletter';
+            btn.style.background = '';
+          }, 3000);
+        } else {
+          btn.textContent = 'Send Newsletter';
+          statusEl.textContent = data.error || 'Send failed';
+          statusEl.style.color = '#ff453a';
+        }
+      })
+      .catch(function () {
+        btn.disabled = false;
+        btn.textContent = 'Send Newsletter';
+        statusEl.textContent = 'Request failed';
+        statusEl.style.color = '#ff453a';
+      });
+  };
+
+  function autoTestServices() {
+    var checks = [
+      { service: 'plex',    fields: ['plex_url', 'plex_token'] },
+      { service: 'sonarr',  fields: ['sonarr_url', 'sonarr_api_key'] },
+      { service: 'radarr',  fields: ['radarr_url', 'radarr_api_key'] },
+      { service: 'nzbget',  fields: ['nzbget_url'] },
+      { service: 'mailgun', fields: ['mailgun_domain', 'mailgun_api_key'] },
+      { service: 'openai',  fields: ['openai_api_key'] },
+      { service: 'tmdb',    fields: ['tmdb_read_token'] },
+      { service: 'omdb',    fields: ['omdb_api_key'] },
+    ];
+    checks.forEach(function (c) {
+      var configured = c.fields.every(function (f) {
+        var el = document.getElementById(f);
+        return el && el.value && el.value !== '';
+      });
+      if (!configured) return;
+      setStatus(c.service, null, 'Testing\u2026');
+      fetch('/api/settings/test/' + encodeURIComponent(c.service), { method: 'POST' })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          setStatus(c.service, data.ok, data.ok ? 'Connected' : (data.error || 'Error'));
+        })
+        .catch(function () {
+          setStatus(c.service, false, 'Request failed');
+        });
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    loadSubscribers();
+    loadUsers();
+    loadPlexLibraries();
+    autoTestServices();
+
+    document.getElementById('new-subscriber-email').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); addSubscriber(); }
+    });
+  });
+}());
+</script>
+{% endblock %}

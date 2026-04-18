@@ -1,0 +1,693 @@
+{% extends "base.html" %}
+
+{% block title %}Downloads · Mediaman{% endblock %}
+
+{% block nav %}{% include "_nav.html" %}{% endblock %}
+
+{% block content %}
+<div class="container container--wide" id="dl-root">
+
+  <div class="page-header">
+    <h1>Downloads</h1>
+    {% if hero or queue %}
+    <p>{{ (queue|length) + (1 if hero else 0) }} item{{ 's' if (queue|length) + (1 if hero else 0) != 1 else '' }} in progress</p>
+    {% endif %}
+  </div>
+
+  {% if hero %}
+  <div id="dl-hero-container">
+    {% with item=hero %}
+    {% include "_dl_hero_card.html" %}
+    {% endwith %}
+  </div>
+  {% endif %}
+
+  {% if queue %}
+  <div id="dl-queue-container">
+    <div class="dl-compact-header">Also downloading</div>
+    <div class="dl-compact-list" id="dl-queue-list">
+      {% for item in queue %}
+      {% include "_dl_compact_row.html" %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if upcoming %}
+  <div id="dl-upcoming-container">
+    <div class="dl-compact-header">Coming soon</div>
+    <div class="dl-compact-list" id="dl-upcoming-list">
+      {% for item in upcoming %}
+      {% include "_dl_upcoming_row.html" %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if not hero and not queue %}
+  <div class="dl-empty-message" id="dl-empty">
+    <div class="empty-icon">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+    </div>
+    <p>All caught up — nothing downloading right now.</p>
+  </div>
+  {% endif %}
+
+  <div id="dl-recent-container">
+    {% with recent=recent %}
+    {% include "_dl_recent_grid.html" %}
+    {% endwith %}
+  </div>
+
+  <div style="height:80px;"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var POLL_MS = 2000;
+  var root = document.getElementById('dl-root');
+  var polling = false;
+
+  /* ── DOM helpers ── */
+  function q(sel, ctx) { return (ctx || document).querySelector(sel); }
+  function setText(el, txt) { if (el && el.textContent !== txt) el.textContent = txt; }
+
+  /* Find element by data-dl-id without selector injection */
+  function findByDlId(container, dlId) {
+    if (!container) return null;
+    var els = container.querySelectorAll('[data-dl-id]');
+    for (var i = 0; i < els.length; i++) {
+      if (els[i].getAttribute('data-dl-id') === dlId) return els[i];
+    }
+    return null;
+  }
+
+  /* Find element by data-ep without selector injection */
+  function findByEp(container, label) {
+    if (!container) return null;
+    var rows = container.querySelectorAll('[data-ep]');
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].getAttribute('data-ep') === label) return rows[i];
+    }
+    return null;
+  }
+
+  /* ── State pill text ── */
+  function stateLabel(state) {
+    if (state === 'searching') return 'Looking for the best version';
+    if (state === 'downloading') return 'Downloading';
+    if (state === 'almost_ready') return 'Almost ready';
+    if (state === 'ready') return 'Ready to watch';
+    if (state === 'upcoming') return '';
+    return '';
+  }
+
+  /* ── Update hero card in-place ── */
+  function updateHero(container, item) {
+    if (!item || !container) return;
+    var card = container.querySelector('.dl-hero');
+    if (!card) return;
+
+    /* Update poster backdrop */
+    var bg = q('.dl-hero-bg', card);
+    if (bg && item.poster_url) bg.style.backgroundImage = "url('" + item.poster_url.replace(/'/g, '') + "')";
+
+    /* Update poster img */
+    var posterDiv = q('.dl-hero-poster', card);
+    if (posterDiv && item.poster_url) {
+      var img = posterDiv.querySelector('img');
+      if (img) { if (img.src !== item.poster_url) img.src = item.poster_url; }
+      else {
+        var ph = posterDiv.querySelector('.dl-hero-poster-placeholder');
+        if (ph) posterDiv.removeChild(ph);
+        img = document.createElement('img');
+        img.src = item.poster_url;
+        img.alt = '';
+        posterDiv.appendChild(img);
+      }
+    }
+
+    /* Title */
+    setText(q('.dl-hero-title', card), item.title);
+
+    /* Episode summary */
+    var epSum = q('.dl-hero-ep-summary', card);
+    if (item.episode_summary) {
+      if (!epSum) {
+        epSum = document.createElement('div');
+        epSum.className = 'dl-hero-ep-summary';
+        var info = q('.dl-hero-info', card);
+        var status = q('.dl-hero-status', info);
+        if (info && status) info.insertBefore(epSum, status);
+      }
+      setText(epSum, item.episode_summary);
+    } else if (epSum) {
+      epSum.parentNode.removeChild(epSum);
+    }
+
+    /* State pill */
+    var pill = q('.dl-state-pill', card);
+    if (pill) {
+      pill.className = 'dl-state-pill dl-state-' + item.state;
+      setText(pill, stateLabel(item.state));
+    }
+
+    /* Progress wrap (hide entirely while searching) */
+    var progressWrap = q('[data-v="progress-wrap"]', card);
+    if (progressWrap) progressWrap.style.display = (item.state === 'searching') ? 'none' : '';
+
+    /* Progress bar */
+    var fill = q('[data-v="fill"]', card);
+    if (fill) {
+      fill.style.width = item.progress + '%';
+      fill.className = 'dl-hero-fill' + (item.state === 'almost_ready' ? ' green' : '');
+    }
+
+    /* Progress details */
+    var pct = q('[data-v="pct"]', card);
+    if (pct) setText(pct, item.progress + '%');
+    var sizeDone = q('[data-v="size-done"]', card);
+    if (sizeDone) setText(sizeDone, item.size_done || '');
+    var sizeTotal = q('[data-v="size-total"]', card);
+    if (sizeTotal) setText(sizeTotal, item.size_total || '');
+    var eta = q('[data-v="eta"]', card);
+    if (eta) setText(eta, item.eta || '');
+
+    /* Update episode rows if present */
+    if (item.episodes) {
+      for (var i = 0; i < item.episodes.length; i++) {
+        var ep = item.episodes[i];
+        var epRow = findByEp(card, ep.label);
+        if (!epRow) continue;
+        var epFill = q('[data-v="ep-fill"]', epRow);
+        if (epFill) {
+          epFill.style.width = ep.progress + '%';
+          epFill.className = 'dl-ep-mini-fill' + (ep.state === 'ready' ? ' green' : '');
+        }
+        var epPill = q('.dl-ep-status-pill', epRow);
+        if (epPill) {
+          epPill.className = 'dl-ep-status-pill ' + ep.state;
+          if (ep.state === 'ready') setText(epPill, 'Ready');
+          else if (ep.state === 'downloading') setText(epPill, ep.progress + '%');
+          else if (ep.state === 'queued') setText(epPill, 'Queued');
+          else setText(epPill, 'Searching');
+        }
+      }
+    }
+
+    /* Update data-dl-id if hero changed */
+    if (card.getAttribute('data-dl-id') !== item.id) {
+      card.setAttribute('data-dl-id', item.id);
+    }
+  }
+
+  /* ── Update compact row in-place ── */
+  function updateCompactRow(row, item) {
+    setText(q('.dl-compact-title', row), item.title);
+    var pill = q('.dl-state-pill', row);
+    if (pill) {
+      pill.className = 'dl-state-pill dl-state-' + item.state;
+      pill.style.fontSize = '9px';
+      setText(pill, stateLabel(item.state));
+    }
+    var fill = q('[data-v="fill"]', row);
+    if (fill) {
+      fill.style.width = item.progress + '%';
+      fill.className = 'dl-compact-fill' + (item.state === 'almost_ready' ? ' green' : '');
+    }
+    var pct = q('[data-v="pct"]', row);
+    if (pct) setText(pct, item.progress > 0 ? (item.progress + '%') : '\u2014');
+    var sizeInfo = q('[data-v="size-info"]', row);
+    if (sizeInfo) sizeInfo.style.display = (item.state === 'searching') ? 'none' : '';
+    var sizeDone = q('[data-v="size-done"]', row);
+    if (sizeDone) setText(sizeDone, item.size_done || '');
+    var sizeTotal = q('[data-v="size-total"]', row);
+    if (sizeTotal) setText(sizeTotal, item.size_total || '');
+    var eta = q('[data-v="eta"]', row);
+    if (eta) setText(eta, item.eta || '');
+
+    /* Update episode rows (same shape as hero) */
+    if (item.episodes) {
+      for (var i = 0; i < item.episodes.length; i++) {
+        var ep = item.episodes[i];
+        var epRow = findByEp(row, ep.label);
+        if (!epRow) continue;
+        var epFill = q('[data-v="ep-fill"]', epRow);
+        if (epFill) {
+          epFill.style.width = ep.progress + '%';
+          epFill.className = 'dl-ep-mini-fill' + (ep.state === 'ready' ? ' green' : '');
+        }
+        var epPill = q('.dl-ep-status-pill', epRow);
+        if (epPill) {
+          epPill.className = 'dl-ep-status-pill ' + ep.state;
+          if (ep.state === 'ready') setText(epPill, 'Ready');
+          else if (ep.state === 'downloading') setText(epPill, ep.progress + '%');
+          else if (ep.state === 'queued') setText(epPill, 'Queued');
+          else setText(epPill, 'Searching');
+        }
+      }
+    }
+  }
+
+  /* ── Build a recent item element safely ── */
+  function buildRecentItem(r) {
+    var item = document.createElement('div');
+    item.className = 'dl-recent-item';
+
+    var poster = document.createElement('div');
+    poster.className = 'dl-recent-poster';
+    if (r.poster_url) {
+      var img = document.createElement('img');
+      img.src = r.poster_url;
+      img.alt = '';
+      poster.appendChild(img);
+    }
+    var badge = document.createElement('div');
+    badge.className = 'dl-recent-badge';
+    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', '14');
+    svg.setAttribute('height', '14');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', '#fff');
+    svg.setAttribute('stroke-width', '3');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    var polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    polyline.setAttribute('points', '20 6 9 17 4 12');
+    svg.appendChild(polyline);
+    badge.appendChild(svg);
+    poster.appendChild(badge);
+    item.appendChild(poster);
+
+    var title = document.createElement('div');
+    title.className = 'dl-recent-title';
+    title.textContent = r.title;
+    item.appendChild(title);
+
+    var sub = document.createElement('div');
+    sub.className = 'dl-recent-sub';
+    sub.textContent = 'Ready to watch';
+    item.appendChild(sub);
+
+    return item;
+  }
+
+  /* ── Update recently added grid ── */
+  function updateRecent(container, recent) {
+    if (!container) return;
+    if (!recent || recent.length === 0) {
+      while (container.firstChild) container.removeChild(container.firstChild);
+      return;
+    }
+    /* Rebuild the recent grid using safe DOM methods */
+    var section = document.createElement('div');
+    section.className = 'dl-recent-section';
+    section.id = 'dl-recent';
+
+    var header = document.createElement('div');
+    header.className = 'dl-recent-header';
+    header.textContent = 'Recently added';
+    section.appendChild(header);
+
+    var grid = document.createElement('div');
+    grid.className = 'dl-recent-grid';
+    for (var i = 0; i < recent.length; i++) {
+      grid.appendChild(buildRecentItem(recent[i]));
+    }
+    section.appendChild(grid);
+
+    while (container.firstChild) container.removeChild(container.firstChild);
+    container.appendChild(section);
+  }
+
+  /* ── Build empty state element safely ── */
+  function buildEmptyState() {
+    var el = document.createElement('div');
+    el.className = 'dl-empty-message';
+    el.id = 'dl-empty';
+
+    var icon = document.createElement('div');
+    icon.className = 'empty-icon';
+    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', '28');
+    svg.setAttribute('height', '28');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.5');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4');
+    svg.appendChild(path);
+    var poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    poly.setAttribute('points', '7 10 12 15 17 10');
+    svg.appendChild(poly);
+    var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', '12');
+    line.setAttribute('y1', '15');
+    line.setAttribute('x2', '12');
+    line.setAttribute('y2', '3');
+    svg.appendChild(line);
+    icon.appendChild(svg);
+    el.appendChild(icon);
+
+    var p = document.createElement('p');
+    p.textContent = 'All caught up \u2014 nothing downloading right now.';
+    el.appendChild(p);
+
+    return el;
+  }
+
+  /* ── Build hero placeholder safely ── */
+  function buildHeroPlaceholder(id) {
+    var card = document.createElement('div');
+    card.className = 'dl-hero dl-card-enter';
+    card.setAttribute('data-dl-id', id);
+
+    var bg = document.createElement('div');
+    bg.className = 'dl-hero-bg';
+    card.appendChild(bg);
+
+    var overlay = document.createElement('div');
+    overlay.className = 'dl-hero-overlay';
+    card.appendChild(overlay);
+
+    var content = document.createElement('div');
+    content.className = 'dl-hero-content';
+
+    var poster = document.createElement('div');
+    poster.className = 'dl-hero-poster';
+    content.appendChild(poster);
+
+    var info = document.createElement('div');
+    info.className = 'dl-hero-info';
+
+    var title = document.createElement('div');
+    title.className = 'dl-hero-title';
+    info.appendChild(title);
+
+    var status = document.createElement('div');
+    status.className = 'dl-hero-status';
+    var pill = document.createElement('span');
+    pill.className = 'dl-state-pill';
+    status.appendChild(pill);
+    info.appendChild(status);
+
+    var progress = document.createElement('div');
+    progress.className = 'dl-hero-progress';
+    var bar = document.createElement('div');
+    bar.className = 'dl-hero-bar';
+    var fill = document.createElement('div');
+    fill.className = 'dl-hero-fill';
+    fill.setAttribute('data-v', 'fill');
+    fill.style.width = '0%';
+    bar.appendChild(fill);
+    progress.appendChild(bar);
+
+    var details = document.createElement('div');
+    details.className = 'dl-hero-details';
+    var pctWrap = document.createElement('span');
+    var pct = document.createElement('span');
+    pct.className = 'dl-hero-pct';
+    pct.setAttribute('data-v', 'pct');
+    pct.textContent = '0%';
+    pctWrap.appendChild(pct);
+    details.appendChild(pctWrap);
+    var eta = document.createElement('span');
+    eta.setAttribute('data-v', 'eta');
+    details.appendChild(eta);
+    progress.appendChild(details);
+    info.appendChild(progress);
+
+    content.appendChild(info);
+    card.appendChild(content);
+
+    return card;
+  }
+
+  /* ── Update upcoming row in-place ── */
+  function updateUpcomingRow(row, item) {
+    setText(q('.dl-compact-title', row), item.title);
+    var pill = q('[data-v="release-label"]', row);
+    if (pill) setText(pill, item.release_label || '');
+  }
+
+  /* ── Build upcoming row element ── */
+  function buildUpcomingRow(item) {
+    var row = document.createElement('div');
+    row.className = 'dl-compact-row dl-upcoming-row dl-card-enter';
+    row.setAttribute('data-dl-id', item.id);
+
+    var poster = document.createElement('div');
+    poster.className = 'dl-compact-poster';
+    if (item.poster_url) {
+      var img = document.createElement('img');
+      img.src = item.poster_url;
+      img.alt = '';
+      poster.appendChild(img);
+    }
+    row.appendChild(poster);
+
+    var info = document.createElement('div');
+    info.className = 'dl-compact-info';
+
+    var title = document.createElement('div');
+    title.className = 'dl-compact-title';
+    title.textContent = item.title;
+    info.appendChild(title);
+
+    var meta = document.createElement('div');
+    meta.className = 'dl-compact-meta';
+    var pill = document.createElement('span');
+    pill.className = 'dl-state-pill dl-state-upcoming';
+    pill.setAttribute('data-v', 'release-label');
+    pill.style.fontSize = '9px';
+    pill.textContent = item.release_label || '';
+    meta.appendChild(pill);
+    info.appendChild(meta);
+
+    row.appendChild(info);
+    return row;
+  }
+
+  /* ── Update upcoming list ── */
+  function updateUpcomingList(data) {
+    var container = document.getElementById('dl-upcoming-container');
+    var upcoming = data.upcoming || [];
+
+    if (upcoming.length === 0) {
+      if (container) container.parentNode.removeChild(container);
+      return;
+    }
+
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'dl-upcoming-container';
+      var header = document.createElement('div');
+      header.className = 'dl-compact-header';
+      header.textContent = 'Coming soon';
+      container.appendChild(header);
+      var list = document.createElement('div');
+      list.className = 'dl-compact-list';
+      list.id = 'dl-upcoming-list';
+      container.appendChild(list);
+
+      /* Insert before the recent container */
+      var recent = document.getElementById('dl-recent-container');
+      if (recent && recent.parentNode) {
+        recent.parentNode.insertBefore(container, recent);
+      } else {
+        root.appendChild(container);
+      }
+    }
+
+    var list = document.getElementById('dl-upcoming-list');
+    if (!list) return;
+
+    var activeIds = {};
+    for (var i = 0; i < upcoming.length; i++) {
+      var item = upcoming[i];
+      activeIds[item.id] = true;
+      var row = findByDlId(list, item.id);
+      if (row) {
+        updateUpcomingRow(row, item);
+      } else {
+        list.appendChild(buildUpcomingRow(item));
+      }
+    }
+    /* Remove departed rows */
+    var rows = list.querySelectorAll('.dl-upcoming-row');
+    for (var j = 0; j < rows.length; j++) {
+      var id = rows[j].getAttribute('data-dl-id');
+      if (id && !activeIds[id]) {
+        rows[j].parentNode.removeChild(rows[j]);
+      }
+    }
+  }
+
+  /* ── Main update ── */
+  function update(data) {
+    var heroContainer = document.getElementById('dl-hero-container');
+    var queueContainer = document.getElementById('dl-queue-container');
+    var emptyEl = document.getElementById('dl-empty');
+    var recentContainer = document.getElementById('dl-recent-container');
+    var header = root.querySelector('.page-header');
+    var subtitle = header ? header.querySelector('p') : null;
+
+    var totalActive = (data.hero ? 1 : 0) + (data.queue ? data.queue.length : 0);
+
+    /* Update subtitle */
+    if (subtitle) {
+      if (totalActive > 0) {
+        setText(subtitle, totalActive + ' item' + (totalActive !== 1 ? 's' : '') + ' in progress');
+      } else {
+        setText(subtitle, '');
+      }
+    }
+
+    /* Hero */
+    if (data.hero) {
+      if (!heroContainer) {
+        heroContainer = document.createElement('div');
+        heroContainer.id = 'dl-hero-container';
+        heroContainer.appendChild(buildHeroPlaceholder(data.hero.id));
+        if (header) header.after(heroContainer);
+      }
+      updateHero(heroContainer, data.hero);
+      /* Remove empty state */
+      if (emptyEl) { emptyEl.style.display = 'none'; }
+    } else {
+      if (heroContainer) { while (heroContainer.firstChild) heroContainer.removeChild(heroContainer.firstChild); }
+    }
+
+    /* Queue */
+    if (data.queue && data.queue.length > 0) {
+      if (!queueContainer) {
+        queueContainer = document.createElement('div');
+        queueContainer.id = 'dl-queue-container';
+        var qHeader = document.createElement('div');
+        qHeader.className = 'dl-compact-header';
+        qHeader.textContent = 'Also downloading';
+        queueContainer.appendChild(qHeader);
+        var qList = document.createElement('div');
+        qList.className = 'dl-compact-list';
+        qList.id = 'dl-queue-list';
+        queueContainer.appendChild(qList);
+        var insertAfter = heroContainer || (header ? header : root.firstElementChild);
+        insertAfter.after(queueContainer);
+      }
+      var list = document.getElementById('dl-queue-list');
+      if (list) {
+        /* Track active IDs */
+        var activeIds = {};
+        for (var i = 0; i < data.queue.length; i++) {
+          activeIds[data.queue[i].id] = true;
+          var row = findByDlId(list, data.queue[i].id);
+          if (row) {
+            updateCompactRow(row, data.queue[i]);
+          }
+          /* New items will appear on next full page load — keep it simple */
+        }
+        /* Remove departed rows */
+        var rows = list.querySelectorAll('.dl-compact');
+        for (var j = 0; j < rows.length; j++) {
+          var id = rows[j].getAttribute('data-dl-id');
+          if (id && !activeIds[id]) {
+            rows[j].classList.add('dl-card-exit');
+            (function(el) {
+              el.addEventListener('animationend', function() {
+                if (el.parentNode) el.parentNode.removeChild(el);
+              }, { once: true });
+            })(rows[j]);
+          }
+        }
+      }
+      /* Remove empty state */
+      if (emptyEl) { emptyEl.style.display = 'none'; }
+    } else {
+      if (queueContainer) {
+        while (queueContainer.firstChild) queueContainer.removeChild(queueContainer.firstChild);
+      }
+    }
+
+    /* Empty state */
+    if (!data.hero && (!data.queue || data.queue.length === 0)) {
+      if (!emptyEl) {
+        emptyEl = buildEmptyState();
+        var afterHeader = heroContainer || queueContainer || header;
+        if (afterHeader) afterHeader.after(emptyEl);
+      }
+      emptyEl.style.display = '';
+    }
+
+    /* Upcoming */
+    updateUpcomingList(data);
+
+    /* Recent */
+    updateRecent(recentContainer, data.recent);
+  }
+
+  /* ── Episode toggle ── */
+  document.addEventListener('click', function(e) {
+    var toggle = e.target.closest('[data-v="ep-toggle"]');
+    if (!toggle) return;
+    toggle.classList.toggle('open');
+    var list = toggle.nextElementSibling;
+    if (list && list.getAttribute('data-v') === 'ep-list') {
+      list.style.display = list.style.display === 'none' ? '' : 'none';
+    }
+  });
+
+  /* ── Poll with exponential backoff on failure ── */
+  var consecutiveFailures = 0;
+  var intervalId = null;
+
+  function scheduleNextPoll(ms) {
+    if (intervalId !== null) { clearTimeout(intervalId); }
+    intervalId = setTimeout(function() { intervalId = null; poll(); }, ms);
+  }
+
+  function poll() {
+    if (polling) return;
+    polling = true;
+    fetch('/api/downloads')
+      .then(function(r) {
+        if (r.status === 401 || r.status === 403) {
+          window.location.href = '/login';
+          return;
+        }
+        if (!r.ok) throw new Error(r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        if (data) update(data);
+        consecutiveFailures = 0;
+        scheduleNextPoll(POLL_MS);
+      })
+      .catch(function() {
+        consecutiveFailures += 1;
+        var backoff = Math.min(POLL_MS * Math.pow(2, consecutiveFailures), 30000);
+        scheduleNextPoll(backoff);
+      })
+      .finally(function() { polling = false; });
+  }
+
+  scheduleNextPoll(POLL_MS);
+  document.addEventListener('visibilitychange', function() {
+    if (document.hidden) {
+      if (intervalId !== null) { clearTimeout(intervalId); intervalId = null; }
+    } else if (intervalId === null) {
+      poll();
+    }
+  });
+}());
+</script>
+{% endblock %}

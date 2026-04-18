@@ -1,0 +1,526 @@
+{% extends "base.html" %}
+
+{% block title %}Library · Mediaman{% endblock %}
+
+{% block nav %}{% include "_nav.html" %}{% endblock %}
+
+{% block content %}
+<div class="container container--wide">
+
+  <!-- Page header -->
+  <div class="page-header">
+    <h1>Library</h1>
+    <p>{{ stats.total }} item{{ 's' if stats.total != 1 else '' }} across 3 libraries · {{ stats.total_size }} total</p>
+  </div>
+
+  <!-- Stats bar -->
+  <div class="lib-stats">
+    <a class="lib-stat {% if current_type == 'movie' %}lib-stat-active{% endif %}" href="/library?type=movie">
+      <div class="lib-stat-value">{{ stats.movies }}</div>
+      <div class="lib-stat-label">Movies</div>
+    </a>
+    <a class="lib-stat {% if current_type == 'tv' %}lib-stat-active{% endif %}" href="/library?type=tv">
+      <div class="lib-stat-value">{{ stats.tv }}</div>
+      <div class="lib-stat-label">TV Shows</div>
+    </a>
+    <a class="lib-stat {% if current_type == 'anime' %}lib-stat-active{% endif %}" href="/library?type=anime">
+      <div class="lib-stat-value">{{ stats.anime }}</div>
+      <div class="lib-stat-label">Anime</div>
+    </a>
+    <a class="lib-stat lib-stat-stale {% if current_type == 'stale' %}lib-stat-active{% endif %}" href="/library?type=stale">
+      <div class="lib-stat-value" {% if stats.stale > 0 %}style="color:var(--danger)"{% endif %}>{{ stats.stale }}</div>
+      <div class="lib-stat-label">Stale ({{ stats.stale_min_age }}+ days, unwatched)</div>
+    </a>
+  </div>
+
+  <!-- Toolbar (filter/search via GET form submission) -->
+  <form method="get" action="/library" id="toolbar-form">
+    <div class="toolbar-row">
+      <!-- Search box -->
+      <div class="search-box">
+        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input type="text" name="q" value="{{ q }}" placeholder="Search library..."
+               autocomplete="off" oninput="debounceSubmit()">
+      </div>
+
+      <!-- Type filter pills -->
+      <div class="filter-pills">
+        <button type="submit" name="type" value=""
+          class="filter-pill {% if not current_type %}active{% endif %}">All</button>
+        <button type="submit" name="type" value="movie"
+          class="filter-pill {% if current_type == 'movie' %}active-orange{% endif %}">Movies</button>
+        <button type="submit" name="type" value="tv"
+          class="filter-pill {% if current_type == 'tv' %}active{% endif %}">TV</button>
+        <button type="submit" name="type" value="anime"
+          class="filter-pill {% if current_type == 'anime' %}active-purple{% endif %}">Anime</button>
+        <button type="submit" name="type" value="kept"
+          class="filter-pill {% if current_type == 'kept' %}active-green{% endif %}">Kept</button>
+        <button type="submit" name="type" value="stale"
+          class="filter-pill {% if current_type == 'stale' %}active-red{% endif %}">Stale</button>
+      </div>
+
+      <!-- Hidden sort input updated by column header clicks -->
+      <input type="hidden" name="sort" id="sort-input" value="{{ current_sort }}"  >
+
+      <!-- Preserve page size if changed -->
+      {% if per_page != 20 %}<input type="hidden" name="per_page" value="{{ per_page }}">{% endif %}
+    </div>
+  </form>
+
+  <!-- Library table -->
+  {% if items %}
+  <div class="lib-table">
+    <div class="lib-header">
+      <div></div>
+      <div class="lib-sort-col" onclick="toggleSort('name')">Title {{ '▲' if current_sort == 'name_asc' else ('▼' if current_sort == 'name_desc' else '') }}</div>
+      <div>Type</div>
+      <div class="lib-sort-col" onclick="toggleSort('size')">Size {{ '▼' if current_sort == 'size_desc' else ('▲' if current_sort == 'size_asc' else '') }}</div>
+      <div class="lib-sort-col" onclick="toggleSort('watched')">Last watched {{ '▼' if current_sort == 'watched_desc' else ('▲' if current_sort == 'watched_asc' else '') }}</div>
+      <div>Actions</div>
+    </div>
+
+    {% for item in items %}
+    <div class="lib-row {% if item.protected %}lib-row-protected{% endif %}">
+      <!-- Thumbnail -->
+      <div>
+        {% if item.plex_rating_key %}
+        <img class="lib-thumb" src="/api/poster/{{ item.plex_rating_key }}" alt="{{ item.title }}" loading="lazy">
+        {% else %}
+        <div class="lib-thumb"></div>
+        {% endif %}
+      </div>
+
+      <!-- Title + subtitle + inline mobile meta row -->
+      <div class="lib-title-col">
+        <div class="lib-title">{{ item.title }}</div>
+        <div class="lib-subtitle">
+          {{ item.subtitle }}
+          {% if item.protection_label %}
+          · <span style="color:var(--success)">{{ item.protection_label }}</span>
+          {% endif %}
+        </div>
+        <div class="lib-row-meta">
+          <span class="lib-type-badge {{ item.type_css }}">{{ item.type_label }}</span>
+          <span class="lib-size">{{ item.file_size }}</span>
+          {% if item.last_watched %}<span class="lib-date">· {{ item.last_watched }}</span>{% endif %}
+        </div>
+      </div>
+
+      <!-- Type badge — grid column at bp-md+ (hidden below) -->
+      <div class="lib-type-wrap">
+        <span class="lib-type-badge {{ item.type_css }}">{{ item.type_label }}</span>
+      </div>
+
+      <!-- Size -->
+      <div class="lib-size">{{ item.file_size }}</div>
+
+      <!-- Last watched -->
+      <div class="lib-watch-info">
+        {% if item.last_watched %}
+          <span>{{ item.last_watched }}</span>
+        {% else %}
+          <span class="watchlist-none">Never</span>
+        {% endif %}
+      </div>
+
+      <!-- Actions -->
+      <div class="lib-actions">
+        {% if item.protected %}
+        <div class="keep-wrapper" style="position:relative"
+          data-id="{{ item.id }}" data-tv="{{ item.is_tv | tojson }}"
+          data-show-rk="{{ item.show_rating_key }}" data-show-title="{{ item.show_title_raw | e }}">
+          <button class="btn-sm" style="background:rgba(48,209,88,0.12);color:var(--success);cursor:pointer;"
+            onclick="{% if item.is_tv %}submitKeep(this, 'current');{% else %}removeKeep('{{ item.id }}');{% endif %} return false;">Kept</button>
+        </div>
+        {% else %}
+        <!-- Keep with snooze dropdown -->
+        <div class="keep-wrapper" style="position:relative"
+          data-id="{{ item.id }}" data-tv="{{ item.is_tv | tojson }}"
+          data-show-rk="{{ item.show_rating_key }}" data-show-title="{{ item.show_title_raw | e }}">
+          <button class="btn-sm btn-sm-keep"
+            onclick="submitKeep(this, '30d'); return false;">Keep</button>
+          <div class="snooze-dropdown">
+            <button class="snooze-option"
+              onclick="submitKeep(this, '7d'); return false;">7 days</button>
+            <button class="snooze-option"
+              onclick="submitKeep(this, '30d'); return false;">30 days</button>
+            <button class="snooze-option"
+              onclick="submitKeep(this, '90d'); return false;">90 days</button>
+            <button class="snooze-option forever"
+              onclick="submitKeep(this, 'forever'); return false;">Forever</button>
+          </div>
+        </div>
+        <!-- Delete -->
+        <button class="btn-sm btn-sm-delete"
+          data-id="{{ item.id }}" data-title="{{ item.title }}"
+          onclick="confirmDelete(this.dataset.id, this.dataset.title); return false;">Delete</button>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Pagination -->
+  <div class="pagination">
+    {% if page > 1 %}
+    <a class="page-btn" href="{{ request.url_for('library_page') }}?q={{ q }}&type={{ current_type }}&sort={{ current_sort }}&page={{ page - 1 }}&per_page={{ per_page }}">&lsaquo;</a>
+    {% else %}
+    <button class="page-btn disabled" disabled>&lsaquo;</button>
+    {% endif %}
+
+    {% for p in range(1, total_pages + 1) %}
+    {% if p == page %}
+    <button class="page-btn active">{{ p }}</button>
+    {% elif total_pages <= 7 or (p <= 3 or p >= total_pages - 2 or (p >= page - 1 and p <= page + 1)) %}
+    <a class="page-btn" href="{{ request.url_for('library_page') }}?q={{ q }}&type={{ current_type }}&sort={{ current_sort }}&page={{ p }}&per_page={{ per_page }}">{{ p }}</a>
+    {% elif p == 4 and page > 5 %}
+    <span class="page-btn" style="cursor:default">…</span>
+    {% elif p == total_pages - 3 and page < total_pages - 4 %}
+    <span class="page-btn" style="cursor:default">…</span>
+    {% endif %}
+    {% endfor %}
+
+    <span class="page-info">{{ page_start }}–{{ page_end }} of {{ total }}</span>
+
+    {% if page < total_pages %}
+    <a class="page-btn" href="{{ request.url_for('library_page') }}?q={{ q }}&type={{ current_type }}&sort={{ current_sort }}&page={{ page + 1 }}&per_page={{ per_page }}">&rsaquo;</a>
+    {% else %}
+    <button class="page-btn disabled" disabled>&rsaquo;</button>
+    {% endif %}
+  </div>
+
+  {% else %}
+  <!-- Empty state -->
+  <div class="empty-state">
+    <div class="empty-icon">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.5" stroke-linecap="round">
+        <rect x="2" y="3" width="20" height="14" rx="2"/>
+        <line x1="8" y1="21" x2="16" y2="21"/>
+        <line x1="12" y1="17" x2="12" y2="21"/>
+      </svg>
+    </div>
+    {% if q or current_type %}
+    <div class="empty-title">No results</div>
+    <div class="empty-detail">Try adjusting your search or filters.</div>
+    {% else %}
+    <div class="empty-title">Library is empty</div>
+    <div class="empty-detail">Run a scan to populate your media library.</div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div style="height: 80px"></div>
+</div>
+
+<!-- Delete confirmation modal -->
+<div id="delete-modal" style="display:none; position:fixed; inset:0; z-index:200;
+  background:rgba(0,0,0,0.7); backdrop-filter:blur(4px); align-items:center; justify-content:center;">
+  <div style="background:var(--surface); border-radius:var(--card-radius); padding:32px;
+              max-width:400px; width:90%; text-align:center;">
+    <h3 style="font-size:21px; font-weight:600; margin-bottom:10px;">Delete item?</h3>
+    <p id="delete-modal-title" style="color:var(--text-secondary); font-size:15px; margin-bottom:28px;"></p>
+    <div style="display:flex; gap:12px; justify-content:center;">
+      <button class="btn btn-ghost" onclick="closeDeleteModal()">Cancel</button>
+      <button id="delete-confirm-btn" class="btn btn-danger">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- TV Show Keep Dialog -->
+<div class="keep-dialog-overlay" id="keep-dialog-overlay" onclick="closeKeepDialog()">
+  <div class="keep-dialog" onclick="event.stopPropagation()">
+    <h3 id="keep-dialog-title">Keep Show</h3>
+    <div class="keep-duration-bar" id="keep-duration-bar">
+      <button class="keep-dur-btn" data-dur="7 days" onclick="selectDuration(this)">7 days</button>
+      <button class="keep-dur-btn" data-dur="30 days" onclick="selectDuration(this)">30 days</button>
+      <button class="keep-dur-btn" data-dur="90 days" onclick="selectDuration(this)">90 days</button>
+      <button class="keep-dur-btn" data-dur="forever" onclick="selectDuration(this)">Forever</button>
+    </div>
+    <div class="keep-season-list" id="keep-season-list"></div>
+    <div class="keep-dialog-actions">
+      <button class="btn-cancel" id="keep-dialog-remove" onclick="removeAllKeeps()" style="display:none;border-color:rgba(255,69,58,0.3);color:#ff453a;">Remove All Keeps</button>
+      <div style="flex:1"></div>
+      <button class="btn-cancel" onclick="closeKeepDialog()">Cancel</button>
+      <button class="btn-keep" id="keep-dialog-confirm" onclick="confirmKeepDialog()">Update</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  /**
+   * Submit a keep/snooze request for a media item.
+   * For TV seasons (showRk truthy), opens the season-picker dialog.
+   * For movies, submits directly and reloads.
+   */
+  var _keepDialogState = { showRk: '', showTitle: '', seasonId: '', duration: '30 days' };
+
+  function submitKeep(btn, duration) {
+    var wrapper = btn.closest('.keep-wrapper');
+    var mediaId = wrapper.dataset.id;
+    var isTv = wrapper.dataset.tv === 'true';
+    var showRk = wrapper.dataset.showRk || '';
+    var showTitle = wrapper.dataset.showTitle || '';
+
+    if (!isTv) {
+      // Movie — submit directly
+      var body = new URLSearchParams({ duration: duration });
+      fetch('/api/media/' + encodeURIComponent(mediaId) + '/keep', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      }).then(function (r) {
+        if (r.ok) window.location.reload();
+        else r.json().then(function (d) { alert('Keep failed: ' + (d.error || r.status)); });
+      });
+      return;
+    }
+    // TV season — open dialog
+    var durMap = { '7d': '7 days', '30d': '30 days', '90d': '90 days', 'forever': 'forever', 'current': null };
+    _keepDialogState.showRk = showRk;
+    _keepDialogState.showTitle = showTitle;
+    _keepDialogState.seasonId = mediaId;
+    _keepDialogState.duration = durMap[duration] || '30 days';
+    openKeepDialog();
+  }
+
+  function openKeepDialog() {
+    var overlay = document.getElementById('keep-dialog-overlay');
+    overlay.classList.add('active');
+    if (_keepDialogState.duration) {
+      selectDurationByValue(_keepDialogState.duration);
+    }
+    var list = document.getElementById('keep-season-list');
+    list.textContent = 'Loading\u2026';
+    var rk = _keepDialogState.showRk || '_by_title';
+    var url = '/api/show/' + encodeURIComponent(rk) + '/seasons';
+    if (!_keepDialogState.showRk && _keepDialogState.showTitle) {
+      url += '?title=' + encodeURIComponent(_keepDialogState.showTitle);
+    }
+    document.getElementById('keep-dialog-remove').style.display = 'none';
+    document.getElementById('keep-dialog-confirm').textContent = 'Keep';
+    fetch(url)
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        document.getElementById('keep-dialog-title').textContent = 'Keep ' + (data.show_title || _keepDialogState.showTitle || 'Show');
+        var hasKeeps = data.show_kept || data.seasons.some(function (s) { return s.kept; });
+        document.getElementById('keep-dialog-remove').style.display = hasKeeps ? '' : 'none';
+        if (hasKeeps) document.getElementById('keep-dialog-confirm').textContent = 'Update';
+        // If duration is null ('current' mode), read it from the show keep or default to forever
+        if (!_keepDialogState.duration && data.show_kept && data.show_kept.snooze_duration) {
+          _keepDialogState.duration = data.show_kept.snooze_duration;
+          selectDurationByValue(_keepDialogState.duration);
+        } else if (!_keepDialogState.duration) {
+          _keepDialogState.duration = 'forever';
+          selectDurationByValue('forever');
+        }
+        renderSeasonPicker(data.seasons, data.show_kept);
+      })
+      .catch(function () { list.textContent = 'Failed to load seasons'; });
+  }
+
+  function closeKeepDialog() {
+    document.getElementById('keep-dialog-overlay').classList.remove('active');
+  }
+
+  function selectDuration(btn) {
+    document.querySelectorAll('.keep-dur-btn').forEach(function (b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    _keepDialogState.duration = btn.dataset.dur;
+  }
+
+  function selectDurationByValue(dur) {
+    document.querySelectorAll('.keep-dur-btn').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.dur === dur);
+    });
+  }
+
+  function renderSeasonPicker(seasons, showKept) {
+    var list = document.getElementById('keep-season-list');
+    while (list.firstChild) list.removeChild(list.firstChild);
+
+    // "All seasons" checkbox
+    var allRow = document.createElement('div');
+    allRow.className = 'keep-season-item keep-all-row';
+    var allCb = document.createElement('input');
+    allCb.type = 'checkbox'; allCb.id = 'keep-all-seasons';
+    var anyKept = showKept || seasons.some(function (s) { return s.kept; });
+    allCb.checked = !!showKept || !anyKept;
+    allCb.addEventListener('change', function () {
+      list.querySelectorAll('input[data-season-id]').forEach(function (cb) { cb.checked = allCb.checked; });
+    });
+    var allLabel = document.createElement('label');
+    allLabel.htmlFor = 'keep-all-seasons';
+    allLabel.textContent = 'All seasons';
+    allRow.appendChild(allCb);
+    allRow.appendChild(allLabel);
+    list.appendChild(allRow);
+
+    seasons.forEach(function (s) {
+      var row = document.createElement('div');
+      row.className = 'keep-season-item';
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.id = 'keep-season-' + s.id;
+      cb.dataset.seasonId = s.id;
+      // Pre-tick: if kept, or for fresh keeps (no existing keeps) default all on
+      cb.checked = s.kept || !anyKept;
+      var label = document.createElement('label');
+      label.htmlFor = 'keep-season-' + s.id;
+      label.textContent = 'Season ' + s.season_number;
+      row.appendChild(cb);
+      row.appendChild(label);
+
+      // Season details: size + last watched
+      var details = document.createElement('span');
+      details.style.cssText = 'font-size:12px;color:rgba(255,255,255,0.35);letter-spacing:-0.12px;margin-left:auto;white-space:nowrap;';
+      var parts = [];
+      if (s.file_size) parts.push(s.file_size);
+      if (s.last_watched) parts.push('watched ' + s.last_watched);
+      else parts.push('never watched');
+      details.textContent = parts.join(' · ');
+      row.appendChild(details);
+
+      if (s.kept) {
+        var badge = document.createElement('span');
+        badge.className = 'kept-badge';
+        badge.textContent = 'Kept';
+        row.appendChild(badge);
+      }
+      list.appendChild(row);
+    });
+  }
+
+  function confirmKeepDialog() {
+    var allChecked = document.getElementById('keep-all-seasons').checked;
+    var selectedIds = [];
+    document.querySelectorAll('#keep-season-list input[data-season-id]:checked').forEach(function (cb) {
+      selectedIds.push(cb.dataset.seasonId);
+    });
+
+    if (selectedIds.length === 0 && !allChecked) {
+      alert('Select at least one season');
+      return;
+    }
+
+    var btn = document.getElementById('keep-dialog-confirm');
+    btn.disabled = true;
+    btn.textContent = 'Keeping\u2026';
+
+    if (allChecked) {
+      if (selectedIds.length === 0) {
+        document.querySelectorAll('#keep-season-list input[data-season-id]').forEach(function (cb) {
+          selectedIds.push(cb.dataset.seasonId);
+        });
+      }
+      fetch('/api/show/' + encodeURIComponent(_keepDialogState.showRk) + '/keep', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ duration: _keepDialogState.duration, season_ids: selectedIds }),
+      }).then(function (r) {
+        if (r.ok) window.location.reload();
+        else r.json().then(function (d) { alert('Error: ' + (d.error || 'Unknown')); btn.disabled = false; btn.textContent = 'Keep'; });
+      });
+    } else {
+      var durMap = { '7 days': '7d', '30 days': '30d', '90 days': '90d', 'forever': 'forever' };
+      var dur = durMap[_keepDialogState.duration] || '30d';
+      var promises = selectedIds.map(function (sid) {
+        return fetch('/api/media/' + encodeURIComponent(sid) + '/keep', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ duration: dur }).toString(),
+        });
+      });
+      Promise.all(promises).then(function () { window.location.reload(); });
+    }
+  }
+
+  function removeAllKeeps() {
+    if (!confirm('Remove all keeps for this show? Seasons may be scheduled for deletion on the next scan.')) return;
+    var promises = [];
+    // Remove show-level keep if exists
+    var rk = _keepDialogState.showRk;
+    if (rk) {
+      promises.push(fetch('/api/show/' + encodeURIComponent(rk) + '/remove', { method: 'POST' }));
+    }
+    // Remove individual season keeps
+    document.querySelectorAll('#keep-season-list input[data-season-id]').forEach(function (cb) {
+      promises.push(fetch('/api/media/' + encodeURIComponent(cb.dataset.seasonId) + '/unprotect', { method: 'POST' }));
+    });
+    Promise.all(promises).then(function () { window.location.reload(); });
+  }
+
+  /**
+   * Show the delete confirmation modal.
+   */
+  let _pendingDeleteId = null;
+  function confirmDelete(mediaId, title) {
+    _pendingDeleteId = mediaId;
+    document.getElementById('delete-modal-title').textContent =
+      'Delete "' + title + '"? This cannot be undone.';
+    const modal = document.getElementById('delete-modal');
+    modal.style.display = 'flex';
+    document.getElementById('delete-confirm-btn').onclick = function() {
+      if (!_pendingDeleteId) return;
+      fetch('/api/media/' + encodeURIComponent(_pendingDeleteId) + '/delete', {
+        method: 'POST',
+      }).then(r => {
+        if (r.ok) window.location.reload();
+        else r.json().then(d => alert('Delete failed: ' + (d.error || r.status)));
+      });
+      closeDeleteModal();
+    };
+  }
+
+  function closeDeleteModal() {
+    _pendingDeleteId = null;
+    document.getElementById('delete-modal').style.display = 'none';
+  }
+
+  function removeKeep(mediaId) {
+    fetch('/api/media/' + encodeURIComponent(mediaId) + '/unprotect', {
+      method: 'POST',
+    }).then(function(r) {
+      if (r.ok) window.location.reload();
+    });
+  }
+
+  // Close modal on backdrop click
+  document.getElementById('delete-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeDeleteModal();
+  });
+
+  /**
+   * Column header sort — toggles between asc/desc for the clicked column.
+   */
+  function toggleSort(col) {
+    var input = document.getElementById('sort-input');
+    var current = input.value;
+    var sortMap = {
+      name:    { default: 'name_asc',    asc: 'name_asc',    desc: 'name_desc' },
+      size:    { default: 'size_desc',   asc: 'size_asc',    desc: 'size_desc' },
+      watched: { default: 'watched_desc', asc: 'watched_asc', desc: 'watched_desc' },
+    };
+    var m = sortMap[col];
+    if (!m) return;
+    if (current === m.asc) input.value = m.desc;
+    else if (current === m.desc) input.value = m.asc;
+    else input.value = m.default;
+    document.getElementById('toolbar-form').submit();
+  }
+
+  /**
+   * Debounced search — submits the form 400ms after the user stops typing.
+   */
+  let _searchTimer = null;
+  function debounceSubmit() {
+    clearTimeout(_searchTimer);
+    _searchTimer = setTimeout(function() {
+      document.getElementById('toolbar-form').submit();
+    }, 400);
+  }
+</script>
+{% endblock %}

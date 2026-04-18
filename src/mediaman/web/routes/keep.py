@@ -1,0 +1,166 @@
+"""Public keep page — token-authenticated snooze for scheduled deletions."""
+
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Form, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+
+from mediaman.auth.middleware import get_optional_admin
+from mediaman.config import load_config
+from mediaman.crypto import validate_keep_token
+from mediaman.db import get_db
+
+router = APIRouter()
+
+
+def _lookup_verified_action(conn, token: str, secret_key: str):
+    """Validate the keep-token HMAC, then look up its scheduled action.
+
+    Returns the matching ``scheduled_actions`` row joined with the
+    ``media_items`` row, or ``None`` for any failure (bad signature,
+    expired token, token/payload mismatch, row absent). Rejecting on
+    signature first stops forged tokens reaching the DB lookup at all.
+    """
+    payload = validate_keep_token(token, secret_key)
+    if payload is None:
+        return None
+
+    row = conn.execute(
+        "SELECT sa.*, mi.title, mi.media_type, mi.poster_path, mi.file_size_bytes, "
+        "mi.plex_rating_key, mi.added_at, mi.show_title, mi.season_number "
+        "FROM scheduled_actions sa "
+        "JOIN media_items mi ON sa.media_item_id = mi.id "
+        "WHERE sa.token = ?",
+        (token,),
+    ).fetchone()
+
+    if row is None:
+        return None
+
+    # The signed payload must reference the same scheduled action as the
+    # DB row. Reject any mismatch — a token that validates but points at a
+    # different action is tampered and must not be honoured.
+    if (
+        str(payload.get("media_item_id")) != str(row["media_item_id"])
+        or int(payload.get("action_id", -1)) != int(row["id"])
+    ):
+        return None
+
+    return row
+
+
+@router.get("/keep/{token}", response_class=HTMLResponse)
+def keep_page(request: Request, token: str):
+    """Render the keep page. Three states: active, already-kept, expired."""
+    conn = get_db()
+    templates = request.app.state.templates
+    config = load_config()
+
+    row = _lookup_verified_action(conn, token, config.secret_key)
+
+    if row is None:
+        return templates.TemplateResponse(request, "keep.html", {
+            "state": "expired",
+            "item": None,
+            "is_admin": False,
+        })
+
+    # Determine state
+    now = datetime.now(timezone.utc)
+    execute_at = datetime.fromisoformat(row["execute_at"]) if row["execute_at"] else now
+    if execute_at.tzinfo is None:
+        execute_at = execute_at.replace(tzinfo=timezone.utc)
+
+    if execute_at < now:
+        state = "expired"
+    elif row["token_used"]:
+        state = "already_kept"
+    else:
+        state = "active"
+
+    # Format added_at for display (e.g. "14 May 2025")
+    item_dict = dict(row)
+    raw_added = item_dict.get("added_at") or ""
+    try:
+        added_dt = datetime.fromisoformat(str(raw_added))
+        item_dict["added_display"] = added_dt.strftime("%-d %B %Y")
+    except (ValueError, TypeError):
+        item_dict["added_display"] = raw_added[:10] if raw_added else ""
+
+    # Check if admin is logged in
+    is_admin = get_optional_admin(request.cookies.get("session_token")) is not None
+
+    # Compute "days left" server-side in the scheduled action's timezone
+    # (UTC). Doing this in the template via ``execute_at.today()`` fails
+    # because ``today()`` is tz-naive and jitters across midnight.
+    days_left = (execute_at.date() - now.date()).days
+
+    return templates.TemplateResponse(request, "keep.html", {
+        "state": state,
+        "item": item_dict,
+        "token": token,
+        "is_admin": is_admin,
+        "execute_at": execute_at,
+        "days_left": days_left,
+    })
+
+
+@router.post("/keep/{token}", response_class=HTMLResponse)
+def keep_submit(request: Request, token: str, duration: str = Form(...)):
+    """Apply a snooze via the keep page.
+
+    The UPDATE filters on ``token_used = 0`` and inspects ``rowcount`` so
+    two concurrent POSTs for the same token cannot both succeed. The
+    SELECT before the update is only used for the audit_log join and
+    admin/duration validation.
+    """
+    conn = get_db()
+    config = load_config()
+
+    # Reject unknown durations early
+    if duration not in {"7 days", "30 days", "90 days", "forever"}:
+        return RedirectResponse(f"/keep/{token}", status_code=302)
+
+    # HMAC-verify the token and confirm it maps to an existing, unused action.
+    verified = _lookup_verified_action(conn, token, config.secret_key)
+    if verified is None or verified["token_used"]:
+        return RedirectResponse(f"/keep/{token}", status_code=302)
+
+    row = verified
+
+    # Only admins can use "forever"
+    is_admin = get_optional_admin(request.cookies.get("session_token")) is not None
+    if duration == "forever" and not is_admin:
+        return RedirectResponse(f"/keep/{token}", status_code=302)
+
+    now = datetime.now(timezone.utc)
+
+    if duration == "forever":
+        cursor = conn.execute(
+            "UPDATE scheduled_actions SET action='protected_forever', token_used=1, "
+            "snoozed_at=?, snooze_duration=? WHERE token=? AND token_used=0",
+            (now.isoformat(), "forever", token),
+        )
+    else:
+        days = {"7 days": 7, "30 days": 30, "90 days": 90}[duration]
+        new_execute = now + timedelta(days=days)
+        cursor = conn.execute(
+            "UPDATE scheduled_actions SET action='snoozed', token_used=1, "
+            "execute_at=?, snoozed_at=?, snooze_duration=? WHERE token=? AND token_used=0",
+            (new_execute.isoformat(), now.isoformat(), duration, token),
+        )
+
+    if cursor.rowcount == 0:
+        # Lost the race with a concurrent keep — treat as already-kept.
+        conn.commit()
+        return RedirectResponse(f"/keep/{token}", status_code=302)
+
+    # Audit log only fires for the winning request
+    conn.execute(
+        "INSERT INTO audit_log (media_item_id, action, detail, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        (row["media_item_id"], "snoozed", f"Kept for {duration}", now.isoformat()),
+    )
+    conn.commit()
+
+    return RedirectResponse(f"/keep/{token}", status_code=302)

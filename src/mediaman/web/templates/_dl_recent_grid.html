@@ -1,0 +1,24 @@
+{# Recently added grid — horizontal scrollable poster cards.
+   Context: recent (list of dicts with id, title, media_type, poster_url, completed_at)
+#}
+{% if recent %}
+<div class="dl-recent-section" id="dl-recent">
+  <div class="dl-recent-header">Recently added</div>
+  <div class="dl-recent-grid">
+    {% for item in recent %}
+    <div class="dl-recent-item">
+      <div class="dl-recent-poster">
+        {% if item.poster_url %}
+        <img src="{{ item.poster_url }}" alt="">
+        {% endif %}
+        <div class="dl-recent-badge">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+      </div>
+      <div class="dl-recent-title">{{ item.title }}</div>
+      <div class="dl-recent-sub">Ready to watch</div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}

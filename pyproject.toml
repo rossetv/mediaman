@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mediaman"
+version = "0.1.0"
+description = "Self-hosted media lifecycle management for Plex, with scanner, newsletter, and admin web UI."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "mediaman contributors", email = "glowingshark6393@rosset.ie" },
+]
+keywords = ["plex", "sonarr", "radarr", "nzbget", "media-management", "self-hosted"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi~=0.115",
+    "uvicorn[standard]~=0.34",
+    "jinja2~=3.1",
+    "plexapi~=4.15",
+    "requests~=2.32",
+    "apscheduler~=3.10",
+    "bcrypt~=4.2",
+    "cryptography~=44.0",
+    "python-multipart~=0.0.18",
+    "aiosqlite~=0.21",
+    "defusedxml~=0.7",
+]
+
+[project.urls]
+# Leave these as placeholders for the maintainer to fill in after the repo is created.
+# Homepage = "https://github.com/OWNER/mediaman"
+# Repository = "https://github.com/OWNER/mediaman"
+# Issues = "https://github.com/OWNER/mediaman/issues"
+
+[project.scripts]
+mediaman = "mediaman.main:cli_main"
+mediaman-create-user = "mediaman.auth.cli:create_user_cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mediaman = ["web/templates/**/*.html", "web/static/**/*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = [
+    "unit: Unit tests (fast, no I/O)",
+    "integration: Integration tests (module boundaries)",
+]
+addopts = "-q --tb=short"

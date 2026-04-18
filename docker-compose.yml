@@ -1,0 +1,16 @@
+# Minimal example compose file. Customise the media volume path and TZ for your environment.
+services:
+  mediaman:
+    build: .
+    image: mediaman:latest
+    container_name: mediaman
+    environment:
+      - MEDIAMAN_SECRET_KEY=${MEDIAMAN_SECRET_KEY}
+      - MEDIAMAN_PORT=8282
+      - TZ=${TZ:-UTC}
+    volumes:
+      - ./data:/data
+      - /path/to/your/media:/media:rw  # replace with the path to your media root
+    ports:
+      - 8282:8282
+    restart: unless-stopped

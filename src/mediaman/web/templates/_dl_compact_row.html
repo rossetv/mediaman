@@ -1,0 +1,66 @@
+{# Compact row — small poster, title, progress, ETA.
+   Context: item (same dict shape as hero card)
+#}
+<div class="dl-compact dl-card-enter" data-dl-id="{{ item.id }}">
+  <div class="dl-compact-row">
+    <div class="dl-compact-poster">
+      {% if item.poster_url %}
+      <img src="{{ item.poster_url }}" alt="">
+      {% endif %}
+    </div>
+    <div class="dl-compact-info">
+      <div class="dl-compact-title">{{ item.title }}</div>
+      <div class="dl-compact-meta">
+        <span class="dl-state-pill dl-state-{{ item.state }}" data-v="pill" style="font-size:9px;">
+          {% if item.state == 'searching' %}Looking for the best version
+          {% elif item.state == 'downloading' %}Downloading
+          {% elif item.state == 'almost_ready' %}Almost ready
+          {% elif item.state == 'ready' %}Ready to watch
+          {% endif %}
+        </span>
+        <span data-v="size-info"{% if item.state == 'searching' %} style="display:none;"{% endif %}>
+           · <span data-v="size-done">{{ item.size_done or '' }}</span> of <span data-v="size-total">{{ item.size_total or '' }}</span>
+        </span>
+        {% if item.episodes %} · {{ item.episodes|length }} episode{{ 's' if item.episodes|length != 1 else '' }}{% endif %}
+      </div>
+      <div class="dl-compact-bar">
+        <div class="dl-compact-fill {% if item.state == 'almost_ready' %}green{% endif %}" data-v="fill" style="width:{{ item.progress }}%;"></div>
+      </div>
+    </div>
+    <div class="dl-compact-right">
+      {% if item.progress > 0 %}
+      <div class="dl-compact-pct" data-v="pct">{{ item.progress }}%</div>
+      {% else %}
+      <div class="dl-compact-pct" style="color:rgba(255,255,255,0.25);">—</div>
+      {% endif %}
+      {% if item.eta %}<div class="dl-compact-eta" data-v="eta">{{ item.eta }}</div>{% endif %}
+    </div>
+  </div>
+
+  {% if item.episodes %}
+  <div class="dl-compact-episodes-toggle" data-v="ep-toggle">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+    <span>{{ item.episodes|length }} episode{{ 's' if item.episodes|length != 1 else '' }}{% if item.has_pack %} · pack download{% endif %}</span>
+  </div>
+  <div class="dl-compact-episodes" data-v="ep-list" style="display:none;">
+    {% for ep in item.episodes %}
+    <div class="dl-ep-row{% if ep.is_pack_episode %} dl-ep-row-pack{% endif %}" data-ep="{{ ep.label }}">
+      <span class="dl-ep-number">{{ ep.label }}</span>
+      <span class="dl-ep-title">{{ ep.title }}</span>
+      {% if ep.is_pack_episode %}
+      <span class="dl-ep-status-pill downloading">In pack</span>
+      {% else %}
+      <div class="dl-ep-mini-bar"><div class="dl-ep-mini-fill {% if ep.state == 'ready' %}green{% endif %}" data-v="ep-fill" style="width:{{ ep.progress }}%;"></div></div>
+      <span class="dl-ep-status-pill {{ ep.state }}">
+        {% if ep.state == 'ready' %}Ready
+        {% elif ep.state == 'downloading' %}{{ ep.progress }}%
+        {% elif ep.state == 'queued' %}Queued
+        {% else %}Searching
+        {% endif %}
+      </span>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>

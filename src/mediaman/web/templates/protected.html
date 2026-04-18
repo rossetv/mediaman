@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block title %}Kept Items · Mediaman{% endblock %}
+
+{% block nav %}{% include "_nav.html" %}{% endblock %}
+
+{% block content %}
+<div class="container container--wide">
+
+  <div class="page-header">
+    <h1>Kept Items</h1>
+    <p>Items shielded from automatic deletion</p>
+  </div>
+
+  <!-- Kept Shows -->
+  <div class="section">
+    <div class="section-header">
+      <h2 class="section-title">Kept Shows</h2>
+      {% if show_items %}
+      <span class="section-subtitle">{{ show_items | length }} show{{ 's' if show_items | length != 1 }}</span>
+      {% endif %}
+    </div>
+
+    {% if show_items %}
+    <div class="cards-grid">
+      {% for item in show_items %}
+      <div class="media-card">
+        <div class="media-card-poster">
+          {% if item.plex_rating_key %}
+          <img src="/api/poster/{{ item.plex_rating_key }}" alt="{{ item.show_title }}" loading="lazy">
+          {% endif %}
+          <span class="media-badge" style="background:rgba(100,210,255,0.2);color:#64d2ff;">SHOW</span>
+          <span class="protection-badge{% if item.action != 'protected_forever' %} snoozed-badge{% endif %}">{{ item.expiry }}</span>
+        </div>
+        <div class="media-card-body">
+          <div class="media-card-title">{{ item.show_title }}</div>
+          <div class="media-card-meta">
+            <span>All seasons (including future)</span>
+          </div>
+          <div class="media-card-footer">
+            <button class="btn btn-danger"
+              onclick="removeShowKeep('{{ item.show_rating_key }}')">Remove</button>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-icon">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-tertiary)">
+          <rect x="2" y="7" width="20" height="15" rx="2"/><polyline points="17 2 12 7 7 2"/>
+        </svg>
+      </div>
+      <div class="empty-title">No shows kept</div>
+      <div class="empty-detail">Keep an entire show from the Library page to protect all seasons.</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Forever protected -->
+  <div class="section">
+    <div class="section-header">
+      <h2 class="section-title">Kept Forever</h2>
+      {% if forever_items %}
+      <span class="section-subtitle">{{ forever_items | length }} item{{ 's' if forever_items | length != 1 }}</span>
+      {% endif %}
+    </div>
+
+    {% if forever_items %}
+    <div class="cards-grid">
+      {% for item in forever_items %}
+      <div class="media-card">
+        <div class="media-card-poster">
+          {% if item.plex_rating_key %}
+          <img src="/api/poster/{{ item.plex_rating_key }}" alt="{{ item.title }}" loading="lazy">
+          {% endif %}
+          <span class="media-badge {{ item.badge_class }}">{{ item.type_label }}</span>
+          <span class="protection-badge">Forever</span>
+        </div>
+        <div class="media-card-body">
+          <div class="media-card-title">{{ item.title }}</div>
+          <div class="media-card-meta">
+            <span>Protected permanently</span>
+          </div>
+          <div class="media-card-footer">
+            <button class="btn btn-danger"
+              onclick="removeKeep('{{ item.media_item_id }}')">Remove</button>
+            <span class="file-size">{{ item.file_size }}</span>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-icon">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-tertiary)">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+      </div>
+      <div class="empty-title">Nothing kept forever</div>
+      <div class="empty-detail">Items marked 'Forever' on the keep page will appear here.</div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Timed snooze -->
+  <div class="section">
+    <div class="section-header">
+      <h2 class="section-title">Timed Snooze</h2>
+      {% if snoozed_items %}
+      <span class="section-subtitle">{{ snoozed_items | length }} item{{ 's' if snoozed_items | length != 1 }}</span>
+      {% endif %}
+    </div>
+
+    {% if snoozed_items %}
+    <div class="cards-grid">
+      {% for item in snoozed_items %}
+      <div class="media-card">
+        <div class="media-card-poster">
+          {% if item.plex_rating_key %}
+          <img src="/api/poster/{{ item.plex_rating_key }}" alt="{{ item.title }}" loading="lazy">
+          {% endif %}
+          <span class="media-badge {{ item.badge_class }}">{{ item.type_label }}</span>
+          <span class="protection-badge snoozed-badge">{{ item.expiry }}</span>
+        </div>
+        <div class="media-card-body">
+          <div class="media-card-title">{{ item.title }}</div>
+          <div class="media-card-meta">
+            <span>{{ item.expiry }}</span>
+          </div>
+          <div class="media-card-footer">
+            <button class="btn btn-danger"
+              onclick="removeKeep('{{ item.media_item_id }}')">Remove</button>
+            <span class="file-size">{{ item.file_size }}</span>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-icon">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+             stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-tertiary)">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12 6 12 12 16 14"/>
+        </svg>
+      </div>
+      <div class="empty-title">No active snoozes</div>
+      <div class="empty-detail">Items snoozed via the keep page will appear here until their timer expires.</div>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<script>
+  /**
+   * Remove a keep from a media item, then reload the page.
+   */
+  function removeKeep(mediaItemId) {
+    if (!confirm('Remove keep? This item may be scheduled for deletion again.')) return;
+    fetch('/api/media/' + encodeURIComponent(mediaItemId) + '/unprotect', { method: 'POST' })
+      .then(r => {
+        if (r.ok) {
+          window.location.reload();
+        } else {
+          r.json().then(d => alert('Error: ' + (d.error || 'Unknown error')));
+        }
+      })
+      .catch(() => alert('Request failed'));
+  }
+
+  /**
+   * Remove a show-level keep rule, then reload the page.
+   * Individual season keeps are not affected.
+   */
+  function removeShowKeep(showRatingKey) {
+    if (!confirm('Remove show-level keep? Individual season keeps are not affected.')) return;
+    fetch('/api/show/' + encodeURIComponent(showRatingKey) + '/remove', { method: 'POST' })
+      .then(function (r) {
+        if (r.ok) window.location.reload();
+        else r.json().then(function (d) { alert('Error: ' + (d.error || 'Unknown error')); });
+      })
+      .catch(function () { alert('Request failed'); });
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,321 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard · Mediaman{% endblock %}
+
+{% block nav %}{% include "_nav.html" %}{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  <!-- Page header -->
+  <div class="page-header">
+    <h1>Dashboard</h1>
+    <p>Welcome back, {{ username }}</p>
+    <div style="margin-top:16px; display:flex; flex-wrap:wrap; align-items:center; gap:14px;">
+      <button id="scan-btn" onclick="triggerScan(this)"
+        style="padding:10px 28px;border-radius:980px;border:1px solid rgba(41,151,255,0.3);background:transparent;color:#2997ff;font-size:14px;font-weight:600;font-family:inherit;cursor:pointer;letter-spacing:-0.224px;transition:all 0.3s;">
+        Scan Now
+      </button>
+      <span id="scan-status" style="font-size:13px;color:rgba(255,255,255,0.4);letter-spacing:-0.224px;"></span>
+    </div>
+  </div>
+
+  <style>
+    @keyframes scan-pulse {
+      0%, 100% { border-color: rgba(41,151,255,0.3); box-shadow: 0 0 0 0 rgba(41,151,255,0); }
+      50% { border-color: rgba(41,151,255,0.6); box-shadow: 0 0 12px 0 rgba(41,151,255,0.15); }
+    }
+    .scan-running {
+      animation: scan-pulse 1.5s ease-in-out infinite;
+      color: #2997ff !important;
+      opacity: 1 !important;
+    }
+    @keyframes scan-dot {
+      0%, 80%, 100% { opacity: 0; }
+      40% { opacity: 1; }
+    }
+    .scan-dots span {
+      animation: scan-dot 1.4s infinite;
+      font-weight: 600;
+    }
+    .scan-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .scan-dots span:nth-child(3) { animation-delay: 0.4s; }
+  </style>
+
+  <script>
+  var _scanElapsed = 0;
+
+  function triggerScan(btn) {
+    btn.disabled = true;
+    btn.classList.add('scan-running');
+    btn.textContent = 'Scanning';
+    _scanElapsed = 0;
+    updateScanStatus('Starting scan\u2026');
+
+    fetch('/api/scan/trigger', { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.status === 'already_running') {
+          updateScanStatus('Scan already in progress');
+        }
+        pollScanStatus(btn);
+      })
+      .catch(function () {
+        btn.textContent = 'Scan failed';
+        btn.classList.remove('scan-running');
+        btn.disabled = false;
+        updateScanStatus('');
+      });
+  }
+
+  function updateScanStatus(msg) {
+    var el = document.getElementById('scan-status');
+    el.textContent = '';
+    if (!msg) return;
+    el.appendChild(document.createTextNode(msg + ' '));
+    var dots = document.createElement('span');
+    dots.className = 'scan-dots';
+    for (var i = 0; i < 3; i++) {
+      var d = document.createElement('span');
+      d.textContent = '\u00b7';
+      dots.appendChild(d);
+    }
+    el.appendChild(dots);
+  }
+
+  function fmtElapsed(sec) {
+    if (sec < 60) return sec + 's';
+    return Math.floor(sec / 60) + 'm ' + (sec % 60) + 's';
+  }
+
+  function pollScanStatus(btn) {
+    setTimeout(function check() {
+      _scanElapsed += 3;
+      fetch('/api/scan/status')
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.running) {
+            updateScanStatus('Scanning libraries \u2014 ' + fmtElapsed(_scanElapsed));
+            setTimeout(check, 3000);
+          } else {
+            btn.classList.remove('scan-running');
+            btn.textContent = 'Scan complete \u2713';
+            btn.style.color = '#30d158';
+            btn.style.borderColor = 'rgba(48,209,88,0.3)';
+            var statusEl = document.getElementById('scan-status');
+            statusEl.textContent = 'Finished in ' + fmtElapsed(_scanElapsed) + ' \u2014 reloading\u2026';
+            statusEl.style.color = '#30d158';
+            setTimeout(function () { window.location.reload(); }, 1500);
+          }
+        });
+    }, 3000);
+  }
+
+  function redownload(btn, title) {
+    btn.disabled = true;
+    btn.textContent = 'Adding\u2026';
+    fetch('/api/media/redownload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: title }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.ok) {
+          btn.textContent = 'Queued \u2713';
+          btn.style.background = 'rgba(48,209,88,0.12)';
+          btn.style.color = '#30d158';
+          btn.style.borderColor = 'rgba(48,209,88,0.3)';
+        } else {
+          btn.textContent = data.error && data.error.length < 30 ? data.error : 'Failed';
+          btn.style.color = '#ff453a';
+          btn.disabled = false;
+        }
+      })
+      .catch(function () {
+        btn.textContent = 'Error';
+        btn.style.color = '#ff453a';
+        btn.disabled = false;
+      });
+  }
+
+  function clearScheduled(btn) {
+    if (!confirm('Clear all scheduled deletions? Items will be re-evaluated on next scan.')) return;
+    btn.disabled = true;
+    btn.textContent = 'Clearing\u2026';
+    fetch('/api/scan/clear-scheduled', { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.ok) {
+          btn.textContent = 'Cleared ' + data.cleared;
+          btn.style.color = '#30d158';
+          btn.style.borderColor = 'rgba(48,209,88,0.3)';
+          setTimeout(function () { window.location.reload(); }, 1000);
+        }
+      });
+  }
+  </script>
+
+  <!-- Storage section -->
+  <div class="section">
+    <div class="section-header">
+      <h2 class="section-title">Storage</h2>
+    </div>
+    <div class="storage-bar-container">
+      <div class="storage-headline">
+        <div class="storage-used">
+          {{ storage.used }} <small>of {{ storage.total }} used</small>
+        </div>
+        <div class="storage-avail">{{ storage.free }} available</div>
+      </div>
+      <div class="storage-bar">
+        {% if storage.movies_pct > 0 %}
+        <div class="segment movies" style="width: {{ storage.movies_pct }}%"></div>
+        {% endif %}
+        {% if storage.tv_pct > 0 %}
+        <div class="segment tv" style="width: {{ storage.tv_pct }}%"></div>
+        {% endif %}
+        {% if storage.anime_pct > 0 %}
+        <div class="segment anime" style="width: {{ storage.anime_pct }}%"></div>
+        {% endif %}
+        {% if storage.other_pct > 0 %}
+        <div class="segment other" style="width: {{ storage.other_pct }}%"></div>
+        {% endif %}
+      </div>
+      <div class="storage-legend">
+        <div class="legend-item">
+          <div class="legend-dot" style="background: #ff9f0a"></div>
+          Movies <span class="size">{{ storage.movies_label }} ({{ storage.movies_pct }}%)</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background: #2997ff"></div>
+          TV Shows <span class="size">{{ storage.tv_label }} ({{ storage.tv_pct }}%)</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background: #bf5af2"></div>
+          Anime <span class="size">{{ storage.anime_label }} ({{ storage.anime_pct }}%)</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-dot" style="background: rgba(255,255,255,0.12)"></div>
+          Other <span class="size">{{ storage.other_label }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scheduled for deletion -->
+  <div class="section">
+    <div class="section-header" style="flex-wrap:wrap;gap:8px;">
+      <h2 class="section-title">Scheduled for Deletion</h2>
+      {% if scheduled_count > 0 %}
+      <span class="section-subtitle">{{ scheduled_count }} item{{ 's' if scheduled_count != 1 }} · {{ scheduled_size }} to reclaim</span>
+      <button onclick="clearScheduled(this)" style="margin-left:auto;padding:6px 16px;border-radius:8px;border:1px solid rgba(255,69,58,0.25);background:transparent;color:rgba(255,69,58,0.8);font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;letter-spacing:-0.12px;">Clear All</button>
+      {% endif %}
+    </div>
+
+    {% if scheduled_items %}
+    <div class="cards-grid">
+      {% for item in scheduled_items %}
+      <div class="media-card">
+        <div class="media-card-poster">
+          {% if item.plex_rating_key %}
+          <img src="/api/poster/{{ item.plex_rating_key }}" alt="{{ item.title }}" loading="lazy">
+          {% endif %}
+          <span class="media-badge {{ item.badge_class }}">{{ item.type_label }}</span>
+          {% if item.countdown %}
+          <span class="countdown-badge">{{ item.countdown }}</span>
+          {% endif %}
+        </div>
+        <div class="media-card-body">
+          <div class="media-card-title">{{ item.title }}</div>
+          <div class="media-card-meta">
+            <span>Added {{ item.added_ago }}</span>
+          </div>
+          <div class="media-card-footer">
+            <div class="keep-wrapper">
+              <form method="post" action="/api/media/{{ item.media_item_id }}/keep" style="display:inline">
+                <input type="hidden" name="duration" value="7d">
+                <button type="submit" class="btn btn-keep">Keep</button>
+              </form>
+              <div class="snooze-dropdown">
+                <button class="snooze-option"
+                  onclick="submitKeep('{{ item.media_item_id }}', '7d'); return false;">7 days</button>
+                <button class="snooze-option"
+                  onclick="submitKeep('{{ item.media_item_id }}', '30d'); return false;">30 days</button>
+                <button class="snooze-option"
+                  onclick="submitKeep('{{ item.media_item_id }}', '90d'); return false;">90 days</button>
+                <button class="snooze-option forever"
+                  onclick="submitKeep('{{ item.media_item_id }}', 'forever'); return false;">Forever</button>
+              </div>
+            </div>
+            <span class="file-size">{{ item.file_size }}</span>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div style="text-align:center; padding: 48px 0; color: var(--text-tertiary); font-size: 17px;">
+      Nothing scheduled for deletion.
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Recently deleted -->
+  <div class="section">
+    <div class="section-header">
+      <h2 class="section-title">Recently Deleted</h2>
+      {% if reclaimed_total != '0 B' %}
+      <span class="section-subtitle">{{ reclaimed_total }} reclaimed total</span>
+      {% endif %}
+    </div>
+
+    {% if recently_deleted %}
+    <div class="deleted-list">
+      {% for item in recently_deleted %}
+      <div class="deleted-item">
+        {% if item.poster_url %}
+        <img class="deleted-thumb"
+          src="{{ item.poster_url }}"
+          alt="{{ item.title }}"
+          loading="lazy">
+        {% else %}
+        <div class="deleted-thumb"></div>
+        {% endif %}
+        <div class="deleted-info">
+          <div class="deleted-title">{{ item.title }}</div>
+          <div class="deleted-meta">Deleted {{ item.deleted_ago }}</div>
+        </div>
+        <span class="deleted-size">{{ item.reclaimed }}</span>
+        <button class="btn btn-success" data-title="{{ item.title }}"
+                onclick="redownload(this, this.dataset.title); return false;">Re-download</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div style="text-align:center; padding: 48px 0; color: var(--text-tertiary); font-size: 17px;">
+      No deletion history yet.
+    </div>
+    {% endif %}
+  </div>
+
+  <div style="height: 80px"></div>
+</div>
+
+<script>
+  /**
+   * Submit a keep request with the chosen snooze duration via fetch,
+   * then reload to reflect the updated state.
+   */
+  function submitKeep(mediaItemId, duration) {
+    const body = new URLSearchParams({ duration });
+    fetch('/api/media/' + encodeURIComponent(mediaItemId) + '/keep', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    }).then(() => window.location.reload());
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,716 @@
+"""Guest download route — token-authenticated download/re-download confirmations.
+
+Three endpoints:
+- GET  /download/{token}          — confirmation page (confirm | expired)
+- POST /download/{token}          — trigger download via Radarr/Sonarr, returns JSON
+- GET  /api/download/status       — poll download progress (query: service, tmdb_id)
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from urllib.parse import quote as _url_quote
+
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+
+from mediaman.auth.middleware import get_optional_admin
+from mediaman.crypto import validate_download_token
+from mediaman.db import get_db
+from mediaman.services.download_format import (
+    _build_episode_summary,
+    _build_item,
+    _fmt_bytes,
+    _map_arr_status,
+    _map_episode_state,
+)
+
+logger = logging.getLogger("mediaman")
+
+router = APIRouter()
+
+
+def _format_timeleft(timeleft: str) -> str:
+    """Convert HH:MM:SS timeleft string to a human-readable eta string.
+
+    Returns an empty string if the input is missing or malformed.
+    """
+    if not timeleft:
+        return ""
+    parts = timeleft.split(":")
+    if len(parts) != 3:
+        return ""
+    try:
+        hours, mins, secs = int(parts[0]), int(parts[1]), int(parts[2])
+    except ValueError:
+        return ""
+    if hours > 0:
+        return f"~{hours} hr {mins:02d} min remaining"
+    if mins > 0:
+        return f"~{mins} min remaining"
+    return f"~{secs} sec remaining"
+
+
+from mediaman.services.arr_build import (
+    build_radarr_from_db as _build_radarr,
+    build_sonarr_from_db as _build_sonarr,
+)
+from mediaman.services.settings_reader import get_string_setting as _get_setting_str
+
+
+def _get_setting(conn, key: str, secret_key: str) -> str:
+    """Backwards-compatible wrapper kept for in-file callers."""
+    return _get_setting_str(conn, key, secret_key=secret_key)
+
+
+def _enrich_redownload_item(item: dict, conn, secret_key: str) -> None:
+    """Enrich a re-download item with rich metadata for the cinematic layout.
+
+    First checks the recommendations cache (fast, no API calls).
+    Falls back to TMDB + OMDB APIs if no recommendation record exists.
+    """
+    title = item.get("title", "")
+    media_type = item.get("media_type", "movie")
+
+    # 1. Try the recommendations cache — item was likely a recommendation originally
+    row = conn.execute(
+        "SELECT poster_url, year, description, reason, rating, rt_rating, "
+        "tagline, runtime, genres, cast_json, director, trailer_key, "
+        "imdb_rating, metascore, tmdb_id "
+        "FROM suggestions WHERE title = ? AND media_type = ? "
+        "ORDER BY created_at DESC LIMIT 1",
+        (title, media_type),
+    ).fetchone()
+
+    if row and row["poster_url"]:
+        item.update({
+            "poster_url":  row["poster_url"],
+            "year":        row["year"],
+            "description": row["description"],
+            "reason":      row["reason"],
+            "rating":      row["rating"],
+            "rt_rating":   row["rt_rating"],
+            "tagline":     row["tagline"],
+            "runtime":     row["runtime"],
+            "genres":      row["genres"],
+            "cast_json":   row["cast_json"],
+            "director":    row["director"],
+            "trailer_key": row["trailer_key"],
+            "imdb_rating": row["imdb_rating"],
+            "metascore":   row["metascore"],
+        })
+        if row["tmdb_id"] and not item.get("tmdb_id"):
+            item["tmdb_id"] = row["tmdb_id"]
+        return
+
+    # 2. Fall back to TMDB + OMDB APIs
+    _fetch_tmdb_for_item(item, conn, secret_key)
+
+
+def _fetch_tmdb_for_item(item: dict, conn, secret_key: str) -> None:
+    """Fetch TMDB search + details + OMDB ratings for a single item.
+
+    Thin wrapper around :class:`services.tmdb.TmdbClient` — fills gaps on
+    the item dict in place. On any client-level failure (missing token,
+    network error, no results) the item is left unchanged.
+    """
+    from mediaman.services.omdb import fetch_ratings
+    from mediaman.services.tmdb import TmdbClient
+
+    # Preserve the 5s timeout this code path used before consolidation —
+    # the guest download page is interactive and should stay snappy.
+    client = TmdbClient.from_db(conn, secret_key, timeout=5.0)
+    title = item["title"]
+    media_type = item.get("media_type", "movie")
+
+    if client is not None:
+        # Search → populate tmdb_id / year / description / rating / poster
+        tmdb_id = item.get("tmdb_id")
+        if not tmdb_id:
+            best = client.search(title, media_type=media_type)
+            if best:
+                card = TmdbClient.shape_card(best)
+                tmdb_id = card["tmdb_id"]
+                item["tmdb_id"] = tmdb_id
+                if card["year"]:
+                    item["year"] = card["year"]
+                item["description"] = card["description"]
+                if card["rating"]:
+                    item["rating"] = card["rating"]
+                if card["poster_url"]:
+                    item["poster_url"] = card["poster_url"]
+
+        # Details → tagline/runtime/genres/cast/director/trailer + fill gaps
+        if tmdb_id:
+            data = client.details(media_type, tmdb_id)
+            if data:
+                detail = TmdbClient.shape_detail(data, media_type=media_type)
+                item["tagline"] = detail["tagline"]
+                item["runtime"] = detail["runtime"]
+                if detail["genres"]:
+                    item["genres"] = detail["genres"]
+                if detail["director"]:
+                    item["director"] = detail["director"]
+                if detail["cast_json"]:
+                    item["cast_json"] = detail["cast_json"]
+                if detail["trailer_key"]:
+                    item["trailer_key"] = detail["trailer_key"]
+
+                # Fill gaps from details payload (search may have returned
+                # nothing, or the caller supplied only a tmdb_id)
+                card = TmdbClient.shape_card(data)
+                if not item.get("poster_url") and card["poster_url"]:
+                    item["poster_url"] = card["poster_url"]
+                if not item.get("year") and card["year"]:
+                    item["year"] = card["year"]
+                if not item.get("description"):
+                    item["description"] = card["description"]
+                if not item.get("rating") and card["rating"]:
+                    item["rating"] = card["rating"]
+
+    # OMDB ratings
+    ratings = fetch_ratings(title, item.get("year"), media_type, conn, secret_key)
+    if "rt" in ratings:
+        item["rt_rating"] = ratings["rt"]
+    if "imdb" in ratings:
+        item["imdb_rating"] = ratings["imdb"]
+    if "metascore" in ratings:
+        item["metascore"] = ratings["metascore"]
+
+
+@router.get("/download/{token}", response_class=HTMLResponse)
+def download_page(request: Request, token: str):
+    """Render the download confirmation page.
+
+    State is one of:
+    - ``"expired"``  — token is invalid, tampered, or past its TTL
+    - ``"confirm"``  — valid token; show item details and a confirm button
+    """
+    config = request.app.state.config
+    templates = request.app.state.templates
+    conn = get_db()
+
+    payload = validate_download_token(token, config.secret_key)
+    if payload is None:
+        return templates.TemplateResponse(request, "download.html", {
+            "state": "expired",
+            "item": None,
+        })
+
+    item: dict = {
+        "title":       payload.get("title", ""),
+        "media_type":  payload.get("mt", ""),
+        "tmdb_id":     payload.get("tmdb"),
+        "email":       payload.get("email", ""),
+        "action":      payload.get("act", "download"),
+        "poster_url":  None,
+        "year":        None,
+        "description": None,
+        "reason":      None,
+        "rating":      None,
+        "rt_rating":   None,
+        "tagline":     None,
+        "runtime":     None,
+        "genres":      None,
+        "cast_json":   None,
+        "director":    None,
+        "trailer_key": None,
+        "imdb_rating": None,
+        "metascore":   None,
+        "genres_list": [],
+        "cast_list":   [],
+    }
+
+    sid = payload.get("sid")
+    if sid:
+        # Recommendation download — enrich from recommendations cache
+        row = conn.execute(
+            "SELECT poster_url, year, description, reason, rating, rt_rating, "
+            "tagline, runtime, genres, cast_json, director, trailer_key, imdb_rating, metascore "
+            "FROM suggestions WHERE id = ?",
+            (sid,),
+        ).fetchone()
+        if row:
+            item.update({
+                "poster_url":  row["poster_url"],
+                "year":        row["year"],
+                "description": row["description"],
+                "reason":      row["reason"],
+                "rating":      row["rating"],
+                "rt_rating":   row["rt_rating"],
+                "tagline":     row["tagline"],
+                "runtime":     row["runtime"],
+                "genres":      row["genres"],
+                "cast_json":   row["cast_json"],
+                "director":    row["director"],
+                "trailer_key": row["trailer_key"],
+                "imdb_rating": row["imdb_rating"],
+                "metascore":   row["metascore"],
+            })
+    elif payload.get("act") == "redownload":
+        # Re-download — enrich with recommendation data or TMDB lookup
+        _enrich_redownload_item(item, conn, config.secret_key)
+
+    # Parse JSON fields into lists for the template
+    if item.get("genres"):
+        try:
+            item["genres_list"] = json.loads(item["genres"])
+        except (json.JSONDecodeError, TypeError):
+            item["genres_list"] = []
+    if item.get("cast_json"):
+        try:
+            item["cast_list"] = json.loads(item["cast_json"])
+        except (json.JSONDecodeError, TypeError):
+            item["cast_list"] = []
+
+    # Check if item is already in Radarr/Sonarr so we can show the right state
+    item["download_state"] = None  # None = show download button
+    tmdb_id = payload.get("tmdb")
+    if tmdb_id and payload.get("mt") == "movie":
+        try:
+            client = _build_radarr(conn, config.secret_key)
+            if client:
+                movie = client.get_movie_by_tmdb(tmdb_id)
+                if movie:
+                    if movie.get("hasFile"):
+                        item["download_state"] = "in_library"
+                    else:
+                        item["download_state"] = "queued"
+        except Exception:
+            pass
+    elif tmdb_id:
+        try:
+            client = _build_sonarr(conn, config.secret_key)
+            if client:
+                for s in client.get_series():
+                    if s.get("tmdbId") == tmdb_id:
+                        stats = s.get("statistics") or {}
+                        if stats.get("episodeFileCount", 0) > 0:
+                            item["download_state"] = "in_library"
+                        else:
+                            item["download_state"] = "queued"
+                        break
+        except Exception:
+            pass
+
+    # When the item is already queued, build a hero_item for the shared
+    # hero card partial so the progress section can be server-rendered.
+    hero_item = None
+    if item["download_state"] == "queued":
+        service = "radarr" if item["media_type"] == "movie" else "sonarr"
+        hero_item = _build_item(
+            dl_id=f"{service}:{item['title']}",
+            title=item["title"],
+            media_type=item["media_type"],
+            poster_url=item.get("poster_url") or "",
+            state="searching",
+            progress=0,
+            eta="",
+            size_done="",
+            size_total="",
+        )
+
+    return templates.TemplateResponse(request, "download.html", {
+        "state": "confirm",
+        "item":  item,
+        "token": token,
+        "hero_item": hero_item,
+    })
+
+
+@router.post("/download/{token}")
+def download_submit(request: Request, token: str):
+    """Trigger a download via Radarr or Sonarr.
+
+    Returns JSON: ``{"ok": true, "message": "...", "service": "radarr"|"sonarr", "tmdb_id": N}``
+    or ``{"ok": false, "error": "..."}`` on failure.
+    Returns HTTP 410 if the token is expired or invalid.
+    """
+    config = request.app.state.config
+    conn = get_db()
+
+    payload = validate_download_token(token, config.secret_key)
+    if payload is None:
+        return JSONResponse({"ok": False, "error": "Token expired or invalid"}, status_code=410)
+
+    title     = payload.get("title", "")
+    media_type = payload.get("mt", "")
+    tmdb_id   = payload.get("tmdb")
+    email     = payload.get("email", "")
+    action    = payload.get("act", "download")
+
+    is_redownload = action == "redownload"
+    audit_action  = "re_downloaded" if is_redownload else "downloaded"
+    audit_detail  = (
+        f"Re-downloaded by {email}" if is_redownload
+        else f"Downloaded '{title}' by {email}"
+    )
+
+    try:
+        if media_type == "movie":
+            client = _build_radarr(conn, config.secret_key)
+            if not client:
+                return JSONResponse({"ok": False, "error": "Radarr not configured"})
+
+            if not tmdb_id:
+                # Re-download: look up by title
+                lookup = client._get(f"/api/v3/movie/lookup?term={_url_quote(title)}")
+                if not lookup:
+                    return JSONResponse({"ok": False, "error": f"'{title}' not found in Radarr"})
+                tmdb_id = lookup[0].get("tmdbId")
+
+            client.add_movie(tmdb_id, title)
+            logger.info("Download token: added movie '%s' (tmdb:%s) to Radarr for %s", title, tmdb_id, email)
+
+            _insert_audit(conn, title, audit_action, audit_detail)
+            _insert_download_notification(conn, email=email, title=title, media_type="movie", tmdb_id=tmdb_id, service="radarr")
+
+            return JSONResponse({
+                "ok":      True,
+                "message": f"Added '{title}' to Radarr — download starting shortly",
+                "service": "radarr",
+                "tmdb_id": tmdb_id,
+            })
+
+        else:
+            # TV series — need TVDB ID via Sonarr lookup
+            client = _build_sonarr(conn, config.secret_key)
+            if not client:
+                return JSONResponse({"ok": False, "error": "Sonarr not configured"})
+
+            if tmdb_id:
+                results = client._get(f"/api/v3/series/lookup?term=tmdb:{tmdb_id}")
+            else:
+                results = client._get(f"/api/v3/series/lookup?term={_url_quote(title)}")
+            if not results:
+                return JSONResponse({"ok": False, "error": "Series not found in Sonarr lookup"})
+            tvdb_id = results[0].get("tvdbId")
+            if not tvdb_id:
+                return JSONResponse({"ok": False, "error": "No TVDB ID found for this series"})
+
+            client.add_series(tvdb_id, title)
+            logger.info("Download token: added series '%s' (tvdb:%s) to Sonarr for %s", title, tvdb_id, email)
+
+            _insert_audit(conn, title, audit_action, audit_detail)
+            _insert_download_notification(conn, email=email, title=title, media_type="tv", tmdb_id=tmdb_id, service="sonarr")
+
+            return JSONResponse({
+                "ok":      True,
+                "message": f"Added '{title}' to Sonarr — download starting shortly",
+                "service": "sonarr",
+                "tmdb_id": tmdb_id,
+            })
+
+    except Exception as exc:
+        error_msg = str(exc)
+        if "already" in error_msg.lower() or "exists" in error_msg.lower():
+            service = "Radarr" if media_type == "movie" else "Sonarr"
+            return JSONResponse({
+                "ok":      False,
+                "error":   f"'{title}' already exists in your {service} library",
+            })
+        logger.warning("Download token submit failed for '%s': %s", title, exc)
+        return JSONResponse({"ok": False, "error": "Download request failed — check service connectivity"})
+
+
+def _insert_audit(conn, title: str, action: str, detail: str) -> None:
+    """Insert an audit log entry for a token-triggered download."""
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "INSERT INTO audit_log (media_item_id, action, detail, created_at) VALUES (?, ?, ?, ?)",
+        (title, action, detail, now),
+    )
+    conn.commit()
+
+
+def _insert_download_notification(
+    conn,
+    *,
+    email: str,
+    title: str,
+    media_type: str,
+    tmdb_id: int | None,
+    service: str,
+) -> None:
+    """Insert a pending download notification record.
+
+    The notification is sent by the library sync job once the item has a file
+    in Radarr/Sonarr — i.e. when it's actually available to watch.
+    """
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "INSERT INTO download_notifications "
+        "(email, title, media_type, tmdb_id, service, notified, created_at) "
+        "VALUES (?, ?, ?, ?, ?, 0, ?)",
+        (email, title, media_type, tmdb_id, service, now),
+    )
+    conn.commit()
+
+
+def _unknown_item() -> dict:
+    """Return the minimal item shape for an unknown/error state."""
+    return _build_item(
+        dl_id="", title="", media_type="movie", poster_url="",
+        state="unknown", progress=0, eta="", size_done="", size_total="",
+    )
+
+
+@router.get("/api/download/status")
+def download_status(
+    request: Request,
+    service: str,
+    tmdb_id: int,
+    token: str | None = None,
+    admin: str | None = Depends(get_optional_admin),
+):
+    """Poll the download progress for a recently-requested item.
+
+    Query parameters:
+    - ``service``  — ``"radarr"`` or ``"sonarr"``
+    - ``tmdb_id``  — integer TMDB ID
+
+    Returns JSON using the simplified item shape: ``state``, ``progress``,
+    ``eta``, ``size_done``, ``size_total``, ``episodes``, etc.
+    State values: ``"ready"``, ``"downloading"``, ``"almost_ready"``,
+    ``"searching"``, or ``"unknown"``.
+
+    Authentication: accepts either a valid admin session cookie or a valid
+    download ``token`` query parameter (for guest access from the download page).
+    """
+    config = request.app.state.config
+
+    # Require either an admin session or a valid download token bound to
+    # the item being queried. Without the binding check a user with any
+    # valid download token could poll the queue state of arbitrary items.
+    if not admin:
+        payload = validate_download_token(token, config.secret_key) if token else None
+        if payload is None:
+            return JSONResponse({"error": "Not authenticated"}, status_code=401)
+        payload_tmdb = payload.get("tmdb")
+        payload_mt = payload.get("mt")
+        want_service = "sonarr" if payload_mt in ("tv", "anime") else "radarr"
+        if payload_tmdb != tmdb_id or service != want_service:
+            return JSONResponse({"error": "Token not valid for this item"}, status_code=403)
+
+    conn = get_db()
+
+    try:
+        if service == "radarr":
+            client = _build_radarr(conn, config.secret_key)
+            if not client:
+                return JSONResponse(_unknown_item())
+
+            # Check if the file is already present
+            movie = client.get_movie_by_tmdb(tmdb_id)
+            if movie and movie.get("hasFile"):
+                title = movie.get("title", "")
+                poster_url = ""
+                for img in movie.get("images") or []:
+                    if img.get("coverType") == "poster" and img.get("remoteUrl"):
+                        poster_url = img["remoteUrl"]
+                        break
+                return JSONResponse(_build_item(
+                    dl_id=f"radarr:{title}", title=title, media_type="movie",
+                    poster_url=poster_url, state="ready", progress=100,
+                    eta="", size_done="", size_total="",
+                ))
+
+            # Check the download queue for progress info
+            queue = client.get_queue()
+            for item in queue:
+                item_movie = item.get("movie") or {}
+                if item_movie.get("tmdbId") == tmdb_id:
+                    size_left  = item.get("sizeleft", 0)
+                    size_total = item.get("size", 0)
+                    progress   = (
+                        round((1 - size_left / size_total) * 100)
+                        if size_total > 0 else 0
+                    )
+                    state = _map_arr_status(
+                        item.get("status") or "",
+                        item.get("trackedDownloadState") or "",
+                    )
+                    eta = _format_timeleft(item.get("timeleft", ""))
+                    if state == "almost_ready":
+                        eta = "Post-processing\u2026"
+                    title = item_movie.get("title", "")
+                    poster_url = ""
+                    for img in item_movie.get("images") or []:
+                        if img.get("coverType") == "poster" and img.get("remoteUrl"):
+                            poster_url = img["remoteUrl"]
+                            break
+                    return JSONResponse(_build_item(
+                        dl_id=f"radarr:{title}", title=title,
+                        media_type="movie", poster_url=poster_url,
+                        state=state, progress=progress, eta=eta,
+                        size_done=_fmt_bytes(size_total - size_left),
+                        size_total=_fmt_bytes(size_total),
+                    ))
+
+            # Check recent_downloads — the movie may have completed already
+            title = (movie or {}).get("title", "")
+            if title:
+                recent = conn.execute(
+                    "SELECT dl_id, title, poster_url FROM recent_downloads WHERE dl_id = ?",
+                    (f"radarr:{title}",),
+                ).fetchone()
+                if recent:
+                    return JSONResponse(_build_item(
+                        dl_id=recent["dl_id"], title=recent["title"],
+                        media_type="movie", poster_url=recent["poster_url"] or "",
+                        state="ready", progress=100,
+                        eta="", size_done="", size_total="",
+                    ))
+
+            # Movie exists in Radarr but nothing in the queue — still searching
+            return JSONResponse(_build_item(
+                dl_id=f"radarr:{title}" if title else "", title=title,
+                media_type="movie", poster_url="", state="searching",
+                progress=0, eta="", size_done="", size_total="",
+            ))
+
+        elif service == "sonarr":
+            client = _build_sonarr(conn, config.secret_key)
+            if not client:
+                return JSONResponse(_unknown_item())
+
+            # Check the download queue and group episodes for this series
+            queue = client.get_queue()
+            series_title = ""
+            series_poster = ""
+            ep_entries: list[dict] = []
+
+            for item in queue:
+                item_series = item.get("series") or {}
+                if item_series.get("tmdbId") != tmdb_id:
+                    continue
+
+                if not series_title:
+                    series_title = item_series.get("title", "")
+                if not series_poster:
+                    for img in item_series.get("images") or []:
+                        if img.get("coverType") == "poster" and img.get("remoteUrl"):
+                            series_poster = img["remoteUrl"]
+                            break
+
+                episode = item.get("episode") or {}
+                size = item.get("size") or 0
+                sizeleft = item.get("sizeleft") or 0
+                ep_progress = round((1 - sizeleft / max(size, 1)) * 100) if size else 0
+                season_num = episode.get("seasonNumber")
+                ep_num = episode.get("episodeNumber")
+                ep_label = ""
+                if season_num is not None:
+                    ep_label = f"S{season_num:02d}"
+                    if ep_num is not None:
+                        ep_label += f"E{ep_num:02d}"
+
+                ep_entries.append({
+                    "label": ep_label,
+                    "title": episode.get("title", ""),
+                    "progress": ep_progress,
+                    "size": size,
+                    "sizeleft": sizeleft,
+                    "status": item.get("status") or "",
+                    "tracked_state": item.get("trackedDownloadState") or "",
+                    "timeleft": item.get("timeleft", ""),
+                })
+
+            if ep_entries:
+                ep_entries.sort(key=lambda e: e["label"])
+                # Build the episodes list for the response
+                episodes = [
+                    {
+                        "label": e["label"],
+                        "title": e["title"],
+                        "state": _map_episode_state(e),
+                        "progress": e["progress"],
+                    }
+                    for e in ep_entries
+                ]
+                total_size = sum(e["size"] for e in ep_entries)
+                total_left = sum(e["sizeleft"] for e in ep_entries)
+                overall_progress = (
+                    round((1 - total_left / max(total_size, 1)) * 100) if total_size else 0
+                )
+                # Aggregate state: pick the most advanced status
+                raw_statuses = [e["status"] for e in ep_entries]
+                raw_tracked = [e["tracked_state"] for e in ep_entries]
+                combined_status = next(
+                    (s for s in raw_statuses if s.lower() in ("downloading", "completed")),
+                    raw_statuses[0] if raw_statuses else "",
+                )
+                combined_tracked = next(
+                    (s for s in raw_tracked if s.lower() in ("downloading", "importing", "importpending")),
+                    raw_tracked[0] if raw_tracked else "",
+                )
+                state = _map_arr_status(combined_status, combined_tracked)
+                # ETA from the episode with the most timeleft
+                eta = _format_timeleft(
+                    max((e["timeleft"] for e in ep_entries if e["timeleft"]), default="")
+                )
+                if state == "almost_ready":
+                    eta = "Post-processing\u2026"
+                episode_summary = _build_episode_summary(episodes)
+                return JSONResponse(_build_item(
+                    dl_id=f"sonarr:{series_title}", title=series_title,
+                    media_type="series", poster_url=series_poster,
+                    state=state, progress=overall_progress, eta=eta,
+                    size_done=_fmt_bytes(total_size - total_left),
+                    size_total=_fmt_bytes(total_size),
+                    episodes=episodes, episode_summary=episode_summary,
+                ))
+
+            # Nothing in queue — check if series has any files already
+            all_series = client.get_series()
+            matched = next(
+                (s for s in all_series if s.get("tmdbId") == tmdb_id),
+                None,
+            )
+            if matched:
+                stats = matched.get("statistics") or {}
+                s_title = matched.get("title", "")
+                if stats.get("episodeFileCount", 0) > 0:
+                    return JSONResponse(_build_item(
+                        dl_id=f"sonarr:{s_title}", title=s_title,
+                        media_type="series", poster_url="", state="ready",
+                        progress=100, eta="", size_done="", size_total="",
+                    ))
+
+                # Check recent_downloads before falling through to "searching"
+                recent = conn.execute(
+                    "SELECT dl_id, title, poster_url FROM recent_downloads WHERE dl_id = ?",
+                    (f"sonarr:{s_title}",),
+                ).fetchone()
+                if recent:
+                    return JSONResponse(_build_item(
+                        dl_id=recent["dl_id"], title=recent["title"],
+                        media_type="series", poster_url=recent["poster_url"] or "",
+                        state="ready", progress=100,
+                        eta="", size_done="", size_total="",
+                    ))
+
+                # Series in Sonarr but no episodes downloading or downloaded
+                return JSONResponse(_build_item(
+                    dl_id=f"sonarr:{s_title}", title=s_title,
+                    media_type="series", poster_url="", state="searching",
+                    progress=0, eta="", size_done="", size_total="",
+                ))
+
+            return JSONResponse(_build_item(
+                dl_id="", title="", media_type="series", poster_url="",
+                state="searching", progress=0, eta="", size_done="",
+                size_total="",
+            ))
+
+        else:
+            return JSONResponse(_unknown_item())
+
+    except Exception as exc:
+        logger.warning("download_status error (service=%s tmdb_id=%s): %s", service, tmdb_id, exc)
+        return JSONResponse(_unknown_item())

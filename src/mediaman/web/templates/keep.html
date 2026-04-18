@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+
+{% block title %}
+  {% if state == "active" %}Keep · {{ item.title }} · Mediaman
+  {% elif state == "already_kept" %}Protected · {{ item.title }} · Mediaman
+  {% else %}Expired · Mediaman
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="keep-page">
+
+  {# Minimal centred nav — no admin links #}
+  <nav class="keep-nav">
+    <a class="nav-brand" href="/">media<span>man</span></a>
+  </nav>
+
+  <div class="keep-container">
+
+    {# ============================================================
+       STATE: ACTIVE — item is scheduled for deletion
+       ============================================================ #}
+    {% if state == "active" %}
+
+      <div class="status-pill status-scheduled">
+        <div class="status-dot dot-danger"></div>
+        Scheduled for deletion
+      </div>
+
+      <div class="poster-container">
+        {% if item.plex_rating_key %}
+          <img src="/api/poster/{{ item.plex_rating_key }}" alt="{{ item.title }}">
+        {% else %}
+          <div style="width:100%;height:100%;background:var(--surface-2);display:flex;align-items:center;justify-content:center;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+              <polyline points="21 15 16 10 5 21"/>
+            </svg>
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="item-title">
+        {% if item.media_type == "tv" and item.show_title %}
+          {{ item.show_title }}
+        {% else %}
+          {{ item.title }}
+        {% endif %}
+      </div>
+      <div class="item-year">
+        {% if item.media_type == "tv" and item.season_number %}
+          Season {{ item.season_number }}
+        {% elif item.added_at %}
+          {{ item.added_at[:4] }}
+        {% endif %}
+      </div>
+
+      <div class="meta-row">
+        {% if item.media_type == "movie" %}
+          <span class="meta-pill type-movie">Movie</span>
+        {% elif item.media_type == "tv" %}
+          <span class="meta-pill type-tv">TV</span>
+        {% else %}
+          <span class="meta-pill">{{ item.media_type | title }}</span>
+        {% endif %}
+        <span class="meta-pill never-watched">Never watched</span>
+        {% if item.file_size_bytes %}
+          <span class="meta-pill size">
+            {% set gb = item.file_size_bytes / 1073741824 %}
+            {% if gb >= 1 %}{{ "%.1f"|format(gb) }} GB{% else %}{{ "%.0f"|format(item.file_size_bytes / 1048576) }} MB{% endif %}
+          </span>
+        {% endif %}
+      </div>
+
+      {% if item.added_at %}
+        <div class="meta-row">
+          <span class="meta-pill">Added {{ item.added_display }}</span>
+        </div>
+      {% endif %}
+
+      <div class="info-box">
+        <div class="label">Scheduled for deletion</div>
+        <div class="value danger">
+          {{ execute_at.strftime("%-d %B %Y") }}
+          {% if days_left == 0 %} — today
+          {% elif days_left == 1 %} — tomorrow
+          {% elif days_left > 0 %} — in {{ days_left }} days
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="snooze-section">
+        <div class="snooze-label">Keep this item and delay deletion</div>
+        <form method="post" action="/keep/{{ token }}">
+          <div class="snooze-buttons keep-actions">
+            <button class="snooze-btn snooze-7" type="submit" name="duration" value="7 days">
+              Keep for <span class="duration">7 days</span>
+            </button>
+            <button class="snooze-btn snooze-30" type="submit" name="duration" value="30 days">
+              Keep for <span class="duration">30 days</span>
+            </button>
+            <button class="snooze-btn snooze-90" type="submit" name="duration" value="90 days">
+              Keep for <span class="duration">90 days</span>
+            </button>
+            {% if is_admin %}
+              <button class="snooze-btn snooze-forever" type="submit" name="duration" value="forever">
+                Keep <span class="duration">forever</span>
+                <span class="admin-only">Admin</span>
+              </button>
+            {% endif %}
+          </div>
+        </form>
+      </div>
+
+      <div class="keep-footer">
+        {% if is_admin %}
+          <a href="/">Back to dashboard &rarr;</a>
+        {% else %}
+          <a href="/login">Sign in for more options &rarr;</a>
+        {% endif %}
+      </div>
+
+
+    {# ============================================================
+       STATE: ALREADY KEPT — token already used
+       ============================================================ #}
+    {% elif state == "already_kept" %}
+
+      <div class="status-pill status-protected">
+        <div class="status-dot dot-success"></div>
+        Protected
+      </div>
+
+      <div class="poster-container">
+        {% if item.plex_rating_key %}
+          <img src="/api/poster/{{ item.plex_rating_key }}" alt="{{ item.title }}">
+        {% else %}
+          <div style="width:100%;height:100%;background:var(--surface-2);display:flex;align-items:center;justify-content:center;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
+              <polyline points="21 15 16 10 5 21"/>
+            </svg>
+          </div>
+        {% endif %}
+      </div>
+
+      <div class="item-title">
+        {% if item.media_type == "tv" and item.show_title %}
+          {{ item.show_title }}
+        {% else %}
+          {{ item.title }}
+        {% endif %}
+      </div>
+      <div class="item-year">
+        {% if item.media_type == "tv" and item.season_number %}
+          Season {{ item.season_number }}
+        {% elif item.added_at %}
+          {{ item.added_at[:4] }}
+        {% endif %}
+      </div>
+
+      <div class="meta-row">
+        {% if item.media_type == "movie" %}
+          <span class="meta-pill type-movie">Movie</span>
+        {% elif item.media_type == "tv" %}
+          <span class="meta-pill type-tv">TV</span>
+        {% else %}
+          <span class="meta-pill">{{ item.media_type | title }}</span>
+        {% endif %}
+        <span class="meta-pill never-watched">Never watched</span>
+        {% if item.file_size_bytes %}
+          <span class="meta-pill size">
+            {% set gb = item.file_size_bytes / 1073741824 %}
+            {% if gb >= 1 %}{{ "%.1f"|format(gb) }} GB{% else %}{{ "%.0f"|format(item.file_size_bytes / 1048576) }} MB{% endif %}
+          </span>
+        {% endif %}
+      </div>
+
+      {% if item.added_at %}
+        <div class="meta-row">
+          <span class="meta-pill">Added {{ item.added_display }}</span>
+        </div>
+      {% endif %}
+
+      <div class="info-box">
+        <div class="label">Status</div>
+        <div class="value success">
+          {% if item.snooze_duration == "forever" %}
+            Protected forever
+          {% elif execute_at %}
+            Protected until {{ execute_at.strftime("%-d %B %Y") }}
+          {% else %}
+            Protected
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="already-kept-msg">
+        <div class="check-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#30d158" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+        </div>
+        <div class="msg-title">
+          {% if item.snooze_duration %}
+            Already kept for {{ item.snooze_duration }}
+          {% else %}
+            Already kept
+          {% endif %}
+        </div>
+        <div class="msg-detail">
+          {% if item.snoozed_at %}
+            This item was kept on {{ item.snoozed_at[:10] }}.
+            {% if item.snooze_duration == "forever" %}
+              It will be kept indefinitely.
+            {% elif execute_at %}
+              It will be re-evaluated for deletion on {{ execute_at.strftime("%-d %B %Y") }}.
+            {% endif %}
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="keep-footer">
+        {% if is_admin %}
+          <a href="/">Back to dashboard &rarr;</a>
+        {% else %}
+          <a href="/login">Sign in for more options &rarr;</a>
+        {% endif %}
+      </div>
+
+
+    {# ============================================================
+       STATE: EXPIRED — link expired or item not found
+       ============================================================ #}
+    {% else %}
+
+      <div class="status-pill status-expired">
+        <div class="status-dot dot-muted"></div>
+        Expired
+      </div>
+
+      {% if item and item.plex_rating_key %}
+        <div class="poster-container poster-faded">
+          <img src="/api/poster/{{ item.plex_rating_key }}" alt="{{ item.title }}">
+        </div>
+        <div class="item-title" style="color:var(--text-secondary);">{{ item.title }}</div>
+        <div class="item-year">
+          {% if item.added_at %}{{ item.added_at[:4] }}{% endif %}
+        </div>
+      {% endif %}
+
+      <div class="expired-msg">
+        <div class="expired-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
+          </svg>
+        </div>
+        <div class="expired-title">This link has expired</div>
+        <div class="expired-detail">
+          The protection window for this item has passed.<br>
+          Sign in to the dashboard to manage your library.
+        </div>
+      </div>
+
+      <div class="keep-footer">
+        {% if is_admin %}
+          <a href="/">Back to dashboard &rarr;</a>
+        {% else %}
+          <a href="/login">Go to dashboard &rarr;</a>
+        {% endif %}
+      </div>
+
+    {% endif %}
+
+  </div>{# .keep-container #}
+</div>{# .keep-page #}
+{% endblock %}

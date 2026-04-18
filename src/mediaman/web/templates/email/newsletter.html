@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mediaman Weekly Report</title>
+</head>
+<body style="margin:0;padding:0;background:#000000;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI','Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased;color:#ffffff;">
+
+{#- Byte formatting macro -#}
+{%- macro fmt_bytes(b) -%}
+  {%- if b is none or b == 0 -%}0 B
+  {%- elif b >= 1099511627776 -%}{{ "%.1f"|format(b / 1099511627776) }} TB
+  {%- elif b >= 1073741824 -%}{{ "%.1f"|format(b / 1073741824) }} GB
+  {%- elif b >= 1048576 -%}{{ "%.0f"|format(b / 1048576) }} MB
+  {%- else -%}{{ b }} B
+  {%- endif -%}
+{%- endmacro -%}
+
+{#- Compute storage bar segment widths -#}
+{%- set total_b = storage.total_bytes or 1 -%}
+{%- set movies_b = storage.by_type.movie or 0 -%}
+{%- set tv_b = storage.by_type.show or 0 -%}
+{%- set anime_b = storage.by_type.anime or 0 -%}
+{%- set other_b = storage.used_bytes - movies_b - tv_b - anime_b -%}
+{%- if other_b < 0 -%}{%- set other_b = 0 -%}{%- endif -%}
+
+{%- set movies_pct = [(movies_b / total_b * 100), 100] | min | round(1) -%}
+{%- set tv_pct = [(tv_b / total_b * 100), 100] | min | round(1) -%}
+{%- set anime_pct = [(anime_b / total_b * 100), 100] | min | round(1) -%}
+{%- set other_pct = [(other_b / total_b * 100), 100] | min | round(1) -%}
+
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#000000;">
+  <tr>
+    <td align="center" style="padding:32px 16px;">
+
+      <table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;">
+
+        {#- ── DRY RUN BANNER ── -#}
+        {% if dry_run %}
+        <tr>
+          <td style="background:#2a1a00;border:1px solid rgba(255,159,10,0.3);border-radius:8px 8px 0 0;padding:10px 20px;text-align:center;font-size:13px;color:#ff9f0a;font-weight:600;letter-spacing:-0.224px;">
+            &#9888; DRY RUN MODE — No items will actually be deleted
+          </td>
+        </tr>
+        {% endif %}
+
+        {#- ── HEADER ── -#}
+        <tr>
+          <td style="padding:32px 32px 24px;text-align:center;border-bottom:1px solid rgba(255,255,255,0.06);{% if dry_run %}border-top:none;{% endif %}">
+            <div style="font-size:24px;font-weight:600;letter-spacing:-0.28px;color:#ffffff;">media<span style="color:#2997ff;">man</span></div>
+            <div style="font-size:13px;color:rgba(255,255,255,0.56);margin-top:4px;letter-spacing:-0.224px;">Weekly Report &middot; {{ report_date }}</div>
+          </td>
+        </tr>
+
+        {#- ── STORAGE OVERVIEW ── -#}
+        <tr>
+          <td style="padding:24px 32px;border-bottom:1px solid rgba(255,255,255,0.06);">
+            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:rgba(255,255,255,0.56);margin-bottom:14px;">Storage Overview</div>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px;">
+              <tr>
+                <td style="font-size:28px;font-weight:600;color:#ffffff;line-height:1.1;">
+                  {{ fmt_bytes(storage.used_bytes) }} <span style="font-size:14px;font-weight:400;color:rgba(255,255,255,0.56);">of {{ fmt_bytes(storage.total_bytes) }}</span>
+                </td>
+                <td align="right" style="font-size:14px;color:rgba(255,255,255,0.56);vertical-align:bottom;">
+                  {{ fmt_bytes(storage.free_bytes) }} free
+                </td>
+              </tr>
+            </table>
+
+            {#- Storage bar using nested table for email compatibility -#}
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="height:20px;background:#2a2a2d;border-radius:6px;overflow:hidden;margin-bottom:12px;">
+              <tr>
+                {% if movies_pct > 0 %}
+                <td width="{{ movies_pct }}%" style="background:#ff9f0a;height:20px;"></td>
+                {% endif %}
+                {% if tv_pct > 0 %}
+                <td width="{{ tv_pct }}%" style="background:#2997ff;height:20px;"></td>
+                {% endif %}
+                {% if anime_pct > 0 %}
+                <td width="{{ anime_pct }}%" style="background:#bf5af2;height:20px;"></td>
+                {% endif %}
+                {% if other_pct > 0 %}
+                <td width="{{ other_pct }}%" style="background:rgba(255,255,255,0.12);height:20px;"></td>
+                {% endif %}
+                <td style="background:#2a2a2d;height:20px;"></td>
+              </tr>
+            </table>
+
+            <table cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                {% if movies_b > 0 %}
+                <td style="padding-right:16px;" valign="middle">
+                  <table cellpadding="0" cellspacing="0" border="0"><tr>
+                    <td valign="middle" style="width:12px;padding-right:6px;"><div style="width:8px;height:8px;border-radius:4px;background:#ff9f0a;"></div></td>
+                    <td valign="middle" style="font-size:12px;color:rgba(255,255,255,0.56);letter-spacing:-0.12px;">Movies {{ fmt_bytes(movies_b) }}</td>
+                  </tr></table>
+                </td>
+                {% endif %}
+                {% if tv_b > 0 %}
+                <td style="padding-right:16px;" valign="middle">
+                  <table cellpadding="0" cellspacing="0" border="0"><tr>
+                    <td valign="middle" style="width:12px;padding-right:6px;"><div style="width:8px;height:8px;border-radius:4px;background:#2997ff;"></div></td>
+                    <td valign="middle" style="font-size:12px;color:rgba(255,255,255,0.56);letter-spacing:-0.12px;">TV {{ fmt_bytes(tv_b) }}</td>
+                  </tr></table>
+                </td>
+                {% endif %}
+                {% if anime_b > 0 %}
+                <td style="padding-right:16px;" valign="middle">
+                  <table cellpadding="0" cellspacing="0" border="0"><tr>
+                    <td valign="middle" style="width:12px;padding-right:6px;"><div style="width:8px;height:8px;border-radius:4px;background:#bf5af2;"></div></td>
+                    <td valign="middle" style="font-size:12px;color:rgba(255,255,255,0.56);letter-spacing:-0.12px;">Anime {{ fmt_bytes(anime_b) }}</td>
+                  </tr></table>
+                </td>
+                {% endif %}
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        {#- ── SPACE RECLAIMED ── -#}
+        <tr>
+          <td style="padding:20px 32px;border-bottom:1px solid rgba(255,255,255,0.06);">
+            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:rgba(255,255,255,0.56);margin-bottom:14px;">Space Reclaimed</div>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td width="33%" align="center">
+                  <div style="font-size:24px;font-weight:600;color:#30d158;line-height:1.2;">{{ fmt_bytes(reclaimed_week) }}</div>
+                  <div style="font-size:11px;color:rgba(255,255,255,0.4);letter-spacing:0.3px;margin-top:2px;">This week</div>
+                </td>
+                <td width="33%" align="center">
+                  <div style="font-size:24px;font-weight:600;color:#30d158;line-height:1.2;">{{ fmt_bytes(reclaimed_month) }}</div>
+                  <div style="font-size:11px;color:rgba(255,255,255,0.4);letter-spacing:0.3px;margin-top:2px;">This month</div>
+                </td>
+                <td width="33%" align="center">
+                  <div style="font-size:24px;font-weight:600;color:#30d158;line-height:1.2;">{{ fmt_bytes(reclaimed_total) }}</div>
+                  <div style="font-size:11px;color:rgba(255,255,255,0.4);letter-spacing:0.3px;margin-top:2px;">All time</div>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        {#- ── SCHEDULED FOR DELETION ── -#}
+        {% if scheduled_items %}
+        <tr>
+          <td style="padding:24px 32px;border-bottom:1px solid rgba(255,255,255,0.06);">
+            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:rgba(255,255,255,0.56);margin-bottom:8px;">Scheduled for Deletion</div>
+            <div style="font-size:13px;color:rgba(255,255,255,0.56);margin-bottom:16px;">
+              <strong style="color:#ff453a;">{{ scheduled_items|length }} item{{ 's' if scheduled_items|length != 1 else '' }}</strong>
+              &middot; {{ fmt_bytes(scheduled_items | sum(attribute='file_size_bytes')) }}
+            </div>
+            <div style="font-size:13px;font-weight:600;color:#ff453a;background:rgba(255,69,58,0.08);border:1px solid rgba(255,69,58,0.15);border-radius:8px;padding:10px 14px;margin-bottom:16px;text-align:center;">
+              &#9888; Deleting in {{ grace_days }} days unless you click Keep
+            </div>
+
+            {% for item in scheduled_items %}
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="padding:14px 0;border-bottom:{% if not loop.last %}1px solid rgba(255,255,255,0.04){% else %}none{% endif %};">
+              <tr>
+                {#- Poster -#}
+                <td width="60" valign="top" style="padding-right:14px;">
+                  {% if item.poster_url %}
+                  <img src="{{ item.poster_url }}" alt="" width="60" height="90" style="width:60px;height:90px;border-radius:6px;object-fit:cover;display:block;background:#1d1d1f;">
+                  {% else %}
+                  <div style="width:60px;height:90px;border-radius:6px;background:#1d1d1f;display:block;"></div>
+                  {% endif %}
+                </td>
+
+                {#- Info -#}
+                <td valign="top">
+                  <div style="font-size:15px;font-weight:600;color:#ffffff;letter-spacing:-0.374px;margin-bottom:3px;">{{ item.title }}</div>
+                  <div style="font-size:12px;color:rgba(255,255,255,0.56);letter-spacing:-0.12px;line-height:1.6;">
+                    {{ item.type_label }}
+                    {% if item.added_days_ago is not none %}&middot; Added {{ item.added_days_ago }} day{{ 's' if item.added_days_ago != 1 else '' }} ago{% endif %}
+                    {% if item.last_watched_info %}
+                    &middot; {{ item.last_watched_info }}
+                    {% else %}
+                    &middot; <span style="color:#ff453a;">Never watched</span>
+                    {% endif %}
+                  </div>
+                  <div style="font-size:13px;color:rgba(255,255,255,0.4);font-weight:600;margin-top:6px;">{{ fmt_bytes(item.file_size_bytes) }}</div>
+
+                  {#- Re-entry warning -#}
+                  {% if item.is_reentry %}
+                  <table cellpadding="0" cellspacing="0" border="0" style="margin-top:4px;background:rgba(255,214,10,0.06);border:1px solid rgba(255,214,10,0.12);border-radius:8px;width:100%;">
+                    <tr>
+                      <td style="padding:10px 14px;font-size:12px;color:#ffd60a;letter-spacing:-0.12px;">
+                        &#9888; Previously kept — grace period expired. Scheduled again.
+                      </td>
+                    </tr>
+                  </table>
+                  {% endif %}
+                </td>
+
+                {#- Keep button -#}
+                <td width="80" valign="middle" align="right" style="padding-left:14px;">
+                  <a href="{{ item.keep_url }}" style="display:inline-block;padding:10px 20px;background:#2997ff;color:#ffffff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;letter-spacing:-0.224px;text-align:center;white-space:nowrap;">Keep</a>
+                </td>
+              </tr>
+            </table>
+            {% endfor %}
+
+          </td>
+        </tr>
+        {% endif %}
+
+        {#- ── DELETED SINCE LAST REPORT ── -#}
+        {% if deleted_items %}
+        <tr>
+          <td style="padding:24px 32px;border-bottom:1px solid rgba(255,255,255,0.06);">
+            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:rgba(255,255,255,0.56);margin-bottom:14px;">Deleted Since Last Report</div>
+
+            {% for item in deleted_items %}
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="padding:12px 0;border-bottom:{% if not loop.last %}1px solid rgba(255,255,255,0.06){% else %}none{% endif %};">
+              <tr>
+                {% if item.poster_url %}
+                <td width="40" valign="middle" style="padding-right:12px;">
+                  <img src="{{ item.poster_url }}" alt="" width="40" height="60" style="width:40px;height:60px;border-radius:6px;object-fit:cover;display:block;background:#1d1d1f;">
+                </td>
+                {% endif %}
+                <td valign="middle">
+                  <div style="font-size:14px;font-weight:600;color:#ffffff;letter-spacing:-0.224px;">{{ item.title }}</div>
+                  <div style="font-size:12px;color:rgba(255,255,255,0.56);letter-spacing:-0.12px;margin-top:2px;">
+                    Deleted {{ item.deleted_date }} &middot; {{ fmt_bytes(item.file_size_bytes) }}
+                  </div>
+                </td>
+                <td width="110" valign="middle" align="right" style="padding-left:12px;">
+                  {% if item.redownload_url %}
+                  <a href="{{ item.redownload_url }}" style="display:inline-block;padding:8px 16px;border:1px solid rgba(41,151,255,0.3);color:#2997ff;text-decoration:none;border-radius:980px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">Re-Download</a>
+                  {% endif %}
+                </td>
+              </tr>
+            </table>
+            {% endfor %}
+
+          </td>
+        </tr>
+        {% endif %}
+
+        {#- ── TRENDING NOW ── -#}
+        {% set trending_items = this_week_items | selectattr('category', 'equalto', 'trending') | list %}
+        {% if trending_items %}
+        <tr>
+          <td style="padding:24px 32px;border-bottom:1px solid rgba(255,255,255,0.06);">
+            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:rgba(255,255,255,0.56);margin-bottom:14px;">Trending This Week</div>
+
+            {% for item in trending_items %}
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="padding:14px 0;border-bottom:{% if not loop.last %}1px solid rgba(255,255,255,0.06){% else %}none{% endif %};">
+              <tr>
+                <td width="54" valign="top" style="padding-right:14px;">
+                  {% if item.poster_url %}
+                  <img src="{{ item.poster_url }}" alt="" width="54" height="81" style="width:54px;height:81px;border-radius:6px;object-fit:cover;display:block;background:#1d1d1f;">
+                  {% else %}
+                  <div style="width:54px;height:81px;border-radius:6px;background:#1d1d1f;display:block;"></div>
+                  {% endif %}
+                </td>
+                <td valign="top">
+                  <div style="font-size:15px;font-weight:600;color:#ffffff;letter-spacing:-0.374px;">
+                    {{ item.title }}
+                    {% if item.year %}<span style="font-weight:400;color:rgba(255,255,255,0.56);"> ({{ item.year }})</span>{% endif %}
+                  </div>
+                  <div style="font-size:12px;color:rgba(255,255,255,0.56);letter-spacing:-0.12px;margin-top:2px;">
+                    {{ 'Movie' if item.media_type == 'movie' else 'TV' }}
+                    {% if item.rating %} &middot; &#9733; {{ item.rating }}{% endif %}
+                    {% if item.rt_rating %} &middot; &#127813; {{ item.rt_rating }}{% endif %}
+                  </div>
+                  <div style="font-size:12px;color:rgba(255,255,255,0.4);letter-spacing:-0.12px;margin-top:4px;line-height:1.4;">{{ item.reason }}</div>
+                </td>
+                <td width="90" valign="middle" align="right" style="padding-left:12px;">
+                  {% if item.download_state == 'in_library' %}
+                  <span style="display:inline-block;padding:8px 16px;background:rgba(48,209,88,0.12);color:#30d158;border-radius:8px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">In Library</span>
+                  {% elif item.download_state == 'downloading' %}
+                  <span style="display:inline-block;padding:8px 16px;background:rgba(41,151,255,0.12);color:#2997ff;border-radius:8px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">Downloading</span>
+                  {% elif item.download_state == 'queued' %}
+                  <span style="display:inline-block;padding:8px 16px;background:rgba(255,214,10,0.12);color:#ffd60a;border-radius:8px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">Queued</span>
+                  {% elif item.download_url %}
+                  <a href="{{ item.download_url }}" style="display:inline-block;padding:8px 16px;background:#2997ff;color:#ffffff;text-decoration:none;border-radius:8px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">Download</a>
+                  {% endif %}
+                </td>
+              </tr>
+            </table>
+            {% endfor %}
+          </td>
+        </tr>
+        {% endif %}
+
+        {#- ── BASED ON YOUR WATCH HISTORY ── -#}
+        {% set personal_items = this_week_items | selectattr('category', 'equalto', 'personal') | list %}
+        {% if personal_items %}
+        <tr>
+          <td style="padding:24px 32px;border-bottom:1px solid rgba(255,255,255,0.06);">
+            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:rgba(255,255,255,0.56);margin-bottom:14px;">Based on Your Watch History</div>
+
+            {% for item in personal_items %}
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="padding:14px 0;border-bottom:{% if not loop.last %}1px solid rgba(255,255,255,0.06){% else %}none{% endif %};">
+              <tr>
+                <td width="54" valign="top" style="padding-right:14px;">
+                  {% if item.poster_url %}
+                  <img src="{{ item.poster_url }}" alt="" width="54" height="81" style="width:54px;height:81px;border-radius:6px;object-fit:cover;display:block;background:#1d1d1f;">
+                  {% else %}
+                  <div style="width:54px;height:81px;border-radius:6px;background:#1d1d1f;display:block;"></div>
+                  {% endif %}
+                </td>
+                <td valign="top">
+                  <div style="font-size:15px;font-weight:600;color:#ffffff;letter-spacing:-0.374px;">
+                    {{ item.title }}
+                    {% if item.year %}<span style="font-weight:400;color:rgba(255,255,255,0.56);"> ({{ item.year }})</span>{% endif %}
+                  </div>
+                  <div style="font-size:12px;color:rgba(255,255,255,0.56);letter-spacing:-0.12px;margin-top:2px;">
+                    {{ 'Movie' if item.media_type == 'movie' else 'TV' }}
+                    {% if item.rating %} &middot; &#9733; {{ item.rating }}{% endif %}
+                    {% if item.rt_rating %} &middot; &#127813; {{ item.rt_rating }}{% endif %}
+                  </div>
+                  <div style="font-size:12px;color:rgba(255,255,255,0.4);letter-spacing:-0.12px;margin-top:4px;line-height:1.4;">{{ item.reason }}</div>
+                </td>
+                <td width="90" valign="middle" align="right" style="padding-left:12px;">
+                  {% if item.download_state == 'in_library' %}
+                  <span style="display:inline-block;padding:8px 16px;background:rgba(48,209,88,0.12);color:#30d158;border-radius:8px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">In Library</span>
+                  {% elif item.download_state == 'downloading' %}
+                  <span style="display:inline-block;padding:8px 16px;background:rgba(41,151,255,0.12);color:#2997ff;border-radius:8px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">Downloading</span>
+                  {% elif item.download_state == 'queued' %}
+                  <span style="display:inline-block;padding:8px 16px;background:rgba(255,214,10,0.12);color:#ffd60a;border-radius:8px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">Queued</span>
+                  {% elif item.download_url %}
+                  <a href="{{ item.download_url }}" style="display:inline-block;padding:8px 16px;background:#2997ff;color:#ffffff;text-decoration:none;border-radius:8px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">Download</a>
+                  {% endif %}
+                </td>
+              </tr>
+            </table>
+            {% endfor %}
+          </td>
+        </tr>
+        {% endif %}
+
+        {#- ── LAST WEEK'S RECOMMENDATIONS ── -#}
+        {% if last_week_items %}
+        <tr>
+          <td style="padding:24px 32px;border-bottom:1px solid rgba(255,255,255,0.06);">
+            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:rgba(255,255,255,0.56);margin-bottom:14px;">Last Week's Recommendations</div>
+
+            {% for item in last_week_items %}
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="padding:14px 0;border-bottom:{% if not loop.last %}1px solid rgba(255,255,255,0.06){% else %}none{% endif %};">
+              <tr>
+                <td width="54" valign="top" style="padding-right:14px;">
+                  {% if item.poster_url %}
+                  <img src="{{ item.poster_url }}" alt="" width="54" height="81" style="width:54px;height:81px;border-radius:6px;object-fit:cover;display:block;background:#1d1d1f;">
+                  {% else %}
+                  <div style="width:54px;height:81px;border-radius:6px;background:#1d1d1f;display:block;"></div>
+                  {% endif %}
+                </td>
+                <td valign="top">
+                  <div style="font-size:15px;font-weight:600;color:#ffffff;letter-spacing:-0.374px;">
+                    {{ item.title }}
+                    {% if item.year %}<span style="font-weight:400;color:rgba(255,255,255,0.56);"> ({{ item.year }})</span>{% endif %}
+                  </div>
+                  <div style="font-size:12px;color:rgba(255,255,255,0.56);letter-spacing:-0.12px;margin-top:2px;">
+                    {{ 'Movie' if item.media_type == 'movie' else 'TV' }}
+                    {% if item.rating %} &middot; &#9733; {{ item.rating }}{% endif %}
+                    {% if item.rt_rating %} &middot; &#127813; {{ item.rt_rating }}{% endif %}
+                  </div>
+                  <div style="font-size:12px;color:rgba(255,255,255,0.4);letter-spacing:-0.12px;margin-top:4px;line-height:1.4;">{{ item.reason }}</div>
+                </td>
+                <td width="90" valign="middle" align="right" style="padding-left:12px;">
+                  {% if item.download_state == 'in_library' %}
+                  <span style="display:inline-block;padding:8px 16px;background:rgba(48,209,88,0.12);color:#30d158;border:1px solid rgba(48,209,88,0.3);border-radius:980px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">In Library</span>
+                  {% elif item.download_state == 'downloading' %}
+                  <span style="display:inline-block;padding:8px 16px;background:rgba(41,151,255,0.12);color:#2997ff;border:1px solid rgba(41,151,255,0.3);border-radius:980px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">Downloading</span>
+                  {% elif item.download_state == 'queued' %}
+                  <span style="display:inline-block;padding:8px 16px;background:rgba(255,214,10,0.12);color:#ffd60a;border:1px solid rgba(255,214,10,0.3);border-radius:980px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">Queued</span>
+                  {% elif item.download_url %}
+                  <a href="{{ item.download_url }}" style="display:inline-block;padding:8px 16px;border:1px solid rgba(41,151,255,0.3);color:#2997ff;text-decoration:none;border-radius:980px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">Download</a>
+                  {% endif %}
+                </td>
+              </tr>
+            </table>
+            {% endfor %}
+          </td>
+        </tr>
+        {% endif %}
+
+        {#- ── FOOTER ── -#}
+        <tr>
+          <td style="padding:24px 32px 32px;text-align:center;">
+            <a href="{{ dashboard_url }}" style="display:inline-block;padding:10px 24px;border:1px solid rgba(41,151,255,0.3);color:#2997ff;text-decoration:none;border-radius:980px;font-size:14px;font-weight:400;letter-spacing:-0.224px;margin-bottom:16px;">Open Mediaman Dashboard &#8594;</a>
+            <div style="font-size:11px;color:rgba(255,255,255,0.4);letter-spacing:-0.12px;line-height:1.6;">
+              You&#39;re receiving this because you&#39;re subscribed to mediaman notifications.
+              {% if unsubscribe_url %}<br><a href="{{ unsubscribe_url }}" style="color:rgba(255,255,255,0.4);text-decoration:underline;">Unsubscribe</a>{% endif %}
+            </div>
+          </td>
+        </tr>
+
+      </table>
+    </td>
+  </tr>
+</table>
+
+</body>
+</html>

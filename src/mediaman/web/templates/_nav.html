@@ -1,0 +1,112 @@
+{# Shared admin navigation. Emits three surfaces:
+   1. <nav class="nav-top"> — desktop horizontal nav, visible >=bp-md.
+   2. <div class="nav-topbar"> — mobile brand + page title, visible <bp-md.
+   3. <nav class="nav-tabs"> — mobile bottom tab bar, visible <bp-md.
+   Plus <div class="nav-more-sheet"> — overflow sheet opened by More tab.
+
+   Set `nav_active` in template context to one of:
+     dashboard | library | search | recommended | downloads | history | settings
+#}
+
+{% set titles = {
+  'dashboard':  'Dashboard',
+  'library':    'Library',
+  'search':     'Search',
+  'recommended':'Recommended',
+  'downloads':  'Downloads',
+  'history':    'History',
+  'settings':   'Settings',
+} %}
+
+{# --- Desktop top nav (>=bp-md) --- #}
+<nav class="nav-top">
+  <a class="nav-brand" href="/">media<span>man</span></a>
+  <ul class="nav-links">
+    <li><a href="/"            {% if nav_active == "dashboard"   %}class="active"{% endif %}>Dashboard</a></li>
+    <li><a href="/library"     {% if nav_active == "library"     %}class="active"{% endif %}>Library</a></li>
+    <li><a href="/search"      {% if nav_active == "search"      %}class="active"{% endif %}>Search</a></li>
+    <li><a href="/recommended" {% if nav_active == "recommended" %}class="active"{% endif %}>Recommended</a></li>
+    <li><a href="/downloads"   {% if nav_active == "downloads"   %}class="active"{% endif %}>Downloads</a></li>
+    <li><a href="/history"     {% if nav_active == "history"     %}class="active"{% endif %}>History</a></li>
+    <li><a href="/settings"    {% if nav_active == "settings"    %}class="active"{% endif %}>Settings</a></li>
+    <li class="nav-logout">
+      <form method="post" action="/api/auth/logout" style="display:inline">
+        <button type="submit" class="btn-nav-logout">Logout</button>
+      </form>
+    </li>
+  </ul>
+</nav>
+
+{# --- Mobile top bar (<bp-md) --- #}
+<div class="nav-topbar">
+  <a class="nav-brand" href="/">media<span>man</span></a>
+  <span class="nav-topbar-title">{{ titles.get(nav_active, '') }}</span>
+</div>
+
+{# --- Mobile bottom tab bar (<bp-md) --- #}
+<nav class="nav-tabs" aria-label="Primary">
+  <a class="nav-tab {% if nav_active == 'dashboard' %}active{% endif %}" href="/">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12l9-9 9 9"/><path d="M5 10v10h14V10"/></svg>
+    <span>Home</span>
+  </a>
+  <a class="nav-tab {% if nav_active == 'library' %}active{% endif %}" href="/library">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="8" y1="4" x2="8" y2="20"/></svg>
+    <span>Library</span>
+  </a>
+  <a class="nav-tab {% if nav_active == 'search' %}active{% endif %}" href="/search">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <span>Search</span>
+  </a>
+  <a class="nav-tab {% if nav_active == 'downloads' %}active{% endif %}" href="/downloads">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    <span>Downloads</span>
+  </a>
+  <button class="nav-tab" type="button" aria-expanded="false" onclick="const s = document.getElementById('nav-more-sheet'); const open = s.toggleAttribute('open'); this.setAttribute('aria-expanded', open);" aria-haspopup="dialog" aria-controls="nav-more-sheet">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+    <span>More</span>
+  </button>
+</nav>
+
+{# --- More sheet (<bp-md overflow) --- #}
+<div class="nav-more-sheet" id="nav-more-sheet" role="dialog" aria-label="More navigation" onclick="if(event.target===this){this.removeAttribute('open');var b=document.querySelector('[aria-controls=&quot;nav-more-sheet&quot;]');if(b)b.setAttribute('aria-expanded','false');}">
+  <div class="nav-more-panel">
+    <div class="nav-more-handle" aria-hidden="true"></div>
+    <a class="nav-more-item" href="/recommended">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15 9 22 9 16.5 14 18 21 12 17 6 21 7.5 14 2 9 9 9"/></svg>
+      Recommended
+      <span class="chev">›</span>
+    </a>
+    <a class="nav-more-item" href="/history">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polyline points="12 6 12 12 16 14"/></svg>
+      History
+      <span class="chev">›</span>
+    </a>
+    <a class="nav-more-item" href="/settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Settings
+      <span class="chev">›</span>
+    </a>
+    <div class="nav-more-divider"></div>
+    <form method="post" action="/api/auth/logout" style="margin:0;">
+      <button type="submit" class="nav-more-item nav-more-item--danger">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Logout
+      </button>
+    </form>
+  </div>
+</div>
+<script>
+(function () {
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    var s = document.getElementById('nav-more-sheet');
+    if (!s || !s.hasAttribute('open')) return;
+    s.removeAttribute('open');
+    var btn = document.querySelector('[aria-controls="nav-more-sheet"]');
+    if (btn) {
+      btn.setAttribute('aria-expanded', 'false');
+      btn.focus();
+    }
+  });
+})();
+</script>
