@@ -133,7 +133,7 @@ def run_scan_from_db(conn: sqlite3.Connection, secret_key: str, *, skip_disk_che
 
     token_val = plex_token_row["value"]
     if plex_token_row["encrypted"]:
-        token_val = decrypt_value(token_val, secret_key, conn=conn)
+        token_val = decrypt_value(token_val, secret_key, conn=conn, aad=b"plex_token")
 
     # ── Library IDs ──────────────────────────────────────────────────────────
     libraries_row = conn.execute(
@@ -164,7 +164,7 @@ def run_scan_from_db(conn: sqlite3.Connection, secret_key: str, *, skip_disk_che
         from mediaman.services.sonarr import SonarrClient
         sonarr_key = sonarr_key_row["value"]
         if sonarr_key_row["encrypted"]:
-            sonarr_key = decrypt_value(sonarr_key, secret_key, conn=conn)
+            sonarr_key = decrypt_value(sonarr_key, secret_key, conn=conn, aad=b"sonarr_api_key")
         sonarr_client = SonarrClient(sonarr_url, sonarr_key)
 
     radarr_url = _get_setting(conn, "radarr_url")
@@ -175,7 +175,7 @@ def run_scan_from_db(conn: sqlite3.Connection, secret_key: str, *, skip_disk_che
         from mediaman.services.radarr import RadarrClient
         radarr_key = radarr_key_row["value"]
         if radarr_key_row["encrypted"]:
-            radarr_key = decrypt_value(radarr_key, secret_key, conn=conn)
+            radarr_key = decrypt_value(radarr_key, secret_key, conn=conn, aad=b"radarr_api_key")
         radarr_client = RadarrClient(radarr_url, radarr_key)
 
     # ── Thresholds ───────────────────────────────────────────────────────────
@@ -229,7 +229,7 @@ def run_library_sync(conn: sqlite3.Connection, secret_key: str) -> dict:
 
     token_val = plex_token_row["value"]
     if plex_token_row["encrypted"]:
-        token_val = decrypt_value(token_val, secret_key, conn=conn)
+        token_val = decrypt_value(token_val, secret_key, conn=conn, aad=b"plex_token")
 
     libraries_row = conn.execute(
         "SELECT value FROM settings WHERE key='plex_libraries'"

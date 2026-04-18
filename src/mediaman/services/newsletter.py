@@ -415,7 +415,14 @@ def send_newsletter(
     successfully_sent: list[str] = []
     for email in recipient_emails:
         unsub_token = generate_unsubscribe_token(email, secret_key)
-        unsub_url = f"{base_url}/unsubscribe?email={email}&token={unsub_token}" if base_url else ""
+        # URL-encode both values so a mail address containing ``&``,
+        # ``+``, ``#`` (all RFC-legal in local-parts) doesn't shred the
+        # query string and confuse the unsubscribe handler.
+        from urllib.parse import quote as _url_quote
+        unsub_url = (
+            f"{base_url}/unsubscribe?email={_url_quote(email, safe='@')}"
+            f"&token={_url_quote(unsub_token, safe='')}"
+        ) if base_url else ""
 
         # Generate per-recipient download tokens for deleted items
         for item in deleted_items:

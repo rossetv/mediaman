@@ -52,7 +52,7 @@ def _tmdb_headers(conn, secret_key: str) -> dict[str, str] | None:
     token = row["value"]
     if row["encrypted"]:
         try:
-            token = decrypt_value(token, secret_key, conn=conn)
+            token = decrypt_value(token, secret_key, conn=conn, aad=b"tmdb_read_token")
         except Exception:
             return None
     return {"Authorization": f"Bearer {token}", "Accept": "application/json"}

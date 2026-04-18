@@ -125,7 +125,7 @@ def _get_nzbget_client(conn: sqlite3.Connection):
         return None
     password = pass_row["value"]
     if pass_row["encrypted"]:
-        password = decrypt_value(password, load_config().secret_key)
+        password = decrypt_value(password, load_config().secret_key, aad=b"nzbget_password")
     return NzbgetClient(url_row["value"], user_row["value"], password)
 
 

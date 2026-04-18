@@ -509,19 +509,25 @@ def api_media_delete(
             if radarr_url and radarr_key_row:
                 rkey = radarr_key_row["value"]
                 if radarr_key_row["encrypted"]:
-                    rkey = decrypt_value(rkey, config.secret_key, conn=conn)
+                    rkey = decrypt_value(rkey, config.secret_key, conn=conn, aad=b"radarr_api_key")
                 from mediaman.services.radarr import RadarrClient
                 client = RadarrClient(radarr_url["value"], rkey)
-                # Find the Radarr movie ID by title match
+                # Require the radarr_id recorded at scan time. Title
+                # matching is dangerous — multiple items may share a
+                # title across libraries (remake/reboot/alternate cut)
+                # and a compromised or misconfigured Plex library could
+                # poison the stored title, causing the wrong Radarr
+                # movie to be deleted with its files.
                 radarr_id = row["radarr_id"]
-                if not radarr_id:
-                    for movie in client.get_movies():
-                        if movie.get("title", "").lower() == title.lower():
-                            radarr_id = movie["id"]
-                            break
                 if radarr_id:
                     client.delete_movie(radarr_id)
                     logger.info("Deleted '%s' via Radarr (id %s, with files + exclusion)", title, radarr_id)
+                else:
+                    logger.info(
+                        "No stored radarr_id for '%s' — skipping Radarr-level delete. "
+                        "Run a full scan to populate radarr_id if you need file deletion.",
+                        title,
+                    )
         except Exception as exc:
             logger.warning("Radarr delete failed for '%s': %s", title, exc)
 
@@ -533,19 +539,13 @@ def api_media_delete(
             if sonarr_url and sonarr_key_row:
                 skey = sonarr_key_row["value"]
                 if sonarr_key_row["encrypted"]:
-                    skey = decrypt_value(skey, config.secret_key, conn=conn)
+                    skey = decrypt_value(skey, config.secret_key, conn=conn, aad=b"sonarr_api_key")
                 from mediaman.services.sonarr import SonarrClient
                 client = SonarrClient(sonarr_url["value"], skey)
-                sonarr_id = row["sonarr_id"]
+                # Same rule as Radarr — require stored sonarr_id; no
+                # title-based lookup fallback.
+                sid = row["sonarr_id"]
                 season_num = row["season_number"]
-                # Find the Sonarr series ID
-                sid = sonarr_id
-                season_num = row["season_number"]
-                if not sid:
-                    for series in client.get_series():
-                        if series.get("title", "").lower() == title.lower():
-                            sid = series["id"]
-                            break
                 if sid and season_num is not None:
                     client.delete_episode_files(sid, season_num)
                     client.unmonitor_season(sid, season_num)
@@ -672,7 +672,7 @@ def api_media_redownload(
         if radarr_url and radarr_key_row:
             rkey = radarr_key_row["value"]
             if radarr_key_row["encrypted"]:
-                rkey = decrypt_value(rkey, config.secret_key, conn=conn)
+                rkey = decrypt_value(rkey, config.secret_key, conn=conn, aad=b"radarr_api_key")
             from mediaman.services.radarr import RadarrClient
             client = RadarrClient(radarr_url["value"], rkey)
             lookup = client._get(f"/api/v3/movie/lookup?term={_url_quote(title)}")
@@ -706,7 +706,7 @@ def api_media_redownload(
         if sonarr_url and sonarr_key_row:
             skey = sonarr_key_row["value"]
             if sonarr_key_row["encrypted"]:
-                skey = decrypt_value(skey, config.secret_key, conn=conn)
+                skey = decrypt_value(skey, config.secret_key, conn=conn, aad=b"sonarr_api_key")
             from mediaman.services.sonarr import SonarrClient
             client = SonarrClient(sonarr_url["value"], skey)
             results = client._get(f"/api/v3/series/lookup?term={_url_quote(title)}")

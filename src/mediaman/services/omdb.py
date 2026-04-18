@@ -23,7 +23,7 @@ def _get_key(conn, secret_key: str) -> str | None:
     value = row["value"]
     if row["encrypted"]:
         try:
-            value = decrypt_value(value, secret_key, conn=conn)
+            value = decrypt_value(value, secret_key, conn=conn, aad=b"omdb_api_key")
         except Exception:
             return None
     return value

@@ -11,14 +11,16 @@ import re
 from datetime import datetime, timezone
 from html import escape
 
-import hashlib
-import hmac
-
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from mediaman.auth.middleware import get_current_admin
+from mediaman.auth.rate_limit import RateLimiter, get_client_ip
+from mediaman.crypto import (
+    generate_unsubscribe_token as _generate_unsubscribe_token,
+    validate_unsubscribe_token,
+)
 from mediaman.db import get_db
 
 
@@ -31,7 +33,18 @@ logger = logging.getLogger("mediaman")
 
 router = APIRouter()
 
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# Tighter than before: allows the standard local-part characters RFC 5322
+# permits in unquoted form, rejects whitespace and the ampersand/hash/
+# percent characters that cause URL mayhem if an operator ever imports a
+# subscriber list through a non-normalising path.
+_EMAIL_RE = re.compile(
+    r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$"
+)
+
+# Rate limiter for the public unsubscribe endpoint — 20 attempts per
+# minute per /24 (IPv4) or /64 (IPv6) bucket. Generous enough for a
+# real user who clicks through, tight enough to kill automated probing.
+_UNSUB_LIMITER = RateLimiter(max_attempts=20, window_seconds=60)
 
 
 def _validate_email(email: str) -> bool:
@@ -174,11 +187,22 @@ def api_send_newsletter(
 # Public unsubscribe (no login required — uses HMAC token)
 # ---------------------------------------------------------------------------
 
+
 def generate_unsubscribe_token(email: str, secret_key: str) -> str:
-    """Generate an HMAC-SHA256 token for unsubscribe verification."""
-    return hmac.new(
-        secret_key.encode(), email.lower().encode(), hashlib.sha256
-    ).hexdigest()[:32]
+    """Backwards-compatible wrapper — delegates to :mod:`mediaman.crypto`.
+
+    Exposed so ``services/newsletter.py`` can import it without having
+    to know about the underlying HMAC details. The token now carries
+    an expiry and a purpose-specific HMAC sub-key (see crypto.py).
+    """
+    return _generate_unsubscribe_token(email=email, secret_key=secret_key)
+
+
+def _generic_invalid_response() -> HTMLResponse:
+    """Return a uniform "invalid link" response so we don't leak
+    whether an email is subscribed, whether a token was syntactically
+    well-formed but wrong-signed, or whether it has expired."""
+    return HTMLResponse(_unsub_html("This unsubscribe link is no longer valid.", success=False))
 
 
 @router.get("/unsubscribe", response_class=HTMLResponse)
@@ -187,12 +211,17 @@ def unsubscribe_page(request: Request, email: str = "", token: str = ""):
     from mediaman.config import load_config
     config = load_config()
 
-    if not email or not token:
-        return HTMLResponse(_unsub_html("Invalid unsubscribe link.", success=False))
+    if not _UNSUB_LIMITER.check(get_client_ip(request)):
+        return HTMLResponse(
+            _unsub_html("Too many requests. Try again later.", success=False),
+            status_code=429,
+        )
 
-    expected = generate_unsubscribe_token(email, config.secret_key)
-    if not hmac.compare_digest(token, expected):
-        return HTMLResponse(_unsub_html("Invalid unsubscribe link.", success=False))
+    if not email or not token or len(email) > 320 or len(token) > 4096:
+        return _generic_invalid_response()
+
+    if not validate_unsubscribe_token(token, config.secret_key, email):
+        return _generic_invalid_response()
 
     # Show confirmation page
     return HTMLResponse(_unsub_confirm_html(email, token))
@@ -208,29 +237,43 @@ def unsubscribe_confirm(
     from mediaman.config import load_config
     config = load_config()
 
-    if not email or not token:
-        return HTMLResponse(_unsub_html("Invalid unsubscribe link.", success=False))
+    if not _UNSUB_LIMITER.check(get_client_ip(request)):
+        return HTMLResponse(
+            _unsub_html("Too many requests. Try again later.", success=False),
+            status_code=429,
+        )
 
-    expected = generate_unsubscribe_token(email, config.secret_key)
-    if not hmac.compare_digest(token, expected):
-        return HTMLResponse(_unsub_html("Invalid unsubscribe link.", success=False))
+    if not email or not token or len(email) > 320 or len(token) > 4096:
+        return _generic_invalid_response()
+
+    if not validate_unsubscribe_token(token, config.secret_key, email):
+        return _generic_invalid_response()
 
     conn = get_db()
     row = conn.execute(
-        "SELECT id, active FROM subscribers WHERE email = ?", (email.lower(),)
+        "SELECT id, active FROM subscribers WHERE lower(email) = ?", (email.lower(),)
     ).fetchone()
 
+    # Return a uniform "you've been unsubscribed" response whether the
+    # email is present, already inactive, or absent — otherwise the
+    # endpoint becomes a subscriber-membership oracle. The logs retain
+    # the true state for operator debugging.
     if row is None:
-        return HTMLResponse(_unsub_html("Email not found in subscriber list.", success=False))
+        logger.info("Unsubscribe link used for unknown email: %s", email)
+        return HTMLResponse(_unsub_html(
+            "If that address was subscribed, it has now been removed.",
+            success=True,
+        ))
 
-    if not row["active"]:
-        return HTMLResponse(_unsub_html(f"{email} is already unsubscribed.", success=True))
+    if row["active"]:
+        conn.execute("UPDATE subscribers SET active = 0 WHERE id = ?", (row["id"],))
+        conn.commit()
+        logger.info("Unsubscribed via link: %s", email)
 
-    conn.execute("UPDATE subscribers SET active = 0 WHERE id = ?", (row["id"],))
-    conn.commit()
-    logger.info("Unsubscribed via link: %s", email)
-
-    return HTMLResponse(_unsub_html(f"{email} has been unsubscribed. You will no longer receive newsletters.", success=True))
+    return HTMLResponse(_unsub_html(
+        "If that address was subscribed, it has now been removed.",
+        success=True,
+    ))
 
 
 def _unsub_confirm_html(email: str, token: str) -> str:

@@ -47,7 +47,7 @@ def _get_openai_key(conn) -> str | None:
         val = row["value"]
         if row["encrypted"]:
             try:
-                val = decrypt_value(val, load_config().secret_key)
+                val = decrypt_value(val, load_config().secret_key, aad=b"openai_api_key")
             except Exception:
                 pass
         return val

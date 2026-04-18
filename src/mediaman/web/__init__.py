@@ -2,22 +2,34 @@
 
 from __future__ import annotations
 
+import os
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-# Content Security Policy — `unsafe-inline` is required for now because a
-# handful of templates still use inline onclick/style attributes. The policy
-# still blocks remote scripts, framing, plugins, base-uri hijacks, and
-# unexpected form posts, and should be tightened once the inline bits are
-# refactored.
+from mediaman.auth.rate_limit import _peer_is_trusted, _trusted_proxies
+
+# Content Security Policy.
+# - ``'unsafe-inline'`` on script/style is still present because several
+#   templates ship inline ``onclick=`` / ``style=`` attributes; removing
+#   them is a separate refactor and should be done next.
+# - ``img-src`` is tightened to the image hosts the app actually uses
+#   (TMDB, self, blob/data) instead of the previous ``https:`` wildcard,
+#   which doubled as a generic exfil channel if any XSS ever landed.
+# - ``object-src 'none'`` defangs plugin-based XSS.
+# - ``frame-ancestors 'none'`` + ``X-Frame-Options: DENY`` belt-and-braces
+#   clickjacking defence.
 _CSP = (
     "default-src 'self'; "
-    "img-src 'self' data: https:; "
+    "img-src 'self' data: blob: "
+    "https://image.tmdb.org https://www.themoviedb.org https://m.media-amazon.com; "
     "style-src 'self' 'unsafe-inline'; "
     "script-src 'self' 'unsafe-inline'; "
+    "connect-src 'self'; "
     "frame-src https://www.youtube.com; "
     "frame-ancestors 'none'; "
+    "object-src 'none'; "
     "base-uri 'self'; "
     "form-action 'self'"
 )
@@ -27,48 +39,152 @@ _STATIC_HEADERS: dict[str, str] = {
     "X-Frame-Options": "DENY",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
-    "Permissions-Policy": "interest-cohort=()",
+    "Permissions-Policy": "interest-cohort=(), geolocation=(), camera=(), microphone=()",
     "Content-Security-Policy": _CSP,
+    "Cross-Origin-Opener-Policy": "same-origin",
 }
 
-# HSTS header — only meaningful when the request was served over HTTPS, so
-# we attach it conditionally.  When mediaman is deployed behind a TLS-
-# terminating reverse proxy the scheme will be rewritten via forwarded
-# headers before this middleware runs (FastAPI reads X-Forwarded-Proto via
-# uvicorn's ``proxy_headers``), so ``request.url.scheme`` reflects the
-# browser-facing protocol.
+# HSTS — 2 years, includeSubDomains. ``preload`` is set conservatively only
+# when the operator opts in via env var; submitting to the HSTS preload
+# list is a one-way door and should be an explicit decision.
 _HSTS_HEADER = "max-age=63072000; includeSubDomains"
+_HSTS_HEADER_PRELOAD = "max-age=63072000; includeSubDomains; preload"
+
+
+def _should_emit_hsts(request: Request) -> bool:
+    """Return True when the browser-visible protocol is HTTPS.
+
+    Mirrors the logic in :func:`auth_routes._is_request_secure` but
+    without importing from it (to avoid a circular import). HSTS on a
+    plaintext response is harmless — browsers ignore it — but emitting
+    it unconditionally in the normal case protects against downgrade
+    when a reverse proxy misroutes.
+    """
+    override = os.environ.get("MEDIAMAN_FORCE_SECURE_COOKIES", "").strip().lower()
+    if override == "true":
+        return True
+    if override == "false":
+        return False
+    if request.url.scheme == "https":
+        return True
+    peer = request.client.host if request.client else None
+    trusted = _trusted_proxies()
+    if _peer_is_trusted(peer, trusted):
+        forwarded_proto = (
+            request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+        )
+        if forwarded_proto == "https":
+            return True
+    # Default to True for the public-facing app; operators can opt out
+    # via MEDIAMAN_FORCE_SECURE_COOKIES=false for genuine dev loopback.
+    return True
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Attach security response headers to every HTTP response.
 
-    Adds a conservative set of headers covering clickjacking, MIME-type
-    sniffing, referrer leakage, FLoC, and a permissive CSP that still
-    blocks third-party script injection. HSTS is added only when the
-    request was served over HTTPS so HTTP-only deployments can still be
-    reached in development.
+    Adds clickjacking, MIME-type-sniffing, referrer-leak, CSP, and
+    Permissions-Policy defences. HSTS is emitted whenever the
+    browser-visible scheme is HTTPS (or when the operator forces it).
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]
         response = await call_next(request)
         for name, value in _STATIC_HEADERS.items():
             response.headers.setdefault(name, value)
-        if request.url.scheme == "https":
-            response.headers.setdefault("Strict-Transport-Security", _HSTS_HEADER)
+        # Hide server banner (FastAPI/uvicorn leaks nothing sensitive,
+        # but there's no reason to advertise).
+        response.headers["Server"] = "mediaman"
+        if _should_emit_hsts(request):
+            header = (
+                _HSTS_HEADER_PRELOAD
+                if os.environ.get("MEDIAMAN_HSTS_PRELOAD", "").lower() == "true"
+                else _HSTS_HEADER
+            )
+            response.headers.setdefault("Strict-Transport-Security", header)
         return response
 
 
+# State-changing methods that must carry an Origin/Referer from the
+# same host. GET/HEAD/OPTIONS are never state-changing in a correct
+# REST app.
+_CSRF_PROTECTED_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+# Routes that must accept cross-origin POSTs (they are token-auth'd and
+# get hit from email clients where the browser's Origin is whichever
+# mail host the user used). The token IS the authorisation — SameSite
+# doesn't apply to in-email links because the user clicks through.
+_CSRF_EXEMPT_PREFIXES = (
+    "/keep/",
+    "/download/",  # /download/{token} + /download/{token} POST
+    "/unsubscribe",
+)
+
+
+class CSRFOriginMiddleware(BaseHTTPMiddleware):
+    """Reject state-changing requests whose Origin/Referer mismatches the host.
+
+    Belt-and-braces defence on top of ``SameSite=Strict`` session
+    cookies. SameSite covers modern browsers; Origin checks cover
+    legacy browsers, in-app webviews, and anything that might ship
+    cookies without honouring the SameSite attribute.
+
+    The check is intentionally narrow: only POST/PUT/PATCH/DELETE
+    from non-same-origin origins are refused, and only for paths
+    that aren't in the explicit exempt list (where the token, not
+    the cookie, is the authorisation).
+    """
+
+    async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]
+        if request.method not in _CSRF_PROTECTED_METHODS:
+            return await call_next(request)
+
+        path = request.url.path
+        for prefix in _CSRF_EXEMPT_PREFIXES:
+            if path.startswith(prefix):
+                return await call_next(request)
+
+        origin = request.headers.get("origin")
+        referer = request.headers.get("referer")
+        expected_host = (request.url.netloc or "").lower()
+
+        # If neither header is present, assume a non-browser client
+        # (curl, scripts). Those callers don't have CSRF exposure —
+        # they don't ride a victim's cookie. Let them through; the
+        # authentication dependency will reject if they're unauth.
+        if not origin and not referer:
+            return await call_next(request)
+
+        def _host_of(url: str) -> str:
+            try:
+                from urllib.parse import urlparse
+                return (urlparse(url).netloc or "").lower()
+            except Exception:
+                return ""
+
+        if origin and _host_of(origin) != expected_host:
+            return Response(status_code=403, content=b"CSRF: origin mismatch")
+        if not origin and referer and _host_of(referer) != expected_host:
+            return Response(status_code=403, content=b"CSRF: referer mismatch")
+        return await call_next(request)
+
+
 def register_security_middleware(app) -> None:
-    """Register :class:`SecurityHeadersMiddleware` on a FastAPI/Starlette app.
+    """Register security middleware on a FastAPI/Starlette app.
 
     Exposed as a helper so the app factory can wire the middleware without
     having to import Starlette primitives directly.
     """
+    # Order matters: outermost is added last. CSRF check runs first so
+    # rejected requests never hit the handler. Security headers wrap
+    # everything so every response (including the 403s) gets the safe
+    # header set.
+    app.add_middleware(CSRFOriginMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
 
 
 __all__ = [
     "SecurityHeadersMiddleware",
+    "CSRFOriginMiddleware",
     "register_security_middleware",
 ]

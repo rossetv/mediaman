@@ -168,10 +168,29 @@ def cli_main() -> None:
         create_user_cli()
         return
 
+    import os
+
     import uvicorn
     config = load_config()
     app = create_app()
-    uvicorn.run(app, host="0.0.0.0", port=config.port)
+
+    # When mediaman sits behind a reverse proxy, uvicorn's proxy-headers
+    # middleware rewrites ``request.url.scheme`` to match
+    # ``X-Forwarded-Proto`` only if the immediate peer IP is in
+    # ``forwarded_allow_ips``. Without that rewrite, HSTS and the
+    # Secure-cookie heuristic both fail-open to plaintext. Default to
+    # ``"*"`` (trust any peer to set the scheme) so the typical Docker
+    # deployment behind Caddy/Traefik/Cloudflare Just Works; operators
+    # can narrow via ``MEDIAMAN_TRUSTED_PROXIES`` when they want a
+    # tighter scope (it is honoured for IP-extraction either way).
+    forwarded_allow_ips = os.environ.get("MEDIAMAN_TRUSTED_PROXIES", "*").strip() or "*"
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=config.port,
+        forwarded_allow_ips=forwarded_allow_ips,
+        proxy_headers=True,
+    )
 
 
 app = create_app()

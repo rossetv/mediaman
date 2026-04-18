@@ -22,5 +22,9 @@ def db_path(tmp_data_dir):
 
 @pytest.fixture
 def secret_key():
-    """Provide a test secret key."""
-    return "test-secret-key-for-unit-tests-only"
+    """Provide a strong test secret key (64 hex chars, ~256 bits).
+
+    Deterministic so tests get reproducible HMAC outputs; passes the
+    entropy check in :mod:`mediaman.config`.
+    """
+    return "0123456789abcdef" * 4  # 64 hex chars, 16 unique, test-stable

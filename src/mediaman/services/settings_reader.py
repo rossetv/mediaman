@@ -47,8 +47,14 @@ def get_setting(
         try:
             from mediaman.crypto import decrypt_value
             # Pass ``conn`` so v2 (HKDF) ciphertexts can look up the
-            # per-install salt. v1 (legacy) fallback doesn't need it.
-            val = decrypt_value(val, secret_key, conn=conn)
+            # per-install salt; pass the setting key as AAD so a DB
+            # row swap (moving a ciphertext from one key to another)
+            # fails authentication instead of silently succeeding.
+            # ``decrypt_value`` falls back to no-AAD on InvalidTag so
+            # pre-AAD ciphertexts still read.
+            val = decrypt_value(
+                val, secret_key, conn=conn, aad=key.encode()
+            )
         except Exception:
             logger.warning("Failed to decrypt setting '%s' — returning default", key)
             return default

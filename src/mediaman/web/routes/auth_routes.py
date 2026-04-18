@@ -21,13 +21,32 @@ _limiter = RateLimiter(max_attempts=5, window_seconds=60)
 def _is_request_secure(request: Request) -> bool:
     """Return True when the effective scheme is HTTPS.
 
-    ``X-Forwarded-Proto`` is only trusted when ``request.client.host``
-    falls within ``MEDIAMAN_TRUSTED_PROXIES`` — otherwise any client can
-    downgrade cookie protection simply by setting the header. Operators
-    can force-on by setting ``MEDIAMAN_FORCE_SECURE_COOKIES=true`` when
-    the app is *always* served behind HTTPS.
+    Resolution order:
+
+    1. ``MEDIAMAN_FORCE_SECURE_COOKIES=true`` — unconditional yes.
+    2. ``MEDIAMAN_FORCE_SECURE_COOKIES=false`` — unconditional no
+       (development / plaintext loopback).
+    3. Otherwise default to **secure**. Mediaman is intended to be
+       served over HTTPS on any public deployment, and failing open
+       to plaintext cookies is exactly the scenario that turns a
+       misconfigured reverse proxy into session theft. The uvicorn
+       ``proxy_headers`` / ``forwarded_allow_ips`` machinery already
+       rewrites ``request.url.scheme`` to match ``X-Forwarded-Proto``
+       when a trusted peer sets it, and the per-app override below
+       is a belt-and-braces check: if the app genuinely sees an HTTP
+       request AND the operator hasn't opted out, we STILL set the
+       cookie Secure so it can't be sent on a plaintext loopback.
     """
-    if os.environ.get("MEDIAMAN_FORCE_SECURE_COOKIES", "").lower() == "true":
+    override = os.environ.get("MEDIAMAN_FORCE_SECURE_COOKIES", "").strip().lower()
+    if override == "true":
+        return True
+    if override == "false":
+        return False
+
+    # Best-effort scheme detection: honour X-Forwarded-Proto from a
+    # trusted peer if the uvicorn rewrite didn't already promote the
+    # scheme (e.g. deployment didn't pass ``forwarded_allow_ips``).
+    if request.url.scheme == "https":
         return True
     peer = request.client.host if request.client else None
     trusted = _trusted_proxies()
@@ -38,9 +57,13 @@ def _is_request_secure(request: Request) -> bool:
             .strip()
             .lower()
         )
-        if forwarded_proto:
-            return forwarded_proto == "https"
-    return request.url.scheme == "https"
+        if forwarded_proto == "https":
+            return True
+
+    # Default to True on a public-facing app — operators who genuinely
+    # need plaintext (localhost-only dev) can set
+    # ``MEDIAMAN_FORCE_SECURE_COOKIES=false``.
+    return True
 
 
 @router.get("/login", response_class=HTMLResponse)

@@ -6,11 +6,17 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from mediaman.auth.middleware import get_optional_admin
+from mediaman.auth.rate_limit import RateLimiter, get_client_ip
 from mediaman.config import load_config
 from mediaman.crypto import validate_keep_token
 from mediaman.db import get_db
 
 router = APIRouter()
+
+# Rate limit the public keep endpoint — generous enough for a real
+# user clicking through but tight enough to neuter any brute-force or
+# mass-probing attempt. Bucketed by /24 (v4) / /64 (v6) prefix.
+_KEEP_LIMITER = RateLimiter(max_attempts=30, window_seconds=60)
 
 
 def _lookup_verified_action(conn, token: str, secret_key: str):
@@ -55,6 +61,15 @@ def keep_page(request: Request, token: str):
     conn = get_db()
     templates = request.app.state.templates
     config = load_config()
+
+    if not _KEEP_LIMITER.check(get_client_ip(request)):
+        return HTMLResponse("Too many requests. Try again later.", status_code=429)
+    if len(token) > 4096:
+        return templates.TemplateResponse(request, "keep.html", {
+            "state": "expired",
+            "item": None,
+            "is_admin": False,
+        })
 
     row = _lookup_verified_action(conn, token, config.secret_key)
 
@@ -116,6 +131,11 @@ def keep_submit(request: Request, token: str, duration: str = Form(...)):
     """
     conn = get_db()
     config = load_config()
+
+    if not _KEEP_LIMITER.check(get_client_ip(request)):
+        return HTMLResponse("Too many requests. Try again later.", status_code=429)
+    if len(token) > 4096:
+        return RedirectResponse("/keep/expired", status_code=302)
 
     # Reject unknown durations early
     if duration not in {"7 days", "30 days", "90 days", "forever"}:

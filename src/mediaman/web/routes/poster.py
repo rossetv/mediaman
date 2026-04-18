@@ -9,14 +9,19 @@ Access control
 
 Logged-in admins can fetch any poster by rating key. Email clients have
 no session cookie, so email-embedded posters must be rendered with a
-signed URL produced by :func:`sign_poster_url`, which attaches an
-HMAC-SHA256 signature of the rating key under ``?sig=...``. The signed
-variant is the only way unauthenticated callers can hit this endpoint.
+signed URL produced by :func:`sign_poster_url`. The signature now
+carries an expiry (default 180 days) and is domain-separated via a
+dedicated HMAC sub-key (see :mod:`mediaman.crypto`) so a stolen
+poster URL cannot outlive its legitimate newsletter forever and
+cannot be confused with other token types.
+
+Unauthenticated callers (no session, no valid signed token) receive
+a uniform 401 regardless of whether the rating_key exists on the
+Plex server. This prevents the endpoint being used as an existence
+oracle to enumerate the user's library rating keys.
 """
 
-import base64
 import hashlib
-import hmac
 import os
 from pathlib import Path
 from urllib.parse import urlparse
@@ -26,7 +31,11 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 
 from mediaman.auth.middleware import get_optional_admin
-from mediaman.crypto import decrypt_value
+from mediaman.crypto import (
+    decrypt_value,
+    generate_poster_token,
+    validate_poster_token,
+)
 from mediaman.db import get_db
 
 router = APIRouter()
@@ -36,49 +45,37 @@ _cache_dir: Path | None = None
 # Cache posters for 7 days (response header) — browser won't re-request
 _CACHE_MAX_AGE = 7 * 24 * 60 * 60
 
+# Hard cap on the size of a remote-fetched poster. Real posters run
+# 100-800 KB; 10 MB is generous and stops a compromised CDN streaming
+# an unbounded body into the cache.
+_MAX_POSTER_BYTES = 10 * 1024 * 1024
+
+# Only these mime types are ever served back to the client. Everything
+# else is normalised down to image/jpeg so a malicious CDN cannot
+# serve ``Content-Type: text/html`` through the proxy and land a
+# stored-XSS-via-poster primitive.
+_ALLOWED_IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+
 # SSRF allow-list for Radarr/Sonarr remote poster fetches — only trust
 # known image CDNs. Any host outside this list is refused.
 _POSTER_ALLOWED_HOST_SUFFIXES = (
     "tmdb.org",
     "themoviedb.org",
     "imdb.com",
+    "media-amazon.com",
 )
 
 
 def sign_poster_url(rating_key: str, secret_key: str) -> str:
     """Return a signed ``/api/poster/{rating_key}?sig=...`` URL.
 
-    The signature is a URL-safe base64 encoding of the HMAC-SHA256 of
-    the *rating_key* bytes using *secret_key*. Used by the newsletter
-    service so email clients (which have no session cookie) can still
-    fetch posters from the authenticated proxy endpoint.
+    Uses the new expiry-bearing poster token so emails eventually
+    stop working as access credentials. Used by the newsletter
+    service so email clients (which have no session cookie) can
+    still fetch posters from the authenticated proxy endpoint.
     """
-    sig = hmac.new(
-        secret_key.encode(), rating_key.encode(), hashlib.sha256
-    ).digest()
-    sig_b64 = base64.urlsafe_b64encode(sig).decode().rstrip("=")
-    return f"/api/poster/{rating_key}?sig={sig_b64}"
-
-
-def _verify_poster_signature(rating_key: str, sig: str, secret_key: str) -> bool:
-    """Verify an HMAC signature attached to a poster URL.
-
-    Accepts base64-urlsafe-encoded signatures with optional trailing
-    ``=`` padding. Uses :func:`hmac.compare_digest` for constant-time
-    comparison so a tampered signature cannot be brute-forced via
-    timing.
-    """
-    if not sig:
-        return False
-    try:
-        padded = sig + "=" * (-len(sig) % 4)
-        provided = base64.urlsafe_b64decode(padded)
-    except (ValueError, TypeError):
-        return False
-    expected = hmac.new(
-        secret_key.encode(), rating_key.encode(), hashlib.sha256
-    ).digest()
-    return hmac.compare_digest(provided, expected)
+    token = generate_poster_token(rating_key, secret_key)
+    return f"/api/poster/{rating_key}?sig={token}"
 
 
 def _get_cache_dir() -> Path:
@@ -95,9 +92,10 @@ def _is_allowed_poster_host(url: str) -> bool:
     """Return True only for HTTPS URLs pointing at a trusted image CDN.
 
     Accepts any subdomain of the allow-listed hosts (tmdb.org,
-    themoviedb.org, imdb.com). Anything else — including HTTP, IP
-    literals, or unknown hosts — is rejected to prevent SSRF via
-    attacker-controlled Radarr/Sonarr ``remoteUrl`` values.
+    themoviedb.org, imdb.com, media-amazon.com). Anything else —
+    including HTTP, IP literals, or unknown hosts — is rejected to
+    prevent SSRF via attacker-controlled Radarr/Sonarr ``remoteUrl``
+    values.
     """
     try:
         parsed = urlparse(url)
@@ -112,6 +110,48 @@ def _is_allowed_poster_host(url: str) -> bool:
         host == suffix or host.endswith("." + suffix)
         for suffix in _POSTER_ALLOWED_HOST_SUFFIXES
     )
+
+
+def _safe_mime(remote_type: str | None) -> str:
+    """Coerce a remote ``Content-Type`` into a safe served mime.
+
+    If the remote response claims a type we know is image-shaped, pass
+    it through. Otherwise default to ``image/jpeg`` — the caller only
+    ever sets this for payloads we fetched from a trusted image CDN
+    or the Plex thumb endpoint, so type confusion is not a real risk
+    but XSS-via-content-type absolutely is.
+    """
+    if not remote_type:
+        return "image/jpeg"
+    base = remote_type.split(";", 1)[0].strip().lower()
+    if base in _ALLOWED_IMAGE_MIMES:
+        return base
+    return "image/jpeg"
+
+
+def _stream_capped(response) -> bytes | None:
+    """Read up to ``_MAX_POSTER_BYTES`` from *response* and return bytes.
+
+    Returns None if the server advertised an oversize body via
+    Content-Length OR if the streamed body exceeds the cap mid-read.
+    """
+    cl = response.headers.get("Content-Length")
+    if cl:
+        try:
+            if int(cl) > _MAX_POSTER_BYTES:
+                return None
+        except ValueError:
+            return None
+    chunks: list[bytes] = []
+    total = 0
+    for chunk in response.iter_content(chunk_size=65536):
+        if not chunk:
+            continue
+        total += len(chunk)
+        if total > _MAX_POSTER_BYTES:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple:
@@ -146,7 +186,7 @@ def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple:
         val = r["value"]
         if r["encrypted"]:
             try:
-                val = decrypt_value(val, config.secret_key, conn=conn)
+                val = decrypt_value(val, config.secret_key, conn=conn, aad=key.encode())
             except Exception:
                 return ""
         try:
@@ -200,9 +240,15 @@ def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple:
         return None, None
 
     try:
-        resp = http_requests.get(poster_url, timeout=10, allow_redirects=False)
+        resp = http_requests.get(
+            poster_url, timeout=10, allow_redirects=False, stream=True,
+        )
         if resp.status_code == 200:
-            return resp.content, resp.headers.get("Content-Type", "image/jpeg")
+            body = _stream_capped(resp)
+            if body is None:
+                logger.warning("Poster body exceeded size cap from %s", poster_url)
+                return None, None
+            return body, _safe_mime(resp.headers.get("Content-Type"))
     except Exception:
         pass
 
@@ -211,7 +257,7 @@ def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple:
 
 def _validate_rating_key(rating_key: str) -> bool:
     """Return True if rating_key is a valid Plex rating key (digits only)."""
-    return bool(rating_key) and rating_key.isdigit()
+    return bool(rating_key) and rating_key.isdigit() and len(rating_key) <= 12
 
 
 @router.get("/api/poster/{rating_key}")
@@ -224,20 +270,32 @@ def proxy_poster(
 
     Authentication: either an active admin session, or a valid HMAC
     signature in ``?sig=...`` (generated via :func:`sign_poster_url`).
-    Unauthenticated callers with no or bad signature get a 401.
+    Unauthenticated callers with no or bad signature get a 401 —
+    importantly, the 401 is returned BEFORE any rating_key validity
+    or existence check, so the endpoint cannot be used as an oracle
+    to enumerate Plex rating keys.
     """
-    if not _validate_rating_key(rating_key):
-        return Response(status_code=404)
-
+    # Auth FIRST — return 401 for any unauthenticated caller regardless
+    # of whether the rating_key is well-formed or present on the Plex
+    # server. This closes the enumeration oracle noted in the pentest.
     if admin is None:
         from mediaman.config import load_config
         config = load_config()
-        if not _verify_poster_signature(rating_key, sig or "", config.secret_key):
+        if not sig or len(sig) > 4096:
             return Response(status_code=401)
+        if not _validate_rating_key(rating_key):
+            return Response(status_code=401)
+        if not validate_poster_token(sig, config.secret_key, rating_key):
+            return Response(status_code=401)
+    else:
+        if not _validate_rating_key(rating_key):
+            return Response(status_code=404)
 
     cache_dir = _get_cache_dir()
-    # Use a safe filename derived from the rating key
-    safe_name = hashlib.sha256(rating_key.encode()).hexdigest()[:16]
+    # Use a safe filename derived from the rating key. Full SHA-256 so
+    # we're never worried about collisions; filesystems handle 64 hex
+    # chars without complaint.
+    safe_name = hashlib.sha256(rating_key.encode()).hexdigest()
     cached_path = cache_dir / f"{safe_name}.jpg"
 
     # Serve from cache if available
@@ -266,7 +324,9 @@ def proxy_poster(
     if plex_token_row["encrypted"]:
         from mediaman.config import load_config
         config = load_config()
-        plex_token = decrypt_value(plex_token, config.secret_key, conn=conn)
+        plex_token = decrypt_value(
+            plex_token, config.secret_key, conn=conn, aad=b"plex_token"
+        )
 
     thumb_url = f"{plex_url}/library/metadata/{rating_key}/thumb"
     content = None
@@ -274,14 +334,18 @@ def proxy_poster(
     try:
         # allow_redirects=False so the X-Plex-Token header can't leak to a
         # third-party host if Plex (or a MITM) responds with a redirect.
+        # stream=True + _stream_capped caps body size at 10 MiB.
         resp = http_requests.get(
             thumb_url, timeout=10,
             headers={"X-Plex-Token": plex_token},
             allow_redirects=False,
+            stream=True,
         )
         if resp.status_code == 200:
-            content = resp.content
-            content_type = resp.headers.get("Content-Type", "image/jpeg")
+            body = _stream_capped(resp)
+            if body is not None:
+                content = body
+                content_type = _safe_mime(resp.headers.get("Content-Type"))
     except Exception:
         pass
 

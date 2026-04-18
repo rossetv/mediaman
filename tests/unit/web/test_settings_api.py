@@ -168,8 +168,18 @@ class TestDiskUsageAPI:
         assert resp.status_code == 400
         assert "error" in resp.json()
 
-    def test_returns_error_for_nonexistent_path(self, conn, secret_key):
-        """get_disk_usage raises FileNotFoundError — response has error key, status 200."""
+    def test_rejects_path_outside_allowlist(self, conn, secret_key):
+        """Paths outside the MEDIAMAN_DELETE_ROOTS / /media / /data allow-list are refused."""
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        resp = client.get("/api/settings/disk-usage?path=/nonexistent")
+        assert resp.status_code == 403
+        assert "error" in resp.json()
+
+    def test_returns_error_for_nonexistent_allowlisted_path(self, conn, secret_key, monkeypatch):
+        """When the path IS in the allow-list but stat fails, response has an error key."""
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/nonexistent-but-allowed")
         app = _make_app(conn, secret_key)
         client = _auth_client(app, conn)
 
@@ -177,7 +187,7 @@ class TestDiskUsageAPI:
             "mediaman.web.routes.settings_routes.get_disk_usage",
             side_effect=FileNotFoundError("not found"),
         ):
-            resp = client.get("/api/settings/disk-usage?path=/nonexistent")
+            resp = client.get("/api/settings/disk-usage?path=/nonexistent-but-allowed")
 
         assert resp.status_code == 200
         assert "error" in resp.json()

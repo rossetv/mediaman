@@ -20,6 +20,30 @@ The encrypted payload layout is:
 
 ``encrypt_value`` always writes v2; ``decrypt_value`` tries v2 first and
 falls back to v1 on a structural/tag mismatch.
+
+Setting-key binding
+-------------------
+
+From 2026-04-18 the **setting key name is passed as GCM AAD** when
+encrypting/decrypting rows of the ``settings`` table. This binds the
+ciphertext to the row it lives in: an attacker who can write to the DB
+cannot swap the ``plex_token`` ciphertext into the ``openai_api_key``
+row and have mediaman silently exfiltrate the Plex token to OpenAI.
+
+Callers opt in by passing ``aad=<setting_key>.encode()``. Ciphertexts
+written with AAD can only be decrypted when the same AAD is supplied;
+ciphertexts written without AAD (legacy v2 rows, pre-2026-04-18)
+continue to decrypt with ``aad=None``.
+
+HMAC token domain separation
+----------------------------
+
+Each HMAC token type (``keep``, ``download``, ``unsubscribe``,
+``poster``) derives a **per-purpose sub-key** via
+``HMAC-SHA256(secret, info)``. This prevents cross-token confusion: a
+keep token cannot be replayed as a download token or vice versa, and
+introducing a new token type in future can't accidentally accept
+tokens of another type.
 """
 
 from __future__ import annotations
@@ -29,6 +53,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import secrets
 import sqlite3
 import time
@@ -54,6 +79,62 @@ _SALT_SETTING_KEY = "aes_kdf_salt"
 # Setting key for the startup canary (see canary_check).
 _CANARY_SETTING_KEY = "aes_kdf_canary"
 _CANARY_PLAINTEXT = "MEDIAMAN_KEY_CANARY"
+
+# Maximum length of any HMAC-signed token accepted by the validators.
+# A legitimate token stays well under 1 KiB; rejecting oversize inputs
+# up-front stops an attacker burning CPU/RAM on base64+HMAC of a
+# multi-megabyte body.
+_MAX_TOKEN_LEN = 4096
+
+# Maximum length of a setting ciphertext the decrypt path will consider.
+# Real setting values are API keys and URLs — kilobytes at most.
+_MAX_CIPHERTEXT_LEN = 65_536
+
+
+# ---------------------------------------------------------------------------
+# Secret key entropy validation
+# ---------------------------------------------------------------------------
+
+
+def _secret_key_looks_strong(secret: str) -> bool:
+    """Heuristic entropy check for ``MEDIAMAN_SECRET_KEY``.
+
+    Accepts:
+
+    - hex string of at least 64 chars (256 bits of entropy from a
+      proper random source — the exact shape ``secrets.token_hex(32)``
+      produces and the value the README recommends).
+    - URL-safe base64 string of at least 43 chars (≥256 bits, matches
+      ``secrets.token_urlsafe(32)``).
+    - mixed strings of at least 40 chars that use at least three
+      character classes (lower, upper, digit, punctuation) — tolerates
+      pass-phrases but rejects ``"mediaman" * 4`` style inputs.
+
+    This is not a strict entropy estimator; it is a "refuse obviously
+    weak keys at boot" check. A bad key invalidates every downstream
+    guarantee — refusing to start is the right behaviour on a public
+    deployment.
+    """
+    if not secret or len(secret) < 32:
+        return False
+    # Regardless of the input format, trivial repetition is always weak.
+    if len(set(secret)) < 8:
+        return False
+    if re.fullmatch(r"[0-9a-fA-F]{64,}", secret):
+        return True
+    if re.fullmatch(r"[A-Za-z0-9_\-]{43,}", secret):
+        return True
+    classes = sum(
+        [
+            any(c.islower() for c in secret),
+            any(c.isupper() for c in secret),
+            any(c.isdigit() for c in secret),
+            any(not c.isalnum() for c in secret),
+        ]
+    )
+    if len(secret) >= 40 and classes >= 3:
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +168,18 @@ def _derive_aes_key_legacy(secret_key: str) -> bytes:
     return hashlib.sha256(secret_key.encode()).digest()
 
 
+def _derive_token_subkey(secret_key: str, purpose: bytes) -> bytes:
+    """Derive a per-purpose HMAC sub-key from the master secret.
+
+    Uses HMAC-SHA256 with the purpose tag as the "message" under the
+    master secret as the key — a standard domain-separation construction
+    that yields 32 independent-looking bytes for each purpose without
+    any DB access. Callers pass a static byte string like ``b"keep"``,
+    ``b"download"``, ``b"unsubscribe"``, ``b"poster"``.
+    """
+    return hmac.new(secret_key.encode(), purpose, hashlib.sha256).digest()
+
+
 # ---------------------------------------------------------------------------
 # Per-install salt
 # ---------------------------------------------------------------------------
@@ -102,19 +195,29 @@ def _load_or_create_salt(conn: sqlite3.Connection) -> bytes:
     The salt is 16 random bytes, base64-encoded for storage. ``INSERT OR
     IGNORE`` semantics are used so concurrent creators converge on the
     same value. Returns the raw decoded salt bytes.
+
+    Hardening: if the stored salt decodes to an unexpected length, we
+    refuse to proceed — a tampered-down zero-byte salt would still work
+    with HKDF but would strip the per-install uniqueness.
     """
     row = conn.execute(
         "SELECT value FROM settings WHERE key=?", (_SALT_SETTING_KEY,)
     ).fetchone()
     if row is not None and row["value"]:
         try:
-            return base64.b64decode(row["value"])
+            decoded = base64.b64decode(row["value"])
         except (ValueError, TypeError) as exc:
             # Corrupt salt — refuse to silently regenerate because that
             # would invalidate every ciphertext. Surface the problem.
             raise RuntimeError(
                 f"Stored HKDF salt is corrupt and cannot be decoded: {exc}"
             ) from exc
+        if len(decoded) != 16:
+            raise RuntimeError(
+                "Stored HKDF salt has unexpected length — refusing to "
+                "proceed. This indicates database tampering."
+            )
+        return decoded
 
     new_salt = secrets.token_bytes(16)
     encoded = base64.b64encode(new_salt).decode()
@@ -130,7 +233,13 @@ def _load_or_create_salt(conn: sqlite3.Connection) -> bytes:
     row = conn.execute(
         "SELECT value FROM settings WHERE key=?", (_SALT_SETTING_KEY,)
     ).fetchone()
-    return base64.b64decode(row["value"])
+    decoded = base64.b64decode(row["value"])
+    if len(decoded) != 16:
+        raise RuntimeError(
+            "Stored HKDF salt has unexpected length after first-run "
+            "insert — refusing to proceed."
+        )
+    return decoded
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +262,7 @@ def encrypt_value(
     *,
     conn: sqlite3.Connection | None = None,
     salt: bytes | None = None,
+    aad: bytes | None = None,
 ) -> str:
     """Encrypt a string with AES-256-GCM using an HKDF-derived key.
 
@@ -165,6 +275,12 @@ def encrypt_value(
     ciphertexts must always be written in v2 format, which requires a
     salt.
 
+    ``aad`` (additional authenticated data) is optional; when supplied,
+    it is bound into the GCM authentication tag and must be presented
+    unchanged to :func:`decrypt_value`. Callers storing per-row
+    ciphertexts should pass the row key as AAD so rows cannot be
+    swapped.
+
     Returns a URL-safe base64-encoded string of
     ``b"\\x02" || nonce || ciphertext+tag``.
     """
@@ -176,7 +292,7 @@ def encrypt_value(
     key = _derive_aes_key_hkdf(secret_key, resolved_salt)
     aesgcm = AESGCM(key)
     nonce = secrets.token_bytes(12)
-    ciphertext = aesgcm.encrypt(nonce, plaintext.encode(), None)
+    ciphertext = aesgcm.encrypt(nonce, plaintext.encode(), aad)
     return base64.urlsafe_b64encode(_V2_PREFIX + nonce + ciphertext).decode()
 
 
@@ -186,6 +302,7 @@ def decrypt_value(
     *,
     conn: sqlite3.Connection | None = None,
     salt: bytes | None = None,
+    aad: bytes | None = None,
 ) -> str:
     """Decrypt an AES-256-GCM value produced by :func:`encrypt_value`.
 
@@ -195,10 +312,22 @@ def decrypt_value(
     pre-HKDF ciphertexts before 2026-04-16), deriving the key via
     plain SHA-256 of the secret.
 
+    If ``aad`` is supplied, the v2 path attempts AAD-authenticated
+    decrypt FIRST. If that fails with ``InvalidTag``, it retries
+    without AAD so ciphertexts written before the AAD-binding change
+    still decrypt. The v1 fallback does not use AAD (the legacy format
+    never supported it).
+
     Raises ``cryptography.exceptions.InvalidTag`` if neither path can
     authenticate the ciphertext. Raises ``ValueError`` for malformed
-    input that isn't even valid base64.
+    input that isn't even valid base64, for inputs that exceed the
+    hard size cap, or for empty ciphertexts.
     """
+    if not encrypted:
+        raise ValueError("decrypt_value: empty ciphertext")
+    if len(encrypted) > _MAX_CIPHERTEXT_LEN:
+        raise ValueError("decrypt_value: ciphertext exceeds max length")
+
     raw = base64.urlsafe_b64decode(encrypted)
 
     # --- v2 attempt ---------------------------------------------------------
@@ -213,6 +342,14 @@ def decrypt_value(
                 aesgcm = AESGCM(key)
                 nonce = raw[1:13]
                 ciphertext = raw[13:]
+                # AAD-bound attempt first when the caller supplied one.
+                if aad is not None:
+                    try:
+                        return aesgcm.decrypt(nonce, ciphertext, aad).decode()
+                    except InvalidTag:
+                        # Might be a pre-AAD ciphertext — retry without
+                        # AAD so legacy rows still read.
+                        pass
                 return aesgcm.decrypt(nonce, ciphertext, None).decode()
             except InvalidTag:
                 # Fall through to v1 — the leading 0x02 may just happen
@@ -225,7 +362,12 @@ def decrypt_value(
     key = _derive_aes_key_legacy(secret_key)
     aesgcm = AESGCM(key)
     nonce, ciphertext = raw[:12], raw[12:]
-    return aesgcm.decrypt(nonce, ciphertext, None).decode()
+    plaintext = aesgcm.decrypt(nonce, ciphertext, None).decode()
+    logger.warning(
+        "Decrypted a legacy v1 ciphertext — consider rotating encrypted "
+        "settings by re-saving them on the Settings page."
+    )
+    return plaintext
 
 
 # ---------------------------------------------------------------------------
@@ -245,24 +387,49 @@ def canary_check(conn: sqlite3.Connection, secret_key: str) -> bool:
     plaintext mismatch — in that case a LOUD warning is logged and the
     caller should surface this to the admin, but the app MUST NOT
     refuse to start (otherwise the admin can never log in to fix it).
+
+    Tamper detection: if the canary row is missing BUT other encrypted
+    rows exist, that's not first-run — it's possible tampering. Log
+    and return False.
     """
     row = conn.execute(
         "SELECT value FROM settings WHERE key=?", (_CANARY_SETTING_KEY,)
     ).fetchone()
 
     if row is None or not row["value"]:
-        # First run — seed the canary.
-        ciphertext = encrypt_value(_CANARY_PLAINTEXT, secret_key, conn=conn)
+        other = conn.execute(
+            "SELECT 1 FROM settings WHERE encrypted=1 AND key != ? LIMIT 1",
+            (_CANARY_SETTING_KEY,),
+        ).fetchone()
+        if other is not None:
+            logger.warning(
+                "AES canary is missing but encrypted settings exist — "
+                "possible database tampering. The app will reseed the "
+                "canary, but you should verify encrypted settings are "
+                "still decryptable."
+            )
+        # Seed the canary using AAD binding so the row is tamper-evident.
+        ciphertext = encrypt_value(
+            _CANARY_PLAINTEXT,
+            secret_key,
+            conn=conn,
+            aad=_CANARY_SETTING_KEY.encode(),
+        )
         conn.execute(
             "INSERT OR IGNORE INTO settings (key, value, encrypted, updated_at) "
             "VALUES (?, ?, 1, ?)",
             (_CANARY_SETTING_KEY, ciphertext, _now_iso()),
         )
         conn.commit()
-        return True
+        return other is None  # False if tamper suspected; True on genuine first-run
 
     try:
-        decrypted = decrypt_value(row["value"], secret_key, conn=conn)
+        decrypted = decrypt_value(
+            row["value"],
+            secret_key,
+            conn=conn,
+            aad=_CANARY_SETTING_KEY.encode(),
+        )
     except (InvalidTag, ValueError):
         logger.warning(
             "AES key mismatch — existing encrypted settings can no longer be "
@@ -284,8 +451,63 @@ def canary_check(conn: sqlite3.Connection, secret_key: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# HMAC-signed tokens (keep, download, session) — unchanged
+# HMAC-signed tokens
 # ---------------------------------------------------------------------------
+
+# Per-purpose tags used to derive domain-separated HMAC sub-keys.
+_TOKEN_PURPOSE_KEEP = b"mediaman-token-keep-v1"
+_TOKEN_PURPOSE_DOWNLOAD = b"mediaman-token-download-v1"
+_TOKEN_PURPOSE_UNSUBSCRIBE = b"mediaman-token-unsubscribe-v1"
+_TOKEN_PURPOSE_POSTER = b"mediaman-token-poster-v1"
+
+
+def _sign(secret_key: str, purpose: bytes, payload: bytes) -> bytes:
+    """Return HMAC-SHA256(subkey(secret,purpose), payload).
+
+    Derives a per-purpose sub-key so tokens of one type cannot be
+    validated as tokens of another type.
+    """
+    subkey = _derive_token_subkey(secret_key, purpose)
+    return hmac.new(subkey, payload, hashlib.sha256).digest()
+
+
+def _validate_signed(
+    token: str, secret_key: str, purpose: bytes
+) -> dict | None:
+    """Shared validator for payload.signature tokens.
+
+    Returns the decoded payload dict on success, or None on any failure
+    (malformed, wrong signature, wrong purpose, expired).
+    """
+    if not token or len(token) > _MAX_TOKEN_LEN:
+        return None
+    try:
+        parts = token.split(".")
+        if len(parts) != 2:
+            return None
+        payload_bytes = base64.urlsafe_b64decode(parts[0] + "=" * (-len(parts[0]) % 4))
+        sig = base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4))
+        expected_sig = _sign(secret_key, purpose, payload_bytes)
+        if not hmac.compare_digest(sig, expected_sig):
+            return None
+        payload = json.loads(payload_bytes)
+        if not isinstance(payload, dict):
+            return None
+        exp = payload.get("exp", 0)
+        if not isinstance(exp, (int, float)) or exp < time.time():
+            return None
+        return payload
+    except Exception:
+        return None
+
+
+def _encode_signed(payload: dict, secret_key: str, purpose: bytes) -> str:
+    """Encode a ``payload.signature`` token with domain-separated key."""
+    payload_bytes = json.dumps(payload, separators=(",", ":")).encode()
+    sig = _sign(secret_key, purpose, payload_bytes)
+    payload_b64 = base64.urlsafe_b64encode(payload_bytes).decode().rstrip("=")
+    sig_b64 = base64.urlsafe_b64encode(sig).decode().rstrip("=")
+    return f"{payload_b64}.{sig_b64}"
 
 
 def generate_keep_token(
@@ -297,50 +519,16 @@ def generate_keep_token(
 ) -> str:
     """Generate an HMAC-SHA256-signed keep token for email "Keep" links.
 
-    The token is a URL-safe base64 encoding of ``payload_json | hmac_sig``.
-    The payload carries ``media_item_id``, ``action_id``, and an expiry
-    timestamp (``exp``, Unix seconds).
+    Uses the ``keep``-purpose HMAC sub-key so the token cannot be
+    replayed as any other token type.
     """
-    payload = json.dumps(
-        {"media_item_id": media_item_id, "action_id": action_id, "exp": expires_at},
-        separators=(",", ":"),
-    )
-    sig = hmac.new(
-        secret_key.encode(), payload.encode(), hashlib.sha256
-    ).digest()
-    # Encode payload and signature separately, then join with a dot.
-    # This avoids the delimiter appearing inside the binary signature.
-    payload_b64 = base64.urlsafe_b64encode(payload.encode()).decode()
-    sig_b64 = base64.urlsafe_b64encode(sig).decode()
-    return f"{payload_b64}.{sig_b64}"
+    payload = {"media_item_id": media_item_id, "action_id": action_id, "exp": expires_at}
+    return _encode_signed(payload, secret_key, _TOKEN_PURPOSE_KEEP)
 
 
 def validate_keep_token(token: str, secret_key: str) -> dict | None:
-    """Validate and decode a keep token produced by :func:`generate_keep_token`.
-
-    Returns the decoded payload dict if the signature is valid and the token
-    has not expired; returns ``None`` for any failure (tampered, expired,
-    wrong key, malformed).
-
-    Uses a constant-time comparison to prevent timing attacks on the HMAC.
-    """
-    try:
-        parts = token.split(".")
-        if len(parts) != 2:
-            return None
-        payload_bytes = base64.urlsafe_b64decode(parts[0])
-        sig = base64.urlsafe_b64decode(parts[1])
-        expected_sig = hmac.new(
-            secret_key.encode(), payload_bytes, hashlib.sha256
-        ).digest()
-        if not hmac.compare_digest(sig, expected_sig):
-            return None
-        payload = json.loads(payload_bytes)
-        if payload.get("exp", 0) < time.time():
-            return None
-        return payload
-    except Exception:
-        return None
+    """Validate and decode a keep token produced by :func:`generate_keep_token`."""
+    return _validate_signed(token, secret_key, _TOKEN_PURPOSE_KEEP)
 
 
 def generate_download_token(
@@ -354,63 +542,81 @@ def generate_download_token(
     secret_key: str,
     ttl_days: int = 14,
 ) -> str:
-    """Generate an HMAC-SHA256-signed download token for email download/re-download CTAs.
+    """Generate an HMAC-SHA256-signed download token for email download CTAs.
 
-    The token is a URL-safe base64 encoding of ``payload_json.hmac_sig``.
-    The payload carries the recipient's ``email``, the requested ``act``ion
-    (``"download"`` or ``"redownload"``), the media ``title``, ``mt``
-    (media type), ``tmdb`` (TMDB ID), ``sid`` (recommendation ID), and an expiry
-    timestamp (``exp``, Unix seconds).
-
-    Tokens expire after *ttl_days* days (default 14).
+    Uses the ``download``-purpose HMAC sub-key; unreachable from the
+    keep/unsubscribe validators.
     """
     exp = int(time.time()) + ttl_days * 86400
-    payload = json.dumps(
-        {
-            "email": email,
-            "act": action,
-            "title": title,
-            "mt": media_type,
-            "tmdb": tmdb_id,
-            "sid": recommendation_id,
-            "exp": exp,
-        },
-        separators=(",", ":"),
-    )
-    sig = hmac.new(
-        secret_key.encode(), payload.encode(), hashlib.sha256
-    ).digest()
-    payload_b64 = base64.urlsafe_b64encode(payload.encode()).decode()
-    sig_b64 = base64.urlsafe_b64encode(sig).decode()
-    return f"{payload_b64}.{sig_b64}"
+    payload = {
+        "email": email,
+        "act": action,
+        "title": title,
+        "mt": media_type,
+        "tmdb": tmdb_id,
+        "sid": recommendation_id,
+        "exp": exp,
+    }
+    return _encode_signed(payload, secret_key, _TOKEN_PURPOSE_DOWNLOAD)
 
 
 def validate_download_token(token: str, secret_key: str) -> dict | None:
-    """Validate and decode a download token produced by :func:`generate_download_token`.
+    """Validate and decode a download token produced by :func:`generate_download_token`."""
+    return _validate_signed(token, secret_key, _TOKEN_PURPOSE_DOWNLOAD)
 
-    Returns the decoded payload dict if the signature is valid and the token
-    has not expired; returns ``None`` for any failure (tampered, expired,
-    wrong key, malformed).
 
-    Uses a constant-time comparison to prevent timing attacks on the HMAC.
+def generate_unsubscribe_token(
+    *,
+    email: str,
+    secret_key: str,
+    ttl_days: int = 180,
+) -> str:
+    """Generate a domain-separated unsubscribe token.
+
+    Unlike the previous shape (``hmac_hex[:32]``), this token:
+
+    - uses a ``unsubscribe``-purpose HMAC sub-key so it cannot be
+      confused with keep/download tokens;
+    - carries an explicit expiry (default 180 days) so archival copies
+      stop working eventually;
+    - retains full 256-bit HMAC output so truncation doesn't weaken
+      forgery resistance.
     """
-    try:
-        parts = token.split(".")
-        if len(parts) != 2:
-            return None
-        payload_bytes = base64.urlsafe_b64decode(parts[0])
-        sig = base64.urlsafe_b64decode(parts[1])
-        expected_sig = hmac.new(
-            secret_key.encode(), payload_bytes, hashlib.sha256
-        ).digest()
-        if not hmac.compare_digest(sig, expected_sig):
-            return None
-        payload = json.loads(payload_bytes)
-        if payload.get("exp", 0) < time.time():
-            return None
-        return payload
-    except Exception:
-        return None
+    exp = int(time.time()) + ttl_days * 86400
+    payload = {"email": email.lower(), "exp": exp}
+    return _encode_signed(payload, secret_key, _TOKEN_PURPOSE_UNSUBSCRIBE)
+
+
+def validate_unsubscribe_token(
+    token: str, secret_key: str, email: str
+) -> bool:
+    """Return True when *token* is a valid unsubscribe token for *email*."""
+    payload = _validate_signed(token, secret_key, _TOKEN_PURPOSE_UNSUBSCRIBE)
+    if payload is None:
+        return False
+    return payload.get("email", "").lower() == email.lower()
+
+
+def generate_poster_token(rating_key: str, secret_key: str, *, ttl_days: int = 180) -> str:
+    """Generate an HMAC token authorising access to a specific rating-key poster.
+
+    Payload is a tiny ``{"rk": "...", "exp": N}`` blob signed with the
+    poster-purpose sub-key. Replaces the previous "bare HMAC of rating
+    key" shape so (a) the signature cannot be confused with other
+    HMAC-over-string constructs, (b) every emitted URL eventually
+    expires, (c) the sub-key is not the master secret.
+    """
+    exp = int(time.time()) + ttl_days * 86400
+    payload = {"rk": rating_key, "exp": exp}
+    return _encode_signed(payload, secret_key, _TOKEN_PURPOSE_POSTER)
+
+
+def validate_poster_token(token: str, secret_key: str, rating_key: str) -> bool:
+    """Return True when *token* authorises access to *rating_key*."""
+    payload = _validate_signed(token, secret_key, _TOKEN_PURPOSE_POSTER)
+    if payload is None:
+        return False
+    return payload.get("rk") == rating_key
 
 
 def generate_session_token() -> str:

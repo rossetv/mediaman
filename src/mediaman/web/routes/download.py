@@ -8,14 +8,18 @@ Three endpoints:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import threading
+import time
 from urllib.parse import quote as _url_quote
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from mediaman.auth.middleware import get_optional_admin
+from mediaman.auth.rate_limit import RateLimiter, get_client_ip
 from mediaman.crypto import validate_download_token
 from mediaman.db import get_db
 from mediaman.services.download_format import (
@@ -29,6 +33,41 @@ from mediaman.services.download_format import (
 logger = logging.getLogger("mediaman")
 
 router = APIRouter()
+
+# Rate limiter for the public download endpoint. Higher for GET (users
+# reload the confirm page), stricter for POST (the action).
+_DOWNLOAD_LIMITER_GET = RateLimiter(max_attempts=30, window_seconds=60)
+_DOWNLOAD_LIMITER_POST = RateLimiter(max_attempts=10, window_seconds=60)
+
+# Status polling is called frequently by the UI — allow more but still
+# cap to prevent a leaked token polling the admin's queue forever.
+_DOWNLOAD_STATUS_LIMITER = RateLimiter(max_attempts=120, window_seconds=60)
+
+# In-memory single-use cache for download-token POSTs. The store is keyed
+# by the SHA-256 of the token so the raw token never sits in the process
+# heap longer than one request. Entries expire with the token itself
+# (14 days default), so the dict stays bounded. On process restart the
+# set is lost — acceptable tradeoff: tokens are HMAC-authenticated and
+# short-lived, and the downstream Radarr/Sonarr already idempotently
+# handle "already in library" errors.
+_USED_TOKENS_LOCK = threading.Lock()
+_USED_TOKENS: dict[str, float] = {}
+
+
+def _mark_token_used(token: str, exp: int) -> bool:
+    """Atomically mark *token* as consumed. Return False if already used."""
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    now = time.time()
+    with _USED_TOKENS_LOCK:
+        # Opportunistic prune of expired entries so the dict stays bounded.
+        if len(_USED_TOKENS) > 1000:
+            for k, v in list(_USED_TOKENS.items()):
+                if v < now:
+                    _USED_TOKENS.pop(k, None)
+        if digest in _USED_TOKENS:
+            return False
+        _USED_TOKENS[digest] = float(exp)
+        return True
 
 
 def _format_timeleft(timeleft: str) -> str:
@@ -191,6 +230,15 @@ def download_page(request: Request, token: str):
     templates = request.app.state.templates
     conn = get_db()
 
+    if not _DOWNLOAD_LIMITER_GET.check(get_client_ip(request)):
+        return HTMLResponse("Too many requests. Try again later.", status_code=429)
+
+    if len(token) > 4096:
+        return templates.TemplateResponse(request, "download.html", {
+            "state": "expired",
+            "item": None,
+        })
+
     payload = validate_download_token(token, config.secret_key)
     if payload is None:
         return templates.TemplateResponse(request, "download.html", {
@@ -330,9 +378,27 @@ def download_submit(request: Request, token: str):
     config = request.app.state.config
     conn = get_db()
 
+    if not _DOWNLOAD_LIMITER_POST.check(get_client_ip(request)):
+        return JSONResponse({"ok": False, "error": "Too many requests"}, status_code=429)
+
+    if len(token) > 4096:
+        return JSONResponse({"ok": False, "error": "Token expired or invalid"}, status_code=410)
+
     payload = validate_download_token(token, config.secret_key)
     if payload is None:
         return JSONResponse({"ok": False, "error": "Token expired or invalid"}, status_code=410)
+
+    # Single-use semantics. Marks the token consumed BEFORE any outbound
+    # action so a concurrent retry hits the "already used" path even if
+    # Radarr/Sonarr is slow.
+    exp_value = payload.get("exp", 0)
+    if not isinstance(exp_value, (int, float)):
+        return JSONResponse({"ok": False, "error": "Token expired or invalid"}, status_code=410)
+    if not _mark_token_used(token, int(exp_value)):
+        return JSONResponse(
+            {"ok": False, "error": "This download link has already been used"},
+            status_code=409,
+        )
 
     title     = payload.get("title", "")
     media_type = payload.get("mt", "")
@@ -484,10 +550,16 @@ def download_status(
     """
     config = request.app.state.config
 
+    # Cheap rate limit to stop leaked tokens polling queue state forever.
+    if not admin and not _DOWNLOAD_STATUS_LIMITER.check(get_client_ip(request)):
+        return JSONResponse({"error": "Too many requests"}, status_code=429)
+
     # Require either an admin session or a valid download token bound to
     # the item being queried. Without the binding check a user with any
     # valid download token could poll the queue state of arbitrary items.
     if not admin:
+        if token is not None and len(token) > 4096:
+            return JSONResponse({"error": "Not authenticated"}, status_code=401)
         payload = validate_download_token(token, config.secret_key) if token else None
         if payload is None:
             return JSONResponse({"error": "Not authenticated"}, status_code=401)

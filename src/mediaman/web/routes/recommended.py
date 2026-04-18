@@ -234,7 +234,7 @@ def api_download_recommendation(recommendation_id: int, request: Request, admin:
                 return JSONResponse({"ok": False, "error": "Radarr not configured"})
             radarr_key = radarr_key_row["value"]
             if radarr_key_row["encrypted"]:
-                radarr_key = decrypt_value(radarr_key, config.secret_key, conn=conn)
+                radarr_key = decrypt_value(radarr_key, config.secret_key, conn=conn, aad=b"radarr_api_key")
 
             from mediaman.services.radarr import RadarrClient
             client = RadarrClient(radarr_url_row["value"], radarr_key)
@@ -267,7 +267,7 @@ def api_download_recommendation(recommendation_id: int, request: Request, admin:
                 return JSONResponse({"ok": False, "error": "Sonarr not configured"})
             sonarr_key = sonarr_key_row["value"]
             if sonarr_key_row["encrypted"]:
-                sonarr_key = decrypt_value(sonarr_key, config.secret_key, conn=conn)
+                sonarr_key = decrypt_value(sonarr_key, config.secret_key, conn=conn, aad=b"sonarr_api_key")
 
             from mediaman.services.sonarr import SonarrClient
             client = SonarrClient(sonarr_url_row["value"], sonarr_key)

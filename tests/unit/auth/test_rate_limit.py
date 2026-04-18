@@ -21,9 +21,23 @@ class TestRateLimiter:
         assert limiter.check("192.168.1.1") is False
 
     def test_different_ips_independent(self):
+        """Addresses in DIFFERENT /24 networks do not share a bucket."""
         limiter = RateLimiter(max_attempts=1, window_seconds=60)
         limiter.check("192.168.1.1")
-        assert limiter.check("192.168.1.2") is True
+        # 192.168.2.2 is a different /24 to 192.168.1.x — independent bucket.
+        assert limiter.check("192.168.2.2") is True
+
+    def test_same_subnet_shares_bucket(self):
+        """Addresses in the SAME /24 share a bucket — prevents IP-hop evasion."""
+        limiter = RateLimiter(max_attempts=1, window_seconds=60)
+        limiter.check("192.168.1.1")
+        assert limiter.check("192.168.1.99") is False
+
+    def test_ipv6_same_slash64_shares_bucket(self):
+        """IPv6 addresses within the same /64 share a rate-limit bucket."""
+        limiter = RateLimiter(max_attempts=1, window_seconds=60)
+        limiter.check("2001:db8:1234:5678::1")
+        assert limiter.check("2001:db8:1234:5678::ffff") is False
 
     def test_resets_after_window(self):
         limiter = RateLimiter(max_attempts=1, window_seconds=0.1)
@@ -64,6 +78,7 @@ class TestGetClientIp:
         assert get_client_ip(FakeRequest()) == "10.0.0.1"
 
     def test_trusts_forwarded_header_from_configured_proxy(self, monkeypatch):
+        """Walks XFF from the right, skipping trusted-proxy hops."""
         monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
 
         class FakeRequest:
@@ -71,6 +86,20 @@ class TestGetClientIp:
             client = type("C", (), {"host": "10.0.0.1"})()
 
         assert get_client_ip(FakeRequest()) == "1.2.3.4"
+
+    def test_rejects_spoofed_leftmost_xff_entry(self, monkeypatch):
+        """An attacker-controlled leftmost XFF entry must NOT be taken as the client IP."""
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
+
+        # Attacker (real IP 198.51.100.7) sends their own X-Forwarded-For
+        # with a forged leftmost value. The trusted proxy appends its own
+        # identity. Walking right-to-left, we skip 10.0.0.1 (trusted) and
+        # should return 198.51.100.7, NOT the forged 1.2.3.4.
+        class FakeRequest:
+            headers = {"x-forwarded-for": "1.2.3.4, 198.51.100.7, 10.0.0.1"}
+            client = type("C", (), {"host": "10.0.0.1"})()
+
+        assert get_client_ip(FakeRequest()) == "198.51.100.7"
 
     def test_trusts_x_real_ip_when_no_forwarded_for(self, monkeypatch):
         monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")

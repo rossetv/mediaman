@@ -90,7 +90,12 @@ def _load_settings(conn, secret_key: str) -> dict:
         raw = row["value"]
         if row["encrypted"]:
             try:
-                settings[row["key"]] = decrypt_value(raw, secret_key, conn=conn)
+                # Bind the setting key as AAD so ciphertexts cannot be
+                # swapped between rows. Falls back to no-AAD decrypt
+                # for legacy rows written before this change.
+                settings[row["key"]] = decrypt_value(
+                    raw, secret_key, conn=conn, aad=row["key"].encode()
+                )
             except Exception:
                 settings[row["key"]] = ""
         else:
@@ -132,7 +137,7 @@ def _build_plex_client(conn, secret_key: str):
     url = (url_row["value"] or "").strip()
     token = token_row["value"] or ""
     if token_row["encrypted"]:
-        token = decrypt_value(token, secret_key, conn=conn)
+        token = decrypt_value(token, secret_key, conn=conn, aad=b"plex_token")
     token = token.strip()
 
     if not url or not token:
@@ -202,6 +207,34 @@ def api_update_settings(
     config = request.app.state.config
     now = datetime.now(timezone.utc).isoformat()
 
+    # Validate URL-shaped settings before storage. These values flow
+    # into outbound HTTP base URLs and, for ``base_url``, into the
+    # ``href`` attributes of links in outbound newsletters — a
+    # ``javascript:`` or ``data:`` scheme would turn every newsletter
+    # into a phishing vector.
+    from urllib.parse import urlparse as _urlparse
+
+    _URL_FIELDS = {
+        "base_url", "plex_url", "sonarr_url", "radarr_url", "nzbget_url",
+    }
+
+    for _url_key in _URL_FIELDS:
+        if _url_key in body and body[_url_key]:
+            _candidate = str(body[_url_key]).strip()
+            if len(_candidate) > 2048:
+                return JSONResponse(
+                    {"error": f"{_url_key} too long"}, status_code=400
+                )
+            try:
+                parsed = _urlparse(_candidate)
+            except ValueError:
+                parsed = None
+            if not parsed or parsed.scheme not in ("http", "https") or not parsed.netloc:
+                return JSONResponse(
+                    {"error": f"{_url_key} must be an http(s) URL"},
+                    status_code=400,
+                )
+
     for key, value in body.items():
         if key not in _ALL_KEYS:
             continue
@@ -210,7 +243,11 @@ def api_update_settings(
         if key in SECRET_FIELDS:
             if value == "****" or value == "":
                 continue  # Preserve existing encrypted value
-            encrypted_value = encrypt_value(str(value), config.secret_key, conn=conn)
+            # Bind the setting key name as GCM AAD so ciphertexts
+            # cannot be swapped between rows by a DB-write attacker.
+            encrypted_value = encrypt_value(
+                str(value), config.secret_key, conn=conn, aad=key.encode()
+            )
             conn.execute(
                 "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 1, ?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value, encrypted=1, updated_at=excluded.updated_at",
@@ -364,13 +401,80 @@ def api_plex_libraries(request: Request, admin: str = Depends(get_current_admin)
         return JSONResponse({"libraries": [], "error": "Failed to fetch Plex libraries"})
 
 
+def _disk_usage_allowed_paths() -> set[str]:
+    """Return the set of filesystem paths the disk-usage endpoint may stat.
+
+    The allow-list is derived from ``MEDIAMAN_DELETE_ROOTS`` (if set),
+    ``MEDIAMAN_DATA_DIR``, and the conventional ``/media`` mount. An
+    authenticated admin still shouldn't be able to probe arbitrary
+    filesystem paths — it's both an information-disclosure primitive
+    and a reconnaissance step in any later compromise — so we refuse
+    paths outside the known media/data roots even for authed callers.
+    """
+    import os as _os
+    from pathlib import Path as _Path
+
+    allowed: set[str] = set()
+    roots = (_os.environ.get("MEDIAMAN_DELETE_ROOTS") or "").strip()
+    for token in roots.split(","):
+        token = token.strip()
+        if token:
+            try:
+                allowed.add(str(_Path(token).resolve()))
+            except (OSError, ValueError):
+                continue
+    data_dir = _os.environ.get("MEDIAMAN_DATA_DIR", "/data").strip()
+    if data_dir:
+        try:
+            allowed.add(str(_Path(data_dir).resolve()))
+        except (OSError, ValueError):
+            pass
+    # Conventional mount point used by the docker-compose example.
+    allowed.add("/media")
+    allowed.add("/data")
+    return allowed
+
+
 @router.get("/api/settings/disk-usage")
 def api_disk_usage(request: Request, path: str = "", admin: str = Depends(get_current_admin)):
-    """Return disk usage stats for a given filesystem path."""
+    """Return disk usage stats for a whitelisted filesystem path.
+
+    The *path* parameter is resolved and must equal — or be a
+    descendant of — one of the allowed roots (``MEDIAMAN_DELETE_ROOTS``,
+    ``MEDIAMAN_DATA_DIR``, or the conventional ``/media`` / ``/data``
+    mounts). Anything else is refused with 403 to prevent the endpoint
+    being used as an arbitrary-path existence/size oracle.
+    """
     if not path:
         return JSONResponse({"error": "path parameter is required"}, status_code=400)
+    if len(path) > 4096:
+        return JSONResponse({"error": "path too long"}, status_code=400)
+
+    from pathlib import Path as _Path
+
     try:
-        usage = get_disk_usage(path)
+        resolved = _Path(path).resolve()
+    except (OSError, ValueError):
+        return JSONResponse({"error": "invalid path"}, status_code=400)
+
+    allowed_roots = _disk_usage_allowed_paths()
+    ok = False
+    for root_str in allowed_roots:
+        try:
+            root_path = _Path(root_str)
+        except (OSError, ValueError):
+            continue
+        if resolved == root_path or root_path in resolved.parents:
+            ok = True
+            break
+    if not ok:
+        return JSONResponse(
+            {"error": "path not permitted"},
+            status_code=403,
+        )
+
+    try:
+        usage = get_disk_usage(str(resolved))
         total = usage["total_bytes"]
         used = usage["used_bytes"]
         pct = round(used / total * 100, 1) if total > 0 else 0.0
@@ -381,9 +485,9 @@ def api_disk_usage(request: Request, path: str = "", admin: str = Depends(get_cu
             "usage_pct": pct,
         })
     except FileNotFoundError:
-        return JSONResponse({"error": f"Path not found: {path}"})
+        return JSONResponse({"error": "path not found"})
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to read disk usage for %s: %s", path, exc)
+        logger.warning("Failed to read disk usage for %s: %s", resolved, exc)
         return JSONResponse({"error": "Failed to read disk usage"})
 
 
@@ -408,10 +512,21 @@ def api_create_user(
     username = body.username.strip()
     password = body.password
 
-    if not username or len(username) < 3:
-        return JSONResponse({"ok": False, "error": "Username must be at least 3 characters"}, status_code=400)
-    if len(password) < 8:
-        return JSONResponse({"ok": False, "error": "Password must be at least 8 characters"}, status_code=400)
+    if not username or len(username) < 3 or len(username) > 64:
+        return JSONResponse(
+            {"ok": False, "error": "Username must be between 3 and 64 characters"},
+            status_code=400,
+        )
+    if len(password) < 12:
+        return JSONResponse(
+            {"ok": False, "error": "Password must be at least 12 characters"},
+            status_code=400,
+        )
+    if password.lower() == username.lower() or password.lower() in {"password", "password1", "admin", "changeme"}:
+        return JSONResponse(
+            {"ok": False, "error": "Password is too weak or matches the username"},
+            status_code=400,
+        )
 
     conn = get_db()
     try:
@@ -440,8 +555,16 @@ def api_change_password(
     old_password = body.old_password
     new_password = body.new_password
 
-    if len(new_password) < 8:
-        return JSONResponse({"ok": False, "error": "New password must be at least 8 characters"}, status_code=400)
+    if len(new_password) < 12:
+        return JSONResponse(
+            {"ok": False, "error": "New password must be at least 12 characters"},
+            status_code=400,
+        )
+    if new_password == old_password:
+        return JSONResponse(
+            {"ok": False, "error": "New password must differ from the old password"},
+            status_code=400,
+        )
 
     conn = get_db()
     if change_password(conn, admin, old_password, new_password):
