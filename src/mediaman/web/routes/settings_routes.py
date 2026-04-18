@@ -11,7 +11,7 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Body, Depends, Request
+from fastapi import APIRouter, Body, Depends, Header, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
@@ -592,13 +592,17 @@ def api_delete_user(
     request: Request,
     admin: str = Depends(get_current_admin),
     confirm_password: str = "",
+    x_confirm_password: str | None = Header(default=None),
 ):
     """Delete an admin user. Cannot delete yourself.
 
-    Requires the caller's password as a query string ``confirm_password``
-    parameter so a compromised session cookie alone cannot delete
-    other admins (or, via chained exploits, the last remaining admin
-    after wider account-takeover).
+    Requires the caller's password, accepted from either:
+
+    - ``X-Confirm-Password`` request header (preferred — keeps the
+      password out of URLs and server logs).
+    - ``?confirm_password=…`` query string (legacy / curl-friendly).
+
+    A compromised session cookie alone cannot delete other admins.
     """
     conn = get_db()
     if not _USER_MGMT_LIMITER.check(admin):
@@ -606,7 +610,9 @@ def api_delete_user(
             {"ok": False, "error": "Too many user-management operations"},
             status_code=429,
         )
-    if not _require_reauth(conn, admin, confirm_password):
+    # Prefer the header if the client sent one; fall back to query.
+    pw = x_confirm_password if x_confirm_password is not None else confirm_password
+    if not _require_reauth(conn, admin, pw):
         logger.warning("user.delete_rejected user=%s reason=reauth_required", admin)
         return JSONResponse(
             {"ok": False, "error": "Password confirmation required"},

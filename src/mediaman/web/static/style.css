@@ -953,6 +953,283 @@ a:hover { text-decoration: none; }
   transform: rotate(-45deg);
 }
 
+/* ===== USERS (settings → Users tab) ===========================
+   Two-card layout: your account on top (emphasised, with inline
+   change-password drawer), a Team list below (with inline add
+   + per-row delete-confirm drawer). Matches DESIGN.md: dark
+   surface tones, Apple-blue accent, pill CTAs, generous negative
+   space, SF Pro hierarchy. */
+
+.users-self-card,
+.users-list-card {
+  background: var(--surface);
+  border: 1px solid rgba(255,255,255,0.04);
+  border-radius: var(--card-radius);
+  padding: 20px;
+  margin-bottom: 14px;
+}
+
+/* ---- Avatar (shared shape for both self-card and list rows) */
+.users-avatar {
+  flex: none;
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.06);
+  color: var(--text-secondary);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+.users-avatar--self {
+  width: 52px; height: 52px;
+  background: linear-gradient(135deg, rgba(41,151,255,0.20), rgba(191,90,242,0.14));
+  color: var(--text);
+  font-size: 19px;
+  box-shadow: 0 4px 24px rgba(41,151,255,0.20);
+}
+.users-avatar-initial { display: block; line-height: 1; }
+
+/* ---- Self card head */
+.users-self-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.users-self-meta { flex: 1 1 200px; min-width: 0; }
+.users-self-label {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.users-self-name {
+  font-family: var(--font-display, inherit);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.users-self-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---- Inline drawers (change password, add user, delete confirm) */
+.users-inline-form,
+.users-delete-drawer {
+  margin-top: 16px;
+  padding: 16px;
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px;
+  animation: users-slide-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes users-slide-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+.users-inline-form[hidden] { display: none; }
+.users-inline-form-grid {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+@media (min-width: 640px) {
+  .users-inline-form-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+  /* Change-password drawer is 3 fields — keep them evenly wide. */
+  #self-password-form .users-inline-form-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.users-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.users-field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: -0.224px;
+}
+.users-inline-form .form-input,
+.users-delete-drawer .form-input {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 15px;
+  letter-spacing: -0.374px;
+}
+.users-inline-form .form-input:focus,
+.users-delete-drawer .form-input:focus {
+  border-color: var(--accent);
+  background: var(--surface-3);
+  box-shadow: 0 0 0 3px rgba(41,151,255,0.15);
+  outline: none;
+}
+.users-inline-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Result/message area beneath inline forms. */
+.users-form-msg {
+  margin-top: 10px;
+  font-size: 13px;
+  letter-spacing: -0.224px;
+  color: var(--text-secondary);
+  min-height: 1px;
+}
+.users-form-msg--ok  { color: var(--success, #30d158); }
+.users-form-msg--err { color: var(--danger,  #ff453a); }
+.users-issue-list {
+  list-style: disc;
+  padding-left: 20px;
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.users-issue-list li { margin: 2px 0; }
+
+/* ---- Team list card */
+.users-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.users-list-title {
+  font-family: var(--font-display, inherit);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.374px;
+  color: var(--text);
+}
+.users-list-desc {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  letter-spacing: -0.224px;
+  margin-top: 2px;
+}
+
+#btn-add-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+#btn-add-user.is-active {
+  filter: brightness(0.9);
+}
+
+/* ---- List rows */
+.users-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+}
+.users-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 12px;
+  border-radius: 10px;
+  transition: background 120ms ease-out;
+}
+.users-row + .users-row { border-top: 1px solid rgba(255,255,255,0.04); }
+.users-row:hover { background: rgba(255,255,255,0.03); }
+.users-row-meta { flex: 1; min-width: 0; }
+.users-row-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.374px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.users-row-self-pill {
+  display: inline-flex;
+  padding: 2px 8px;
+  background: rgba(41,151,255,0.14);
+  color: var(--accent);
+  border-radius: 980px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: -0.06px;
+}
+.users-row-sub {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  letter-spacing: -0.12px;
+  margin-top: 2px;
+}
+.users-row-del {
+  flex: none;
+}
+
+/* ---- Delete-confirm inline drawer (per-row, renders below the row). */
+.users-delete-drawer {
+  margin: 0 0 8px;
+  border-color: rgba(255,69,58,0.28);
+  background: rgba(255,69,58,0.05);
+}
+.users-delete-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.374px;
+  margin-bottom: 4px;
+}
+.users-delete-title strong { color: var(--danger); }
+.users-delete-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  letter-spacing: -0.224px;
+  line-height: 1.45;
+  margin-bottom: 14px;
+}
+.users-delete-drawer .users-field { margin-bottom: 14px; }
+
+/* Primary red "Delete user" button (sharper than the row-level one). */
+.btn-remove--primary {
+  background: var(--danger);
+  color: #fff;
+  border: none;
+}
+.btn-remove--primary:hover { filter: brightness(1.08); }
+
+/* Skeleton + empty state for the list. */
+.users-skeleton,
+.users-empty {
+  padding: 16px;
+  font-size: 13px;
+  color: var(--text-tertiary);
+  letter-spacing: -0.224px;
+}
+
 /* ===== FORM ELEMENTS (shared) ===== */
 /* width:100% covers stacked layouts (login) while flex:1 distributes groups
    evenly when they're laid out inside a .form-row (settings). */
