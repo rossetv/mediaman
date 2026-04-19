@@ -24,7 +24,7 @@ from mediaman.crypto import (
     validate_unsubscribe_token,
 )
 from mediaman.db import get_db
-from mediaman.web.routes.settings_routes import _require_reauth
+from mediaman.auth.reauth import _require_reauth
 
 
 class _SendNewsletterBody(BaseModel):

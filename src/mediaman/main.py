@@ -142,6 +142,7 @@ def create_app() -> FastAPI:
     from mediaman.web.routes.subscribers import router as subscribers_router
     from mediaman.web.routes.search import router as search_router
     from mediaman.web.routes.recommended import router as recommended_router
+    from mediaman.web.routes.user_routes import router as user_router
 
     app.include_router(auth_router)
     app.include_router(force_pw_router)
@@ -158,6 +159,7 @@ def create_app() -> FastAPI:
     app.include_router(subscribers_router)
     app.include_router(search_router)
     app.include_router(recommended_router)
+    app.include_router(user_router)
 
     return app
 
