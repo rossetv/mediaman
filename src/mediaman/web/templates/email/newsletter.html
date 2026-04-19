@@ -4,8 +4,257 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Mediaman Weekly Report</title>
+<style>
+  /* Styles scoped to the email body. All selectors prefixed with .mm-email to
+     avoid clashing with any client-injected styles. @container queries run
+     against the outer frame; @media mirrors them for clients without
+     container-query support. @container comes AFTER @media in source order so
+     when both match, @container wins — correct for narrow-pane-in-wide-browser
+     scenarios (e.g. Gmail web). */
+
+  .mm-email { background:#000; color:#fff; font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI','Helvetica Neue',Arial,sans-serif; -webkit-font-smoothing:antialiased; }
+  .mm-frame { container-type:inline-size; width:100%; margin:0 auto; }
+
+  .mm-email a { text-decoration:none; color:inherit; }
+
+  .mm-email .eh { padding:22px 24px 18px; text-align:center; border-bottom:1px solid rgba(255,255,255,0.06); }
+  .mm-email .brand { font-size:24px; font-weight:600; letter-spacing:-0.28px; color:#fff; }
+  .mm-email .brand span { color:#2997ff; }
+  .mm-email .dateline { font-size:13px; color:rgba(255,255,255,0.56); margin-top:4px; letter-spacing:-0.224px; }
+
+  .mm-email .sect { padding:22px 28px; border-bottom:1px solid rgba(255,255,255,0.06); }
+  .mm-email .lbl { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.8px; color:rgba(255,255,255,0.56); margin-bottom:14px; }
+
+  /* ── Storage + Reclaimed ── */
+  .mm-email .sz { font-size:26px; font-weight:600; line-height:1.1; color:#fff; }
+  .mm-email .sz small { font-size:13px; font-weight:400; color:rgba(255,255,255,0.56); }
+  .mm-email .bar { height:16px; background:#2a2a2d; border-radius:4px; display:flex; overflow:hidden; margin:12px 0; }
+  .mm-email .bar .mv { background:#ff9f0a; }
+  .mm-email .bar .tv { background:#2997ff; }
+  .mm-email .bar .an { background:#bf5af2; }
+  .mm-email .chips { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:rgba(255,255,255,0.56); }
+  .mm-email .chips .dot { display:inline-block; width:8px; height:8px; border-radius:4px; margin-right:6px; vertical-align:middle; }
+  .mm-email .row3 { display:flex; gap:12px; text-align:center; margin-top:14px; }
+  .mm-email .row3 > div { flex:1; }
+  .mm-email .stat { font-size:20px; font-weight:600; color:#30d158; line-height:1.15; }
+  .mm-email .stat-lbl { font-size:11px; color:rgba(255,255,255,0.4); letter-spacing:0.3px; margin-top:2px; }
+
+  /* ── Posters and shared pieces ── */
+  .mm-email .poster { background:#1d1d1f; border-radius:4px; display:block; }
+  .mm-email img.poster { object-fit:cover; }
+  .mm-email .item-title { font-weight:600; color:#fff; }
+  .mm-email .item-meta { color:rgba(255,255,255,0.56); }
+  .mm-email .item-size { color:rgba(255,255,255,0.4); font-weight:600; }
+  .mm-email .btn { display:inline-block; padding:7px 14px; background:#2997ff; color:#fff; border-radius:6px; font-size:12px; font-weight:600; text-align:center; white-space:nowrap; }
+  .mm-email .btn-ghost { display:inline-block; padding:6px 12px; border:1px solid rgba(41,151,255,0.3); color:#2997ff; border-radius:980px; font-size:11px; font-weight:600; text-align:center; white-space:nowrap; }
+  .mm-email .pill { display:inline-block; padding:7px 12px; border-radius:6px; font-size:12px; font-weight:600; text-align:center; white-space:nowrap; }
+  .mm-email .pill-green { background:rgba(48,209,88,0.12); color:#30d158; }
+  .mm-email .pill-blue  { background:rgba(41,151,255,0.12); color:#2997ff; }
+  .mm-email .pill-yellow{ background:rgba(255,214,10,0.12); color:#ffd60a; }
+
+  /* ── Scheduled hero ── */
+  .mm-email .hero {
+    background:linear-gradient(180deg, rgba(255,69,58,0.08) 0%, rgba(255,69,58,0.02) 100%);
+    border:1px solid rgba(255,69,58,0.18);
+    border-radius:12px;
+    padding:16px 16px 14px;
+  }
+  .mm-email .hero-h { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; margin-bottom:14px; }
+  .mm-email .hero-h .main { min-width:0; flex:1; }
+  .mm-email .hero-n { font-size:22px; font-weight:600; color:#ff453a; line-height:1.15; letter-spacing:-0.3px; }
+  .mm-email .hero-sub { font-size:12px; color:rgba(255,255,255,0.56); margin-top:3px; letter-spacing:-0.12px; }
+  .mm-email .hero-countdown {
+    flex:0 0 auto;
+    display:inline-flex; align-items:center; gap:6px;
+    padding:6px 12px;
+    background:rgba(255,69,58,0.12);
+    border:1px solid rgba(255,69,58,0.25);
+    border-radius:980px;
+    font-size:11px; font-weight:700; color:#ff453a;
+    letter-spacing:0.2px; white-space:nowrap;
+  }
+  .mm-email .hero-countdown .dot-pulse { width:6px; height:6px; border-radius:50%; background:#ff453a; }
+  .mm-email .sched-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
+  .mm-email .sched-card { display:flex; gap:10px; padding:10px; background:rgba(0,0,0,0.35); border-radius:8px; border:1px solid rgba(255,255,255,0.05); }
+  .mm-email .sched-card .poster { width:46px; height:69px; flex:0 0 auto; }
+  .mm-email .sched-card .body { flex:1; min-width:0; font-size:12px; line-height:1.4; }
+  .mm-email .sched-card .item-title { font-size:13px; margin-bottom:2px; }
+  .mm-email .sched-card .item-meta { font-size:11px; }
+  .mm-email .sched-card .item-size { font-size:12px; margin-top:3px; }
+  .mm-email .sched-card .btn { margin-top:6px; padding:5px 12px; font-size:11px; }
+  .mm-email .sched-card .reentry {
+    margin-top:6px;
+    background:rgba(255,214,10,0.06);
+    border:1px solid rgba(255,214,10,0.12);
+    border-radius:6px;
+    padding:6px 8px;
+    font-size:11px;
+    color:#ffd60a;
+    letter-spacing:-0.12px;
+  }
+
+  /* ── Deleted strip ── */
+  .mm-email .deleted-strip { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; }
+  .mm-email .deleted-strip .del { text-align:left; }
+  .mm-email .deleted-strip .poster { width:100%; aspect-ratio:2/3; }
+  .mm-email .deleted-strip .item-title { font-size:12px; margin-top:6px; line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .mm-email .deleted-strip .item-meta { font-size:10px; margin-top:2px; }
+  .mm-email .deleted-strip .btn-ghost { font-size:10px; padding:4px 8px; margin-top:6px; display:block; }
+
+  /* ── Recommendations grid — defaults to the 900-1099 tier (4-up) ── */
+  .mm-email .rec-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px 12px; }
+  .mm-email .rec-card { text-align:left; display:flex; flex-direction:column; }
+  .mm-email .rec-card .poster { width:100%; aspect-ratio:2/3; }
+  .mm-email .rec-card .item-title { font-size:13px; margin-top:7px; line-height:1.3; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  .mm-email .rec-card .item-meta { font-size:11px; margin-top:2px; }
+  .mm-email .rec-card .rec-reason { font-size:11px; color:rgba(255,255,255,0.4); margin-top:3px; line-height:1.35; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; flex:1; }
+  .mm-email .rec-card .btn,
+  .mm-email .rec-card .btn-ghost,
+  .mm-email .rec-card .pill { margin-top:7px; display:block; font-size:11px; padding:6px 8px; }
+
+  /* ══ @media fallbacks (fire first, container queries below override) ══ */
+  @media (min-width: 1400px) {
+    .mm-email .rec-grid { grid-template-columns:repeat(6,1fr); }
+    .mm-email .deleted-strip { grid-template-columns:repeat(6,1fr); }
+    .mm-email .sched-grid { grid-template-columns:repeat(3,1fr); }
+  }
+  @media (min-width: 1100px) and (max-width: 1399.98px) {
+    .mm-email .rec-grid { grid-template-columns:repeat(5,1fr); }
+    .mm-email .deleted-strip { grid-template-columns:repeat(5,1fr); }
+    .mm-email .sched-grid { grid-template-columns:repeat(3,1fr); }
+  }
+  @media (max-width: 699.98px) {
+    .mm-email .rec-grid { grid-template-columns:repeat(3,1fr); }
+    .mm-email .deleted-strip { grid-template-columns:repeat(4,1fr); }
+  }
+  @media (max-width: 559.98px) {
+    .mm-email .rec-grid { grid-template-columns:repeat(3,1fr); }
+    .mm-email .deleted-strip { grid-template-columns:repeat(3,1fr); }
+    .mm-email .sched-grid { grid-template-columns:1fr; }
+  }
+  @media (max-width: 459.98px) {
+    .mm-email .sect { padding:18px 16px; }
+    .mm-email .rec-grid { grid-template-columns:repeat(2,1fr); gap:18px 10px; }
+    .mm-email .rec-card .item-title { font-size:14px; -webkit-line-clamp:unset; }
+    .mm-email .rec-card .item-meta, .mm-email .rec-card .rec-reason { font-size:12px; }
+    .mm-email .rec-card .btn, .mm-email .rec-card .btn-ghost, .mm-email .rec-card .pill { font-size:13px; padding:8px 10px; }
+    .mm-email .sched-card .poster { width:52px; height:78px; }
+    .mm-email .sched-card .item-title { font-size:14px; }
+    .mm-email .sched-card .item-meta { font-size:12px; }
+    .mm-email .sched-card .btn { padding:8px 16px; font-size:12px; }
+    .mm-email .deleted-strip .item-title { font-size:12px; }
+    .mm-email .deleted-strip .btn-ghost { font-size:11px; padding:6px 10px; }
+    .mm-email .hero-countdown { font-size:10px; padding:4px 10px; }
+  }
+  @media (max-width: 379.98px) {
+    .mm-email .sect { padding:14px 12px; }
+    .mm-email .sz { font-size:20px; }
+    .mm-email .stat { font-size:15px; }
+    .mm-email .deleted-strip { grid-template-columns:repeat(2,1fr); }
+    .mm-email .hero-h { flex-wrap:wrap; gap:8px; }
+  }
+
+  /* ══ @container queries — come AFTER @media so they win when both match ══ */
+  @container (min-width: 1400px) {
+    .mm-email .sect { padding:30px 40px; }
+    .mm-email .eh { padding:32px 40px 24px; }
+    .mm-email .brand { font-size:28px; }
+    .mm-email .sz { font-size:30px; }
+    .mm-email .sz small { font-size:15px; }
+    .mm-email .stat { font-size:24px; }
+    .mm-email .stat-lbl { font-size:12px; }
+    .mm-email .chips { font-size:13px; gap:18px; }
+    .mm-email .lbl { font-size:12px; margin-bottom:16px; }
+    .mm-email .rec-grid { grid-template-columns:repeat(6,1fr); gap:20px 14px; }
+    .mm-email .rec-card .item-title { font-size:14px; }
+    .mm-email .rec-card .item-meta, .mm-email .rec-card .rec-reason { font-size:12px; }
+    .mm-email .rec-card .btn, .mm-email .rec-card .btn-ghost, .mm-email .rec-card .pill { font-size:12px; padding:8px 10px; }
+    .mm-email .deleted-strip { grid-template-columns:repeat(6,1fr); gap:14px; }
+    .mm-email .deleted-strip .item-title { font-size:13px; }
+    .mm-email .deleted-strip .btn-ghost { font-size:11px; padding:5px 10px; }
+    .mm-email .sched-grid { grid-template-columns:repeat(3,1fr); gap:12px; }
+    .mm-email .sched-card { padding:12px; }
+    .mm-email .sched-card .poster { width:56px; height:84px; }
+    .mm-email .sched-card .item-title { font-size:15px; }
+    .mm-email .sched-card .item-meta { font-size:12px; }
+    .mm-email .sched-card .btn { padding:7px 16px; font-size:12px; }
+    .mm-email .hero { padding:20px; }
+    .mm-email .hero-n { font-size:26px; }
+    .mm-email .hero-sub { font-size:13px; }
+  }
+  @container (min-width: 1100px) and (max-width: 1399.98px) {
+    .mm-email .sect { padding:26px 34px; }
+    .mm-email .rec-grid { grid-template-columns:repeat(5,1fr); gap:18px 12px; }
+    .mm-email .deleted-strip { grid-template-columns:repeat(5,1fr); gap:12px; }
+    .mm-email .sched-grid { grid-template-columns:repeat(3,1fr); }
+    .mm-email .sched-card .poster { width:50px; height:75px; }
+    .mm-email .hero-n { font-size:24px; }
+  }
+  @container (min-width: 900px) and (max-width: 1099.98px) {
+    .mm-email .rec-grid { grid-template-columns:repeat(4,1fr); }
+    .mm-email .deleted-strip { grid-template-columns:repeat(5,1fr); }
+    .mm-email .sched-grid { grid-template-columns:repeat(2,1fr); }
+  }
+  @container (min-width: 700px) and (max-width: 899.98px) {
+    .mm-email .rec-grid { grid-template-columns:repeat(4,1fr); }
+    .mm-email .deleted-strip { grid-template-columns:repeat(4,1fr); }
+    .mm-email .sched-grid { grid-template-columns:repeat(2,1fr); }
+  }
+  @container (min-width: 560px) and (max-width: 699.98px) {
+    .mm-email .rec-grid { grid-template-columns:repeat(3,1fr); }
+    .mm-email .deleted-strip { grid-template-columns:repeat(4,1fr); }
+    .mm-email .sched-grid { grid-template-columns:repeat(2,1fr); }
+  }
+  @container (min-width: 460px) and (max-width: 559.98px) {
+    .mm-email .sect { padding:18px 18px; }
+    .mm-email .rec-grid { grid-template-columns:repeat(3,1fr); gap:14px 10px; }
+    .mm-email .deleted-strip { grid-template-columns:repeat(3,1fr); }
+    .mm-email .sched-grid { grid-template-columns:1fr; }
+    .mm-email .sched-card .poster { width:50px; height:75px; }
+    .mm-email .sched-card .item-title { font-size:14px; }
+  }
+  @container (min-width: 380px) and (max-width: 459.98px) {
+    .mm-email .sect { padding:16px 14px; }
+    .mm-email .rec-grid { grid-template-columns:repeat(2,1fr); gap:18px 10px; }
+    .mm-email .rec-card .item-title { font-size:14px; -webkit-line-clamp:unset; }
+    .mm-email .rec-card .item-meta, .mm-email .rec-card .rec-reason { font-size:12px; }
+    .mm-email .rec-card .btn, .mm-email .rec-card .btn-ghost, .mm-email .rec-card .pill { font-size:13px; padding:8px 10px; }
+    .mm-email .sched-grid { grid-template-columns:1fr; }
+    .mm-email .sched-card .poster { width:52px; height:78px; }
+    .mm-email .sched-card .item-title { font-size:14px; }
+    .mm-email .sched-card .item-meta { font-size:12px; }
+    .mm-email .sched-card .btn { padding:8px 16px; font-size:12px; }
+    .mm-email .deleted-strip { grid-template-columns:repeat(3,1fr); gap:10px; }
+    .mm-email .deleted-strip .item-title { font-size:12px; }
+    .mm-email .deleted-strip .btn-ghost { font-size:11px; padding:6px 10px; }
+    .mm-email .hero-countdown { font-size:10px; padding:4px 10px; }
+    .mm-email .row3 { gap:8px; }
+    .mm-email .stat { font-size:17px; }
+    .mm-email .chips { font-size:11px; gap:10px; }
+  }
+  @container (max-width: 379.98px) {
+    .mm-email .sect { padding:14px 12px; }
+    .mm-email .eh { padding:18px 14px 14px; }
+    .mm-email .brand { font-size:22px; }
+    .mm-email .sz { font-size:20px; }
+    .mm-email .rec-grid { grid-template-columns:repeat(2,1fr); gap:14px 8px; }
+    .mm-email .rec-card .item-title { font-size:13px; -webkit-line-clamp:unset; }
+    .mm-email .rec-card .item-meta, .mm-email .rec-card .rec-reason { font-size:11px; }
+    .mm-email .rec-card .btn, .mm-email .rec-card .btn-ghost, .mm-email .rec-card .pill { font-size:12px; padding:7px 8px; }
+    .mm-email .sched-grid { grid-template-columns:1fr; }
+    .mm-email .sched-card .poster { width:46px; height:69px; }
+    .mm-email .sched-card .item-title { font-size:13px; }
+    .mm-email .deleted-strip { grid-template-columns:repeat(2,1fr); }
+    .mm-email .row3 { gap:4px; }
+    .mm-email .stat { font-size:15px; }
+    .mm-email .stat-lbl { font-size:10px; }
+    .mm-email .chips { font-size:10px; gap:8px; }
+    .mm-email .hero-h { flex-wrap:wrap; gap:8px; }
+    .mm-email .hero-countdown { font-size:10px; padding:4px 10px; }
+  }
+</style>
 </head>
-<body style="margin:0;padding:0;background:#000000;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI','Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased;color:#ffffff;">
+<body style="margin:0;padding:0;background:#000000;">
 
 {#- Byte formatting macro -#}
 {%- macro fmt_bytes(b) -%}
@@ -24,7 +273,6 @@
 {%- set anime_b = storage.by_type.anime or 0 -%}
 {%- set other_b = storage.used_bytes - movies_b - tv_b - anime_b -%}
 {%- if other_b < 0 -%}{%- set other_b = 0 -%}{%- endif -%}
-
 {%- set movies_pct = [(movies_b / total_b * 100), 100] | min | round(1) -%}
 {%- set tv_pct = [(tv_b / total_b * 100), 100] | min | round(1) -%}
 {%- set anime_pct = [(anime_b / total_b * 100), 100] | min | round(1) -%}
@@ -32,363 +280,187 @@
 
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#000000;">
   <tr>
-    <td align="center" style="padding:32px 16px;">
+    <td align="center" style="padding:24px 12px;">
 
-      <table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;">
+      <div class="mm-frame" style="max-width:1280px;">
+        <div class="mm-email">
 
-        {#- ── DRY RUN BANNER ── -#}
-        {% if dry_run %}
-        <tr>
-          <td style="background:#2a1a00;border:1px solid rgba(255,159,10,0.3);border-radius:8px 8px 0 0;padding:10px 20px;text-align:center;font-size:13px;color:#ff9f0a;font-weight:600;letter-spacing:-0.224px;">
+          {#- ── DRY RUN BANNER ── -#}
+          {% if dry_run %}
+          <div style="background:#2a1a00;border:1px solid rgba(255,159,10,0.3);border-radius:8px 8px 0 0;padding:10px 20px;text-align:center;font-size:13px;color:#ff9f0a;font-weight:600;letter-spacing:-0.224px;">
             &#9888; DRY RUN MODE — No items will actually be deleted
-          </td>
-        </tr>
-        {% endif %}
+          </div>
+          {% endif %}
 
-        {#- ── HEADER ── -#}
-        <tr>
-          <td style="padding:32px 32px 24px;text-align:center;border-bottom:1px solid rgba(255,255,255,0.06);{% if dry_run %}border-top:none;{% endif %}">
-            <div style="font-size:24px;font-weight:600;letter-spacing:-0.28px;color:#ffffff;">media<span style="color:#2997ff;">man</span></div>
-            <div style="font-size:13px;color:rgba(255,255,255,0.56);margin-top:4px;letter-spacing:-0.224px;">Weekly Report &middot; {{ report_date }}</div>
-          </td>
-        </tr>
+          {#- ── HEADER ── -#}
+          <div class="eh"{% if dry_run %} style="border-top:none;"{% endif %}>
+            <div class="brand">media<span>man</span></div>
+            <div class="dateline">Weekly Report &middot; {{ report_date }}</div>
+          </div>
 
-        {#- ── STORAGE OVERVIEW ── -#}
-        <tr>
-          <td style="padding:24px 32px;border-bottom:1px solid rgba(255,255,255,0.06);">
-            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:rgba(255,255,255,0.56);margin-bottom:14px;">Storage Overview</div>
-            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px;">
-              <tr>
-                <td style="font-size:28px;font-weight:600;color:#ffffff;line-height:1.1;">
-                  {{ fmt_bytes(storage.used_bytes) }} <span style="font-size:14px;font-weight:400;color:rgba(255,255,255,0.56);">of {{ fmt_bytes(storage.total_bytes) }}</span>
-                </td>
-                <td align="right" style="font-size:14px;color:rgba(255,255,255,0.56);vertical-align:bottom;">
-                  {{ fmt_bytes(storage.free_bytes) }} free
-                </td>
-              </tr>
-            </table>
-
-            {#- Storage bar using nested table for email compatibility -#}
-            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="height:20px;background:#2a2a2d;border-radius:6px;overflow:hidden;margin-bottom:12px;">
-              <tr>
-                {% if movies_pct > 0 %}
-                <td width="{{ movies_pct }}%" style="background:#ff9f0a;height:20px;"></td>
-                {% endif %}
-                {% if tv_pct > 0 %}
-                <td width="{{ tv_pct }}%" style="background:#2997ff;height:20px;"></td>
-                {% endif %}
-                {% if anime_pct > 0 %}
-                <td width="{{ anime_pct }}%" style="background:#bf5af2;height:20px;"></td>
-                {% endif %}
-                {% if other_pct > 0 %}
-                <td width="{{ other_pct }}%" style="background:rgba(255,255,255,0.12);height:20px;"></td>
-                {% endif %}
-                <td style="background:#2a2a2d;height:20px;"></td>
-              </tr>
-            </table>
-
-            <table cellpadding="0" cellspacing="0" border="0">
-              <tr>
-                {% if movies_b > 0 %}
-                <td style="padding-right:16px;" valign="middle">
-                  <table cellpadding="0" cellspacing="0" border="0"><tr>
-                    <td valign="middle" style="width:12px;padding-right:6px;"><div style="width:8px;height:8px;border-radius:4px;background:#ff9f0a;"></div></td>
-                    <td valign="middle" style="font-size:12px;color:rgba(255,255,255,0.56);letter-spacing:-0.12px;">Movies {{ fmt_bytes(movies_b) }}</td>
-                  </tr></table>
-                </td>
-                {% endif %}
-                {% if tv_b > 0 %}
-                <td style="padding-right:16px;" valign="middle">
-                  <table cellpadding="0" cellspacing="0" border="0"><tr>
-                    <td valign="middle" style="width:12px;padding-right:6px;"><div style="width:8px;height:8px;border-radius:4px;background:#2997ff;"></div></td>
-                    <td valign="middle" style="font-size:12px;color:rgba(255,255,255,0.56);letter-spacing:-0.12px;">TV {{ fmt_bytes(tv_b) }}</td>
-                  </tr></table>
-                </td>
-                {% endif %}
-                {% if anime_b > 0 %}
-                <td style="padding-right:16px;" valign="middle">
-                  <table cellpadding="0" cellspacing="0" border="0"><tr>
-                    <td valign="middle" style="width:12px;padding-right:6px;"><div style="width:8px;height:8px;border-radius:4px;background:#bf5af2;"></div></td>
-                    <td valign="middle" style="font-size:12px;color:rgba(255,255,255,0.56);letter-spacing:-0.12px;">Anime {{ fmt_bytes(anime_b) }}</td>
-                  </tr></table>
-                </td>
-                {% endif %}
-              </tr>
-            </table>
-          </td>
-        </tr>
-
-        {#- ── SPACE RECLAIMED ── -#}
-        <tr>
-          <td style="padding:20px 32px;border-bottom:1px solid rgba(255,255,255,0.06);">
-            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:rgba(255,255,255,0.56);margin-bottom:14px;">Space Reclaimed</div>
-            <table width="100%" cellpadding="0" cellspacing="0" border="0">
-              <tr>
-                <td width="33%" align="center">
-                  <div style="font-size:24px;font-weight:600;color:#30d158;line-height:1.2;">{{ fmt_bytes(reclaimed_week) }}</div>
-                  <div style="font-size:11px;color:rgba(255,255,255,0.4);letter-spacing:0.3px;margin-top:2px;">This week</div>
-                </td>
-                <td width="33%" align="center">
-                  <div style="font-size:24px;font-weight:600;color:#30d158;line-height:1.2;">{{ fmt_bytes(reclaimed_month) }}</div>
-                  <div style="font-size:11px;color:rgba(255,255,255,0.4);letter-spacing:0.3px;margin-top:2px;">This month</div>
-                </td>
-                <td width="33%" align="center">
-                  <div style="font-size:24px;font-weight:600;color:#30d158;line-height:1.2;">{{ fmt_bytes(reclaimed_total) }}</div>
-                  <div style="font-size:11px;color:rgba(255,255,255,0.4);letter-spacing:0.3px;margin-top:2px;">All time</div>
-                </td>
-              </tr>
-            </table>
-          </td>
-        </tr>
-
-        {#- ── SCHEDULED FOR DELETION ── -#}
-        {% if scheduled_items %}
-        <tr>
-          <td style="padding:24px 32px;border-bottom:1px solid rgba(255,255,255,0.06);">
-            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:rgba(255,255,255,0.56);margin-bottom:8px;">Scheduled for Deletion</div>
-            <div style="font-size:13px;color:rgba(255,255,255,0.56);margin-bottom:16px;">
-              <strong style="color:#ff453a;">{{ scheduled_items|length }} item{{ 's' if scheduled_items|length != 1 else '' }}</strong>
-              &middot; {{ fmt_bytes(scheduled_items | sum(attribute='file_size_bytes')) }}
+          {#- ── STORAGE & RECLAIMED ── -#}
+          <div class="sect">
+            <div class="lbl">Storage &amp; Reclaimed</div>
+            <div class="sz">{{ fmt_bytes(storage.used_bytes) }} <small>of {{ fmt_bytes(storage.total_bytes) }} &middot; {{ fmt_bytes(storage.free_bytes) }} free</small></div>
+            <div class="bar">
+              {% if movies_pct > 0 %}<div class="mv" style="width:{{ movies_pct }}%"></div>{% endif %}
+              {% if tv_pct > 0 %}<div class="tv" style="width:{{ tv_pct }}%"></div>{% endif %}
+              {% if anime_pct > 0 %}<div class="an" style="width:{{ anime_pct }}%"></div>{% endif %}
+              {% if other_pct > 0 %}<div style="width:{{ other_pct }}%;background:rgba(255,255,255,0.12);"></div>{% endif %}
             </div>
-            <div style="font-size:13px;font-weight:600;color:#ff453a;background:rgba(255,69,58,0.08);border:1px solid rgba(255,69,58,0.15);border-radius:8px;padding:10px 14px;margin-bottom:16px;text-align:center;">
-              &#9888; Deleting in {{ grace_days }} days unless you click Keep
+            <div class="chips">
+              {% if movies_b > 0 %}<span><span class="dot" style="background:#ff9f0a"></span>Movies {{ fmt_bytes(movies_b) }}</span>{% endif %}
+              {% if tv_b > 0 %}<span><span class="dot" style="background:#2997ff"></span>TV {{ fmt_bytes(tv_b) }}</span>{% endif %}
+              {% if anime_b > 0 %}<span><span class="dot" style="background:#bf5af2"></span>Anime {{ fmt_bytes(anime_b) }}</span>{% endif %}
             </div>
+            <div class="row3">
+              <div><div class="stat">{{ fmt_bytes(reclaimed_week) }}</div><div class="stat-lbl">This week</div></div>
+              <div><div class="stat">{{ fmt_bytes(reclaimed_month) }}</div><div class="stat-lbl">This month</div></div>
+              <div><div class="stat">{{ fmt_bytes(reclaimed_total) }}</div><div class="stat-lbl">All time</div></div>
+            </div>
+          </div>
 
-            {% for item in scheduled_items %}
-            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="padding:14px 0;border-bottom:{% if not loop.last %}1px solid rgba(255,255,255,0.04){% else %}none{% endif %};">
-              <tr>
-                {#- Poster -#}
-                <td width="60" valign="top" style="padding-right:14px;">
+          {#- ── SCHEDULED FOR DELETION (hero) ── -#}
+          {% if scheduled_items %}
+          <div class="sect">
+            <div class="hero">
+              <div class="hero-h">
+                <div class="main">
+                  <div class="hero-n">{{ scheduled_items|length }} scheduled for deletion</div>
+                  <div class="hero-sub">{{ fmt_bytes(scheduled_items | sum(attribute='file_size_bytes')) }} &middot; click Keep on anything you want to hang onto</div>
+                </div>
+                <div class="hero-countdown"><span class="dot-pulse"></span>{{ grace_days }} day{{ 's' if grace_days != 1 else '' }} left</div>
+              </div>
+              <div class="sched-grid">
+                {% for item in scheduled_items %}
+                <div class="sched-card">
                   {% if item.poster_url %}
-                  <img src="{{ item.poster_url }}" alt="" width="60" height="90" style="width:60px;height:90px;border-radius:6px;object-fit:cover;display:block;background:#1d1d1f;">
+                  <img class="poster" src="{{ item.poster_url }}" alt="" width="46" height="69">
                   {% else %}
-                  <div style="width:60px;height:90px;border-radius:6px;background:#1d1d1f;display:block;"></div>
+                  <div class="poster"></div>
                   {% endif %}
-                </td>
-
-                {#- Info -#}
-                <td valign="top">
-                  <div style="font-size:15px;font-weight:600;color:#ffffff;letter-spacing:-0.374px;margin-bottom:3px;">{{ item.title }}</div>
-                  <div style="font-size:12px;color:rgba(255,255,255,0.56);letter-spacing:-0.12px;line-height:1.6;">
-                    {{ item.type_label }}
-                    {% if item.added_days_ago is not none %}&middot; Added {{ item.added_days_ago }} day{{ 's' if item.added_days_ago != 1 else '' }} ago{% endif %}
-                    {% if item.last_watched_info %}
-                    &middot; {{ item.last_watched_info }}
-                    {% else %}
-                    &middot; <span style="color:#ff453a;">Never watched</span>
+                  <div class="body">
+                    <div class="item-title">{{ item.title }}</div>
+                    <div class="item-meta">
+                      {{ item.type_label }}
+                      {% if item.added_days_ago is not none %} &middot; Added {{ item.added_days_ago }}d{% endif %}
+                      &middot;
+                      {% if item.last_watched_info %}{{ item.last_watched_info }}{% else %}<span style="color:#ff453a;">Never watched</span>{% endif %}
+                    </div>
+                    <div class="item-size">{{ fmt_bytes(item.file_size_bytes) }}</div>
+                    {% if item.is_reentry %}
+                    <div class="reentry">&#9888; Previously kept — grace period expired. Scheduled again.</div>
                     {% endif %}
+                    <a href="{{ item.keep_url }}" class="btn">Keep</a>
                   </div>
-                  <div style="font-size:13px;color:rgba(255,255,255,0.4);font-weight:600;margin-top:6px;">{{ fmt_bytes(item.file_size_bytes) }}</div>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+          {% endif %}
 
-                  {#- Re-entry warning -#}
-                  {% if item.is_reentry %}
-                  <table cellpadding="0" cellspacing="0" border="0" style="margin-top:4px;background:rgba(255,214,10,0.06);border:1px solid rgba(255,214,10,0.12);border-radius:8px;width:100%;">
-                    <tr>
-                      <td style="padding:10px 14px;font-size:12px;color:#ffd60a;letter-spacing:-0.12px;">
-                        &#9888; Previously kept — grace period expired. Scheduled again.
-                      </td>
-                    </tr>
-                  </table>
-                  {% endif %}
-                </td>
-
-                {#- Keep button -#}
-                <td width="80" valign="middle" align="right" style="padding-left:14px;">
-                  <a href="{{ item.keep_url }}" style="display:inline-block;padding:10px 20px;background:#2997ff;color:#ffffff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;letter-spacing:-0.224px;text-align:center;white-space:nowrap;">Keep</a>
-                </td>
-              </tr>
-            </table>
-            {% endfor %}
-
-          </td>
-        </tr>
-        {% endif %}
-
-        {#- ── DELETED SINCE LAST REPORT ── -#}
-        {% if deleted_items %}
-        <tr>
-          <td style="padding:24px 32px;border-bottom:1px solid rgba(255,255,255,0.06);">
-            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:rgba(255,255,255,0.56);margin-bottom:14px;">Deleted Since Last Report</div>
-
-            {% for item in deleted_items %}
-            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="padding:12px 0;border-bottom:{% if not loop.last %}1px solid rgba(255,255,255,0.06){% else %}none{% endif %};">
-              <tr>
+          {#- ── DELETED SINCE LAST REPORT ── -#}
+          {% if deleted_items %}
+          <div class="sect">
+            <div class="lbl">Deleted Since Last Report</div>
+            <div class="deleted-strip">
+              {% for item in deleted_items %}
+              <div class="del">
                 {% if item.poster_url %}
-                <td width="40" valign="middle" style="padding-right:12px;">
-                  <img src="{{ item.poster_url }}" alt="" width="40" height="60" style="width:40px;height:60px;border-radius:6px;object-fit:cover;display:block;background:#1d1d1f;">
-                </td>
+                <img class="poster" src="{{ item.poster_url }}" alt="">
+                {% else %}
+                <div class="poster" style="aspect-ratio:2/3;"></div>
                 {% endif %}
-                <td valign="middle">
-                  <div style="font-size:14px;font-weight:600;color:#ffffff;letter-spacing:-0.224px;">{{ item.title }}</div>
-                  <div style="font-size:12px;color:rgba(255,255,255,0.56);letter-spacing:-0.12px;margin-top:2px;">
-                    Deleted {{ item.deleted_date }} &middot; {{ fmt_bytes(item.file_size_bytes) }}
-                  </div>
-                </td>
-                <td width="110" valign="middle" align="right" style="padding-left:12px;">
-                  {% if item.redownload_url %}
-                  <a href="{{ item.redownload_url }}" style="display:inline-block;padding:8px 16px;border:1px solid rgba(41,151,255,0.3);color:#2997ff;text-decoration:none;border-radius:980px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">Re-Download</a>
-                  {% endif %}
-                </td>
-              </tr>
-            </table>
-            {% endfor %}
+                <div class="item-title">{{ item.title }}</div>
+                <div class="item-meta">Deleted {{ item.deleted_date }} &middot; {{ fmt_bytes(item.file_size_bytes) }}</div>
+                {% if item.redownload_url %}
+                <a href="{{ item.redownload_url }}" class="btn-ghost">Re-Download</a>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
 
-          </td>
-        </tr>
-        {% endif %}
+          {#- ── TRENDING THIS WEEK ── -#}
+          {% set trending_items = this_week_items | selectattr('category', 'equalto', 'trending') | list %}
+          {% if trending_items %}
+          <div class="sect">
+            <div class="lbl">Trending This Week</div>
+            <div class="rec-grid">
+              {% for item in trending_items %}
+              <div class="rec-card">
+                {% if item.poster_url %}
+                <img class="poster" src="{{ item.poster_url }}" alt="">
+                {% else %}
+                <div class="poster" style="aspect-ratio:2/3;"></div>
+                {% endif %}
+                <div class="item-title">{{ item.title }}</div>
+                <div class="item-meta">
+                  {% if item.rating %}&#9733; {{ item.rating }} &middot; {% endif %}{{ 'Movie' if item.media_type == 'movie' else 'TV' }}
+                </div>
+                <div class="rec-reason">{{ item.reason }}</div>
+                {% if item.download_state == 'in_library' %}
+                <span class="pill pill-green">In Library</span>
+                {% elif item.download_state == 'downloading' %}
+                <span class="pill pill-blue">Downloading</span>
+                {% elif item.download_state == 'queued' %}
+                <span class="pill pill-yellow">Queued</span>
+                {% elif item.download_url %}
+                <a href="{{ item.download_url }}" class="btn">Download</a>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
 
-        {#- ── TRENDING NOW ── -#}
-        {% set trending_items = this_week_items | selectattr('category', 'equalto', 'trending') | list %}
-        {% if trending_items %}
-        <tr>
-          <td style="padding:24px 32px;border-bottom:1px solid rgba(255,255,255,0.06);">
-            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:rgba(255,255,255,0.56);margin-bottom:14px;">Trending This Week</div>
+          {#- ── BASED ON YOUR WATCH HISTORY ── -#}
+          {% set personal_items = this_week_items | selectattr('category', 'equalto', 'personal') | list %}
+          {% if personal_items %}
+          <div class="sect">
+            <div class="lbl">Based on Your Watch History</div>
+            <div class="rec-grid">
+              {% for item in personal_items %}
+              <div class="rec-card">
+                {% if item.poster_url %}
+                <img class="poster" src="{{ item.poster_url }}" alt="">
+                {% else %}
+                <div class="poster" style="aspect-ratio:2/3;"></div>
+                {% endif %}
+                <div class="item-title">{{ item.title }}</div>
+                <div class="item-meta">
+                  {% if item.rating %}&#9733; {{ item.rating }} &middot; {% endif %}{{ 'Movie' if item.media_type == 'movie' else 'TV' }}
+                </div>
+                <div class="rec-reason">{{ item.reason }}</div>
+                {% if item.download_state == 'in_library' %}
+                <span class="pill pill-green">In Library</span>
+                {% elif item.download_state == 'downloading' %}
+                <span class="pill pill-blue">Downloading</span>
+                {% elif item.download_state == 'queued' %}
+                <span class="pill pill-yellow">Queued</span>
+                {% elif item.download_url %}
+                <a href="{{ item.download_url }}" class="btn">Download</a>
+                {% endif %}
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
 
-            {% for item in trending_items %}
-            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="padding:14px 0;border-bottom:{% if not loop.last %}1px solid rgba(255,255,255,0.06){% else %}none{% endif %};">
-              <tr>
-                <td width="54" valign="top" style="padding-right:14px;">
-                  {% if item.poster_url %}
-                  <img src="{{ item.poster_url }}" alt="" width="54" height="81" style="width:54px;height:81px;border-radius:6px;object-fit:cover;display:block;background:#1d1d1f;">
-                  {% else %}
-                  <div style="width:54px;height:81px;border-radius:6px;background:#1d1d1f;display:block;"></div>
-                  {% endif %}
-                </td>
-                <td valign="top">
-                  <div style="font-size:15px;font-weight:600;color:#ffffff;letter-spacing:-0.374px;">
-                    {{ item.title }}
-                    {% if item.year %}<span style="font-weight:400;color:rgba(255,255,255,0.56);"> ({{ item.year }})</span>{% endif %}
-                  </div>
-                  <div style="font-size:12px;color:rgba(255,255,255,0.56);letter-spacing:-0.12px;margin-top:2px;">
-                    {{ 'Movie' if item.media_type == 'movie' else 'TV' }}
-                    {% if item.rating %} &middot; &#9733; {{ item.rating }}{% endif %}
-                    {% if item.rt_rating %} &middot; &#127813; {{ item.rt_rating }}{% endif %}
-                  </div>
-                  <div style="font-size:12px;color:rgba(255,255,255,0.4);letter-spacing:-0.12px;margin-top:4px;line-height:1.4;">{{ item.reason }}</div>
-                </td>
-                <td width="90" valign="middle" align="right" style="padding-left:12px;">
-                  {% if item.download_state == 'in_library' %}
-                  <span style="display:inline-block;padding:8px 16px;background:rgba(48,209,88,0.12);color:#30d158;border-radius:8px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">In Library</span>
-                  {% elif item.download_state == 'downloading' %}
-                  <span style="display:inline-block;padding:8px 16px;background:rgba(41,151,255,0.12);color:#2997ff;border-radius:8px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">Downloading</span>
-                  {% elif item.download_state == 'queued' %}
-                  <span style="display:inline-block;padding:8px 16px;background:rgba(255,214,10,0.12);color:#ffd60a;border-radius:8px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">Queued</span>
-                  {% elif item.download_url %}
-                  <a href="{{ item.download_url }}" style="display:inline-block;padding:8px 16px;background:#2997ff;color:#ffffff;text-decoration:none;border-radius:8px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">Download</a>
-                  {% endif %}
-                </td>
-              </tr>
-            </table>
-            {% endfor %}
-          </td>
-        </tr>
-        {% endif %}
-
-        {#- ── BASED ON YOUR WATCH HISTORY ── -#}
-        {% set personal_items = this_week_items | selectattr('category', 'equalto', 'personal') | list %}
-        {% if personal_items %}
-        <tr>
-          <td style="padding:24px 32px;border-bottom:1px solid rgba(255,255,255,0.06);">
-            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:rgba(255,255,255,0.56);margin-bottom:14px;">Based on Your Watch History</div>
-
-            {% for item in personal_items %}
-            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="padding:14px 0;border-bottom:{% if not loop.last %}1px solid rgba(255,255,255,0.06){% else %}none{% endif %};">
-              <tr>
-                <td width="54" valign="top" style="padding-right:14px;">
-                  {% if item.poster_url %}
-                  <img src="{{ item.poster_url }}" alt="" width="54" height="81" style="width:54px;height:81px;border-radius:6px;object-fit:cover;display:block;background:#1d1d1f;">
-                  {% else %}
-                  <div style="width:54px;height:81px;border-radius:6px;background:#1d1d1f;display:block;"></div>
-                  {% endif %}
-                </td>
-                <td valign="top">
-                  <div style="font-size:15px;font-weight:600;color:#ffffff;letter-spacing:-0.374px;">
-                    {{ item.title }}
-                    {% if item.year %}<span style="font-weight:400;color:rgba(255,255,255,0.56);"> ({{ item.year }})</span>{% endif %}
-                  </div>
-                  <div style="font-size:12px;color:rgba(255,255,255,0.56);letter-spacing:-0.12px;margin-top:2px;">
-                    {{ 'Movie' if item.media_type == 'movie' else 'TV' }}
-                    {% if item.rating %} &middot; &#9733; {{ item.rating }}{% endif %}
-                    {% if item.rt_rating %} &middot; &#127813; {{ item.rt_rating }}{% endif %}
-                  </div>
-                  <div style="font-size:12px;color:rgba(255,255,255,0.4);letter-spacing:-0.12px;margin-top:4px;line-height:1.4;">{{ item.reason }}</div>
-                </td>
-                <td width="90" valign="middle" align="right" style="padding-left:12px;">
-                  {% if item.download_state == 'in_library' %}
-                  <span style="display:inline-block;padding:8px 16px;background:rgba(48,209,88,0.12);color:#30d158;border-radius:8px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">In Library</span>
-                  {% elif item.download_state == 'downloading' %}
-                  <span style="display:inline-block;padding:8px 16px;background:rgba(41,151,255,0.12);color:#2997ff;border-radius:8px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">Downloading</span>
-                  {% elif item.download_state == 'queued' %}
-                  <span style="display:inline-block;padding:8px 16px;background:rgba(255,214,10,0.12);color:#ffd60a;border-radius:8px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">Queued</span>
-                  {% elif item.download_url %}
-                  <a href="{{ item.download_url }}" style="display:inline-block;padding:8px 16px;background:#2997ff;color:#ffffff;text-decoration:none;border-radius:8px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">Download</a>
-                  {% endif %}
-                </td>
-              </tr>
-            </table>
-            {% endfor %}
-          </td>
-        </tr>
-        {% endif %}
-
-        {#- ── LAST WEEK'S RECOMMENDATIONS ── -#}
-        {% if last_week_items %}
-        <tr>
-          <td style="padding:24px 32px;border-bottom:1px solid rgba(255,255,255,0.06);">
-            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:rgba(255,255,255,0.56);margin-bottom:14px;">Last Week's Recommendations</div>
-
-            {% for item in last_week_items %}
-            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="padding:14px 0;border-bottom:{% if not loop.last %}1px solid rgba(255,255,255,0.06){% else %}none{% endif %};">
-              <tr>
-                <td width="54" valign="top" style="padding-right:14px;">
-                  {% if item.poster_url %}
-                  <img src="{{ item.poster_url }}" alt="" width="54" height="81" style="width:54px;height:81px;border-radius:6px;object-fit:cover;display:block;background:#1d1d1f;">
-                  {% else %}
-                  <div style="width:54px;height:81px;border-radius:6px;background:#1d1d1f;display:block;"></div>
-                  {% endif %}
-                </td>
-                <td valign="top">
-                  <div style="font-size:15px;font-weight:600;color:#ffffff;letter-spacing:-0.374px;">
-                    {{ item.title }}
-                    {% if item.year %}<span style="font-weight:400;color:rgba(255,255,255,0.56);"> ({{ item.year }})</span>{% endif %}
-                  </div>
-                  <div style="font-size:12px;color:rgba(255,255,255,0.56);letter-spacing:-0.12px;margin-top:2px;">
-                    {{ 'Movie' if item.media_type == 'movie' else 'TV' }}
-                    {% if item.rating %} &middot; &#9733; {{ item.rating }}{% endif %}
-                    {% if item.rt_rating %} &middot; &#127813; {{ item.rt_rating }}{% endif %}
-                  </div>
-                  <div style="font-size:12px;color:rgba(255,255,255,0.4);letter-spacing:-0.12px;margin-top:4px;line-height:1.4;">{{ item.reason }}</div>
-                </td>
-                <td width="90" valign="middle" align="right" style="padding-left:12px;">
-                  {% if item.download_state == 'in_library' %}
-                  <span style="display:inline-block;padding:8px 16px;background:rgba(48,209,88,0.12);color:#30d158;border:1px solid rgba(48,209,88,0.3);border-radius:980px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">In Library</span>
-                  {% elif item.download_state == 'downloading' %}
-                  <span style="display:inline-block;padding:8px 16px;background:rgba(41,151,255,0.12);color:#2997ff;border:1px solid rgba(41,151,255,0.3);border-radius:980px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">Downloading</span>
-                  {% elif item.download_state == 'queued' %}
-                  <span style="display:inline-block;padding:8px 16px;background:rgba(255,214,10,0.12);color:#ffd60a;border:1px solid rgba(255,214,10,0.3);border-radius:980px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">Queued</span>
-                  {% elif item.download_url %}
-                  <a href="{{ item.download_url }}" style="display:inline-block;padding:8px 16px;border:1px solid rgba(41,151,255,0.3);color:#2997ff;text-decoration:none;border-radius:980px;font-size:13px;font-weight:600;letter-spacing:-0.224px;white-space:nowrap;">Download</a>
-                  {% endif %}
-                </td>
-              </tr>
-            </table>
-            {% endfor %}
-          </td>
-        </tr>
-        {% endif %}
-
-        {#- ── FOOTER ── -#}
-        <tr>
-          <td style="padding:24px 32px 32px;text-align:center;">
-            <a href="{{ dashboard_url }}" style="display:inline-block;padding:10px 24px;border:1px solid rgba(41,151,255,0.3);color:#2997ff;text-decoration:none;border-radius:980px;font-size:14px;font-weight:400;letter-spacing:-0.224px;margin-bottom:16px;">Open Mediaman Dashboard &#8594;</a>
-            <div style="font-size:11px;color:rgba(255,255,255,0.4);letter-spacing:-0.12px;line-height:1.6;">
+          {#- ── FOOTER ── -#}
+          <div style="padding:24px 24px 28px; text-align:center;">
+            <a href="{{ dashboard_url }}" class="btn-ghost" style="padding:10px 22px; font-size:13px;">Open Mediaman Dashboard &rarr;</a>
+            <div style="font-size:11px; color:rgba(255,255,255,0.4); margin-top:16px; line-height:1.6; letter-spacing:-0.12px;">
               You&#39;re receiving this because you&#39;re subscribed to mediaman notifications.
               {% if unsubscribe_url %}<br><a href="{{ unsubscribe_url }}" style="color:rgba(255,255,255,0.4);text-decoration:underline;">Unsubscribe</a>{% endif %}
             </div>
-          </td>
-        </tr>
+          </div>
 
-      </table>
+        </div>
+      </div>
+
     </td>
   </tr>
 </table>

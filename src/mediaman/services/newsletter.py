@@ -270,36 +270,24 @@ def send_newsletter(
             "media_type": row["media_type"] or "movie",
         })
 
-    # ── Recommendations (two most recent batches if enabled) ──────────────
+    # ── Recommendations (most recent batch if enabled) ────────────────────
     rec_enabled_row = conn.execute(
         "SELECT value FROM settings WHERE key='suggestions_enabled'"
     ).fetchone()
     this_week_items = []
-    last_week_items = []
     if not rec_enabled_row or rec_enabled_row["value"] != "false":
-        batch_rows = conn.execute(
+        batch_row = conn.execute(
             "SELECT DISTINCT batch_id FROM suggestions WHERE batch_id IS NOT NULL "
-            "ORDER BY batch_id DESC LIMIT 2"
-        ).fetchall()
-        batch_ids = [r["batch_id"] for r in batch_rows]
-
-        if batch_ids:
+            "ORDER BY batch_id DESC LIMIT 1"
+        ).fetchone()
+        if batch_row:
             rows = conn.execute(
                 "SELECT id, title, media_type, category, description, reason, "
                 "poster_url, tmdb_id, rating, rt_rating "
                 "FROM suggestions WHERE batch_id = ? ORDER BY category DESC, id",
-                (batch_ids[0],)
+                (batch_row["batch_id"],)
             ).fetchall()
             this_week_items = [dict(r) for r in rows]
-
-        if len(batch_ids) > 1:
-            rows = conn.execute(
-                "SELECT id, title, media_type, category, description, reason, "
-                "poster_url, tmdb_id, rating, rt_rating "
-                "FROM suggestions WHERE batch_id = ? ORDER BY category DESC, id",
-                (batch_ids[1],)
-            ).fetchall()
-            last_week_items = [dict(r) for r in rows]
 
     # ── Storage stats ────────────────────────────────────────────────────────
     # Aggregate file_size_bytes per media_type from media_items, normalised
@@ -389,7 +377,7 @@ def send_newsletter(
     # ── Mark download state on recommendation items ─────────────────────────
     # Populates ``item["download_state"]`` (``in_library`` / ``partial`` /
     # ``downloading`` / ``queued``) by consulting Radarr and Sonarr.
-    rec_items = this_week_items + last_week_items
+    rec_items = this_week_items
     if rec_items:
         radarr_client = build_radarr_from_db(conn, secret_key)
         sonarr_client = build_sonarr_from_db(conn, secret_key)
@@ -454,21 +442,6 @@ def send_newsletter(
                 ),
             ) if base_url else ""
 
-        # Generate per-recipient download tokens for last week's recommendations
-        for item in last_week_items:
-            item["download_url"] = "{}/download/{}".format(
-                base_url,
-                generate_download_token(
-                    email=email,
-                    action="download",
-                    title=item["title"],
-                    media_type=item["media_type"],
-                    tmdb_id=item.get("tmdb_id"),
-                    recommendation_id=item.get("id"),
-                    secret_key=secret_key,
-                ),
-            ) if base_url else ""
-
         html = template.render(
             report_date=report_date,
             storage=storage,
@@ -478,7 +451,6 @@ def send_newsletter(
             scheduled_items=scheduled_items,
             deleted_items=deleted_items,
             this_week_items=this_week_items,
-            last_week_items=last_week_items,
             dashboard_url=dashboard_url,
             dry_run=dry_run,
             base_url=base_url,
