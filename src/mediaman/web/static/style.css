@@ -4209,8 +4209,9 @@ section.shelf:first-of-type { margin-top: 32px; }
 .setg-pg .savebar .sb-sub { font-size: 12px; color: var(--t3); margin-left: auto; margin-right: 8px; }
 .setg-pg .savebar #save-status:empty { display: none; }
 @media (max-width: 700px) {
-  /* Lift above the mobile bottom tab bar so the savebar stays reachable */
-  .setg-pg .savebar { bottom: var(--tab-bar-h, 58px); }
+  /* Lift above the mobile bottom tab bar so the savebar stays reachable.
+     Matches the .nav-tabs height expression (style.css:303) + safe-area. */
+  .setg-pg .savebar { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
 }
 
 /* Link-style danger button (used in user/subscriber rows) ------- */

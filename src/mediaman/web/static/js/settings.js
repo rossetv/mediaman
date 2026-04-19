@@ -84,6 +84,10 @@
     var pos = window.scrollY + 140;
     var current = blocks[0];
     blocks.forEach(function (b) { if (b.offsetTop <= pos) current = b; });
+    // When the viewport has hit the bottom, the last section can never
+    // reach offsetTop ≤ scrollY+140 on a short page — force-light it.
+    var atBottom = (window.innerHeight + window.scrollY) >= (document.body.scrollHeight - 4);
+    if (atBottom) current = blocks[blocks.length - 1];
     var id = current ? '#' + current.id : '';
     railItems.forEach(function (r) {
       r.classList.toggle('on', r.getAttribute('href') === id);
@@ -494,13 +498,27 @@
       .then(function (r) { return r.json(); })
       .then(function (data) {
         var ok = data.status === 'saved';
+        var ignored = (data.ignored || []).filter(function (k) { return k !== 'status'; });
         saveBtn.textContent = ok ? 'Saved ✓' : 'Error';
-        if (statusEl) statusEl.textContent = ok ? 'Settings saved' : (data.error || 'Save failed');
-        if (ok) { setTimeout(markClean, 600); }
+        if (statusEl) {
+          if (ok && ignored.length) {
+            statusEl.textContent = 'Saved · ignored unknown: ' + ignored.join(', ');
+          } else if (ok) {
+            statusEl.textContent = 'Settings saved';
+          } else {
+            statusEl.textContent = data.error || 'Save failed';
+          }
+        }
+        if (ok) {
+          setTimeout(markClean, 600);
+          refreshOverviewHero();
+        }
         setTimeout(function () {
           saveBtn.textContent = orig;
           saveBtn.disabled = false;
-          if (ok && statusEl) statusEl.textContent = 'Edits apply to every section at once.';
+          if (ok && statusEl && !ignored.length) {
+            statusEl.textContent = 'Edits apply to every section at once.';
+          }
         }, 2200);
       })
       .catch(function () {
@@ -649,13 +667,18 @@
   });
   if (btnCancelNL) btnCancelNL.addEventListener('click', closeNewsletter);
 
+  var _recipientFetchToken = 0;
   function renderRecipientCheckboxes() {
     var list = document.getElementById('newsletter-recipient-list');
     if (!list) return;
     list.replaceChildren();
+    var token = ++_recipientFetchToken;
     fetch('/api/subscribers')
       .then(function (r) { return r.json(); })
       .then(function (data) {
+        // Bail if the user has closed the panel or re-opened it (new fetch).
+        if (token !== _recipientFetchToken) return;
+        if (!newsletterPanel || newsletterPanel.hidden) return;
         var subs = (data.subscribers || []).filter(function (s) { return s.active; });
         if (!subs.length) {
           list.appendChild(makeMsg('No active subscribers.'));
@@ -1065,24 +1088,33 @@
 
   // ---------------------------------------------------------------------
   // Overview hero — schedule summary + storage placeholder.
+  // `refreshOverviewHero` is called on initial load AND after each save,
+  // so the Overview card never shows stale schedule info.
   // ---------------------------------------------------------------------
-  (function () {
+  function refreshOverviewHero() {
     var big = document.getElementById('ov-scan-big');
     var when = document.getElementById('ov-scan-when');
     if (!big || !when) return;
+    var dayEl = document.getElementById('scan_day');
+    var timeEl = document.getElementById('scan_time');
+    var tzEl = document.getElementById('scan_timezone');
     var days = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' };
-    var day = days[BOOT.scan_day] || 'Monday';
-    var time = BOOT.scan_time || '09:00';
-    big.textContent = day + ' ';
+    var dayKey = dayEl ? dayEl.value : BOOT.scan_day;
+    var day = days[dayKey] || 'Monday';
+    var time = (timeEl && timeEl.value) || BOOT.scan_time || '09:00';
+    var tz = (tzEl && tzEl.value) || BOOT.scan_timezone || 'UTC';
+    big.replaceChildren();
+    big.appendChild(document.createTextNode(day + ' '));
     var small = document.createElement('small');
     small.textContent = time;
     big.appendChild(small);
     when.replaceChildren();
     when.appendChild(document.createTextNode('Timezone: '));
     var strong = document.createElement('b');
-    strong.textContent = BOOT.scan_timezone || 'UTC';
+    strong.textContent = tz;
     when.appendChild(strong);
-  })();
+  }
+  refreshOverviewHero();
 
   (function () {
     var bar = document.getElementById('ov-storage-bar');

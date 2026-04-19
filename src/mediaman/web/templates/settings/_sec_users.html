@@ -6,11 +6,8 @@
 
 {% call c.setg_block("setg-users", "Users & Access", "Who can sign in and administer Mediaman") %}
 
-  {# ----- Signed-in user (self card) ----- #}
-  {% set self_actions %}
-    <button type="button" class="btn-test" id="btn-change-password">Change password</button>
-    <button type="button" class="btn-test" id="btn-revoke-others">Sign out other devices</button>
-  {% endset %}
+  {# ----- Signed-in user (self card). Action buttons live inside the
+         card body (usr-self-actions), not in the card header. ----- #}
   {% call c.setg_card_v2(title="Your account", sub="The account you're signed in with.", pad=True) %}
     <div class="usr-self-head">
       <div class="av">{{ user_initial }}</div>

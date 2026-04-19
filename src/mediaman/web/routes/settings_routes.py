@@ -56,6 +56,7 @@ _ALL_KEYS = SECRET_FIELDS | {
     "scan_day",
     "scan_time",
     "scan_timezone",
+    "library_sync_interval",
     "min_age_days",
     "inactivity_days",
     "grace_days",
@@ -313,12 +314,14 @@ def api_update_settings(
             )
 
     conn.commit()
+    written = sorted(k for k in body.keys() if k in _ALL_KEYS)
+    ignored = sorted(k for k in body.keys() if k not in _ALL_KEYS)
     security_event(
         conn, event="settings.write", actor=admin,
         ip=get_client_ip(request),
-        detail={"keys": sorted(k for k in body.keys() if k in _ALL_KEYS)},
+        detail={"keys": written},
     )
-    return {"status": "saved"}
+    return {"status": "saved", "written": written, "ignored": ignored}
 
 
 @router.post("/api/settings/test/{service}")
