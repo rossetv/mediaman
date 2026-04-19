@@ -1,0 +1,87 @@
+{# Users & Access — self card + team management.
+   The `username` var is passed in by the settings route. #}
+{% import "_components.html" as c %}
+
+{% set user_initial = (username or "?")[:1] | upper %}
+
+{% call c.setg_block("setg-users", "Users & Access", "Who can sign in and administer Mediaman") %}
+
+  {# ----- Signed-in user (self card) ----- #}
+  {% set self_actions %}
+    <button type="button" class="btn-test" id="btn-change-password">Change password</button>
+    <button type="button" class="btn-test" id="btn-revoke-others">Sign out other devices</button>
+  {% endset %}
+  {% call c.setg_card_v2(title="Your account", sub="The account you're signed in with.", pad=True) %}
+    <div class="usr-self-head">
+      <div class="av">{{ user_initial }}</div>
+      <div class="usr-meta">
+        <div class="usr-name">{{ username }}</div>
+        <div class="usr-sub">Admin · signed in</div>
+      </div>
+      <div class="usr-self-actions">
+        <button type="button" class="btn btn--secondary btn--sm" id="btn-change-password">Change password</button>
+        <button type="button" class="btn btn--ghost btn--sm" id="btn-revoke-others">Sign out other devices</button>
+      </div>
+    </div>
+
+    <div class="inline-form" id="self-password-form" hidden>
+      <div class="inline-form-grid">
+        <label class="fld">
+          <span class="fld-lbl">Current password</span>
+          <input class="inp" type="password" id="self-old-password" autocomplete="current-password">
+        </label>
+        <label class="fld">
+          <span class="fld-lbl">New password</span>
+          <input class="inp" type="password" id="self-new-password" autocomplete="new-password" data-strength="self-new-strength">
+          <div class="fpc-meter"><span class="fpc-meter-fill" id="self-new-strength-meter"></span></div>
+          <span class="fpc-caption" id="self-new-strength-label">&nbsp;</span>
+        </label>
+        <label class="fld">
+          <span class="fld-lbl">Confirm new password</span>
+          <input class="inp" type="password" id="self-confirm-password" autocomplete="new-password">
+          <span class="fpc-caption" id="self-match-label">&nbsp;</span>
+        </label>
+      </div>
+      <div class="inline-form-actions">
+        <button type="button" class="btn btn--ghost btn--sm" id="btn-cancel-password">Cancel</button>
+        <button type="button" class="btn btn--primary btn--sm" id="btn-submit-password">Update password</button>
+        <span class="inline-form-msg" id="password-result" style="margin:0"></span>
+      </div>
+    </div>
+  {% endcall %}
+
+  {# ----- Team members ----- #}
+  {% set team_actions %}
+    <button type="button" class="btn btn--primary btn--sm" id="btn-add-user">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Add user
+    </button>
+  {% endset %}
+  {% call c.setg_card_v2(title="Team", sub="Every account below has full admin access.",
+                         header_actions=team_actions, pad=True) %}
+    <div class="inline-form inline-form--two" id="add-user-form" hidden>
+      <div class="inline-form-grid">
+        <label class="fld">
+          <span class="fld-lbl">Username</span>
+          <input class="inp" type="text" id="new-username" placeholder="e.g. casey" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="fld">
+          <span class="fld-lbl">Password</span>
+          <input class="inp" type="password" id="new-user-password" autocomplete="new-password" data-strength="new-user-strength">
+          <div class="fpc-meter"><span class="fpc-meter-fill" id="new-user-strength-meter"></span></div>
+          <span class="fpc-caption" id="new-user-strength-label">&nbsp;</span>
+        </label>
+      </div>
+      <div class="inline-form-actions">
+        <button type="button" class="btn btn--ghost btn--sm" id="btn-cancel-add-user">Cancel</button>
+        <button type="button" class="btn btn--primary btn--sm" id="btn-submit-add-user">Create user</button>
+        <span class="inline-form-msg" id="create-user-result" style="margin:0"></span>
+      </div>
+    </div>
+
+    <div id="user-list">
+      <div class="fld-sub">Loading users…</div>
+    </div>
+  {% endcall %}
+
+{% endcall %}

@@ -145,6 +145,40 @@ def _build_plex_client(conn, secret_key: str):
 # ---------------------------------------------------------------------------
 
 
+def _diagnostics(config, conn) -> dict:
+    """Safe-to-display runtime info for the Settings › About block.
+
+    All values here are deliberately non-secret and already visible to
+    any admin who can reach /settings. No env vars, no secret_key, no
+    user data.
+    """
+    import platform
+    import sys
+    from pathlib import Path
+
+    db_path = Path(config.data_dir) / "mediaman.db"
+    try:
+        db_size = db_path.stat().st_size if db_path.exists() else 0
+        db_size_mb = f"{db_size / 1024 / 1024:.1f} MB" if db_size else "—"
+    except OSError:
+        db_size_mb = "—"
+
+    try:
+        from importlib.metadata import version as _pkg_version
+        app_version = _pkg_version("mediaman")
+    except Exception:
+        app_version = "0.1.0"
+
+    return {
+        "app_version": app_version,
+        "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        "platform": f"{platform.system()} {platform.release()}",
+        "db_path": str(db_path),
+        "db_size": db_size_mb,
+        "data_dir": config.data_dir,
+    }
+
+
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request):
     """Render the settings page. Redirects to /login if session is invalid."""
@@ -166,6 +200,7 @@ def settings_page(request: Request):
         "nav_active": "settings",
         "settings": settings,
         "plex_libraries_selected": plex_libraries_selected,
+        "diagnostics": _diagnostics(config, conn),
     })
 
 

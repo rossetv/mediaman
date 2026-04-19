@@ -166,3 +166,112 @@
   {% if sub %}<span class="sub">{{ sub|safe }}</span>{% endif %}
 </div>
 {%- endmacro %}
+
+
+{# ============================================================================
+   Settings v2 primitives — used by templates/settings/_sec_*.html.
+   All rendered markup is scoped under `.setg-pg` on the page root.
+   ============================================================================ #}
+
+{# Rail nav item — href-anchored link in the left sidebar. #}
+{% macro setg_rail_item(href, label, icon_svg, count="", count_tone="") -%}
+<a href="{{ href }}" class="setg-rail-item">
+  {{ icon_svg|safe }}
+  {{ label }}
+  {% if count %}<span class="rail-count{% if count_tone %} {{ count_tone }}{% endif %}">{{ count }}</span>{% endif %}
+</a>
+{%- endmacro %}
+
+
+{# Block (section container with scroll anchor + heading). Use via {% call %}. #}
+{% macro setg_block(id, title, sub="") -%}
+<div class="setg-block" id="{{ id }}">
+  <div class="setg-block-hd">
+    <h2>{{ title }}</h2>
+    {% if sub %}<span class="sub">{{ sub|safe }}</span>{% endif %}
+  </div>
+  {{ caller() }}
+</div>
+{%- endmacro %}
+
+
+{# Card with header (title + sub + optional actions). Use via {% call %}. #}
+{% macro setg_card_v2(title="", sub="", header_actions="", pad=false) -%}
+<div class="setg-card">
+  {% if title or sub or header_actions %}
+  <div class="setg-card-hd">
+    <div class="head-info">
+      {% if title %}<h3>{{ title }}</h3>{% endif %}
+      {% if sub %}<div class="sub">{{ sub|safe }}</div>{% endif %}
+    </div>
+    {% if header_actions %}<div class="head-actions">{{ header_actions|safe }}</div>{% endif %}
+  </div>
+  {% endif %}
+  <div class="setg-card-bd{% if pad %} setg-card-bd--pad{% endif %}">{{ caller() }}</div>
+</div>
+{%- endmacro %}
+
+
+{# Row (label + sub + control slot). Use via {% call %}. #}
+{% macro setg_row_v2(label, sub="") -%}
+<div class="setg-row">
+  <div>
+    <div class="setg-row-lbl">{{ label }}</div>
+    {% if sub %}<div class="setg-row-sub">{{ sub|safe }}</div>{% endif %}
+  </div>
+  <div>{{ caller() }}</div>
+</div>
+{%- endmacro %}
+
+
+{# Input with show/hide reveal button. Used for secrets. #}
+{% macro inp_secret(id, value="", placeholder="") -%}
+<div class="inp-wrap">
+  <input class="inp inp--lg" id="{{ id }}" name="{{ id }}" type="password"
+         value="{{ value }}" placeholder="{{ placeholder }}" autocomplete="off" spellcheck="false">
+  <button type="button" class="inp-reveal" data-reveal-target="{{ id }}">Show</button>
+</div>
+{%- endmacro %}
+
+
+{# Field (stacked label + input + helper). Use via {% call %}. #}
+{% macro fld(label, sub="", optional=false) -%}
+<div class="fld">
+  <div class="fld-lbl">
+    {{ label }}
+    {% if optional %}<span class="opt">optional</span>{% endif %}
+  </div>
+  {{ caller() }}
+  {% if sub %}<div class="fld-sub">{{ sub|safe }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+
+{# Connection status pill with data-service attribute (JS hooks in to update). #}
+{% macro conn_pill(service) -%}
+<span class="conn untested" data-conn="{{ service }}">
+  <span class="conn-dot"></span><span data-conn-label>Untested</span>
+</span>
+{%- endmacro %}
+
+
+{# Integration card — single pattern for all 8 services.
+   Fields render inside the card body via caller(). #}
+{% macro intg_card(service, glyph, glyph_kind, title, sub="", include_test=true) -%}
+<div class="intg-card" id="intg-{{ service }}">
+  <div class="intg-card-hd">
+    <div class="glyph gy-{{ glyph_kind }}">{{ glyph }}</div>
+    <div class="h-info">
+      <h3>{{ title }}</h3>
+      {% if sub %}<div class="sub">{{ sub|safe }}</div>{% endif %}
+    </div>
+    <div class="hd-actions">
+      {{ conn_pill(service) }}
+      {% if include_test %}<button type="button" class="btn-test" data-test-service="{{ service }}">Test</button>{% endif %}
+    </div>
+  </div>
+  <div class="intg-card-bd">
+    {{ caller() }}
+  </div>
+</div>
+{%- endmacro %}

@@ -1,0 +1,30 @@
+{# Cleanup Rules — age, inactivity, grace thresholds. #}
+{% import "_components.html" as c %}
+
+{% call c.setg_block("setg-cleanup", "Cleanup Rules", "Thresholds that determine when media becomes eligible for deletion") %}
+
+  {% call c.setg_card_v2() %}
+    {% call c.setg_row_v2("Minimum age", "Media must have been added to Plex at least this many days ago to be eligible.") %}
+      <div class="thresh-field">
+        <input class="inp inp--num" type="number" id="min_age_days"
+               value="{{ settings.get('min_age_days', 30) }}" min="1" max="365">
+        <span class="unit">days</span>
+      </div>
+    {% endcall %}
+    {% call c.setg_row_v2("Watch inactivity", "No plays by any user within this period triggers eligibility.") %}
+      <div class="thresh-field">
+        <input class="inp inp--num" type="number" id="inactivity_days"
+               value="{{ settings.get('inactivity_days', 30) }}" min="1" max="365">
+        <span class="unit">days</span>
+      </div>
+    {% endcall %}
+    {% call c.setg_row_v2("Grace period", "Days between scheduling and actual deletion — time for users to keep items.") %}
+      <div class="thresh-field">
+        <input class="inp inp--num" type="number" id="grace_days"
+               value="{{ settings.get('grace_days', 7) }}" min="1" max="90">
+        <span class="unit">days</span>
+      </div>
+    {% endcall %}
+  {% endcall %}
+
+{% endcall %}

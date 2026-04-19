@@ -1,0 +1,25 @@
+{# Left-rail navigation for the settings page.
+   Anchors match the `id` attribute of each .setg-block below. #}
+{% import "_components.html" as c %}
+
+<aside class="setg-rail">
+  <div class="setg-rail-eyebrow">Settings</div>
+
+  {% set ico_overview %}<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>{% endset %}
+  {% set ico_general %}<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>{% endset %}
+  {% set ico_libraries %}<svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>{% endset %}
+  {% set ico_cleanup %}<svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>{% endset %}
+  {% set ico_integrations %}<svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>{% endset %}
+  {% set ico_newsletter %}<svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><polyline points="4 4 12 13 20 4"/></svg>{% endset %}
+  {% set ico_users %}<svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>{% endset %}
+  {% set ico_about %}<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><circle cx="12" cy="8" r="0.5" fill="currentColor"/></svg>{% endset %}
+
+  {{ c.setg_rail_item("#setg-overview",     "Overview",          ico_overview) }}
+  {{ c.setg_rail_item("#setg-general",      "General & Schedule", ico_general) }}
+  {{ c.setg_rail_item("#setg-libraries",    "Libraries & Paths", ico_libraries) }}
+  {{ c.setg_rail_item("#setg-cleanup",      "Cleanup Rules",     ico_cleanup) }}
+  {{ c.setg_rail_item("#setg-integrations", "Integrations",      ico_integrations, count="8") }}
+  {{ c.setg_rail_item("#setg-newsletter",   "Newsletter",        ico_newsletter) }}
+  {{ c.setg_rail_item("#setg-users",        "Users & Access",    ico_users) }}
+  {{ c.setg_rail_item("#setg-about",        "About",             ico_about) }}
+</aside>

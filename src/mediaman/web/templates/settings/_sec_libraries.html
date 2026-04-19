@@ -1,0 +1,27 @@
+{# Libraries & Paths — Plex library toggles + per-library disk thresholds.
+   Pills and path cards are rendered client-side once /api/plex/libraries
+   and /api/settings/disk-usage return. #}
+{% import "_components.html" as c %}
+
+{% call c.setg_block("setg-libraries", "Libraries & Paths", "Which Plex libraries to scan, their filesystem paths, and disk thresholds") %}
+
+  {% set lib_actions %}
+    <span class="sub" id="lib-pill-count" style="font-size:11.5px">—</span>
+  {% endset %}
+  {% call c.setg_card_v2(title="Libraries to scan",
+                         sub="Click a library to include it in weekly scans. Unselected libraries are ignored.",
+                         header_actions=lib_actions, pad=True) %}
+    <div class="lib-pills" id="plex-library-pills">
+      <span class="fld-sub">Save Plex URL &amp; token, then reload to see libraries.</span>
+    </div>
+  {% endcall %}
+
+  {% call c.setg_card_v2(title="Paths & disk thresholds",
+                         sub="Filesystem path Mediaman uses to measure disk usage — must match what Plex sees. Scan runs only when usage crosses the threshold.",
+                         pad=True) %}
+    <div id="disk-threshold-rows">
+      <div class="fld-sub">Select Plex libraries above to configure paths and thresholds.</div>
+    </div>
+  {% endcall %}
+
+{% endcall %}

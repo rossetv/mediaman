@@ -1,0 +1,56 @@
+{# Overview block — integration status strip + schedule summary.
+   Storage segments + scan countdown are hydrated by JS at page load. #}
+{% import "_components.html" as c %}
+
+{% call c.setg_block("setg-overview", "Overview", "Jump to any section to make changes") %}
+
+  {# Two-up hero: storage + next scan. Values are populated by JS on load. #}
+  <div class="ov-hero">
+    <div class="ov-card ov-storage">
+      <div class="lbl">Storage across your libraries</div>
+      <div class="big" id="ov-storage-big">—</div>
+      <div class="bar" id="ov-storage-bar"></div>
+      <div class="chips" id="ov-storage-chips">
+        <span><span class="chip-dot" style="background:var(--t4)"></span>Loading…</span>
+      </div>
+      <div class="ov-foot">
+        <a href="#setg-libraries" class="btn btn--secondary btn--sm">Configure paths &amp; thresholds</a>
+      </div>
+    </div>
+
+    <div class="ov-card ov-scan">
+      <div class="lbl">Next cleanup scan</div>
+      <div class="big" id="ov-scan-big">—</div>
+      <div class="when" id="ov-scan-when">—</div>
+      <div class="support">Runs weekly. A library is scanned only if its disk is above its threshold.</div>
+      <div class="ov-foot">
+        <a href="#setg-general" class="btn btn--ghost btn--sm">Edit schedule</a>
+      </div>
+    </div>
+  </div>
+
+  {# Integration status strip — the 8 connectors, one dot each. #}
+  <div class="ov-status" id="ov-status">
+    {% set services = [
+      ('plex',    'P',  'plex',    'Plex'),
+      ('sonarr',  'S',  'sonarr',  'Sonarr'),
+      ('radarr',  'R',  'radarr',  'Radarr'),
+      ('nzbget',  'N',  'nzbget',  'NZBGet'),
+      ('mailgun', 'M',  'mailgun', 'Mailgun'),
+      ('openai',  'AI', 'openai',  'OpenAI'),
+      ('tmdb',    'T',  'tmdb',    'TMDB'),
+      ('omdb',    'O',  'omdb',    'OMDB'),
+    ] %}
+    {% for id, glyph, kind, name in services %}
+    <div class="ov-status-item" data-ov-service="{{ id }}">
+      <div class="glyph gy-{{ kind }}">{{ glyph }}</div>
+      <div>
+        <div class="nm">{{ name }}</div>
+        <div class="st" data-ov-status>Not tested</div>
+      </div>
+      <span class="conn-dot"></span>
+    </div>
+    {% endfor %}
+  </div>
+
+{% endcall %}
