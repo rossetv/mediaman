@@ -149,8 +149,11 @@ h1, h2, h3, h4 {
   justify-content: space-between;
   gap: 24px;
   flex-wrap: wrap;
-  margin-top: 16px;
 }
+/* `.page-header-actions` sits *after* an h1 + p in the older
+   `.page-header` block, so it still needs the gap. `.ph-row` wraps the
+   whole header on the new pages — leading margin would shift the
+   heading down compared to pages without a row. */
 .page-header-actions { margin-top: 16px; align-items: center; }
 
 /* Section header */
