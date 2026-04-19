@@ -61,14 +61,14 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
     <span>Downloads</span>
   </a>
-  <button class="nav-tab" type="button" aria-expanded="false" onclick="const s = document.getElementById('nav-more-sheet'); const open = s.toggleAttribute('open'); this.setAttribute('aria-expanded', open);" aria-haspopup="dialog" aria-controls="nav-more-sheet">
+  <button class="nav-tab" type="button" aria-expanded="false" aria-haspopup="dialog" aria-controls="nav-more-sheet">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
     <span>More</span>
   </button>
 </nav>
 
 {# --- More sheet (<bp-md overflow) --- #}
-<div class="nav-more-sheet" id="nav-more-sheet" role="dialog" aria-label="More navigation" onclick="if(event.target===this){this.removeAttribute('open');var b=document.querySelector('[aria-controls=&quot;nav-more-sheet&quot;]');if(b)b.setAttribute('aria-expanded','false');}">
+<div class="nav-more-sheet" id="nav-more-sheet" role="dialog" aria-label="More navigation">
   <div class="nav-more-panel">
     <div class="nav-more-handle" aria-hidden="true"></div>
     <a class="nav-more-item" href="/recommended">
@@ -95,18 +95,3 @@
     </form>
   </div>
 </div>
-<script>
-(function () {
-  document.addEventListener('keydown', function (e) {
-    if (e.key !== 'Escape') return;
-    var s = document.getElementById('nav-more-sheet');
-    if (!s || !s.hasAttribute('open')) return;
-    s.removeAttribute('open');
-    var btn = document.querySelector('[aria-controls="nav-more-sheet"]');
-    if (btn) {
-      btn.setAttribute('aria-expanded', 'false');
-      btn.focus();
-    }
-  });
-})();
-</script>

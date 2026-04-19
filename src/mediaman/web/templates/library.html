@@ -70,6 +70,22 @@
     </div>
   </form>
 
+  <!-- Mobile sort control (below bp-md only) -->
+  {% if items %}
+  <div class="lib-mobile-sort">
+    <label for="lib-mobile-sort-select" class="lib-mobile-sort-label">Sort by</label>
+    <select id="lib-mobile-sort-select" class="form-select form-select--sm"
+            onchange="setSort(this.value)" aria-label="Sort library by">
+      <option value="name_asc"    {% if current_sort == 'name_asc' %}selected{% endif %}>Title (A–Z)</option>
+      <option value="name_desc"   {% if current_sort == 'name_desc' %}selected{% endif %}>Title (Z–A)</option>
+      <option value="size_desc"   {% if current_sort == 'size_desc' %}selected{% endif %}>Size (largest)</option>
+      <option value="size_asc"    {% if current_sort == 'size_asc' %}selected{% endif %}>Size (smallest)</option>
+      <option value="watched_desc" {% if current_sort == 'watched_desc' %}selected{% endif %}>Last watched (recent)</option>
+      <option value="watched_asc"  {% if current_sort == 'watched_asc' %}selected{% endif %}>Last watched (oldest)</option>
+    </select>
+  </div>
+  {% endif %}
+
   <!-- Library table -->
   {% if items %}
   <div class="lib-table">
@@ -198,7 +214,7 @@
   {% else %}
   <!-- Empty state -->
   <div class="empty-state">
-    <div class="empty-icon">
+    <div class="empty-state__icon">
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="1.5" stroke-linecap="round">
         <rect x="2" y="3" width="20" height="14" rx="2"/>
@@ -207,11 +223,11 @@
       </svg>
     </div>
     {% if q or current_type %}
-    <div class="empty-title">No results</div>
-    <div class="empty-detail">Try adjusting your search or filters.</div>
+    <div class="empty-state__headline">No results</div>
+    <div class="empty-state__sub">Try adjusting your search or filters.</div>
     {% else %}
-    <div class="empty-title">Library is empty</div>
-    <div class="empty-detail">Run a scan to populate your media library.</div>
+    <div class="empty-state__headline">Your library is empty</div>
+    <div class="empty-state__sub">Run a scan to pull in media from Plex.</div>
     {% endif %}
   </div>
   {% endif %}
@@ -220,10 +236,11 @@
 </div>
 
 <!-- Delete confirmation modal -->
-<div id="delete-modal" class="delete-modal-overlay">
+<div id="delete-modal" class="delete-modal-overlay"
+     role="dialog" aria-modal="true" aria-labelledby="delete-modal-heading" aria-hidden="true">
   <div class="delete-modal-card">
-    <h3 class="delete-modal-title">Delete item?</h3>
-    <p id="delete-modal-title" class="delete-modal-body"></p>
+    <h3 id="delete-modal-heading" class="delete-modal-title">Delete item?</h3>
+    <p id="delete-modal-body" class="delete-modal-body"></p>
     <div class="delete-modal-actions">
       <button class="btn btn-ghost" onclick="closeDeleteModal()">Cancel</button>
       <button id="delete-confirm-btn" class="btn btn-danger">Delete</button>
@@ -232,7 +249,8 @@
 </div>
 
 <!-- TV Show Keep Dialog -->
-<div class="keep-dialog-overlay" id="keep-dialog-overlay" onclick="closeKeepDialog()">
+<div class="keep-dialog-overlay" id="keep-dialog-overlay" onclick="closeKeepDialog()"
+     role="dialog" aria-modal="true" aria-labelledby="keep-dialog-title" aria-hidden="true">
   <div class="keep-dialog" onclick="event.stopPropagation()">
     <h3 id="keep-dialog-title">Keep Show</h3>
     <div class="keep-duration-bar" id="keep-duration-bar">
@@ -275,7 +293,7 @@
         body: body.toString(),
       }).then(function (r) {
         if (r.ok) window.location.reload();
-        else r.json().then(function (d) { alert('Keep failed: ' + (d.error || r.status)); });
+        else r.json().then(function (d) { window.UIFeedback.error("Couldn't save keep. " + (d.error || r.status)); });
       });
       return;
     }
@@ -291,6 +309,8 @@
   function openKeepDialog() {
     var overlay = document.getElementById('keep-dialog-overlay');
     overlay.classList.add('active');
+    overlay.setAttribute('aria-hidden', 'false');
+    if (window.ModalA11y) window.ModalA11y.onOpened('keep-dialog-overlay');
     if (_keepDialogState.duration) {
       selectDurationByValue(_keepDialogState.duration);
     }
@@ -320,12 +340,16 @@
         }
         renderSeasonPicker(data.seasons, data.show_kept);
       })
-      .catch(function () { list.textContent = 'Failed to load seasons'; });
+      .catch(function () { list.textContent = "Couldn't load seasons."; });
   }
 
   function closeKeepDialog() {
-    document.getElementById('keep-dialog-overlay').classList.remove('active');
+    var overlay = document.getElementById('keep-dialog-overlay');
+    overlay.classList.remove('active');
+    overlay.setAttribute('aria-hidden', 'true');
+    if (window.ModalA11y) window.ModalA11y.onClosed('keep-dialog-overlay');
   }
+  if (window.ModalA11y) window.ModalA11y.register('keep-dialog-overlay', closeKeepDialog);
 
   function selectDuration(btn) {
     document.querySelectorAll('.keep-dur-btn').forEach(function (b) { b.classList.remove('active'); });
@@ -403,7 +427,7 @@
     });
 
     if (selectedIds.length === 0 && !allChecked) {
-      alert('Select at least one season');
+      window.UIFeedback.error('Select at least one season to continue.');
       return;
     }
 
@@ -423,7 +447,7 @@
         body: JSON.stringify({ duration: _keepDialogState.duration, season_ids: selectedIds }),
       }).then(function (r) {
         if (r.ok) window.location.reload();
-        else r.json().then(function (d) { alert('Error: ' + (d.error || 'Unknown')); btn.disabled = false; btn.textContent = 'Keep'; });
+        else r.json().then(function (d) { window.UIFeedback.error("Couldn't save keep. " + (d.error || 'Try again.')); btn.disabled = false; btn.textContent = 'Keep'; });
       });
     } else {
       var durMap = { '7 days': '7d', '30 days': '30d', '90 days': '90d', 'forever': 'forever' };
@@ -440,18 +464,23 @@
   }
 
   function removeAllKeeps() {
-    if (!confirm('Remove all keeps for this show? Seasons may be scheduled for deletion on the next scan.')) return;
-    var promises = [];
-    // Remove show-level keep if exists
-    var rk = _keepDialogState.showRk;
-    if (rk) {
-      promises.push(fetch('/api/show/' + encodeURIComponent(rk) + '/remove', { method: 'POST' }));
-    }
-    // Remove individual season keeps
-    document.querySelectorAll('#keep-season-list input[data-season-id]').forEach(function (cb) {
-      promises.push(fetch('/api/media/' + encodeURIComponent(cb.dataset.seasonId) + '/unprotect', { method: 'POST' }));
+    window.UIFeedback.confirm({
+      title: 'Remove all keeps for this show?',
+      body: 'Seasons may be scheduled for deletion on the next scan.',
+      confirmLabel: 'Remove all',
+      confirmVariant: 'danger'
+    }).then(function (ok) {
+      if (!ok) return;
+      var promises = [];
+      var rk = _keepDialogState.showRk;
+      if (rk) {
+        promises.push(fetch('/api/show/' + encodeURIComponent(rk) + '/remove', { method: 'POST' }));
+      }
+      document.querySelectorAll('#keep-season-list input[data-season-id]').forEach(function (cb) {
+        promises.push(fetch('/api/media/' + encodeURIComponent(cb.dataset.seasonId) + '/unprotect', { method: 'POST' }));
+      });
+      Promise.all(promises).then(function () { window.location.reload(); });
     });
-    Promise.all(promises).then(function () { window.location.reload(); });
   }
 
   /**
@@ -460,17 +489,19 @@
   let _pendingDeleteId = null;
   function confirmDelete(mediaId, title) {
     _pendingDeleteId = mediaId;
-    document.getElementById('delete-modal-title').textContent =
+    document.getElementById('delete-modal-body').textContent =
       'Delete "' + title + '"? This cannot be undone.';
     const modal = document.getElementById('delete-modal');
     modal.classList.add('is-visible');
+    modal.setAttribute('aria-hidden', 'false');
+    if (window.ModalA11y) window.ModalA11y.onOpened('delete-modal');
     document.getElementById('delete-confirm-btn').onclick = function() {
       if (!_pendingDeleteId) return;
       fetch('/api/media/' + encodeURIComponent(_pendingDeleteId) + '/delete', {
         method: 'POST',
       }).then(r => {
         if (r.ok) window.location.reload();
-        else r.json().then(d => alert('Delete failed: ' + (d.error || r.status)));
+        else r.json().then(d => window.UIFeedback.error("Couldn't delete item. " + (d.error || r.status)));
       });
       closeDeleteModal();
     };
@@ -478,8 +509,12 @@
 
   function closeDeleteModal() {
     _pendingDeleteId = null;
-    document.getElementById('delete-modal').classList.remove('is-visible');
+    var modal = document.getElementById('delete-modal');
+    modal.classList.remove('is-visible');
+    modal.setAttribute('aria-hidden', 'true');
+    if (window.ModalA11y) window.ModalA11y.onClosed('delete-modal');
   }
+  if (window.ModalA11y) window.ModalA11y.register('delete-modal', closeDeleteModal);
 
   function removeKeep(mediaId) {
     fetch('/api/media/' + encodeURIComponent(mediaId) + '/unprotect', {
@@ -493,6 +528,14 @@
   document.getElementById('delete-modal').addEventListener('click', function(e) {
     if (e.target === this) closeDeleteModal();
   });
+
+  /**
+   * Mobile sort — set exact sort value and submit.
+   */
+  function setSort(value) {
+    document.getElementById('sort-input').value = value;
+    document.getElementById('toolbar-form').submit();
+  }
 
   /**
    * Column header sort — toggles between asc/desc for the clicked column.

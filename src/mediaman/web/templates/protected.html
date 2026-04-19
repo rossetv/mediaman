@@ -47,14 +47,14 @@
     </div>
     {% else %}
     <div class="empty-state">
-      <div class="empty-icon">
+      <div class="empty-state__icon">
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
              stroke-linecap="round" stroke-linejoin="round" class="icon-tertiary">
           <rect x="2" y="7" width="20" height="15" rx="2"/><polyline points="17 2 12 7 7 2"/>
         </svg>
       </div>
-      <div class="empty-title">No shows kept</div>
-      <div class="empty-detail">Keep an entire show from the Library page to protect all seasons.</div>
+      <div class="empty-state__headline">No shows kept</div>
+      <div class="empty-state__sub">Keep an entire show from the Library page to protect all seasons.</div>
     </div>
     {% endif %}
   </div>
@@ -97,14 +97,14 @@
     </div>
     {% else %}
     <div class="empty-state">
-      <div class="empty-icon">
+      <div class="empty-state__icon">
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
              stroke-linecap="round" stroke-linejoin="round" class="icon-tertiary">
           <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
         </svg>
       </div>
-      <div class="empty-title">Nothing kept forever</div>
-      <div class="empty-detail">Items marked 'Forever' on the keep page will appear here.</div>
+      <div class="empty-state__headline">Nothing kept forever</div>
+      <div class="empty-state__sub">Choose "Forever" from the Keep menu on any item to protect it permanently.</div>
     </div>
     {% endif %}
   </div>
@@ -147,15 +147,15 @@
     </div>
     {% else %}
     <div class="empty-state">
-      <div class="empty-icon">
+      <div class="empty-state__icon">
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
              stroke-linecap="round" stroke-linejoin="round" class="icon-tertiary">
           <circle cx="12" cy="12" r="10"/>
           <polyline points="12 6 12 12 16 14"/>
         </svg>
       </div>
-      <div class="empty-title">No active snoozes</div>
-      <div class="empty-detail">Items snoozed via the keep page will appear here until their timer expires.</div>
+      <div class="empty-state__headline">No active snoozes</div>
+      <div class="empty-state__sub">Timed keeps (7, 30, or 90 days) appear here until they expire.</div>
     </div>
     {% endif %}
   </div>
@@ -166,31 +166,43 @@
   /**
    * Remove a keep from a media item, then reload the page.
    */
-  function removeKeep(mediaItemId) {
-    if (!confirm('Remove keep? This item may be scheduled for deletion again.')) return;
+  async function removeKeep(mediaItemId) {
+    var ok = await window.UIFeedback.confirm({
+      title: 'Remove keep?',
+      body: 'Without a keep, this item may be scheduled for deletion on the next scan.',
+      confirmLabel: 'Remove keep',
+      confirmVariant: 'danger'
+    });
+    if (!ok) return;
     fetch('/api/media/' + encodeURIComponent(mediaItemId) + '/unprotect', { method: 'POST' })
       .then(r => {
         if (r.ok) {
           window.location.reload();
         } else {
-          r.json().then(d => alert('Error: ' + (d.error || 'Unknown error')));
+          r.json().then(d => window.UIFeedback.error("Couldn't remove keep. " + (d.error || 'Try again.')));
         }
       })
-      .catch(() => alert('Request failed'));
+      .catch(() => window.UIFeedback.error('Network error. Try again.'));
   }
 
   /**
    * Remove a show-level keep rule, then reload the page.
    * Individual season keeps are not affected.
    */
-  function removeShowKeep(showRatingKey) {
-    if (!confirm('Remove show-level keep? Individual season keeps are not affected.')) return;
+  async function removeShowKeep(showRatingKey) {
+    var ok = await window.UIFeedback.confirm({
+      title: 'Stop keeping this show?',
+      body: 'Season-level keeps stay in place. New seasons will no longer be automatically protected.',
+      confirmLabel: 'Stop keeping show',
+      confirmVariant: 'danger'
+    });
+    if (!ok) return;
     fetch('/api/show/' + encodeURIComponent(showRatingKey) + '/remove', { method: 'POST' })
       .then(function (r) {
         if (r.ok) window.location.reload();
-        else r.json().then(function (d) { alert('Error: ' + (d.error || 'Unknown error')); });
+        else r.json().then(function (d) { window.UIFeedback.error("Couldn't stop keeping show. " + (d.error || 'Try again.')); });
       })
-      .catch(function () { alert('Request failed'); });
+      .catch(function () { window.UIFeedback.error('Network error. Try again.'); });
   }
 </script>
 {% endblock %}

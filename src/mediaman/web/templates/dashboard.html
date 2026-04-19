@@ -115,8 +115,14 @@
       });
   }
 
-  function clearScheduled(btn) {
-    if (!confirm('Clear all scheduled deletions? Items will be re-evaluated on next scan.')) return;
+  async function clearScheduled(btn) {
+    var _proceed = await window.UIFeedback.confirm({
+      title: 'Clear all scheduled deletions?',
+      body: 'Nothing is deleted now. Items will be re-evaluated on the next scan and may be rescheduled.',
+      confirmLabel: 'Clear all',
+      confirmVariant: 'danger'
+    });
+    if (!_proceed) return;
     btn.disabled = true;
     btn.textContent = 'Clearing\u2026';
     fetch('/api/scan/clear-scheduled', { method: 'POST' })

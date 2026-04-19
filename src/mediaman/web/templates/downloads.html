@@ -46,7 +46,7 @@
 
   {% if not hero and not queue %}
   <div class="dl-empty-message" id="dl-empty">
-    <div class="empty-icon">
+    <div class="empty-state__icon">
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
         <polyline points="7 10 12 15 17 10"/>
@@ -371,7 +371,7 @@
     el.id = 'dl-empty';
 
     var icon = document.createElement('div');
-    icon.className = 'empty-icon';
+    icon.className = 'empty-state__icon';
     var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('width', '28');
     svg.setAttribute('height', '28');

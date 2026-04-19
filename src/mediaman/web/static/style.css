@@ -4455,3 +4455,219 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
   color: var(--success);
   cursor: pointer;
 }
+
+/* ===== A11Y UTILITIES ===== */
+.sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0);
+  white-space: nowrap; border: 0;
+}
+
+/* Focus-visible reset — ensures keyboard users get a ring on every focusable
+   element, matching the snooze caret style. Individual components may
+   override, but this is the sane default. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* Keep default browser focus ring for text inputs, since they already have
+   their own visual state. */
+input:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+
+/* Mobile min-heights for touch targets (WCAG 2.5.5 AAA; Apple HIG 44pt).
+   Only applied below md so desktop pixel-dense UI isn't inflated. */
+@media (max-width: 639px) {
+  .btn-sm,
+  .btn-sm-keep,
+  .btn-sm-delete,
+  .btn-sm-kept,
+  .btn-sm-caret {
+    min-height: 36px;
+  }
+  .snooze-option {
+    min-height: 40px;
+    padding: 10px 12px;
+  }
+  .btn-sm-caret { min-width: 36px; padding: 0 10px; }
+}
+
+/* ===== UNIFIED BUTTON SYSTEM =====
+ * Canonical pattern: <button class="btn btn--<size> btn--<variant> btn--<shape>?">
+ *
+ * Sizes:    sm (compact list rows), md (default), lg (hero CTAs)
+ * Variants: primary, ghost, subtle-accent, subtle-danger, subtle-success,
+ *           danger, success
+ * Shapes:   pill (980px radius) optional modifier
+ *
+ * The existing `.btn-*` and `.btn-sm-*` classes continue to work; new code
+ * should prefer these modifiers.
+ */
+.btn--sm {
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: -0.12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background var(--dur-fast), filter var(--dur-fast);
+}
+.btn--md {
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 400;
+  font-family: inherit;
+  letter-spacing: -0.224px;
+  border: none;
+  border-radius: var(--pill-radius);
+  cursor: pointer;
+  transition: all var(--dur-default) ease;
+}
+.btn--lg {
+  padding: 12px 24px;
+  font-size: 16px;
+  font-weight: 600;
+  font-family: inherit;
+  border: none;
+  border-radius: var(--pill-radius);
+  cursor: pointer;
+  transition: all var(--dur-default) ease;
+}
+
+.btn--primary {
+  background: var(--accent);
+  color: #fff;
+}
+.btn--primary:hover { filter: brightness(1.1); }
+
+.btn--ghost {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid rgba(41,151,255,0.3);
+}
+.btn--ghost:hover { border-color: var(--accent); background: rgba(41,151,255,0.08); }
+
+.btn--danger {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid rgba(255,69,58,0.3);
+}
+.btn--danger:hover { border-color: var(--danger); background: rgba(255,69,58,0.08); }
+
+.btn--success {
+  background: transparent;
+  color: var(--success);
+  border: 1px solid rgba(48,209,88,0.3);
+}
+.btn--success:hover { border-color: var(--success); background: rgba(48,209,88,0.08); }
+
+.btn--subtle-accent  { background: rgba(41,151,255,0.15); color: var(--accent); }
+.btn--subtle-accent:hover { background: rgba(41,151,255,0.25); }
+
+.btn--subtle-danger  { background: rgba(255,69,58,0.1); color: var(--danger); }
+.btn--subtle-danger:hover { background: rgba(255,69,58,0.2); }
+
+.btn--subtle-success { background: rgba(48,209,88,0.12); color: var(--success); }
+.btn--subtle-success:hover { background: rgba(48,209,88,0.2); }
+
+.btn--pill { border-radius: var(--pill-radius); }
+
+.btn:disabled,
+.btn--sm:disabled, .btn--md:disabled, .btn--lg:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ===== POSTER PLACEHOLDER (renamed for clarity — not an empty state) ===== */
+.poster--empty {
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface);
+  color: var(--text-tertiary);
+  font-size: 28px;
+}
+
+/* ===== UI FEEDBACK (toasts + styled confirm) ===== */
+.ui-toast-host {
+  position: fixed;
+  top: 16px; right: 16px;
+  z-index: 9999;
+  display: flex; flex-direction: column; gap: 8px;
+  pointer-events: none;
+}
+.ui-toast {
+  pointer-events: auto;
+  min-width: 240px; max-width: 360px;
+  padding: 12px 16px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 14px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity var(--dur-default), transform var(--dur-default);
+}
+.ui-toast.is-visible { opacity: 1; transform: translateY(0); }
+.ui-toast--success { border-left: 3px solid var(--success); }
+.ui-toast--error   { border-left: 3px solid var(--danger); }
+.ui-toast--info    { border-left: 3px solid var(--accent); }
+
+.ui-confirm-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.72);
+  z-index: 10000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+  opacity: 0;
+  transition: opacity var(--dur-default);
+}
+.ui-confirm-overlay.is-visible { opacity: 1; }
+.ui-confirm-card {
+  background: var(--surface);
+  border-radius: var(--card-radius);
+  padding: 24px;
+  max-width: 420px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+}
+.ui-confirm-title {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-size: 17px;
+  letter-spacing: -0.24px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ui-confirm-body {
+  margin: 0 0 20px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+.ui-confirm-actions {
+  display: flex; gap: 8px; justify-content: flex-end;
+}
+
+/* ===== LIBRARY — MOBILE SORT CONTROL =====
+ * Visible only below bp-md, since desktop users sort via column headers. */
+.lib-mobile-sort {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.lib-mobile-sort-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  letter-spacing: -0.08px;
+}
+@media (max-width: 639px) {
+  .lib-mobile-sort { display: flex; }
+}

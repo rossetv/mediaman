@@ -181,7 +181,7 @@ function _startRefreshPolling(btn) {
             btn.style.borderColor = '';
             btn.style.opacity = '1';
             btn.disabled = false;
-            var err = (st.result && st.result.error) || 'Unknown error';
+            var err = (st.result && st.result.error) || "Couldn't refresh recommendations.";
             document.getElementById('refresh-error').textContent = err;
             document.getElementById('refresh-error').style.display = 'block';
           }
@@ -206,7 +206,7 @@ function refreshRecommendations(btn) {
         btn.textContent = 'Refresh Recommendations';
         btn.style.opacity = '1';
         btn.disabled = false;
-        document.getElementById('refresh-error').textContent = data.error || 'Unknown error';
+        document.getElementById('refresh-error').textContent = data.error || "Couldn't refresh recommendations.";
         document.getElementById('refresh-error').style.display = 'block';
       }
     })
@@ -472,8 +472,11 @@ function openModal(id) {
     actionsEl.appendChild(shareBtn);
   }
 
-  document.getElementById('detail-modal').style.display = 'flex';
+  var _dm = document.getElementById('detail-modal');
+  _dm.style.display = 'flex';
+  _dm.setAttribute('aria-hidden', 'false');
   document.body.style.overflow = 'hidden';
+  if (window.ModalA11y) window.ModalA11y.onOpened('detail-modal');
 }
 
 function _modalDownload(btn, s) {
@@ -627,13 +630,17 @@ function _startModalPolling(s) {
 }
 
 function closeModal() {
-  document.getElementById('detail-modal').style.display = 'none';
+  var _dm = document.getElementById('detail-modal');
+  _dm.style.display = 'none';
+  _dm.setAttribute('aria-hidden', 'true');
   document.body.style.overflow = '';
   _clear(document.getElementById('modal-trailer'));
   if (_modalPollInterval) { clearInterval(_modalPollInterval); _modalPollInterval = null; }
   _modalRecId = null;
   history.replaceState(null, '', window.location.pathname + window.location.search);
+  if (window.ModalA11y) window.ModalA11y.onClosed('detail-modal');
 }
+if (window.ModalA11y) window.ModalA11y.register('detail-modal', closeModal);
 
 // Deep-link
 (function() {
@@ -649,11 +656,6 @@ document.getElementById('detail-modal').addEventListener('click', function(e) {
   if (e.target === this) closeModal();
 });
 
-// ESC to close
-document.addEventListener('keydown', function(e) {
-  if (e.key === 'Escape' && document.getElementById('detail-modal').style.display !== 'none') {
-    closeModal();
-  }
-});
+// ESC handling is provided by window.ModalA11y (registered above).
 </script>
 {% endblock %}

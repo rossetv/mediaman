@@ -905,7 +905,7 @@
         }, 2000);
       })
       .catch(function () {
-        setStatus(service, false, 'Request failed');
+        setStatus(service, false, 'Connection failed');
         btn.textContent = orig;
         btn.disabled = false;
       });
@@ -1020,7 +1020,7 @@
         btn.textContent = 'Error';
         btn.style.opacity = '';
         btn.style.background = 'var(--danger)';
-        statusEl.textContent = 'Request failed';
+        statusEl.textContent = "Couldn't save settings. Try again.";
         statusEl.style.color = 'var(--danger)';
         setTimeout(function () {
           btn.textContent = 'Save Settings';
@@ -1043,7 +1043,7 @@
         var msg = document.createElement('div');
         msg.style.color = 'var(--danger)';
         msg.style.fontSize = '14px';
-        msg.textContent = 'Failed to load subscribers';
+        msg.textContent = "Couldn't load subscribers.";
         list.appendChild(msg);
       });
   }
@@ -1106,7 +1106,7 @@
           input.value = '';
           loadSubscribers();
         } else {
-          alert(data.error || 'Failed to add subscriber');
+          window.UIFeedback.error(data.error || "Couldn't add subscriber. Try again.");
         }
       });
   };
@@ -1548,7 +1548,7 @@
       .then(function (r) { return r.json(); })
       .then(_renderUsers)
       .catch(function () {
-        document.getElementById('user-list').textContent = 'Failed to load users.';
+        document.getElementById('user-list').textContent = "Couldn't load users.";
       });
   }
 
@@ -1778,14 +1778,14 @@
           }, 3000);
         } else {
           btn.textContent = 'Send Newsletter';
-          statusEl.textContent = data.error || 'Send failed';
+          statusEl.textContent = data.error || "Couldn't send newsletter.";
           statusEl.style.color = '#ff453a';
         }
       })
       .catch(function () {
         btn.disabled = false;
         btn.textContent = 'Send Newsletter';
-        statusEl.textContent = 'Request failed';
+        statusEl.textContent = "Couldn't send newsletter. Try again.";
         statusEl.style.color = '#ff453a';
       });
   };
@@ -1814,7 +1814,7 @@
           setStatus(c.service, data.ok, data.ok ? 'Connected' : (data.error || 'Error'));
         })
         .catch(function () {
-          setStatus(c.service, false, 'Request failed');
+          setStatus(c.service, false, 'Connection failed');
         });
     });
   }

@@ -258,8 +258,14 @@
   let seasonTickState = new Map();
   let lockedSeasons = new Set();
 
-  function closeModal() { modal.style.display = "none"; document.body.style.overflow = ""; }
+  function closeModal() {
+    modal.style.display = "none";
+    modal.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+    if (window.ModalA11y) window.ModalA11y.onClosed("detail-modal");
+  }
   window.closeModal = closeModal;
+  if (window.ModalA11y) window.ModalA11y.register("detail-modal", closeModal);
   // Click on the backdrop itself (outside the sheet) closes the modal.
   modal.addEventListener("click", function(e) { if (e.target === modal) closeModal(); });
   // The .modal-close-bar button uses onclick="closeModal()" directly.
@@ -284,7 +290,9 @@
 
   async function openDetail(mediaType, tmdbId) {
     modal.style.display = "";
+    modal.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
+    if (window.ModalA11y) window.ModalA11y.onOpened("detail-modal");
     resetModal();
     const loading = document.createElement("div");
     loading.style.cssText = "padding:24px;color:rgba(255,255,255,0.3)";
