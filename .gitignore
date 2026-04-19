@@ -61,3 +61,7 @@ auth.json
 .worktrees/
 .claude/
 docs/superpowers/
+
+# Playwright MCP scratch + ad-hoc screenshots (dev only)
+.playwright-mcp/
+/*.png
