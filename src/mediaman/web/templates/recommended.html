@@ -646,7 +646,7 @@ function _startModalPolling(s) {
     fetch('/api/download/status?service=' + service + '&tmdb_id=' + tmdbId)
       .then(function(r) { return r.json(); })
       .then(function(data) {
-        if (data.status === 'ready') {
+        if (data.state === 'ready') {
           clearInterval(_modalPollInterval);
           _modalPollInterval = null;
           progressEl.style.display = 'none';
@@ -681,17 +681,18 @@ function _startModalPolling(s) {
           var btn = document.querySelector('#modal-actions .btn-download');
           if (btn) { btn.textContent = 'In Library \u2713'; btn.className = 'btn-download ready'; }
           s.download_state = 'in_library';
-        } else if (data.status === 'downloading') {
+        } else if (data.state === 'downloading') {
           var pct = data.progress || 0;
           fillDiv.style.width = pct + '%';
           labelSpan.textContent = 'Downloading...';
           var detailText = pct + '%';
-          if (data.timeleft) detailText += ' \u00b7 ' + data.timeleft + ' remaining';
+          if (data.eta) detailText += ' \u00b7 ' + data.eta + ' remaining';
           detailDiv.textContent = detailText;
-        } else if (data.status === 'queued') {
-          labelSpan.textContent = 'Waiting for download to start...';
-          detailDiv.textContent = 'Release found \u2014 queued in ' + (s.media_type === 'movie' ? 'Radarr' : 'Sonarr');
-        } else if (data.status === 'searching') {
+        } else if (data.state === 'almost_ready') {
+          fillDiv.style.width = '100%';
+          labelSpan.textContent = 'Almost ready...';
+          detailDiv.textContent = 'Importing into your library';
+        } else if (data.state === 'searching') {
           labelSpan.textContent = 'Searching for release...';
           detailDiv.textContent = 'Checking indexers for ' + s.title;
         }
