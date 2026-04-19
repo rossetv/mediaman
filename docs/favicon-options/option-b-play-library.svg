@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
-  <title id="title">Mediaman favicon option B</title>
-  <desc id="desc">A media tile mark with a library spine and a play triangle, using white and Apple Blue on black.</desc>
-  <rect x="56" y="56" width="400" height="400" rx="104" fill="#000000" />
-  <rect x="56" y="56" width="400" height="400" rx="104" fill="none" stroke="#1d1d1f" stroke-width="6" />
-  <rect x="118" y="118" width="276" height="276" rx="80" fill="none" stroke="#ffffff" stroke-width="32" />
-  <line x1="182" y1="152" x2="182" y2="360" stroke="#ffffff" stroke-width="28" stroke-linecap="round" />
-  <path d="M226 192L334 256L226 320Z" fill="#0071e3" />
-</svg>
