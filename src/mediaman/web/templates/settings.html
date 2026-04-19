@@ -5,27 +5,25 @@
 {% block nav %}{% include "_nav.html" %}{% endblock %}
 
 {% block content %}
-<div class="container container--narrow">
-  <div class="page-header">
-    <h1>Settings</h1>
-    <p>Configure connections, notifications, and cleanup rules</p>
-  </div>
-</div>
-
-<div class="tab-bar">
-  <div class="segmented">
-    <button class="seg-btn active" onclick="showTab('newsletter', this)">Newsletter</button>
-    <button class="seg-btn" onclick="showTab('scanning', this)">Scanning</button>
-    <button class="seg-btn" onclick="showTab('integrations', this)">Integrations</button>
-    <button class="seg-btn" onclick="showTab('admin', this)">Users</button>
-  </div>
-</div>
-
 {% set chevron_svg %}
   <svg class="settings-section-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
 {% endset %}
 
-<div class="container container--narrow">
+<div class="container">
+  <div class="ph">
+    <h1>Settings</h1>
+    <p>Configure connections, notifications, and cleanup rules.</p>
+  </div>
+
+  <div class="setg">
+    <aside class="setg-nav">
+      <button class="on" onclick="showTab('newsletter', this)">Newsletter</button>
+      <button onclick="showTab('scanning', this)">Scanning</button>
+      <button onclick="showTab('integrations', this)">Integrations</button>
+      <button onclick="showTab('admin', this)">Users</button>
+    </aside>
+
+    <div>
 
 <div id="tab-newsletter" class="tab-panel active">
 
@@ -778,7 +776,9 @@
 
 </div>{# end tab-admin #}
 
-</div>
+    </div>{# end .setg content column #}
+  </div>{# end .setg grid #}
+</div>{# end .container #}
 
 {# Sticky save bar #}
 <div class="save-bar">
@@ -795,9 +795,9 @@
   // ---------------------------------------------------------------------------
   window.showTab = function (id, btn) {
     document.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.remove('active'); });
-    document.querySelectorAll('.seg-btn').forEach(function (b) { b.classList.remove('active'); });
+    document.querySelectorAll('.setg-nav button').forEach(function (b) { b.classList.remove('on'); });
     document.getElementById('tab-' + id).classList.add('active');
-    btn.classList.add('active');
+    btn.classList.add('on');
   };
 
   // ---------------------------------------------------------------------------

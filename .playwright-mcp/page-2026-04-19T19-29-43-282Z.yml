@@ -1,0 +1,13 @@
+- generic [ref=e3]:
+  - link "mediaman" [ref=e5] [cursor=pointer]:
+    - /url: /
+  - generic [ref=e6]: Sign in to manage your library
+  - generic [ref=e7]:
+    - generic [ref=e8]:
+      - generic [ref=e9]: Username
+      - textbox "Username" [active] [ref=e10]
+    - generic [ref=e11]:
+      - generic [ref=e12]: Password
+      - textbox "Password" [ref=e13]
+    - button "Sign in" [ref=e14] [cursor=pointer]
+  - paragraph [ref=e15]: Secured connection · Rate limited to 5 attempts per minute

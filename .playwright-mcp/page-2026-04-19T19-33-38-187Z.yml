@@ -1,0 +1,60 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - link "mediaman" [ref=e3] [cursor=pointer]:
+      - /url: /
+    - navigation "Primary" [ref=e4]:
+      - link "Dashboard" [ref=e5] [cursor=pointer]:
+        - /url: /
+      - link "Library" [ref=e6] [cursor=pointer]:
+        - /url: /library
+      - link "Search" [ref=e7] [cursor=pointer]:
+        - /url: /search
+      - link "Recommended" [ref=e8] [cursor=pointer]:
+        - /url: /recommended
+      - link "Downloads" [ref=e9] [cursor=pointer]:
+        - /url: /downloads
+      - link "History" [ref=e10] [cursor=pointer]:
+        - /url: /history
+      - link "Settings" [ref=e11] [cursor=pointer]:
+        - /url: /settings
+    - button "Logout" [ref=e14] [cursor=pointer]
+  - generic [ref=e15]:
+    - generic [ref=e17]:
+      - generic [ref=e18]:
+        - generic [ref=e19]: Your library, at a glance
+        - heading "Hello, dev" [level=1] [ref=e20]
+      - button "Scan now" [ref=e22] [cursor=pointer]:
+        - img [ref=e23]
+        - text: Scan now
+    - generic [ref=e26]:
+      - generic [ref=e27]:
+        - heading "Storage" [level=2] [ref=e28]
+        - generic [ref=e29]: Across your selected libraries
+      - generic [ref=e30]:
+        - generic [ref=e31]:
+          - generic [ref=e32]: 0 B of 0 B used
+          - generic [ref=e33]: 0 B available
+        - generic [ref=e35]:
+          - generic [ref=e36]:
+            - text: Movies
+            - generic [ref=e38]: 0 B (0.0%)
+          - generic [ref=e39]:
+            - text: TV Shows
+            - generic [ref=e41]: 0 B (0.0%)
+          - generic [ref=e42]:
+            - text: Anime
+            - generic [ref=e44]: 0 B (0.0%)
+          - generic [ref=e45]:
+            - text: Other
+            - generic [ref=e47]: 0 B
+    - generic [ref=e48]:
+      - heading "Scheduled for deletion" [level=2] [ref=e50]
+      - generic [ref=e51]:
+        - heading "Nothing scheduled for deletion" [level=3] [ref=e52]
+        - paragraph [ref=e53]: Library is healthy — next scan will look again.
+    - separator [ref=e54]
+    - generic [ref=e55]:
+      - heading "Recently deleted" [level=2] [ref=e57]
+      - generic [ref=e58]:
+        - heading "No deletion history yet" [level=3] [ref=e59]
+        - paragraph [ref=e60]: When mediaman reclaims space, you'll see it here.

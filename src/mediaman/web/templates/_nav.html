@@ -13,10 +13,8 @@
     <a href="/downloads"   class="nav-btn{% if nav_active == 'downloads' %} on{% endif %}">Downloads</a>
     <a href="/history"     class="nav-btn{% if nav_active == 'history' %} on{% endif %}">History</a>
     <a href="/settings"    class="nav-btn{% if nav_active == 'settings' %} on{% endif %}">Settings</a>
-  </nav>
-  <div class="nav-end">
-    <form method="post" action="/api/auth/logout" class="d-inline">
-      <button type="submit" class="nav-btn">Logout</button>
+    <form method="post" action="/api/auth/logout" class="nav-logout-form">
+      <button type="submit" class="nav-btn nav-btn--logout">Logout</button>
     </form>
-  </div>
+  </nav>
 </header>

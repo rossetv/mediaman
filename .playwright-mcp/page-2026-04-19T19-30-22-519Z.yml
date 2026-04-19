@@ -1,0 +1,46 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - link "mediaman" [ref=e3] [cursor=pointer]:
+      - /url: /
+    - navigation "Primary" [ref=e4]:
+      - link "Dashboard" [ref=e5] [cursor=pointer]:
+        - /url: /
+      - link "Library" [ref=e6] [cursor=pointer]:
+        - /url: /library
+      - link "Search" [ref=e7] [cursor=pointer]:
+        - /url: /search
+      - link "Recommended" [ref=e8] [cursor=pointer]:
+        - /url: /recommended
+      - link "Downloads" [ref=e9] [cursor=pointer]:
+        - /url: /downloads
+      - link "History" [ref=e10] [cursor=pointer]:
+        - /url: /history
+      - link "Settings" [ref=e11] [cursor=pointer]:
+        - /url: /settings
+    - button "Logout" [ref=e14] [cursor=pointer]
+  - generic [ref=e16]:
+    - heading "Settings" [level=1] [ref=e17]
+    - paragraph [ref=e18]: Configure connections, notifications, and cleanup rules
+  - generic [ref=e20]:
+    - button "Newsletter" [ref=e21] [cursor=pointer]
+    - button "Scanning" [ref=e22] [cursor=pointer]
+    - button "Integrations" [ref=e23] [cursor=pointer]
+    - button "Users" [ref=e24] [cursor=pointer]
+  - generic [ref=e27]:
+    - generic [ref=e28] [cursor=pointer]:
+      - img [ref=e30]
+      - generic [ref=e35]:
+        - generic [ref=e36]: Newsletter Subscribers
+        - generic [ref=e37]: Email addresses that receive the daily deletion digest
+      - img [ref=e39]
+    - generic [ref=e43]:
+      - generic [ref=e45]: No subscribers yet.
+      - generic [ref=e46]:
+        - textbox "Add email address…" [ref=e47]
+        - button "Add" [ref=e48] [cursor=pointer]
+      - generic [ref=e50]:
+        - generic [ref=e51]:
+          - generic [ref=e52]: Send Newsletter
+          - generic [ref=e53]: Send the current newsletter to selected subscribers without affecting the automated schedule
+        - button "Select Recipients" [ref=e54] [cursor=pointer]
+  - button "Save Settings" [ref=e56] [cursor=pointer]

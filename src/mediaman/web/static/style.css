@@ -262,15 +262,12 @@ h1, h2, h3, h4 {
 .nav-links a.active,
 .nav-links li a.active { color: var(--t1); background: var(--s3); }
 
-.nav-end {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-left: auto;
-}
-
-.nav-logout button,
-.nav-logout form { display: inline-flex; }
+/* Logout sits at the end of the scrollable rail. On wider viewports the
+   margin-left:auto pushes it to the right edge so it visually mirrors a
+   utility slot; on mobile it just sits at the end of the scroll. */
+.nav-logout-form { display: inline-flex; margin-left: auto; }
+.nav-btn--logout { color: var(--t3); }
+.nav-btn--logout:hover { color: var(--danger); background: rgba(255,69,58,.08); }
 
 /* =============================================================
    5. BUTTONS — one system, used everywhere
