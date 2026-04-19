@@ -44,6 +44,12 @@
   --radius-md: 8px;
   --radius-lg: 10px;
 
+  /* DESIGN.md §2 + §6: the one sanctioned card shadow. Apple uses a
+     single soft, diffused, offset shadow or nothing at all. Every
+     elevated surface must reference this token; bespoke shadows are
+     forbidden by §7. */
+  --shadow-card: rgba(0, 0, 0, 0.22) 3px 5px 30px 0px;
+
   /* Motion tokens — fast for hover/feedback, default for typical UI
      transitions, slow for deliberate state changes (scan pulse, CTA). */
   --dur-fast:    120ms;
@@ -186,7 +192,7 @@ a:hover { text-decoration: none; }
 @media (max-width: 639.98px) {
   .nav-topbar {
     position: sticky; top: 0; z-index: 100; height: var(--topbar-h);
-    background: rgba(0,0,0,0.85);
+    background: rgba(0,0,0,0.8);
     backdrop-filter: saturate(180%) blur(20px);
     -webkit-backdrop-filter: saturate(180%) blur(20px);
     border-bottom: 1px solid rgba(255,255,255,0.08);
@@ -649,7 +655,7 @@ a:hover { text-decoration: none; }
   border-radius: var(--radius-lg);
   padding: 6px;
   min-width: 140px;
-  box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+  box-shadow: var(--shadow-card);
   z-index: 10;
 }
 .keep-wrapper:hover .snooze-dropdown,
@@ -735,7 +741,7 @@ a:hover { text-decoration: none; }
   background: var(--surface-2);
   border-radius: var(--card-radius);
   padding: clamp(28px, 5vw, 44px);
-  box-shadow: rgba(0, 0, 0, 0.22) 3px 5px 30px 0px;
+  box-shadow: var(--shadow-card);
 }
 .login-brand { text-align: center; margin-bottom: 28px; }
 .login-brand .nav-brand { font-size: clamp(24px, 5vw, 32px); }
@@ -779,7 +785,6 @@ a:hover { text-decoration: none; }
 .login-field input:focus {
   border-color: var(--accent);
   background: var(--surface-3);
-  box-shadow: 0 0 0 3px rgba(41,151,255,0.15);
 }
 
 .login-btn {
@@ -1113,10 +1118,9 @@ a:hover { text-decoration: none; }
 }
 .users-avatar--self {
   width: 52px; height: 52px;
-  background: linear-gradient(135deg, rgba(41,151,255,0.20), rgba(191,90,242,0.14));
+  background: rgba(41,151,255,0.15);
   color: var(--text);
   font-size: 19px;
-  box-shadow: 0 4px 24px rgba(41,151,255,0.20);
 }
 .users-avatar-initial { display: block; line-height: 1; }
 
@@ -1160,7 +1164,7 @@ a:hover { text-decoration: none; }
   padding: 24px clamp(20px, 4vw, 28px);
   background: rgba(255,255,255,0.02);
   border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 14px;
+  border-radius: var(--card-radius);
   animation: users-slide-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 @keyframes users-slide-in {
@@ -1231,7 +1235,6 @@ a:hover { text-decoration: none; }
 .users-delete-drawer .form-input:focus {
   border-color: var(--accent);
   background: var(--surface-3);
-  box-shadow: 0 0 0 3px rgba(41,151,255,0.18);
 }
 
 .users-inline-form-actions {
@@ -1415,7 +1418,6 @@ a:hover { text-decoration: none; }
 .form-input:focus,
 .form-select:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(41,151,255,0.15);
 }
 .form-input.secret {
   font-family: 'SF Mono', 'Fira Code', monospace;
@@ -1507,7 +1509,7 @@ a:hover { text-decoration: none; }
   margin: 0 auto 24px;
   border-radius: var(--card-radius); overflow: hidden;
   background: var(--surface-2);
-  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  box-shadow: var(--shadow-card);
 }
 .poster-container img { width: 100%; height: 100%; object-fit: cover; }
 .poster-faded { opacity: 0.4; filter: grayscale(0.5); }
@@ -1865,7 +1867,7 @@ a:hover { text-decoration: none; }
   text-align: center;
   outline: none;
 }
-.threshold-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(41,151,255,0.15); }
+.threshold-input:focus { border-color: var(--accent); }
 .threshold-unit { font-size: 13px; color: var(--text-tertiary); width: 40px; }
 
 /* Sticky save bar — mirrors the nav bar's translucent-blur treatment so the
@@ -1972,7 +1974,7 @@ a:hover { text-decoration: none; }
   font-family: 'SF Mono', 'Fira Code', monospace;
   outline: none;
 }
-.disk-path-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(41,151,255,0.15); }
+.disk-path-input:focus { border-color: var(--accent); }
 .disk-threshold-input {
   width: 64px;
   padding: 8px 12px;
@@ -1985,7 +1987,7 @@ a:hover { text-decoration: none; }
   text-align: center;
   outline: none;
 }
-.disk-threshold-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(41,151,255,0.15); }
+.disk-threshold-input:focus { border-color: var(--accent); }
 .disk-usage-badge {
   display: inline-flex;
   align-items: center;
@@ -2095,7 +2097,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
   letter-spacing: -0.374px;
   outline: none;
 }
-.search-box input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(41,151,255,0.15); }
+.search-box input:focus { border-color: var(--accent); }
 .search-box input::placeholder { color: var(--text-tertiary); }
 .search-box .search-icon {
   position: absolute;
@@ -2156,7 +2158,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 }
 .lib-stat {
   background: var(--surface); padding: clamp(16px, 3vw, 22px);
-  border-radius: 14px; display: block; color: var(--text);
+  border-radius: var(--card-radius); display: block; color: var(--text);
   text-decoration: none; border: 1px solid transparent;
   transition: all var(--dur-default);
 }
@@ -2444,7 +2446,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
   padding: clamp(14px, 2vw, 18px) clamp(16px, 3vw, 24px) clamp(14px, 2vw, 18px) clamp(44px, 8vw, 56px);
   background: var(--surface); color: var(--text);
   border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 16px;
+  border-radius: var(--card-radius);
   font-size: 17px; font-family: inherit; letter-spacing: -0.374px;
   outline: none; transition: border-color 0.2s, background 0.2s;
 }
@@ -2497,7 +2499,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 }
 .poster-card:hover {
   transform: translateY(-2px);
-  box-shadow: rgba(0, 0, 0, 0.35) 3px 5px 30px 0px;
+  box-shadow: var(--shadow-card);
 }
 .poster {
   position: relative; width: 100%; aspect-ratio: 2/3;
@@ -2525,7 +2527,6 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
   font-size: 10px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
   display: inline-flex; align-items: center; gap: 6px;
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.35);
 }
 .poster-state::before {
   content: "";
@@ -2568,7 +2569,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 .dl-hero {
   position: relative;
   margin: 16px 0;
-  border-radius: 16px;
+  border-radius: var(--card-radius);
   overflow: hidden;
 }
 .dl-hero-bg {
@@ -2601,7 +2602,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
   overflow: hidden;
   flex-shrink: 0;
   margin-right: 24px;
-  box-shadow: 0 12px 32px rgba(0,0,0,0.6);
+  box-shadow: var(--shadow-card);
   background: rgba(255,255,255,0.05);
 }
 .dl-hero-poster img {
@@ -2708,7 +2709,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 .dl-state-pill {
   display: inline-block;
   padding: 3px 10px;
-  border-radius: 20px;
+  border-radius: var(--pill-radius);
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -3286,7 +3287,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 .modal-sheet::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.28); background-clip: padding-box; }
 @media (min-width: 640px) {
   .modal-sheet {
-    max-width: 720px; max-height: 90vh; border-radius: 20px;
+    max-width: 720px; max-height: 90vh; border-radius: var(--card-radius);
     border: 1px solid rgba(255,255,255,0.1);
   }
 }
@@ -3569,7 +3570,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
   border-radius: var(--radius-lg);
   margin-bottom: 16px;
   object-fit: cover;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  box-shadow: var(--shadow-card);
 }
 .dl-cinema-gradient { display: none; }
 .dl-cinema-info {
@@ -3707,9 +3708,9 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
   padding: 16px;
   background: var(--accent);
   color: #fff; border: none;
-  border-radius: 14px;
+  border-radius: var(--card-radius);
   font-size: 17px; font-weight: 600;
-  cursor: pointer; letter-spacing: -0.3px; font-family: inherit;
+  cursor: pointer; letter-spacing: -0.374px; font-family: inherit;
   transition: background var(--dur-default);
   min-height: 44px;
 }
@@ -3846,7 +3847,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
   position: absolute; bottom: 24px; left: 28px; right: 28px; z-index: 2;
 }
 .detail-modal-hero-title {
-  font-size: 32px; font-weight: 700; line-height: 1.1; letter-spacing: -0.3px;
+  font-size: 32px; font-weight: 600; line-height: 1.1; letter-spacing: -0.3px;
   text-shadow: 0 2px 12px rgba(0,0,0,0.5);
 }
 .detail-modal-hero-title .year {
@@ -3948,7 +3949,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 .detail-modal-seasons {
   background: rgba(255,255,255,0.03);
   border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 14px;
+  border-radius: var(--card-radius);
   padding: 18px 20px;
   margin-bottom: 24px;
 }
@@ -4609,7 +4610,7 @@ input:focus-visible, textarea:focus-visible {
   background: var(--surface-2);
   color: var(--text);
   font-size: 14px;
-  box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+  box-shadow: var(--shadow-card);
   opacity: 0;
   transform: translateY(-8px);
   transition: opacity var(--dur-default), transform var(--dur-default);
@@ -4635,7 +4636,7 @@ input:focus-visible, textarea:focus-visible {
   padding: 24px;
   max-width: 420px;
   width: 100%;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  box-shadow: var(--shadow-card);
 }
 .ui-confirm-title {
   margin: 0 0 8px;

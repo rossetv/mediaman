@@ -50,7 +50,19 @@ The color story is starkly binary. Product sections alternate between pure black
 - **White 32%** (`rgba(255, 255, 255, 0.32)`): Hover state on dark modal close buttons.
 
 ### Shadows
-- **Card Shadow** (`rgba(0, 0, 0, 0.22) 3px 5px 30px 0px`): Soft, diffused elevation for product cards. Offset and wide blur create a natural, photographic shadow.
+- **Card Shadow** (`rgba(0, 0, 0, 0.22) 3px 5px 30px 0px`): Soft, diffused elevation for product cards. Offset and wide blur create a natural, photographic shadow. Tokenised in CSS as `--shadow-card` — use the token everywhere, never a bespoke shadow.
+
+### Semantic Palette (Mediaman extension)
+
+apple.com's marketing site is a billboard for physical products and its single-accent rule works because product state doesn't need to be signalled at a glance. Mediaman is a state-heavy media manager — downloading, queued, stale, protected, scheduled-for-deletion — and needs a small functional palette. Scope is strictly limited: **badges, tags, dots, state pills, storage-bar segments and non-destructive category tints.** Never on CTAs, headings, page backgrounds or structural surfaces. Apple Blue remains the sole accent for interactive elements.
+
+- **Success Green** (`#30d158`): Kept / protected / complete states; `.status-protected`, `.conn-ok`, keep-forever option.
+- **Warning Yellow** (`#ffd60a`): Queued / snoozed states; rating pills (IMDB).
+- **Danger Red** (`#ff453a`): Destructive actions, stale items, error messages; `.btn-danger`, logout pill.
+- **Category Orange** (`#ff9f0a`): Movies in storage legend, type-mov tag, partial-library state.
+- **Category Purple** (`#bf5af2`): Anime in storage legend, type-anime tag.
+
+Each tint has a low-opacity background counterpart (0.10–0.22 alpha) so the label sits on a tinted chip rather than using the saturated colour as a background.
 
 ## 3. Typography Rules
 
@@ -85,6 +97,7 @@ The color story is starkly binary. Product sections alternate between pure black
 - **Optical sizing as philosophy**: SF Pro automatically switches between Display and Text optical sizes. Display versions have wider letter spacing and thinner strokes optimized for large sizes; Text versions are tighter and sturdier for small sizes. This means the font literally changes its DNA based on context.
 - **Weight restraint**: The scale spans 300 (light) to 700 (bold) but most text lives at 400 (regular) and 600 (semibold). Weight 300 appears only on large decorative text. Weight 700 is rare, used only for bold card titles.
 - **Negative tracking at all sizes**: Unlike most systems that only track headlines, Apple applies subtle negative letter-spacing even at body sizes (-0.374px at 17px, -0.224px at 14px, -0.12px at 12px). This creates universally tight, efficient text.
+- **Uppercase micro-label exception**: Negative tracking is the rule for mixed-case text. For all-caps micro-labels (10–13px, typically section eyebrows like "STORAGE" or "EPISODES"), SF Pro is designed to track open. Positive tracking in the 0.3–1.2 px range is permitted **only** on genuinely all-caps micro-labels. Mixed-case at any size stays negative.
 - **Extreme line-height range**: Headlines compress to 1.07 while body text opens to 1.47, and some button contexts stretch to 2.41. This dramatic range creates clear visual hierarchy through rhythm alone.
 
 ## 4. Component Stylings
@@ -202,6 +215,16 @@ The color story is starkly binary. Product sections alternate between pure black
 - **Vertical rhythm through color blocks**: Rather than using spacing alone to separate sections, Apple uses alternating background colors (black, `#f5f5f7`, white). Each color change signals a new "scene."
 - **Compression within, expansion between**: Text blocks are tightly set (negative letter-spacing, tight line-heights) while the space surrounding them is vast. This creates a tension between density and openness.
 
+### Dark-only variant (Mediaman)
+
+Mediaman is a media management tool, not a marketing site. It follows the **Apple TV / Apple Music / System Settings** model — dark-only, high-contrast, cinematic — rather than the apple.com marketing-site alternation. The cinematic rhythm rule therefore does NOT apply: there is no light `#f5f5f7` counterpart. Instead, rhythm comes from:
+
+1. **Surface elevation** — `#000` body → `#1d1d1f` surface → `#2a2a2d` surface-2 → `#323236` surface-3.
+2. **Hairline dividers** at `rgba(255,255,255,0.06)` between sections where colour contrast alone is insufficient.
+3. **Vertical spacing** (`--space-section: clamp(32px, 6vw, 80px)`) carries the pause-between-scenes role that alternating colour blocks play on apple.com.
+
+Cards and containers therefore sit on a dark surface and may use a 1 px hairline border at `rgba(255,255,255,0.06)` when adjacent to a same-coloured parent. Prefer surface-colour contrast; use a hairline only when the two surfaces would otherwise be indistinguishable.
+
 ### Border Radius Scale
 - Micro (5px): Small containers, link tags
 - Standard (8px): Buttons, product cards, image containers
@@ -240,15 +263,16 @@ The color story is starkly binary. Product sections alternate between pure black
 - Compress headline line-heights to 1.07-1.14 — Apple headlines are famously tight
 
 ### Don't
-- Don't introduce additional accent colors — the entire chromatic budget is spent on blue
-- Don't use heavy shadows or multiple shadow layers — Apple's shadow system is one soft diffused shadow or nothing
-- Don't use borders on cards or containers — Apple almost never uses visible borders (except on specific buttons)
-- Don't apply wide letter-spacing to SF Pro — it is designed to run tight at every size
-- Don't use weight 800 or 900 — the maximum is 700 (bold), and even that is rare
-- Don't add textures, patterns, or gradients to backgrounds — solid colors only
-- Don't make the navigation opaque — the glass blur effect is essential to the Apple UI identity
+- Don't introduce additional accent colors beyond Apple Blue and the sanctioned semantic palette (§2 Semantic Palette); never extend the palette to CTAs, headings, or structural surfaces
+- Don't use heavy shadows or multiple shadow layers — Apple's shadow system is one soft diffused shadow or nothing. Use the `--shadow-card` token; never invent a bespoke shadow.
+- Don't use borders on cards or containers as a decorative device. The dark-only variant permits a 1 px hairline at `rgba(255,255,255,0.06)` only when adjacent surfaces would otherwise be indistinguishable (see §5 Dark-only variant).
+- Don't apply wide letter-spacing to SF Pro mixed-case text — it is designed to run tight at every size. Positive tracking is permitted only on all-caps micro-labels (§3 uppercase exception).
+- Don't use weight 800 or 900 — the maximum is 700 (bold), and even that is rare. At 20px+ (Display sizes) weight should be 400 or 600, never 700.
+- Don't add textures, patterns, or gradients to UI backgrounds — solid colors only. Gradient scrims OVER media imagery (posters, hero backdrops) are permitted since they sit over photography, not over UI chrome.
+- Don't make the navigation opaque — the glass blur effect is essential to the Apple UI identity. The translucent nav must be `rgba(0,0,0,0.8)` with `backdrop-filter: saturate(180%) blur(20px)`; do not vary opacity between top-nav surfaces.
 - Don't center-align body text — Apple body copy is left-aligned; only headlines center
-- Don't use rounded corners larger than 12px on rectangular elements (980px is for pills only)
+- Don't use rounded corners larger than 12px on rectangular elements (980px is for pills; 20px top radii are permitted on bottom/top sheet surfaces only).
+- Don't layer a box-shadow glow ring on focused inputs — the global 2 px solid Apple Blue outline (`:focus-visible`) is the focus treatment everywhere. No exceptions.
 
 ## 8. Responsive Behavior
 
