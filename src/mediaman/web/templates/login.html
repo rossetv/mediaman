@@ -5,12 +5,8 @@
 {% block content %}
 <div class="login-page">
   <div class="login-card">
-    <div class="login-brand">
-      <a class="nav-brand" href="/">media<span>man</span></a>
-    </div>
-
-    <h1 class="login-title">Welcome back</h1>
-    <p class="login-subtitle">Sign in to manage your library</p>
+    <div class="login-brand"><a href="/">media<b>man</b></a></div>
+    <div class="login-sub">Sign in to manage your library</div>
 
     {% if error %}
     <div class="error-msg" role="alert">{{ error }}</div>
@@ -19,30 +15,16 @@
     <form method="post" action="/login" novalidate>
       <div class="login-field">
         <label for="username">Username</label>
-        <input
-          id="username"
-          type="text"
-          name="username"
-          autocomplete="username"
-          autocapitalize="none"
-          spellcheck="false"
-          autofocus
-          required
-        >
+        <input id="username" type="text" name="username"
+               autocomplete="username" autocapitalize="none" spellcheck="false" autofocus required>
       </div>
 
       <div class="login-field">
         <label for="password">Password</label>
-        <input
-          id="password"
-          type="password"
-          name="password"
-          autocomplete="current-password"
-          required
-        >
+        <input id="password" type="password" name="password" autocomplete="current-password" required>
       </div>
 
-      <button class="login-btn" type="submit">Sign In</button>
+      <button class="login-btn" type="submit">Sign in</button>
     </form>
 
     <p class="security-note">Secured connection · Rate limited to 5 attempts per minute</p>

@@ -1,31 +1,38 @@
-
+{# Detail modal — populated by search.js / recommended.js. The IDs and
+   class names below are part of the JS contract; keep them stable. #}
 <div id="detail-modal" class="modal-backdrop" style="display:none;"
      role="dialog" aria-modal="true" aria-labelledby="detail-modal-title" aria-hidden="true">
   <h2 id="detail-modal-title" class="sr-only">Details</h2>
   <div class="modal-sheet">
     <button type="button" class="modal-close-bar" onclick="closeModal()" aria-label="Close details">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
       Close
     </button>
 
     <div class="detail-modal-hero" id="modal-hero"></div>
 
     <div class="detail-modal-body">
-      <div id="modal-quick" class="detail-modal-quick"></div>
+      <div id="modal-quick"   class="detail-modal-quick"></div>
       <div id="modal-ratings" class="detail-modal-ratings"></div>
       <div id="modal-tagline" class="detail-modal-tagline"></div>
-      <div id="modal-desc" class="detail-modal-description"></div>
-      <div id="modal-reason" class="detail-modal-reason"></div>
-      <div id="modal-trailer-label" class="detail-modal-section-label">Trailer</div>
-      <div id="modal-trailer" class="detail-modal-trailer"></div>
+      <div id="modal-desc"    class="detail-modal-description"></div>
+      <div id="modal-reason"  class="detail-modal-reason"></div>
+
+      <div id="modal-trailer-label" class="detail-modal-section-label" style="display:none;">Trailer</div>
+      <div id="modal-trailer"          class="detail-modal-trailer"></div>
       <div id="modal-trailer-fallback"></div>
-      <div id="modal-cast-label" class="detail-modal-section-label">Cast</div>
+
+      <div id="modal-cast-label" class="detail-modal-section-label" style="display:none;">Cast</div>
       <div id="modal-cast" class="detail-modal-cast"></div>
+
       <div id="modal-actions" class="modal-actions"></div>
       <div id="modal-progress" class="detail-modal-progress" style="display:none;"></div>
-      <div id="modal-success" class="detail-modal-success" style="display:none;"></div>
+      <div id="modal-success"  class="detail-modal-success"  style="display:none;"></div>
+
       <div id="detail-modal-seasons-label" class="detail-modal-section-label" style="display:none;">Seasons — pick which to download</div>
-      <div id="detail-modal-seasons" class="detail-modal-seasons" style="display:none;"></div>
+      <div id="detail-modal-seasons"       class="detail-modal-seasons"       style="display:none;"></div>
     </div>
   </div>
 </div>

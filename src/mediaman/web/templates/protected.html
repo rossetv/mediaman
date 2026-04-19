@@ -1,171 +1,133 @@
 {% extends "base.html" %}
+{% import "_components.html" as c %}
 
 {% block title %}Kept Items · Mediaman{% endblock %}
-
 {% block nav %}{% include "_nav.html" %}{% endblock %}
 
 {% block content %}
 <div class="container container--wide">
 
-  <div class="page-header">
+  <div class="ph">
     <h1>Kept Items</h1>
-    <p>Items shielded from automatic deletion</p>
+    <p>Items shielded from automatic deletion.</p>
   </div>
 
-  <!-- Kept Shows -->
-  <div class="section">
-    <div class="section-header">
-      <h2 class="section-title">Kept Shows</h2>
-      {% if show_items %}
-      <span class="section-subtitle">{{ show_items | length }} show{{ 's' if show_items | length != 1 }}</span>
-      {% endif %}
+  {# Kept Shows #}
+  <section class="section">
+    <div class="sec-hd">
+      <h2>Kept shows</h2>
+      {% if show_items %}<span class="sub">{{ show_items | length }} show{{ 's' if show_items | length != 1 }}</span>{% endif %}
     </div>
 
     {% if show_items %}
-    <div class="cards-grid">
+    <div class="grid grid-tiles">
       {% for item in show_items %}
-      <div class="media-card">
-        <div class="media-card-poster">
+      <div class="tile">
+        <div class="tile-poster">
           {% if item.plex_rating_key %}
           <img src="/api/poster/{{ item.plex_rating_key }}" alt="{{ item.show_title }}" loading="lazy">
           {% endif %}
-          <span class="media-badge show-cyan">SHOW</span>
-          <span class="protection-badge{% if item.action != 'protected_forever' %} snoozed-badge{% endif %}">{{ item.expiry }}</span>
+          <div class="tile-pills">
+            <span class="pill pill--tv">Show</span>
+            <span class="pill {% if item.action == 'protected_forever' %}pill--kept{% else %}pill--queued{% endif %}">{{ item.expiry }}</span>
+          </div>
         </div>
-        <div class="media-card-body">
-          <div class="media-card-title">{{ item.show_title }}</div>
-          <div class="media-card-meta">
-            <span>All seasons (including future)</span>
-          </div>
-          <div class="media-card-footer">
-            <button class="btn btn-danger"
-              onclick="removeShowKeep('{{ item.show_rating_key }}')">Remove</button>
-          </div>
+        <div>
+          <div class="tile-title">{{ item.show_title }}</div>
+          <div class="tile-meta">All seasons (including future)</div>
+        </div>
+        <div class="tile-actions">
+          <button class="btn btn--danger btn--sm" type="button"
+                  onclick="removeShowKeep('{{ item.show_rating_key }}')">Remove</button>
         </div>
       </div>
       {% endfor %}
     </div>
     {% else %}
-    <div class="empty-state">
-      <div class="empty-state__icon">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-             stroke-linecap="round" stroke-linejoin="round" class="icon-tertiary">
-          <rect x="2" y="7" width="20" height="15" rx="2"/><polyline points="17 2 12 7 7 2"/>
-        </svg>
-      </div>
-      <div class="empty-state__headline">No shows kept</div>
-      <div class="empty-state__sub">Keep an entire show from the Library page to protect all seasons.</div>
-    </div>
+    <div class="empty"><h3>No shows kept</h3><p>Keep an entire show from the Library page to protect all seasons.</p></div>
     {% endif %}
-  </div>
+  </section>
 
-  <div class="divider"></div>
+  <hr class="hr">
 
-  <!-- Forever protected -->
-  <div class="section">
-    <div class="section-header">
-      <h2 class="section-title">Kept Forever</h2>
-      {% if forever_items %}
-      <span class="section-subtitle">{{ forever_items | length }} item{{ 's' if forever_items | length != 1 }}</span>
-      {% endif %}
+  {# Forever protected #}
+  <section class="section">
+    <div class="sec-hd">
+      <h2>Kept forever</h2>
+      {% if forever_items %}<span class="sub">{{ forever_items | length }} item{{ 's' if forever_items | length != 1 }}</span>{% endif %}
     </div>
 
     {% if forever_items %}
-    <div class="cards-grid">
+    <div class="grid grid-tiles">
       {% for item in forever_items %}
-      <div class="media-card">
-        <div class="media-card-poster">
+      <div class="tile">
+        <div class="tile-poster">
           {% if item.plex_rating_key %}
           <img src="/api/poster/{{ item.plex_rating_key }}" alt="{{ item.title }}" loading="lazy">
           {% endif %}
-          <span class="media-badge {{ item.badge_class }}">{{ item.type_label }}</span>
-          <span class="protection-badge">Forever</span>
+          <div class="tile-pills">
+            <span class="pill pill--{{ 'movie' if item.media_type == 'movie' else ('tv' if item.media_type == 'tv' else 'anime') }}">{{ item.type_label }}</span>
+            <span class="pill pill--kept">Forever</span>
+          </div>
         </div>
-        <div class="media-card-body">
-          <div class="media-card-title">{{ item.title }}</div>
-          <div class="media-card-meta">
-            <span>Protected permanently</span>
-          </div>
-          <div class="media-card-footer">
-            <button class="btn btn-danger"
-              onclick="removeKeep('{{ item.media_item_id }}')">Remove</button>
-            <span class="file-size">{{ item.file_size }}</span>
-          </div>
+        <div>
+          <div class="tile-title">{{ item.title }}</div>
+          <div class="tile-meta">{{ item.file_size }}</div>
+        </div>
+        <div class="tile-actions">
+          <button class="btn btn--danger btn--sm" type="button"
+                  onclick="removeKeep('{{ item.media_item_id }}')">Remove</button>
         </div>
       </div>
       {% endfor %}
     </div>
     {% else %}
-    <div class="empty-state">
-      <div class="empty-state__icon">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-             stroke-linecap="round" stroke-linejoin="round" class="icon-tertiary">
-          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-        </svg>
-      </div>
-      <div class="empty-state__headline">Nothing kept forever</div>
-      <div class="empty-state__sub">Choose "Forever" from the Keep menu on any item to protect it permanently.</div>
-    </div>
+    <div class="empty"><h3>Nothing kept forever</h3><p>Choose "Forever" from the Keep menu on any item to protect it permanently.</p></div>
     {% endif %}
-  </div>
+  </section>
 
-  <div class="divider"></div>
+  <hr class="hr">
 
-  <!-- Timed snooze -->
-  <div class="section">
-    <div class="section-header">
-      <h2 class="section-title">Timed Snooze</h2>
-      {% if snoozed_items %}
-      <span class="section-subtitle">{{ snoozed_items | length }} item{{ 's' if snoozed_items | length != 1 }}</span>
-      {% endif %}
+  {# Timed snooze #}
+  <section class="section">
+    <div class="sec-hd">
+      <h2>Timed snooze</h2>
+      {% if snoozed_items %}<span class="sub">{{ snoozed_items | length }} item{{ 's' if snoozed_items | length != 1 }}</span>{% endif %}
     </div>
 
     {% if snoozed_items %}
-    <div class="cards-grid">
+    <div class="grid grid-tiles">
       {% for item in snoozed_items %}
-      <div class="media-card">
-        <div class="media-card-poster">
+      <div class="tile">
+        <div class="tile-poster">
           {% if item.plex_rating_key %}
           <img src="/api/poster/{{ item.plex_rating_key }}" alt="{{ item.title }}" loading="lazy">
           {% endif %}
-          <span class="media-badge {{ item.badge_class }}">{{ item.type_label }}</span>
-          <span class="protection-badge snoozed-badge">{{ item.expiry }}</span>
+          <div class="tile-pills">
+            <span class="pill pill--{{ 'movie' if item.media_type == 'movie' else ('tv' if item.media_type == 'tv' else 'anime') }}">{{ item.type_label }}</span>
+            <span class="pill pill--queued">{{ item.expiry }}</span>
+          </div>
         </div>
-        <div class="media-card-body">
-          <div class="media-card-title">{{ item.title }}</div>
-          <div class="media-card-meta">
-            <span>{{ item.expiry }}</span>
-          </div>
-          <div class="media-card-footer">
-            <button class="btn btn-danger"
-              onclick="removeKeep('{{ item.media_item_id }}')">Remove</button>
-            <span class="file-size">{{ item.file_size }}</span>
-          </div>
+        <div>
+          <div class="tile-title">{{ item.title }}</div>
+          <div class="tile-meta">{{ item.file_size }}</div>
+        </div>
+        <div class="tile-actions">
+          <button class="btn btn--danger btn--sm" type="button"
+                  onclick="removeKeep('{{ item.media_item_id }}')">Remove</button>
         </div>
       </div>
       {% endfor %}
     </div>
     {% else %}
-    <div class="empty-state">
-      <div class="empty-state__icon">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-             stroke-linecap="round" stroke-linejoin="round" class="icon-tertiary">
-          <circle cx="12" cy="12" r="10"/>
-          <polyline points="12 6 12 12 16 14"/>
-        </svg>
-      </div>
-      <div class="empty-state__headline">No active snoozes</div>
-      <div class="empty-state__sub">Timed keeps (7, 30, or 90 days) appear here until they expire.</div>
-    </div>
+    <div class="empty"><h3>No active snoozes</h3><p>Timed keeps (7, 30, or 90 days) appear here until they expire.</p></div>
     {% endif %}
-  </div>
+  </section>
 
+  <div class="page-bottom-spacer"></div>
 </div>
 
 <script>
-  /**
-   * Remove a keep from a media item, then reload the page.
-   */
   async function removeKeep(mediaItemId) {
     var ok = await window.UIFeedback.confirm({
       title: 'Remove keep?',
@@ -176,19 +138,12 @@
     if (!ok) return;
     fetch('/api/media/' + encodeURIComponent(mediaItemId) + '/unprotect', { method: 'POST' })
       .then(r => {
-        if (r.ok) {
-          window.location.reload();
-        } else {
-          r.json().then(d => window.UIFeedback.error("Couldn't remove keep. " + (d.error || 'Try again.')));
-        }
+        if (r.ok) window.location.reload();
+        else r.json().then(d => window.UIFeedback.error("Couldn't remove keep. " + (d.error || 'Try again.')));
       })
       .catch(() => window.UIFeedback.error('Network error. Try again.'));
   }
 
-  /**
-   * Remove a show-level keep rule, then reload the page.
-   * Individual season keeps are not affected.
-   */
   async function removeShowKeep(showRatingKey) {
     var ok = await window.UIFeedback.confirm({
       title: 'Stop keeping this show?',

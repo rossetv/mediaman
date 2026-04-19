@@ -1,84 +1,68 @@
 {% extends "base.html" %}
+{% import "_components.html" as c %}
 
 {% block title %}History · Mediaman{% endblock %}
-
 {% block nav %}{% include "_nav.html" %}{% endblock %}
 
 {% block content %}
 <div class="container container--wide">
 
-  <div class="page-header">
+  <div class="ph">
     <h1>History</h1>
-    <p>Full audit trail of all media actions</p>
+    <p>Audit log of scans, deletions, keeps, and newsletter sends.</p>
   </div>
 
-  <!-- Filters -->
-  <div class="toolbar-row">
-    <div class="filter-pills">
-      <a href="/history"
-         class="filter-pill {% if not action_filter %}active{% endif %}">All</a>
-      {% for at in action_types %}
-      <a href="/history?action={{ at }}"
-         class="filter-pill {% if action_filter == at %}active{% endif %}">
-        {{ at | replace('_', ' ') | title }}
-      </a>
-      {% endfor %}
-    </div>
+  <div class="pill-row" style="margin-bottom:24px">
+    <a href="/history" class="fpill {% if not action_filter %}on{% endif %}">All events</a>
+    {% for at in action_types %}
+    <a href="/history?action={{ at }}" class="fpill {% if action_filter == at %}on{% endif %}">
+      {{ at | replace('_', ' ') | title }}
+    </a>
+    {% endfor %}
     {% if total > 0 %}
-    <span class="section-subtitle u-ml-auto">{{ total }} event{{ 's' if total != 1 }}</span>
+    <span class="sub u-ml-auto" style="align-self:center">{{ total }} event{{ 's' if total != 1 }}</span>
     {% endif %}
   </div>
 
-  <!-- Audit log table -->
   {% if items %}
-  <div class="history-table">
-    <div class="history-header">
-      <span class="history-title-mobile">Title</span>
-      <span>Action</span>
-      <span class="history-title-desktop">Title</span>
-      <span>Detail</span>
-    </div>
+  <div class="card card--bordered" style="padding:0 24px">
     {% for item in items %}
-    <div class="history-row">
-      <span class="history-title-mobile">
-        <span class="history-title">{{ item.title }}</span>
-        <span class="history-date">{{ item.created_at[:16] | replace('T', ' ') }}{% if item.space_impact %} · {{ item.space_impact }}{% endif %}</span>
-      </span>
-      <span>
-        <span class="action-badge {{ item.badge_class }}">{{ item.action_label }}</span>
-      </span>
-      <span class="history-title-desktop">{{ item.title }}{% if item.space_impact %} <span class="history-space-impact">{{ item.space_impact }}</span>{% endif %}</span>
-      <span class="history-detail">{{ item.detail }}</span>
+    <div class="hist">
+      <div class="hist-date">{{ item.created_at[:16] | replace('T', ' ') }}</div>
+      <div class="hist-msg">
+        <b>{{ item.title }}</b>
+        {% if item.detail %}<span class="hist-type"> · {{ item.detail }}</span>{% endif %}
+        {% if item.space_impact %}<span style="color:var(--t3)"> · {{ item.space_impact }}</span>{% endif %}
+      </div>
+      <div class="hist-type">
+        <span class="pill {{ 'pill--stale' if 'delet' in item.action_label|lower else ('pill--kept' if 'keep' in item.action_label|lower else ('pill--tv' if 'newsletter' in item.action_label|lower else 'pill--neutral')) }}">{{ item.action_label }}</span>
+      </div>
     </div>
     {% endfor %}
   </div>
 
-  <!-- Pagination -->
   {% if total_pages > 1 %}
   <div class="pagination">
     {% if page > 1 %}
-    <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ page - 1 }}"
-       class="page-btn">&#8249;</a>
+    <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ page - 1 }}" class="page-btn">‹</a>
     {% else %}
-    <span class="page-btn disabled">&#8249;</span>
+    <span class="page-btn disabled">‹</span>
     {% endif %}
 
     {% for p in range(1, total_pages + 1) %}
       {% if p == page %}
       <span class="page-btn active">{{ p }}</span>
       {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
-      <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ p }}"
-         class="page-btn">{{ p }}</a>
+      <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ p }}" class="page-btn">{{ p }}</a>
       {% elif p == page - 3 or p == page + 3 %}
-      <span class="page-btn disabled page-btn--ellipsis">…</span>
+      <span class="page-btn page-btn--ellipsis">…</span>
       {% endif %}
     {% endfor %}
 
     {% if page < total_pages %}
-    <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ page + 1 }}"
-       class="page-btn">&#8250;</a>
+    <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ page + 1 }}" class="page-btn">›</a>
     {% else %}
-    <span class="page-btn disabled">&#8250;</span>
+    <span class="page-btn disabled">›</span>
     {% endif %}
 
     <span class="page-info">Page {{ page }} of {{ total_pages }}</span>
@@ -86,25 +70,15 @@
   {% endif %}
 
   {% else %}
-  <div class="empty-state">
-    <div class="empty-state__icon">
-      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-           stroke-linecap="round" stroke-linejoin="round" class="icon-tertiary">
-        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-        <polyline points="14 2 14 8 20 8"/>
-        <line x1="16" y1="13" x2="8" y2="13"/>
-        <line x1="16" y1="17" x2="8" y2="17"/>
-        <polyline points="10 9 9 9 8 9"/>
-      </svg>
-    </div>
-    <div class="empty-state__headline">No events yet</div>
-    <div class="empty-state__sub">
+  <div class="empty">
+    <h3>No events yet</h3>
+    <p>
       {% if action_filter %}
       No "{{ action_filter | replace('_', ' ') }}" events on record.
       {% else %}
       The audit log is empty — actions will appear here as Mediaman runs.
       {% endif %}
-    </div>
+    </p>
   </div>
   {% endif %}
 

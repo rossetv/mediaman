@@ -7,10 +7,10 @@
 {% block content %}
 <div class="container container--wide" id="dl-root">
 
-  <div class="page-header">
+  <div class="ph">
     <h1>Downloads</h1>
     {% if hero or queue %}
-    <p>{{ (queue|length) + (1 if hero else 0) }} item{{ 's' if (queue|length) + (1 if hero else 0) != 1 else '' }} in progress</p>
+    <p>{{ (queue|length) + (1 if hero else 0) }} item{{ 's' if (queue|length) + (1 if hero else 0) != 1 else '' }} in progress{% if upcoming %} · {{ upcoming|length }} coming soon{% endif %}</p>
     {% endif %}
   </div>
 
@@ -46,14 +46,8 @@
 
   {% if not hero and not queue %}
   <div class="dl-empty-message" id="dl-empty">
-    <div class="empty-state__icon">
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-        <polyline points="7 10 12 15 17 10"/>
-        <line x1="12" y1="15" x2="12" y2="3"/>
-      </svg>
-    </div>
-    <p>All caught up — nothing downloading right now.</p>
+    <h3>All caught up</h3>
+    <p>Nothing downloading right now.</p>
   </div>
   {% endif %}
 

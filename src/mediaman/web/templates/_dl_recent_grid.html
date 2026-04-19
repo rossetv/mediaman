@@ -1,6 +1,5 @@
-{# Recently added grid — horizontal scrollable poster cards.
-   Context: recent (list of dicts with id, title, media_type, poster_url, completed_at)
-#}
+{# Recently added grid — poster tiles with a "ready" check badge.
+   Context: recent (list of dicts with id, title, media_type, poster_url, completed_at). #}
 {% if recent %}
 <div class="dl-recent-section" id="dl-recent">
   <div class="dl-recent-header">Recently added</div>
@@ -8,9 +7,7 @@
     {% for item in recent %}
     <div class="dl-recent-item">
       <div class="dl-recent-poster">
-        {% if item.poster_url %}
-        <img src="{{ item.poster_url }}" alt="">
-        {% endif %}
+        {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="">{% endif %}
         <div class="dl-recent-badge">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
         </div>

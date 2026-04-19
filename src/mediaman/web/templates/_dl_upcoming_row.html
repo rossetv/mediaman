@@ -1,18 +1,14 @@
-{# Compact row for an unreleased item — poster, title, release label, no progress.
-   Context: item (dict with id, title, poster_url, release_label)
-#}
-<div class="dl-compact-row dl-upcoming-row dl-card-enter" data-dl-id="{{ item.id }}">
-  <div class="dl-compact-poster">
-    {% if item.poster_url %}
-    <img src="{{ item.poster_url }}" alt="">
-    {% endif %}
+{# Compact row for an unreleased item — poster, title, release label.
+   Context: item (dict with id, title, poster_url, release_label). #}
+<div class="dl-compact-row dl-row dl-upcoming-row dl-card-enter" data-dl-id="{{ item.id }}">
+  <div class="dl-compact-poster dl-row-poster">
+    {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="">{% endif %}
   </div>
-  <div class="dl-compact-info">
-    <div class="dl-compact-title">{{ item.title }}</div>
-    <div class="dl-compact-meta">
-      <span class="dl-state-pill dl-state-pill--xs dl-state-upcoming" data-v="release-label">
-        {{ item.release_label }}
-      </span>
+  <div class="dl-compact-info dl-row-info">
+    <div class="dl-compact-title dl-row-title">{{ item.title }}</div>
+    <div class="dl-compact-meta dl-row-meta">
+      <span class="dl-state-pill dl-state-pill--xs dl-state-upcoming" data-v="release-label">{{ item.release_label }}</span>
     </div>
   </div>
+  <span class="pill pill--neutral">Scheduled</span>
 </div>
