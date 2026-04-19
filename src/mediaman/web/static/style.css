@@ -1068,23 +1068,24 @@ a:hover { text-decoration: none; }
 .users-self-head {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 16px;
   flex-wrap: wrap;
 }
 .users-self-meta { flex: 1 1 200px; min-width: 0; }
 .users-self-label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-tertiary);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   font-weight: 600;
-  margin-bottom: 2px;
+  margin-bottom: 3px;
 }
 .users-self-name {
   font-family: var(--font-display, inherit);
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 600;
-  letter-spacing: -0.2px;
+  letter-spacing: -0.28px;
+  line-height: 1.14;
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1099,11 +1100,11 @@ a:hover { text-decoration: none; }
 /* ---- Inline drawers (change password, add user, delete confirm) */
 .users-inline-form,
 .users-delete-drawer {
-  margin-top: 16px;
-  padding: 18px;
+  margin-top: 18px;
+  padding: 24px clamp(20px, 4vw, 28px);
   background: rgba(255,255,255,0.02);
   border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 12px;
+  border-radius: 14px;
   animation: users-slide-in 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 @keyframes users-slide-in {
@@ -1112,40 +1113,33 @@ a:hover { text-decoration: none; }
 }
 .users-inline-form[hidden] { display: none; }
 
-/* Grid layout for the field pairs. ``align-items: start`` stops one
-   cell stretching to match a taller sibling (fixes the earlier bug
-   where the Username input stretched to ~120px because the Password
-   field had the meter + caption underneath). */
+/* Single-column stack — Apple's forms (System Settings, Manage Apple
+   ID, TestFlight) are always single-column. Side-by-side password
+   fields felt cramped, and the strength meter below a half-width
+   input looked orphaned. Max-width caps the line length so labels
+   and inputs don't stretch across a widescreen monitor. */
 .users-inline-form-grid {
-  display: grid;
-  gap: 16px 20px;
-  margin-bottom: 16px;
-  align-items: start;
-}
-@media (min-width: 640px) {
-  .users-inline-form-grid {
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  }
-  /* Change-password drawer has 3 fields — keep them evenly wide. */
-  #self-password-form .users-inline-form-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 520px;
+  margin: 0 auto 20px;
 }
 
 .users-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
   min-width: 0;
-  /* Keep fields top-aligned when an adjacent field is taller. */
-  align-self: start;
 }
 .users-field-label {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-secondary);
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  letter-spacing: -0.224px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* Scoped input rule — overrides the global ``flex: 1`` that would
@@ -1187,8 +1181,12 @@ a:hover { text-decoration: none; }
 .users-inline-form-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
+  max-width: 520px;
+  margin: 0 auto;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255,255,255,0.04);
 }
 
 /* Meter + caption inside the inline drawers should keep a fixed
@@ -1196,6 +1194,13 @@ a:hover { text-decoration: none; }
    types. */
 .users-field .fpc-meter  { margin-top: 10px; }
 .users-field .fpc-caption { min-height: 14px; }
+
+/* Result-message panel slides into the same max-width column as the
+   fields so it doesn't look like it escaped. */
+.users-inline-form .users-form-msg {
+  max-width: 520px;
+  margin: 14px auto 0;
+}
 
 /* Result/message area beneath inline forms. */
 .users-form-msg {
@@ -1226,17 +1231,20 @@ a:hover { text-decoration: none; }
 }
 .users-list-title {
   font-family: var(--font-display, inherit);
-  font-size: 17px;
+  font-size: 19px;
   font-weight: 600;
-  letter-spacing: -0.374px;
+  letter-spacing: -0.3px;
+  line-height: 1.2;
   color: var(--text);
 }
 .users-list-desc {
   font-size: 13px;
   color: var(--text-tertiary);
   letter-spacing: -0.224px;
-  margin-top: 2px;
+  line-height: 1.4;
+  margin-top: 3px;
 }
+.users-list-head { margin-bottom: 20px; }
 
 #btn-add-user {
   display: inline-flex;
