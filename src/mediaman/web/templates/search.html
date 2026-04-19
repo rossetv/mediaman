@@ -6,23 +6,21 @@
 
 {% block content %}
 <div class="container">
-  <div class="page-header">
+  <div class="ph">
     <h1>Search</h1>
     <p>Find a movie, show, or anime to add to your library.</p>
   </div>
 
-  <div class="search-wrap" id="search-wrap">
-    <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-    </svg>
+  <div class="search-box search-wrap" id="search-wrap">
+    <svg class="search-icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
     <input id="search-input" class="search-input" placeholder="Search for a movie, show, or anime…" autocomplete="off" />
     <div class="search-spinner" id="search-spinner"></div>
   </div>
 
-  <div class="filter-pills search-type-filter" id="search-type-filter" hidden>
-    <button class="filter-pill active" type="button" data-type="all">All</button>
-    <button class="filter-pill" type="button" data-type="movie">Movies</button>
-    <button class="filter-pill" type="button" data-type="tv">TV</button>
+  <div class="pill-row search-type-filter" id="search-type-filter" hidden style="margin-top:20px">
+    <button class="fpill on" type="button" data-type="all">All</button>
+    <button class="fpill fpill--movie" type="button" data-type="movie">Movies</button>
+    <button class="fpill fpill--tv" type="button" data-type="tv">TV</button>
   </div>
 
   <div id="shelves"></div>
@@ -176,10 +174,10 @@
     shelves.appendChild(buildShelf(`Results for "${query}"`, filtered, { showCount: true }));
   }
 
-  filterBar.querySelectorAll(".filter-pill").forEach(pill => {
+  filterBar.querySelectorAll(".fpill").forEach(pill => {
     pill.addEventListener("click", () => {
-      filterBar.querySelectorAll(".filter-pill").forEach(p => p.classList.remove("active"));
-      pill.classList.add("active");
+      filterBar.querySelectorAll(".fpill").forEach(p => p.classList.remove("on"));
+      pill.classList.add("on");
       activeType = pill.dataset.type;
       if (lastSearchResults !== null) {
         renderSearchResults(lastSearchQuery, lastSearchResults);

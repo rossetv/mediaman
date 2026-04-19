@@ -1,22 +1,27 @@
 {% extends "base.html" %}
+{% import "_components.html" as c %}
 
 {% block title %}Recommended · Mediaman{% endblock %}
-
 {% block nav %}{% include "_nav.html" %}{% endblock %}
 
 {% block content %}
 <div class="container">
 
-  <div class="page-header">
-    <h1>Recommended For You</h1>
-    <p>AI-powered recommendations based on your watch history</p>
-    {% if enabled %}
-    <div class="u-mt-16">
-      <button id="refresh-btn" class="btn-ghost-pill" onclick="refreshRecommendations(this)">
-        Refresh Recommendations
+  <div class="ph">
+    <div class="ph-row">
+      <div>
+        {{ c.eyebrow("AI curated") }}
+        <h1>Recommended for you</h1>
+        <p>Personalised picks based on your watch history and recent ratings.</p>
+      </div>
+      {% if enabled %}
+      <button id="refresh-btn" type="button" class="btn btn--ghost" onclick="refreshRecommendations(this)">
+        <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        Refresh
       </button>
+      {% endif %}
     </div>
-    {% else %}
+    {% if not enabled %}
     <div class="rec-disabled-card">
       <div class="rec-disabled-title">Recommendations are disabled</div>
       <div class="rec-disabled-sub">Enable AI recommendations in <a href="/settings">Settings → Scanning</a>.</div>
@@ -27,120 +32,32 @@
   <div id="refresh-error" class="inline-error"></div>
 
   {% if not batches %}
-  <div class="empty-state empty-state--lg">
-    <div class="empty-state__icon">&#128161;</div>
-    <div class="empty-state__headline">No recommendations yet</div>
-    <div class="empty-state__sub">
-      Hit "Refresh Recommendations" to generate AI-powered recommendations, or wait for the next scheduled scan.
-      Requires an OpenAI API key configured in <a href="/settings">Settings &rarr; Integrations</a>.
-    </div>
+  <div class="empty empty-state--lg">
+    <h3>No recommendations yet</h3>
+    <p>
+      Hit "Refresh" to generate AI-powered recommendations, or wait for the next scheduled scan.
+      Requires an OpenAI API key configured in <a href="/settings">Settings → Integrations</a>.
+    </p>
   </div>
   {% else %}
 
   {% for batch in batches %}
-  <div class="settings-section rec-batch{% if loop.first %} rec-batch--first expanded{% endif %}">
-    <div class="settings-section-header" onclick="toggleSection(this)">
-      <div>
-        <div class="settings-section-title">{{ batch.label }}</div>
+    {% if batch.trending %}
+    <section class="section">
+      {{ c.sec_hd("Trending this week", "Popular movies and shows right now") }}
+      <div class="shelf">
+        {% for item in batch.trending %}{% include "_rec_card.html" %}{% endfor %}
       </div>
-      <div class="u-ml-auto">
-        <svg class="settings-section-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+    </section>
+    {% endif %}
+    {% if batch.personal %}
+    <section class="section">
+      {{ c.sec_hd("Based on your watch history", "Personalised for your household") }}
+      <div class="shelf">
+        {% for item in batch.personal %}{% include "_rec_card.html" %}{% endfor %}
       </div>
-    </div>
-    <div class="settings-section-body"><div class="settings-section-inner">
-
-      {# ── TRENDING NOW ──────────────────────────────────────────────────── #}
-      {% if batch.trending %}
-      <div class="section">
-        <div class="section-header">
-          <h2 class="section-title">Trending This Week</h2>
-          <span class="section-subtitle">Popular movies and shows right now</span>
-        </div>
-        <div class="cards-grid">
-          {% for item in batch.trending %}
-          <div class="sug-card" onclick="openModal({{ item.id }})">
-            <div class="sug-poster">
-              {% if item.poster_url %}
-              <img src="{{ item.poster_url }}" alt="{{ item.title }}" loading="lazy">
-              {% else %}
-              <div class="sug-poster-empty">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="2" width="20" height="20" rx="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
-              </div>
-              {% endif %}
-              <span class="sug-badge">{{ 'MOVIE' if item.media_type == 'movie' else 'TV' }}{% if item.rating %} · &#9733; {{ item.rating }}{% endif %}{% if item.rt_rating %} · &#127813; {{ item.rt_rating }}{% endif %}</span>
-            </div>
-            <div class="sug-body">
-              <div class="sug-title">{{ item.title }}{% if item.year %} <span class="sug-year">({{ item.year }})</span>{% endif %}</div>
-              <div class="sug-desc">{{ item.description }}</div>
-              {% if item.reason %}<div class="sug-reason">{{ item.reason }}</div>{% endif %}
-              <div class="sug-actions">
-                {% if item.trailer_url %}
-                <a href="{{ item.trailer_url }}" target="_blank" rel="noopener" class="sug-trailer-link" onclick="event.stopPropagation();">&#9654; Trailer</a>
-                {% endif %}
-                {% if item.download_state == 'in_library' %}
-                <span class="sug-dl-btn state-ready">In Library &#10003;</span>
-                {% elif item.download_state == 'downloading' %}
-                <span class="sug-dl-btn state-downloading">Downloading</span>
-                {% elif item.download_state == 'queued' or item.downloaded_at %}
-                <span class="sug-dl-btn state-queued">Queued</span>
-                {% else %}
-                <button class="sug-dl-btn" onclick="event.stopPropagation(); downloadRecommendation(this, {{ item.id }})" title="Add to {{ 'Radarr' if item.media_type == 'movie' else 'Sonarr' }}">Download</button>
-                {% endif %}
-              </div>
-            </div>
-          </div>
-          {% endfor %}
-        </div>
-      </div>
-      {% endif %}
-
-      {# ── BASED ON WATCH HISTORY ────────────────────────────────────────── #}
-      {% if batch.personal %}
-      <div class="section{% if batch.trending %} u-mt-32{% endif %}">
-        <div class="section-header">
-          <h2 class="section-title">Based on Your Watch History</h2>
-          <span class="section-subtitle">Personalised for your household</span>
-        </div>
-        <div class="cards-grid">
-          {% for item in batch.personal %}
-          <div class="sug-card" onclick="openModal({{ item.id }})">
-            <div class="sug-poster">
-              {% if item.poster_url %}
-              <img src="{{ item.poster_url }}" alt="{{ item.title }}" loading="lazy">
-              {% else %}
-              <div class="sug-poster-empty">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="2" y="2" width="20" height="20" rx="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
-              </div>
-              {% endif %}
-              <span class="sug-badge">{{ 'MOVIE' if item.media_type == 'movie' else 'TV' }}{% if item.rating %} · &#9733; {{ item.rating }}{% endif %}{% if item.rt_rating %} · &#127813; {{ item.rt_rating }}{% endif %}</span>
-            </div>
-            <div class="sug-body">
-              <div class="sug-title">{{ item.title }}{% if item.year %} <span class="sug-year">({{ item.year }})</span>{% endif %}</div>
-              <div class="sug-desc">{{ item.description }}</div>
-              {% if item.reason %}<div class="sug-reason">{{ item.reason }}</div>{% endif %}
-              <div class="sug-actions">
-                {% if item.trailer_url %}
-                <a href="{{ item.trailer_url }}" target="_blank" rel="noopener" class="sug-trailer-link" onclick="event.stopPropagation();">&#9654; Trailer</a>
-                {% endif %}
-                {% if item.download_state == 'in_library' %}
-                <span class="sug-dl-btn state-ready">In Library &#10003;</span>
-                {% elif item.download_state == 'downloading' %}
-                <span class="sug-dl-btn state-downloading">Downloading</span>
-                {% elif item.download_state == 'queued' or item.downloaded_at %}
-                <span class="sug-dl-btn state-queued">Queued</span>
-                {% else %}
-                <button class="sug-dl-btn" onclick="event.stopPropagation(); downloadRecommendation(this, {{ item.id }})" title="Add to {{ 'Radarr' if item.media_type == 'movie' else 'Sonarr' }}">Download</button>
-                {% endif %}
-              </div>
-            </div>
-          </div>
-          {% endfor %}
-        </div>
-      </div>
-      {% endif %}
-
-    </div></div>
-  </div>
+    </section>
+    {% endif %}
   {% endfor %}
 
   {% endif %}
@@ -154,113 +71,91 @@
 <script id="rec-data" type="application/json">{{ all_recommendations_json | safe }}</script>
 
 <script>
-window.toggleSection = function(header) {
-  header.parentElement.classList.toggle('expanded');
-};
-
 function _startRefreshPolling(btn) {
   btn.disabled = true;
-  btn.textContent = 'Refreshing Recommendations\u2026';
+  btn.textContent = 'Refreshing…';
   btn.style.opacity = '0.6';
 
-  var poll = setInterval(function() {
+  var poll = setInterval(function () {
     fetch('/api/recommended/refresh/status')
-      .then(function(r) { return r.json(); })
-      .then(function(st) {
+      .then(function (r) { return r.json(); })
+      .then(function (st) {
         if (st.status === 'done') {
           clearInterval(poll);
           if (st.result && st.result.ok) {
-            btn.textContent = 'Done \u2713';
-            btn.style.color = '#30d158';
-            btn.style.borderColor = 'rgba(48,209,88,0.3)';
-            btn.style.opacity = '1';
-            setTimeout(function() { window.location.reload(); }, 800);
+            btn.textContent = 'Done ✓';
+            btn.classList.add('is-success');
+            setTimeout(function () { window.location.reload(); }, 800);
           } else {
-            btn.textContent = 'Refresh Recommendations';
-            btn.style.color = '';
-            btn.style.borderColor = '';
+            btn.textContent = 'Refresh';
             btn.style.opacity = '1';
             btn.disabled = false;
             var err = (st.result && st.result.error) || "Couldn't refresh recommendations.";
-            document.getElementById('refresh-error').textContent = err;
-            document.getElementById('refresh-error').style.display = 'block';
+            var errEl = document.getElementById('refresh-error');
+            errEl.textContent = err;
+            errEl.style.display = 'block';
           }
         }
       })
-      .catch(function() {});
+      .catch(function () {});
   }, 3000);
 }
 
 function refreshRecommendations(btn) {
   btn.disabled = true;
-  btn.textContent = 'Refreshing Recommendations\u2026';
+  btn.textContent = 'Refreshing…';
   btn.style.opacity = '0.6';
   document.getElementById('refresh-error').style.display = 'none';
 
   fetch('/api/recommended/refresh', { method: 'POST' })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
       if (data.status === 'started' || data.status === 'already_running') {
         _startRefreshPolling(btn);
       } else if (data.ok === false) {
-        btn.textContent = 'Refresh Recommendations';
+        btn.textContent = 'Refresh';
         btn.style.opacity = '1';
         btn.disabled = false;
-        document.getElementById('refresh-error').textContent = data.error || "Couldn't refresh recommendations.";
-        document.getElementById('refresh-error').style.display = 'block';
+        var errEl = document.getElementById('refresh-error');
+        errEl.textContent = data.error || "Couldn't refresh recommendations.";
+        errEl.style.display = 'block';
       }
     })
-    .catch(function() {
-      btn.textContent = 'Refresh Recommendations';
-      btn.style.opacity = '1';
-      btn.disabled = false;
-    });
+    .catch(function () { btn.textContent = 'Refresh'; btn.style.opacity = '1'; btn.disabled = false; });
 }
 
-// Check if a refresh is already running on page load
-(function() {
+(function () {
   var btn = document.getElementById('refresh-btn');
   if (!btn) return;
   fetch('/api/recommended/refresh/status')
-    .then(function(r) { return r.json(); })
-    .then(function(st) {
-      if (st.status === 'running') {
-        _startRefreshPolling(btn);
-      }
-    })
-    .catch(function() {});
+    .then(function (r) { return r.json(); })
+    .then(function (st) { if (st.status === 'running') _startRefreshPolling(btn); })
+    .catch(function () {});
 })();
 
 function downloadRecommendation(btn, id) {
   btn.disabled = true;
-  btn.textContent = 'Adding\u2026';
+  btn.textContent = 'Adding…';
   btn.style.opacity = '0.6';
 
   fetch('/api/recommended/' + id + '/download', { method: 'POST' })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
       if (data.ok) {
-        btn.textContent = 'Queued \u2713';
-        btn.style.background = 'rgba(48,209,88,0.12)';
-        btn.style.color = '#30d158';
-        btn.style.borderColor = 'rgba(48,209,88,0.3)';
+        btn.textContent = 'Queued ✓';
+        btn.classList.remove('btn--primary');
+        btn.classList.add('btn--success');
         btn.style.opacity = '1';
       } else {
         btn.textContent = data.error && data.error.length < 30 ? data.error : 'Failed';
-        btn.style.background = 'rgba(255,69,58,0.08)';
-        btn.style.color = '#ff453a';
-        btn.style.borderColor = 'rgba(255,69,58,0.3)';
+        btn.classList.remove('btn--primary');
+        btn.classList.add('btn--danger');
         btn.style.opacity = '1';
         btn.disabled = false;
         btn.title = data.error || '';
       }
     })
-    .catch(function() {
-      btn.textContent = 'Error';
-      btn.style.color = '#ff453a';
-      btn.style.opacity = '1';
-      btn.disabled = false;
-    });
+    .catch(function () { btn.textContent = 'Error'; btn.classList.add('btn--danger'); btn.style.opacity = '1'; btn.disabled = false; });
 }
 
 var _recData = JSON.parse(document.getElementById('rec-data').textContent);
@@ -268,12 +163,10 @@ var _modalRecId = null;
 var _modalPollInterval = null;
 
 function _clear(el) { while (el.firstChild) el.removeChild(el.firstChild); }
-function _parseJSON(s) { try { return JSON.parse(s || '[]'); } catch(e) { return []; } }
-function _addRating(parent, text, bg, color) {
+function _parseJSON(s) { try { return JSON.parse(s || '[]'); } catch (e) { return []; } }
+function _addRating(parent, text, klass) {
   var span = document.createElement('span');
-  span.className = 'rating-pill';
-  span.style.background = bg;
-  span.style.color = color;
+  span.className = 'rating-pill ' + klass;
   span.textContent = text;
   parent.appendChild(span);
 }
@@ -287,10 +180,8 @@ function openModal(id) {
   var s = _recData[id];
   if (!s) return;
   _modalRecId = id;
-
   history.replaceState(null, '', '#recommendation-' + id);
 
-  // Hero
   var heroEl = document.getElementById('modal-hero');
   _clear(heroEl);
   if (s.poster_url) {
@@ -316,7 +207,6 @@ function openModal(id) {
   heroInfo.appendChild(heroTitle);
   heroEl.appendChild(heroInfo);
 
-  // Quick info
   var quickEl = document.getElementById('modal-quick');
   _clear(quickEl);
   var typePill = document.createElement('span');
@@ -329,42 +219,34 @@ function openModal(id) {
   if (metaParts.length) {
     var metaSpan = document.createElement('span');
     metaSpan.className = 'meta-text';
-    metaSpan.textContent = metaParts.join(' \u00b7 ');
+    metaSpan.textContent = metaParts.join(' · ');
     quickEl.appendChild(metaSpan);
   }
-
-  // Genres (as pills inside quick bar)
-  _parseJSON(s.genres).forEach(function(g) {
+  _parseJSON(s.genres).forEach(function (g) {
     var gSpan = document.createElement('span');
-    gSpan.className = 'meta-text';
+    gSpan.className = 'pill pill--neutral';
     gSpan.textContent = g;
-    gSpan.style.cssText = 'padding:2px 8px;border-radius:980px;background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.5);font-size:11px;';
     quickEl.appendChild(gSpan);
   });
 
-  // Ratings
   var ratingsEl = document.getElementById('modal-ratings');
   _clear(ratingsEl);
-  if (s.rating) _addRating(ratingsEl, '\u2605 ' + s.rating, 'rgba(255,159,10,0.15)', '#ff9f0a');
-  if (s.imdb_rating) _addRating(ratingsEl, 'IMDb ' + s.imdb_rating, 'rgba(245,197,24,0.15)', '#f5c518');
-  if (s.rt_rating) _addRating(ratingsEl, '\ud83c\udf45 ' + s.rt_rating, 'rgba(255,69,58,0.15)', '#ff453a');
-  if (s.metascore) _addRating(ratingsEl, 'MC ' + s.metascore, 'rgba(102,204,0,0.15)', '#66cc00');
+  if (s.rating) _addRating(ratingsEl, '★ ' + s.rating, 'r-tmdb');
+  if (s.imdb_rating) _addRating(ratingsEl, 'IMDb ' + s.imdb_rating, 'r-imdb');
+  if (s.rt_rating) _addRating(ratingsEl, '🍅 ' + s.rt_rating, 'r-rt');
+  if (s.metascore) _addRating(ratingsEl, 'MC ' + s.metascore, 'r-meta');
   ratingsEl.style.display = ratingsEl.children.length ? '' : 'none';
 
-  // Tagline
   var taglineEl = document.getElementById('modal-tagline');
-  taglineEl.textContent = s.tagline ? '\u201c' + s.tagline + '\u201d' : '';
+  taglineEl.textContent = s.tagline ? '"' + s.tagline + '"' : '';
   taglineEl.style.display = s.tagline ? '' : 'none';
 
-  // Description
   document.getElementById('modal-desc').textContent = s.description || '';
 
-  // Reason
   var reasonEl = document.getElementById('modal-reason');
   reasonEl.textContent = s.reason || '';
   reasonEl.style.display = s.reason ? '' : 'none';
 
-  // Trailer
   var trailerEl = document.getElementById('modal-trailer');
   var trailerLabel = document.getElementById('modal-trailer-label');
   var trailerFallback = document.getElementById('modal-trailer-fallback');
@@ -388,7 +270,7 @@ function openModal(id) {
     link.target = '_blank';
     link.rel = 'noopener';
     link.className = 'trailer-link';
-    link.textContent = '\u25b6 Watch Trailer on YouTube';
+    link.textContent = '▶ Watch trailer on YouTube';
     trailerFallback.appendChild(link);
     trailerFallback.style.display = '';
   } else {
@@ -397,23 +279,22 @@ function openModal(id) {
     trailerFallback.style.display = 'none';
   }
 
-  // Cast
   var castEl = document.getElementById('modal-cast');
   var castLabel = document.getElementById('modal-cast-label');
   _clear(castEl);
   var castData = _parseJSON(s.cast_json);
-  castData.forEach(function(c) {
+  castData.forEach(function (cm) {
     var div = document.createElement('div');
     div.className = 'cast-item';
     var avatar = document.createElement('div');
     avatar.className = 'cast-avatar';
-    avatar.textContent = _initials(c.name);
+    avatar.textContent = _initials(cm.name);
     var nameEl = document.createElement('div');
     nameEl.className = 'cast-name';
-    nameEl.textContent = c.name || '';
+    nameEl.textContent = cm.name || '';
     var charEl = document.createElement('div');
     charEl.className = 'cast-char';
-    charEl.textContent = c.character || '';
+    charEl.textContent = cm.character || '';
     div.appendChild(avatar);
     div.appendChild(nameEl);
     div.appendChild(charEl);
@@ -422,70 +303,64 @@ function openModal(id) {
   castEl.style.display = castData.length ? '' : 'none';
   castLabel.style.display = castData.length ? '' : 'none';
 
-  // Reset progress/success
   document.getElementById('modal-progress').style.display = 'none';
   document.getElementById('modal-success').style.display = 'none';
 
-  // Actions
   var actionsEl = document.getElementById('modal-actions');
   _clear(actionsEl);
 
   if (s.download_state === 'in_library') {
     var libBtn = document.createElement('button');
     libBtn.className = 'btn-download ready';
-    libBtn.textContent = 'In Library \u2713';
+    libBtn.textContent = 'In Library ✓';
     actionsEl.appendChild(libBtn);
   } else if (s.download_state === 'downloading') {
     var dlBtn = document.createElement('button');
-    dlBtn.className = 'btn-download queued';
-    dlBtn.style.background = 'rgba(41,151,255,0.12)';
-    dlBtn.style.color = '#2997ff';
+    dlBtn.className = 'btn-download adding';
     dlBtn.textContent = 'Downloading';
     actionsEl.appendChild(dlBtn);
     _startModalPolling(s);
   } else if (s.download_state === 'queued' || s.downloaded_at) {
     var qBtn = document.createElement('button');
     qBtn.className = 'btn-download queued';
-    qBtn.style.background = 'rgba(255,214,10,0.12)';
-    qBtn.style.color = '#ffd60a';
     qBtn.textContent = 'Queued';
     actionsEl.appendChild(qBtn);
     _startModalPolling(s);
   } else {
-    var dlBtn = document.createElement('button');
-    dlBtn.className = 'btn-download';
-    dlBtn.textContent = 'Download';
-    dlBtn.onclick = function() { _modalDownload(dlBtn, s); };
-    actionsEl.appendChild(dlBtn);
+    var dlBtn2 = document.createElement('button');
+    dlBtn2.className = 'btn-download';
+    dlBtn2.textContent = 'Download';
+    dlBtn2.onclick = function () { _modalDownload(dlBtn2, s); };
+    actionsEl.appendChild(dlBtn2);
   }
 
   if (s.share_url) {
     var shareBtn = document.createElement('button');
     shareBtn.className = 'btn-share';
     shareBtn.textContent = 'Share';
-    shareBtn.onclick = function() {
-      navigator.clipboard.writeText(s.share_url).then(function() {
+    shareBtn.onclick = function () {
+      navigator.clipboard.writeText(s.share_url).then(function () {
         shareBtn.textContent = 'Copied!';
-        setTimeout(function() { shareBtn.textContent = 'Share'; }, 1500);
+        setTimeout(function () { shareBtn.textContent = 'Share'; }, 1500);
       });
     };
     actionsEl.appendChild(shareBtn);
   }
 
-  var _dm = document.getElementById('detail-modal');
-  _dm.style.display = 'flex';
-  _dm.setAttribute('aria-hidden', 'false');
+  var dm = document.getElementById('detail-modal');
+  dm.style.display = 'flex';
+  dm.setAttribute('aria-hidden', 'false');
   document.body.style.overflow = 'hidden';
   if (window.ModalA11y) window.ModalA11y.onOpened('detail-modal');
 }
 
 function _modalDownload(btn, s) {
-  btn.textContent = 'Adding to ' + (s.media_type === 'movie' ? 'Radarr' : 'Sonarr') + '...';
+  btn.textContent = 'Adding to ' + (s.media_type === 'movie' ? 'Radarr' : 'Sonarr') + '…';
   btn.className = 'btn-download adding';
 
   fetch('/api/recommended/' + s.id + '/download', { method: 'POST' })
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
       if (data.ok) {
         btn.textContent = 'Queued';
         btn.className = 'btn-download queued';
@@ -495,22 +370,17 @@ function _modalDownload(btn, s) {
         btn.textContent = data.error && data.error.length < 40 ? data.error : 'Failed';
         btn.className = 'btn-download';
         btn.style.background = 'rgba(255,69,58,0.12)';
-        btn.style.color = '#ff453a';
-        setTimeout(function() {
+        btn.style.color = 'var(--danger)';
+        setTimeout(function () {
           btn.textContent = 'Download';
           btn.style.background = '';
           btn.style.color = '';
           btn.className = 'btn-download';
-          btn.onclick = function() { _modalDownload(btn, s); };
+          btn.onclick = function () { _modalDownload(btn, s); };
         }, 3000);
       }
     })
-    .catch(function() {
-      btn.textContent = 'Error';
-      btn.className = 'btn-download';
-      btn.style.background = 'rgba(255,69,58,0.12)';
-      btn.style.color = '#ff453a';
-    });
+    .catch(function () { btn.textContent = 'Error'; btn.className = 'btn-download'; });
 }
 
 function _startModalPolling(s) {
@@ -521,7 +391,6 @@ function _startModalPolling(s) {
   var progressEl = document.getElementById('modal-progress');
   _clear(progressEl);
 
-  // Build progress UI
   var statusDiv = document.createElement('div');
   statusDiv.className = 'progress-status';
   var iconDiv = document.createElement('div');
@@ -530,7 +399,7 @@ function _startModalPolling(s) {
   svg.setAttribute('class', 'spinner');
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('width', '20'); svg.setAttribute('height', '20');
-  svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', '#2997ff');
+  svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'var(--accent)');
   svg.setAttribute('stroke-width', '2.5'); svg.setAttribute('stroke-linecap', 'round');
   var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
   circle.setAttribute('cx', '12'); circle.setAttribute('cy', '12'); circle.setAttribute('r', '10');
@@ -541,7 +410,7 @@ function _startModalPolling(s) {
   iconDiv.appendChild(svg);
   statusDiv.appendChild(iconDiv);
   var labelSpan = document.createElement('span');
-  labelSpan.textContent = 'Searching for release...';
+  labelSpan.textContent = 'Searching for release…';
   statusDiv.appendChild(labelSpan);
   progressEl.appendChild(statusDiv);
 
@@ -559,29 +428,28 @@ function _startModalPolling(s) {
 
   var hintDiv = document.createElement('div');
   hintDiv.className = 'progress-hint';
-  hintDiv.textContent = 'You may close this page \u2014 the download will continue in the background. You\u2019ll be notified by email when this ' + (s.media_type === 'movie' ? 'movie' : 'show') + ' is available to watch.';
+  hintDiv.textContent = 'You may close this page — the download will continue in the background. You\'ll be notified by email when this ' + (s.media_type === 'movie' ? 'movie' : 'show') + ' is available to watch.';
   hintDiv.style.display = 'none';
   progressEl.appendChild(hintDiv);
 
   progressEl.style.display = '';
-  setTimeout(function() { hintDiv.style.display = ''; }, 2000);
+  setTimeout(function () { hintDiv.style.display = ''; }, 2000);
 
   if (_modalPollInterval) clearInterval(_modalPollInterval);
-  _modalPollInterval = setInterval(function() {
+  _modalPollInterval = setInterval(function () {
     fetch('/api/download/status?service=' + service + '&tmdb_id=' + tmdbId)
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
         if (data.state === 'ready') {
           clearInterval(_modalPollInterval);
           _modalPollInterval = null;
           progressEl.style.display = 'none';
-          // Show success
           var successEl = document.getElementById('modal-success');
           _clear(successEl);
           var svgOk = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
           svgOk.setAttribute('viewBox', '0 0 24 24');
           svgOk.setAttribute('width', '48'); svgOk.setAttribute('height', '48');
-          svgOk.setAttribute('fill', 'none'); svgOk.setAttribute('stroke', '#30d158');
+          svgOk.setAttribute('fill', 'none'); svgOk.setAttribute('stroke', 'var(--success)');
           svgOk.setAttribute('stroke-width', '2'); svgOk.setAttribute('stroke-linecap', 'round');
           svgOk.setAttribute('stroke-linejoin', 'round');
           var c2 = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
@@ -602,37 +470,36 @@ function _startModalPolling(s) {
           detail.textContent = s.title + ' is now available in your Plex library.';
           successEl.appendChild(detail);
           successEl.style.display = '';
-          // Update button
           var btn = document.querySelector('#modal-actions .btn-download');
-          if (btn) { btn.textContent = 'In Library \u2713'; btn.className = 'btn-download ready'; }
+          if (btn) { btn.textContent = 'In Library ✓'; btn.className = 'btn-download ready'; }
           s.download_state = 'in_library';
         } else if (data.state === 'downloading') {
           var pct = data.progress || 0;
           fillDiv.style.width = pct + '%';
-          labelSpan.textContent = 'Downloading...';
+          labelSpan.textContent = 'Downloading…';
           var detailText = pct + '%';
-          if (data.eta) detailText += ' \u00b7 ' + data.eta + ' remaining';
+          if (data.eta) detailText += ' · ' + data.eta + ' remaining';
           detailDiv.textContent = detailText;
         } else if (data.state === 'almost_ready') {
           fillDiv.style.width = '100%';
-          labelSpan.textContent = 'Almost ready...';
+          labelSpan.textContent = 'Almost ready…';
           detailDiv.textContent = 'Importing into your library';
         } else if (data.state === 'queued') {
-          labelSpan.textContent = 'Queued \u2014 waiting on indexer';
+          labelSpan.textContent = 'Queued — waiting on indexer';
           detailDiv.textContent = 'Grabbed release waiting to start';
         } else if (data.state === 'searching') {
-          labelSpan.textContent = 'Searching for release...';
+          labelSpan.textContent = 'Searching for release…';
           detailDiv.textContent = 'Checking indexers for ' + s.title;
         }
       })
-      .catch(function() {});
+      .catch(function () {});
   }, 4000);
 }
 
 function closeModal() {
-  var _dm = document.getElementById('detail-modal');
-  _dm.style.display = 'none';
-  _dm.setAttribute('aria-hidden', 'true');
+  var dm = document.getElementById('detail-modal');
+  dm.style.display = 'none';
+  dm.setAttribute('aria-hidden', 'true');
   document.body.style.overflow = '';
   _clear(document.getElementById('modal-trailer'));
   if (_modalPollInterval) { clearInterval(_modalPollInterval); _modalPollInterval = null; }
@@ -642,20 +509,16 @@ function closeModal() {
 }
 if (window.ModalA11y) window.ModalA11y.register('detail-modal', closeModal);
 
-// Deep-link
-(function() {
+(function () {
   var hash = window.location.hash;
   if (hash && hash.indexOf('#recommendation-') === 0) {
     var id = parseInt(hash.replace('#recommendation-', ''), 10);
-    if (id) setTimeout(function() { openModal(id); }, 200);
+    if (id) setTimeout(function () { openModal(id); }, 200);
   }
 })();
 
-// Click on the backdrop itself (outside the sheet) closes the modal.
-document.getElementById('detail-modal').addEventListener('click', function(e) {
+document.getElementById('detail-modal').addEventListener('click', function (e) {
   if (e.target === this) closeModal();
 });
-
-// ESC handling is provided by window.ModalA11y (registered above).
 </script>
 {% endblock %}

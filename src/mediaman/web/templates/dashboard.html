@@ -1,26 +1,153 @@
 {% extends "base.html" %}
+{% import "_components.html" as c %}
 
 {% block title %}Dashboard · Mediaman{% endblock %}
-
 {% block nav %}{% include "_nav.html" %}{% endblock %}
 
 {% block content %}
 <div class="container">
 
-  <!-- Page header -->
-  <div class="page-header">
-    <h1>Dashboard</h1>
-    <p>Welcome back, {{ username }}</p>
-    <div class="page-header-actions">
-      <button id="scan-btn" class="btn-ghost-pill" onclick="triggerScan(this)">
-        Scan Now
-      </button>
-      <span id="scan-status" class="scan-status"></span>
+  <div class="ph">
+    <div class="ph-row">
+      <div>
+        {{ c.eyebrow("Your library, at a glance") }}
+        <h1>Hello, {{ username }}</h1>
+        {% if scheduled_count or recently_deleted %}
+        <p>
+          {% if scheduled_count %}{{ scheduled_count }} item{{ 's' if scheduled_count != 1 }} scheduled for deletion{% if scheduled_size %} · {{ scheduled_size }} to reclaim{% endif %}{% endif %}
+        </p>
+        {% endif %}
+      </div>
+      <div class="u-flex" style="gap:10px">
+        <button id="scan-btn" type="button" class="btn btn--ghost" onclick="triggerScan(this)">
+          <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Scan now
+        </button>
+        <span id="scan-status" class="scan-status"></span>
+      </div>
     </div>
   </div>
 
+  {# Storage #}
+  <section class="section">
+    {{ c.sec_hd("Storage", "Across your selected libraries") }}
+    <div class="storage">
+      <div class="storage-hd">
+        <div class="storage-num">{{ storage.used }} <small>of {{ storage.total }} used</small></div>
+        <div class="storage-free">{{ storage.free }} available</div>
+      </div>
+      <div class="storage-bar">
+        {% if storage.movies_pct > 0 %}<div class="seg seg--mov" style="flex:0 0 {{ storage.movies_pct }}%"></div>{% endif %}
+        {% if storage.tv_pct > 0 %}<div class="seg seg--tv"  style="flex:0 0 {{ storage.tv_pct }}%"></div>{% endif %}
+        {% if storage.anime_pct > 0 %}<div class="seg seg--anime" style="flex:0 0 {{ storage.anime_pct }}%"></div>{% endif %}
+        {% if storage.other_pct > 0 %}<div class="seg seg--other" style="flex:0 0 {{ storage.other_pct }}%"></div>{% endif %}
+      </div>
+      <div class="storage-legend">
+        <div class="legend"><span class="dot" style="background:var(--orange)"></span>Movies <b>{{ storage.movies_label }} ({{ storage.movies_pct }}%)</b></div>
+        <div class="legend"><span class="dot" style="background:var(--accent)"></span>TV Shows <b>{{ storage.tv_label }} ({{ storage.tv_pct }}%)</b></div>
+        <div class="legend"><span class="dot" style="background:var(--purple)"></span>Anime <b>{{ storage.anime_label }} ({{ storage.anime_pct }}%)</b></div>
+        <div class="legend"><span class="dot" style="background:rgba(255,255,255,.3)"></span>Other <b>{{ storage.other_label }}</b></div>
+      </div>
+    </div>
+  </section>
 
-  <script>
+  {# Scheduled for deletion — tile grid using new primitives #}
+  <section class="section">
+    <div class="sec-hd">
+      <h2>Scheduled for deletion</h2>
+      <div class="u-flex" style="gap:12px">
+        {% if scheduled_count > 0 %}
+        <span class="sub">{{ scheduled_count }} item{{ 's' if scheduled_count != 1 }} · {{ scheduled_size }} to reclaim</span>
+        <button class="btn btn--danger btn--sm" type="button" onclick="clearScheduled(this)">Clear all</button>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if scheduled_items %}
+    <div class="grid grid-tiles">
+      {% for item in scheduled_items %}
+      <div class="tile">
+        <div class="tile-poster">
+          {% if item.plex_rating_key %}
+          <img src="/api/poster/{{ item.plex_rating_key }}" alt="{{ item.title }}" loading="lazy">
+          {% endif %}
+          <div class="tile-pills">
+            <span class="pill pill--{{ 'movie' if item.media_type == 'movie' else ('tv' if item.media_type == 'tv' else 'anime') }}">{{ item.type_label }}</span>
+            {% if item.countdown %}<span class="countdown">{{ item.countdown }}</span>{% endif %}
+          </div>
+        </div>
+        <div>
+          <div class="tile-title">{{ item.title }}</div>
+          <div class="tile-meta">{{ item.file_size }} · Added {{ item.added_ago }}</div>
+        </div>
+        <div class="keep-wrapper tile-actions"
+             data-id="{{ item.media_item_id }}" data-tv="{{ (item.media_type == 'tv') | tojson }}"
+             data-show-rk="{{ item.show_rating_key or '' }}" data-show-title="{{ item.show_title_raw or item.title | e }}">
+          <button class="btn btn--accent-soft btn--sm" type="button"
+                  onclick="dashSubmitKeep(this, '30d')">Keep</button>
+          <button type="button" class="btn btn--icon btn--secondary btn-sm-caret"
+                  aria-haspopup="menu" aria-expanded="false"
+                  aria-label="More keep options">
+            <svg viewBox="0 0 24 24" style="width:13px;height:13px;stroke:var(--t2);fill:none;stroke-width:2"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+          </button>
+          <div class="snooze-dropdown" role="menu">
+            <button class="snooze-option" role="menuitem" tabindex="-1" onclick="dashSubmitKeep(this, '7d')">7 days</button>
+            <button class="snooze-option" role="menuitem" tabindex="-1" onclick="dashSubmitKeep(this, '30d')">30 days</button>
+            <button class="snooze-option" role="menuitem" tabindex="-1" onclick="dashSubmitKeep(this, '90d')">90 days</button>
+            <button class="snooze-option forever" role="menuitem" tabindex="-1" onclick="dashSubmitKeep(this, 'forever')">Forever</button>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">
+      <h3>Nothing scheduled for deletion</h3>
+      <p>Library is healthy — next scan will look again.</p>
+    </div>
+    {% endif %}
+  </section>
+
+  <hr class="hr">
+
+  {# Recently deleted — flat list #}
+  <section class="section">
+    <div class="sec-hd">
+      <h2>Recently deleted</h2>
+      {% if reclaimed_total != '0 B' %}
+      <span class="sub">{{ reclaimed_total }} reclaimed total</span>
+      {% endif %}
+    </div>
+
+    {% if recently_deleted %}
+    <div class="dlist">
+      {% for item in recently_deleted %}
+      <div class="ditem">
+        <div class="ditem-thumb">
+          {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="{{ item.title }}" loading="lazy">{% endif %}
+        </div>
+        <div>
+          <div class="u-fwm">{{ item.title }}</div>
+          <div class="u-small">Deleted {{ item.deleted_ago }}</div>
+        </div>
+        <div class="u-small">{{ item.reclaimed }}</div>
+        <button class="btn btn--secondary btn--sm" type="button" data-title="{{ item.title }}"
+                onclick="redownload(this, this.dataset.title); return false;">Re-download</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">
+      <h3>No deletion history yet</h3>
+      <p>When mediaman reclaims space, you'll see it here.</p>
+    </div>
+    {% endif %}
+  </section>
+
+  <div class="page-bottom-spacer"></div>
+</div>
+
+<script>
   var _scanElapsed = 0;
 
   function triggerScan(btn) {
@@ -28,14 +155,11 @@
     btn.classList.add('scan-running');
     btn.textContent = 'Scanning';
     _scanElapsed = 0;
-    updateScanStatus('Starting scan\u2026');
-
+    updateScanStatus('Starting scan…');
     fetch('/api/scan/trigger', { method: 'POST' })
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        if (data.status === 'already_running') {
-          updateScanStatus('Scan already in progress');
-        }
+        if (data.status === 'already_running') updateScanStatus('Scan already in progress');
         pollScanStatus(btn);
       })
       .catch(function () {
@@ -54,18 +178,11 @@
     el.appendChild(document.createTextNode(msg + ' '));
     var dots = document.createElement('span');
     dots.className = 'scan-dots';
-    for (var i = 0; i < 3; i++) {
-      var d = document.createElement('span');
-      d.textContent = '\u00b7';
-      dots.appendChild(d);
-    }
+    for (var i = 0; i < 3; i++) { var d = document.createElement('span'); d.textContent = '·'; dots.appendChild(d); }
     el.appendChild(dots);
   }
 
-  function fmtElapsed(sec) {
-    if (sec < 60) return sec + 's';
-    return Math.floor(sec / 60) + 'm ' + (sec % 60) + 's';
-  }
+  function fmtElapsed(sec) { return sec < 60 ? sec + 's' : Math.floor(sec / 60) + 'm ' + (sec % 60) + 's'; }
 
   function pollScanStatus(btn) {
     setTimeout(function check() {
@@ -74,14 +191,14 @@
         .then(function (r) { return r.json(); })
         .then(function (data) {
           if (data.running) {
-            updateScanStatus('Scanning libraries \u2014 ' + fmtElapsed(_scanElapsed));
+            updateScanStatus('Scanning libraries — ' + fmtElapsed(_scanElapsed));
             setTimeout(check, 3000);
           } else {
             btn.classList.remove('scan-running');
             btn.classList.add('is-success');
-            btn.textContent = 'Scan complete \u2713';
+            btn.textContent = 'Scan complete ✓';
             var statusEl = document.getElementById('scan-status');
-            statusEl.textContent = 'Finished in ' + fmtElapsed(_scanElapsed) + ' \u2014 reloading\u2026';
+            statusEl.textContent = 'Finished in ' + fmtElapsed(_scanElapsed) + ' — reloading…';
             statusEl.classList.add('scan-status--success');
             setTimeout(function () { window.location.reload(); }, 1500);
           }
@@ -91,7 +208,7 @@
 
   function redownload(btn, title) {
     btn.disabled = true;
-    btn.textContent = 'Adding\u2026';
+    btn.textContent = 'Adding…';
     fetch('/api/media/redownload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -99,207 +216,44 @@
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        if (data.ok) {
-          btn.textContent = 'Queued \u2713';
-          btn.classList.add('is-success');
-        } else {
-          btn.textContent = data.error && data.error.length < 30 ? data.error : 'Failed';
-          btn.classList.add('is-error');
-          btn.disabled = false;
-        }
+        if (data.ok) { btn.textContent = 'Queued ✓'; btn.classList.add('is-success'); }
+        else { btn.textContent = data.error && data.error.length < 30 ? data.error : 'Failed'; btn.classList.add('is-error'); btn.disabled = false; }
       })
-      .catch(function () {
-        btn.textContent = 'Error';
-        btn.classList.add('is-error');
-        btn.disabled = false;
-      });
+      .catch(function () { btn.textContent = 'Error'; btn.classList.add('is-error'); btn.disabled = false; });
   }
 
   async function clearScheduled(btn) {
-    var _proceed = await window.UIFeedback.confirm({
+    var proceed = await window.UIFeedback.confirm({
       title: 'Clear all scheduled deletions?',
       body: 'Nothing is deleted now. Items will be re-evaluated on the next scan and may be rescheduled.',
       confirmLabel: 'Clear all',
       confirmVariant: 'danger'
     });
-    if (!_proceed) return;
+    if (!proceed) return;
     btn.disabled = true;
-    btn.textContent = 'Clearing\u2026';
+    btn.textContent = 'Clearing…';
     fetch('/api/scan/clear-scheduled', { method: 'POST' })
       .then(function (r) { return r.json(); })
       .then(function (data) {
-        if (data.ok) {
-          btn.textContent = 'Cleared ' + data.cleared;
-          btn.classList.add('is-success');
-          setTimeout(function () { window.location.reload(); }, 1000);
-        }
+        if (data.ok) { btn.textContent = 'Cleared ' + data.cleared; btn.classList.add('is-success'); setTimeout(function () { window.location.reload(); }, 1000); }
       });
   }
-  </script>
 
-  <!-- Storage section -->
-  <div class="section">
-    <div class="section-header">
-      <h2 class="section-title">Storage</h2>
-    </div>
-    <div class="storage-bar-container">
-      <div class="storage-headline">
-        <div class="storage-used">
-          {{ storage.used }} <small>of {{ storage.total }} used</small>
-        </div>
-        <div class="storage-avail">{{ storage.free }} available</div>
-      </div>
-      <div class="storage-bar">
-        {% if storage.movies_pct > 0 %}
-        <div class="segment movies" style="width: {{ storage.movies_pct }}%"></div>
-        {% endif %}
-        {% if storage.tv_pct > 0 %}
-        <div class="segment tv" style="width: {{ storage.tv_pct }}%"></div>
-        {% endif %}
-        {% if storage.anime_pct > 0 %}
-        <div class="segment anime" style="width: {{ storage.anime_pct }}%"></div>
-        {% endif %}
-        {% if storage.other_pct > 0 %}
-        <div class="segment other" style="width: {{ storage.other_pct }}%"></div>
-        {% endif %}
-      </div>
-      <div class="storage-legend">
-        <div class="legend-item">
-          <div class="legend-dot legend-dot--movies"></div>
-          Movies <span class="size">{{ storage.movies_label }} ({{ storage.movies_pct }}%)</span>
-        </div>
-        <div class="legend-item">
-          <div class="legend-dot legend-dot--tv"></div>
-          TV Shows <span class="size">{{ storage.tv_label }} ({{ storage.tv_pct }}%)</span>
-        </div>
-        <div class="legend-item">
-          <div class="legend-dot legend-dot--anime"></div>
-          Anime <span class="size">{{ storage.anime_label }} ({{ storage.anime_pct }}%)</span>
-        </div>
-        <div class="legend-item">
-          <div class="legend-dot legend-dot--other"></div>
-          Other <span class="size">{{ storage.other_label }}</span>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Scheduled for deletion -->
-  <div class="section">
-    <div class="section-header section-header--wrap">
-      <h2 class="section-title">Scheduled for Deletion</h2>
-      {% if scheduled_count > 0 %}
-      <span class="section-subtitle">{{ scheduled_count }} item{{ 's' if scheduled_count != 1 }} · {{ scheduled_size }} to reclaim</span>
-      <button class="btn-danger-ghost u-ml-auto" onclick="clearScheduled(this)">Clear All</button>
-      {% endif %}
-    </div>
-
-    {% if scheduled_items %}
-    <div class="cards-grid">
-      {% for item in scheduled_items %}
-      <div class="media-card">
-        <div class="media-card-poster">
-          {% if item.plex_rating_key %}
-          <img src="/api/poster/{{ item.plex_rating_key }}" alt="{{ item.title }}" loading="lazy">
-          {% endif %}
-          <span class="media-badge {{ item.badge_class }}">{{ item.type_label }}</span>
-          {% if item.countdown %}
-          <span class="countdown-badge">{{ item.countdown }}</span>
-          {% endif %}
-        </div>
-        <div class="media-card-body">
-          <div class="media-card-title">{{ item.title }}</div>
-          <div class="media-card-meta">
-            <span>Added {{ item.added_ago }}</span>
-          </div>
-          <div class="media-card-footer">
-            <div class="keep-wrapper">
-              <form method="post" action="/api/media/{{ item.media_item_id }}/keep" class="d-inline">
-                <input type="hidden" name="duration" value="7d">
-                <button type="submit" class="btn btn-keep">Keep</button>
-              </form>
-              <button type="button" class="btn-sm-caret"
-                aria-haspopup="menu" aria-expanded="false"
-                aria-label="More keep options">&#9662;</button>
-              <div class="snooze-dropdown" role="menu">
-                <button class="snooze-option" role="menuitem" tabindex="-1"
-                  onclick="submitKeep('{{ item.media_item_id }}', '7d'); return false;">7 days</button>
-                <button class="snooze-option" role="menuitem" tabindex="-1"
-                  onclick="submitKeep('{{ item.media_item_id }}', '30d'); return false;">30 days</button>
-                <button class="snooze-option" role="menuitem" tabindex="-1"
-                  onclick="submitKeep('{{ item.media_item_id }}', '90d'); return false;">90 days</button>
-                <button class="snooze-option forever" role="menuitem" tabindex="-1"
-                  onclick="submitKeep('{{ item.media_item_id }}', 'forever'); return false;">Forever</button>
-              </div>
-            </div>
-            <span class="file-size">{{ item.file_size }}</span>
-          </div>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-    {% else %}
-    <div class="empty-state">
-      Nothing scheduled for deletion.
-    </div>
-    {% endif %}
-  </div>
-
-  <div class="divider"></div>
-
-  <!-- Recently deleted -->
-  <div class="section">
-    <div class="section-header">
-      <h2 class="section-title">Recently Deleted</h2>
-      {% if reclaimed_total != '0 B' %}
-      <span class="section-subtitle">{{ reclaimed_total }} reclaimed total</span>
-      {% endif %}
-    </div>
-
-    {% if recently_deleted %}
-    <div class="deleted-list">
-      {% for item in recently_deleted %}
-      <div class="deleted-item">
-        {% if item.poster_url %}
-        <img class="deleted-thumb"
-          src="{{ item.poster_url }}"
-          alt="{{ item.title }}"
-          loading="lazy">
-        {% else %}
-        <div class="deleted-thumb"></div>
-        {% endif %}
-        <div class="deleted-info">
-          <div class="deleted-title">{{ item.title }}</div>
-          <div class="deleted-meta">Deleted {{ item.deleted_ago }}</div>
-        </div>
-        <span class="deleted-size">{{ item.reclaimed }}</span>
-        <button class="btn btn-success" data-title="{{ item.title }}"
-                onclick="redownload(this, this.dataset.title); return false;">Re-download</button>
-      </div>
-      {% endfor %}
-    </div>
-    {% else %}
-    <div class="empty-state">
-      No deletion history yet.
-    </div>
-    {% endif %}
-  </div>
-
-  <div class="page-bottom-spacer"></div>
-</div>
-
-<script>
-  /**
-   * Submit a keep request with the chosen snooze duration via fetch,
-   * then reload to reflect the updated state.
-   */
-  function submitKeep(mediaItemId, duration) {
-    const body = new URLSearchParams({ duration });
-    fetch('/api/media/' + encodeURIComponent(mediaItemId) + '/keep', {
+  // Submit a keep request from a dashboard tile. For TV items the existing
+  // library.html keep-dialog flow is too heavy for the dashboard scheduled
+  // view, so we just submit directly with the chosen duration.
+  function dashSubmitKeep(btn, duration) {
+    var wrapper = btn.closest('.keep-wrapper');
+    if (!wrapper) return;
+    var mediaId = wrapper.dataset.id;
+    fetch('/api/media/' + encodeURIComponent(mediaId) + '/keep', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
-    }).then(() => window.location.reload());
+      body: new URLSearchParams({ duration: duration }).toString(),
+    }).then(function (r) {
+      if (r.ok) window.location.reload();
+      else r.json().then(function (d) { window.UIFeedback.error("Couldn't save keep. " + (d.error || r.status)); });
+    });
   }
 </script>
 {% endblock %}

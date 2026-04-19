@@ -1,19 +1,18 @@
 {% extends "base.html" %}
+{% import "_components.html" as c %}
 
 {% block title %}Library · Mediaman{% endblock %}
-
 {% block nav %}{% include "_nav.html" %}{% endblock %}
 
 {% block content %}
 <div class="container container--wide">
 
-  <!-- Page header -->
-  <div class="page-header">
+  <div class="ph">
     <h1>Library</h1>
-    <p>{{ stats.total }} item{{ 's' if stats.total != 1 else '' }} across 3 libraries · {{ stats.total_size }} total</p>
+    <p>{{ stats.total }} item{{ 's' if stats.total != 1 else '' }} across your selected libraries · {{ stats.total_size }} total</p>
   </div>
 
-  <!-- Stats bar -->
+  {# Stat cards — clickable type filters. #}
   <div class="lib-stats">
     <a class="lib-stat {% if current_type == 'movie' %}lib-stat-active{% endif %}" href="/library?type=movie">
       <div class="lib-stat-value">{{ stats.movies }}</div>
@@ -27,244 +26,201 @@
       <div class="lib-stat-value">{{ stats.anime }}</div>
       <div class="lib-stat-label">Anime</div>
     </a>
-    <a class="lib-stat lib-stat-stale {% if current_type == 'stale' %}lib-stat-active{% endif %}" href="/library?type=stale">
+    <a class="lib-stat {% if current_type == 'stale' %}lib-stat-active{% endif %}" href="/library?type=stale">
       <div class="lib-stat-value{% if stats.stale > 0 %} lib-stat-value--stale{% endif %}">{{ stats.stale }}</div>
       <div class="lib-stat-label">Stale ({{ stats.stale_min_age }}+ days, unwatched)</div>
     </a>
   </div>
 
-  <!-- Toolbar (filter/search via GET form submission) -->
+  {# Toolbar — search + filter pills. #}
   <form method="get" action="/library" id="toolbar-form">
     <div class="toolbar-row">
-      <!-- Search box -->
       <div class="search-box">
-        <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none"
-             stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-        </svg>
-        <input type="text" name="q" value="{{ q }}" placeholder="Search library..."
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" name="q" value="{{ q }}" placeholder="Search library…"
                autocomplete="off" oninput="debounceSubmit()">
       </div>
-
-      <!-- Type filter pills -->
-      <div class="filter-pills">
-        <button type="submit" name="type" value=""
-          class="filter-pill {% if not current_type %}active{% endif %}">All</button>
-        <button type="submit" name="type" value="movie"
-          class="filter-pill {% if current_type == 'movie' %}active-orange{% endif %}">Movies</button>
-        <button type="submit" name="type" value="tv"
-          class="filter-pill {% if current_type == 'tv' %}active{% endif %}">TV</button>
-        <button type="submit" name="type" value="anime"
-          class="filter-pill {% if current_type == 'anime' %}active-purple{% endif %}">Anime</button>
-        <button type="submit" name="type" value="kept"
-          class="filter-pill {% if current_type == 'kept' %}active-green{% endif %}">Kept</button>
-        <button type="submit" name="type" value="stale"
-          class="filter-pill {% if current_type == 'stale' %}active-red{% endif %}">Stale</button>
+      <div class="pill-row">
+        <button type="submit" name="type" value=""      class="fpill {% if not current_type %}on{% endif %}">All</button>
+        <button type="submit" name="type" value="movie" class="fpill fpill--movie {% if current_type == 'movie' %}on{% endif %}">Movies</button>
+        <button type="submit" name="type" value="tv"    class="fpill fpill--tv    {% if current_type == 'tv' %}on{% endif %}">TV</button>
+        <button type="submit" name="type" value="anime" class="fpill fpill--anime {% if current_type == 'anime' %}on{% endif %}">Anime</button>
+        <button type="submit" name="type" value="kept"  class="fpill fpill--kept  {% if current_type == 'kept' %}on{% endif %}">Kept</button>
+        <button type="submit" name="type" value="stale" class="fpill fpill--stale {% if current_type == 'stale' %}on{% endif %}">Stale</button>
       </div>
-
-      <!-- Hidden sort input updated by column header clicks -->
-      <input type="hidden" name="sort" id="sort-input" value="{{ current_sort }}"  >
-
-      <!-- Preserve page size if changed -->
+      <input type="hidden" name="sort" id="sort-input" value="{{ current_sort }}">
       {% if per_page != 20 %}<input type="hidden" name="per_page" value="{{ per_page }}">{% endif %}
     </div>
   </form>
 
-  <!-- Mobile sort control (below bp-md only) -->
+  {# Mobile-only sort pickup #}
   {% if items %}
   <div class="lib-mobile-sort">
     <label for="lib-mobile-sort-select" class="lib-mobile-sort-label">Sort by</label>
-    <select id="lib-mobile-sort-select" class="form-select form-select--sm"
-            onchange="setSort(this.value)" aria-label="Sort library by">
-      <option value="name_asc"    {% if current_sort == 'name_asc' %}selected{% endif %}>Title (A–Z)</option>
-      <option value="name_desc"   {% if current_sort == 'name_desc' %}selected{% endif %}>Title (Z–A)</option>
-      <option value="size_desc"   {% if current_sort == 'size_desc' %}selected{% endif %}>Size (largest)</option>
-      <option value="size_asc"    {% if current_sort == 'size_asc' %}selected{% endif %}>Size (smallest)</option>
+    <select id="lib-mobile-sort-select" class="inp" onchange="setSort(this.value)" aria-label="Sort library by">
+      <option value="name_asc"     {% if current_sort == 'name_asc'     %}selected{% endif %}>Title (A–Z)</option>
+      <option value="name_desc"    {% if current_sort == 'name_desc'    %}selected{% endif %}>Title (Z–A)</option>
+      <option value="size_desc"    {% if current_sort == 'size_desc'    %}selected{% endif %}>Size (largest)</option>
+      <option value="size_asc"     {% if current_sort == 'size_asc'     %}selected{% endif %}>Size (smallest)</option>
       <option value="watched_desc" {% if current_sort == 'watched_desc' %}selected{% endif %}>Last watched (recent)</option>
-      <option value="watched_asc"  {% if current_sort == 'watched_asc' %}selected{% endif %}>Last watched (oldest)</option>
+      <option value="watched_asc"  {% if current_sort == 'watched_asc'  %}selected{% endif %}>Last watched (oldest)</option>
     </select>
   </div>
   {% endif %}
 
-  <!-- Library table -->
+  {# Table #}
   {% if items %}
-  <div class="lib-table">
-    <div class="lib-header">
-      <div></div>
-      <div class="lib-sort-col" onclick="toggleSort('name')">Title {{ '▲' if current_sort == 'name_asc' else ('▼' if current_sort == 'name_desc' else '') }}</div>
-      <div>Type</div>
-      <div class="lib-sort-col" onclick="toggleSort('size')">Size {{ '▼' if current_sort == 'size_desc' else ('▲' if current_sort == 'size_asc' else '') }}</div>
-      <div class="lib-sort-col" onclick="toggleSort('watched')">Last watched {{ '▼' if current_sort == 'watched_desc' else ('▲' if current_sort == 'watched_asc' else '') }}</div>
-      <div>Actions</div>
-    </div>
-
-    {% for item in items %}
-    <div class="lib-row {% if item.protected %}lib-row-protected{% endif %}">
-      <!-- Thumbnail -->
-      <div>
-        {% if item.plex_rating_key %}
-        <img class="lib-thumb" src="/api/poster/{{ item.plex_rating_key }}" alt="{{ item.title }}" loading="lazy">
-        {% else %}
-        <div class="lib-thumb"></div>
-        {% endif %}
-      </div>
-
-      <!-- Title + subtitle + inline mobile meta row -->
-      <div class="lib-title-col">
-        <div class="lib-title">{{ item.title }}</div>
-        <div class="lib-subtitle">
-          {{ item.subtitle }}
-          {% if item.protection_label %}
-          · <span class="lib-protection-label">{{ item.protection_label }}</span>
-          {% endif %}
-        </div>
-        <div class="lib-row-meta">
-          <span class="lib-type-badge {{ item.type_css }}">{{ item.type_label }}</span>
-          <span class="lib-size">{{ item.file_size }}</span>
-          {% if item.last_watched %}<span class="lib-date">· {{ item.last_watched }}</span>{% endif %}
-        </div>
-      </div>
-
-      <!-- Type badge — grid column at bp-md+ (hidden below) -->
-      <div class="lib-type-wrap">
-        <span class="lib-type-badge {{ item.type_css }}">{{ item.type_label }}</span>
-      </div>
-
-      <!-- Size -->
-      <div class="lib-size">{{ item.file_size }}</div>
-
-      <!-- Last watched -->
-      <div class="lib-watch-info">
-        {% if item.last_watched %}
-          <span>{{ item.last_watched }}</span>
-        {% else %}
-          <span class="watchlist-none">Never</span>
-        {% endif %}
-      </div>
-
-      <!-- Actions -->
-      <div class="lib-actions">
-        {% if item.protected %}
-        <div class="keep-wrapper"
-          data-id="{{ item.id }}" data-tv="{{ item.is_tv | tojson }}"
-          data-show-rk="{{ item.show_rating_key }}" data-show-title="{{ item.show_title_raw | e }}">
-          <button class="btn-sm btn-sm-kept"
-            onclick="{% if item.is_tv %}submitKeep(this, 'current');{% else %}removeKeep('{{ item.id }}');{% endif %} return false;">Kept</button>
-        </div>
-        {% else %}
-        <!-- Keep with snooze dropdown -->
-        <div class="keep-wrapper"
-          data-id="{{ item.id }}" data-tv="{{ item.is_tv | tojson }}"
-          data-show-rk="{{ item.show_rating_key }}" data-show-title="{{ item.show_title_raw | e }}">
-          <button class="btn-sm btn-sm-keep"
-            onclick="submitKeep(this, '30d'); return false;">Keep</button>
-          <button type="button" class="btn-sm-caret"
-            aria-haspopup="menu" aria-expanded="false"
-            aria-label="More keep options">&#9662;</button>
-          <div class="snooze-dropdown" role="menu">
-            <button class="snooze-option" role="menuitem" tabindex="-1"
-              onclick="submitKeep(this, '7d'); return false;">7 days</button>
-            <button class="snooze-option" role="menuitem" tabindex="-1"
-              onclick="submitKeep(this, '30d'); return false;">30 days</button>
-            <button class="snooze-option" role="menuitem" tabindex="-1"
-              onclick="submitKeep(this, '90d'); return false;">90 days</button>
-            <button class="snooze-option forever" role="menuitem" tabindex="-1"
-              onclick="submitKeep(this, 'forever'); return false;">Forever</button>
-          </div>
-        </div>
-        <!-- Delete -->
-        <button class="btn-sm btn-sm-delete"
-          data-id="{{ item.id }}" data-title="{{ item.title }}"
-          onclick="confirmDelete(this.dataset.id, this.dataset.title); return false;">Delete</button>
-        {% endif %}
-      </div>
-    </div>
-    {% endfor %}
+  <div class="card card--bordered">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th style="width:60px"></th>
+          <th class="sortable" onclick="toggleSort('name')">
+            Title {{ '▲' if current_sort == 'name_asc' else ('▼' if current_sort == 'name_desc' else '') }}
+          </th>
+          <th>Type</th>
+          <th class="sortable" onclick="toggleSort('size')">
+            Size {{ '▼' if current_sort == 'size_desc' else ('▲' if current_sort == 'size_asc' else '') }}
+          </th>
+          <th class="sortable" onclick="toggleSort('watched')">
+            Last watched {{ '▼' if current_sort == 'watched_desc' else ('▲' if current_sort == 'watched_asc' else '') }}
+          </th>
+          <th style="text-align:right">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr {% if item.protected %}class="lib-row-protected"{% endif %}>
+          <td>
+            <div class="thumb">
+              {% if item.plex_rating_key %}
+              <img src="/api/poster/{{ item.plex_rating_key }}" alt="{{ item.title }}" loading="lazy">
+              {% endif %}
+            </div>
+          </td>
+          <td class="title-cell">
+            {{ item.title }}
+            <div class="sub">
+              {{ item.subtitle }}
+              {% if item.protection_label %} · <span style="color:var(--success)">{{ item.protection_label }}</span>{% endif %}
+            </div>
+          </td>
+          <td>
+            <span class="pill pill--{{ 'movie' if item.type_label|lower == 'movie' else ('tv' if item.type_label|lower == 'tv' else 'anime') }}">{{ item.type_label }}</span>
+          </td>
+          <td>{{ item.file_size }}</td>
+          <td class="u-small">
+            {% if item.last_watched %}{{ item.last_watched }}{% else %}<span style="color:var(--danger)">Never</span>{% endif %}
+          </td>
+          <td style="text-align:right">
+            <div class="u-flex" style="justify-content:flex-end;gap:6px">
+              {% if item.protected %}
+              <div class="keep-wrapper"
+                data-id="{{ item.id }}" data-tv="{{ item.is_tv | tojson }}"
+                data-show-rk="{{ item.show_rating_key }}" data-show-title="{{ item.show_title_raw | e }}">
+                <button class="btn btn--success btn--sm"
+                  onclick="{% if item.is_tv %}submitKeep(this, 'current');{% else %}removeKeep('{{ item.id }}');{% endif %} return false;">Kept ✓</button>
+              </div>
+              {% else %}
+              <span class="split keep-wrapper"
+                data-id="{{ item.id }}" data-tv="{{ item.is_tv | tojson }}"
+                data-show-rk="{{ item.show_rating_key }}" data-show-title="{{ item.show_title_raw | e }}">
+                <button class="btn btn--sm" onclick="submitKeep(this, '30d'); return false;">Keep</button>
+                <button type="button" class="caret btn-sm-caret" aria-haspopup="menu" aria-expanded="false" aria-label="More keep options">
+                  <svg width="10" height="10" viewBox="0 0 24 24" style="stroke:var(--accent);fill:none;stroke-width:2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <div class="snooze-dropdown" role="menu">
+                  <button class="snooze-option" role="menuitem" tabindex="-1" onclick="submitKeep(this, '7d'); return false;">7 days</button>
+                  <button class="snooze-option" role="menuitem" tabindex="-1" onclick="submitKeep(this, '30d'); return false;">30 days</button>
+                  <button class="snooze-option" role="menuitem" tabindex="-1" onclick="submitKeep(this, '90d'); return false;">90 days</button>
+                  <button class="snooze-option forever" role="menuitem" tabindex="-1" onclick="submitKeep(this, 'forever'); return false;">Forever</button>
+                </div>
+              </span>
+              <button class="btn btn--danger btn--sm"
+                data-id="{{ item.id }}" data-title="{{ item.title }}"
+                onclick="confirmDelete(this.dataset.id, this.dataset.title); return false;">Delete</button>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 
-  <!-- Pagination -->
+  {# Pagination #}
   <div class="pagination">
     {% if page > 1 %}
-    <a class="page-btn" href="{{ request.url_for('library_page') }}?q={{ q }}&type={{ current_type }}&sort={{ current_sort }}&page={{ page - 1 }}&per_page={{ per_page }}">&lsaquo;</a>
+    <a class="page-btn" href="{{ request.url_for('library_page') }}?q={{ q }}&type={{ current_type }}&sort={{ current_sort }}&page={{ page - 1 }}&per_page={{ per_page }}">‹</a>
     {% else %}
-    <button class="page-btn disabled" disabled>&lsaquo;</button>
+    <button class="page-btn disabled" disabled>‹</button>
     {% endif %}
 
     {% for p in range(1, total_pages + 1) %}
-    {% if p == page %}
-    <button class="page-btn active">{{ p }}</button>
-    {% elif total_pages <= 7 or (p <= 3 or p >= total_pages - 2 or (p >= page - 1 and p <= page + 1)) %}
-    <a class="page-btn" href="{{ request.url_for('library_page') }}?q={{ q }}&type={{ current_type }}&sort={{ current_sort }}&page={{ p }}&per_page={{ per_page }}">{{ p }}</a>
-    {% elif p == 4 and page > 5 %}
-    <span class="page-btn page-btn--ellipsis">…</span>
-    {% elif p == total_pages - 3 and page < total_pages - 4 %}
-    <span class="page-btn page-btn--ellipsis">…</span>
-    {% endif %}
+      {% if p == page %}
+      <button class="page-btn active">{{ p }}</button>
+      {% elif total_pages <= 7 or (p <= 3 or p >= total_pages - 2 or (p >= page - 1 and p <= page + 1)) %}
+      <a class="page-btn" href="{{ request.url_for('library_page') }}?q={{ q }}&type={{ current_type }}&sort={{ current_sort }}&page={{ p }}&per_page={{ per_page }}">{{ p }}</a>
+      {% elif p == 4 and page > 5 %}
+      <span class="page-btn page-btn--ellipsis">…</span>
+      {% elif p == total_pages - 3 and page < total_pages - 4 %}
+      <span class="page-btn page-btn--ellipsis">…</span>
+      {% endif %}
     {% endfor %}
 
     <span class="page-info">{{ page_start }}–{{ page_end }} of {{ total }}</span>
 
     {% if page < total_pages %}
-    <a class="page-btn" href="{{ request.url_for('library_page') }}?q={{ q }}&type={{ current_type }}&sort={{ current_sort }}&page={{ page + 1 }}&per_page={{ per_page }}">&rsaquo;</a>
+    <a class="page-btn" href="{{ request.url_for('library_page') }}?q={{ q }}&type={{ current_type }}&sort={{ current_sort }}&page={{ page + 1 }}&per_page={{ per_page }}">›</a>
     {% else %}
-    <button class="page-btn disabled" disabled>&rsaquo;</button>
+    <button class="page-btn disabled" disabled>›</button>
     {% endif %}
   </div>
 
   {% else %}
-  <!-- Empty state -->
-  <div class="empty-state">
-    <div class="empty-state__icon">
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-           stroke-width="1.5" stroke-linecap="round">
-        <rect x="2" y="3" width="20" height="14" rx="2"/>
-        <line x1="8" y1="21" x2="16" y2="21"/>
-        <line x1="12" y1="17" x2="12" y2="21"/>
-      </svg>
-    </div>
-    {% if q or current_type %}
-    <div class="empty-state__headline">No results</div>
-    <div class="empty-state__sub">Try adjusting your search or filters.</div>
-    {% else %}
-    <div class="empty-state__headline">Your library is empty</div>
-    <div class="empty-state__sub">Run a scan to pull in media from Plex.</div>
-    {% endif %}
+  {# Empty state #}
+  <div class="empty">
+    <h3>{% if q or current_type %}No results{% else %}Your library is empty{% endif %}</h3>
+    <p>
+      {% if q or current_type %}Try adjusting your search or filters.
+      {% else %}Run a scan to pull in media from Plex.{% endif %}
+    </p>
   </div>
   {% endif %}
 
   <div class="page-bottom-spacer"></div>
 </div>
 
-<!-- Delete confirmation modal -->
+{# Delete confirmation modal #}
 <div id="delete-modal" class="delete-modal-overlay"
      role="dialog" aria-modal="true" aria-labelledby="delete-modal-heading" aria-hidden="true">
   <div class="delete-modal-card">
     <h3 id="delete-modal-heading" class="delete-modal-title">Delete item?</h3>
     <p id="delete-modal-body" class="delete-modal-body"></p>
     <div class="delete-modal-actions">
-      <button class="btn btn-ghost" onclick="closeDeleteModal()">Cancel</button>
-      <button id="delete-confirm-btn" class="btn btn-danger">Delete</button>
+      <button class="btn btn--ghost" onclick="closeDeleteModal()">Cancel</button>
+      <button id="delete-confirm-btn" class="btn btn--danger">Delete</button>
     </div>
   </div>
 </div>
 
-<!-- TV Show Keep Dialog -->
+{# TV Show Keep dialog #}
 <div class="keep-dialog-overlay" id="keep-dialog-overlay" onclick="closeKeepDialog()"
      role="dialog" aria-modal="true" aria-labelledby="keep-dialog-title" aria-hidden="true">
   <div class="keep-dialog" onclick="event.stopPropagation()">
     <h3 id="keep-dialog-title">Keep Show</h3>
     <div class="keep-duration-bar" id="keep-duration-bar">
-      <button class="keep-dur-btn" data-dur="7 days" onclick="selectDuration(this)">7 days</button>
+      <button class="keep-dur-btn" data-dur="7 days"  onclick="selectDuration(this)">7 days</button>
       <button class="keep-dur-btn" data-dur="30 days" onclick="selectDuration(this)">30 days</button>
       <button class="keep-dur-btn" data-dur="90 days" onclick="selectDuration(this)">90 days</button>
       <button class="keep-dur-btn" data-dur="forever" onclick="selectDuration(this)">Forever</button>
     </div>
     <div class="keep-season-list" id="keep-season-list"></div>
     <div class="keep-dialog-actions">
-      <button class="btn-cancel btn-cancel--danger" id="keep-dialog-remove" onclick="removeAllKeeps()">Remove All Keeps</button>
+      <button class="btn btn--danger btn--sm" id="keep-dialog-remove" onclick="removeAllKeeps()">Remove all keeps</button>
       <div class="u-flex-1"></div>
-      <button class="btn-cancel" onclick="closeKeepDialog()">Cancel</button>
-      <button class="btn-keep" id="keep-dialog-confirm" onclick="confirmKeepDialog()">Update</button>
+      <button class="btn btn--ghost btn--sm" onclick="closeKeepDialog()">Cancel</button>
+      <button class="btn btn--primary btn--sm" id="keep-dialog-confirm" onclick="confirmKeepDialog()">Update</button>
     </div>
   </div>
 </div>
@@ -280,12 +236,11 @@
   function submitKeep(btn, duration) {
     var wrapper = btn.closest('.keep-wrapper');
     var mediaId = wrapper.dataset.id;
-    var isTv = wrapper.dataset.tv === 'true';
-    var showRk = wrapper.dataset.showRk || '';
+    var isTv    = wrapper.dataset.tv === 'true';
+    var showRk  = wrapper.dataset.showRk || '';
     var showTitle = wrapper.dataset.showTitle || '';
 
     if (!isTv) {
-      // Movie — submit directly
       var body = new URLSearchParams({ duration: duration });
       fetch('/api/media/' + encodeURIComponent(mediaId) + '/keep', {
         method: 'POST',
@@ -297,7 +252,6 @@
       });
       return;
     }
-    // TV season — open dialog
     var durMap = { '7d': '7 days', '30d': '30 days', '90d': '90 days', 'forever': 'forever', 'current': null };
     _keepDialogState.showRk = showRk;
     _keepDialogState.showTitle = showTitle;
@@ -311,11 +265,10 @@
     overlay.classList.add('active');
     overlay.setAttribute('aria-hidden', 'false');
     if (window.ModalA11y) window.ModalA11y.onOpened('keep-dialog-overlay');
-    if (_keepDialogState.duration) {
-      selectDurationByValue(_keepDialogState.duration);
-    }
+    if (_keepDialogState.duration) selectDurationByValue(_keepDialogState.duration);
+
     var list = document.getElementById('keep-season-list');
-    list.textContent = 'Loading\u2026';
+    list.textContent = 'Loading…';
     var rk = _keepDialogState.showRk || '_by_title';
     var url = '/api/show/' + encodeURIComponent(rk) + '/seasons';
     if (!_keepDialogState.showRk && _keepDialogState.showTitle) {
@@ -330,7 +283,6 @@
         var hasKeeps = data.show_kept || data.seasons.some(function (s) { return s.kept; });
         document.getElementById('keep-dialog-remove').classList.toggle('is-visible', hasKeeps);
         if (hasKeeps) document.getElementById('keep-dialog-confirm').textContent = 'Update';
-        // If duration is null ('current' mode), read it from the show keep or default to forever
         if (!_keepDialogState.duration && data.show_kept && data.show_kept.snooze_duration) {
           _keepDialogState.duration = data.show_kept.snooze_duration;
           selectDurationByValue(_keepDialogState.duration);
@@ -356,18 +308,14 @@
     btn.classList.add('active');
     _keepDialogState.duration = btn.dataset.dur;
   }
-
   function selectDurationByValue(dur) {
-    document.querySelectorAll('.keep-dur-btn').forEach(function (b) {
-      b.classList.toggle('active', b.dataset.dur === dur);
-    });
+    document.querySelectorAll('.keep-dur-btn').forEach(function (b) { b.classList.toggle('active', b.dataset.dur === dur); });
   }
 
   function renderSeasonPicker(seasons, showKept) {
     var list = document.getElementById('keep-season-list');
     while (list.firstChild) list.removeChild(list.firstChild);
 
-    // "All seasons" checkbox
     var allRow = document.createElement('div');
     allRow.className = 'keep-season-item keep-all-row';
     var allCb = document.createElement('input');
@@ -391,7 +339,6 @@
       cb.type = 'checkbox';
       cb.id = 'keep-season-' + s.id;
       cb.dataset.seasonId = s.id;
-      // Pre-tick: if kept, or for fresh keeps (no existing keeps) default all on
       cb.checked = s.kept || !anyKept;
       var label = document.createElement('label');
       label.htmlFor = 'keep-season-' + s.id;
@@ -399,9 +346,8 @@
       row.appendChild(cb);
       row.appendChild(label);
 
-      // Season details: size + last watched
       var details = document.createElement('span');
-      details.style.cssText = 'font-size:12px;color:rgba(255,255,255,0.35);letter-spacing:-0.12px;margin-left:auto;white-space:nowrap;';
+      details.style.cssText = 'font-size:12px;color:var(--t3);margin-left:auto;white-space:nowrap;';
       var parts = [];
       if (s.file_size) parts.push(s.file_size);
       if (s.last_watched) parts.push('watched ' + s.last_watched);
@@ -411,7 +357,7 @@
 
       if (s.kept) {
         var badge = document.createElement('span');
-        badge.className = 'kept-badge';
+        badge.className = 'pill pill--kept';
         badge.textContent = 'Kept';
         row.appendChild(badge);
       }
@@ -433,7 +379,7 @@
 
     var btn = document.getElementById('keep-dialog-confirm');
     btn.disabled = true;
-    btn.textContent = 'Keeping\u2026';
+    btn.textContent = 'Keeping…';
 
     if (allChecked) {
       if (selectedIds.length === 0) {
@@ -473,9 +419,7 @@
       if (!ok) return;
       var promises = [];
       var rk = _keepDialogState.showRk;
-      if (rk) {
-        promises.push(fetch('/api/show/' + encodeURIComponent(rk) + '/remove', { method: 'POST' }));
-      }
+      if (rk) promises.push(fetch('/api/show/' + encodeURIComponent(rk) + '/remove', { method: 'POST' }));
       document.querySelectorAll('#keep-season-list input[data-season-id]').forEach(function (cb) {
         promises.push(fetch('/api/media/' + encodeURIComponent(cb.dataset.seasonId) + '/unprotect', { method: 'POST' }));
       });
@@ -483,26 +427,21 @@
     });
   }
 
-  /**
-   * Show the delete confirmation modal.
-   */
   let _pendingDeleteId = null;
   function confirmDelete(mediaId, title) {
     _pendingDeleteId = mediaId;
-    document.getElementById('delete-modal-body').textContent =
-      'Delete "' + title + '"? This cannot be undone.';
+    document.getElementById('delete-modal-body').textContent = 'Delete "' + title + '"? This cannot be undone.';
     const modal = document.getElementById('delete-modal');
     modal.classList.add('is-visible');
     modal.setAttribute('aria-hidden', 'false');
     if (window.ModalA11y) window.ModalA11y.onOpened('delete-modal');
-    document.getElementById('delete-confirm-btn').onclick = function() {
+    document.getElementById('delete-confirm-btn').onclick = function () {
       if (!_pendingDeleteId) return;
-      fetch('/api/media/' + encodeURIComponent(_pendingDeleteId) + '/delete', {
-        method: 'POST',
-      }).then(r => {
-        if (r.ok) window.location.reload();
-        else r.json().then(d => window.UIFeedback.error("Couldn't delete item. " + (d.error || r.status)));
-      });
+      fetch('/api/media/' + encodeURIComponent(_pendingDeleteId) + '/delete', { method: 'POST' })
+        .then(r => {
+          if (r.ok) window.location.reload();
+          else r.json().then(d => window.UIFeedback.error("Couldn't delete item. " + (d.error || r.status)));
+        });
       closeDeleteModal();
     };
   }
@@ -517,35 +456,25 @@
   if (window.ModalA11y) window.ModalA11y.register('delete-modal', closeDeleteModal);
 
   function removeKeep(mediaId) {
-    fetch('/api/media/' + encodeURIComponent(mediaId) + '/unprotect', {
-      method: 'POST',
-    }).then(function(r) {
-      if (r.ok) window.location.reload();
-    });
+    fetch('/api/media/' + encodeURIComponent(mediaId) + '/unprotect', { method: 'POST' })
+      .then(function (r) { if (r.ok) window.location.reload(); });
   }
 
-  // Close modal on backdrop click
-  document.getElementById('delete-modal').addEventListener('click', function(e) {
+  document.getElementById('delete-modal').addEventListener('click', function (e) {
     if (e.target === this) closeDeleteModal();
   });
 
-  /**
-   * Mobile sort — set exact sort value and submit.
-   */
   function setSort(value) {
     document.getElementById('sort-input').value = value;
     document.getElementById('toolbar-form').submit();
   }
 
-  /**
-   * Column header sort — toggles between asc/desc for the clicked column.
-   */
   function toggleSort(col) {
     var input = document.getElementById('sort-input');
     var current = input.value;
     var sortMap = {
-      name:    { default: 'name_asc',    asc: 'name_asc',    desc: 'name_desc' },
-      size:    { default: 'size_desc',   asc: 'size_asc',    desc: 'size_desc' },
+      name:    { default: 'name_asc',     asc: 'name_asc',    desc: 'name_desc' },
+      size:    { default: 'size_desc',    asc: 'size_asc',    desc: 'size_desc' },
       watched: { default: 'watched_desc', asc: 'watched_asc', desc: 'watched_desc' },
     };
     var m = sortMap[col];
@@ -556,15 +485,10 @@
     document.getElementById('toolbar-form').submit();
   }
 
-  /**
-   * Debounced search — submits the form 400ms after the user stops typing.
-   */
   let _searchTimer = null;
   function debounceSubmit() {
     clearTimeout(_searchTimer);
-    _searchTimer = setTimeout(function() {
-      document.getElementById('toolbar-form').submit();
-    }, 400);
+    _searchTimer = setTimeout(function () { document.getElementById('toolbar-form').submit(); }, 400);
   }
 </script>
 {% endblock %}
