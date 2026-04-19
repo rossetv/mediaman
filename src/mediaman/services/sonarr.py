@@ -224,14 +224,6 @@ class SonarrClient:
             page += 1
         return out
 
-    def lookup_series(self, tvdb_id: int) -> dict | None:
-        """Look up a series by TVDB ID."""
-        try:
-            results = self._get(f"/api/v3/series/lookup?term=tvdb:{tvdb_id}")
-            return results[0] if results else None
-        except Exception:
-            return None
-
     def lookup_series_by_tmdb(self, tmdb_id: int) -> dict | None:
         """Look up a series by TMDB ID via Sonarr's lookup endpoint.
 

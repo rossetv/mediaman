@@ -11,6 +11,20 @@ import re
 from datetime import datetime, timezone
 
 
+def extract_poster_url(images: list[dict] | None) -> str | None:
+    """Return the first poster remoteUrl from an *arr images list, or None.
+
+    Iterates the ``images`` list (as returned by Radarr/Sonarr API responses)
+    and returns the ``remoteUrl`` of the first entry whose ``coverType`` is
+    ``"poster"``. Returns ``None`` when no matching entry is found or when
+    ``images`` is falsy.
+    """
+    for img in images or []:
+        if img.get("coverType") == "poster" and img.get("remoteUrl"):
+            return img["remoteUrl"]
+    return None
+
+
 def _fmt_relative_time(ts: float, now: float) -> str:
     """Render a relative-time string like ``"12m ago"`` or ``"3d ago"``.
 

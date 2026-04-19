@@ -9,9 +9,17 @@ from urllib.parse import quote as _url_quote
 from fastapi import APIRouter, Body, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
+from mediaman.auth.audit import log_audit as _log_audit
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
+from mediaman.auth.rate_limit import ActionRateLimiter as _ActionRateLimiter
 from mediaman.db import get_db
-from mediaman.services.format import format_bytes as _format_bytes
+from mediaman.services.arr_build import (
+    build_radarr_from_db as _build_radarr,
+    build_sonarr_from_db as _build_sonarr,
+)
+from mediaman.services.download_notifications import record_download_notification as _record_dn
+from mediaman.services.format import days_ago as _days_ago_fmt, format_bytes as _format_bytes, parse_iso_utc as _parse_iso_utc
+from mediaman.services.settings_reader import get_int_setting as _get_int_setting
 
 logger = logging.getLogger("mediaman")
 
@@ -33,37 +41,17 @@ _VALID_TYPES = {"movie", "tv", "anime", "kept", "stale"}
 def _days_ago(dt_str: str | None) -> str:
     """Return 'N days ago' or '' given an ISO datetime string.
 
-    Handles Radarr/Sonarr .NET DateTime which may include 7 fractional
-    second digits — Python's ``fromisoformat`` only supports up to 6.
-
-    Plex occasionally stores garbage addedAt values (e.g. dates in the
-    1970s–1990s from misinterpreted timestamps). Dates before 2010 are
-    treated as unknown rather than showing "15405 days ago".
+    Thin wrapper around :func:`mediaman.services.format.days_ago` that also
+    guards against suspiciously large deltas (> 10 years) from misinterpreted
+    Plex timestamps.
     """
-    if not dt_str:
+    dt = _parse_iso_utc(dt_str)
+    if dt is None:
         return ""
-    try:
-        # Truncate fractional seconds to 6 digits (.NET produces 7)
-        if "." in dt_str:
-            dot = dt_str.index(".")
-            i = dot + 1
-            while i < len(dt_str) and dt_str[i].isdigit():
-                i += 1
-            if i - dot - 1 > 6:
-                dt_str = dt_str[: dot + 7] + dt_str[i:]
-        dt = datetime.fromisoformat(dt_str)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        delta = (datetime.now(timezone.utc) - dt).days
-        if delta < 0 or delta > 3650:
-            return ""
-        if delta == 0:
-            return "today"
-        if delta == 1:
-            return "yesterday"
-        return f"{delta} days ago"
-    except (ValueError, TypeError):
+    delta = (datetime.now(timezone.utc) - dt).days
+    if delta > 3650:
         return ""
+    return _days_ago_fmt(dt_str)
 
 
 def _type_label(media_type: str, season_number: int | None) -> str:
@@ -148,16 +136,8 @@ def _fetch_library(
     elif media_type == "stale":
         stale_filter = True
         # Read thresholds for stale calculation
-        def _int_setting(key: str, default: int) -> int:
-            row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-            if row:
-                try:
-                    return int(row["value"])
-                except (ValueError, TypeError):
-                    pass
-            return default
-        _min_age = _int_setting("min_age_days", 30)
-        _inactivity = _int_setting("inactivity_days", 30)
+        _min_age = _get_int_setting(conn, "min_age_days", 30)
+        _inactivity = _get_int_setting(conn, "inactivity_days", 30)
         _now = datetime.now(timezone.utc)
         age_cutoff = (_now - timedelta(days=_min_age)).isoformat()
         watch_cutoff = (_now - timedelta(days=_inactivity)).isoformat()
@@ -348,17 +328,8 @@ def _fetch_stats(conn) -> dict:
     anime = anime_row["n"] if anime_row else 0
 
     # Read thresholds from settings, falling back to sensible defaults
-    def _int_setting(key: str, default: int) -> int:
-        row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-        if row:
-            try:
-                return int(row["value"])
-            except (ValueError, TypeError):
-                pass
-        return default
-
-    min_age = _int_setting("min_age_days", 30)
-    inactivity = _int_setting("inactivity_days", 30)
+    min_age = _get_int_setting(conn, "min_age_days", 30)
+    inactivity = _get_int_setting(conn, "inactivity_days", 30)
 
     now = datetime.now(timezone.utc)
     age_cutoff = (now - timedelta(days=min_age)).isoformat()
@@ -472,8 +443,6 @@ def api_library(
     })
 
 
-from mediaman.auth.rate_limit import ActionRateLimiter as _ActionRateLimiter
-
 # Per-admin cap on media deletes — ample for legitimate cleanup,
 # stops a compromised session nuking a library in an afternoon.
 _DELETE_LIMITER = _ActionRateLimiter(
@@ -509,19 +478,11 @@ def api_media_delete(
     config = request.app.state.config
     is_movie = row["media_type"] == "movie"
 
-    from mediaman.crypto import decrypt_value
-
     # Delete via Radarr (movies) — deletes files + adds import exclusion
     if is_movie:
         try:
-            radarr_url = conn.execute("SELECT value FROM settings WHERE key='radarr_url'").fetchone()
-            radarr_key_row = conn.execute("SELECT value, encrypted FROM settings WHERE key='radarr_api_key'").fetchone()
-            if radarr_url and radarr_key_row:
-                rkey = radarr_key_row["value"]
-                if radarr_key_row["encrypted"]:
-                    rkey = decrypt_value(rkey, config.secret_key, conn=conn, aad=b"radarr_api_key")
-                from mediaman.services.radarr import RadarrClient
-                client = RadarrClient(radarr_url["value"], rkey)
+            client = _build_radarr(conn, config.secret_key)
+            if client:
                 # Require the radarr_id recorded at scan time. Title
                 # matching is dangerous — multiple items may share a
                 # title across libraries (remake/reboot/alternate cut)
@@ -544,14 +505,8 @@ def api_media_delete(
     # Delete via Sonarr (TV) — delete episode files + unmonitor season
     else:
         try:
-            sonarr_url = conn.execute("SELECT value FROM settings WHERE key='sonarr_url'").fetchone()
-            sonarr_key_row = conn.execute("SELECT value, encrypted FROM settings WHERE key='sonarr_api_key'").fetchone()
-            if sonarr_url and sonarr_key_row:
-                skey = sonarr_key_row["value"]
-                if sonarr_key_row["encrypted"]:
-                    skey = decrypt_value(skey, config.secret_key, conn=conn, aad=b"sonarr_api_key")
-                from mediaman.services.sonarr import SonarrClient
-                client = SonarrClient(sonarr_url["value"], skey)
+            client = _build_sonarr(conn, config.secret_key)
+            if client:
                 # Same rule as Radarr — require stored sonarr_id; no
                 # title-based lookup fallback.
                 sid = row["sonarr_id"]
@@ -572,11 +527,7 @@ def api_media_delete(
     detail = f"Deleted '{title}' by {username}"
     if rk:
         detail += f" [rk:{rk}]"
-    conn.execute(
-        "INSERT INTO audit_log (media_item_id, action, detail, space_reclaimed_bytes, created_at) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (media_id, "deleted", detail, row["file_size_bytes"], now),
-    )
+    _log_audit(conn, media_id, "deleted", detail, space_bytes=row["file_size_bytes"])
 
     # Remove scheduled actions and the media item itself
     conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_id,))
@@ -647,10 +598,7 @@ def api_media_keep(
         )
 
     # Audit
-    conn.execute(
-        "INSERT INTO audit_log (media_item_id, action, detail, created_at) VALUES (?, ?, ?, ?)",
-        (media_id, "snoozed", f"Kept for {snooze_label} by admin ({username})", now.isoformat()),
-    )
+    _log_audit(conn, media_id, "snoozed", f"Kept for {snooze_label} by admin ({username})")
 
     conn.commit()
     logger.info("Media item %s protected for %s by %s", media_id, snooze_label, username)
@@ -673,33 +621,17 @@ def api_media_redownload(
     config = request.app.state.config
     now = datetime.now(timezone.utc).isoformat()
 
-    from mediaman.crypto import decrypt_value
-
     # Try Radarr first (movies)
     try:
-        radarr_url = conn.execute("SELECT value FROM settings WHERE key='radarr_url'").fetchone()
-        radarr_key_row = conn.execute("SELECT value, encrypted FROM settings WHERE key='radarr_api_key'").fetchone()
-        if radarr_url and radarr_key_row:
-            rkey = radarr_key_row["value"]
-            if radarr_key_row["encrypted"]:
-                rkey = decrypt_value(rkey, config.secret_key, conn=conn, aad=b"radarr_api_key")
-            from mediaman.services.radarr import RadarrClient
-            client = RadarrClient(radarr_url["value"], rkey)
+        client = _build_radarr(conn, config.secret_key)
+        if client:
             lookup = client._get(f"/api/v3/movie/lookup?term={_url_quote(title)}")
             if lookup:
                 tmdb_id = lookup[0].get("tmdbId")
                 if tmdb_id:
                     client.add_movie(tmdb_id, title)
-                    conn.execute(
-                        "INSERT INTO audit_log (media_item_id, action, detail, created_at) "
-                        "VALUES (?, ?, ?, ?)",
-                        (title, "re_downloaded", f"Re-downloaded by {username}", now),
-                    )
-                    conn.execute(
-                        "INSERT INTO download_notifications (email, title, media_type, tmdb_id, service, notified, created_at) "
-                        "VALUES (?, ?, ?, ?, ?, 0, ?)",
-                        (username, title, "movie", tmdb_id, "radarr", now),
-                    )
+                    _log_audit(conn, title, "re_downloaded", f"Re-downloaded by {username}")
+                    _record_dn(conn, email=username, title=title, media_type="movie", tmdb_id=tmdb_id, service="radarr")
                     conn.commit()
                     logger.info("Re-downloaded '%s' via Radarr by %s", title, username)
                     return JSONResponse({"ok": True, "message": f"Added '{title}' to Radarr"})
@@ -711,34 +643,19 @@ def api_media_redownload(
 
     # Try Sonarr (TV)
     try:
-        sonarr_url = conn.execute("SELECT value FROM settings WHERE key='sonarr_url'").fetchone()
-        sonarr_key_row = conn.execute("SELECT value, encrypted FROM settings WHERE key='sonarr_api_key'").fetchone()
-        if sonarr_url and sonarr_key_row:
-            skey = sonarr_key_row["value"]
-            if sonarr_key_row["encrypted"]:
-                skey = decrypt_value(skey, config.secret_key, conn=conn, aad=b"sonarr_api_key")
-            from mediaman.services.sonarr import SonarrClient
-            client = SonarrClient(sonarr_url["value"], skey)
+        client = _build_sonarr(conn, config.secret_key)
+        if client:
             results = client._get(f"/api/v3/series/lookup?term={_url_quote(title)}")
             if results:
                 tvdb_id = results[0].get("tvdbId")
                 if tvdb_id:
                     client.add_series(tvdb_id, title)
                     tmdb_id_sonarr = results[0].get("tmdbId")
-                    conn.execute(
-                        "INSERT INTO audit_log (media_item_id, action, detail, created_at) "
-                        "VALUES (?, ?, ?, ?)",
-                        (title, "re_downloaded", f"Re-downloaded by {username}", now),
-                    )
+                    _log_audit(conn, title, "re_downloaded", f"Re-downloaded by {username}")
                     # Sonarr matches series by TVDB id — keep both IDs so
                     # the completion checker can fire even when tmdbId
                     # isn't populated on the series record.
-                    conn.execute(
-                        "INSERT INTO download_notifications "
-                        "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
-                        (username, title, "tv", tmdb_id_sonarr, tvdb_id, "sonarr", now),
-                    )
+                    _record_dn(conn, email=username, title=title, media_type="tv", tmdb_id=tmdb_id_sonarr, tvdb_id=tvdb_id, service="sonarr")
                     conn.commit()
                     logger.info("Re-downloaded '%s' via Sonarr by %s", title, username)
                     return JSONResponse({"ok": True, "message": f"Added '{title}' to Sonarr"})

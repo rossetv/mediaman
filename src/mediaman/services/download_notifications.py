@@ -9,9 +9,42 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
+from mediaman.services.download_format import extract_poster_url
+
 logger = logging.getLogger("mediaman")
+
+
+def record_download_notification(
+    conn: sqlite3.Connection,
+    *,
+    email: str,
+    title: str,
+    media_type: str,
+    service: str,
+    tmdb_id: int | None = None,
+    tvdb_id: int | None = None,
+) -> None:
+    """Insert a pending download notification record.
+
+    The notification is sent by the library sync job once the item has a file
+    in Radarr/Sonarr — i.e. when it's actually available to watch.
+
+    Radarr uses TMDB IDs; Sonarr uses TVDB IDs. Store each in the matching
+    column so the completion checker can match the right field on each
+    service's response.
+
+    Does **not** call ``conn.commit()`` — callers manage their own transactions.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "INSERT INTO download_notifications "
+        "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+        (email, title, media_type, tmdb_id, tvdb_id, service, now),
+    )
 
 
 def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> None:
@@ -130,10 +163,9 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
             if not meta["poster_url"]:
                 try:
                     if service == "radarr" and movie:
-                        for img in movie.get("images") or []:
-                            if img.get("coverType") == "poster" and img.get("remoteUrl"):
-                                meta["poster_url"] = img["remoteUrl"]
-                                break
+                        url = extract_poster_url(movie.get("images"))
+                        if url:
+                            meta["poster_url"] = url
                 except Exception:
                     pass
 

@@ -54,6 +54,7 @@ from mediaman.services.download_format import (
     _parse_clean_title,
     _parse_iso,
     _select_hero,
+    extract_poster_url,
 )
 
 logger = logging.getLogger("mediaman")
@@ -306,14 +307,7 @@ def _get_arr_queue(conn: sqlite3.Connection) -> list[dict]:
                     or q.get("trackedDownloadStatus")
                     or "queued"
                 )
-                poster_url = ""
-                for img in movie.get("images") or []:
-                    if (
-                        img.get("coverType") == "poster"
-                        and img.get("remoteUrl")
-                    ):
-                        poster_url = img["remoteUrl"]
-                        break
+                poster_url = extract_poster_url(movie.get("images")) or ""
                 m_title = (
                     movie.get("title") or q.get("title") or "Unknown"
                 )
@@ -323,6 +317,7 @@ def _get_arr_queue(conn: sqlite3.Connection) -> list[dict]:
                         "kind": "movie",
                         "dl_id": "radarr:" + m_title,
                         "title": m_title,
+                        "year": movie.get("year"),
                         "source": "Radarr",
                         "poster_url": poster_url,
                         "progress": progress,
@@ -341,15 +336,18 @@ def _get_arr_queue(conn: sqlite3.Connection) -> list[dict]:
                 )
             # Also include monitored movies still searching (not yet in queue).
             # Includes both released-but-stalled items and unreleased items.
-            queue_titles = {i["title"] for i in items if i.get("kind") == "movie"}
+            # Use (title, year) as the dedup key so same-title remakes don't
+            # collide (e.g. "Dune" 1984 vs 2021).
+            queue_title_years = {(i["title"], i.get("year")) for i in items if i.get("kind") == "movie"}
             try:
                 for movie in client.get_movies():
                     m_title = movie.get("title", "")
+                    m_year = movie.get("year")
                     if not movie.get("monitored"):
                         continue
                     if movie.get("hasFile"):
                         continue
-                    if m_title in queue_titles:
+                    if (m_title, m_year) in queue_title_years:
                         continue
 
                     is_upcoming, release_label = _classify_movie_upcoming(movie)
@@ -360,14 +358,7 @@ def _get_arr_queue(conn: sqlite3.Connection) -> list[dict]:
                     if added_dt is not None:
                         added_at = added_dt.timestamp()
 
-                    poster_url = ""
-                    for img in movie.get("images") or []:
-                        if (
-                            img.get("coverType") == "poster"
-                            and img.get("remoteUrl")
-                        ):
-                            poster_url = img["remoteUrl"]
-                            break
+                    poster_url = extract_poster_url(movie.get("images")) or ""
 
                     items.append({
                         "kind": "movie",
@@ -441,19 +432,13 @@ def _get_arr_queue(conn: sqlite3.Connection) -> list[dict]:
                 }
 
                 if series_id not in series_map:
-                    poster_url = ""
-                    for img in series.get("images") or []:
-                        if (
-                            img.get("coverType") == "poster"
-                            and img.get("remoteUrl")
-                        ):
-                            poster_url = img["remoteUrl"]
-                            break
+                    poster_url = extract_poster_url(series.get("images")) or ""
                     s_title = series.get("title") or "Unknown"
                     series_map[series_id] = {
                         "kind": "series",
                         "dl_id": "sonarr:" + s_title,
                         "title": s_title,
+                        "year": series.get("year"),
                         "source": "Sonarr",
                         "poster_url": poster_url,
                         "episodes": [],
@@ -530,16 +515,19 @@ def _get_arr_queue(conn: sqlite3.Connection) -> list[dict]:
                 items.append(card)
 
             # Also include monitored series still searching (not yet in queue).
-            queue_titles = {i["title"] for i in items if i.get("kind") == "series"}
+            # Use (title, year) as the dedup key — some remakes share a title
+            # (e.g. "The Office" UK vs US).
+            queue_series_title_years = {(i["title"], i.get("year")) for i in items if i.get("kind") == "series"}
             try:
                 for series in client.get_series():
                     s_title = series.get("title", "")
+                    s_year = series.get("year")
                     if not series.get("monitored"):
                         continue
                     stats = series.get("statistics") or {}
                     if stats.get("episodeFileCount", 0) > 0:
                         continue
-                    if s_title in queue_titles:
+                    if (s_title, s_year) in queue_series_title_years:
                         continue
 
                     # Fetch episodes for upcoming classification
@@ -564,11 +552,7 @@ def _get_arr_queue(conn: sqlite3.Connection) -> list[dict]:
                     if added_dt is not None:
                         added_at = added_dt.timestamp()
 
-                    poster_url = ""
-                    for img in series.get("images") or []:
-                        if img.get("coverType") == "poster" and img.get("remoteUrl"):
-                            poster_url = img["remoteUrl"]
-                            break
+                    poster_url = extract_poster_url(series.get("images")) or ""
 
                     items.append({
                         "kind": "series",

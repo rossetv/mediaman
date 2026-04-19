@@ -106,14 +106,6 @@ class RadarrClient:
                 return movie
         return None
 
-    def lookup_movie(self, tmdb_id: int) -> dict | None:
-        """Look up a movie by TMDB ID to check if it already exists."""
-        try:
-            results = self._get(f"/api/v3/movie/lookup/tmdb?tmdbId={tmdb_id}")
-            return results if isinstance(results, dict) else None
-        except Exception:
-            return None
-
     def test_connection(self) -> bool:
         try:
             self._get("/api/v3/system/status")

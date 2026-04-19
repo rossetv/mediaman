@@ -9,9 +9,27 @@ import json
 import logging
 import sqlite3
 
+from mediaman.services.arr_build import (
+    build_radarr_from_db as _build_radarr,
+    build_sonarr_from_db as _build_sonarr,
+)
 from mediaman.services.storage import get_disk_usage
 
 logger = logging.getLogger("mediaman")
+
+
+def _load_library_ids(conn: sqlite3.Connection) -> list[str]:
+    """Read plex_libraries from settings, returning [] on missing or corrupt JSON."""
+    row = conn.execute(
+        "SELECT value FROM settings WHERE key='plex_libraries'"
+    ).fetchone()
+    if not row:
+        return []
+    try:
+        return json.loads(row["value"])
+    except json.JSONDecodeError:
+        logger.warning("plex_libraries setting contains invalid JSON — scanning no libraries")
+        return []
 
 
 def _get_setting(conn: sqlite3.Connection, key: str, default: str = "") -> str:
@@ -136,10 +154,7 @@ def run_scan_from_db(conn: sqlite3.Connection, secret_key: str, *, skip_disk_che
         token_val = decrypt_value(token_val, secret_key, conn=conn, aad=b"plex_token")
 
     # ── Library IDs ──────────────────────────────────────────────────────────
-    libraries_row = conn.execute(
-        "SELECT value FROM settings WHERE key='plex_libraries'"
-    ).fetchone()
-    lib_ids: list[str] = json.loads(libraries_row["value"]) if libraries_row else []
+    lib_ids = _load_library_ids(conn)
 
     plex = PlexClient(plex_url_row["value"], token_val)
 
@@ -153,30 +168,8 @@ def run_scan_from_db(conn: sqlite3.Connection, secret_key: str, *, skip_disk_che
         lib_ids = _filter_libraries_by_disk(conn, lib_ids, lib_titles)
 
     # ── Optional *arr clients ────────────────────────────────────────────────
-    sonarr_client = None
-    radarr_client = None
-
-    sonarr_url = _get_setting(conn, "sonarr_url")
-    sonarr_key_row = conn.execute(
-        "SELECT value, encrypted FROM settings WHERE key='sonarr_api_key'"
-    ).fetchone()
-    if sonarr_url and sonarr_key_row:
-        from mediaman.services.sonarr import SonarrClient
-        sonarr_key = sonarr_key_row["value"]
-        if sonarr_key_row["encrypted"]:
-            sonarr_key = decrypt_value(sonarr_key, secret_key, conn=conn, aad=b"sonarr_api_key")
-        sonarr_client = SonarrClient(sonarr_url, sonarr_key)
-
-    radarr_url = _get_setting(conn, "radarr_url")
-    radarr_key_row = conn.execute(
-        "SELECT value, encrypted FROM settings WHERE key='radarr_api_key'"
-    ).fetchone()
-    if radarr_url and radarr_key_row:
-        from mediaman.services.radarr import RadarrClient
-        radarr_key = radarr_key_row["value"]
-        if radarr_key_row["encrypted"]:
-            radarr_key = decrypt_value(radarr_key, secret_key, conn=conn, aad=b"radarr_api_key")
-        radarr_client = RadarrClient(radarr_url, radarr_key)
+    sonarr_client = _build_sonarr(conn, secret_key)
+    radarr_client = _build_radarr(conn, secret_key)
 
     # ── Thresholds ───────────────────────────────────────────────────────────
     min_age = _get_int_setting(conn, "min_age_days", 30)
@@ -231,10 +224,7 @@ def run_library_sync(conn: sqlite3.Connection, secret_key: str) -> dict:
     if plex_token_row["encrypted"]:
         token_val = decrypt_value(token_val, secret_key, conn=conn, aad=b"plex_token")
 
-    libraries_row = conn.execute(
-        "SELECT value FROM settings WHERE key='plex_libraries'"
-    ).fetchone()
-    lib_ids: list[str] = json.loads(libraries_row["value"]) if libraries_row else []
+    lib_ids = _load_library_ids(conn)
 
     plex = PlexClient(plex_url_row["value"], token_val)
     plex_libs = plex.get_libraries()

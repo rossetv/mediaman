@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+from mediaman.auth.audit import log_audit
 from mediaman.auth.middleware import get_optional_admin_from_token
 from mediaman.auth.rate_limit import RateLimiter, get_client_ip
 from mediaman.config import load_config
@@ -176,11 +177,7 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")):
         return RedirectResponse(f"/keep/{token}", status_code=302)
 
     # Audit log only fires for the winning request
-    conn.execute(
-        "INSERT INTO audit_log (media_item_id, action, detail, created_at) "
-        "VALUES (?, ?, ?, ?)",
-        (row["media_item_id"], "snoozed", f"Kept for {duration}", now.isoformat()),
-    )
+    log_audit(conn, row["media_item_id"], "snoozed", f"Kept for {duration}")
     conn.commit()
 
     return RedirectResponse(f"/keep/{token}", status_code=302)

@@ -11,6 +11,11 @@ from mediaman.auth.middleware import (
     resolve_page_session,
 )
 from mediaman.db import get_db
+from mediaman.services.arr_build import (
+    build_radarr_from_db as _build_radarr,
+    build_sonarr_from_db as _build_sonarr,
+)
+from mediaman.services.download_notifications import record_download_notification as _record_dn
 
 logger = logging.getLogger("mediaman")
 
@@ -230,17 +235,9 @@ def api_download_recommendation(recommendation_id: int, request: Request, admin:
 
     try:
         if row["media_type"] == "movie":
-            from mediaman.crypto import decrypt_value
-            radarr_url_row = conn.execute("SELECT value FROM settings WHERE key='radarr_url'").fetchone()
-            radarr_key_row = conn.execute("SELECT value, encrypted FROM settings WHERE key='radarr_api_key'").fetchone()
-            if not radarr_url_row or not radarr_key_row:
+            client = _build_radarr(conn, config.secret_key)
+            if not client:
                 return JSONResponse({"ok": False, "error": "Radarr not configured"})
-            radarr_key = radarr_key_row["value"]
-            if radarr_key_row["encrypted"]:
-                radarr_key = decrypt_value(radarr_key, config.secret_key, conn=conn, aad=b"radarr_api_key")
-
-            from mediaman.services.radarr import RadarrClient
-            client = RadarrClient(radarr_url_row["value"], radarr_key)
             client.add_movie(tmdb_id, row["title"])
             logger.info("Added movie '%s' (tmdb:%d) to Radarr", row["title"], tmdb_id)
             from datetime import datetime, timezone
@@ -254,26 +251,14 @@ def api_download_recommendation(recommendation_id: int, request: Request, admin:
                 "SELECT email FROM subscribers WHERE active=1 LIMIT 1"
             ).fetchone()
             notify_email = admin_row["email"] if admin_row else admin
-            conn.execute(
-                "INSERT INTO download_notifications (email, title, media_type, tmdb_id, service, notified, created_at) "
-                "VALUES (?, ?, ?, ?, ?, 0, ?)",
-                (notify_email, row["title"], "movie", tmdb_id, "radarr", now),
-            )
+            _record_dn(conn, email=notify_email, title=row["title"], media_type="movie", tmdb_id=tmdb_id, service="radarr")
             conn.commit()
             return JSONResponse({"ok": True, "message": f"Added '{row['title']}' to Radarr"})
 
         else:  # TV
-            from mediaman.crypto import decrypt_value
-            sonarr_url_row = conn.execute("SELECT value FROM settings WHERE key='sonarr_url'").fetchone()
-            sonarr_key_row = conn.execute("SELECT value, encrypted FROM settings WHERE key='sonarr_api_key'").fetchone()
-            if not sonarr_url_row or not sonarr_key_row:
+            client = _build_sonarr(conn, config.secret_key)
+            if not client:
                 return JSONResponse({"ok": False, "error": "Sonarr not configured"})
-            sonarr_key = sonarr_key_row["value"]
-            if sonarr_key_row["encrypted"]:
-                sonarr_key = decrypt_value(sonarr_key, config.secret_key, conn=conn, aad=b"sonarr_api_key")
-
-            from mediaman.services.sonarr import SonarrClient
-            client = SonarrClient(sonarr_url_row["value"], sonarr_key)
             # Sonarr lookup by TMDB ID to get TVDB ID
             results = client._get(f"/api/v3/series/lookup?term=tmdb:{tmdb_id}")
             if not results:
@@ -296,12 +281,7 @@ def api_download_recommendation(recommendation_id: int, request: Request, admin:
             notify_email = admin_row["email"] if admin_row else admin
             # Sonarr matches series by TVDB id, not TMDB — keep both so the
             # completion checker uses the right field per service.
-            conn.execute(
-                "INSERT INTO download_notifications "
-                "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
-                (notify_email, row["title"], "tv", tmdb_id, tvdb_id, "sonarr", now),
-            )
+            _record_dn(conn, email=notify_email, title=row["title"], media_type="tv", tmdb_id=tmdb_id, tvdb_id=tvdb_id, service="sonarr")
             conn.commit()
             return JSONResponse({"ok": True, "message": f"Added '{row['title']}' to Sonarr"})
 

@@ -19,6 +19,7 @@ from mediaman.auth.middleware import (
     get_optional_admin_from_token,
     resolve_page_session,
 )
+from mediaman.auth.audit import log_audit
 from mediaman.db import get_db
 from mediaman.services.format import format_bytes as _format_bytes
 
@@ -203,10 +204,7 @@ def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)
         return JSONResponse({"error": "No active protection found"}, status_code=404)
 
     conn.execute("DELETE FROM scheduled_actions WHERE id = ?", (row["id"],))
-    conn.execute(
-        "INSERT INTO audit_log (media_item_id, action, detail, created_at) VALUES (?, ?, ?, ?)",
-        (media_item_id, "unprotected", "Protection removed by admin", now.isoformat()),
-    )
+    log_audit(conn, media_item_id, "unprotected", "Protection removed by admin")
     conn.commit()
 
     logger.info("Unprotected media_item_id=%s by %s", media_item_id, username)
@@ -371,10 +369,7 @@ def api_keep_show(
                 (sid, action, now.isoformat(), execute_at, token, now.isoformat(), duration),
             )
 
-    conn.execute(
-        "INSERT INTO audit_log (media_item_id, action, detail, created_at) VALUES (?, ?, ?, ?)",
-        (show_rating_key, "kept_show", f"Show '{show_title}' kept ({duration}) by {admin}", now.isoformat()),
-    )
+    log_audit(conn, show_rating_key, "kept_show", f"Show '{show_title}' kept ({duration}) by {admin}")
     conn.commit()
 
     logger.info("Kept show %s (%s) — %s by %s", show_rating_key, show_title, duration, admin)
@@ -394,11 +389,7 @@ def api_remove_show_keep(show_rating_key: str, admin: str = Depends(get_current_
         return JSONResponse({"ok": False, "error": "No show-level keep found"}, status_code=404)
 
     conn.execute("DELETE FROM kept_shows WHERE id = ?", (row["id"],))
-    now = datetime.now(timezone.utc).isoformat()
-    conn.execute(
-        "INSERT INTO audit_log (media_item_id, action, detail, created_at) VALUES (?, ?, ?, ?)",
-        (show_rating_key, "removed_show_keep", f"Show keep removed for '{row['show_title']}' by {admin}", now),
-    )
+    log_audit(conn, show_rating_key, "removed_show_keep", f"Show keep removed for '{row['show_title']}' by {admin}")
     conn.commit()
 
     logger.info("Removed show keep for %s by %s", show_rating_key, admin)

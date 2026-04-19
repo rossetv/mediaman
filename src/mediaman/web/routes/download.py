@@ -18,7 +18,9 @@ from urllib.parse import quote as _url_quote
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from mediaman.auth.audit import log_audit as _log_audit
 from mediaman.auth.middleware import get_optional_admin
+from mediaman.services.download_notifications import record_download_notification as _record_dn
 from mediaman.auth.rate_limit import RateLimiter, get_client_ip
 from mediaman.crypto import validate_download_token
 from mediaman.db import get_db
@@ -28,6 +30,7 @@ from mediaman.services.download_format import (
     _fmt_bytes,
     _map_arr_status,
     _map_episode_state,
+    extract_poster_url,
 )
 
 logger = logging.getLogger("mediaman")
@@ -95,13 +98,6 @@ from mediaman.services.arr_build import (
     build_radarr_from_db as _build_radarr,
     build_sonarr_from_db as _build_sonarr,
 )
-from mediaman.services.settings_reader import get_string_setting as _get_setting_str
-
-
-def _get_setting(conn, key: str, secret_key: str) -> str:
-    """Backwards-compatible wrapper kept for in-file callers."""
-    return _get_setting_str(conn, key, secret_key=secret_key)
-
 
 def _enrich_redownload_item(item: dict, conn, secret_key: str) -> None:
     """Enrich a re-download item with rich metadata for the cinematic layout.
@@ -429,8 +425,9 @@ def download_submit(request: Request, token: str):
             client.add_movie(tmdb_id, title)
             logger.info("Download token: added movie '%s' (tmdb:%s) to Radarr for %s", title, tmdb_id, email)
 
-            _insert_audit(conn, title, audit_action, audit_detail)
-            _insert_download_notification(conn, email=email, title=title, media_type="movie", tmdb_id=tmdb_id, service="radarr")
+            _log_audit(conn, title, audit_action, audit_detail)
+            _record_dn(conn, email=email, title=title, media_type="movie", tmdb_id=tmdb_id, service="radarr")
+            conn.commit()
 
             return JSONResponse({
                 "ok":      True,
@@ -458,13 +455,14 @@ def download_submit(request: Request, token: str):
             client.add_series(tvdb_id, title)
             logger.info("Download token: added series '%s' (tvdb:%s) to Sonarr for %s", title, tvdb_id, email)
 
-            _insert_audit(conn, title, audit_action, audit_detail)
+            _log_audit(conn, title, audit_action, audit_detail)
             # Store the TVDB id against the TVDB column; preserve tmdb_id
             # too so future UI linking to TMDB still works.
-            _insert_download_notification(
+            _record_dn(
                 conn, email=email, title=title, media_type="tv",
                 tmdb_id=tmdb_id, tvdb_id=tvdb_id, service="sonarr",
             )
+            conn.commit()
 
             return JSONResponse({
                 "ok":      True,
@@ -485,47 +483,6 @@ def download_submit(request: Request, token: str):
         return JSONResponse({"ok": False, "error": "Download request failed — check service connectivity"})
 
 
-def _insert_audit(conn, title: str, action: str, detail: str) -> None:
-    """Insert an audit log entry for a token-triggered download."""
-    from datetime import datetime, timezone
-
-    now = datetime.now(timezone.utc).isoformat()
-    conn.execute(
-        "INSERT INTO audit_log (media_item_id, action, detail, created_at) VALUES (?, ?, ?, ?)",
-        (title, action, detail, now),
-    )
-    conn.commit()
-
-
-def _insert_download_notification(
-    conn,
-    *,
-    email: str,
-    title: str,
-    media_type: str,
-    tmdb_id: int | None = None,
-    tvdb_id: int | None = None,
-    service: str,
-) -> None:
-    """Insert a pending download notification record.
-
-    The notification is sent by the library sync job once the item has a file
-    in Radarr/Sonarr — i.e. when it's actually available to watch.
-
-    Radarr uses TMDB IDs; Sonarr uses TVDB IDs. Store each in the matching
-    column so the completion checker can match the right field on each
-    service's response.
-    """
-    from datetime import datetime, timezone
-
-    now = datetime.now(timezone.utc).isoformat()
-    conn.execute(
-        "INSERT INTO download_notifications "
-        "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
-        (email, title, media_type, tmdb_id, tvdb_id, service, now),
-    )
-    conn.commit()
 
 
 def _unknown_item() -> dict:
@@ -596,11 +553,7 @@ def download_status(
             movie = client.get_movie_by_tmdb(tmdb_id)
             if movie and movie.get("hasFile"):
                 title = movie.get("title", "")
-                poster_url = ""
-                for img in movie.get("images") or []:
-                    if img.get("coverType") == "poster" and img.get("remoteUrl"):
-                        poster_url = img["remoteUrl"]
-                        break
+                poster_url = extract_poster_url(movie.get("images")) or ""
                 return JSONResponse(_build_item(
                     dl_id=f"radarr:{title}", title=title, media_type="movie",
                     poster_url=poster_url, state="ready", progress=100,
@@ -626,11 +579,7 @@ def download_status(
                     if state == "almost_ready":
                         eta = "Post-processing\u2026"
                     title = item_movie.get("title", "")
-                    poster_url = ""
-                    for img in item_movie.get("images") or []:
-                        if img.get("coverType") == "poster" and img.get("remoteUrl"):
-                            poster_url = img["remoteUrl"]
-                            break
+                    poster_url = extract_poster_url(item_movie.get("images")) or ""
                     return JSONResponse(_build_item(
                         dl_id=f"radarr:{title}", title=title,
                         media_type="movie", poster_url=poster_url,
@@ -680,10 +629,7 @@ def download_status(
                 if not series_title:
                     series_title = item_series.get("title", "")
                 if not series_poster:
-                    for img in item_series.get("images") or []:
-                        if img.get("coverType") == "poster" and img.get("remoteUrl"):
-                            series_poster = img["remoteUrl"]
-                            break
+                    series_poster = extract_poster_url(item_series.get("images")) or ""
 
                 episode = item.get("episode") or {}
                 size = item.get("size") or 0

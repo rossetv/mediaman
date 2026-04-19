@@ -16,6 +16,8 @@ from __future__ import annotations
 import logging
 import sqlite3
 
+from mediaman.services.download_format import extract_poster_url
+
 logger = logging.getLogger("mediaman")
 
 
@@ -60,6 +62,28 @@ def record_verified_completions(
     ``radarr:`` / ``sonarr:`` prefix) are treated as verified by default
     because there's no Arr source to cross-check against.
     """
+    # Fetch Radarr/Sonarr libraries once per call and reuse across items.
+    _radarr_movies: list[dict] | None = None
+    _sonarr_series: list[dict] | None = None
+    _radarr_built = False
+    _sonarr_built = False
+
+    def _get_radarr_movies():
+        nonlocal _radarr_movies, _radarr_built
+        if not _radarr_built:
+            client = build_client(conn, "radarr")
+            _radarr_movies = client.get_movies() if client else []
+            _radarr_built = True
+        return _radarr_movies or []
+
+    def _get_sonarr_series():
+        nonlocal _sonarr_series, _sonarr_built
+        if not _sonarr_built:
+            client = build_client(conn, "sonarr")
+            _sonarr_series = client.get_series() if client else []
+            _sonarr_built = True
+        return _sonarr_series or []
+
     for c in completed:
         dl_id = c["dl_id"]
         title = c["title"]
@@ -68,21 +92,17 @@ def record_verified_completions(
         verified = False
         try:
             if dl_id.startswith("radarr:"):
-                radarr = build_client(conn, "radarr")
-                if radarr:
-                    for movie in radarr.get_movies():
-                        if movie.get("title") == title and movie.get("hasFile"):
-                            verified = True
-                            break
+                for movie in _get_radarr_movies():
+                    if movie.get("title") == title and movie.get("hasFile"):
+                        verified = True
+                        break
             elif dl_id.startswith("sonarr:"):
-                sonarr = build_client(conn, "sonarr")
-                if sonarr:
-                    for series in sonarr.get_series():
-                        if series.get("title") == title:
-                            stats = series.get("statistics") or {}
-                            if stats.get("episodeFileCount", 0) > 0:
-                                verified = True
-                            break
+                for series in _get_sonarr_series():
+                    if series.get("title") == title:
+                        stats = series.get("statistics") or {}
+                        if stats.get("episodeFileCount", 0) > 0:
+                            verified = True
+                        break
             else:
                 # NZBGet-only items — no Arr verification possible
                 verified = True
@@ -149,13 +169,9 @@ def load_recent_downloads(
                     )
                     for e in entries:
                         t = e.get("title") or ""
-                        for img in e.get("images") or []:
-                            if (
-                                img.get("coverType") == "poster"
-                                and img.get("remoteUrl")
-                            ):
-                                cache[t] = img["remoteUrl"]
-                                break
+                        url = extract_poster_url(e.get("images"))
+                        if url:
+                            cache[t] = url
             except Exception:
                 logger.warning(
                     "Failed to fetch %s posters for backfill",

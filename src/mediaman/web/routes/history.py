@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.db import get_db
+from mediaman.services.format import format_bytes as _fmt_bytes_canonical
 
 logger = logging.getLogger("mediaman")
 
@@ -60,14 +61,10 @@ ACTION_LABELS = {
 
 
 def _format_bytes(n: int | None) -> str:
-    """Return a human-readable string for a byte count, or '' when absent."""
+    """Return a human-readable byte-count string, or '' when absent/zero."""
     if not n:
         return ""
-    for unit, threshold in (("TB", 1 << 40), ("GB", 1 << 30), ("MB", 1 << 20), ("KB", 1 << 10)):
-        if n >= threshold:
-            value = n / threshold
-            return f"{value:.1f} {unit}" if value < 100 else f"{value:.0f} {unit}"
-    return f"{n} B"
+    return _fmt_bytes_canonical(n)
 
 
 def _fetch_history(conn, action: str | None, page: int, per_page: int) -> tuple[list[dict], int]:

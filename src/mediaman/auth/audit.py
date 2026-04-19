@@ -17,6 +17,44 @@ from datetime import datetime, timezone
 logger = logging.getLogger("mediaman")
 
 
+def log_audit(
+    conn: sqlite3.Connection,
+    media_item_id: str,
+    action: str,
+    detail: str,
+    *,
+    space_bytes: int | None = None,
+) -> None:
+    """Insert a row into ``audit_log`` for a media action.
+
+    Args:
+        conn: Open SQLite connection.
+        media_item_id: The media item ID (or a surrogate like a title string).
+        action: Short action label, e.g. ``"deleted"``, ``"snoozed"``.
+        detail: Human-readable detail string.
+        space_bytes: Optional value for the ``space_reclaimed_bytes`` column;
+            omit (or pass ``None``) for events where no space was reclaimed.
+
+    Does **not** call ``conn.commit()`` — callers are responsible for
+    committing in their own transaction so the audit row and the business
+    row land in the same commit.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    if space_bytes is not None:
+        conn.execute(
+            "INSERT INTO audit_log "
+            "(media_item_id, action, detail, space_reclaimed_bytes, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (media_item_id, action, detail, space_bytes, now),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO audit_log (media_item_id, action, detail, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (media_item_id, action, detail, now),
+        )
+
+
 def security_event(
     conn: sqlite3.Connection,
     *,

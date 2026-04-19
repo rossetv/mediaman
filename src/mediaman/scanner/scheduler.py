@@ -47,6 +47,8 @@ def start_scheduler(
         ),
         id="weekly_scan",
         replace_existing=True,
+        max_instances=1,
+        coalesce=True,
     )
     if sync_fn and sync_interval_minutes > 0:
         _scheduler.add_job(
@@ -54,18 +56,24 @@ def start_scheduler(
             trigger=IntervalTrigger(minutes=sync_interval_minutes),
             id="library_sync",
             replace_existing=True,
+            max_instances=1,
+            coalesce=True,
         )
     _scheduler.add_job(
         lambda: cleanup_recent_downloads(get_db()),
         IntervalTrigger(hours=6),
         id="cleanup_recent_downloads",
         replace_existing=True,
+        max_instances=1,
+        coalesce=True,
     )
     _scheduler.add_job(
         lambda: trigger_pending_searches(get_db()),
         IntervalTrigger(hours=1),
         id="trigger_pending_searches",
         replace_existing=True,
+        max_instances=1,
+        coalesce=True,
     )
     _scheduler.start()
     return _scheduler

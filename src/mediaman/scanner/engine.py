@@ -17,9 +17,11 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from mediaman.auth.audit import log_audit
 from mediaman.crypto import generate_keep_token
 from mediaman.scanner.movies import evaluate_movie
 from mediaman.scanner.tv import evaluate_season
+from mediaman.services.format import parse_iso_utc as _parse_iso_utc
 from mediaman.services.storage import delete_path
 
 logger = logging.getLogger("mediaman")
@@ -308,11 +310,7 @@ class ScanEngine:
 
         for row in rows:
             if self._dry_run:
-                self._conn.execute(
-                    "INSERT INTO audit_log (media_item_id, action, detail, created_at) "
-                    "VALUES (?, 'dry_run_skip', ?, ?)",
-                    (row["media_item_id"], f"Would delete: {row['title']}", now.isoformat()),
-                )
+                log_audit(self._conn, row["media_item_id"], "dry_run_skip", f"Would delete: {row['title']}")
                 continue
 
             # Remove files from disk
@@ -345,16 +343,12 @@ class ScanEngine:
                 except Exception:
                     pass
 
-            self._conn.execute(
-                "INSERT INTO audit_log "
-                "(media_item_id, action, detail, space_reclaimed_bytes, created_at) "
-                "VALUES (?, 'deleted', ?, ?, ?)",
-                (
-                    row["media_item_id"],
-                    "Deleted: {}{}".format(row["title"], f" [rk:{row['plex_rating_key']}]" if row["plex_rating_key"] else ""),
-                    row["file_size_bytes"],
-                    now.isoformat(),
-                ),
+            log_audit(
+                self._conn,
+                row["media_item_id"],
+                "deleted",
+                "Deleted: {}{}".format(row["title"], f" [rk:{row['plex_rating_key']}]" if row["plex_rating_key"] else ""),
+                space_bytes=row["file_size_bytes"],
             )
 
             self._conn.execute(
@@ -404,7 +398,7 @@ class ScanEngine:
                 # Use updated_at (same as what's stored in DB) for age check
                 arr_date_str = self._arr_dates.get(self._normalise_path(item.get("file_path", "")))
                 if arr_date_str:
-                    raw_added = datetime.fromisoformat(_normalise_iso(arr_date_str).replace("Z", "+00:00"))
+                    raw_added = _parse_iso_utc(arr_date_str) or datetime.now(timezone.utc)
                 else:
                     raw_added = item.get("updated_at") or item.get("added_at")
                 added_at = _ensure_tz(raw_added)
@@ -464,7 +458,7 @@ class ScanEngine:
 
                 arr_date_str = self._arr_dates.get(self._normalise_path(season.get("file_path", "")))
                 if arr_date_str:
-                    raw_added = datetime.fromisoformat(_normalise_iso(arr_date_str).replace("Z", "+00:00"))
+                    raw_added = _parse_iso_utc(arr_date_str) or datetime.now(timezone.utc)
                 else:
                     raw_added = season.get("updated_at") or season.get("added_at")
                 added_at = _ensure_tz(raw_added)
@@ -545,7 +539,8 @@ class ScanEngine:
         # Prefer Radarr/Sonarr download date (exact), fall back to Plex
         arr_date = self._arr_dates.get(self._normalise_path(file_path))
         if arr_date:
-            added_at = _normalise_iso(arr_date)
+            _parsed = _parse_iso_utc(arr_date)
+            added_at = _parsed.isoformat() if _parsed else arr_date
         else:
             added_at = item.get("added_at")
             if isinstance(added_at, datetime):
@@ -718,17 +713,11 @@ class ScanEngine:
             (token, action_id),
         )
 
-        self._conn.execute(
-            """
-            INSERT INTO audit_log (media_item_id, action, detail, created_at)
-            VALUES (?, ?, ?, ?)
-            """,
-            (
-                media_id,
-                _DELETION_ACTION,
-                "scheduled by scan engine" + (" (re-entry)" if is_reentry else ""),
-                now.isoformat(),
-            ),
+        log_audit(
+            self._conn,
+            media_id,
+            _DELETION_ACTION,
+            "scheduled by scan engine" + (" (re-entry)" if is_reentry else ""),
         )
 
 
@@ -747,19 +736,4 @@ def _ensure_tz(dt: datetime) -> datetime:
     return dt
 
 
-def _normalise_iso(dt_str: str) -> str:
-    """Normalise an ISO datetime string so ``fromisoformat`` can parse it.
-
-    Radarr/Sonarr (.NET DateTime) may include 7 fractional second digits
-    but Python only supports up to 6.
-    """
-    if "." not in dt_str:
-        return dt_str
-    dot = dt_str.index(".")
-    i = dot + 1
-    while i < len(dt_str) and dt_str[i].isdigit():
-        i += 1
-    if i - dot - 1 > 6:
-        return dt_str[: dot + 7] + dt_str[i:]
-    return dt_str
 

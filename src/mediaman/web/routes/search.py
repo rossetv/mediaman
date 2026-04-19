@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.crypto import decrypt_value
 from mediaman.db import get_db
+from mediaman.services.download_notifications import record_download_notification as _record_dn
 from mediaman.services.omdb import fetch_ratings
 
 _RATINGS_TTL_DAYS = 30
@@ -510,34 +511,6 @@ class _DownloadRequest(BaseModel):
     search_seasons: list[int] | None = None
 
 
-def _record_notification(
-    conn,
-    email: str,
-    title: str,
-    media_type: str,
-    tmdb_id: int,
-    service: str,
-    *,
-    tvdb_id: int | None = None,
-) -> None:
-    """Insert a download_notifications row for the given item.
-
-    Sets ``notified=0`` so the next newsletter run will pick it up.
-
-    Sonarr's download completion check matches series by ``tvdbId``, so
-    callers adding a TV series must pass ``tvdb_id`` in addition to the
-    TMDB id, otherwise the completion checker can never fire for series
-    that were not sourced via TMDB lookup (most of them).
-    """
-    now = datetime.now(timezone.utc).isoformat()
-    conn.execute(
-        "INSERT INTO download_notifications "
-        "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
-        (email, title, media_type, tmdb_id, tvdb_id, service, now),
-    )
-    conn.commit()
-
 
 @router.post("/api/search/download")
 def api_download(body: _DownloadRequest, request: Request, admin: str = Depends(get_current_admin)):
@@ -569,7 +542,8 @@ def api_download(body: _DownloadRequest, request: Request, admin: str = Depends(
         except Exception:
             logger.exception("Failed to add movie")
             return JSONResponse({"ok": False, "error": "Failed to add to Radarr"})
-        _record_notification(conn, notify_email, body.title, "movie", body.tmdb_id, "radarr")
+        _record_dn(conn, email=notify_email, title=body.title, media_type="movie", tmdb_id=body.tmdb_id, service="radarr")
+        conn.commit()
         return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Radarr"})
 
     # TV
@@ -610,8 +584,6 @@ def api_download(body: _DownloadRequest, request: Request, admin: str = Depends(
     except Exception:
         logger.exception("Failed to add series")
         return JSONResponse({"ok": False, "error": "Failed to add to Sonarr"})
-    _record_notification(
-        conn, notify_email, body.title, "tv", body.tmdb_id, "sonarr",
-        tvdb_id=tvdb_id,
-    )
+    _record_dn(conn, email=notify_email, title=body.title, media_type="tv", tmdb_id=body.tmdb_id, tvdb_id=tvdb_id, service="sonarr")
+    conn.commit()
     return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Sonarr"})

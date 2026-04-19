@@ -37,6 +37,7 @@ from mediaman.crypto import (
     validate_poster_token,
 )
 from mediaman.db import get_db
+from mediaman.services.download_format import extract_poster_url
 
 router = APIRouter()
 
@@ -205,10 +206,7 @@ def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple:
                 client = RadarrClient(radarr_url, radarr_key)
                 for movie in client.get_movies():
                     if movie.get("title", "").lower() == title.lower():
-                        for img in movie.get("images") or []:
-                            if img.get("coverType") == "poster" and img.get("remoteUrl"):
-                                poster_url = img["remoteUrl"]
-                                break
+                        poster_url = extract_poster_url(movie.get("images")) or ""
                         break
             except Exception:
                 pass
@@ -221,10 +219,7 @@ def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple:
                 client = SonarrClient(sonarr_url, sonarr_key)
                 for series in client.get_series():
                     if series.get("title", "").lower() == title.lower():
-                        for img in series.get("images") or []:
-                            if img.get("coverType") == "poster" and img.get("remoteUrl"):
-                                poster_url = img["remoteUrl"]
-                                break
+                        poster_url = extract_poster_url(series.get("images")) or ""
                         break
             except Exception:
                 pass
