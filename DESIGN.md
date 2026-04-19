@@ -37,11 +37,29 @@ The color story is starkly binary. Product sections alternate between pure black
 - **Black 48%** (`rgba(0, 0, 0, 0.48)`): Tertiary text, disabled states, carousel controls.
 
 ### Surface & Dark Variants
-- **Dark Surface 1** (`#272729`): Card backgrounds in dark sections.
-- **Dark Surface 2** (`#262628`): Subtle surface variation in dark contexts.
-- **Dark Surface 3** (`#28282a`): Elevated cards on dark backgrounds.
-- **Dark Surface 4** (`#2a2a2d`): Highest dark surface elevation.
-- **Dark Surface 5** (`#242426`): Deepest dark surface tone.
+
+Mediaman uses a five-step elevation scale (one token per surface) — never a one-off colour. Every elevated surface picks the *next step up* from its parent, never two.
+
+| Token   | Value     | Use                                                                  |
+|---------|-----------|----------------------------------------------------------------------|
+| `--bg`  | `#000`    | Page background — the canvas behind every screen                     |
+| `--s1`  | `#141416` | Page panels (history table chrome, settings sections, list items)    |
+| `--s2`  | `#1d1d1f` | Card surface — tiles, modal sheet, settings cards, dl-row hover      |
+| `--s3`  | `#26262a` | Elevated card / hover state — `.btn--secondary`, search-box focus    |
+| `--s4`  | `#2e2e33` | Pill-on-surface — toggles, filter pill bg, deepest popover           |
+| `--hair`        | `rgba(255,255,255,.07)` | Hairline divider between sections of equal lightness    |
+| `--hair-strong` | `rgba(255,255,255,.12)` | Stronger divider (modals, ghost button border)          |
+
+### Text
+
+`--t1` … `--t4` are the only allowed text colours on dark surfaces.
+
+| Token  | Value                  | Use                                                         |
+|--------|------------------------|-------------------------------------------------------------|
+| `--t1` | `#fff`                 | Headlines, primary body, button text                        |
+| `--t2` | `rgba(255,255,255,.72)`| Secondary body, sub-labels, default body on dark            |
+| `--t3` | `rgba(255,255,255,.5)` | Tertiary text, helper hints, meta lines                     |
+| `--t4` | `rgba(255,255,255,.32)`| Muted icons, disabled state, placeholder colour             |
 
 ### Button States
 - **Button Active** (`#ededf2`): Active/pressed state for light buttons.
@@ -50,7 +68,18 @@ The color story is starkly binary. Product sections alternate between pure black
 - **White 32%** (`rgba(255, 255, 255, 0.32)`): Hover state on dark modal close buttons.
 
 ### Shadows
-- **Card Shadow** (`rgba(0, 0, 0, 0.22) 3px 5px 30px 0px`): Soft, diffused elevation for product cards. Offset and wide blur create a natural, photographic shadow. Tokenised in CSS as `--shadow-card` — use the token everywhere, never a bespoke shadow.
+
+There is **one** allowed shadow token. Every elevated element uses it; bespoke shadows are forbidden.
+
+```css
+--shadow-card:
+  rgba(0,0,0,.4) 0 20px 60px -15px,
+  rgba(0,0,0,.3) 0 6px 20px -8px;
+```
+
+Two stacked layers — a wide diffused base and a tight contact shadow — produce the cinematic Apple-TV poster lift. Used by `.dl-hero`, `.modal-sheet`, `.login-card`, `.keep-container`, `.tile:hover .tile-poster`, and any popover that needs to read above the page surface.
+
+The previous `rgba(0, 0, 0, 0.22) 3px 5px 30px 0px` value (apple.com marketing site) is retired; Mediaman's dark, poster-heavy surfaces need a deeper drop.
 
 ### Semantic Palette (Mediaman extension)
 
@@ -101,6 +130,45 @@ Each tint has a low-opacity background counterpart (0.10–0.22 alpha) so the la
 - **Extreme line-height range**: Headlines compress to 1.07 while body text opens to 1.47, and some button contexts stretch to 2.41. This dramatic range creates clear visual hierarchy through rhythm alone.
 
 ## 4. Component Stylings
+
+### Mediaman component layer (single source of truth)
+
+`static/style.css` and `templates/_components.html` expose a small primitive set. **Every page composes from these — no per-page variants.** If a button needs to behave differently on one screen, change the token, not a sibling class.
+
+| Primitive  | Class root        | Variants / modifiers                                            | Notes |
+|------------|-------------------|-----------------------------------------------------------------|-------|
+| Button     | `.btn`            | `--primary --secondary --ghost --success --danger --accent-soft --icon`, sizes `--sm --lg` | Pill-shaped (`--r-pill`); `transform: scale(.97)` on `:active` |
+| Split btn  | `.split`          | wraps a `.btn` + `.caret`                                        | Used on Library "Keep + dropdown" |
+| Pill       | `.pill`           | `--movie --tv --anime --kept --stale --queued --neutral`         | 3 px × 10 px chip; tinted bg + colour pair |
+| Filter pill| `.fpill`          | `--movie --tv --anime --kept --stale` plus `.on` for active state| Larger touch target than `.pill`; segmented pill bars |
+| Countdown  | `.countdown`      | (single)                                                         | Pulsing red dot; lives inside `.tile-pills` |
+| Tile       | `.tile` + `.tile-poster .tile-pills .tile-title .tile-meta .tile-rating .tile-actions` | — | Used by Dashboard scheduled, Library grid, Search, Recommended, Downloads recent |
+| Card       | `.card`           | `--flat --bordered`, `.card-pad` for 24 px padding               | Container for tables, settings panels |
+| Table      | `.tbl`            | rows take `.thumb`, `.title-cell .sub`                            | Library + History tables |
+| Storage    | `.storage`        | `.storage-hd .storage-bar > .seg.seg--{mov,tv,anime,other}`       | Same math everywhere it appears |
+| Stats      | `.stats / .lib-stats` with `.stat / .lib-stat`                  | `.on` for active filter; `.stat--stale` for danger tint | Library type filters |
+| Hero (DL)  | `.dl-hero`        | `.dl-hero-bg .dl-hero-poster .dl-hero-info .dl-bar .dl-state-pill` | Cinematic backdrop + poster + progress |
+| Compact row| `.dl-row` (alias `.dl-compact-row`) | `.dl-row-poster .dl-row-info .dl-row-pct`               | Queue + upcoming downloads |
+| History row| `.hist`           | `.hist-date .hist-msg .hist-type`                                 | Audit log timeline |
+| Settings   | `.setg-card .setg-row .setg-hd .setg-row-lbl .setg-row-sub`     | `.setg-nav` for the side rail | Used by every section in `settings.html` |
+| Toggle     | `.tog` / `.toggle-switch` | `.on` for checked state                                  | 44 × 26 px iOS-style switch |
+| Input      | `.inp` / `.form-input`   | (focus turns border to `--accent`)                       | Used for all text/number/select inputs |
+| Status dot | `.conn` + `.conn-dot` | `.off .warn`                                              | Settings + nav connection indicator |
+| Modal      | `.modal-backdrop` + `.modal-sheet` | `.modal-close-bar`, `.modal-actions`            | Search/Recommended detail sheet |
+| Empty state| `.empty`          | `.empty-ico` icon + `h3` + `p`                                   | Replace bespoke `.empty-state__*` markup |
+
+Macros for the most-used primitives live in `templates/_components.html`:
+
+```jinja
+{% import "_components.html" as c %}
+{{ c.btn("Add", variant="primary", size="sm") }}
+{{ c.pill("Movie", variant="movie") }}
+{{ c.fpill("All", on=true) }}
+{{ c.eyebrow("Your library, at a glance") }}
+{{ c.sec_hd("Storage", "Across your selected libraries") }}
+```
+
+Anything that doesn't already have a primitive **must** be added to this layer rather than written inline. A second instance of the same pattern is the trigger.
 
 ### Buttons
 
@@ -159,17 +227,16 @@ Each tint has a low-opacity background counterpart (0.10–0.22 alpha) so the la
 - Hover: no standard hover state — cards are static, links within them are interactive
 
 ### Navigation
-- Background: `rgba(0, 0, 0, 0.8)` (translucent dark) with `backdrop-filter: saturate(180%) blur(20px)`
-- Height: 48px (compact)
-- Text: `#ffffff` at 12px, weight 400
-- Active: underline on hover
-- Logo: Apple logomark (SVG) centered or left-aligned, 17x48px viewport
-- Mobile (<640 px): a **three-surface** system.
-  - **Mobile top bar** (48 px, sticky, same translucent glass) — brand logo left, current page title right. No menu icon.
-  - **Bottom tab bar** (64 px + safe-area inset, fixed to viewport bottom, translucent glass with `rgba(0,0,0,0.9)` + `backdrop-filter: saturate(180%) blur(20px)`) — five equal-width tabs with stroke-2 SVG icon (22 × 22 px) + label (10 px, weight 500). Tabs: **Home**, **Library**, **Search**, **Downloads**, **More**. Active tab uses Apple Blue (#2997ff) for both icon and label; inactive is `rgba(255,255,255,0.55)`.
-  - **More sheet** (bottom-anchored modal, slides up from the More tab). Contains Recommended, History, Settings; divider; Logout in danger red. Each row is 52 px tall. Tap outside to dismiss.
-  - At ≥640 px all three mobile surfaces hide and the desktop `<nav class="nav-top">` with horizontal links reappears. The swap is CSS-only via the `--bp-md` breakpoint.
-- The nav floats above content, maintaining its dark translucent glass regardless of section background
+
+`.nav-glass` is a **single sticky strip used at every viewport width**. It replaced the previous three-surface (top bar + bottom tab bar + more sheet) approach. One source of truth, no JS for the mobile case.
+
+- Background: `rgba(0,0,0,0.7)` with `backdrop-filter: saturate(180%) blur(24px)`.
+- Height: `--nav-h` (52 px), bottom hairline `var(--hair)`.
+- Brand left (`.brand` — `media<b>man</b>` with the bold mark in `--accent`).
+- Centre `.nav-links` is a horizontal flex row of `.nav-btn` pills (7 px × 12 px, font-size 13 px, `--r-pill`). Active link gets `.on` (`color: var(--t1)`, `background: var(--s3)`).
+- Below 700 px the link rail switches to **horizontal scroll** (`overflow-x: auto`, scrollbar hidden). No bottom tab bar, no overflow sheet — the user scrolls the same row of pills.
+- Right `.nav-end` slot for the logout form / connection indicators.
+- The nav floats above content, maintaining its dark translucent glass regardless of section background.
 
 ### Image Treatment
 - Products on solid-color fields (black or white) — no backgrounds, no context, just the object
@@ -226,12 +293,19 @@ Mediaman is a media management tool, not a marketing site. It follows the **Appl
 Cards and containers therefore sit on a dark surface and may use a 1 px hairline border at `rgba(255,255,255,0.06)` when adjacent to a same-coloured parent. Prefer surface-colour contrast; use a hairline only when the two surfaces would otherwise be indistinguishable.
 
 ### Border Radius Scale
-- Micro (5px): Small containers, link tags
-- Standard (8px): Buttons, product cards, image containers
-- Comfortable (11px): Search inputs, filter buttons
-- Large (12px): Feature panels, lifestyle image containers
-- Full Pill (980px): CTA links ("Learn more", "Shop"), navigation pills
-- Circle (50%): Media controls (play/pause, arrows)
+
+Tokens (`:root` in `style.css`):
+
+| Token       | Value  | Use                                                              |
+|-------------|--------|------------------------------------------------------------------|
+| `--r-xs`    | 6 px   | Thumbnails, tiny inset chips                                     |
+| `--r-sm`    | 8 px   | Form inputs, snooze options, tile/poster small                   |
+| `--r-md`    | 10 px  | Tile posters, compact rows, modal sub-blocks                     |
+| `--r-lg`    | 12 px  | Cards, hero, settings panels                                     |
+| `--r-pill`  | 980 px | All CTA buttons, pills, filter pills, status dots                |
+| 50%         | —      | Media controls, avatars, toggle thumb                            |
+
+**Never use a literal radius value.** Pick the closest token. The five-step scale is intentionally narrow — if a new component needs a radius outside this set, change the design, not the radius.
 
 ## 6. Depth & Elevation
 
