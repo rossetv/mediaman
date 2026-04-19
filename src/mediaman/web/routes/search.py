@@ -13,8 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
-from mediaman.auth.middleware import get_current_admin
-from mediaman.auth.session import validate_session
+from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.crypto import decrypt_value
 from mediaman.db import get_db
 from mediaman.services.omdb import fetch_ratings
@@ -136,13 +135,10 @@ def _annotate_states(results: list[dict], request: Request) -> None:
 
 @router.get("/search", response_class=HTMLResponse)
 def search_page(request: Request):
-    token = request.cookies.get("session_token")
-    if not token:
-        return RedirectResponse("/login", status_code=302)
-    conn = get_db()
-    username = validate_session(conn, token)
-    if username is None:
-        return RedirectResponse("/login", status_code=302)
+    resolved = resolve_page_session(request)
+    if isinstance(resolved, RedirectResponse):
+        return resolved
+    username, conn = resolved
     templates = request.app.state.templates
     return templates.TemplateResponse(request, "search.html", {
         "username": username,
@@ -514,16 +510,31 @@ class _DownloadRequest(BaseModel):
     search_seasons: list[int] | None = None
 
 
-def _record_notification(conn, email: str, title: str, media_type: str, tmdb_id: int, service: str) -> None:
+def _record_notification(
+    conn,
+    email: str,
+    title: str,
+    media_type: str,
+    tmdb_id: int,
+    service: str,
+    *,
+    tvdb_id: int | None = None,
+) -> None:
     """Insert a download_notifications row for the given item.
 
     Sets ``notified=0`` so the next newsletter run will pick it up.
+
+    Sonarr's download completion check matches series by ``tvdbId``, so
+    callers adding a TV series must pass ``tvdb_id`` in addition to the
+    TMDB id, otherwise the completion checker can never fire for series
+    that were not sourced via TMDB lookup (most of them).
     """
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
-        "INSERT INTO download_notifications (email, title, media_type, tmdb_id, service, notified, created_at) "
-        "VALUES (?, ?, ?, ?, ?, 0, ?)",
-        (email, title, media_type, tmdb_id, service, now),
+        "INSERT INTO download_notifications "
+        "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+        (email, title, media_type, tmdb_id, tvdb_id, service, now),
     )
     conn.commit()
 
@@ -599,5 +610,8 @@ def api_download(body: _DownloadRequest, request: Request, admin: str = Depends(
     except Exception:
         logger.exception("Failed to add series")
         return JSONResponse({"ok": False, "error": "Failed to add to Sonarr"})
-    _record_notification(conn, notify_email, body.title, "tv", body.tmdb_id, "sonarr")
+    _record_notification(
+        conn, notify_email, body.title, "tv", body.tmdb_id, "sonarr",
+        tvdb_id=tvdb_id,
+    )
     return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Sonarr"})

@@ -154,8 +154,10 @@ class TestForcePasswordChangePage:
         )
         create_user(conn, "alice", "Correct-Horse-9-Battery!")
         set_must_change_password(conn, "alice", True)
+        # Match what fastapi TestClient sends so the fingerprint binding
+        # added to every page route doesn't reject the test session.
         token = create_session(
-            conn, "alice", user_agent="pytest", client_ip="127.0.0.1",
+            conn, "alice", user_agent="testclient", client_ip="testclient",
         )
 
         client.cookies.set("session_token", token)
@@ -174,8 +176,10 @@ class TestForcePasswordChangePage:
         )
         create_user(conn, "alice", "Correct-Horse-9-Battery!")
         set_must_change_password(conn, "alice", True)
+        # Match what fastapi TestClient sends so the fingerprint binding
+        # added to every page route doesn't reject the test session.
         token = create_session(
-            conn, "alice", user_agent="pytest", client_ip="127.0.0.1",
+            conn, "alice", user_agent="testclient", client_ip="testclient",
         )
 
         client.cookies.set("session_token", token)
@@ -194,8 +198,10 @@ class TestForcePasswordChangePage:
         old = "Correct-Horse-9-Battery!"
         create_user(conn, "alice", old)
         set_must_change_password(conn, "alice", True)
+        # Match what fastapi TestClient sends so the fingerprint binding
+        # added to every page route doesn't reject the test session.
         token = create_session(
-            conn, "alice", user_agent="pytest", client_ip="127.0.0.1",
+            conn, "alice", user_agent="testclient", client_ip="testclient",
         )
 
         client.cookies.set("session_token", token)
@@ -226,8 +232,10 @@ class TestForcePasswordChangePage:
         new = "Zeppelin-9000-Antelope-Parade!"
         create_user(conn, "alice", old)
         set_must_change_password(conn, "alice", True)
+        # Match what fastapi TestClient sends so the fingerprint binding
+        # added to every page route doesn't reject the test session.
         token = create_session(
-            conn, "alice", user_agent="pytest", client_ip="127.0.0.1",
+            conn, "alice", user_agent="testclient", client_ip="testclient",
         )
 
         client.cookies.set("session_token", token)

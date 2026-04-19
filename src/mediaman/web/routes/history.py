@@ -7,8 +7,7 @@ import logging
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from mediaman.auth.middleware import get_current_admin
-from mediaman.auth.session import validate_session
+from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.db import get_db
 
 logger = logging.getLogger("mediaman")
@@ -157,14 +156,10 @@ def _fetch_history(conn, action: str | None, page: int, per_page: int) -> tuple[
 @router.get("/history", response_class=HTMLResponse)
 def history_page(request: Request):
     """Render the audit-log history page. Redirects to /login if session is invalid."""
-    token = request.cookies.get("session_token")
-    if not token:
-        return RedirectResponse("/login", status_code=302)
-
-    conn = get_db()
-    username = validate_session(conn, token)
-    if username is None:
-        return RedirectResponse("/login", status_code=302)
+    resolved = resolve_page_session(request)
+    if isinstance(resolved, RedirectResponse):
+        return resolved
+    username, conn = resolved
 
     # Parse query params with safe defaults.
     params = request.query_params

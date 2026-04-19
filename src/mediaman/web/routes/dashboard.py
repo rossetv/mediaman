@@ -10,8 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 import re
 
-from mediaman.auth.middleware import get_current_admin
-from mediaman.auth.session import validate_session
+from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.db import get_db
 from mediaman.services.format import days_ago as _days_ago
 from mediaman.services.format import format_bytes as _format_bytes
@@ -269,14 +268,10 @@ def _fetch_storage_stats(conn) -> dict:
 @router.get("/", response_class=HTMLResponse)
 def dashboard_page(request: Request):
     """Render the admin dashboard. Redirects to /login if session is invalid."""
-    token = request.cookies.get("session_token")
-    if not token:
-        return RedirectResponse("/login", status_code=302)
-
-    conn = get_db()
-    username = validate_session(conn, token)
-    if username is None:
-        return RedirectResponse("/login", status_code=302)
+    resolved = resolve_page_session(request)
+    if isinstance(resolved, RedirectResponse):
+        return resolved
+    username, conn = resolved
 
     scheduled_items = _fetch_scheduled(conn)
     recently_deleted = _fetch_recently_deleted(conn)

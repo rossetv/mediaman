@@ -27,9 +27,10 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from mediaman.auth.audit import security_event
+from mediaman.auth.middleware import resolve_page_session
 from mediaman.auth.password_policy import password_issues, policy_summary
 from mediaman.auth.rate_limit import get_client_ip
-from mediaman.auth.session import change_password, validate_session
+from mediaman.auth.session import change_password
 from mediaman.db import get_db
 
 logger = logging.getLogger("mediaman")
@@ -41,13 +42,10 @@ def _require_flagged_admin(request: Request):
     """Resolve the current session. Returns ``(username, None)`` when
     the session is valid, or ``(None, RedirectResponse)`` when the
     caller must be sent elsewhere (no session, or not flagged)."""
-    token = request.cookies.get("session_token")
-    if not token:
-        return None, RedirectResponse("/login", status_code=302)
-    conn = get_db()
-    username = validate_session(conn, token)
-    if username is None:
-        return None, RedirectResponse("/login", status_code=302)
+    resolved = resolve_page_session(request)
+    if isinstance(resolved, RedirectResponse):
+        return None, resolved
+    username, _conn = resolved
     return username, None
 
 

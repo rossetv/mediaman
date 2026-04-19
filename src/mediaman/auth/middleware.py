@@ -1,5 +1,7 @@
 """FastAPI auth dependencies."""
 
+import sqlite3
+
 from fastapi import Cookie, HTTPException, Request
 from starlette.responses import RedirectResponse
 
@@ -84,3 +86,28 @@ def require_admin_or_redirect(request: Request):
     if username is None:
         return RedirectResponse("/login", status_code=302)
     return username
+
+
+def resolve_page_session(
+    request: Request,
+) -> tuple[str, sqlite3.Connection] | RedirectResponse:
+    """Resolve a session cookie for page routes with fingerprint binding.
+
+    Returns ``(username, conn)`` on a valid session, or a
+    ``RedirectResponse("/login", 302)`` otherwise. Every page route that
+    previously did the cookie -> ``validate_session`` -> redirect dance
+    should call this helper — it guarantees the UA/IP fingerprint check
+    is always applied.
+    """
+    token = request.cookies.get("session_token")
+    if not token:
+        return RedirectResponse("/login", status_code=302)
+    conn = get_db()
+    user_agent = request.headers.get("user-agent", "")
+    client_ip = get_client_ip(request)
+    username = validate_session(
+        conn, token, user_agent=user_agent, client_ip=client_ip,
+    )
+    if username is None:
+        return RedirectResponse("/login", status_code=302)
+    return username, conn

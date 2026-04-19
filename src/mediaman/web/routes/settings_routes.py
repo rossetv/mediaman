@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 from mediaman.auth.audit import security_event
-from mediaman.auth.middleware import get_current_admin
+from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.auth.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.services.storage import get_disk_usage
 
@@ -35,7 +35,6 @@ from mediaman.auth.session import (
     destroy_all_sessions_for,
     list_sessions_for,
     list_users,
-    validate_session,
 )
 from mediaman.crypto import decrypt_value, encrypt_value
 from mediaman.db import get_db
@@ -198,14 +197,10 @@ def _build_plex_client(conn, secret_key: str):
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request):
     """Render the settings page. Redirects to /login if session is invalid."""
-    token = request.cookies.get("session_token")
-    if not token:
-        return RedirectResponse("/login", status_code=302)
-
-    conn = get_db()
-    username = validate_session(conn, token)
-    if username is None:
-        return RedirectResponse("/login", status_code=302)
+    resolved = resolve_page_session(request)
+    if isinstance(resolved, RedirectResponse):
+        return resolved
+    username, conn = resolved
 
     config = request.app.state.config
     settings = _mask_secrets(_load_settings(conn, config.secret_key))

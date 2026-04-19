@@ -692,6 +692,9 @@ function _startModalPolling(s) {
           fillDiv.style.width = '100%';
           labelSpan.textContent = 'Almost ready...';
           detailDiv.textContent = 'Importing into your library';
+        } else if (data.state === 'queued') {
+          labelSpan.textContent = 'Queued \u2014 waiting on indexer';
+          detailDiv.textContent = 'Grabbed release waiting to start';
         } else if (data.state === 'searching') {
           labelSpan.textContent = 'Searching for release...';
           detailDiv.textContent = 'Checking indexers for ' + s.title;

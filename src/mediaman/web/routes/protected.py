@@ -14,8 +14,11 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
-from mediaman.auth.middleware import get_current_admin
-from mediaman.auth.session import validate_session
+from mediaman.auth.middleware import (
+    get_current_admin,
+    get_optional_admin_from_token,
+    resolve_page_session,
+)
 from mediaman.db import get_db
 from mediaman.services.format import format_bytes as _format_bytes
 
@@ -120,8 +123,9 @@ def redirect_kept_to_library(request: Request):
     enumerate internal URL structure; unauth callers just see the
     login redirect.
     """
-    token = request.cookies.get("session_token")
-    if not token or validate_session(get_db(), token) is None:
+    if get_optional_admin_from_token(
+        request.cookies.get("session_token"), request=request
+    ) is None:
         return RedirectResponse("/login", status_code=302)
     return RedirectResponse("/library?type=kept", status_code=301)
 
@@ -129,14 +133,10 @@ def redirect_kept_to_library(request: Request):
 @router.get("/kept/page", response_class=HTMLResponse)
 def protected_page(request: Request):
     """Legacy kept items page (kept for API compatibility)."""
-    token = request.cookies.get("session_token")
-    if not token:
-        return RedirectResponse("/login", status_code=302)
-
-    conn = get_db()
-    username = validate_session(conn, token)
-    if username is None:
-        return RedirectResponse("/login", status_code=302)
+    resolved = resolve_page_session(request)
+    if isinstance(resolved, RedirectResponse):
+        return resolved
+    username, conn = resolved
 
     forever_items, snoozed_items = _fetch_protected(conn)
 
@@ -412,7 +412,8 @@ def api_remove_show_keep(show_rating_key: str, admin: str = Depends(get_current_
 @router.get("/protected")
 def redirect_protected_page(request: Request):
     """Redirect old /protected URL to library kept filter — auth-gated."""
-    token = request.cookies.get("session_token")
-    if not token or validate_session(get_db(), token) is None:
+    if get_optional_admin_from_token(
+        request.cookies.get("session_token"), request=request
+    ) is None:
         return RedirectResponse("/login", status_code=302)
     return RedirectResponse("/library?type=kept", status_code=301)

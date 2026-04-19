@@ -5,8 +5,11 @@ import logging
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from mediaman.auth.middleware import get_current_admin
-from mediaman.auth.session import validate_session
+from mediaman.auth.middleware import (
+    get_current_admin,
+    get_optional_admin_from_token,
+    resolve_page_session,
+)
 from mediaman.db import get_db
 
 logger = logging.getLogger("mediaman")
@@ -26,9 +29,9 @@ def _fetch_recommendations(conn) -> list[dict]:
 @router.get("/suggestions")
 def _legacy_suggestions_redirect(request: Request):
     """Permanent redirect for bookmarked /suggestions URLs — auth-gated."""
-    from mediaman.auth.session import validate_session
-    token = request.cookies.get("session_token")
-    if not token or validate_session(get_db(), token) is None:
+    if get_optional_admin_from_token(
+        request.cookies.get("session_token"), request=request
+    ) is None:
         return RedirectResponse("/login", status_code=302)
     return RedirectResponse("/recommended", status_code=301)
 
@@ -36,14 +39,10 @@ def _legacy_suggestions_redirect(request: Request):
 @router.get("/recommended", response_class=HTMLResponse)
 def recommended_page(request: Request):
     """Render the Recommended For You page, grouping recommendations by batch into accordion sections."""
-    token = request.cookies.get("session_token")
-    if not token:
-        return RedirectResponse("/login", status_code=302)
-
-    conn = get_db()
-    username = validate_session(conn, token)
-    if username is None:
-        return RedirectResponse("/login", status_code=302)
+    resolved = resolve_page_session(request)
+    if isinstance(resolved, RedirectResponse):
+        return resolved
+    username, conn = resolved
 
     enabled_row = conn.execute(
         "SELECT value FROM settings WHERE key='suggestions_enabled'"
@@ -295,10 +294,13 @@ def api_download_recommendation(recommendation_id: int, request: Request, admin:
                 "SELECT email FROM subscribers WHERE active=1 LIMIT 1"
             ).fetchone()
             notify_email = admin_row["email"] if admin_row else admin
+            # Sonarr matches series by TVDB id, not TMDB — keep both so the
+            # completion checker uses the right field per service.
             conn.execute(
-                "INSERT INTO download_notifications (email, title, media_type, tmdb_id, service, notified, created_at) "
-                "VALUES (?, ?, ?, ?, ?, 0, ?)",
-                (notify_email, row["title"], "tv", tmdb_id, "sonarr", now),
+                "INSERT INTO download_notifications "
+                "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+                (notify_email, row["title"], "tv", tmdb_id, tvdb_id, "sonarr", now),
             )
             conn.commit()
             return JSONResponse({"ok": True, "message": f"Added '{row['title']}' to Sonarr"})

@@ -31,7 +31,7 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
     from mediaman.services.settings_reader import get_string_setting
 
     pending = conn.execute(
-        "SELECT id, email, title, media_type, tmdb_id, service "
+        "SELECT id, email, title, media_type, tmdb_id, tvdb_id, service "
         "FROM download_notifications WHERE notified=0"
     ).fetchall()
     if not pending:
@@ -78,6 +78,10 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
         title = row["title"]
         media_type = row["media_type"]
         tmdb_id = row["tmdb_id"]
+        # ``tvdb_id`` may not be present on very old DB rows created before
+        # the v11 migration, but the ``SELECT`` above always aliases the
+        # column so ``row["tvdb_id"]`` is defined — just possibly NULL.
+        tvdb_id = row["tvdb_id"]
         service = row["service"]
 
         try:
@@ -90,9 +94,16 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
                     ready = bool(movie and movie.get("hasFile"))
             elif service == "sonarr":
                 client = get_sonarr()
-                if client and tmdb_id:
+                # Match on TVDB id first (authoritative for Sonarr); fall
+                # back to TMDB for series added via TMDB lookup where the
+                # Sonarr record happens to carry both.
+                if client and (tvdb_id or tmdb_id):
                     for s in client.get_series():
-                        if s.get("tmdbId") == tmdb_id:
+                        if tvdb_id and s.get("tvdbId") == tvdb_id:
+                            stats = s.get("statistics") or {}
+                            ready = stats.get("episodeFileCount", 0) > 0
+                            break
+                        if tmdb_id and s.get("tmdbId") == tmdb_id:
                             stats = s.get("statistics") or {}
                             ready = stats.get("episodeFileCount", 0) > 0
                             break

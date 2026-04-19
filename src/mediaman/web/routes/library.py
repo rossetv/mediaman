@@ -9,8 +9,7 @@ from urllib.parse import quote as _url_quote
 from fastapi import APIRouter, Body, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-from mediaman.auth.middleware import get_current_admin
-from mediaman.auth.session import validate_session
+from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.db import get_db
 from mediaman.services.format import format_bytes as _format_bytes
 
@@ -402,14 +401,10 @@ def library_page(
     per_page: int = 20,
 ):
     """Render the library page. Redirects to /login if session is invalid."""
-    token = request.cookies.get("session_token")
-    if not token:
-        return RedirectResponse("/login", status_code=302)
-
-    conn = get_db()
-    username = validate_session(conn, token)
-    if username is None:
-        return RedirectResponse("/login", status_code=302)
+    resolved = resolve_page_session(request)
+    if isinstance(resolved, RedirectResponse):
+        return resolved
+    username, conn = resolved
 
     # Clamp + sanitise
     sort = sort if sort in _VALID_SORTS else "added_desc"
@@ -735,10 +730,14 @@ def api_media_redownload(
                         "VALUES (?, ?, ?, ?)",
                         (title, "re_downloaded", f"Re-downloaded by {username}", now),
                     )
+                    # Sonarr matches series by TVDB id — keep both IDs so
+                    # the completion checker can fire even when tmdbId
+                    # isn't populated on the series record.
                     conn.execute(
-                        "INSERT INTO download_notifications (email, title, media_type, tmdb_id, service, notified, created_at) "
-                        "VALUES (?, ?, ?, ?, ?, 0, ?)",
-                        (username, title, "tv", tmdb_id_sonarr, "sonarr", now),
+                        "INSERT INTO download_notifications "
+                        "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+                        (username, title, "tv", tmdb_id_sonarr, tvdb_id, "sonarr", now),
                     )
                     conn.commit()
                     logger.info("Re-downloaded '%s' via Sonarr by %s", title, username)

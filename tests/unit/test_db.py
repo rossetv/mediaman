@@ -1,10 +1,17 @@
 """Tests for database schema and operations."""
 
 import sqlite3
+import threading
 
 import pytest
 
-from mediaman.db import init_db, get_db, DB_SCHEMA_VERSION
+from mediaman.db import (
+    DB_SCHEMA_VERSION,
+    close_db,
+    get_db,
+    init_db,
+    set_connection,
+)
 
 
 class TestInitDb:
@@ -74,3 +81,78 @@ class TestSchemaV3:
         assert "action" in cols
         assert "execute_at" in cols
         conn.close()
+
+
+class TestThreadLocalConnection:
+    """Regression: ``get_db()`` must return a per-thread connection.
+
+    Previously a single module-global connection was shared across the
+    scanner, scheduler, and web threads. ``conn.commit()`` on one
+    thread could then commit another thread's pending writes, and
+    long transactions could block unrelated work. These tests confirm
+    each thread now gets an isolated connection pointed at the same
+    DB file.
+    """
+
+    def test_separate_connections_per_thread(self, db_path):
+        conn_main = init_db(str(db_path))
+        set_connection(conn_main)
+
+        observed: dict[str, sqlite3.Connection | None] = {"worker": None}
+
+        def worker() -> None:
+            observed["worker"] = get_db()
+            close_db()
+
+        t = threading.Thread(target=worker)
+        t.start()
+        t.join()
+
+        assert observed["worker"] is not None
+        # The worker thread must not receive the main-thread connection.
+        assert observed["worker"] is not conn_main
+
+    def test_each_thread_sees_same_schema(self, db_path):
+        """Both threads point at the same DB file — schema is shared."""
+        conn_main = init_db(str(db_path))
+        set_connection(conn_main)
+
+        # Write something in the main thread.
+        conn_main.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) "
+            "VALUES ('thread_test', 'ok', 0, '2026-01-01')"
+        )
+        conn_main.commit()
+
+        found: dict[str, str | None] = {"value": None}
+
+        def worker() -> None:
+            conn = get_db()
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key='thread_test'"
+            ).fetchone()
+            found["value"] = row["value"] if row else None
+            close_db()
+
+        t = threading.Thread(target=worker)
+        t.start()
+        t.join()
+
+        assert found["value"] == "ok"
+
+    def test_close_db_only_touches_thread_local(self, db_path):
+        """close_db() must not close the bootstrap connection."""
+        conn_main = init_db(str(db_path))
+        set_connection(conn_main)
+
+        def worker() -> None:
+            get_db()  # lazily open this thread's conn
+            close_db()
+
+        t = threading.Thread(target=worker)
+        t.start()
+        t.join()
+
+        # The main-thread connection must still be usable.
+        row = conn_main.execute("SELECT 1").fetchone()
+        assert row[0] == 1

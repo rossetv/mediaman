@@ -459,7 +459,12 @@ def download_submit(request: Request, token: str):
             logger.info("Download token: added series '%s' (tvdb:%s) to Sonarr for %s", title, tvdb_id, email)
 
             _insert_audit(conn, title, audit_action, audit_detail)
-            _insert_download_notification(conn, email=email, title=title, media_type="tv", tmdb_id=tmdb_id, service="sonarr")
+            # Store the TVDB id against the TVDB column; preserve tmdb_id
+            # too so future UI linking to TMDB still works.
+            _insert_download_notification(
+                conn, email=email, title=title, media_type="tv",
+                tmdb_id=tmdb_id, tvdb_id=tvdb_id, service="sonarr",
+            )
 
             return JSONResponse({
                 "ok":      True,
@@ -498,22 +503,27 @@ def _insert_download_notification(
     email: str,
     title: str,
     media_type: str,
-    tmdb_id: int | None,
+    tmdb_id: int | None = None,
+    tvdb_id: int | None = None,
     service: str,
 ) -> None:
     """Insert a pending download notification record.
 
     The notification is sent by the library sync job once the item has a file
     in Radarr/Sonarr — i.e. when it's actually available to watch.
+
+    Radarr uses TMDB IDs; Sonarr uses TVDB IDs. Store each in the matching
+    column so the completion checker can match the right field on each
+    service's response.
     """
     from datetime import datetime, timezone
 
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         "INSERT INTO download_notifications "
-        "(email, title, media_type, tmdb_id, service, notified, created_at) "
-        "VALUES (?, ?, ?, ?, ?, 0, ?)",
-        (email, title, media_type, tmdb_id, service, now),
+        "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+        (email, title, media_type, tmdb_id, tvdb_id, service, now),
     )
     conn.commit()
 

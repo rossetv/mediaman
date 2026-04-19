@@ -165,7 +165,11 @@ def logout(request: Request):
     if not token:
         return JSONResponse({"detail": "Not authenticated"}, status_code=401)
     conn = get_db()
-    username = validate_session(conn, token)
+    user_agent = request.headers.get("user-agent", "")
+    client_ip = get_client_ip(request)
+    username = validate_session(
+        conn, token, user_agent=user_agent, client_ip=client_ip,
+    )
     if username is None:
         return JSONResponse({"detail": "Not authenticated"}, status_code=401)
     destroy_session(conn, token)

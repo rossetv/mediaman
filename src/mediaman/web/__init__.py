@@ -239,6 +239,7 @@ class ForcePasswordChangeMiddleware(BaseHTTPMiddleware):
         # Cheap check — avoid importing the DB layer at module load
         # to keep this middleware testable in isolation.
         try:
+            from mediaman.auth.rate_limit import get_client_ip
             from mediaman.auth.session import (
                 user_must_change_password,
                 validate_session,
@@ -252,7 +253,11 @@ class ForcePasswordChangeMiddleware(BaseHTTPMiddleware):
         except RuntimeError:
             return await call_next(request)
 
-        username = validate_session(conn, token)
+        user_agent = request.headers.get("user-agent", "")
+        client_ip = get_client_ip(request)
+        username = validate_session(
+            conn, token, user_agent=user_agent, client_ip=client_ip,
+        )
         if username is None:
             return await call_next(request)
 

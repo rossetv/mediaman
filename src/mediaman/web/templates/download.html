@@ -577,6 +577,7 @@ function buildHeroCard(wrapper, item) {
 
 function stateLabel(state) {
   if (state === 'searching') return 'Looking for the best version';
+  if (state === 'queued') return 'Queued — waiting on indexer';
   if (state === 'downloading') return 'Downloading';
   if (state === 'almost_ready') return 'Almost ready';
   if (state === 'ready') return 'Ready';

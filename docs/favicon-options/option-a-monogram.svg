@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Mediaman favicon option A</title>
+  <desc id="desc">A split lowercase m monogram on a black rounded square, with the right side accented in Apple Blue.</desc>
+  <defs>
+    <clipPath id="right-half">
+      <rect x="256" y="0" width="256" height="512" />
+    </clipPath>
+  </defs>
+  <rect x="56" y="56" width="400" height="400" rx="104" fill="#000000" />
+  <rect x="56" y="56" width="400" height="400" rx="104" fill="none" stroke="#1d1d1f" stroke-width="6" />
+  <path
+    d="M146 352V194c0-35 27-62 62-62s62 27 62 62v158M270 352V194c0-35 27-62 62-62s62 27 62 62v158"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="54"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M146 352V194c0-35 27-62 62-62s62 27 62 62v158M270 352V194c0-35 27-62 62-62s62 27 62 62v158"
+    clip-path="url(#right-half)"
+    fill="none"
+    stroke="#0071e3"
+    stroke-width="54"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>
