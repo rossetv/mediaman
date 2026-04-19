@@ -32,40 +32,40 @@
   {# ===== SUBSCRIBERS ===== #}
   <div class="settings-section expanded">
     <div class="settings-section-header" onclick="toggleSection(this)">
-      <div class="settings-section-icon" style="background: rgba(191,90,242,0.15);">
+      <div class="settings-section-icon icon-tint-purple">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#bf5af2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       </div>
       <div>
         <div class="settings-section-title">Newsletter Subscribers</div>
         <div class="settings-section-desc">Email addresses that receive the daily deletion digest</div>
       </div>
-      <div style="margin-left: auto;">{{ chevron_svg }}</div>
+      <div class="settings-header-chevron">{{ chevron_svg }}</div>
     </div>
     <div class="settings-section-body"><div class="settings-section-inner">
     <div class="settings-card">
       <div class="subscriber-list" id="subscriber-list">
-        <div style="color: var(--text-tertiary); font-size: 14px; padding: 8px 0;">Loading…</div>
+        <div class="settings-loading">Loading…</div>
       </div>
       <div class="add-subscriber-row">
         <input class="form-input" type="email" id="new-subscriber-email" placeholder="Add email address…">
         <button class="btn-add" onclick="addSubscriber()">Add</button>
       </div>
-      <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.06);">
-        <div style="display: flex; align-items: center; justify-content: space-between;">
+      <div class="newsletter-send-block">
+        <div class="newsletter-send-row">
           <div>
-            <div style="font-size: 15px; font-weight: 600; letter-spacing: -0.374px;">Send Newsletter</div>
-            <div style="font-size: 12px; color: var(--text-tertiary); margin-top: 2px;">
+            <div class="newsletter-send-label">Send Newsletter</div>
+            <div class="newsletter-send-sub">
               Send the current newsletter to selected subscribers without affecting the automated schedule
             </div>
           </div>
-          <button class="btn-test" id="btn-send-newsletter" onclick="toggleNewsletterSend()" style="white-space: nowrap;">Select Recipients</button>
+          <button class="btn-test u-whitespace-nowrap" id="btn-send-newsletter" onclick="toggleNewsletterSend()">Select Recipients</button>
         </div>
-        <div id="newsletter-send-panel" style="display: none; margin-top: 12px;">
-          <div id="newsletter-recipient-list" style="margin-bottom: 12px;"></div>
-          <div style="display: flex; gap: 8px; align-items: center;">
+        <div id="newsletter-send-panel" class="newsletter-send-panel">
+          <div id="newsletter-recipient-list" class="newsletter-send-panel-recipients"></div>
+          <div class="newsletter-send-panel-actions">
             <button class="btn-add" id="btn-confirm-newsletter" onclick="sendNewsletter(this)">Send Newsletter</button>
             <button class="btn-test" onclick="toggleNewsletterSend()">Cancel</button>
-            <span id="newsletter-send-status" style="font-size: 13px; font-weight: 600;"></span>
+            <span id="newsletter-send-status" class="newsletter-send-status"></span>
           </div>
         </div>
       </div>
@@ -80,14 +80,14 @@
   {# ===== GENERAL ===== #}
   <div class="settings-section expanded">
     <div class="settings-section-header" onclick="toggleSection(this)">
-      <div class="settings-section-icon" style="background: rgba(255,255,255,0.06);">
+      <div class="settings-section-icon icon-tint-neutral">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.56)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </div>
       <div>
         <div class="settings-section-title">General</div>
         <div class="settings-section-desc">Application URL, scan schedule, and timezone</div>
       </div>
-      <div style="margin-left: auto;">{{ chevron_svg }}</div>
+      <div class="settings-header-chevron">{{ chevron_svg }}</div>
     </div>
     <div class="settings-section-body"><div class="settings-section-inner">
     <div class="settings-card">
@@ -103,7 +103,7 @@
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Scan Day</label>
-          <select class="form-select" id="scan_day" style="max-width: 160px;">
+          <select class="form-select form-select--sm" id="scan_day">
             {% for day in ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] %}
             <option value="{{ day }}"
               {% if settings.get('scan_day', 'mon') == day %}selected{% endif %}>
@@ -115,8 +115,8 @@
         <div class="form-group">
           <label class="form-label">Scan Time</label>
           <input class="form-input" type="time" id="scan_time"
-            value="{{ settings.get('scan_time', '09:00') }}"
-            style="max-width: 160px;">
+            class="form-input form-select--sm"
+            value="{{ settings.get('scan_time', '09:00') }}">
         </div>
         <div class="form-group">
           <label class="form-label">Timezone</label>
@@ -143,17 +143,16 @@
           </select>
         </div>
       </div>
-      <div style="display:flex;align-items:center;gap:12px;padding:14px 0;border-top:1px solid rgba(255,255,255,0.04);margin-top:12px;">
-        <div style="flex:1;">
+      <div class="settings-subrow">
+        <div class="settings-subrow-label">
           <div class="threshold-name">AI Recommendations</div>
           <div class="threshold-desc">Generate GPT-powered recommendations during scans and include in newsletters</div>
         </div>
-        <label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer;">
+        <label class="toggle-switch">
           <input type="checkbox" id="suggestions_enabled"
-            {% if settings.get('suggestions_enabled', true) != false and settings.get('suggestions_enabled', 'true') != 'false' %}checked{% endif %}
-            style="opacity:0;width:0;height:0;">
-          <span style="position:absolute;inset:0;background:rgba(255,255,255,0.12);border-radius:12px;transition:all 0.2s;"></span>
-          <span style="position:absolute;top:2px;left:2px;width:20px;height:20px;background:#fff;border-radius:50%;transition:all 0.2s;"></span>
+            {% if settings.get('suggestions_enabled', true) != false and settings.get('suggestions_enabled', 'true') != 'false' %}checked{% endif %}>
+          <span class="toggle-switch-track"></span>
+          <span class="toggle-switch-thumb"></span>
         </label>
       </div>
     </div>
@@ -163,21 +162,21 @@
   {# ===== LIBRARY SYNC ===== #}
   <div class="settings-section">
     <div class="settings-section-header" onclick="toggleSection(this)">
-      <div class="settings-section-icon" style="background: rgba(48,209,88,0.15);">
+      <div class="settings-section-icon icon-tint-green">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#30d158" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
       </div>
       <div>
         <div class="settings-section-title">Library Sync</div>
         <div class="settings-section-desc">Keep the Library page current between weekly scans</div>
       </div>
-      <div style="margin-left: auto;">{{ chevron_svg }}</div>
+      <div class="settings-header-chevron">{{ chevron_svg }}</div>
     </div>
     <div class="settings-section-body"><div class="settings-section-inner">
     <div class="settings-card">
       <div class="form-row">
         <div class="form-group">
           <label class="form-label">Sync Interval</label>
-          <select class="form-select" id="library_sync_interval" style="max-width: 200px;">
+          <select class="form-select form-select--md" id="library_sync_interval">
             {% for val, label in [('1', 'Every minute'), ('2', 'Every 2 minutes'), ('5', 'Every 5 minutes'), ('10', 'Every 10 minutes'), ('15', 'Every 15 minutes'), ('30', 'Every 30 minutes'), ('60', 'Every hour'), ('120', 'Every 2 hours'), ('0', 'Disabled')] %}
             <option value="{{ val }}"
               {% if settings.get('library_sync_interval', '30') == val %}selected{% endif %}>
@@ -187,7 +186,7 @@
           </select>
           <div class="form-hint">Syncs media items and watch history from Plex. Does not evaluate deletions.</div>
         </div>
-        <div style="padding-top: 24px;">
+        <div class="settings-save-row">
           <button class="btn-test" onclick="syncLibrary(this)">Sync Now</button>
         </div>
       </div>
@@ -198,14 +197,14 @@
   {# ===== CLEANUP RULES ===== #}
   <div class="settings-section">
     <div class="settings-section-header" onclick="toggleSection(this)">
-      <div class="settings-section-icon" style="background: rgba(255,69,58,0.15);">
+      <div class="settings-section-icon icon-tint-red">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ff453a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
       </div>
       <div>
         <div class="settings-section-title">Cleanup Rules</div>
         <div class="settings-section-desc">Thresholds that determine when media becomes eligible for deletion</div>
       </div>
-      <div style="margin-left: auto;">{{ chevron_svg }}</div>
+      <div class="settings-header-chevron">{{ chevron_svg }}</div>
     </div>
     <div class="settings-section-body"><div class="settings-section-inner">
     <div class="settings-card">
@@ -243,19 +242,19 @@
   {# ===== DISK THRESHOLDS ===== #}
   <div class="settings-section">
     <div class="settings-section-header" onclick="toggleSection(this)">
-      <div class="settings-section-icon" style="background: rgba(100,210,255,0.15);">
+      <div class="settings-section-icon icon-tint-sky">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64d2ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 12H16c-.7 2-2 3-4 3s-3.3-1-4-3H2.5"/><path d="M5.5 5.1L2 12v6c0 1.1.9 2 2 2h16a2 2 0 0 0 2-2v-6l-3.4-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.8 1.1z"/></svg>
       </div>
       <div>
         <div class="settings-section-title">Disk Thresholds</div>
         <div class="settings-section-desc">Skip scanning libraries when their disk is below the usage threshold</div>
       </div>
-      <div style="margin-left: auto;">{{ chevron_svg }}</div>
+      <div class="settings-header-chevron">{{ chevron_svg }}</div>
     </div>
     <div class="settings-section-body"><div class="settings-section-inner">
     <div class="settings-card">
       <div id="disk-threshold-rows">
-        <div style="color: var(--text-tertiary); font-size: 14px; padding: 8px 0;">
+        <div class="settings-loading">
           Select Plex libraries above to configure disk thresholds.
         </div>
       </div>
@@ -270,14 +269,14 @@
   {# ===== PLEX ===== #}
   <div class="settings-section">
     <div class="settings-section-header" onclick="toggleSection(this)">
-      <div class="settings-section-icon" style="background: rgba(229,160,13,0.15);">
+      <div class="settings-section-icon icon-tint-amber">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="#e5a00d"><path d="M12 2L4 7v10l8 5 8-5V7l-8-5zm0 2.18L18 8v8l-6 3.75L6 16V8l6-3.82z"/></svg>
       </div>
       <div>
         <div class="settings-section-title">Plex</div>
         <div class="settings-section-desc">Media server connection for library scanning and watch history</div>
       </div>
-      <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+      <div class="settings-header-actions">
         <span class="conn-status conn-unknown" id="plex-status"><span class="conn-dot"></span> Untested</span>
         {{ chevron_svg }}
       </div>
@@ -292,7 +291,7 @@
             placeholder="http://plex:32400">
           <div class="form-help">Used by mediaman to reach Plex (container-to-container).</div>
         </div>
-        <div style="padding-top: 24px;">
+        <div class="settings-save-row">
           <button class="btn-test" onclick="testService('plex', this)">Test</button>
         </div>
       </div>
@@ -333,14 +332,14 @@
   {# ===== SONARR ===== #}
   <div class="settings-section">
     <div class="settings-section-header" onclick="toggleSection(this)">
-      <div class="settings-section-icon" style="background: rgba(62,169,237,0.15);">
+      <div class="settings-section-icon icon-tint-blue">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3ea9ed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><polyline points="17 2 12 7 7 2"/></svg>
       </div>
       <div>
         <div class="settings-section-title">Sonarr</div>
         <div class="settings-section-desc">TV show management — used for unmonitoring and re-downloading</div>
       </div>
-      <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+      <div class="settings-header-actions">
         <span class="conn-status conn-unknown" id="sonarr-status"><span class="conn-dot"></span> Untested</span>
         {{ chevron_svg }}
       </div>
@@ -355,7 +354,7 @@
             placeholder="http://sonarr:8989">
           <div class="form-help">Used by mediaman to reach Sonarr (container-to-container).</div>
         </div>
-        <div style="padding-top: 24px;">
+        <div class="settings-save-row">
           <button class="btn-test" onclick="testService('sonarr', this)">Test</button>
         </div>
       </div>
@@ -386,14 +385,14 @@
   {# ===== RADARR ===== #}
   <div class="settings-section">
     <div class="settings-section-header" onclick="toggleSection(this)">
-      <div class="settings-section-icon" style="background: rgba(255,165,0,0.15);">
+      <div class="settings-section-icon icon-tint-orange">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffa500" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M14.31 8l5.74 9.94M9.69 8h11.48M7.38 12l5.74-9.94M9.69 16L3.95 6.06M14.31 16H2.83M16.62 12l-5.74 9.94"/></svg>
       </div>
       <div>
         <div class="settings-section-title">Radarr</div>
         <div class="settings-section-desc">Movie management — used for unmonitoring and re-downloading</div>
       </div>
-      <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+      <div class="settings-header-actions">
         <span class="conn-status conn-unknown" id="radarr-status"><span class="conn-dot"></span> Untested</span>
         {{ chevron_svg }}
       </div>
@@ -408,7 +407,7 @@
             placeholder="http://radarr:7878">
           <div class="form-help">Used by mediaman to reach Radarr (container-to-container).</div>
         </div>
-        <div style="padding-top: 24px;">
+        <div class="settings-save-row">
           <button class="btn-test" onclick="testService('radarr', this)">Test</button>
         </div>
       </div>
@@ -439,14 +438,14 @@
   {# ===== NZBGET ===== #}
   <div class="settings-section">
     <div class="settings-section-header" onclick="toggleSection(this)">
-      <div class="settings-section-icon" style="background: rgba(255,255,255,0.06);">
+      <div class="settings-section-icon icon-tint-neutral">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.56)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="8 17 12 21 16 17"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/></svg>
       </div>
       <div>
         <div class="settings-section-title">NZBGet</div>
         <div class="settings-section-desc">Download client for re-downloading deleted media</div>
       </div>
-      <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+      <div class="settings-header-actions">
         <span class="conn-status conn-unknown" id="nzbget-status"><span class="conn-dot"></span> Untested</span>
         {{ chevron_svg }}
       </div>
@@ -461,7 +460,7 @@
             placeholder="http://nzbget:6789">
           <div class="form-help">Used by mediaman to reach NZBGet (container-to-container).</div>
         </div>
-        <div style="padding-top: 24px;">
+        <div class="settings-save-row">
           <button class="btn-test" onclick="testService('nzbget', this)">Test</button>
         </div>
       </div>
@@ -498,14 +497,14 @@
   {# ===== MAILGUN ===== #}
   <div class="settings-section">
     <div class="settings-section-header" onclick="toggleSection(this)">
-      <div class="settings-section-icon" style="background: rgba(255,87,87,0.15);">
+      <div class="settings-section-icon icon-tint-coral">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ff5757" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
       </div>
       <div>
         <div class="settings-section-title">Email (Mailgun)</div>
         <div class="settings-section-desc">Newsletter delivery for deletion notifications</div>
       </div>
-      <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+      <div class="settings-header-actions">
         <span class="conn-status conn-unknown" id="mailgun-status"><span class="conn-dot"></span> Untested</span>
         {{ chevron_svg }}
       </div>
@@ -536,7 +535,7 @@
             <button class="secret-toggle" onclick="toggleSecret('mailgun_api_key', this)">Show</button>
           </div>
         </div>
-        <div style="padding-top: 24px;">
+        <div class="settings-save-row">
           <button class="btn-test" onclick="testService('mailgun', this)">Test</button>
         </div>
       </div>
@@ -547,14 +546,14 @@
   {# ===== OPENAI ===== #}
   <div class="settings-section">
     <div class="settings-section-header" onclick="toggleSection(this)">
-      <div class="settings-section-icon" style="background: rgba(16,163,127,0.15);">
+      <div class="settings-section-icon icon-tint-teal">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10a37f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/><line x1="9" y1="21" x2="15" y2="21"/></svg>
       </div>
       <div>
         <div class="settings-section-title">OpenAI</div>
         <div class="settings-section-desc">Powers AI media recommendations</div>
       </div>
-      <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+      <div class="settings-header-actions">
         <span class="conn-status conn-unknown" id="openai-status"><span class="conn-dot"></span> Untested</span>
         {{ chevron_svg }}
       </div>
@@ -570,9 +569,9 @@
               placeholder="sk-...">
             <button class="secret-toggle" onclick="toggleSecret('openai_api_key', this)">Show</button>
           </div>
-          <div class="form-hint">From <a href="https://platform.openai.com/api-keys" target="_blank" style="color:var(--accent);">platform.openai.com/api-keys</a></div>
+          <div class="form-hint">From <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com/api-keys</a></div>
         </div>
-        <div style="padding-top: 24px;">
+        <div class="settings-save-row">
           <button class="btn-test" onclick="testService('openai', this)">Test</button>
         </div>
       </div>
@@ -583,14 +582,14 @@
   {# ===== TMDB ===== #}
   <div class="settings-section">
     <div class="settings-section-header" onclick="toggleSection(this)">
-      <div class="settings-section-icon" style="background: rgba(1,180,228,0.15);">
+      <div class="settings-section-icon icon-tint-cyan">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#01b4e4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/></svg>
       </div>
       <div>
         <div class="settings-section-title">TMDB</div>
         <div class="settings-section-desc">Poster images for media recommendations</div>
       </div>
-      <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+      <div class="settings-header-actions">
         <span class="conn-status conn-unknown" id="tmdb-status"><span class="conn-dot"></span> Untested</span>
         {{ chevron_svg }}
       </div>
@@ -617,9 +616,9 @@
               placeholder="eyJhbGci...">
             <button class="secret-toggle" onclick="toggleSecret('tmdb_read_token', this)">Show</button>
           </div>
-          <div class="form-hint">Get both from <a href="https://www.themoviedb.org/settings/api" target="_blank" style="color:var(--accent);">themoviedb.org/settings/api</a></div>
+          <div class="form-hint">Get both from <a href="https://www.themoviedb.org/settings/api" target="_blank">themoviedb.org/settings/api</a></div>
         </div>
-        <div style="padding-top: 24px;">
+        <div class="settings-save-row">
           <button class="btn-test" onclick="testService('tmdb', this)">Test</button>
         </div>
       </div>
@@ -630,14 +629,14 @@
   {# ===== OMDB ===== #}
   <div class="settings-section">
     <div class="settings-section-header" onclick="toggleSection(this)">
-      <div class="settings-section-icon" style="background: rgba(245,197,24,0.15);">
+      <div class="settings-section-icon icon-tint-yellow">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f5c518" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
       </div>
       <div>
         <div class="settings-section-title">OMDB</div>
         <div class="settings-section-desc">Rotten Tomatoes ratings for media recommendations</div>
       </div>
-      <div style="margin-left: auto; display: flex; align-items: center; gap: 10px;">
+      <div class="settings-header-actions">
         <span class="conn-status conn-unknown" id="omdb-status"><span class="conn-dot"></span> Untested</span>
         {{ chevron_svg }}
       </div>
@@ -653,9 +652,9 @@
               placeholder="OMDb API key">
             <button class="secret-toggle" onclick="toggleSecret('omdb_api_key', this)">Show</button>
           </div>
-          <div class="form-hint">Free key from <a href="https://www.omdbapi.com/apikey.aspx" target="_blank" style="color:var(--accent);">omdbapi.com</a></div>
+          <div class="form-hint">Free key from <a href="https://www.omdbapi.com/apikey.aspx" target="_blank">omdbapi.com</a></div>
         </div>
-        <div style="padding-top: 24px;">
+        <div class="settings-save-row">
           <button class="btn-test" onclick="testService('omdb', this)">Test</button>
         </div>
       </div>
@@ -670,14 +669,14 @@
   {# ===== USERS ===== #}
   <div class="settings-section expanded">
     <div class="settings-section-header" onclick="toggleSection(this)">
-      <div class="settings-section-icon" style="background: rgba(41,151,255,0.15);">
+      <div class="settings-section-icon icon-tint-accent">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2997ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       </div>
       <div>
         <div class="settings-section-title">Users</div>
         <div class="settings-section-desc">Who can sign in and administer mediaman</div>
       </div>
-      <div style="margin-left: auto;">{{ chevron_svg }}</div>
+      <div class="settings-header-chevron">{{ chevron_svg }}</div>
     </div>
     <div class="settings-section-body"><div class="settings-section-inner">
 
@@ -1665,11 +1664,11 @@
     _newsletterPanelOpen = !_newsletterPanelOpen;
 
     if (_newsletterPanelOpen) {
-      panel.style.display = 'block';
+      panel.classList.add('is-open');
       btn.textContent = 'Cancel';
       renderRecipientCheckboxes();
     } else {
-      panel.style.display = 'none';
+      panel.classList.remove('is-open');
       btn.textContent = 'Select Recipients';
       document.getElementById('newsletter-send-status').textContent = '';
     }

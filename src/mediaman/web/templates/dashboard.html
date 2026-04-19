@@ -11,36 +11,14 @@
   <div class="page-header">
     <h1>Dashboard</h1>
     <p>Welcome back, {{ username }}</p>
-    <div style="margin-top:16px; display:flex; flex-wrap:wrap; align-items:center; gap:14px;">
-      <button id="scan-btn" onclick="triggerScan(this)"
-        style="padding:10px 28px;border-radius:980px;border:1px solid rgba(41,151,255,0.3);background:transparent;color:#2997ff;font-size:14px;font-weight:600;font-family:inherit;cursor:pointer;letter-spacing:-0.224px;transition:all 0.3s;">
+    <div class="page-header-actions">
+      <button id="scan-btn" class="btn-ghost-pill" onclick="triggerScan(this)">
         Scan Now
       </button>
-      <span id="scan-status" style="font-size:13px;color:rgba(255,255,255,0.4);letter-spacing:-0.224px;"></span>
+      <span id="scan-status" class="scan-status"></span>
     </div>
   </div>
 
-  <style>
-    @keyframes scan-pulse {
-      0%, 100% { border-color: rgba(41,151,255,0.3); box-shadow: 0 0 0 0 rgba(41,151,255,0); }
-      50% { border-color: rgba(41,151,255,0.6); box-shadow: 0 0 12px 0 rgba(41,151,255,0.15); }
-    }
-    .scan-running {
-      animation: scan-pulse 1.5s ease-in-out infinite;
-      color: #2997ff !important;
-      opacity: 1 !important;
-    }
-    @keyframes scan-dot {
-      0%, 80%, 100% { opacity: 0; }
-      40% { opacity: 1; }
-    }
-    .scan-dots span {
-      animation: scan-dot 1.4s infinite;
-      font-weight: 600;
-    }
-    .scan-dots span:nth-child(2) { animation-delay: 0.2s; }
-    .scan-dots span:nth-child(3) { animation-delay: 0.4s; }
-  </style>
 
   <script>
   var _scanElapsed = 0;
@@ -63,6 +41,7 @@
       .catch(function () {
         btn.textContent = 'Scan failed';
         btn.classList.remove('scan-running');
+        btn.classList.add('is-error');
         btn.disabled = false;
         updateScanStatus('');
       });
@@ -99,12 +78,11 @@
             setTimeout(check, 3000);
           } else {
             btn.classList.remove('scan-running');
+            btn.classList.add('is-success');
             btn.textContent = 'Scan complete \u2713';
-            btn.style.color = '#30d158';
-            btn.style.borderColor = 'rgba(48,209,88,0.3)';
             var statusEl = document.getElementById('scan-status');
             statusEl.textContent = 'Finished in ' + fmtElapsed(_scanElapsed) + ' \u2014 reloading\u2026';
-            statusEl.style.color = '#30d158';
+            statusEl.classList.add('scan-status--success');
             setTimeout(function () { window.location.reload(); }, 1500);
           }
         });
@@ -123,18 +101,16 @@
       .then(function (data) {
         if (data.ok) {
           btn.textContent = 'Queued \u2713';
-          btn.style.background = 'rgba(48,209,88,0.12)';
-          btn.style.color = '#30d158';
-          btn.style.borderColor = 'rgba(48,209,88,0.3)';
+          btn.classList.add('is-success');
         } else {
           btn.textContent = data.error && data.error.length < 30 ? data.error : 'Failed';
-          btn.style.color = '#ff453a';
+          btn.classList.add('is-error');
           btn.disabled = false;
         }
       })
       .catch(function () {
         btn.textContent = 'Error';
-        btn.style.color = '#ff453a';
+        btn.classList.add('is-error');
         btn.disabled = false;
       });
   }
@@ -148,8 +124,7 @@
       .then(function (data) {
         if (data.ok) {
           btn.textContent = 'Cleared ' + data.cleared;
-          btn.style.color = '#30d158';
-          btn.style.borderColor = 'rgba(48,209,88,0.3)';
+          btn.classList.add('is-success');
           setTimeout(function () { window.location.reload(); }, 1000);
         }
       });
@@ -184,19 +159,19 @@
       </div>
       <div class="storage-legend">
         <div class="legend-item">
-          <div class="legend-dot" style="background: #ff9f0a"></div>
+          <div class="legend-dot legend-dot--movies"></div>
           Movies <span class="size">{{ storage.movies_label }} ({{ storage.movies_pct }}%)</span>
         </div>
         <div class="legend-item">
-          <div class="legend-dot" style="background: #2997ff"></div>
+          <div class="legend-dot legend-dot--tv"></div>
           TV Shows <span class="size">{{ storage.tv_label }} ({{ storage.tv_pct }}%)</span>
         </div>
         <div class="legend-item">
-          <div class="legend-dot" style="background: #bf5af2"></div>
+          <div class="legend-dot legend-dot--anime"></div>
           Anime <span class="size">{{ storage.anime_label }} ({{ storage.anime_pct }}%)</span>
         </div>
         <div class="legend-item">
-          <div class="legend-dot" style="background: rgba(255,255,255,0.12)"></div>
+          <div class="legend-dot legend-dot--other"></div>
           Other <span class="size">{{ storage.other_label }}</span>
         </div>
       </div>
@@ -205,11 +180,11 @@
 
   <!-- Scheduled for deletion -->
   <div class="section">
-    <div class="section-header" style="flex-wrap:wrap;gap:8px;">
+    <div class="section-header section-header--wrap">
       <h2 class="section-title">Scheduled for Deletion</h2>
       {% if scheduled_count > 0 %}
       <span class="section-subtitle">{{ scheduled_count }} item{{ 's' if scheduled_count != 1 }} · {{ scheduled_size }} to reclaim</span>
-      <button onclick="clearScheduled(this)" style="margin-left:auto;padding:6px 16px;border-radius:8px;border:1px solid rgba(255,69,58,0.25);background:transparent;color:rgba(255,69,58,0.8);font-size:12px;font-weight:600;font-family:inherit;cursor:pointer;letter-spacing:-0.12px;">Clear All</button>
+      <button class="btn-danger-ghost u-ml-auto" onclick="clearScheduled(this)">Clear All</button>
       {% endif %}
     </div>
 
@@ -233,18 +208,21 @@
           </div>
           <div class="media-card-footer">
             <div class="keep-wrapper">
-              <form method="post" action="/api/media/{{ item.media_item_id }}/keep" style="display:inline">
+              <form method="post" action="/api/media/{{ item.media_item_id }}/keep" class="d-inline">
                 <input type="hidden" name="duration" value="7d">
                 <button type="submit" class="btn btn-keep">Keep</button>
               </form>
-              <div class="snooze-dropdown">
-                <button class="snooze-option"
+              <button type="button" class="btn-sm-caret"
+                aria-haspopup="menu" aria-expanded="false"
+                aria-label="More keep options">&#9662;</button>
+              <div class="snooze-dropdown" role="menu">
+                <button class="snooze-option" role="menuitem" tabindex="-1"
                   onclick="submitKeep('{{ item.media_item_id }}', '7d'); return false;">7 days</button>
-                <button class="snooze-option"
+                <button class="snooze-option" role="menuitem" tabindex="-1"
                   onclick="submitKeep('{{ item.media_item_id }}', '30d'); return false;">30 days</button>
-                <button class="snooze-option"
+                <button class="snooze-option" role="menuitem" tabindex="-1"
                   onclick="submitKeep('{{ item.media_item_id }}', '90d'); return false;">90 days</button>
-                <button class="snooze-option forever"
+                <button class="snooze-option forever" role="menuitem" tabindex="-1"
                   onclick="submitKeep('{{ item.media_item_id }}', 'forever'); return false;">Forever</button>
               </div>
             </div>
@@ -255,7 +233,7 @@
       {% endfor %}
     </div>
     {% else %}
-    <div style="text-align:center; padding: 48px 0; color: var(--text-tertiary); font-size: 17px;">
+    <div class="empty-state">
       Nothing scheduled for deletion.
     </div>
     {% endif %}
@@ -295,13 +273,13 @@
       {% endfor %}
     </div>
     {% else %}
-    <div style="text-align:center; padding: 48px 0; color: var(--text-tertiary); font-size: 17px;">
+    <div class="empty-state">
       No deletion history yet.
     </div>
     {% endif %}
   </div>
 
-  <div style="height: 80px"></div>
+  <div class="page-bottom-spacer"></div>
 </div>
 
 <script>

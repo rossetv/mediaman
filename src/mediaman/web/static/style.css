@@ -37,6 +37,19 @@
   --card-radius:    12px;
   --pill-radius:    980px;
 
+  /* Smaller corner radii — DESIGN.md §6 defines the scale; these are the
+     concrete tokens for the 6/8/10px family that previously appeared as
+     hard-coded values across the file. */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+
+  /* Motion tokens — fast for hover/feedback, default for typical UI
+     transitions, slow for deliberate state changes (scan pulse, CTA). */
+  --dur-fast:    120ms;
+  --dur-default: 200ms;
+  --dur-slow:    300ms;
+
   /* ===== RESPONSIVE SYSTEM =====
      Breakpoints: min-width cutoffs used by every @media rule in this file.
      sm gives large phones more breathing room; md is the primary tablet/phone
@@ -147,10 +160,10 @@ a:hover { text-decoration: none; }
 .nav-logout { margin-left: auto; }
 .btn-nav-logout {
   background: none; border: 1px solid rgba(255,69,58,0.25);
-  border-radius: 8px; color: rgba(255,69,58,0.8);
+  border-radius: var(--radius-md); color: rgba(255,69,58,0.8);
   font-size: 12px; font-weight: 600; font-family: inherit;
   letter-spacing: -0.12px; cursor: pointer; padding: 5px 14px;
-  transition: all 0.2s;
+  transition: all var(--dur-default);
 }
 .btn-nav-logout:hover {
   color: #ff453a; border-color: rgba(255,69,58,0.5);
@@ -323,7 +336,7 @@ a:hover { text-decoration: none; }
   letter-spacing: -0.224px;
   border: none;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--dur-default) ease;
   text-decoration: none;
   gap: 6px;
   font-family: inherit;
@@ -357,14 +370,14 @@ a:hover { text-decoration: none; }
 /* Small action buttons (library table) */
 .btn-sm {
   padding: 5px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 600;
   font-family: inherit;
   letter-spacing: -0.12px;
   border: none;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--dur-fast);
 }
 .btn-sm-keep   { background: rgba(41,151,255,0.15); color: var(--accent); }
 .btn-sm-keep:hover { background: rgba(41,151,255,0.25); }
@@ -374,7 +387,7 @@ a:hover { text-decoration: none; }
 /* Test / ghost outline button (settings) */
 .btn-test {
   padding: 8px 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 13px;
   font-weight: 600;
   font-family: inherit;
@@ -383,7 +396,7 @@ a:hover { text-decoration: none; }
   background: transparent;
   color: var(--accent);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--dur-default);
   white-space: nowrap;
 }
 .btn-test:hover { border-color: var(--accent); background: rgba(41,151,255,0.08); }
@@ -392,7 +405,7 @@ a:hover { text-decoration: none; }
 /* Add button (subscriber list) */
 .btn-add {
   padding: 12px 20px;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   font-size: 15px;
   font-weight: 600;
   font-family: inherit;
@@ -400,7 +413,7 @@ a:hover { text-decoration: none; }
   background: var(--accent);
   color: #fff;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--dur-default);
   white-space: nowrap;
 }
 .btn-add:hover { filter: brightness(1.1); }
@@ -408,7 +421,7 @@ a:hover { text-decoration: none; }
 /* Remove button (subscriber list) */
 .btn-remove {
   padding: 4px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 600;
   font-family: inherit;
@@ -416,7 +429,7 @@ a:hover { text-decoration: none; }
   background: transparent;
   color: var(--danger);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--dur-default);
 }
 .btn-remove:hover { background: rgba(255,69,58,0.1); border-color: var(--danger); }
 
@@ -453,7 +466,7 @@ a:hover { text-decoration: none; }
 }
 .storage-bar {
   height: 28px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   display: flex;
   background: var(--surface-2);
@@ -578,8 +591,16 @@ a:hover { text-decoration: none; }
   letter-spacing: -0.12px;
 }
 
-/* ===== SNOOZE DROPDOWN (inline card) ===== */
-.keep-wrapper { position: relative; }
+/* ===== SNOOZE DROPDOWN (split-button: Keep + caret) =====
+ * Desktop: CSS :hover opens the menu.
+ * Touch/keyboard: JS toggles .is-open on .keep-wrapper (see snooze-menu.js).
+ */
+.keep-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  gap: 2px;
+}
 .keep-wrapper::after {
   /* Invisible bridge between button and dropdown to prevent hover gap */
   content: '';
@@ -590,20 +611,50 @@ a:hover { text-decoration: none; }
   height: 12px;
   display: none;
 }
-.keep-wrapper:hover::after { display: block; }
+.keep-wrapper:hover::after,
+.keep-wrapper.is-open::after { display: block; }
+
+/* Caret button: touch/keyboard trigger for the snooze menu */
+.btn-sm-caret {
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  font-size: 9px;
+  line-height: 1;
+  border: none;
+  background: rgba(41,151,255,0.15);
+  color: var(--accent);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background var(--dur-fast);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+}
+.btn-sm-caret:hover,
+.keep-wrapper.is-open .btn-sm-caret {
+  background: rgba(41,151,255,0.25);
+}
+.btn-sm-caret:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .snooze-dropdown {
   display: none;
   position: absolute;
   bottom: calc(100% + 4px);
   left: 0;
   background: var(--surface-2);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   padding: 6px;
   min-width: 140px;
   box-shadow: 0 8px 30px rgba(0,0,0,0.5);
   z-index: 10;
 }
-.keep-wrapper:hover .snooze-dropdown { display: block; }
+.keep-wrapper:hover .snooze-dropdown,
+.keep-wrapper.is-open .snooze-dropdown { display: block; }
+
 .snooze-option {
   display: block;
   width: 100%;
@@ -615,11 +666,16 @@ a:hover { text-decoration: none; }
   font-family: inherit;
   letter-spacing: -0.224px;
   text-align: left;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background 0.15s;
 }
-.snooze-option:hover { background: rgba(255,255,255,0.08); }
+.snooze-option:hover,
+.snooze-option:focus-visible { background: rgba(255,255,255,0.08); }
+.snooze-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 .snooze-option.forever { color: var(--success); }
 
 /* ===== DELETED / RECENTLY-DELETED LIST ===== */
@@ -630,14 +686,14 @@ a:hover { text-decoration: none; }
 }
 .deleted-item {
   display: flex; gap: 12px; padding: 12px;
-  background: var(--surface); border-radius: 10px;
+  background: var(--surface); border-radius: var(--radius-lg);
   align-items: center; flex-wrap: wrap;
   transition: background 0.15s;
 }
 .deleted-item:hover { background: rgba(255,255,255,0.03); }
 .deleted-thumb {
   width: 40px; height: 60px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   object-fit: cover;
   flex-shrink: 0;
   background: var(--surface-2);
@@ -711,7 +767,7 @@ a:hover { text-decoration: none; }
   padding: 14px 16px;
   background: var(--surface);
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   color: var(--text);
   font-size: 17px; font-family: inherit;
   letter-spacing: -0.374px;
@@ -747,7 +803,7 @@ a:hover { text-decoration: none; }
 .error-msg {
   background: rgba(255,69,58,0.1);
   border: 1px solid rgba(255,69,58,0.2);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   padding: 12px 16px;
   width: 100%;
   font-size: 14px;
@@ -790,7 +846,7 @@ a:hover { text-decoration: none; }
   margin-bottom: 14px;
   background: rgba(41, 151, 255, 0.10);
   border: 1px solid rgba(41, 151, 255, 0.28);
-  border-radius: 980px;
+  border-radius: var(--pill-radius);
   color: var(--accent);
   font-family: var(--font-text, inherit);
   font-size: 12px;
@@ -842,7 +898,7 @@ a:hover { text-decoration: none; }
 .policy-issues {
   background: rgba(255, 69, 58, 0.08);
   border: 1px solid rgba(255, 69, 58, 0.24);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   padding: 12px 14px 12px 14px;
   font-size: 13px;
   color: var(--danger, #ff453a);
@@ -866,7 +922,7 @@ a:hover { text-decoration: none; }
 .fpc-meter {
   margin-top: 8px;
   height: 4px;
-  border-radius: 980px;
+  border-radius: var(--pill-radius);
   background: rgba(255, 255, 255, 0.07);
   overflow: hidden;
   position: relative;
@@ -875,7 +931,7 @@ a:hover { text-decoration: none; }
   display: block;
   height: 100%;
   width: 0;
-  border-radius: 980px;
+  border-radius: var(--pill-radius);
   background: rgba(255, 255, 255, 0.2);
   transition:
     width 180ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -1152,7 +1208,7 @@ a:hover { text-decoration: none; }
   padding: 10px 14px;
   background: var(--surface-2);
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   color: var(--text);
   font-size: 15px;
   font-family: inherit;
@@ -1267,7 +1323,7 @@ a:hover { text-decoration: none; }
   align-items: center;
   gap: 14px;
   padding: 12px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   transition: background 120ms ease-out;
 }
 .users-row + .users-row { border-top: 1px solid rgba(255,255,255,0.04); }
@@ -1290,7 +1346,7 @@ a:hover { text-decoration: none; }
   padding: 2px 8px;
   background: rgba(41,151,255,0.14);
   color: var(--accent);
-  border-radius: 980px;
+  border-radius: var(--pill-radius);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: -0.06px;
@@ -1347,7 +1403,7 @@ a:hover { text-decoration: none; }
   padding: 12px 14px;
   background: var(--surface);
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   color: var(--text);
   font-size: 15px;
   font-family: inherit;
@@ -1449,7 +1505,7 @@ a:hover { text-decoration: none; }
   aspect-ratio: 2/3;
   max-width: clamp(180px, 50vw, 260px);
   margin: 0 auto 24px;
-  border-radius: 12px; overflow: hidden;
+  border-radius: var(--card-radius); overflow: hidden;
   background: var(--surface-2);
   box-shadow: 0 20px 60px rgba(0,0,0,0.5);
 }
@@ -1542,7 +1598,7 @@ a:hover { text-decoration: none; }
   letter-spacing: -0.374px;
   border: none;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--dur-default) ease;
   font-family: inherit;
   display: flex;
   align-items: center;
@@ -1675,7 +1731,7 @@ a:hover { text-decoration: none; }
   gap: 12px;
   margin-bottom: 0;
   padding: 14px 16px;
-  border-radius: 12px;
+  border-radius: var(--card-radius);
   border-bottom: none;
   cursor: pointer;
   transition: background 0.2s;
@@ -1687,7 +1743,7 @@ a:hover { text-decoration: none; }
 }
 .settings-section.expanded .settings-section-header {
   margin-bottom: 16px;
-  border-radius: 12px 12px 0 0;
+  border-radius: var(--card-radius) 12px 0 0;
 }
 .settings-section-chevron {
   flex-shrink: 0;
@@ -1710,7 +1766,7 @@ a:hover { text-decoration: none; }
 }
 .settings-section-icon {
   width: 36px; height: 36px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1720,7 +1776,10 @@ a:hover { text-decoration: none; }
   font-size: 21px;
   font-weight: 600;
   line-height: 1.19;
-  letter-spacing: 0.231px;
+  /* DESIGN.md §3: 21px Display headings use negative tracking (-0.28px) for
+     the compressed Apple feel. Previously +0.231px, flagged in
+     DESIGN-REVIEW §1 C4. */
+  letter-spacing: -0.28px;
 }
 .settings-section-desc {
   font-size: 13px;
@@ -1799,7 +1858,7 @@ a:hover { text-decoration: none; }
   padding: 8px 12px;
   background: var(--surface-2);
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--text);
   font-size: 15px;
   font-family: inherit;
@@ -1836,7 +1895,7 @@ a:hover { text-decoration: none; }
   background: var(--accent-cta);
   color: #fff;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--dur-default);
 }
 .btn-save:hover  { filter: brightness(1.1); transform: scale(1.01); }
 .btn-save:active { transform: scale(0.99); }
@@ -1860,7 +1919,7 @@ a:hover { text-decoration: none; }
   border: 1px solid rgba(255,255,255,0.06);
   background: rgba(255,255,255,0.04);
   color: var(--text-tertiary);
-  transition: all 0.15s;
+  transition: all var(--dur-fast);
 }
 .lib-pill.selected {
   background: rgba(41,151,255,0.15);
@@ -1907,7 +1966,7 @@ a:hover { text-decoration: none; }
   padding: 8px 12px;
   background: var(--surface-2);
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--text);
   font-size: 14px;
   font-family: 'SF Mono', 'Fira Code', monospace;
@@ -1919,7 +1978,7 @@ a:hover { text-decoration: none; }
   padding: 8px 12px;
   background: var(--surface-2);
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--text);
   font-size: 15px;
   font-family: inherit;
@@ -1971,16 +2030,16 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 .segmented {
   display: inline-flex; gap: 0;
   background: rgba(255,255,255,0.06);
-  border-radius: 10px; padding: 3px;
+  border-radius: var(--radius-lg); padding: 3px;
   white-space: nowrap; flex-shrink: 0;
 }
 .seg-btn {
-  padding: 8px 18px; border-radius: 8px;
+  padding: 8px 18px; border-radius: var(--radius-md);
   font-size: 13px; font-weight: 600;
   letter-spacing: -0.224px;
   color: rgba(255,255,255,0.45);
   cursor: pointer; user-select: none;
-  transition: all 0.2s ease;
+  transition: all var(--dur-default) ease;
   border: none; background: none; font-family: inherit;
   white-space: nowrap;
 }
@@ -2009,7 +2068,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
   letter-spacing: -0.224px;
   border: none;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--dur-default);
   font-family: inherit;
   color: var(--text-secondary);
   background: transparent;
@@ -2029,7 +2088,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
   padding: 10px 14px 10px 38px;
   background: var(--surface);
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   color: var(--text);
   font-size: 15px;
   font-family: inherit;
@@ -2056,7 +2115,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
   color: rgba(255,255,255,0.7);
   font-size: 13px; font-weight: 500; font-family: inherit;
   cursor: pointer; letter-spacing: -0.224px;
-  white-space: nowrap; transition: all 0.15s;
+  white-space: nowrap; transition: all var(--dur-fast);
   display: inline-flex; align-items: center;
 }
 .filter-pill:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
@@ -2069,7 +2128,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 /* Sort select */
 .sort-select {
   padding: 8px 32px 8px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--surface);
   border: 1px solid rgba(255,255,255,0.08);
   color: var(--text-secondary);
@@ -2099,7 +2158,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
   background: var(--surface); padding: clamp(16px, 3vw, 22px);
   border-radius: 14px; display: block; color: var(--text);
   text-decoration: none; border: 1px solid transparent;
-  transition: all 0.2s;
+  transition: all var(--dur-default);
 }
 .lib-stat:hover { background: var(--surface-2); }
 .lib-stat-active { border-color: rgba(41,151,255,0.3); }
@@ -2150,7 +2209,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 .lib-sort-col:hover { color: var(--accent); }
 
 .lib-thumb {
-  width: 44px; height: 66px; border-radius: 6px;
+  width: 44px; height: 66px; border-radius: var(--radius-sm);
   object-fit: cover; background: var(--surface-2);
   display: block; flex-shrink: 0;
 }
@@ -2246,9 +2305,12 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 /* text-decoration: none keeps anchor-based page links visually identical to
    the button variants. */
 .page-btn {
-  width: 36px; height: 36px;
-  border-radius: 8px;
-  display: flex;
+  /* WCAG 2.1 AA requires a 44x44 minimum touch target (DESIGN-REVIEW §1 U6).
+     min-width/height lets the surface grow for 2+ digit page numbers. */
+  min-width: 44px; min-height: 44px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   font-size: 14px;
@@ -2257,7 +2319,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all var(--dur-fast);
   text-decoration: none;
 }
 .page-btn:hover       { background: var(--surface); color: var(--text); text-decoration: none; }
@@ -2280,7 +2342,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 .keep-dialog-overlay.active { display: flex; }
 .keep-dialog {
   background: #1d1d1f;
-  border-radius: 12px;
+  border-radius: var(--card-radius);
   padding: 28px 32px;
   width: 420px;
   max-width: 90vw;
@@ -2296,7 +2358,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 .keep-duration-bar {
   display: inline-flex;
   background: rgba(255,255,255,0.06);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   padding: 3px;
   margin-bottom: 20px;
   width: 100%;
@@ -2304,7 +2366,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 .keep-dur-btn {
   flex: 1;
   padding: 8px 0;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: none;
   background: none;
   font-size: 13px;
@@ -2312,7 +2374,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
   color: rgba(255,255,255,0.45);
   cursor: pointer;
   font-family: inherit;
-  transition: all 0.2s;
+  transition: all var(--dur-default);
 }
 .keep-dur-btn.active { background: rgba(41,151,255,0.18); color: var(--accent); }
 .keep-season-list { margin-bottom: 20px; }
@@ -2364,7 +2426,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 .keep-dialog-actions .btn-keep:hover { filter: brightness(1.1); }
 .keep-dialog-actions .btn-cancel {
   padding: 10px 20px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: 1px solid rgba(41,151,255,0.3);
   background: transparent;
   color: var(--accent);
@@ -2429,7 +2491,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 
 /* Card components used inside the search poster grid. */
 .poster-card {
-  background: var(--surface); border-radius: 12px; overflow: hidden;
+  background: var(--surface); border-radius: var(--card-radius); overflow: hidden;
   display: flex; flex-direction: column; cursor: pointer; position: relative;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
@@ -2459,7 +2521,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
    enough bottom fade for readability against any poster art. */
 .poster-state {
   position: absolute; bottom: 10px; right: 10px; z-index: 1;
-  padding: 4px 10px; border-radius: 6px;
+  padding: 4px 10px; border-radius: var(--radius-sm);
   font-size: 10px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;
   display: inline-flex; align-items: center; gap: 6px;
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
@@ -2535,7 +2597,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 .dl-hero-poster {
   width: clamp(70px, 12vw, 110px);
   height: clamp(105px, 18vw, 165px);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   flex-shrink: 0;
   margin-right: 24px;
@@ -2819,7 +2881,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 .dl-compact-poster {
   width: clamp(36px, 6vw, 44px);
   height: clamp(54px, 9vw, 66px);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   flex-shrink: 0;
   background: rgba(255,255,255,0.05);
@@ -2956,7 +3018,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 .dl-recent-poster {
   width: 110px;
   height: 165px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   position: relative;
   margin-bottom: 8px;
@@ -3155,7 +3217,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 /* ===== FLASH MESSAGES ===== */
 .flash {
   padding: 12px 16px;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   font-size: 14px;
   letter-spacing: -0.224px;
   margin-bottom: 16px;
@@ -3179,7 +3241,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
   border-bottom: 1px solid rgba(255,255,255,0.04);
 }
 .stacked-row:hover { background: rgba(255,255,255,0.02); }
-.stacked-row-thumb { width: 44px; height: 66px; border-radius: 6px;
+.stacked-row-thumb { width: 44px; height: 66px; border-radius: var(--radius-sm);
   background: var(--surface-2); object-fit: cover; flex-shrink: 0; }
 .stacked-row-main { flex: 1; min-width: 0; }
 .stacked-row-title { font-size: 14px; font-weight: 600;
@@ -3252,7 +3314,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 
 /* ===== DETAIL MODAL ACTIONS ===== */
 .btn-download {
-  padding: 12px 20px; border-radius: 10px;
+  padding: 12px 20px; border-radius: var(--radius-lg);
   background: var(--accent-cta); color: #fff;
   border: none; font-size: 14px; font-weight: 600; font-family: inherit;
   letter-spacing: -0.224px; cursor: pointer; transition: background 0.15s;
@@ -3262,11 +3324,11 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 .btn-download:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btn-share {
-  padding: 12px 20px; border-radius: 10px;
+  padding: 12px 20px; border-radius: var(--radius-lg);
   background: transparent; color: var(--accent);
   border: 1px solid rgba(41,151,255,0.3); font-size: 14px; font-weight: 600;
   font-family: inherit; letter-spacing: -0.224px; cursor: pointer;
-  transition: all 0.15s; min-height: 44px;
+  transition: all var(--dur-fast); min-height: 44px;
 }
 .btn-share:hover { background: rgba(41,151,255,0.08); border-color: rgba(41,151,255,0.5); }
 
@@ -3287,11 +3349,11 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
 }
 .form-input {
   flex: 1; width: 100%;
-  padding: 10px 12px; border-radius: 8px;
+  padding: 10px 12px; border-radius: var(--radius-md);
   border: 1px solid rgba(255,255,255,0.1);
   background: var(--surface-2); color: var(--text);
   font-size: 14px; font-family: inherit;
-  outline: none; transition: all 0.2s;
+  outline: none; transition: all var(--dur-default);
 }
 .form-input:focus {
   border-color: rgba(41,151,255,0.5); background: var(--surface-3);
@@ -3317,7 +3379,7 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
   font-weight: 500;
   color: var(--text-tertiary);
   background: rgba(255,255,255,0.06);
-  border-radius: 980px;
+  border-radius: var(--pill-radius);
   letter-spacing: -0.06px;
   vertical-align: 2px;
   text-transform: lowercase;
@@ -3374,3 +3436,1022 @@ input[type="checkbox"]:checked + span + span { transform: translateX(20px); }
   .toolbar { flex-direction: column; align-items: stretch; }
 }
 
+
+
+/* ################################################################
+   CONSOLIDATED TEMPLATE STYLES (moved from inline <style> blocks)
+   See DESIGN-REVIEW.md §1 C1 — inline styles purge pass.
+   ################################################################ */
+
+/* ============================================================================
+   SHARED MEDIA METADATA PILLS
+   Consolidated from duplicate definitions previously inlined in download.html
+   and _detail_modal.html. Canonical radius + typography here — page-level
+   overrides removed. DESIGN-REVIEW.md §2 C2 (radius drift) + §1 C1 (inline
+   styles).
+   ============================================================================ */
+
+.type-pill {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  background: rgba(41,151,255,0.15);
+  color: var(--accent);
+}
+
+.genre-pill {
+  padding: 3px 10px;
+  border-radius: var(--pill-radius);
+  font-size: 11px;
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.5);
+}
+
+.meta-text {
+  font-size: 13px;
+  color: rgba(255,255,255,0.45);
+  letter-spacing: -0.12px;
+}
+
+/* Base .rating-pill layout. Colour variants (.r-tmdb/.r-imdb/.r-rt/.r-meta)
+   live in their existing block further up the file. */
+.rating-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 14px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.224px;
+}
+.rating-pill .rating-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; line-height: 1;
+}
+.rating-pill .rating-icon svg { display: block; }
+
+/* ============================================================================
+   CAST ROW — horizontally scrolling avatars. Shared between download page
+   (.dl-cast wrapper) and detail modal (.detail-modal-cast wrapper).
+   ============================================================================ */
+
+.cast-item { text-align: center; flex-shrink: 0; min-width: 70px; }
+.cast-avatar {
+  width: 48px; height: 48px; border-radius: 50%;
+  background: rgba(255,255,255,0.08);
+  margin: 0 auto 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; color: rgba(255,255,255,0.3); font-weight: 600;
+  overflow: hidden;
+}
+.cast-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cast-name { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.8); line-height: 1.3; }
+.cast-char { font-size: 11px; color: rgba(255,255,255,0.35); line-height: 1.3; margin-top: 2px; }
+
+/* ============================================================================
+   SHARED ANIMATIONS & UTILITY CLASSES
+   Moved from inline <style> blocks in dashboard.html, download.html,
+   _detail_modal.html. Keep keyframes in one place for easier auditing.
+   ============================================================================ */
+
+@keyframes scan-pulse {
+  0%, 100% { border-color: rgba(41,151,255,0.3); box-shadow: 0 0 0 0 rgba(41,151,255,0); }
+  50%      { border-color: rgba(41,151,255,0.6); box-shadow: 0 0 12px 0 rgba(41,151,255,0.15); }
+}
+.scan-running {
+  animation: scan-pulse 1.5s ease-in-out infinite;
+  color: var(--accent) !important;
+  opacity: 1 !important;
+}
+@keyframes scan-dot {
+  0%, 80%, 100% { opacity: 0; }
+  40%           { opacity: 1; }
+}
+.scan-dots span { animation: scan-dot 1.4s infinite; font-weight: 600; }
+.scan-dots span:nth-child(2) { animation-delay: 0.2s; }
+.scan-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner { animation: spin 1s linear infinite; }
+
+@keyframes scaleIn {
+  from { transform: scale(0); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+
+/* ============================================================================
+   DOWNLOAD PAGE  — /downloads/:id confirmation / progress view
+   Previously inline in download.html.
+   ============================================================================ */
+
+/* Compact brand strip used only on the anonymous download page. */
+.dl-nav { padding: 16px 24px; text-align: center; }
+.dl-nav a {
+  font-size: 20px; font-weight: 600; color: var(--text);
+  text-decoration: none; letter-spacing: -0.3px;
+}
+.dl-nav a span { color: var(--accent); }
+
+/* Cinema-style hero on the download confirmation view. Fluid responsive.
+   At >=bp-md it's a 420px-tall backdrop; below it collapses to a vertical
+   poster + text block. */
+.dl-cinema {
+  display: flex; flex-direction: column; align-items: center;
+  padding: clamp(16px, 4vw, 24px) 0;
+}
+.dl-cinema img {
+  width: clamp(140px, 40vw, 200px); height: auto;
+  border-radius: var(--radius-lg);
+  margin-bottom: 16px;
+  object-fit: cover;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+}
+.dl-cinema-gradient { display: none; }
+.dl-cinema-info {
+  padding: 0 clamp(16px, 4vw, 24px);
+  text-align: center;
+}
+.dl-cinema-title {
+  font-size: clamp(20px, 5vw, 28px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.3px;
+}
+.dl-cinema-title .year {
+  font-weight: 400; color: rgba(255,255,255,0.5); font-size: 0.9em;
+}
+.dl-cinema-tagline {
+  font-size: 16px; color: rgba(255,255,255,0.4); font-style: italic;
+  margin-top: 8px;
+}
+@media (min-width: 640px) {
+  .dl-cinema {
+    position: relative;
+    width: 100%; height: 420px;
+    padding: 0;
+    overflow: hidden;
+  }
+  .dl-cinema img {
+    width: 100%; height: 100%;
+    margin: 0;
+    border-radius: 0;
+    box-shadow: none;
+    object-fit: cover;
+    filter: brightness(0.6);
+  }
+  .dl-cinema-gradient {
+    display: block;
+    position: absolute; bottom: 0; left: 0; right: 0;
+    height: 250px;
+    background: linear-gradient(to top, #000 0%, rgba(0,0,0,0.85) 40%, transparent 100%);
+  }
+  .dl-cinema-info {
+    position: absolute; bottom: 32px; left: 0; right: 0; z-index: 2;
+  }
+  .dl-cinema-title {
+    font-size: clamp(28px, 4vw, 44px);
+    letter-spacing: -0.5px;
+    text-shadow: 0 2px 16px rgba(0,0,0,0.6);
+    max-width: 640px; margin: 0 auto;
+  }
+  .dl-cinema-title .year { font-size: 28px; }
+}
+
+/* Body below the cinema hero — constrains content width, reserves space for
+   the bottom-fixed tab bar via .container-sized padding. */
+.dl-content {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 24px 80px;
+}
+
+.dl-quick {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  justify-content: center;
+  padding: 20px 0 16px;
+}
+.dl-quick .meta-text { font-size: 14px; }
+
+.dl-ratings {
+  display: flex; gap: 10px; flex-wrap: wrap;
+  justify-content: center;
+  margin-bottom: 24px;
+}
+
+/* Two-column description/reason layout — collapses to single column at
+   mobile. */
+.dl-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  margin-bottom: 32px;
+}
+@media (max-width: 639.98px) {
+  .dl-columns { grid-template-columns: 1fr; gap: 20px; }
+}
+
+.dl-description {
+  font-size: 15px; color: rgba(255,255,255,0.7);
+  line-height: 1.65; letter-spacing: -0.2px;
+}
+
+.dl-reason {
+  font-size: 14px; color: var(--accent); font-style: italic;
+  line-height: 1.5;
+  padding: 14px 18px;
+  background: rgba(41,151,255,0.06);
+  border-radius: var(--card-radius);
+  border-left: 3px solid rgba(41,151,255,0.3);
+}
+
+.dl-section-label {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.8px; color: rgba(255,255,255,0.3);
+  margin-bottom: 12px;
+}
+
+.dl-trailer { margin-bottom: 32px; }
+.dl-trailer iframe {
+  width: 100%; aspect-ratio: 16/9; border: none;
+  border-radius: var(--card-radius);
+}
+
+.dl-cast {
+  display: flex; gap: 20px; overflow-x: auto;
+  padding-bottom: 8px; margin-bottom: 32px;
+  -webkit-overflow-scrolling: touch;
+}
+.dl-cast::-webkit-scrollbar { height: 0; }
+
+.dl-requested {
+  text-align: center;
+  font-size: 13px; color: rgba(255,255,255,0.3);
+  margin-bottom: 20px;
+}
+
+.dl-action {
+  display: flex; gap: 12px; justify-content: center;
+  margin-bottom: 32px;
+}
+
+/* Big hero CTA used only on the download confirmation page. Distinct from
+   the compact .btn-download (modal action) elsewhere — renamed to make the
+   distinction explicit and prevent drift. */
+.btn-download-hero {
+  flex: 1; max-width: 320px;
+  padding: 16px;
+  background: var(--accent);
+  color: #fff; border: none;
+  border-radius: 14px;
+  font-size: 17px; font-weight: 600;
+  cursor: pointer; letter-spacing: -0.3px; font-family: inherit;
+  transition: background var(--dur-default);
+  min-height: 44px;
+}
+.btn-download-hero:hover  { filter: brightness(1.1); }
+.btn-download-hero:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.dl-footer {
+  text-align: center; padding-top: 16px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+.dl-footer a { font-size: 14px; color: var(--accent); text-decoration: none; }
+.dl-footer a:hover { text-decoration: underline; }
+
+/* Wrapper used when the hero card is reused inline for download progress. */
+#dl-hero-wrapper {
+  max-width: 800px; margin: 40px auto; padding: 0 20px;
+}
+#dl-hero-wrapper .dl-hero { margin: 0; }
+.dl-hint {
+  font-size: 13px; color: rgba(255,255,255,0.3); line-height: 1.6;
+  text-align: center; margin-top: 16px;
+}
+
+.dl-result {
+  text-align: center; max-width: 400px; margin: 20px auto 0;
+  padding: 28px 20px;
+  background: rgba(48,209,88,0.04); border-radius: var(--card-radius);
+  border: 1px solid rgba(48,209,88,0.1);
+}
+.dl-result-title { font-size: 20px; font-weight: 600; margin: 12px 0 4px; }
+.dl-result-detail { font-size: 14px; color: rgba(255,255,255,0.5); }
+.dl-result svg { animation: scaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+/* ============================================================================
+   SUGGESTION CARDS  — recommended.html
+   Previously inline. Related to but intentionally denser than .media-card —
+   recommended view shows more items per row with tighter padding.
+   ============================================================================ */
+
+.sug-card {
+  background: var(--surface);
+  border-radius: var(--card-radius);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+}
+.sug-poster {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2/3;
+  background: #1d1d1f;
+  overflow: hidden;
+}
+.sug-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sug-poster-empty {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(255,255,255,0.15);
+}
+.sug-badge {
+  position: absolute; top: 10px; left: 10px;
+  padding: 3px 10px; border-radius: var(--radius-sm);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
+  background: rgba(0,0,0,0.7); color: rgba(255,255,255,0.8);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.sug-body {
+  padding: 10px 12px 12px;
+  display: flex; flex-direction: column; gap: 3px; flex: 1;
+}
+.sug-title {
+  font-size: 14px; font-weight: 600; color: var(--text);
+  letter-spacing: -0.374px; line-height: 1.3;
+}
+.sug-year { font-size: 12px; font-weight: 400; color: rgba(255,255,255,0.3); }
+.sug-desc {
+  font-size: 12px; color: rgba(255,255,255,0.45);
+  letter-spacing: -0.12px; line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.sug-reason {
+  font-size: 12px; color: var(--accent); font-style: italic;
+  letter-spacing: -0.12px; line-height: 1.4;
+}
+.sug-actions {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: auto; padding-top: 10px;
+}
+.sug-trailer-link {
+  font-size: 12px; color: rgba(255,255,255,0.4);
+  text-decoration: none; letter-spacing: -0.12px;
+  transition: color var(--dur-fast);
+}
+.sug-trailer-link:hover { color: var(--text); text-decoration: none; }
+.sug-dl-btn {
+  margin-left: auto;
+  padding: 6px 16px; border-radius: var(--pill-radius);
+  border: 1px solid rgba(41,151,255,0.3);
+  background: transparent; color: var(--accent);
+  font-size: 13px; font-weight: 600; font-family: inherit;
+  cursor: pointer; letter-spacing: -0.224px;
+  transition: all var(--dur-default); white-space: nowrap;
+  min-height: 32px;
+}
+.sug-dl-btn:hover:not(:disabled) {
+  background: rgba(41,151,255,0.1);
+  border-color: rgba(41,151,255,0.5);
+}
+.sug-dl-btn:disabled { cursor: default; }
+
+/* ============================================================================
+   DETAIL MODAL CONTENTS  — _detail_modal.html
+   Outer shell (.modal-backdrop / .modal-sheet / .modal-close-bar) uses the
+   shared modal system already in this file.
+   ============================================================================ */
+
+.detail-modal-hero {
+  position: relative; width: 100%; height: 360px; overflow: hidden;
+  background: #1d1d1f;
+}
+.detail-modal-hero img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+}
+.detail-modal-hero-gradient {
+  position: absolute; bottom: 0; left: 0; right: 0; height: 200px;
+  background: linear-gradient(to top, #0a0a0a 0%, rgba(10,10,10,0.8) 40%, transparent 100%);
+}
+.detail-modal-hero-info {
+  position: absolute; bottom: 24px; left: 28px; right: 28px; z-index: 2;
+}
+.detail-modal-hero-title {
+  font-size: 32px; font-weight: 700; line-height: 1.1; letter-spacing: -0.3px;
+  text-shadow: 0 2px 12px rgba(0,0,0,0.5);
+}
+.detail-modal-hero-title .year {
+  font-weight: 400; color: rgba(255,255,255,0.5); font-size: 24px;
+}
+
+.detail-modal-body { padding: 0 28px 28px; }
+.detail-modal-quick {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 16px; padding-top: 4px;
+}
+.detail-modal-ratings { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+
+.detail-modal-tagline {
+  font-size: 15px; color: rgba(255,255,255,0.35); font-style: italic;
+  margin-bottom: 16px; line-height: 1.4;
+}
+.detail-modal-description {
+  font-size: 15px; color: rgba(255,255,255,0.7);
+  line-height: 1.65; margin-bottom: 16px; letter-spacing: -0.2px;
+}
+.detail-modal-reason {
+  font-size: 14px; color: var(--accent); font-style: italic;
+  margin-bottom: 24px; line-height: 1.5;
+  padding: 12px 16px;
+  background: rgba(41,151,255,0.06);
+  border-radius: var(--radius-lg);
+  border-left: 3px solid rgba(41,151,255,0.3);
+}
+.detail-modal-section-label {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.8px; color: rgba(255,255,255,0.3);
+  margin-bottom: 12px;
+}
+
+.detail-modal-trailer { margin-bottom: 28px; }
+.detail-modal-trailer iframe {
+  width: 100%; aspect-ratio: 16/9; border: none;
+  border-radius: var(--card-radius);
+}
+.trailer-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 10px 20px; border-radius: var(--radius-lg);
+  background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.6);
+  text-decoration: none; font-size: 14px; font-weight: 600;
+  transition: all var(--dur-default); margin-bottom: 28px;
+  min-height: 44px;
+}
+.trailer-link:hover { background: rgba(255,255,255,0.1); color: var(--text); }
+
+.detail-modal-cast {
+  display: flex; gap: 20px; overflow-x: auto;
+  padding-bottom: 8px; margin-bottom: 24px;
+  -webkit-overflow-scrolling: touch;
+}
+.detail-modal-cast::-webkit-scrollbar { height: 0; }
+
+.detail-modal-progress {
+  margin-top: 20px; padding: 20px;
+  background: rgba(255,255,255,0.03);
+  border-radius: var(--card-radius);
+}
+.progress-status { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.progress-icon { flex-shrink: 0; display: flex; }
+.progress-status span {
+  font-size: 15px; font-weight: 600; color: var(--text); letter-spacing: -0.2px;
+}
+.progress-bar-track {
+  width: 100%; height: 6px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 3px; overflow: hidden; margin-bottom: 8px;
+}
+.progress-bar-fill {
+  height: 100%; width: 0%; background: var(--accent);
+  border-radius: 3px; transition: width 0.6s ease;
+}
+.progress-detail { font-size: 13px; color: rgba(255,255,255,0.4); letter-spacing: -0.12px; }
+.progress-hint {
+  font-size: 13px; color: rgba(255,255,255,0.3); line-height: 1.6;
+  margin-top: 14px; padding-top: 14px;
+  border-top: 1px solid rgba(255,255,255,0.04);
+}
+
+.detail-modal-success {
+  text-align: center; margin-top: 20px; padding: 28px 20px;
+  background: rgba(48,209,88,0.04);
+  border-radius: var(--card-radius);
+  border: 1px solid rgba(48,209,88,0.1);
+}
+.success-icon { margin-bottom: 12px; }
+.success-icon svg { animation: scaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.success-title {
+  font-size: 20px; font-weight: 600; color: var(--success);
+  letter-spacing: -0.3px; margin-bottom: 4px;
+}
+.success-detail { font-size: 14px; color: rgba(255,255,255,0.5); }
+
+/* Season picker shown in the detail modal for TV shows. */
+.detail-modal-seasons {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin-bottom: 24px;
+}
+.detail-modal-seasons-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 14px;
+}
+.detail-modal-seasons-title {
+  font-size: 13px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.8px; color: rgba(255,255,255,0.8);
+}
+.detail-modal-seasons-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+.detail-modal-season {
+  position: relative; display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--radius-lg); cursor: pointer;
+  transition: background var(--dur-fast), border-color var(--dur-fast);
+  user-select: none;
+  min-height: 44px;
+}
+.detail-modal-season:hover { background: rgba(255,255,255,0.07); }
+.detail-modal-season.checked {
+  background: rgba(41,151,255,0.12);
+  border-color: rgba(41,151,255,0.4);
+}
+.detail-modal-season-check {
+  width: 18px; height: 18px; border-radius: 5px;
+  border: 1.5px solid rgba(255,255,255,0.25);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.detail-modal-season.checked .detail-modal-season-check {
+  background: var(--accent); border-color: var(--accent);
+}
+.detail-modal-season.checked .detail-modal-season-check::after {
+  content: ""; display: block; width: 4px; height: 9px;
+  border: solid #fff; border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+.detail-modal-season.already {
+  background: rgba(48,209,88,0.06);
+  border-color: rgba(48,209,88,0.2); cursor: default;
+}
+.detail-modal-season.already .detail-modal-season-check {
+  background: rgba(48,209,88,0.25); border-color: rgba(48,209,88,0.5);
+}
+.detail-modal-season.already .detail-modal-season-check::after {
+  content: ""; display: block; width: 4px; height: 9px;
+  border: solid var(--success); border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+.detail-modal-season-name { font-size: 14px; font-weight: 600; color: var(--text); }
+.detail-modal-season-sub { font-size: 11px; color: rgba(255,255,255,0.4); }
+.detail-modal-season-summary {
+  margin-top: 14px; font-size: 12px; color: rgba(255,255,255,0.5);
+}
+.detail-modal-seasons-link {
+  background: none; border: none; color: var(--accent);
+  font-size: 13px; font-weight: 500; cursor: pointer;
+  font-family: inherit;
+}
+.detail-modal-seasons-link:hover { text-decoration: underline; }
+
+@media (max-width: 639px) {
+  .detail-modal-hero { height: 240px; }
+  .detail-modal-hero-title { font-size: 22px; }
+  .detail-modal-hero-title .year { font-size: 17px; }
+  .detail-modal-body { padding: 0 16px 24px; }
+  .detail-modal-hero-info { left: 16px; right: 16px; bottom: 16px; }
+}
+
+
+/* ################################################################
+   UTILITY CLASSES & SEMANTIC HELPERS (inline-style replacements)
+   See DESIGN-REVIEW.md §1 C1 — inline style="" purge pass.
+   ################################################################ */
+
+.u-ml-auto              { margin-left: auto; }
+.u-mt-8                 { margin-top: 8px; }
+.u-mt-12                { margin-top: 12px; }
+.u-mt-16                { margin-top: 16px; }
+.u-mt-20                { margin-top: 20px; }
+.u-mt-24                { margin-top: 24px; }
+.u-mt-32                { margin-top: 32px; }
+.u-mb-8                 { margin-bottom: 8px; }
+.u-mb-12                { margin-bottom: 12px; }
+.u-mb-24                { margin-bottom: 24px; }
+.u-pt-16                { padding-top: 16px; }
+.u-pt-24                { padding-top: 24px; }
+.u-flex-1               { flex: 1; }
+.u-whitespace-nowrap    { white-space: nowrap; }
+.u-hidden               { display: none !important; }
+.u-pointer              { cursor: pointer; }
+.u-default              { cursor: default; }
+.d-inline               { display: inline; }
+
+/* Bottom spacer used at the end of scroll pages so content clears the
+   bottom tab bar on small screens. Replaces <div style="height:80px">. */
+.page-bottom-spacer { height: 80px; }
+
+/* Generic empty-state block shared across pages — replaces bespoke inline
+   <div style="text-align:center;padding:..."> placeholders. */
+.empty-state {
+  text-align: center;
+  padding: 48px 0;
+  color: var(--text-tertiary);
+  font-size: 17px;
+}
+.empty-state--lg       { padding: 80px 0; }
+.empty-state__icon     { font-size: 40px; margin-bottom: 16px; }
+.empty-state__headline {
+  font-size: 17px; font-weight: 600;
+  color: rgba(255,255,255,0.56);
+  margin-bottom: 8px;
+}
+.empty-state__sub {
+  font-size: 14px; color: rgba(255,255,255,0.3);
+  max-width: 360px; margin: 0 auto; line-height: 1.6;
+}
+.empty-state a { color: var(--accent); text-decoration: none; }
+.empty-state a:hover { text-decoration: underline; }
+
+/* Integration glyph tints used on the settings page (and anywhere else an
+   integration's chromatic accent wash is needed behind an icon). */
+.icon-tint-purple       { background: rgba(191,90,242,0.15); }
+.icon-tint-neutral      { background: rgba(255,255,255,0.06); }
+.icon-tint-green        { background: rgba(48,209,88,0.15); }
+.icon-tint-red          { background: rgba(255,69,58,0.15); }
+.icon-tint-sky          { background: rgba(100,210,255,0.15); }
+.icon-tint-amber        { background: rgba(229,160,13,0.15); }
+.icon-tint-blue         { background: rgba(62,169,237,0.15); }
+.icon-tint-orange       { background: rgba(255,165,0,0.15); }
+.icon-tint-coral        { background: rgba(255,87,87,0.15); }
+.icon-tint-teal         { background: rgba(16,163,127,0.15); }
+.icon-tint-cyan         { background: rgba(1,180,228,0.15); }
+.icon-tint-yellow       { background: rgba(245,197,24,0.15); }
+.icon-tint-accent       { background: rgba(41,151,255,0.15); }
+
+/* Settings page semantic helpers. */
+.settings-header-chevron { margin-left: auto; }
+.settings-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.settings-save-row       { padding-top: 24px; }
+.settings-loading        {
+  color: var(--text-tertiary);
+  font-size: 14px;
+  padding: 8px 0;
+}
+.settings-subrow {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 0;
+  border-top: 1px solid rgba(255,255,255,0.04);
+  margin-top: 12px;
+}
+.settings-subrow-label { flex: 1; }
+
+/* Form-select width modifiers — kill the inline max-width overrides. */
+.form-select--sm { max-width: 160px; }
+.form-select--md { max-width: 200px; }
+
+/* Links inside form hints use the accent colour by default. */
+.form-hint a { color: var(--accent); text-decoration: none; }
+.form-hint a:hover { text-decoration: underline; }
+
+/* Newsletter send block (outer wrapper with separator above). */
+.newsletter-send-block {
+  margin-top: 20px; padding-top: 16px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+/* Inner flex row: label left, action button right. */
+.newsletter-send-row {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.newsletter-send-label {
+  font-size: 15px; font-weight: 600; letter-spacing: -0.374px;
+}
+.newsletter-send-sub {
+  font-size: 12px; color: var(--text-tertiary); margin-top: 2px;
+}
+.newsletter-send-panel          { margin-top: 12px; display: none; }
+.newsletter-send-panel.is-open  { display: block; }
+.newsletter-send-panel-recipients { margin-bottom: 12px; }
+.newsletter-send-panel-actions    { display: flex; gap: 8px; align-items: center; }
+.newsletter-send-status           { font-size: 13px; font-weight: 600; }
+
+/* Toggle switch component. */
+.toggle-switch {
+  position: relative; display: inline-block;
+  width: 44px; height: 24px; cursor: pointer;
+  flex-shrink: 0;
+}
+.toggle-switch input {
+  position: absolute; opacity: 0; width: 0; height: 0;
+  margin: 0;
+}
+.toggle-switch-track {
+  position: absolute; inset: 0;
+  background: rgba(255,255,255,0.12);
+  border-radius: var(--pill-radius);
+  transition: background var(--dur-default);
+}
+.toggle-switch-thumb {
+  position: absolute; top: 2px; left: 2px;
+  width: 20px; height: 20px;
+  background: #fff; border-radius: 50%;
+  transition: transform var(--dur-default);
+  pointer-events: none;
+}
+.toggle-switch input:checked ~ .toggle-switch-track { background: var(--accent); }
+.toggle-switch input:checked ~ .toggle-switch-thumb { transform: translateX(20px); }
+.toggle-switch input:focus-visible ~ .toggle-switch-track {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
+/* Pill-style ghost button — "Scan Now", "Refresh Recommendations", etc.
+   Replaces a repeated 10-property inline style blob. */
+.btn-ghost-pill {
+  padding: 10px 28px;
+  border-radius: var(--pill-radius);
+  border: 1px solid rgba(41,151,255,0.3);
+  background: transparent;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  letter-spacing: -0.224px;
+  transition: background var(--dur-slow), border-color var(--dur-slow),
+              color var(--dur-slow);
+  min-height: 44px;
+}
+.btn-ghost-pill:hover:not(:disabled) {
+  background: rgba(41,151,255,0.08);
+  border-color: rgba(41,151,255,0.5);
+}
+.btn-ghost-pill:disabled { opacity: 0.6; cursor: default; }
+
+/* Smaller danger button (e.g. "Clear All Scheduled" on dashboard). */
+.btn-danger-ghost {
+  padding: 6px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255,69,58,0.25);
+  background: transparent;
+  color: rgba(255,69,58,0.8);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  letter-spacing: -0.12px;
+  transition: background var(--dur-default), color var(--dur-default);
+}
+.btn-danger-ghost:hover:not(:disabled) {
+  background: rgba(255,69,58,0.08); color: #ff453a;
+}
+
+/* Inline scan-status text (dashboard). */
+.scan-status {
+  font-size: 13px;
+  color: rgba(255,255,255,0.4);
+  letter-spacing: -0.224px;
+}
+.scan-status--success { color: var(--success); }
+
+/* Dashboard page header action row — "Scan Now" button + status text. */
+.page-header-actions {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+
+/* Legend dot colour variants for storage bar. */
+.legend-dot--movies { background: var(--orange); }
+.legend-dot--tv     { background: var(--accent); }
+.legend-dot--anime  { background: var(--purple); }
+.legend-dot--other  { background: rgba(255,255,255,0.12); }
+
+/* Colour variants for .rating-pill (inline tints previously). */
+.rating-pill.r-audience { background: rgba(255,159,10,0.15); color: var(--orange); }
+.rating-pill.r-imdb-alt { background: rgba(245,197,24,0.15); color: #f5c518; }
+.rating-pill.r-rt-alt   { background: rgba(255,69,58,0.15);  color: #ff453a; }
+.rating-pill.r-meta-alt { background: rgba(102,204,0,0.15);  color: #66cc00; }
+
+/* Section header that needs to wrap its children. */
+.section-header--wrap {
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Scan/Refresh ghost pill success/error state tweaks. */
+.btn-ghost-pill.scan-complete,
+.btn-ghost-pill.is-success {
+  color: var(--success);
+  border-color: rgba(48,209,88,0.3);
+}
+.btn-danger-ghost.is-success {
+  color: var(--success);
+  border-color: rgba(48,209,88,0.3);
+}
+.btn-success.is-queued {
+  background: rgba(48,209,88,0.12);
+  color: var(--success);
+  border-color: rgba(48,209,88,0.3);
+}
+.btn-success.is-error,
+.btn-ghost-pill.is-error {
+  color: #ff453a;
+  border-color: rgba(255,69,58,0.3);
+}
+
+/* Recommended page — "recommendations disabled" notice. */
+.rec-disabled-card {
+  margin-top: 20px;
+  padding: 20px;
+  background: rgba(255,255,255,0.04);
+  border-radius: var(--card-radius);
+}
+.rec-disabled-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.rec-disabled-sub {
+  font-size: 13px;
+  color: rgba(255,255,255,0.4);
+}
+.rec-disabled-sub a { color: var(--accent); text-decoration: none; }
+.rec-disabled-sub a:hover { text-decoration: underline; }
+
+/* Recommended batch wrapper spacing — first expanded, others collapsed. */
+.rec-batch        { margin-top: 8px; }
+.rec-batch--first { margin-top: 24px; }
+
+/* Inline error banner (e.g. recommended-page refresh failure). */
+.inline-error {
+  display: none;
+  margin-top: 8px;
+  font-size: 13px;
+  color: #ff453a;
+  letter-spacing: -0.224px;
+}
+.inline-error.is-visible { display: block; }
+
+/* Suggestion card state badges — replaces inline tints on .sug-dl-btn. */
+.sug-dl-btn.state-ready {
+  background: rgba(48,209,88,0.12);
+  color: var(--success);
+  border-color: rgba(48,209,88,0.3);
+  cursor: default;
+}
+.sug-dl-btn.state-downloading {
+  background: rgba(41,151,255,0.12);
+  color: var(--accent);
+  border-color: rgba(41,151,255,0.3);
+  cursor: default;
+}
+.sug-dl-btn.state-queued {
+  background: rgba(255,214,10,0.12);
+  color: #ffd60a;
+  border-color: rgba(255,214,10,0.3);
+  cursor: default;
+}
+
+/* Download page — expired-link view. */
+.dl-expired {
+  max-width: 480px;
+  margin: 80px auto;
+  text-align: center;
+  padding: 0 24px;
+}
+.dl-expired-icon-wrap { margin-bottom: 24px; }
+.dl-expired-title {
+  font-size: 20px; font-weight: 600; margin-bottom: 8px;
+  letter-spacing: -0.3px;
+}
+.dl-expired-sub {
+  font-size: 14px; color: rgba(255,255,255,0.4); line-height: 1.6;
+}
+.dl-expired-back { margin-top: 32px; }
+.dl-expired-back a {
+  font-size: 14px; color: var(--accent); text-decoration: none;
+}
+.dl-expired-back a:hover { text-decoration: underline; }
+.dl-result-title--success { color: var(--success); }
+
+/* Delete-confirmation modal content (library page). */
+.delete-modal-title {
+  font-size: 21px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  letter-spacing: -0.28px;
+}
+.delete-modal-body {
+  color: var(--text-secondary);
+  font-size: 15px;
+  margin-bottom: 28px;
+}
+.delete-modal-actions {
+  display: flex; gap: 12px; justify-content: center;
+}
+
+/* Keep dialog danger CTA (toggled via is-visible). */
+.btn-cancel.btn-cancel--danger {
+  display: none;
+  border-color: rgba(255,69,58,0.3);
+  color: #ff453a;
+}
+.btn-cancel--danger.is-visible { display: inline-flex; }
+
+/* Misc library helpers. */
+.lib-protection-label { color: var(--success); }
+.lib-stat-value--stale { color: var(--danger); }
+
+/* Pagination ellipsis (non-clickable). */
+.page-btn--ellipsis { cursor: default; pointer-events: none; }
+
+/* Muted icon tint (passed via currentColor). */
+.icon-tertiary { color: var(--text-tertiary); }
+
+/* History page — secondary space-impact chip after title. */
+.history-space-impact {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+/* Media-badge variant: show / cyan. */
+.media-badge.show-cyan {
+  background: rgba(100,210,255,0.2);
+  color: #64d2ff;
+}
+
+/* Page-btn disabled fallback opacity (legacy .page-btn.disabled). */
+.page-btn.disabled { opacity: 0.5; }
+
+/* Empty poster placeholder (keep page). */
+.item-poster-empty {
+  width: 100%;
+  height: 100%;
+  background: var(--surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Keep-page item title (secondary colour variant). */
+.item-title--secondary { color: var(--text-secondary); }
+
+/* Download-state pill — compact variant (9px) used in .dl-* rows. */
+.dl-state-pill--xs { font-size: 9px; }
+
+/* Muted compact-pct dash placeholder. */
+.dl-compact-pct--muted { color: rgba(255,255,255,0.25); }
+
+/* Cast avatar image fill. */
+.cast-avatar img {
+  width: 100%; height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* Clear-link in the seasons picker (margin-left). */
+.detail-modal-seasons-link--clear { margin-left: 14px; }
+
+/* Zero-margin form helper. */
+.u-m-0 { margin: 0 !important; }
+
+/* Delete confirmation modal — overlay + inner card. */
+.delete-modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  align-items: center;
+  justify-content: center;
+}
+.delete-modal-overlay.is-visible { display: flex; }
+.delete-modal-card {
+  background: var(--surface);
+  border-radius: var(--card-radius);
+  padding: 32px;
+  max-width: 400px;
+  width: 90%;
+  text-align: center;
+}
+
+/* Small "Kept" success pill variant of .btn-sm. */
+.btn-sm.btn-sm-kept {
+  background: rgba(48,209,88,0.12);
+  color: var(--success);
+  cursor: pointer;
+}

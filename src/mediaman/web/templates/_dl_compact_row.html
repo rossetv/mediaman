@@ -11,7 +11,7 @@
     <div class="dl-compact-info">
       <div class="dl-compact-title">{{ item.title }}</div>
       <div class="dl-compact-meta">
-        <span class="dl-state-pill dl-state-{{ item.state }}" data-v="pill" style="font-size:9px;">
+        <span class="dl-state-pill dl-state-pill--xs dl-state-{{ item.state }}" data-v="pill">
           {% if item.state == 'searching' %}Looking for the best version
           {% elif item.state == 'downloading' %}Downloading
           {% elif item.state == 'almost_ready' %}Almost ready
@@ -34,7 +34,7 @@
       {% if item.progress > 0 %}
       <div class="dl-compact-pct" data-v="pct">{{ item.progress }}%</div>
       {% else %}
-      <div class="dl-compact-pct" style="color:rgba(255,255,255,0.25);">—</div>
+      <div class="dl-compact-pct dl-compact-pct--muted">—</div>
       {% endif %}
       {% if item.eta %}<div class="dl-compact-eta" data-v="eta">{{ item.eta }}</div>{% endif %}
     </div>

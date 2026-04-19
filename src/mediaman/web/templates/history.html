@@ -25,7 +25,7 @@
       {% endfor %}
     </div>
     {% if total > 0 %}
-    <span class="section-subtitle" style="margin-left: auto">{{ total }} event{{ 's' if total != 1 }}</span>
+    <span class="section-subtitle u-ml-auto">{{ total }} event{{ 's' if total != 1 }}</span>
     {% endif %}
   </div>
 
@@ -47,7 +47,7 @@
       <span>
         <span class="action-badge {{ item.badge_class }}">{{ item.action_label }}</span>
       </span>
-      <span class="history-title-desktop">{{ item.title }}{% if item.space_impact %} <span style="color:var(--text-tertiary);font-size:12px;">{{ item.space_impact }}</span>{% endif %}</span>
+      <span class="history-title-desktop">{{ item.title }}{% if item.space_impact %} <span class="history-space-impact">{{ item.space_impact }}</span>{% endif %}</span>
       <span class="history-detail">{{ item.detail }}</span>
     </div>
     {% endfor %}
@@ -70,7 +70,7 @@
       <a href="/history?{% if action_filter %}action={{ action_filter }}&{% endif %}page={{ p }}"
          class="page-btn">{{ p }}</a>
       {% elif p == page - 3 or p == page + 3 %}
-      <span class="page-btn disabled" style="opacity:0.5">…</span>
+      <span class="page-btn disabled page-btn--ellipsis">…</span>
       {% endif %}
     {% endfor %}
 
@@ -89,7 +89,7 @@
   <div class="empty-state">
     <div class="empty-icon">
       <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
-           stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-tertiary)">
+           stroke-linecap="round" stroke-linejoin="round" class="icon-tertiary">
         <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
         <polyline points="14 2 14 8 20 8"/>
         <line x1="16" y1="13" x2="8" y2="13"/>
@@ -108,6 +108,6 @@
   </div>
   {% endif %}
 
-  <div style="height: 80px"></div>
+  <div class="page-bottom-spacer"></div>
 </div>
 {% endblock %}

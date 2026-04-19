@@ -28,7 +28,7 @@
       <div class="lib-stat-label">Anime</div>
     </a>
     <a class="lib-stat lib-stat-stale {% if current_type == 'stale' %}lib-stat-active{% endif %}" href="/library?type=stale">
-      <div class="lib-stat-value" {% if stats.stale > 0 %}style="color:var(--danger)"{% endif %}>{{ stats.stale }}</div>
+      <div class="lib-stat-value{% if stats.stale > 0 %} lib-stat-value--stale{% endif %}">{{ stats.stale }}</div>
       <div class="lib-stat-label">Stale ({{ stats.stale_min_age }}+ days, unwatched)</div>
     </a>
   </div>
@@ -99,7 +99,7 @@
         <div class="lib-subtitle">
           {{ item.subtitle }}
           {% if item.protection_label %}
-          · <span style="color:var(--success)">{{ item.protection_label }}</span>
+          · <span class="lib-protection-label">{{ item.protection_label }}</span>
           {% endif %}
         </div>
         <div class="lib-row-meta">
@@ -129,27 +129,30 @@
       <!-- Actions -->
       <div class="lib-actions">
         {% if item.protected %}
-        <div class="keep-wrapper" style="position:relative"
+        <div class="keep-wrapper"
           data-id="{{ item.id }}" data-tv="{{ item.is_tv | tojson }}"
           data-show-rk="{{ item.show_rating_key }}" data-show-title="{{ item.show_title_raw | e }}">
-          <button class="btn-sm" style="background:rgba(48,209,88,0.12);color:var(--success);cursor:pointer;"
+          <button class="btn-sm btn-sm-kept"
             onclick="{% if item.is_tv %}submitKeep(this, 'current');{% else %}removeKeep('{{ item.id }}');{% endif %} return false;">Kept</button>
         </div>
         {% else %}
         <!-- Keep with snooze dropdown -->
-        <div class="keep-wrapper" style="position:relative"
+        <div class="keep-wrapper"
           data-id="{{ item.id }}" data-tv="{{ item.is_tv | tojson }}"
           data-show-rk="{{ item.show_rating_key }}" data-show-title="{{ item.show_title_raw | e }}">
           <button class="btn-sm btn-sm-keep"
             onclick="submitKeep(this, '30d'); return false;">Keep</button>
-          <div class="snooze-dropdown">
-            <button class="snooze-option"
+          <button type="button" class="btn-sm-caret"
+            aria-haspopup="menu" aria-expanded="false"
+            aria-label="More keep options">&#9662;</button>
+          <div class="snooze-dropdown" role="menu">
+            <button class="snooze-option" role="menuitem" tabindex="-1"
               onclick="submitKeep(this, '7d'); return false;">7 days</button>
-            <button class="snooze-option"
+            <button class="snooze-option" role="menuitem" tabindex="-1"
               onclick="submitKeep(this, '30d'); return false;">30 days</button>
-            <button class="snooze-option"
+            <button class="snooze-option" role="menuitem" tabindex="-1"
               onclick="submitKeep(this, '90d'); return false;">90 days</button>
-            <button class="snooze-option forever"
+            <button class="snooze-option forever" role="menuitem" tabindex="-1"
               onclick="submitKeep(this, 'forever'); return false;">Forever</button>
           </div>
         </div>
@@ -177,9 +180,9 @@
     {% elif total_pages <= 7 or (p <= 3 or p >= total_pages - 2 or (p >= page - 1 and p <= page + 1)) %}
     <a class="page-btn" href="{{ request.url_for('library_page') }}?q={{ q }}&type={{ current_type }}&sort={{ current_sort }}&page={{ p }}&per_page={{ per_page }}">{{ p }}</a>
     {% elif p == 4 and page > 5 %}
-    <span class="page-btn" style="cursor:default">…</span>
+    <span class="page-btn page-btn--ellipsis">…</span>
     {% elif p == total_pages - 3 and page < total_pages - 4 %}
-    <span class="page-btn" style="cursor:default">…</span>
+    <span class="page-btn page-btn--ellipsis">…</span>
     {% endif %}
     {% endfor %}
 
@@ -213,17 +216,15 @@
   </div>
   {% endif %}
 
-  <div style="height: 80px"></div>
+  <div class="page-bottom-spacer"></div>
 </div>
 
 <!-- Delete confirmation modal -->
-<div id="delete-modal" style="display:none; position:fixed; inset:0; z-index:200;
-  background:rgba(0,0,0,0.7); backdrop-filter:blur(4px); align-items:center; justify-content:center;">
-  <div style="background:var(--surface); border-radius:var(--card-radius); padding:32px;
-              max-width:400px; width:90%; text-align:center;">
-    <h3 style="font-size:21px; font-weight:600; margin-bottom:10px;">Delete item?</h3>
-    <p id="delete-modal-title" style="color:var(--text-secondary); font-size:15px; margin-bottom:28px;"></p>
-    <div style="display:flex; gap:12px; justify-content:center;">
+<div id="delete-modal" class="delete-modal-overlay">
+  <div class="delete-modal-card">
+    <h3 class="delete-modal-title">Delete item?</h3>
+    <p id="delete-modal-title" class="delete-modal-body"></p>
+    <div class="delete-modal-actions">
       <button class="btn btn-ghost" onclick="closeDeleteModal()">Cancel</button>
       <button id="delete-confirm-btn" class="btn btn-danger">Delete</button>
     </div>
@@ -242,8 +243,8 @@
     </div>
     <div class="keep-season-list" id="keep-season-list"></div>
     <div class="keep-dialog-actions">
-      <button class="btn-cancel" id="keep-dialog-remove" onclick="removeAllKeeps()" style="display:none;border-color:rgba(255,69,58,0.3);color:#ff453a;">Remove All Keeps</button>
-      <div style="flex:1"></div>
+      <button class="btn-cancel btn-cancel--danger" id="keep-dialog-remove" onclick="removeAllKeeps()">Remove All Keeps</button>
+      <div class="u-flex-1"></div>
       <button class="btn-cancel" onclick="closeKeepDialog()">Cancel</button>
       <button class="btn-keep" id="keep-dialog-confirm" onclick="confirmKeepDialog()">Update</button>
     </div>
@@ -300,14 +301,14 @@
     if (!_keepDialogState.showRk && _keepDialogState.showTitle) {
       url += '?title=' + encodeURIComponent(_keepDialogState.showTitle);
     }
-    document.getElementById('keep-dialog-remove').style.display = 'none';
+    document.getElementById('keep-dialog-remove').classList.remove('is-visible');
     document.getElementById('keep-dialog-confirm').textContent = 'Keep';
     fetch(url)
       .then(function (r) { return r.json(); })
       .then(function (data) {
         document.getElementById('keep-dialog-title').textContent = 'Keep ' + (data.show_title || _keepDialogState.showTitle || 'Show');
         var hasKeeps = data.show_kept || data.seasons.some(function (s) { return s.kept; });
-        document.getElementById('keep-dialog-remove').style.display = hasKeeps ? '' : 'none';
+        document.getElementById('keep-dialog-remove').classList.toggle('is-visible', hasKeeps);
         if (hasKeeps) document.getElementById('keep-dialog-confirm').textContent = 'Update';
         // If duration is null ('current' mode), read it from the show keep or default to forever
         if (!_keepDialogState.duration && data.show_kept && data.show_kept.snooze_duration) {
@@ -462,7 +463,7 @@
     document.getElementById('delete-modal-title').textContent =
       'Delete "' + title + '"? This cannot be undone.';
     const modal = document.getElementById('delete-modal');
-    modal.style.display = 'flex';
+    modal.classList.add('is-visible');
     document.getElementById('delete-confirm-btn').onclick = function() {
       if (!_pendingDeleteId) return;
       fetch('/api/media/' + encodeURIComponent(_pendingDeleteId) + '/delete', {
@@ -477,7 +478,7 @@
 
   function closeDeleteModal() {
     _pendingDeleteId = null;
-    document.getElementById('delete-modal').style.display = 'none';
+    document.getElementById('delete-modal').classList.remove('is-visible');
   }
 
   function removeKeep(mediaId) {

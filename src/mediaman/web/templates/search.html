@@ -27,7 +27,7 @@
 
   <div id="shelves"></div>
 
-  <div style="height:80px"></div>
+  <div class="page-bottom-spacer"></div>
 </div>
 
 {% include "_detail_modal.html" %}
@@ -357,7 +357,7 @@
       modalEl.cast.innerHTML = d.cast.map(c => {
         const initials = (c.name || "?").split(" ").map(x => x[0]).slice(0, 2).join("");
         const avatar = c.profile_url
-          ? `<div class="cast-avatar"><img src="${escapeAttr(c.profile_url)}" alt="" style="width:100%;height:100%;border-radius:50%;object-fit:cover"></div>`
+          ? `<div class="cast-avatar"><img src="${escapeAttr(c.profile_url)}" alt=""></div>`
           : `<div class="cast-avatar">${escapeHtml(initials)}</div>`;
         return `<div class="cast-item">${avatar}<div class="cast-name">${escapeHtml(c.name || "")}</div><div class="cast-char">${escapeHtml(c.character || "")}</div></div>`;
       }).join("");
@@ -384,7 +384,7 @@
         <div class="detail-modal-seasons-title">Seasons — pick which to download</div>
         <div>
           <button type="button" class="detail-modal-seasons-link" data-action="all">Select all</button>
-          <button type="button" class="detail-modal-seasons-link" data-action="clear" style="margin-left:14px">Clear</button>
+          <button type="button" class="detail-modal-seasons-link detail-modal-seasons-link--clear" data-action="clear">Clear</button>
         </div>
       </div>
       <div class="detail-modal-seasons-grid">
