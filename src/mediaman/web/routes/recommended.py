@@ -1,6 +1,7 @@
 """Recommended For You page — AI-powered media recommendations."""
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -29,6 +30,49 @@ def _fetch_recommendations(conn) -> list[dict]:
         FROM suggestions ORDER BY batch_id DESC, category DESC, id ASC
     """).fetchall()
     return [dict(r) for r in rows]
+
+
+# Manual recommendation refreshes are throttled so a malicious or
+# impatient user can't burn through OpenAI tokens by spamming the
+# button (or by calling /api/recommended/refresh directly). The
+# scheduled background refresh is unaffected — it runs once per scan
+# and doesn't update this timestamp.
+RECOMMENDATION_REFRESH_COOLDOWN_HOURS = 24
+_LAST_REFRESH_KEY = "last_manual_recommendation_refresh"
+
+
+def _last_manual_refresh(conn) -> datetime | None:
+    row = conn.execute(
+        "SELECT value FROM settings WHERE key=?", (_LAST_REFRESH_KEY,),
+    ).fetchone()
+    if not row or not row["value"]:
+        return None
+    try:
+        return datetime.fromisoformat(row["value"])
+    except (TypeError, ValueError):
+        return None
+
+
+def _refresh_cooldown_remaining(conn) -> timedelta | None:
+    """Time still on the manual-refresh cooldown, or None if a new run is allowed."""
+    last = _last_manual_refresh(conn)
+    if last is None:
+        return None
+    cooldown = timedelta(hours=RECOMMENDATION_REFRESH_COOLDOWN_HOURS)
+    elapsed = datetime.now(timezone.utc) - last
+    if elapsed >= cooldown:
+        return None
+    return cooldown - elapsed
+
+
+def _record_manual_refresh(conn, when: datetime) -> None:
+    iso = when.isoformat()
+    conn.execute(
+        "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+        (_LAST_REFRESH_KEY, iso, iso),
+    )
+    conn.commit()
 
 
 @router.get("/suggestions")
@@ -134,6 +178,16 @@ def recommended_page(request: Request):
 
     all_recommendations_json = json.dumps(all_recs, default=str).replace("</", "<\\/")
 
+    cooldown = _refresh_cooldown_remaining(conn)
+    if cooldown is None:
+        manual_refresh_available = True
+        next_manual_refresh_at = None
+    else:
+        manual_refresh_available = False
+        next_manual_refresh_at = (
+            datetime.now(timezone.utc) + cooldown
+        ).isoformat()
+
     templates = request.app.state.templates
     return templates.TemplateResponse(request, "recommended.html", {
         "username": username,
@@ -141,6 +195,8 @@ def recommended_page(request: Request):
         "batches": formatted_batches,
         "enabled": enabled,
         "all_recommendations_json": all_recommendations_json,
+        "manual_refresh_available": manual_refresh_available,
+        "next_manual_refresh_at": next_manual_refresh_at,
     })
 
 
@@ -160,7 +216,31 @@ _refresh_result: dict | None = None
 
 @router.post("/api/recommended/refresh")
 def api_refresh_recommendations(request: Request, admin: str = Depends(get_current_admin)):
-    """Start recommendation refresh in background. Returns immediately."""
+    """Start a manual recommendation refresh in the background.
+
+    Rate-limited to once per 24 hours to keep OpenAI spend bounded.
+    The cooldown is enforced server-side (the UI also hides the button)
+    so direct POSTs from a script can't bypass it.
+    """
+    conn = get_db()
+
+    # Cooldown — enforced before we touch OpenAI / Plex / the lock.
+    cooldown = _refresh_cooldown_remaining(conn)
+    if cooldown is not None:
+        next_at = (datetime.now(timezone.utc) + cooldown).isoformat()
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": (
+                    "Recommendations were already refreshed in the last "
+                    f"{RECOMMENDATION_REFRESH_COOLDOWN_HOURS} hours."
+                ),
+                "cooldown_seconds": int(cooldown.total_seconds()),
+                "next_available_at": next_at,
+            },
+            status_code=429,
+        )
+
     global _refresh_running, _refresh_result
     with _refresh_lock:
         if _refresh_running:
@@ -169,13 +249,16 @@ def api_refresh_recommendations(request: Request, admin: str = Depends(get_curre
 
     from mediaman.web.routes.settings_routes import _build_plex_client
 
-    conn = get_db()
     config = request.app.state.config
     plex = _build_plex_client(conn, config.secret_key)
     if not plex:
         with _refresh_lock:
             _refresh_running = False
         return JSONResponse({"ok": False, "error": "Plex not configured"})
+
+    # Record the start time *before* the work begins so a concurrent
+    # second POST is also rejected even if the first hasn't finished.
+    _record_manual_refresh(conn, datetime.now(timezone.utc))
 
     _secret_key = config.secret_key
 
@@ -208,15 +291,29 @@ def api_refresh_recommendations(request: Request, admin: str = Depends(get_curre
 
 @router.get("/api/recommended/refresh/status")
 def api_refresh_status(admin: str = Depends(get_current_admin)):
-    """Poll whether the background refresh is still running."""
+    """Poll whether the background refresh is still running.
+
+    Also returns cooldown info so the page can keep the button hidden
+    after a successful refresh without needing a full reload.
+    """
     with _refresh_lock:
         running = _refresh_running
         result = _refresh_result
+
+    conn = get_db()
+    cooldown = _refresh_cooldown_remaining(conn)
+    cooldown_payload: dict = {"manual_refresh_available": cooldown is None}
+    if cooldown is not None:
+        cooldown_payload["cooldown_seconds"] = int(cooldown.total_seconds())
+        cooldown_payload["next_available_at"] = (
+            datetime.now(timezone.utc) + cooldown
+        ).isoformat()
+
     if running:
-        return JSONResponse({"status": "running"})
+        return JSONResponse({"status": "running", **cooldown_payload})
     if result is not None:
-        return JSONResponse({"status": "done", "result": result})
-    return JSONResponse({"status": "idle"})
+        return JSONResponse({"status": "done", "result": result, **cooldown_payload})
+    return JSONResponse({"status": "idle", **cooldown_payload})
 
 
 @router.post("/api/recommended/{recommendation_id}/download")
