@@ -171,6 +171,16 @@ def test_components_macros_importable():
         assert macro in components, f"missing macro: {macro}"
 
 
-def test_library_uses_container_wide_modifier():
-    tpl = _tpl("library.html")
-    assert 'container container--wide' in tpl or 'container--wide' in tpl
+def test_every_page_uses_default_container():
+    """Every authed page composes inside the default .container so headings
+    and content rails line up across screens. Using `--narrow` or
+    `--wide` modifiers is forbidden after the width-consistency pass."""
+    for name in ("dashboard.html", "library.html", "search.html",
+                 "recommended.html", "downloads.html", "history.html",
+                 "settings.html", "protected.html"):
+        tpl = _tpl(name)
+        # Every page must mount its content inside .container (no modifier).
+        assert 'class="container"' in tpl, f"{name}: missing default .container"
+        # And must not silently re-introduce the legacy modifiers.
+        for legacy in ('container--narrow', 'container--wide'):
+            assert legacy not in tpl, f"{name}: legacy {legacy} re-introduced"
