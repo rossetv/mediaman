@@ -40,10 +40,9 @@ dependencies = [
 ]
 
 [project.urls]
-# Leave these as placeholders for the maintainer to fill in after the repo is created.
-# Homepage = "https://github.com/OWNER/mediaman"
-# Repository = "https://github.com/OWNER/mediaman"
-# Issues = "https://github.com/OWNER/mediaman/issues"
+Homepage = "https://github.com/rossetv/mediaman"
+Repository = "https://github.com/rossetv/mediaman"
+Issues = "https://github.com/rossetv/mediaman/issues"
 
 [project.scripts]
 mediaman = "mediaman.main:cli_main"
