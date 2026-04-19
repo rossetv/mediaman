@@ -82,17 +82,25 @@ def test_container_system_present():
         assert cls in css, f"missing container modifier: {cls}"
 
 
-def test_single_glass_nav_replaces_three_surface():
-    """The redesign collapses top-bar + tab-bar + more-sheet into a
-    single .nav-glass strip. The legacy three-surface CSS must be gone."""
+def test_three_surface_nav_present():
+    """Nav has three surfaces: desktop .nav-glass, mobile .nav-topbar
+    + .nav-tabs (bottom bar), plus the .nav-more-sheet overflow drawer.
+    The mobile bottom bar was reinstated after the mockup-only horizontal
+    pill rail proved unworkable on phones."""
     css = _css()
-    # New surface present.
-    assert ".nav-glass" in css
-    assert ".nav-btn" in css
-    # Legacy surfaces deleted.
-    for legacy in (".nav-topbar", ".nav-tabs", ".nav-tab ",
-                   ".nav-more-sheet", ".nav-more-panel"):
-        assert legacy not in css, f"legacy nav class must be removed: {legacy}"
+    for sel in (".nav-glass", ".nav-btn", ".nav-topbar", ".nav-tabs",
+                ".nav-tab ", ".nav-more-sheet", ".nav-more-panel",
+                ".nav-more-item"):
+        assert sel in css, f"missing nav selector: {sel}"
+
+
+def test_bottom_tab_bar_uses_safe_area():
+    """The fixed bottom tab bar must respect the iOS / Android safe area."""
+    css = _css()
+    idx = css.find(".nav-tabs {")
+    assert idx >= 0
+    block = css[idx:idx + 600]
+    assert "env(safe-area-inset-bottom" in block
 
 
 def test_component_primitives_present():
@@ -143,16 +151,20 @@ def test_single_shadow_token():
         )
 
 
-def test_nav_template_emits_single_glass_strip():
+def test_nav_template_emits_all_surfaces():
     nav = _tpl("_nav.html")
-    assert "nav-glass" in nav
-    assert "nav-links" in nav
-    assert "nav-btn" in nav
+    for cls in ("nav-glass", "nav-links", "nav-btn",
+                "nav-topbar", "nav-tabs", "nav-tab",
+                "nav-more-sheet", "nav-more-item"):
+        assert cls in nav, f"missing nav surface class: {cls}"
     # Every primary destination still routes from the nav.
     for href in ('href="/"', 'href="/library"', 'href="/search"',
                  'href="/recommended"', 'href="/downloads"',
                  'href="/history"', 'href="/settings"'):
         assert href in nav, f"missing nav link: {href}"
+    # Bottom tabs + More sheet must contain the five primary tabs.
+    for label in ('>Home<', '>Library<', '>Search<', '>Downloads<', '>More<'):
+        assert label in nav, f"missing bottom-tab label: {label}"
 
 
 def test_base_html_sets_data_page():
