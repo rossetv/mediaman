@@ -1745,13 +1745,24 @@
       return;
     }
 
+    // Re-auth: a compromised cookie cannot spam the subscriber list.
+    var pw = window.prompt('Re-enter your password to send the newsletter:');
+    if (!pw) {
+      statusEl.textContent = 'Password required';
+      statusEl.style.color = '#ff453a';
+      return;
+    }
+
     btn.disabled = true;
     btn.textContent = 'Sending\u2026';
     statusEl.textContent = '';
 
     fetch('/api/newsletter/send', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Confirm-Password': pw,
+      },
       body: JSON.stringify({ recipients: recipients }),
     })
       .then(function (r) { return r.json(); })

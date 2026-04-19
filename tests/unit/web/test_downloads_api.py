@@ -337,6 +337,48 @@ class TestDownloadStatusAPI:
         data = resp.json()
         assert data["state"] == "searching"
 
+    def test_admin_is_rate_limited(self, db_path, secret_key):
+        """An admin session must NOT bypass the download-status rate
+        limit. A stored XSS firing under an admin cookie (or a rogue
+        admin) could otherwise hammer the endpoint uncapped."""
+        from mediaman.web.routes import download as download_mod
+
+        conn = init_db(str(db_path))
+        app = _make_download_app(conn, secret_key)
+        create_user(conn, "admin", "password1234", enforce_policy=False)
+        token = create_session(conn, "admin")
+        client = TestClient(app)
+        client.cookies.set("session_token", token)
+
+        # Reset the module-level limiter so earlier tests don't
+        # contaminate our bucket.
+        download_mod._DOWNLOAD_STATUS_LIMITER._attempts.clear()
+
+        mock_client = MagicMock()
+        mock_client.get_movie_by_tmdb.return_value = {
+            "hasFile": True, "title": "Dune", "tmdbId": 1, "images": [],
+        }
+
+        cap = download_mod._DOWNLOAD_STATUS_LIMITER._max_attempts
+
+        # Burn through the whole window.
+        try:
+            with patch(
+                "mediaman.web.routes.download._build_radarr", return_value=mock_client
+            ):
+                for _ in range(cap):
+                    r = client.get("/api/download/status?service=radarr&tmdb_id=1")
+                    assert r.status_code == 200
+
+                # Next admin call must be rejected — no bypass.
+                r = client.get("/api/download/status?service=radarr&tmdb_id=1")
+
+            assert r.status_code == 429
+            assert "too many" in r.json().get("error", "").lower()
+        finally:
+            # Leave the limiter clean so later tests aren't poisoned.
+            download_mod._DOWNLOAD_STATUS_LIMITER._attempts.clear()
+
     def test_status_timeleft_formatting(self, db_path, secret_key):
         """timeleft HH:MM:SS is formatted as human-readable eta."""
         conn = init_db(str(db_path))

@@ -41,12 +41,15 @@ _last_cleanup_at = 0.0
 _cleanup_lock = threading.Lock()
 
 # Hard expiry: any session older than this is invalid regardless of
-# activity. Tighter than the previous 24 h absolute TTL because we
-# now also rotate via the idle timeout — combined result is 24 h of
-# active use OR 7 days calendar, whichever comes first.
-_HARD_EXPIRY_DAYS = 7
-# Idle timeout: unused session dies after this window. 24 h matches
-# the previous full-session TTL so user experience is unchanged.
+# activity. Matched to the ``max_age=86400`` (1 day) on the session
+# cookie — if a raw token is exfiltrated from the DB or process memory
+# it must not keep working for longer than the browser would hold the
+# cookie. Previously this was 7 days while the cookie was 1 day: a
+# stolen token stayed valid server-side for a week beyond the point
+# the legitimate user's browser had dropped it.
+_HARD_EXPIRY_DAYS = 1
+# Idle timeout: unused session dies after this window. 24 h keeps
+# existing user experience — you stay signed in through the day.
 _IDLE_TIMEOUT_HOURS = 24
 
 
@@ -190,7 +193,27 @@ def authenticate(conn: sqlite3.Connection, username: str, password: str) -> bool
 
     Always performs a bcrypt check — even for nonexistent users — to prevent
     timing-based username enumeration.
+
+    A persistent per-username lockout (see
+    :mod:`mediaman.auth.login_lockout`) short-circuits the bcrypt check
+    when an account has tripped the threshold. Lock state is **not**
+    leaked to the caller — we return False the same as a wrong password,
+    so an attacker cannot enumerate valid usernames by watching for a
+    different response shape.
     """
+    from mediaman.auth.login_lockout import (
+        check_lockout,
+        record_failure,
+        record_success,
+    )
+
+    if username and check_lockout(conn, username):
+        # Still burn a bcrypt round so response time stays flat against
+        # "is this account locked?" timing probes.
+        bcrypt.checkpw(password.encode(), _get_dummy_hash())
+        logger.warning("auth.account_locked user=%s reason=lockout_active", username)
+        return False
+
     row = conn.execute(
         "SELECT password_hash FROM admin_users WHERE username=?", (username,)
     ).fetchone()
@@ -198,9 +221,20 @@ def authenticate(conn: sqlite3.Connection, username: str, password: str) -> bool
     if row is None:
         # Constant-time dummy check so the response time doesn't leak user existence.
         bcrypt.checkpw(password.encode(), _get_dummy_hash())
+        # Still record the failure against the claimed name so that
+        # guessing valid-vs-invalid usernames doesn't leak through the
+        # counter's presence/absence either. A garbage-username flood
+        # just fills up junk rows that decay away in 24 h.
+        if username:
+            record_failure(conn, username)
         return False
 
-    return bcrypt.checkpw(password.encode(), row["password_hash"].encode())
+    ok = bcrypt.checkpw(password.encode(), row["password_hash"].encode())
+    if ok:
+        record_success(conn, username)
+    else:
+        record_failure(conn, username)
+    return ok
 
 
 def create_session(

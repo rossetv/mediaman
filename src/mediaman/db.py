@@ -24,7 +24,7 @@ import sqlite3
 import threading
 from pathlib import Path
 
-DB_SCHEMA_VERSION = 11
+DB_SCHEMA_VERSION = 12
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (
@@ -156,6 +156,13 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_created
     ON audit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires
     ON admin_sessions(expires_at);
+
+CREATE TABLE IF NOT EXISTS login_failures (
+    username TEXT PRIMARY KEY,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    first_failure_at TEXT,
+    locked_until TEXT
+);
 """
 
 
@@ -327,6 +334,18 @@ def init_db(db_path: str) -> sqlite3.Connection:
             "SET tvdb_id = tmdb_id, tmdb_id = NULL "
             "WHERE service = 'sonarr' AND tvdb_id IS NULL"
         )
+    if current_version < 12:
+        # Per-username login lockout — persistent, so an attacker cannot
+        # reset the counter by kicking the process over. See
+        # ``mediaman.auth.login_lockout`` for the semantics.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS login_failures (
+                username TEXT PRIMARY KEY,
+                failure_count INTEGER NOT NULL DEFAULT 0,
+                first_failure_at TEXT,
+                locked_until TEXT
+            )
+        """)
     conn.execute(f"PRAGMA user_version={DB_SCHEMA_VERSION}")
     conn.commit()
 

@@ -200,3 +200,54 @@ class TestDiskUsageAPI:
         resp = client.get("/api/settings/disk-usage?path=/media/movies")
 
         assert resp.status_code == 401
+
+
+class TestSettingsPutSsrfGuard:
+    """PUT /api/settings must refuse URLs that point at cloud metadata
+    or link-local addresses. LAN addresses stay allowed — that is the
+    common self-hosted deployment."""
+
+    def test_rejects_aws_metadata_url(self, conn, secret_key):
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        resp = client.put(
+            "/api/settings",
+            json={"radarr_url": "http://169.254.169.254/latest/meta-data/"},
+        )
+
+        assert resp.status_code == 400
+        assert "blocked" in resp.json().get("error", "").lower()
+
+    def test_rejects_gcp_metadata_hostname(self, conn, secret_key):
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        resp = client.put(
+            "/api/settings",
+            json={"sonarr_url": "http://metadata.google.internal/"},
+        )
+
+        assert resp.status_code == 400
+
+    def test_rejects_file_scheme(self, conn, secret_key):
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        resp = client.put(
+            "/api/settings",
+            json={"plex_url": "file:///etc/passwd"},
+        )
+
+        assert resp.status_code == 400
+
+    def test_allows_lan_address(self, conn, secret_key):
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        resp = client.put(
+            "/api/settings",
+            json={"radarr_url": "http://192.168.1.50:7878"},
+        )
+
+        assert resp.status_code == 200

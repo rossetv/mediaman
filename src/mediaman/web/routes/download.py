@@ -560,8 +560,13 @@ def download_status(
     """
     config = request.app.state.config
 
-    # Cheap rate limit to stop leaked tokens polling queue state forever.
-    if not admin and not _DOWNLOAD_STATUS_LIMITER.check(get_client_ip(request)):
+    # Cheap rate limit to stop leaked tokens — and rogue admin-scoped
+    # scripts (e.g. stored XSS hitting this endpoint under an admin
+    # cookie) — from hammering queue state. Previously admins bypassed
+    # the limiter, so an admin cookie could be weaponised to flood the
+    # endpoint uncapped. 120/min per IP accommodates normal modal
+    # polling (~1 call every 2–3 s) with plenty of headroom.
+    if not _DOWNLOAD_STATUS_LIMITER.check(get_client_ip(request)):
         return JSONResponse({"error": "Too many requests"}, status_code=429)
 
     # Require either an admin session or a valid download token bound to

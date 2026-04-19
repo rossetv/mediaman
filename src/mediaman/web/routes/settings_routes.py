@@ -268,6 +268,8 @@ def api_update_settings(
         "nzbget_url", "nzbget_public_url",
     }
 
+    from mediaman.services.url_safety import is_safe_outbound_url
+
     for _url_key in _URL_FIELDS:
         if _url_key in body and body[_url_key]:
             _candidate = str(body[_url_key]).strip()
@@ -282,6 +284,19 @@ def api_update_settings(
             if not parsed or parsed.scheme not in ("http", "https") or not parsed.netloc:
                 return JSONResponse(
                     {"error": f"{_url_key} must be an http(s) URL"},
+                    status_code=400,
+                )
+            # SSRF guard: block cloud metadata, link-local, and hostnames
+            # that resolve to them. LAN addresses are allowed — most
+            # mediaman deployments run their services on RFC1918.
+            if not is_safe_outbound_url(_candidate):
+                logger.warning(
+                    "settings.ssrf_blocked key=%s value=%s",
+                    _url_key,
+                    _candidate,
+                )
+                return JSONResponse(
+                    {"error": f"{_url_key} points at a blocked address"},
                     status_code=400,
                 )
 

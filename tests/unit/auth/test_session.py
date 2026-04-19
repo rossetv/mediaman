@@ -75,6 +75,26 @@ class TestSessions:
         destroy_session(conn, token)
         assert validate_session(conn, token) is None
 
+    def test_hard_expiry_matches_cookie_max_age(self, conn):
+        """Hard expiry must match the ``max_age=86400`` (1 day) on the
+        session cookie. A stolen raw token should not keep working after
+        the browser has dropped the cookie."""
+        from mediaman.auth import session as session_mod
+
+        assert session_mod._HARD_EXPIRY_DAYS == 1
+
+        create_user(conn, "admin", "pass", enforce_policy=False)
+        token = create_session(conn, "admin")
+        row = conn.execute(
+            "SELECT created_at, expires_at FROM admin_sessions "
+            "WHERE token_hash = ? OR token = ?",
+            (__import__("hashlib").sha256(token.encode()).hexdigest(), token),
+        ).fetchone()
+        created = datetime.fromisoformat(row["created_at"])
+        expires = datetime.fromisoformat(row["expires_at"])
+        delta = expires - created
+        assert timedelta(hours=23, minutes=59) < delta <= timedelta(days=1, seconds=5)
+
 
 class TestDeleteUser:
     def _user_id(self, conn, username: str) -> int:
