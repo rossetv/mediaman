@@ -173,9 +173,24 @@ def _configure_connection(conn: sqlite3.Connection) -> None:
     for each per-thread connection opened lazily by :func:`get_db`.
     WAL mode is idempotent at the file level; enabling it on every
     connection is cheap and ensures it survives ``PRAGMA`` resets.
+
+    ``busy_timeout`` is a defence-in-depth safety net: Python's sqlite3
+    module defaults to a 5-second wait before raising
+    ``OperationalError: database is locked``. Any background writer
+    that holds the lock longer than that (scanner mid-transaction,
+    a slow HTTP call inside an implicit transaction) would otherwise
+    blow up concurrent web requests. We also split writes per-item in
+    the scanner so this should never actually kick in, but the cost of
+    a 30 s ceiling is zero when the DB is healthy.
+
+    ``synchronous=NORMAL`` is the recommended setting under WAL —
+    durable enough to survive a process crash, and removes the
+    per-transaction fsync that ``FULL`` forces.
     """
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     conn.execute("PRAGMA foreign_keys=ON")
 
 

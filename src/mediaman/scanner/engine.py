@@ -203,9 +203,16 @@ class ScanEngine:
                         media_type = "anime_season" if season.get("is_anime", default_anime) else "tv_season"
                         seen_keys.add(season["plex_rating_key"])
                         self._upsert_media_item(season, lib_id, media_type)
+                        # Commit before the Plex HTTP call so the SQLite
+                        # write lock isn't held across network I/O —
+                        # concurrent writers (session validation, other
+                        # background jobs) would otherwise block for the
+                        # full duration of the sync and hit busy_timeout.
+                        self._conn.commit()
                         try:
                             watch_history = self._plex.get_season_watch_history(season["plex_rating_key"])
                             self._update_last_watched(season["plex_rating_key"], watch_history)
+                            self._conn.commit()
                         except Exception:
                             pass
                         summary["synced"] += 1
@@ -214,9 +221,11 @@ class ScanEngine:
                     for item in items:
                         seen_keys.add(item["plex_rating_key"])
                         self._upsert_media_item(item, lib_id, "movie")
+                        self._conn.commit()
                         try:
                             watch_history = self._plex.get_watch_history(item["plex_rating_key"])
                             self._update_last_watched(item["plex_rating_key"], watch_history)
+                            self._conn.commit()
                         except Exception:
                             pass
                         summary["synced"] += 1
@@ -354,6 +363,9 @@ class ScanEngine:
             self._conn.execute(
                 "DELETE FROM scheduled_actions WHERE id = ?", (row["id"],)
             )
+            # Commit per-item so the write lock isn't held across the
+            # next iteration's Radarr/Sonarr unmonitor HTTP calls.
+            self._conn.commit()
 
             deleted_count += 1
             reclaimed_bytes += row["file_size_bytes"] or 0
@@ -415,6 +427,10 @@ class ScanEngine:
                     summary["scheduled"] += 1
                 else:
                     summary["skipped"] += 1
+                # Release the write lock per item — without this, the
+                # whole library scan runs inside one transaction and
+                # blocks every other writer for its full duration.
+                self._conn.commit()
             except Exception:
                 summary["errors"] += 1
                 logger.exception(
@@ -477,6 +493,7 @@ class ScanEngine:
                     summary["scheduled"] += 1
                 else:
                     summary["skipped"] += 1
+                self._conn.commit()
             except Exception:
                 summary["errors"] += 1
                 logger.exception(

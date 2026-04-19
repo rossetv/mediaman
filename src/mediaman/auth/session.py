@@ -40,6 +40,15 @@ _EXPIRED_CLEANUP_INTERVAL = 60.0  # seconds between expired-session sweeps
 _last_cleanup_at = 0.0
 _cleanup_lock = threading.Lock()
 
+# Minimum gap between ``last_used_at`` refresh writes. The idle timeout
+# lives on a 24-hour scale, so a ~60 s coarse-grained refresh is
+# indistinguishable in practice but lets us skip a DB write on the vast
+# majority of requests. Without this, every authenticated request
+# (including static-asset fetches if they end up auth-gated) becomes a
+# SQLite writer — which serialises against the scanner and produces
+# ``database is locked`` 500s under WAL.
+_SESSION_REFRESH_MIN_INTERVAL = timedelta(seconds=60)
+
 # Hard expiry: any session older than this is invalid regardless of
 # activity. Matched to the ``max_age=86400`` (1 day) on the session
 # cookie — if a raw token is exfiltrated from the DB or process memory
@@ -377,13 +386,26 @@ def validate_session(
             conn.commit()
             return None
 
-    # Sliding refresh of last_used_at (cheap single-row update)
-    conn.execute(
-        "UPDATE admin_sessions SET last_used_at = ? "
-        "WHERE token_hash = ? OR token = ?",
-        (now_iso, token_hash, token),
-    )
-    conn.commit()
+    # Sliding refresh of last_used_at — throttled. The idle timeout
+    # is 24 h, so rounding the refresh to a ~60 s cadence is invisible
+    # to users but removes the per-request write that would otherwise
+    # contend with background writers (scanner, download queue).
+    should_refresh = True
+    if last_used:
+        try:
+            last_dt = datetime.fromisoformat(last_used)
+            if now_dt - last_dt < _SESSION_REFRESH_MIN_INTERVAL:
+                should_refresh = False
+        except ValueError:
+            pass
+
+    if should_refresh:
+        conn.execute(
+            "UPDATE admin_sessions SET last_used_at = ? "
+            "WHERE token_hash = ? OR token = ?",
+            (now_iso, token_hash, token),
+        )
+        conn.commit()
 
     return row["username"]
 
