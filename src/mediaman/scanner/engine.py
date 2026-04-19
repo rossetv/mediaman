@@ -14,6 +14,7 @@ For each configured library the engine:
 
 import logging
 import sqlite3
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -34,6 +35,22 @@ _DELETION_ACTION = "scheduled_deletion"
 
 # Default token TTL: 30 days from now
 _TOKEN_TTL_DAYS = 30
+
+
+@dataclass
+class _PlexItemFetch:
+    """Network-read handoff between the scanner's fetch and write phases.
+
+    The scanner fetches a library's full contents (items + watch history)
+    from Plex into a list of these in phase 1, then phase 2 consumes the
+    list with no further network calls. Keeps the SQLite write lock off
+    the critical path of any HTTP round-trip.
+    """
+
+    item: dict
+    library_id: str
+    media_type: str
+    watch_history: list[dict]
 
 
 class ScanEngine:
@@ -187,54 +204,44 @@ class ScanEngine:
         Also removes orphaned entries whose ``plex_rating_key`` no longer
         exists in Plex (e.g. after a delete-and-redownload cycle where
         Plex assigns a new key).
+
+        Split into two phases so network I/O never overlaps with an open
+        SQLite write transaction:
+
+        1. **Fetch phase** — pull every library's items and their watch
+           history from Plex into an in-memory buffer. No DB writes.
+        2. **Write phase** — tight loop of UPSERTs, one ``commit()`` at
+           the end. Lock is held for milliseconds regardless of library
+           size, so concurrent session-validation writes never stall.
         """
         summary = {"synced": 0, "errors": 0, "removed": 0}
-        seen_keys: set[str] = set()
-        scanned_libs: set[int] = set()
 
+        # Phase 1: network reads. No DB writes, no lock.
+        buffered: list[_PlexItemFetch] = []
+        scanned_libs: set[int] = set()
         for lib_id in self._library_ids:
-            lib_type = self._library_types.get(lib_id, "movie")
             try:
-                if lib_type == "show":
-                    seasons = self._plex.get_show_seasons(lib_id)
-                    lib_title = self._library_titles.get(lib_id, "")
-                    default_anime = "anime" in lib_title
-                    for season in seasons:
-                        media_type = "anime_season" if season.get("is_anime", default_anime) else "tv_season"
-                        seen_keys.add(season["plex_rating_key"])
-                        self._upsert_media_item(season, lib_id, media_type)
-                        # Commit before the Plex HTTP call so the SQLite
-                        # write lock isn't held across network I/O —
-                        # concurrent writers (session validation, other
-                        # background jobs) would otherwise block for the
-                        # full duration of the sync and hit busy_timeout.
-                        self._conn.commit()
-                        try:
-                            watch_history = self._plex.get_season_watch_history(season["plex_rating_key"])
-                            self._update_last_watched(season["plex_rating_key"], watch_history)
-                            self._conn.commit()
-                        except Exception:
-                            pass
-                        summary["synced"] += 1
-                else:
-                    items = self._plex.get_movie_items(lib_id)
-                    for item in items:
-                        seen_keys.add(item["plex_rating_key"])
-                        self._upsert_media_item(item, lib_id, "movie")
-                        self._conn.commit()
-                        try:
-                            watch_history = self._plex.get_watch_history(item["plex_rating_key"])
-                            self._update_last_watched(item["plex_rating_key"], watch_history)
-                            self._conn.commit()
-                        except Exception:
-                            pass
-                        summary["synced"] += 1
+                buffered.extend(self._fetch_library_items(lib_id))
                 scanned_libs.add(int(lib_id))
             except Exception:
                 logger.exception("Library sync failed for library %s", lib_id)
                 summary["errors"] += 1
 
-        summary["removed"] = self._remove_orphaned_items(seen_keys, scanned_libs)
+        seen_keys: set[str] = {f.item["plex_rating_key"] for f in buffered}
+
+        # Phase 2: single short write transaction covering every UPSERT
+        # plus the orphan cleanup. No network calls happen past this
+        # point, so the write lock is held only for the DB work itself.
+        for f in buffered:
+            self._upsert_media_item(f.item, f.library_id, f.media_type)
+            if f.watch_history:
+                self._update_last_watched(
+                    f.item["plex_rating_key"], f.watch_history
+                )
+            summary["synced"] += 1
+        summary["removed"] = self._remove_orphaned_items(
+            seen_keys, scanned_libs
+        )
 
         self._conn.commit()
         logger.info(
@@ -242,6 +249,55 @@ class ScanEngine:
             summary["synced"], summary["removed"], summary["errors"],
         )
         return summary
+
+    def _fetch_library_items(self, library_id: str) -> list["_PlexItemFetch"]:
+        """Fetch items + watch history for a library from Plex.
+
+        Pure network-read helper; touches no DB. Returns one
+        :class:`_PlexItemFetch` per movie or per season. A failed
+        watch-history lookup yields an empty list (same semantics as the
+        pre-split code's ``except Exception: pass``).
+        """
+        lib_type = self._library_types.get(library_id, "movie")
+        out: list[_PlexItemFetch] = []
+        if lib_type == "show":
+            seasons = self._plex.get_show_seasons(library_id)
+            lib_title = self._library_titles.get(library_id, "")
+            default_anime = "anime" in lib_title
+            for season in seasons:
+                media_type = (
+                    "anime_season"
+                    if season.get("is_anime", default_anime)
+                    else "tv_season"
+                )
+                try:
+                    watch_history = self._plex.get_season_watch_history(
+                        season["plex_rating_key"]
+                    )
+                except Exception:
+                    watch_history = []
+                out.append(_PlexItemFetch(
+                    item=season,
+                    library_id=library_id,
+                    media_type=media_type,
+                    watch_history=watch_history,
+                ))
+        else:
+            items = self._plex.get_movie_items(library_id)
+            for item in items:
+                try:
+                    watch_history = self._plex.get_watch_history(
+                        item["plex_rating_key"]
+                    )
+                except Exception:
+                    watch_history = []
+                out.append(_PlexItemFetch(
+                    item=item,
+                    library_id=library_id,
+                    media_type="movie",
+                    watch_history=watch_history,
+                ))
+        return out
 
     def run_scan(self) -> dict[str, int]:
         """Execute a full scan and return a summary dict.
@@ -339,7 +395,24 @@ class ScanEngine:
                 )
                 continue
 
-            # Unmonitor in *arr clients — failures are non-fatal
+            # Record the deletion and close the transaction *before*
+            # the Radarr/Sonarr unmonitor HTTP calls. The unmonitor is
+            # best-effort housekeeping — a failure (or slow response)
+            # must not keep the SQLite write lock open.
+            log_audit(
+                self._conn,
+                row["media_item_id"],
+                "deleted",
+                "Deleted: {}{}".format(row["title"], f" [rk:{row['plex_rating_key']}]" if row["plex_rating_key"] else ""),
+                space_bytes=row["file_size_bytes"],
+            )
+            self._conn.execute(
+                "DELETE FROM scheduled_actions WHERE id = ?", (row["id"],)
+            )
+            self._conn.commit()
+
+            # Unmonitor in *arr clients — failures are non-fatal and
+            # happen outside any open transaction.
             if row["radarr_id"] and self._radarr:
                 try:
                     self._radarr.unmonitor_movie(row["radarr_id"])
@@ -351,21 +424,6 @@ class ScanEngine:
                     self._sonarr.unmonitor_season(row["sonarr_id"], row["season_number"])
                 except Exception:
                     pass
-
-            log_audit(
-                self._conn,
-                row["media_item_id"],
-                "deleted",
-                "Deleted: {}{}".format(row["title"], f" [rk:{row['plex_rating_key']}]" if row["plex_rating_key"] else ""),
-                space_bytes=row["file_size_bytes"],
-            )
-
-            self._conn.execute(
-                "DELETE FROM scheduled_actions WHERE id = ?", (row["id"],)
-            )
-            # Commit per-item so the write lock isn't held across the
-            # next iteration's Radarr/Sonarr unmonitor HTTP calls.
-            self._conn.commit()
 
             deleted_count += 1
             reclaimed_bytes += row["file_size_bytes"] or 0
@@ -386,17 +444,23 @@ class ScanEngine:
     def _scan_movie_library(
         self, library_id: str, summary: dict, seen_keys: set[str] | None = None,
     ) -> None:
-        items = self._plex.get_movie_items(library_id)
-        for item in items:
+        # Phase 1: pull items + watch histories from Plex (no DB writes,
+        # no lock). See :meth:`sync_library` for rationale.
+        fetched = self._fetch_library_items(library_id)
+
+        # Phase 2: DB-only work. All reads and writes now happen without
+        # any intervening network calls, so the write transaction that
+        # opens on the first UPSERT closes within milliseconds at the
+        # caller's ``commit()``.
+        for f in fetched:
             summary["scanned"] += 1
+            item = f.item
+            watch_history = f.watch_history
             try:
                 media_id = item["plex_rating_key"]
                 if seen_keys is not None:
                     seen_keys.add(media_id)
                 self._upsert_media_item(item, library_id, "movie")
-
-                # Always fetch and store watch history — even for kept/scheduled items
-                watch_history = self._plex.get_watch_history(media_id)
                 self._update_last_watched(media_id, watch_history)
 
                 if self._is_protected(media_id):
@@ -427,10 +491,6 @@ class ScanEngine:
                     summary["scheduled"] += 1
                 else:
                     summary["skipped"] += 1
-                # Release the write lock per item — without this, the
-                # whole library scan runs inside one transaction and
-                # blocks every other writer for its full duration.
-                self._conn.commit()
             except Exception:
                 summary["errors"] += 1
                 logger.exception(
@@ -441,22 +501,19 @@ class ScanEngine:
     def _scan_tv_library(
         self, library_id: str, summary: dict, seen_keys: set[str] | None = None,
     ) -> None:
-        seasons = self._plex.get_show_seasons(library_id)
-        lib_title = self._library_titles.get(library_id, "")
-        default_anime = "anime" in lib_title
-        for season in seasons:
+        # Phase 1: network fetch (see :meth:`sync_library`).
+        fetched = self._fetch_library_items(library_id)
+
+        # Phase 2: DB-only work inside a single write transaction.
+        for f in fetched:
             summary["scanned"] += 1
+            season = f.item
+            watch_history = f.watch_history
             try:
                 media_id = season["plex_rating_key"]
                 if seen_keys is not None:
                     seen_keys.add(media_id)
-                # Detect anime per-show via Plex genres, fall back to library name
-                is_anime = season.get("is_anime", default_anime)
-                media_type = "anime_season" if is_anime else "tv_season"
-                self._upsert_media_item(season, library_id, media_type)
-
-                # Always fetch and store watch history — even for kept/scheduled items
-                watch_history = self._plex.get_season_watch_history(media_id)
+                self._upsert_media_item(season, library_id, f.media_type)
                 self._update_last_watched(media_id, watch_history)
 
                 show_rk = season.get("show_rating_key")
@@ -493,7 +550,6 @@ class ScanEngine:
                     summary["scheduled"] += 1
                 else:
                     summary["skipped"] += 1
-                self._conn.commit()
             except Exception:
                 summary["errors"] += 1
                 logger.exception(
