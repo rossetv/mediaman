@@ -17,12 +17,6 @@
     <div class="search-spinner" id="search-spinner"></div>
   </div>
 
-  <div class="pill-row search-type-filter" id="search-type-filter" hidden style="margin-top:20px">
-    <button class="fpill on" type="button" data-type="all">All</button>
-    <button class="fpill fpill--movie" type="button" data-type="movie">Movies</button>
-    <button class="fpill fpill--tv" type="button" data-type="tv">TV</button>
-  </div>
-
   <div id="shelves"></div>
 
   <div class="page-bottom-spacer"></div>
@@ -45,7 +39,6 @@
   function escapeAttr(value) { return escapeHtml(value); }
 
   const shelves = document.getElementById("shelves");
-  const filterBar = document.getElementById("search-type-filter");
   const input = document.getElementById("search-input");
   const wrap = document.getElementById("search-wrap");
   const modal = document.getElementById("detail-modal");
@@ -117,19 +110,8 @@
     shelves.appendChild(msg);
   }
 
-  // ===== View state =====
-  // lastSearchResults is non-null only while search results are on screen.
-  // Discover mode clears it so the type filter re-renders the right list.
-  let lastSearchResults = null;
-  let lastSearchQuery = "";
-  let activeType = "all";
-
   function renderDiscover(data) {
-    lastSearchResults = null;
-    lastSearchQuery = "";
-    filterBar.hidden = true;
-    shelves.innerHTML = "";
-
+    shelves.replaceChildren();
     const rows = [
       ["Trending this week", data.trending || []],
       ["Popular movies", data.popular_movies || []],
@@ -145,45 +127,13 @@
   }
 
   function renderSearchResults(query, items) {
-    lastSearchResults = items;
-    lastSearchQuery = query;
-
     if (!items.length) {
-      filterBar.hidden = true;
       renderEmpty("No results.");
       return;
     }
-
-    filterBar.hidden = false;
-    const filtered = activeType === "all"
-      ? items
-      : items.filter(i => i.media_type === activeType);
-
-    if (!filtered.length) {
-      shelves.innerHTML = "";
-      const msg = document.createElement("div");
-      msg.className = "search-empty";
-      msg.textContent = activeType === "movie"
-        ? `No movies for "${query}".`
-        : `No TV results for "${query}".`;
-      shelves.appendChild(msg);
-      return;
-    }
-
-    shelves.innerHTML = "";
-    shelves.appendChild(buildShelf(`Results for "${query}"`, filtered, { showCount: true }));
+    shelves.replaceChildren();
+    shelves.appendChild(buildShelf(`Results for "${query}"`, items, { showCount: true }));
   }
-
-  filterBar.querySelectorAll(".fpill").forEach(pill => {
-    pill.addEventListener("click", () => {
-      filterBar.querySelectorAll(".fpill").forEach(p => p.classList.remove("on"));
-      pill.classList.add("on");
-      activeType = pill.dataset.type;
-      if (lastSearchResults !== null) {
-        renderSearchResults(lastSearchQuery, lastSearchResults);
-      }
-    });
-  });
 
   // ===== SearchController =====
   let reqGen = 0;
@@ -203,7 +153,6 @@
       onData(data);
     } catch (e) {
       if (e.name === "AbortError") return;
-      filterBar.hidden = true;
       renderEmpty("Couldn't load results.");
     } finally {
       if (myGen === reqGen) wrap.classList.remove("loading");
