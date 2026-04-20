@@ -102,7 +102,7 @@ def recommended_page(request: Request):
 
     # Group by batch_id, preserving DESC order from the query
     from collections import OrderedDict
-    from datetime import datetime as dt
+    from datetime import date as _date, datetime as dt
 
     batches_map: OrderedDict = OrderedDict()
     for s in recommendations:
@@ -114,16 +114,41 @@ def recommended_page(request: Request):
         else:
             batches_map[bid]["personal"].append(s)
 
+    today = _date.today()
+
+    def _relative_label(batch_date: _date | None, index: int) -> str:
+        if index == 0:
+            return "Latest picks"
+        if batch_date is None:
+            return "Earlier picks"
+        days = (today - batch_date).days
+        if days <= 0:
+            return "Earlier today"
+        if days == 1:
+            return "Yesterday"
+        if days < 7:
+            return f"{days} days ago"
+        if days < 14:
+            return "Last week"
+        weeks = days // 7
+        if weeks < 5:
+            return f"{weeks} weeks ago"
+        months = max(1, days // 30)
+        return "A month ago" if months == 1 else f"{months} months ago"
+
     formatted_batches = []
-    for bid, groups in list(batches_map.items())[:4]:
+    for index, (bid, groups) in enumerate(list(batches_map.items())[:4]):
         try:
-            d = dt.strptime(bid, "%Y-%m-%d")
-            label = f"Recommendations · {d.strftime('%-d %B %Y')}"
+            batch_date: _date | None = dt.strptime(bid, "%Y-%m-%d").date()
+            date_label = batch_date.strftime("%-d %B %Y")
         except (ValueError, TypeError):
-            label = f"Recommendations · {bid}"
+            batch_date = None
+            date_label = str(bid)
         formatted_batches.append({
             "batch_id": bid,
-            "label": label,
+            "date_label": date_label,
+            "relative_label": _relative_label(batch_date, index),
+            "is_latest": index == 0,
             "trending": groups["trending"],
             "personal": groups["personal"],
         })

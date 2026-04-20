@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% import "_components.html" as c %}
 
 {% block title %}Recommended · Mediaman{% endblock %}
 {% block nav %}{% include "_nav.html" %}{% endblock %}
@@ -51,22 +50,38 @@
   {% else %}
 
   {% for batch in batches %}
-    {% if batch.trending %}
-    <section class="section">
-      {{ c.sec_hd("Trending this week", "Popular movies and shows right now") }}
-      <div class="shelf">
-        {% for item in batch.trending %}{% include "_rec_card.html" %}{% endfor %}
+    <section class="rec-batch{% if batch.is_latest %} rec-batch--latest{% endif %}">
+      <header class="rec-batch-hd">
+        <div class="rec-batch-eyebrow">{{ batch.relative_label }}</div>
+        <h2 class="rec-batch-title">{{ batch.date_label }}</h2>
+        <p class="rec-batch-sub">Trending picks and personalised suggestions for your household.</p>
+      </header>
+
+      {% if batch.trending %}
+      <div class="rec-group">
+        <div class="rec-group-hd">
+          <h3>Trending this week</h3>
+          <span class="sub">Popular movies and shows right now</span>
+        </div>
+        <div class="grid grid-tiles-lg">
+          {% for item in batch.trending %}{% include "_rec_card.html" %}{% endfor %}
+        </div>
       </div>
-    </section>
-    {% endif %}
-    {% if batch.personal %}
-    <section class="section">
-      {{ c.sec_hd("Based on your watch history", "Personalised for your household") }}
-      <div class="shelf">
-        {% for item in batch.personal %}{% include "_rec_card.html" %}{% endfor %}
+      {% endif %}
+
+      {% if batch.personal %}
+      <div class="rec-group">
+        <div class="rec-group-hd">
+          <h3>Based on your watch history</h3>
+          <span class="sub">Personalised for your household</span>
+        </div>
+        <div class="grid grid-tiles-lg">
+          {% for item in batch.personal %}{% include "_rec_card.html" %}{% endfor %}
+        </div>
       </div>
+      {% endif %}
     </section>
-    {% endif %}
+    {% if not loop.last %}<hr class="rec-batch-divider" aria-hidden="true">{% endif %}
   {% endfor %}
 
   {% endif %}

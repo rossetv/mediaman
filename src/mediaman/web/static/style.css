@@ -1643,8 +1643,70 @@ img.deleted-thumb { width: 100%; height: 100%; object-fit: cover; display: block
 .rec-disabled-sub { color: var(--t3); font-size: 13px; margin-top: 4px; }
 .rec-disabled-sub a { color: var(--accent); }
 
-.rec-batch { margin-top: 24px; }
-.rec-batch.expanded .settings-section-chevron { transform: rotate(90deg); }
+/* Recommended page — batch sections with clear date separation.
+   Each batch is a self-contained block with an eyebrow (relative age),
+   display-sized date heading, and two card groups (trending / personal)
+   rendered as a wrapping grid. A hairline divider separates batches. */
+.rec-batch {
+  margin-top: 48px;
+  scroll-margin-top: 80px;
+}
+.rec-batch:first-of-type { margin-top: 32px; }
+
+.rec-batch-hd { margin-bottom: 28px; }
+.rec-batch-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: var(--t3);
+  margin-bottom: 10px;
+}
+.rec-batch--latest .rec-batch-eyebrow { color: var(--accent); }
+.rec-batch-title {
+  font-family: var(--font-display);
+  font-size: clamp(26px, 3.4vw, 36px);
+  font-weight: 600;
+  letter-spacing: -.03em;
+  line-height: 1.08;
+  color: var(--t1);
+  margin: 0;
+}
+.rec-batch-sub {
+  margin: 8px 0 0;
+  color: var(--t3);
+  font-size: 14px;
+  letter-spacing: -.01em;
+}
+
+.rec-group { margin-top: 32px; }
+.rec-group-hd {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.rec-group-hd h3 {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -.015em;
+  color: var(--t1);
+  margin: 0;
+}
+.rec-group-hd .sub {
+  color: var(--t3);
+  font-size: 13px;
+  letter-spacing: -.01em;
+}
+
+.rec-batch-divider {
+  height: 1px;
+  background: var(--hair);
+  margin: 64px 0 0;
+  border: 0;
+}
 
 .sug-card {
   position: relative;
