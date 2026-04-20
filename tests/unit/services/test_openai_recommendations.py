@@ -44,6 +44,22 @@ class TestOpenAIModelSelection:
         conn.commit()
         assert openai_recommendations._get_openai_model(conn) == "gpt-4o"
 
+    def test_strip_season_suffix(self):
+        """TV titles with a trailing ``Season N`` marker are cleaned for TMDB
+        search; plain titles pass through unchanged. TMDB indexes the series
+        title only, so without this a row like ``The Boys: Season 5`` would
+        miss every lookup and land on /recommended with no poster or
+        description."""
+        strip = openai_recommendations._strip_season_suffix
+        assert strip("The Boys: Season 5") == "The Boys"
+        assert strip("Hacks: Season 5") == "Hacks"
+        assert strip("Euphoria: Season 3") == "Euphoria"
+        assert strip("The Boys Season 5") == "The Boys"
+        assert strip("The Boys - Season 5") == "The Boys"
+        assert strip("Stranger Things: S4") == "Stranger Things"
+        assert strip("The Mummy") == "The Mummy"
+        assert strip("Margo's Got Money Troubles") == "Margo's Got Money Troubles"
+
     def test_call_openai_sends_configured_model(self, conn):
         """``_call_openai`` must forward the configured model in the request body."""
         conn.execute(

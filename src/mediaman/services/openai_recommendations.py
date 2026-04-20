@@ -3,11 +3,27 @@
 import json
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 
 import requests
 
 logger = logging.getLogger("mediaman")
+
+# TV suggestions sometimes arrive with a season suffix (e.g. "The Boys:
+# Season 5"). TMDB's /search/tv endpoint indexes the series title only,
+# so the full string returns no match and the row ends up with no
+# poster / description. We keep the display title as-is but search with
+# the series title stripped of the trailing season marker.
+_SEASON_SUFFIX_RE = re.compile(
+    r"\s*[:\-–—]?\s*(?:season\s+\d+|s\d+)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _strip_season_suffix(title: str) -> str:
+    """Return *title* with a trailing "Season N" / "SN" marker removed."""
+    return _SEASON_SUFFIX_RE.sub("", title).strip()
 
 # Default OpenAI model for the /v1/responses API.  Configurable via the
 # ``openai_model`` setting in the DB; gpt-4.1 is a safe, long-lived choice
@@ -166,8 +182,11 @@ def _enrich_recommendations(recommendations: list[dict], conn) -> None:
     for s in recommendations:
         # --- TMDB search + details -------------------------------------
         if client is not None:
+            search_title = s["title"]
+            if s["media_type"] == "tv":
+                search_title = _strip_season_suffix(search_title) or s["title"]
             best = client.search(
-                s["title"],
+                search_title,
                 year=s.get("year"),
                 media_type=s["media_type"],
             )
