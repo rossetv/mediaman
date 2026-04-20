@@ -3708,15 +3708,59 @@ section.shelf:first-of-type { margin-top: 32px; }
   padding: 8px 0;
 }
 @media (max-width: 960px) {
+  /* Mobile rail: a sticky chip strip pinned under the top brand bar.
+     Full-bleed (breaks out of .container padding) so the fade edges sit
+     at the viewport edges. ::before/::after paint the gradients; they are
+     positioned against the sticky element, not the scrolled content. */
   .setg-pg .setg-rail {
-    position: static; flex-direction: row; gap: 4px; overflow-x: auto;
-    padding: 12px 0; margin-bottom: 8px;
+    position: sticky;
+    /* On < 700 px the mobile topbar (48 px, style.css:279) sits at top:0.
+       Above that, the desktop nav-glass (--nav-h) is still visible. */
+    top: 48px;
+    z-index: 20;
+    flex-direction: row; gap: 4px; overflow-x: auto; overflow-y: hidden;
+    padding: 10px var(--pad);
+    margin: 0 calc(var(--pad) * -1) 12px;
+    background: rgba(10,10,12,.88);
+    backdrop-filter: saturate(180%) blur(16px);
+    -webkit-backdrop-filter: saturate(180%) blur(16px);
     border-bottom: 1px solid var(--hair);
     scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    scroll-padding-inline: 32px;
   }
   .setg-pg .setg-rail::-webkit-scrollbar { display: none; }
-  .setg-pg .setg-rail-item { flex: 0 0 auto; }
+  /* Fade edges cue the horizontal scroll. The rail is a flex overflow
+     container so `position: absolute` pulls the pseudos out of the flex
+     flow and pins them to the padding box — they sit on top of the
+     scrolled chips without moving as the user swipes. */
+  .setg-pg .setg-rail::before,
+  .setg-pg .setg-rail::after {
+    content: ""; position: absolute; top: 0; bottom: 0;
+    width: 32px; pointer-events: none; z-index: 2;
+  }
+  .setg-pg .setg-rail::before {
+    left: 0;
+    background: linear-gradient(to right, rgba(10,10,12,.95), rgba(10,10,12,0));
+  }
+  .setg-pg .setg-rail::after {
+    right: 0;
+    background: linear-gradient(to left, rgba(10,10,12,.95), rgba(10,10,12,0));
+  }
+  .setg-pg .setg-rail-item {
+    flex: 0 0 auto;
+    padding: 8px 13px;
+    font-size: 13.5px;
+    scroll-snap-align: center;
+  }
+  .setg-pg .setg-rail-item svg { width: 15px; height: 15px; }
+  .setg-pg .setg-rail-item.on { background: var(--s3); }
   .setg-pg .setg-rail-eyebrow { display: none; }
+}
+/* Between 700 px and 960 px the desktop .nav-glass is still visible, so
+   the rail must stick below it rather than below the mobile topbar. */
+@media (min-width: 700px) and (max-width: 960px) {
+  .setg-pg .setg-rail { top: var(--nav-h); }
 }
 .setg-pg .setg-rail-eyebrow {
   font-size: 11px; font-weight: 600; color: var(--t3);
@@ -3774,6 +3818,15 @@ section.shelf:first-of-type { margin-top: 32px; }
 }
 @media (max-width: 720px) {
   .setg-pg .setg-block-hd .sub { text-align: left; width: 100%; }
+}
+@media (max-width: 640px) {
+  /* Tighten vertical rhythm so sections don't feel marooned on phones. */
+  .setg-pg .setg-body .ph { padding: 14px 0 4px; }
+  .setg-pg .setg-body .ph h1 { font-size: 30px; line-height: 1.12; }
+  .setg-pg .setg-block { padding-top: 40px; }
+  .setg-pg .setg-block:first-child { padding-top: 12px; }
+  .setg-pg .setg-block-hd { margin-bottom: 16px; }
+  .setg-pg .setg-block-hd h2 { font-size: 20px; }
 }
 
 /* Card ----------------------------------------------------------- */
@@ -4316,7 +4369,19 @@ section.shelf:first-of-type { margin-top: 32px; }
 @media (max-width: 700px) {
   /* Lift above the mobile bottom tab bar so the savebar stays reachable.
      Matches the .nav-tabs height expression (style.css:303) + safe-area. */
-  .setg-pg .savebar { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+  .setg-pg .savebar { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); padding: 10px var(--pad); }
+  /* Collapse the sub caption on mobile — the warning dot + "Unsaved changes"
+     label is enough; the caption eats room the buttons need. */
+  .setg-pg .savebar .sb-sub { display: none; }
+  .setg-pg .savebar .sb-inner { gap: 10px; flex-wrap: wrap; }
+  .setg-pg .savebar .sb-msg { flex: 1 1 auto; }
+  .setg-pg .savebar .btn { flex: 0 0 auto; }
+}
+@media (max-width: 380px) {
+  /* On very narrow phones, stack the action buttons to their own row so
+     neither label ("Discard" / "Save Settings") truncates. */
+  .setg-pg .savebar .sb-msg { flex: 1 1 100%; }
+  .setg-pg .savebar .btn { flex: 1 1 0; }
 }
 
 /* Link-style danger button (used in user/subscriber rows) ------- */

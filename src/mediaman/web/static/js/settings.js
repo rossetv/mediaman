@@ -118,8 +118,10 @@
   // Rail scroll-spy — highlight the anchor of the section closest to the
   // top of the viewport.
   // ---------------------------------------------------------------------
+  var rail = document.querySelector('.setg-rail');
   var railItems = document.querySelectorAll('.setg-rail-item');
   var blocks = document.querySelectorAll('.setg-block');
+  var lastActiveHref = null;
   function syncRail() {
     if (!blocks.length) return;
     var pos = window.scrollY + 140;
@@ -130,9 +132,19 @@
     var atBottom = (window.innerHeight + window.scrollY) >= (document.body.scrollHeight - 4);
     if (atBottom) current = blocks[blocks.length - 1];
     var id = current ? '#' + current.id : '';
+    var activeEl = null;
     railItems.forEach(function (r) {
-      r.classList.toggle('on', r.getAttribute('href') === id);
+      var on = r.getAttribute('href') === id;
+      r.classList.toggle('on', on);
+      if (on) activeEl = r;
     });
+    // On mobile the rail is a horizontal scroller — keep the active chip
+    // in view when the scroll-spy selection changes.
+    if (activeEl && id !== lastActiveHref && rail && rail.scrollWidth > rail.clientWidth) {
+      var target = activeEl.offsetLeft - (rail.clientWidth - activeEl.offsetWidth) / 2;
+      rail.scrollTo({ left: Math.max(0, target), behavior: 'smooth' });
+    }
+    lastActiveHref = id;
   }
   window.addEventListener('scroll', syncRail, { passive: true });
   syncRail();
