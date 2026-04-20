@@ -29,11 +29,16 @@
   function markDirty() { if (savebar) savebar.classList.add('on'); }
   function markClean() { if (savebar) savebar.classList.remove('on'); }
 
+  // The send-newsletter panel contains ephemeral recipient checkboxes that
+  // are not persisted settings, so changes inside it must not mark dirty.
+  function isSettingsInput(el) {
+    return el.closest('.setg-pg') && !el.closest('#newsletter-send-panel');
+  }
   document.addEventListener('input', function (e) {
-    if (e.target.closest('.setg-pg')) markDirty();
+    if (isSettingsInput(e.target)) markDirty();
   }, true);
   document.addEventListener('change', function (e) {
-    if (e.target.closest('.setg-pg')) markDirty();
+    if (isSettingsInput(e.target)) markDirty();
   }, true);
 
   // ---------------------------------------------------------------------
