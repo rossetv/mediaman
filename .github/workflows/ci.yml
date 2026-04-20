@@ -49,3 +49,26 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/mediaman:sha-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  cloudflare-refresh:
+    needs: docker
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      CF_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+      CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Enable Cloudflare Development Mode
+        run: |
+          curl --fail-with-body -sS -X PATCH \
+            "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/settings/development_mode" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data '{"value":"on"}'
+      - name: Purge Cloudflare cache
+        run: |
+          curl --fail-with-body -sS -X POST \
+            "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/purge_cache" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data '{"purge_everything":true}'
