@@ -1,15 +1,20 @@
-{# A single recommendation tile — used inside .shelf rails on Recommended.
-   Context: item (a Recommendation row dict). #}
+{# A single recommendation tile — rendered in the grid on /recommended.
+   Context: item (a Recommendation row dict). Poster overlays match
+   /search: top-left pill combines media type + ratings, bottom-right
+   pill shows download state when it's in library / downloading / queued. #}
+{%- set _type_label = 'MOVIE' if item.media_type == 'movie' else 'TV' -%}
+{%- set _type_parts = [_type_label] -%}
+{%- if item.rating %}{% set _ = _type_parts.append('★ ' ~ item.rating) %}{% endif -%}
+{%- if item.rt_rating %}{% set _ = _type_parts.append('🍅 ' ~ item.rt_rating) %}{% endif -%}
+{%- set _state = item.download_state if item.download_state else ('queued' if item.downloaded_at else '') -%}
 <div class="tile" onclick="openModal({{ item.id }})">
   <div class="tile-poster">
     {% if item.poster_url %}
     <img src="{{ item.poster_url }}" alt="{{ item.title }}" loading="lazy" onerror="this.dataset.broken=''">
     {% endif %}
-    <div class="tile-pills">
-      <span class="pill pill--{{ 'movie' if item.media_type == 'movie' else 'tv' }}">{{ 'Movie' if item.media_type == 'movie' else 'TV' }}</span>
-    </div>
-    {% if item.rating %}
-    <div class="tile-rating"><span class="star">★</span> {{ item.rating }}</div>
+    <span class="poster-type">{{ _type_parts | join(' · ') }}</span>
+    {% if _state %}
+    <span class="poster-state {{ _state }}">{{ _state.replace('_', ' ') }}</span>
     {% endif %}
   </div>
   <div>
@@ -17,18 +22,14 @@
     <div class="tile-meta">{{ item.description | truncate(80) if item.description else '' }}</div>
   </div>
   {% if item.reason %}<div class="reason">{{ item.reason }}</div>{% endif %}
+  {% if item.trailer_url or not _state %}
   <div class="tile-actions">
     {% if item.trailer_url %}
     <a href="{{ item.trailer_url }}" target="_blank" rel="noopener" class="btn btn--ghost btn--sm" onclick="event.stopPropagation();">▶ Trailer</a>
     {% endif %}
-    {% if item.download_state == 'in_library' %}
-    <span class="btn btn--success btn--sm" style="flex:1">In library ✓</span>
-    {% elif item.download_state == 'downloading' %}
-    <span class="btn btn--accent-soft btn--sm" style="flex:1">Downloading</span>
-    {% elif item.download_state == 'queued' or item.downloaded_at %}
-    <span class="btn btn--accent-soft btn--sm" style="flex:1">Queued</span>
-    {% else %}
+    {% if not _state %}
     <button class="btn btn--primary btn--sm" style="flex:1" onclick="event.stopPropagation(); downloadRecommendation(this, {{ item.id }})" title="Add to {{ 'Radarr' if item.media_type == 'movie' else 'Sonarr' }}">Download</button>
     {% endif %}
   </div>
+  {% endif %}
 </div>

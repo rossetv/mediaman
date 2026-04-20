@@ -1877,7 +1877,8 @@ img.deleted-thumb { width: 100%; height: 100%; object-fit: cover; display: block
   pointer-events: none;
   background: linear-gradient(to bottom, rgba(0,0,0,.45) 0%, transparent 25%, transparent 65%, rgba(0,0,0,.85) 100%);
 }
-.poster-card .poster-type {
+.poster-card .poster-type,
+.tile-poster .poster-type {
   position: absolute;
   top: 10px;
   left: 10px;
@@ -1891,7 +1892,8 @@ img.deleted-thumb { width: 100%; height: 100%; object-fit: cover; display: block
   letter-spacing: .03em;
   backdrop-filter: blur(8px);
 }
-.poster-card .poster-state {
+.poster-card .poster-state,
+.tile-poster .poster-state {
   position: absolute;
   bottom: 10px;
   right: 10px;
@@ -1904,9 +1906,12 @@ img.deleted-thumb { width: 100%; height: 100%; object-fit: cover; display: block
   text-transform: uppercase;
   backdrop-filter: blur(8px);
 }
-.poster-card .poster-state.in_library { background: rgba(48,209,88,.85); color: #00210b; }
-.poster-card .poster-state.downloading { background: rgba(41,151,255,.85); color: #001a30; }
-.poster-card .poster-state.queued { background: rgba(255,214,10,.85); color: #2a2400; }
+.poster-card .poster-state.in_library,
+.tile-poster .poster-state.in_library { background: rgba(48,209,88,.85); color: #00210b; }
+.poster-card .poster-state.downloading,
+.tile-poster .poster-state.downloading { background: rgba(41,151,255,.85); color: #001a30; }
+.poster-card .poster-state.queued,
+.tile-poster .poster-state.queued { background: rgba(255,214,10,.85); color: #2a2400; }
 .poster-card .poster-empty {
   display: grid;
   place-items: center;
