@@ -5,7 +5,7 @@
 
   {% call c.setg_card_v2(title="Application", sub="Where Mediaman is reachable from subscribers' email clients.") %}
     {% call c.setg_row_v2("Base URL", "Used to build keep-links and dashboard links in newsletter emails. Must be reachable from outside your LAN.") %}
-      <input class="inp inp--lg" type="text" id="base_url"
+      <input class="inp inp--fluid" type="text" id="base_url" size="36"
              value="{{ settings.get('base_url', '') }}"
              placeholder="https://mediaman.example.com">
     {% endcall %}

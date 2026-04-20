@@ -728,7 +728,7 @@
           return;
         }
         var toggleRow = document.createElement('div');
-        toggleRow.style.cssText = 'display:flex; gap:8px; margin-bottom:8px';
+        toggleRow.className = 'recipient-toggles';
         [['Select all', true], ['Select none', false]].forEach(function (pair) {
           var b = document.createElement('button');
           b.type = 'button';
