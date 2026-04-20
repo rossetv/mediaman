@@ -11,7 +11,7 @@ import re
 from datetime import datetime, timezone
 from html import escape
 
-from fastapi import APIRouter, Depends, Form, Header, Request
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
@@ -24,14 +24,12 @@ from mediaman.crypto import (
     validate_unsubscribe_token,
 )
 from mediaman.db import get_db
-from mediaman.auth.reauth import _require_reauth
 
 
 class _SendNewsletterBody(BaseModel):
     """Body shape for POST /api/newsletter/send."""
 
     recipients: list[str] = []
-    confirm_password: str = ""
 
 logger = logging.getLogger("mediaman")
 
@@ -137,14 +135,12 @@ def api_send_newsletter(
     request: Request,
     body: _SendNewsletterBody,
     admin: str = Depends(get_current_admin),
-    x_confirm_password: str | None = Header(default=None),
 ):
     """Manually send the newsletter to selected recipients.
 
-    Expects JSON body: ``{"recipients": ["email@example.com", ...],
-    "confirm_password": "…"}``. Password re-auth is required so a
-    compromised session cookie cannot weaponise the endpoint to spam
-    the full subscriber list and get the Mailgun domain blacklisted.
+    Expects JSON body: ``{"recipients": ["email@example.com", ...]}``.
+    The per-admin rate limiter is the safeguard against the endpoint
+    being abused to spam the subscriber list.
 
     Sends the current newsletter (all active scheduled items) without marking
     them as notified, so the regular scan newsletter still sends normally.
@@ -152,17 +148,6 @@ def api_send_newsletter(
     from mediaman.services.newsletter import send_newsletter
 
     conn = get_db()
-
-    # Require password re-confirmation — accept either the header (keeps
-    # the password out of request logs if logged as body) or the body
-    # field, matching the pattern used by other destructive endpoints.
-    pw = x_confirm_password if x_confirm_password is not None else body.confirm_password
-    if not _require_reauth(conn, admin, pw):
-        logger.warning("newsletter.send_rejected user=%s reason=reauth_required", admin)
-        return JSONResponse(
-            {"ok": False, "error": "Password confirmation required"},
-            status_code=403,
-        )
 
     if not _NEWSLETTER_LIMITER.check(admin):
         logger.warning("newsletter.send_throttled user=%s", admin)

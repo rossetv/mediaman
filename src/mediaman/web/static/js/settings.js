@@ -541,7 +541,14 @@
   var syncBtn = document.getElementById('btn-sync-library');
   if (syncBtn) syncBtn.addEventListener('click', function () {
     var orig = syncBtn.textContent;
-    syncBtn.textContent = 'Syncing…';
+    // Build the in-flight label as a spinner + text node so the spinner
+    // animates alongside the label. Avoid innerHTML for safety.
+    while (syncBtn.firstChild) syncBtn.removeChild(syncBtn.firstChild);
+    var spinner = document.createElement('span');
+    spinner.className = 'btn-spinner';
+    spinner.setAttribute('aria-hidden', 'true');
+    syncBtn.appendChild(spinner);
+    syncBtn.appendChild(document.createTextNode('Syncing…'));
     syncBtn.disabled = true;
     fetch('/api/library/sync', { method: 'POST' })
       .then(function (r) { return r.json(); })
@@ -724,18 +731,12 @@
       newsletterStatus.className = 'inline-form-msg err';
       return;
     }
-    var pw = window.prompt('Re-enter your password to send the newsletter:');
-    if (!pw) {
-      newsletterStatus.textContent = 'Password required';
-      newsletterStatus.className = 'inline-form-msg err';
-      return;
-    }
     btnConfirmNL.disabled = true;
     btnConfirmNL.textContent = 'Sending…';
     newsletterStatus.textContent = '';
     fetch('/api/newsletter/send', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Confirm-Password': pw },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ recipients: recipients }),
     })
       .then(function (r) { return r.json(); })
@@ -1121,20 +1122,69 @@
     var chips = document.getElementById('ov-storage-chips');
     var big = document.getElementById('ov-storage-big');
     if (!bar || !chips || !big) return;
-    var entries = Object.keys(DISK_THRESHOLDS || {});
-    chips.replaceChildren();
-    if (!entries.length) {
+
+    function renderUnconfigured() {
       big.textContent = 'Not configured';
+      chips.replaceChildren();
       var note = document.createElement('span');
       note.style.color = 'var(--t3)';
       note.textContent = 'Set library paths under Libraries & Paths to populate this view.';
       chips.appendChild(note);
-      return;
     }
-    big.textContent = entries.length + ' ' + (entries.length === 1 ? 'path' : 'paths') + ' configured ';
-    var small = document.createElement('small');
-    small.textContent = '— live usage refreshes after scan';
-    big.appendChild(small);
+
+    function renderStorage(s) {
+      big.replaceChildren();
+      big.appendChild(document.createTextNode(s.used + ' '));
+      var small = document.createElement('small');
+      small.textContent = 'of ' + s.total + ' used · ' + s.free + ' free';
+      big.appendChild(small);
+
+      bar.replaceChildren();
+      var segs = [
+        { pct: s.movies_pct, bg: 'var(--orange)' },
+        { pct: s.tv_pct,     bg: 'var(--accent)' },
+        { pct: s.anime_pct,  bg: 'var(--purple)' },
+        { pct: s.other_pct,  bg: 'rgba(255,255,255,.2)' },
+      ];
+      segs.forEach(function (seg) {
+        if (!seg.pct || seg.pct <= 0) return;
+        var span = document.createElement('span');
+        span.style.flex = '0 0 ' + seg.pct + '%';
+        span.style.background = seg.bg;
+        bar.appendChild(span);
+      });
+
+      chips.replaceChildren();
+      var legend = [
+        { bg: 'var(--orange)',        label: 'Movies',   val: s.movies_label, pct: s.movies_pct },
+        { bg: 'var(--accent)',        label: 'TV Shows', val: s.tv_label,     pct: s.tv_pct     },
+        { bg: 'var(--purple)',        label: 'Anime',    val: s.anime_label,  pct: s.anime_pct  },
+        { bg: 'rgba(255,255,255,.3)', label: 'Other',    val: s.other_label,  pct: s.other_pct  },
+      ];
+      legend.forEach(function (item) {
+        var row = document.createElement('span');
+        var dot = document.createElement('span');
+        dot.className = 'chip-dot';
+        dot.style.background = item.bg;
+        row.appendChild(dot);
+        row.appendChild(document.createTextNode(item.label + ' '));
+        var b = document.createElement('b');
+        b.textContent = item.val + ' (' + item.pct + '%)';
+        row.appendChild(b);
+        chips.appendChild(row);
+      });
+    }
+
+    var entries = Object.keys(DISK_THRESHOLDS || {});
+    if (!entries.length) { renderUnconfigured(); return; }
+
+    fetch('/api/dashboard/stats', { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data || !data.storage) return;
+        renderStorage(data.storage);
+      })
+      .catch(function () { /* leave placeholder — network/backend hiccup */ });
   })();
 
   // ---------------------------------------------------------------------
