@@ -59,6 +59,42 @@
   });
 
   // ---------------------------------------------------------------------
+  // Integration cards — collapsible. Default collapsed; clicking the
+  // header (or pressing Enter/Space with it focused) toggles the body.
+  // Clicks on the Test button or the connection pill must NOT toggle.
+  // ---------------------------------------------------------------------
+  function toggleIntg(hd) {
+    var card = hd.closest('.intg-card');
+    if (!card) return;
+    var body = document.getElementById(hd.getAttribute('aria-controls'));
+    var expanded = card.classList.toggle('is-collapsed');
+    // After toggle(), `expanded` is true when the class is NOW present
+    // (i.e. card is collapsed). Flip the semantics for aria.
+    var isOpen = !expanded;
+    hd.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    if (body) {
+      if (isOpen) { body.removeAttribute('hidden'); }
+      else        { body.setAttribute('hidden', ''); }
+    }
+  }
+  document.querySelectorAll('.setg-pg [data-intg-toggle]').forEach(function (hd) {
+    hd.addEventListener('click', function (e) {
+      // Don't toggle when the user clicked the Test button or an inner
+      // control inside hd-actions. We still allow clicks on the chevron
+      // itself (it's inert SVG).
+      if (e.target.closest('.btn-test')) return;
+      if (e.target.closest('.conn'))     return;
+      toggleIntg(hd);
+    });
+    hd.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        toggleIntg(hd);
+      }
+    });
+  });
+
+  // ---------------------------------------------------------------------
   // Secret reveal — <button class="inp-reveal" data-reveal-target="id">
   // ---------------------------------------------------------------------
   document.querySelectorAll('.setg-pg .inp-reveal').forEach(function (btn) {

@@ -258,8 +258,10 @@
 {# Integration card — single pattern for all 8 services.
    Fields render inside the card body via caller(). #}
 {% macro intg_card(service, glyph, glyph_kind, title, sub="", include_test=true) -%}
-<div class="intg-card" id="intg-{{ service }}">
-  <div class="intg-card-hd">
+<div class="intg-card is-collapsed" id="intg-{{ service }}">
+  <div class="intg-card-hd" role="button" tabindex="0"
+       aria-expanded="false" aria-controls="intg-body-{{ service }}"
+       data-intg-toggle>
     <div class="glyph gy-{{ glyph_kind }}">{{ glyph }}</div>
     <div class="h-info">
       <h3>{{ title }}</h3>
@@ -268,9 +270,10 @@
     <div class="hd-actions">
       {{ conn_pill(service) }}
       {% if include_test %}<button type="button" class="btn-test" data-test-service="{{ service }}">Test</button>{% endif %}
+      <svg class="intg-chev" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><polyline points="6 9 12 15 18 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </div>
   </div>
-  <div class="intg-card-bd">
+  <div class="intg-card-bd" id="intg-body-{{ service }}" hidden>
     {{ caller() }}
   </div>
 </div>

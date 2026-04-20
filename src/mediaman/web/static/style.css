@@ -3936,7 +3936,13 @@ section.shelf:first-of-type { margin-top: 32px; }
   display: flex; align-items: center; gap: 14px;
   padding: 18px 24px;
   border-bottom: 1px solid var(--hair);
+  cursor: pointer;
 }
+.setg-pg .intg-card-hd:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.setg-pg .intg-card.is-collapsed .intg-card-hd { border-bottom: 0; }
 .setg-pg .intg-card-hd .glyph {
   width: 36px; height: 36px; border-radius: var(--r-sm);
   display: grid; place-items: center;
@@ -3947,6 +3953,15 @@ section.shelf:first-of-type { margin-top: 32px; }
 .setg-pg .intg-card-hd .h-info h3 { font-size: 15px; font-weight: 600; letter-spacing: -.01em; font-family: var(--font-text); }
 .setg-pg .intg-card-hd .h-info .sub { font-size: 12px; color: var(--t3); margin-top: 3px; }
 .setg-pg .intg-card-hd .hd-actions { display: flex; gap: 10px; align-items: center; }
+.setg-pg .intg-card-hd .intg-chev {
+  width: 16px; height: 16px;
+  color: var(--t3);
+  transition: transform .18s ease;
+  flex-shrink: 0;
+}
+.setg-pg .intg-card:not(.is-collapsed) .intg-card-hd .intg-chev {
+  transform: rotate(180deg);
+}
 .setg-pg .intg-card-bd { padding: 22px 24px 24px; }
 .setg-pg .intg-card-bd > .fld-row + .fld-row { margin-top: 18px; }
 .setg-pg .intg-help {
