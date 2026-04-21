@@ -270,7 +270,7 @@ Include:
 
 Do NOT include anything released more than 3 months ago unless it's having a major resurgence.
 {dedup_block}
-Return exactly 12 items (mix of movies and TV shows).
+Return exactly 14 items (mix of movies and TV shows).
 {_RESPONSE_FORMAT}"""
 
     items = _call_openai(prompt, conn, use_web_search=True)
@@ -309,13 +309,13 @@ The household has rated these titles (1-5 stars). Use these ratings to understan
         dedup_block += "\n".join(f"- {t}" for t in previous_titles[:100])
         dedup_block += "\n"
 
-    prompt = f"""Based on this household's recent watch history and their ratings, suggest 12 movies and TV shows they would enjoy.
+    prompt = f"""Based on this household's recent watch history and their ratings, suggest 14 movies and TV shows they would enjoy.
 Consider all viewers' tastes. Do NOT suggest anything already in the watch history or ratings below.
 
 Recent watch history:
 {history_text}
 {ratings_block}{dedup_block}
-Return exactly 12 items (mix of movies and TV shows).
+Return exactly 14 items (mix of movies and TV shows).
 {_RESPONSE_FORMAT}"""
 
     items = _call_openai(prompt, conn, use_web_search=True)
