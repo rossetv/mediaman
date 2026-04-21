@@ -51,11 +51,18 @@
     return parts.join(" · ");
   }
 
-  function badgeLabel(item) {
-    const parts = [item.media_type === "movie" ? "MOVIE" : "TV"];
-    if (item.rating) parts.push("\u2605 " + item.rating);
-    if (item.rt_rating) parts.push("\uD83C\uDF45 " + item.rt_rating);
-    return parts.join(" · ");
+  function ratingChips(item) {
+    // Split the ratings into two small chips so each one stays single-line
+    // regardless of poster width. The media type is already in the subtitle
+    // under the title, so we don't repeat it on the poster.
+    const chips = [];
+    if (item.rating) {
+      chips.push(`<span class="poster-chip r-imdb"><span class="chip-icon">\u2605</span>${escapeHtml(item.rating)}</span>`);
+    }
+    if (item.rt_rating) {
+      chips.push(`<span class="poster-chip r-rt"><span class="chip-icon">\uD83C\uDF45</span>${escapeHtml(item.rt_rating)}</span>`);
+    }
+    return chips.length ? `<div class="poster-chips">${chips.join("")}</div>` : "";
   }
 
   function renderCard(item) {
@@ -70,7 +77,7 @@
       <div class="poster-card" data-type="${escapeAttr(item.media_type)}" data-id="${escapeAttr(item.tmdb_id)}">
         <div class="poster">
           ${poster}
-          <span class="poster-type">${escapeHtml(badgeLabel(item))}</span>
+          ${ratingChips(item)}
           ${stateBadge}
         </div>
         <div class="poster-body">

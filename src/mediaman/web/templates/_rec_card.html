@@ -1,24 +1,30 @@
 {# A single recommendation tile — rendered in the grid on /recommended.
    Context: item (a Recommendation row dict). Poster overlays match
-   /search: top-left pill combines media type + ratings, bottom-right
-   pill shows download state when it's in library / downloading / queued. #}
-{%- set _type_label = 'MOVIE' if item.media_type == 'movie' else 'TV' -%}
-{%- set _type_parts = [_type_label] -%}
-{%- if item.rating %}{% set _ = _type_parts.append('★ ' ~ item.rating) %}{% endif -%}
-{%- if item.rt_rating %}{% set _ = _type_parts.append('🍅 ' ~ item.rt_rating) %}{% endif -%}
+   /search: bottom-left rating chips (★ and 🍅) and bottom-right download
+   state. Media type lives in the subtitle under the title, not on the
+   poster. #}
 {%- set _state = item.download_state if item.download_state else ('queued' if item.downloaded_at else '') -%}
 <div class="tile" onclick="openModal({{ item.id }})">
   <div class="tile-poster">
     {% if item.poster_url %}
     <img src="{{ item.poster_url }}" alt="{{ item.title }}" loading="lazy" onerror="this.dataset.broken=''">
     {% endif %}
-    <span class="poster-type">{{ _type_parts | join(' · ') }}</span>
+    {% if item.rating or item.rt_rating %}
+    <div class="poster-chips">
+      {% if item.rating %}<span class="poster-chip r-imdb"><span class="chip-icon">★</span>{{ item.rating }}</span>{% endif %}
+      {% if item.rt_rating %}<span class="poster-chip r-rt"><span class="chip-icon">🍅</span>{{ item.rt_rating }}</span>{% endif %}
+    </div>
+    {% endif %}
     {% if _state %}
     <span class="poster-state {{ _state }}">{{ _state.replace('_', ' ') }}</span>
     {% endif %}
   </div>
   <div>
-    <div class="tile-title">{{ item.title }}{% if item.year %} <span style="color:var(--t3);font-weight:400">({{ item.year }})</span>{% endif %}</div>
+    <div class="tile-title">{{ item.title }}</div>
+    <div class="tile-sub">
+      {%- if item.year %}{{ item.year }} · {% endif -%}
+      {{ 'Movie' if item.media_type == 'movie' else 'TV' }}
+    </div>
     <div class="tile-meta">{{ item.description | truncate(80) if item.description else '' }}</div>
   </div>
   {% if item.reason %}<div class="reason">{{ item.reason }}</div>{% endif %}
