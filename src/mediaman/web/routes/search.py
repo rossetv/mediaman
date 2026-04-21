@@ -281,29 +281,33 @@ def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)
 def api_discover(request: Request, admin: str = Depends(get_current_admin)):
     """Return the empty-state browse shelves in a single response.
 
-    Three TMDB calls fire concurrently (trending / popular movies / popular TV);
-    Radarr+Sonarr caches build once and are applied to every shelf, and ratings
-    enrichment dedupes across shelves so a title appearing in multiple lists
-    only pays one OMDb roundtrip. Any individual shelf that fails comes back
-    empty — the endpoint only 502s if TMDB isn't configured at all.
+    Six TMDB calls fire concurrently (pages 1+2 of trending / popular movies /
+    popular TV) so each shelf can surface 21 cards despite TMDB's 20-per-page
+    cap. Radarr+Sonarr caches build once and are applied to every shelf, and
+    ratings enrichment dedupes across shelves so a title appearing in multiple
+    lists only pays one OMDb roundtrip. Any individual page that fails comes
+    back empty — the endpoint only 502s if TMDB isn't configured at all.
     """
     conn = get_db()
     headers = _tmdb_headers(conn, request.app.state.config.secret_key)
     if not headers:
         return JSONResponse({"error": "TMDB not configured"}, status_code=502)
 
-    def _fetch(path: str, inject_media_type: str | None = None) -> list[dict]:
+    def _fetch(path: str, inject_media_type: str | None = None, page: int = 1) -> list[dict]:
+        cache_key = f"{path}?page={page}"
         now = time.monotonic()
         with _discover_cache_lock:
-            entry = _discover_cache.get(path)
+            entry = _discover_cache.get(cache_key)
             if entry and now - entry[0] < _DISCOVER_TMDB_TTL_SECONDS:
                 return entry[1]
         try:
-            resp = requests.get(f"{_TMDB_BASE}{path}", headers=headers, timeout=10)
+            resp = requests.get(
+                f"{_TMDB_BASE}{path}", headers=headers, params={"page": page}, timeout=10,
+            )
             resp.raise_for_status()
             raw = resp.json().get("results", []) or []
         except Exception:
-            logger.exception("TMDB %s failed", path)
+            logger.exception("TMDB %s page=%s failed", path, page)
             return []
         # /movie/popular and /tv/popular don't include media_type in each item
         # (the /trending/all endpoint does). Inject it so _shape_result works.
@@ -311,20 +315,26 @@ def api_discover(request: Request, admin: str = Depends(get_current_admin)):
             for x in raw:
                 x["media_type"] = inject_media_type
         with _discover_cache_lock:
-            _discover_cache[path] = (now, raw)
+            _discover_cache[cache_key] = (now, raw)
         return raw
 
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        f_trending = pool.submit(_fetch, "/trending/all/week")
-        f_movies = pool.submit(_fetch, "/movie/popular", "movie")
-        f_tv = pool.submit(_fetch, "/tv/popular", "tv")
-        trending_raw = f_trending.result()
-        movies_raw = f_movies.result()
-        tv_raw = f_tv.result()
+    # TMDB returns 20 results per page, so fetch pages 1 and 2 per shelf to
+    # reach the 21-card display target. The 6 calls still fan out in parallel
+    # and each page caches independently.
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        f_trending_1 = pool.submit(_fetch, "/trending/all/week", None, 1)
+        f_trending_2 = pool.submit(_fetch, "/trending/all/week", None, 2)
+        f_movies_1 = pool.submit(_fetch, "/movie/popular", "movie", 1)
+        f_movies_2 = pool.submit(_fetch, "/movie/popular", "movie", 2)
+        f_tv_1 = pool.submit(_fetch, "/tv/popular", "tv", 1)
+        f_tv_2 = pool.submit(_fetch, "/tv/popular", "tv", 2)
+        trending_raw = f_trending_1.result() + f_trending_2.result()
+        movies_raw = f_movies_1.result() + f_movies_2.result()
+        tv_raw = f_tv_1.result() + f_tv_2.result()
 
-    trending = [s for s in (_shape_result(x) for x in trending_raw) if s is not None][:30]
-    popular_movies = [s for s in (_shape_result(x) for x in movies_raw) if s is not None][:20]
-    popular_tv = [s for s in (_shape_result(x) for x in tv_raw) if s is not None][:20]
+    trending = [s for s in (_shape_result(x) for x in trending_raw) if s is not None][:21]
+    popular_movies = [s for s in (_shape_result(x) for x in movies_raw) if s is not None][:21]
+    popular_tv = [s for s in (_shape_result(x) for x in tv_raw) if s is not None][:21]
 
     # Single pass over the union so Arr cache build and OMDb enrichment both
     # run once regardless of cross-shelf duplicates.

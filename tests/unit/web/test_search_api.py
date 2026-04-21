@@ -153,7 +153,11 @@ class TestDiscoverEndpoint:
             ],
         }
 
-        def by_url(url, **_kwargs):
+        def by_url(url, **kwargs):
+            # Each shelf fetches pages 1 and 2 to reach the 21-card target;
+            # only page 1 has content in this fixture so results stay deterministic.
+            if kwargs.get("params", {}).get("page", 1) != 1:
+                return MagicMock(status_code=200, json=lambda: {"results": []})
             if "/trending/" in url:
                 return MagicMock(status_code=200, json=lambda: trending_payload)
             if "/movie/popular" in url:
@@ -182,9 +186,11 @@ class TestDiscoverEndpoint:
             ],
         }
 
-        def selective(url, **_kwargs):
+        def selective(url, **kwargs):
             if "/tv/popular" in url:
                 raise RuntimeError("sonar down")
+            if kwargs.get("params", {}).get("page", 1) != 1:
+                return MagicMock(status_code=200, json=lambda: {"results": []})
             return MagicMock(status_code=200, json=lambda: good)
 
         mock_get.side_effect = selective
@@ -195,7 +201,7 @@ class TestDiscoverEndpoint:
         assert data["trending"] and data["popular_movies"]
 
     @patch("mediaman.web.routes.search.requests.get")
-    def test_caps_trending_at_30_and_filters_person(self, mock_get, authed_client):
+    def test_caps_trending_at_21_and_filters_person(self, mock_get, authed_client):
         trending_payload = {
             "results": (
                 [
@@ -208,7 +214,9 @@ class TestDiscoverEndpoint:
             ),
         }
 
-        def by_url(url, **_kwargs):
+        def by_url(url, **kwargs):
+            if kwargs.get("params", {}).get("page", 1) != 1:
+                return MagicMock(status_code=200, json=lambda: {"results": []})
             if "/trending/" in url:
                 return MagicMock(status_code=200, json=lambda: trending_payload)
             return MagicMock(status_code=200, json=lambda: {"results": []})
@@ -217,7 +225,7 @@ class TestDiscoverEndpoint:
         resp = authed_client.get("/api/search/discover")
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data["trending"]) == 30
+        assert len(data["trending"]) == 21
         assert {r["media_type"] for r in data["trending"]}.issubset({"movie", "tv"})
 
     def test_returns_502_when_tmdb_not_configured(self, app):
