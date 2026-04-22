@@ -10,11 +10,11 @@ import logging
 import sqlite3
 
 from mediaman.services.download_format import (
-    _classify_movie_upcoming,
-    _classify_series_upcoming,
-    _fmt_bytes,
-    _fmt_episode_label,
-    _parse_iso,
+    classify_movie_upcoming,
+    classify_series_upcoming,
+    fmt_bytes,
+    fmt_episode_label,
+    parse_iso,
     extract_poster_url,
 )
 
@@ -69,8 +69,8 @@ def fetch_arr_queue(conn: sqlite3.Connection) -> list[dict]:
                         "progress": progress,
                         "size": size,
                         "sizeleft": sizeleft,
-                        "size_str": _fmt_bytes(size),
-                        "done_str": _fmt_bytes(size - sizeleft),
+                        "size_str": fmt_bytes(size),
+                        "done_str": fmt_bytes(size - sizeleft),
                         "timeleft": q.get("timeleft") or "",
                         "status": status,
                         "is_upcoming": False,
@@ -96,11 +96,11 @@ def fetch_arr_queue(conn: sqlite3.Connection) -> list[dict]:
                     if (m_title, m_year) in queue_title_years:
                         continue
 
-                    is_upcoming, release_label = _classify_movie_upcoming(movie)
+                    is_upcoming, release_label = classify_movie_upcoming(movie)
 
                     # Parse added timestamp to epoch seconds (for search throttle)
                     added_at = 0.0
-                    added_dt = _parse_iso(movie.get("added", ""))
+                    added_dt = parse_iso(movie.get("added", ""))
                     if added_dt is not None:
                         added_at = added_dt.timestamp()
 
@@ -160,7 +160,7 @@ def fetch_arr_queue(conn: sqlite3.Connection) -> list[dict]:
 
                 season_num = episode.get("seasonNumber")
                 ep_num = episode.get("episodeNumber")
-                ep_label = _fmt_episode_label(season_num, ep_num)
+                ep_label = fmt_episode_label(season_num, ep_num)
 
                 ep_entry = {
                     "label": ep_label,
@@ -168,7 +168,7 @@ def fetch_arr_queue(conn: sqlite3.Connection) -> list[dict]:
                     "progress": progress,
                     "size": size,
                     "sizeleft": sizeleft,
-                    "size_str": _fmt_bytes(size),
+                    "size_str": fmt_bytes(size),
                     "status": status,
                     "download_id": q.get("downloadId", ""),
                 }
@@ -249,8 +249,8 @@ def fetch_arr_queue(conn: sqlite3.Connection) -> list[dict]:
                 card["progress"] = overall_pct
                 card["size"] = total_size
                 card["sizeleft"] = total_left
-                card["size_str"] = _fmt_bytes(total_size)
-                card["done_str"] = _fmt_bytes(total_size - total_left)
+                card["size_str"] = fmt_bytes(total_size)
+                card["done_str"] = fmt_bytes(total_size - total_left)
                 card["has_pack"] = any(e["is_pack_episode"] for e in eps)
                 # Sort episodes by label
                 eps.sort(key=lambda e: e["label"])
@@ -285,12 +285,12 @@ def fetch_arr_queue(conn: sqlite3.Connection) -> list[dict]:
                         )
                         episodes_raw = []
 
-                    is_upcoming, release_label = _classify_series_upcoming(
+                    is_upcoming, release_label = classify_series_upcoming(
                         series, episodes_raw
                     )
 
                     added_at = 0.0
-                    added_dt = _parse_iso(series.get("added", ""))
+                    added_dt = parse_iso(series.get("added", ""))
                     if added_dt is not None:
                         added_at = added_dt.timestamp()
 

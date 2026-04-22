@@ -36,27 +36,22 @@ from mediaman.services.arr_build import build_arr_client as _build_arr_client, b
 from mediaman.services.arr_fetcher import fetch_arr_queue
 from mediaman.services.arr_search_trigger import (
     _get_search_info,
-    _last_search_trigger,
     _maybe_trigger_search,
     _reset_search_triggers,
-    _SEARCH_STALE_SECONDS,
-    _SEARCH_THROTTLE_SECONDS,
-    _search_count,
-    _state_lock as _search_state_lock,
     trigger_pending_searches,
 )
 from mediaman.services.download_format import (
-    _build_episode_summary,
-    _build_item,
-    _fmt_bytes,
-    _fmt_eta,
-    _fmt_relative_time,
-    _looks_like_series_nzb,
-    _map_episode_state,
-    _map_state,
-    _normalise_for_match,
-    _parse_clean_title,
-    _select_hero,
+    build_episode_summary,
+    build_item,
+    fmt_bytes,
+    fmt_eta,
+    fmt_relative_time,
+    looks_like_series_nzb,
+    map_episode_state,
+    map_state,
+    normalise_for_match,
+    parse_clean_title,
+    select_hero,
 )
 
 logger = logging.getLogger("mediaman")
@@ -86,7 +81,7 @@ def _build_episode_dicts(eps_raw: list[dict]) -> list[dict]:
         {
             "label": e.get("label", ""),
             "title": e.get("title", ""),
-            "state": _map_episode_state(e),
+            "state": map_episode_state(e),
             "progress": e.get("progress", 0),
             "is_pack_episode": e.get("is_pack_episode", False),
         }
@@ -125,14 +120,14 @@ def _build_search_hint(
     "" only when we genuinely have nothing to say.
     """
     if search_count > 0 and last_search_ts > 0:
-        rel = _fmt_relative_time(last_search_ts, now)
+        rel = fmt_relative_time(last_search_ts, now)
         if not rel:
             return ""
         if search_count == 1:
             return f"Searched once · last attempt {rel}"
         return f"Searched {search_count}\u00d7 · last attempt {rel}"
     if added_at > 0:
-        rel = _fmt_relative_time(added_at, now)
+        rel = fmt_relative_time(added_at, now)
         if rel:
             return f"Added {rel} · waiting for first search"
     return ""
@@ -195,7 +190,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
     """Build the simplified download queue with hero selection.
 
     Merges NZBGet + Radarr/Sonarr queues using fuzzy title matching,
-    maps each item through ``_map_state`` / ``_build_item``, selects a
+    maps each item through ``map_state`` / ``build_item``, selects a
     hero, and fetches recent downloads from the database.
 
     Returns ``{"hero": dict|None, "queue": list[dict], "upcoming":
@@ -226,7 +221,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
     nzb_parsed: list[dict] = []
     for nzb in nzb_queue:
         nzb_name = nzb.get("NZBName", "")
-        clean = _parse_clean_title(nzb_name)
+        clean = parse_clean_title(nzb_name)
         file_mb = nzb.get("FileSizeMB", 0)
         remain_mb = nzb.get("RemainingSizeMB", 0)
         done_mb = file_mb - remain_mb
@@ -243,7 +238,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
             "done_mb": done_mb,
             "poster_url": "",
             "kind": "movie",
-            "looks_like_series": _looks_like_series_nzb(nzb_name),
+            "looks_like_series": looks_like_series_nzb(nzb_name),
             "_matched": False,
         }
         nzb_parsed.append(parsed)
@@ -256,7 +251,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
         # Upcoming items bypass NZBGet matching entirely — Radarr/Sonarr won't
         # search them, so there will never be a matching NZBGet entry.
         if arr.get("is_upcoming"):
-            upcoming_items.append(_build_item(
+            upcoming_items.append(build_item(
                 dl_id=arr.get("dl_id", ""),
                 title=arr.get("title", "Unknown"),
                 media_type="series" if arr.get("kind") == "series" else "movie",
@@ -277,10 +272,10 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
         # from the indexer — so localised alt-titles ("Sousou no Frieren"
         # on the NZB vs "Frieren: Beyond Journey's End" on the arr side)
         # still group correctly.
-        arr_title_norm = _normalise_for_match(arr.get("title") or "")
+        arr_title_norm = normalise_for_match(arr.get("title") or "")
         release_name_norms = [
             n for n in (
-                _normalise_for_match(rn) for rn in (arr.get("release_names") or [])
+                normalise_for_match(rn) for rn in (arr.get("release_names") or [])
             ) if n
         ]
         arr_candidates = [c for c in [arr_title_norm, *release_name_norms] if c]
@@ -301,7 +296,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
                 # showman") grab it would orphan the real series card.
                 if not arr_is_series and nzb.get("looks_like_series"):
                     continue
-                nzb_t_norm = _normalise_for_match(nzb.get("title") or "")
+                nzb_t_norm = normalise_for_match(nzb.get("title") or "")
                 if not nzb_t_norm:
                     continue
                 if _nzb_matches_arr(nzb_t_norm, arr_candidates):
@@ -320,18 +315,18 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
                 for nzb in nzb_parsed:
                     if nzb["_matched"]:
                         continue
-                    nzb_t_norm = _normalise_for_match(nzb.get("title") or "")
+                    nzb_t_norm = normalise_for_match(nzb.get("title") or "")
                     if nzb_t_norm and _nzb_matches_arr(nzb_t_norm, arr_candidates):
                         nzb["_matched"] = True
-            state = _map_state(matched_nzb["raw_status"], has_nzbget_match=True)
-            eta = _fmt_eta(matched_nzb["remain_mb"], download_rate)
+            state = map_state(matched_nzb["raw_status"], has_nzbget_match=True)
+            eta = fmt_eta(matched_nzb["remain_mb"], download_rate)
             if state == "almost_ready":
                 eta = "Post-processing\u2026"
 
             if arr.get("kind") == "series":
                 episodes = _build_episode_dicts(arr.get("episodes", []))
-                episode_summary = _build_episode_summary(episodes)
-                items.append(_build_item(
+                episode_summary = build_episode_summary(episodes)
+                items.append(build_item(
                     dl_id=arr.get("dl_id", matched_nzb["dl_id"]),
                     title=arr.get("title") or matched_nzb["title"],
                     media_type="series",
@@ -346,7 +341,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
                     has_pack=arr.get("has_pack", False),
                 ))
             else:
-                items.append(_build_item(
+                items.append(build_item(
                     dl_id=arr.get("dl_id", matched_nzb["dl_id"]),
                     title=arr.get("title") or matched_nzb["title"],
                     media_type="movie",
@@ -354,8 +349,8 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
                     state=state,
                     progress=matched_nzb["progress"],
                     eta=eta,
-                    size_done=_fmt_bytes(matched_nzb["done_mb"] * 1024 * 1024),
-                    size_total=_fmt_bytes(matched_nzb["file_mb"] * 1024 * 1024),
+                    size_done=fmt_bytes(matched_nzb["done_mb"] * 1024 * 1024),
+                    size_total=fmt_bytes(matched_nzb["file_mb"] * 1024 * 1024),
                 ))
             _maybe_trigger_search(conn, arr, matched_nzb=True)
         else:
@@ -369,7 +364,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
             # progress bar is visibly advancing below it.
             if arr.get("kind") == "series":
                 episodes = _build_episode_dicts(arr.get("episodes", []))
-                episode_summary = _build_episode_summary(episodes)
+                episode_summary = build_episode_summary(episodes)
                 if episodes and all(e["state"] == "ready" for e in episodes):
                     state = "almost_ready"
                 elif any(
@@ -380,10 +375,10 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
                     # NZB is transferring right now.
                     state = "downloading"
                 else:
-                    state = _map_state(None, has_nzbget_match=False)
+                    state = map_state(None, has_nzbget_match=False)
                 search_count, last_search_ts = _get_search_info(arr.get("dl_id", ""))
                 added_at = arr.get("added_at", 0.0)
-                items.append(_build_item(
+                items.append(build_item(
                     dl_id=arr.get("dl_id", ""),
                     title=arr.get("title", "Unknown"),
                     media_type="series",
@@ -411,10 +406,10 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
                 if (arr.get("progress") or 0) >= 100:
                     state = "almost_ready"
                 else:
-                    state = _map_state(None, has_nzbget_match=False)
+                    state = map_state(None, has_nzbget_match=False)
                 search_count, last_search_ts = _get_search_info(arr.get("dl_id", ""))
                 added_at = arr.get("added_at", 0.0)
-                items.append(_build_item(
+                items.append(build_item(
                     dl_id=arr.get("dl_id", ""),
                     title=arr.get("title", "Unknown"),
                     media_type="movie",
@@ -440,12 +435,12 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
     #    the user isn't lied to by a "movie" pill on an obvious TV episode.
     for nzb in nzb_parsed:
         if not nzb["_matched"]:
-            state = _map_state(nzb["raw_status"], has_nzbget_match=True)
-            eta = _fmt_eta(nzb["remain_mb"], download_rate)
+            state = map_state(nzb["raw_status"], has_nzbget_match=True)
+            eta = fmt_eta(nzb["remain_mb"], download_rate)
             if state == "almost_ready":
                 eta = "Post-processing\u2026"
             media_type = "series" if nzb.get("looks_like_series") else "movie"
-            items.append(_build_item(
+            items.append(build_item(
                 dl_id=nzb["dl_id"],
                 title=nzb["title"],
                 media_type=media_type,
@@ -453,8 +448,8 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
                 state=state,
                 progress=nzb["progress"],
                 eta=eta,
-                size_done=_fmt_bytes(nzb["done_mb"] * 1024 * 1024),
-                size_total=_fmt_bytes(nzb["file_mb"] * 1024 * 1024),
+                size_done=fmt_bytes(nzb["done_mb"] * 1024 * 1024),
+                size_total=fmt_bytes(nzb["file_mb"] * 1024 * 1024),
             ))
 
     # 6. Completion detection — items that vanished since the last poll.
@@ -473,7 +468,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
         _previous_initialised = True
 
     # 7. Hero selection
-    hero, queue = _select_hero(items)
+    hero, queue = select_hero(items)
 
     # 8. Recent downloads (last 7 days), excluding anything actively in queue.
     active_ids = {item["id"] for item in items}

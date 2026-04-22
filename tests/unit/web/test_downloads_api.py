@@ -48,39 +48,39 @@ class TestRecentDownloadsTable:
             )
 
 
-from mediaman.services.download_format import _map_state, _build_item, _select_hero
+from mediaman.services.download_format import map_state, build_item, select_hero
 
 
 class TestStateMapping:
     def test_searching_state(self):
         """Item in Arr queue with no NZBGet match → searching."""
-        assert _map_state(nzbget_status=None, has_nzbget_match=False) == "searching"
+        assert map_state(nzbget_status=None, has_nzbget_match=False) == "searching"
 
     def test_downloading_state(self):
         """NZBGet status contains DOWNLOADING → downloading."""
-        assert _map_state(nzbget_status="DOWNLOADING", has_nzbget_match=True) == "downloading"
+        assert map_state(nzbget_status="DOWNLOADING", has_nzbget_match=True) == "downloading"
 
     def test_almost_ready_unpacking(self):
         """NZBGet status contains UNPACKING → almost_ready."""
-        assert _map_state(nzbget_status="UNPACKING", has_nzbget_match=True) == "almost_ready"
+        assert map_state(nzbget_status="UNPACKING", has_nzbget_match=True) == "almost_ready"
 
     def test_almost_ready_postprocessing(self):
         """NZBGet status contains PP_ → almost_ready."""
-        assert _map_state(nzbget_status="PP_QUEUED", has_nzbget_match=True) == "almost_ready"
+        assert map_state(nzbget_status="PP_QUEUED", has_nzbget_match=True) == "almost_ready"
 
     def test_queued_state(self):
         """NZBGet status is QUEUED → searching (not yet actively downloading)."""
-        assert _map_state(nzbget_status="QUEUED", has_nzbget_match=True) == "searching"
+        assert map_state(nzbget_status="QUEUED", has_nzbget_match=True) == "searching"
 
     def test_paused_state(self):
         """NZBGet status is PAUSED → downloading (still has progress)."""
-        assert _map_state(nzbget_status="PAUSED", has_nzbget_match=True) == "downloading"
+        assert map_state(nzbget_status="PAUSED", has_nzbget_match=True) == "downloading"
 
 
 class TestBuildItem:
     def test_movie_item_shape(self):
         """A movie item has the expected fields."""
-        item = _build_item(
+        item = build_item(
             dl_id="radarr:Dune",
             title="Dune: Part Two",
             media_type="movie",
@@ -104,7 +104,7 @@ class TestBuildItem:
             {"label": "S03E01", "title": "Pilot", "state": "ready", "progress": 100},
             {"label": "S03E02", "title": "Two", "state": "downloading", "progress": 45},
         ]
-        item = _build_item(
+        item = build_item(
             dl_id="sonarr:Severance",
             title="Severance",
             media_type="series",
@@ -121,7 +121,7 @@ class TestBuildItem:
         assert item["episodes"][0]["state"] == "ready"
 
     def test_upcoming_item_has_release_label(self):
-        item = _build_item(
+        item = build_item(
             dl_id="radarr:FutureFilm",
             title="Future Film",
             media_type="movie",
@@ -137,7 +137,7 @@ class TestBuildItem:
         assert item["release_label"] == "Releases 14 Jun 2099"
 
     def test_default_release_label_is_empty(self):
-        item = _build_item(
+        item = build_item(
             dl_id="radarr:Dune",
             title="Dune",
             media_type="movie",
@@ -154,35 +154,35 @@ class TestBuildItem:
 class TestHeroSelection:
     def test_single_item_is_hero(self):
         """A single item in the queue becomes the hero."""
-        items = [_build_item("r:A", "A", "movie", "", "downloading", 50, "", "", "")]
-        hero, rest = _select_hero(items)
+        items = [build_item("r:A", "A", "movie", "", "downloading", 50, "", "", "")]
+        hero, rest = select_hero(items)
         assert hero["id"] == "r:A"
         assert rest == []
 
     def test_highest_progress_downloading_is_hero(self):
         """The actively downloading item with the highest progress wins."""
         items = [
-            _build_item("r:A", "A", "movie", "", "searching", 0, "", "", ""),
-            _build_item("r:B", "B", "movie", "", "downloading", 30, "", "", ""),
-            _build_item("r:C", "C", "movie", "", "downloading", 80, "", "", ""),
+            build_item("r:A", "A", "movie", "", "searching", 0, "", "", ""),
+            build_item("r:B", "B", "movie", "", "downloading", 30, "", "", ""),
+            build_item("r:C", "C", "movie", "", "downloading", 80, "", "", ""),
         ]
-        hero, rest = _select_hero(items)
+        hero, rest = select_hero(items)
         assert hero["id"] == "r:C"
         assert len(rest) == 2
 
     def test_no_downloading_picks_first(self):
         """When all items are searching, the first item is the hero."""
         items = [
-            _build_item("r:A", "A", "movie", "", "searching", 0, "", "", ""),
-            _build_item("r:B", "B", "movie", "", "searching", 0, "", "", ""),
+            build_item("r:A", "A", "movie", "", "searching", 0, "", "", ""),
+            build_item("r:B", "B", "movie", "", "searching", 0, "", "", ""),
         ]
-        hero, rest = _select_hero(items)
+        hero, rest = select_hero(items)
         assert hero["id"] == "r:A"
         assert len(rest) == 1
 
     def test_empty_queue_returns_none(self):
         """Empty queue returns None hero."""
-        hero, rest = _select_hero([])
+        hero, rest = select_hero([])
         assert hero is None
         assert rest == []
 
@@ -434,7 +434,7 @@ class TestRecentDownloadsCleanup:
         assert "radarr:New" in dl_ids
 
 
-from mediaman.services.download_format import _classify_movie_upcoming, _classify_series_upcoming
+from mediaman.services.download_format import classify_movie_upcoming, classify_series_upcoming
 
 
 class TestClassifyMovieUpcoming:
@@ -445,30 +445,30 @@ class TestClassifyMovieUpcoming:
             "isAvailable": False,
             "digitalRelease": "2099-06-14T00:00:00Z",
         }
-        is_upcoming, label = _classify_movie_upcoming(movie)
+        is_upcoming, label = classify_movie_upcoming(movie)
         assert is_upcoming is True
         assert label.startswith("Releases ")
         assert "2099" in label
 
     def test_available_movie_is_not_upcoming(self):
         movie = {"monitored": True, "hasFile": False, "isAvailable": True}
-        is_upcoming, label = _classify_movie_upcoming(movie)
+        is_upcoming, label = classify_movie_upcoming(movie)
         assert is_upcoming is False
         assert label == ""
 
     def test_unmonitored_movie_is_not_upcoming(self):
         movie = {"monitored": False, "hasFile": False, "isAvailable": False}
-        is_upcoming, label = _classify_movie_upcoming(movie)
+        is_upcoming, label = classify_movie_upcoming(movie)
         assert is_upcoming is False
 
     def test_already_has_file_is_not_upcoming(self):
         movie = {"monitored": True, "hasFile": True, "isAvailable": False}
-        is_upcoming, label = _classify_movie_upcoming(movie)
+        is_upcoming, label = classify_movie_upcoming(movie)
         assert is_upcoming is False
 
     def test_upcoming_with_no_release_dates_has_fallback_label(self):
         movie = {"monitored": True, "hasFile": False, "isAvailable": False}
-        is_upcoming, label = _classify_movie_upcoming(movie)
+        is_upcoming, label = classify_movie_upcoming(movie)
         assert is_upcoming is True
         assert label == "Not yet released"
 
@@ -481,7 +481,7 @@ class TestClassifyMovieUpcoming:
             "physicalRelease": "2099-09-01T00:00:00Z",
             "inCinemas": "2099-03-15T00:00:00Z",
         }
-        is_upcoming, label = _classify_movie_upcoming(movie)
+        is_upcoming, label = classify_movie_upcoming(movie)
         assert is_upcoming is True
         assert "2099" in label
         assert "Mar" in label
@@ -494,7 +494,7 @@ class TestClassifyMovieUpcoming:
             "inCinemas": "1999-01-01T00:00:00Z",
             "digitalRelease": "2099-12-01T00:00:00Z",
         }
-        is_upcoming, label = _classify_movie_upcoming(movie)
+        is_upcoming, label = classify_movie_upcoming(movie)
         assert is_upcoming is True
         assert "2099" in label
         assert "Dec" in label
@@ -508,7 +508,7 @@ class TestClassifyMovieUpcoming:
             "physicalRelease": "2000-01-01T00:00:00Z",
             "inCinemas": "2001-01-01T00:00:00Z",
         }
-        is_upcoming, label = _classify_movie_upcoming(movie)
+        is_upcoming, label = classify_movie_upcoming(movie)
         assert is_upcoming is True
         assert label == "Not yet released"
 
@@ -520,7 +520,7 @@ class TestClassifySeriesUpcoming:
             "status": "upcoming",
             "statistics": {"episodeFileCount": 0},
         }
-        is_upcoming, label = _classify_series_upcoming(series, episodes=[])
+        is_upcoming, label = classify_series_upcoming(series, episodes=[])
         assert is_upcoming is True
 
     def test_continuing_with_aired_episodes_is_not_upcoming(self):
@@ -530,12 +530,12 @@ class TestClassifySeriesUpcoming:
             "statistics": {"episodeFileCount": 0},
         }
         episodes = [{"airDateUtc": "2020-01-01T00:00:00Z"}]
-        is_upcoming, label = _classify_series_upcoming(series, episodes=episodes)
+        is_upcoming, label = classify_series_upcoming(series, episodes=episodes)
         assert is_upcoming is False
 
     def test_unmonitored_is_not_upcoming(self):
         series = {"monitored": False, "status": "upcoming"}
-        is_upcoming, label = _classify_series_upcoming(series, episodes=[])
+        is_upcoming, label = classify_series_upcoming(series, episodes=[])
         assert is_upcoming is False
 
     def test_has_episode_files_is_not_upcoming(self):
@@ -544,7 +544,7 @@ class TestClassifySeriesUpcoming:
             "status": "upcoming",
             "statistics": {"episodeFileCount": 3},
         }
-        is_upcoming, label = _classify_series_upcoming(series, episodes=[])
+        is_upcoming, label = classify_series_upcoming(series, episodes=[])
         assert is_upcoming is False
 
     def test_all_future_episodes_with_continuing_status_is_upcoming(self):
@@ -554,7 +554,7 @@ class TestClassifySeriesUpcoming:
             "statistics": {"episodeFileCount": 0},
         }
         episodes = [{"airDateUtc": "2099-12-01T00:00:00Z"}]
-        is_upcoming, label = _classify_series_upcoming(series, episodes=episodes)
+        is_upcoming, label = classify_series_upcoming(series, episodes=episodes)
         assert is_upcoming is True
         assert "2099" in label
         assert label.startswith("Premieres ")
@@ -565,7 +565,7 @@ class TestClassifySeriesUpcoming:
             "status": "upcoming",
             "statistics": {"episodeFileCount": 0},
         }
-        is_upcoming, label = _classify_series_upcoming(series, episodes=[])
+        is_upcoming, label = classify_series_upcoming(series, episodes=[])
         assert is_upcoming is True
         assert label == "Not yet aired"
 
@@ -580,7 +580,7 @@ class TestClassifySeriesUpcoming:
             {"airDateUtc": "2099-03-15T00:00:00Z"},
             {"airDateUtc": "2099-06-14T00:00:00Z"},
         ]
-        is_upcoming, label = _classify_series_upcoming(series, episodes=episodes)
+        is_upcoming, label = classify_series_upcoming(series, episodes=episodes)
         assert is_upcoming is True
         assert "Mar" in label
         assert "2099" in label
@@ -596,7 +596,7 @@ class TestClassifySeriesUpcoming:
             "status": "ended",
             "statistics": {"episodeFileCount": 0},
         }
-        is_upcoming, label = _classify_series_upcoming(series, episodes=[])
+        is_upcoming, label = classify_series_upcoming(series, episodes=[])
         assert is_upcoming is False
         assert label == ""
 
@@ -998,23 +998,23 @@ class TestBuildDownloadsResponseBuckets:
         assert resp["upcoming"][0]["title"] == "Project Hail Mary"
 
 
-from mediaman.services.download_format import _looks_like_series_nzb
+from mediaman.services.download_format import looks_like_series_nzb
 
 
 class TestLooksLikeSeriesNzb:
     def test_sxxexx_marker_matches(self):
-        assert _looks_like_series_nzb("Love.Island.S06E13.1080p.WEB.mkv")
+        assert looks_like_series_nzb("Love.Island.S06E13.1080p.WEB.mkv")
 
     def test_season_only_marker_matches(self):
-        assert _looks_like_series_nzb("The.Great.S02.Complete.1080p")
+        assert looks_like_series_nzb("The.Great.S02.Complete.1080p")
 
     def test_movie_style_name_does_not_match(self):
-        assert not _looks_like_series_nzb(
+        assert not looks_like_series_nzb(
             "The.Great.Gatsby.2013.1080p.BluRay.x264.mkv"
         )
 
     def test_empty_string_does_not_match(self):
-        assert not _looks_like_series_nzb("")
+        assert not looks_like_series_nzb("")
 
 
 def _fake_nzbget_client(queue, status=None):
