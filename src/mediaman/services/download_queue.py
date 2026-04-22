@@ -32,8 +32,8 @@ from mediaman.services.arr_completion import (
     load_recent_downloads,
     record_verified_completions,
 )
-from mediaman.services.arr_build import build_arr_client as _build_arr_client
-from mediaman.services.arr_fetcher import fetch_arr_queue, get_nzbget_client
+from mediaman.services.arr_build import build_arr_client as _build_arr_client, build_nzbget_from_db
+from mediaman.services.arr_fetcher import fetch_arr_queue
 from mediaman.services.arr_search_trigger import (
     _get_search_info,
     _last_search_trigger,
@@ -61,6 +61,39 @@ from mediaman.services.download_format import (
 
 logger = logging.getLogger("mediaman")
 
+
+def _nzb_matches_arr(nzb_t_norm: str, arr_candidates: list[str]) -> bool:
+    """Return True if *nzb_t_norm* matches any candidate in *arr_candidates*.
+
+    Performs a bidirectional substring test so both "married at first sight
+    au" ⊂ longer NZB titles and the reverse work correctly.  *arr_candidates*
+    is a list of normalised strings built from the arr item's primary title
+    and any release names Sonarr/Radarr recorded.
+    """
+    for cand in arr_candidates:
+        if cand in nzb_t_norm or nzb_t_norm in cand:
+            return True
+    return False
+
+
+def _build_episode_dicts(eps_raw: list[dict]) -> list[dict]:
+    """Map raw Sonarr episode entries to simplified display dicts.
+
+    Used in both the NZBGet-matched and unmatched branches so the two
+    paths produce identical episode structures.
+    """
+    return [
+        {
+            "label": e.get("label", ""),
+            "title": e.get("title", ""),
+            "state": _map_episode_state(e),
+            "progress": e.get("progress", 0),
+            "is_pack_episode": e.get("is_pack_episode", False),
+        }
+        for e in eps_raw
+    ]
+
+
 # Module-level state for completion detection.
 # Maps dl_id -> item dict from the previous poll.
 _previous_queue: dict[str, dict] = {}
@@ -76,10 +109,6 @@ def _reset_previous_queue() -> None:
 
 # Lock guarding _previous_queue/_previous_initialised.
 _state_lock = threading.Lock()
-
-# Aliases so existing callers that imported these names from this module keep working.
-_get_arr_queue = fetch_arr_queue
-_get_nzbget_client = get_nzbget_client
 
 
 def _build_search_hint(
@@ -173,11 +202,11 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
     list[dict], "recent": list[dict]}``.
     """
     # 1. Fetch *arr queue
-    arr_items = _get_arr_queue(conn)
+    arr_items = fetch_arr_queue(conn)
     arr_base_urls = _arr_base_urls(conn)
 
     # 2. Fetch NZBGet queue + status
-    nzb_client = _get_nzbget_client(conn)
+    nzb_client = build_nzbget_from_db(conn)
     nzb_queue: list[dict] = []
     nzb_status: dict = {}
 
@@ -258,14 +287,6 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
         arr_is_series = arr.get("kind") == "series"
         matched_nzb = None
 
-        def _nzb_matches_arr(nzb_t_norm: str) -> bool:
-            """Return True if this NZB's normalised title matches any arr
-            candidate — primary title or a Sonarr/Radarr release name."""
-            for cand in arr_candidates:
-                if cand in nzb_t_norm or nzb_t_norm in cand:
-                    return True
-            return False
-
         if arr_candidates:
             # Pick the least-complete matching NZB as the primary — for
             # series this gives a useful ETA (the episode that will
@@ -283,7 +304,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
                 nzb_t_norm = _normalise_for_match(nzb.get("title") or "")
                 if not nzb_t_norm:
                     continue
-                if _nzb_matches_arr(nzb_t_norm):
+                if _nzb_matches_arr(nzb_t_norm, arr_candidates):
                     remain = nzb.get("remain_mb", 0) or 0
                     if remain > best_remain:
                         best_remain = remain
@@ -300,7 +321,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
                     if nzb["_matched"]:
                         continue
                     nzb_t_norm = _normalise_for_match(nzb.get("title") or "")
-                    if nzb_t_norm and _nzb_matches_arr(nzb_t_norm):
+                    if nzb_t_norm and _nzb_matches_arr(nzb_t_norm, arr_candidates):
                         nzb["_matched"] = True
             state = _map_state(matched_nzb["raw_status"], has_nzbget_match=True)
             eta = _fmt_eta(matched_nzb["remain_mb"], download_rate)
@@ -308,17 +329,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
                 eta = "Post-processing\u2026"
 
             if arr.get("kind") == "series":
-                eps_raw = arr.get("episodes", [])
-                episodes = [
-                    {
-                        "label": e.get("label", ""),
-                        "title": e.get("title", ""),
-                        "state": _map_episode_state(e),
-                        "progress": e.get("progress", 0),
-                        "is_pack_episode": e.get("is_pack_episode", False),
-                    }
-                    for e in eps_raw
-                ]
+                episodes = _build_episode_dicts(arr.get("episodes", []))
                 episode_summary = _build_episode_summary(episodes)
                 items.append(_build_item(
                     dl_id=arr.get("dl_id", matched_nzb["dl_id"]),
@@ -357,17 +368,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
             # users don't see "Looking for the best version" while a
             # progress bar is visibly advancing below it.
             if arr.get("kind") == "series":
-                eps_raw = arr.get("episodes", [])
-                episodes = [
-                    {
-                        "label": e.get("label", ""),
-                        "title": e.get("title", ""),
-                        "state": _map_episode_state(e),
-                        "progress": e.get("progress", 0),
-                        "is_pack_episode": e.get("is_pack_episode", False),
-                    }
-                    for e in eps_raw
-                ]
+                episodes = _build_episode_dicts(arr.get("episodes", []))
                 episode_summary = _build_episode_summary(episodes)
                 if episodes and all(e["state"] == "ready" for e in episodes):
                     state = "almost_ready"

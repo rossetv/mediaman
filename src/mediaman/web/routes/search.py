@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.crypto import decrypt_value
 from mediaman.db import get_db
+from mediaman.services.arr_build import build_radarr_from_db as _build_radarr, build_sonarr_from_db as _build_sonarr
 from mediaman.services.download_notifications import record_download_notification as _record_dn
 from mediaman.services.omdb import fetch_ratings
 
@@ -88,17 +89,6 @@ def _shape_result(item: dict) -> dict | None:
         "download_state": None,
     }
 
-
-def _build_radarr(conn, secret_key: str):
-    """Thin wrapper around download._build_radarr for isolated patching in tests."""
-    from mediaman.web.routes.download import _build_radarr as _b
-    return _b(conn, secret_key)
-
-
-def _build_sonarr(conn, secret_key: str):
-    """Thin wrapper around download._build_sonarr for isolated patching in tests."""
-    from mediaman.web.routes.download import _build_sonarr as _b
-    return _b(conn, secret_key)
 
 
 def _annotate_states(results: list[dict], request: Request) -> None:

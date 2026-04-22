@@ -165,7 +165,6 @@ def recommended_page(request: Request):
     from mediaman.services.arr_state import (
         build_radarr_cache, build_sonarr_cache, compute_download_state,
     )
-    from mediaman.web.routes.download import _build_radarr, _build_sonarr
 
     radarr_cache: dict | None = None
     sonarr_cache: dict | None = None

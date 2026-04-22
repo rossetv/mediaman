@@ -1,10 +1,7 @@
-"""Fetch Radarr/Sonarr queue and NZBGet client construction.
+"""Fetch Radarr/Sonarr queue.
 
-Public entry point: :func:`fetch_arr_queue` (alias for the internal
-``_get_arr_queue`` that callers rely on).
-
-Also exposes :func:`get_nzbget_client` for building the NZBGet client
-from DB settings.
+Public entry point: :func:`fetch_arr_queue`.
+NZBGet client construction lives in :func:`mediaman.services.arr_build.build_nzbget_from_db`.
 """
 
 from __future__ import annotations
@@ -16,34 +13,12 @@ from mediaman.services.download_format import (
     _classify_movie_upcoming,
     _classify_series_upcoming,
     _fmt_bytes,
+    _fmt_episode_label,
     _parse_iso,
     extract_poster_url,
 )
 
 logger = logging.getLogger("mediaman")
-
-
-def get_nzbget_client(conn: sqlite3.Connection) -> "NzbgetClient | None":
-    """Build NZBGet client from DB settings. Returns ``None`` if not configured."""
-    from mediaman.config import load_config
-    from mediaman.crypto import decrypt_value
-    from mediaman.services.nzbget import NzbgetClient
-
-    url_row = conn.execute(
-        "SELECT value FROM settings WHERE key='nzbget_url'"
-    ).fetchone()
-    user_row = conn.execute(
-        "SELECT value FROM settings WHERE key='nzbget_username'"
-    ).fetchone()
-    pass_row = conn.execute(
-        "SELECT value, encrypted FROM settings WHERE key='nzbget_password'"
-    ).fetchone()
-    if not url_row or not user_row or not pass_row:
-        return None
-    password = pass_row["value"]
-    if pass_row["encrypted"]:
-        password = decrypt_value(password, load_config().secret_key, aad=b"nzbget_password")
-    return NzbgetClient(url_row["value"], user_row["value"], password)
 
 
 def fetch_arr_queue(conn: sqlite3.Connection) -> list[dict]:
@@ -58,12 +33,9 @@ def fetch_arr_queue(conn: sqlite3.Connection) -> list[dict]:
     config = load_config()
     items: list[dict] = []
 
-    def _setting(key: str):
-        return get_string_setting(conn, key, secret_key=config.secret_key)
-
     # Radarr queue — one card per movie
-    radarr_url = _setting("radarr_url")
-    radarr_key = _setting("radarr_api_key")
+    radarr_url = get_string_setting(conn, "radarr_url", secret_key=config.secret_key)
+    radarr_key = get_string_setting(conn, "radarr_api_key", secret_key=config.secret_key)
     if radarr_url and radarr_key:
         try:
             from mediaman.services.radarr import RadarrClient
@@ -161,8 +133,8 @@ def fetch_arr_queue(conn: sqlite3.Connection) -> list[dict]:
             logger.warning("Failed to fetch Radarr queue", exc_info=True)
 
     # Sonarr queue — group episodes by series
-    sonarr_url = _setting("sonarr_url")
-    sonarr_key = _setting("sonarr_api_key")
+    sonarr_url = get_string_setting(conn, "sonarr_url", secret_key=config.secret_key)
+    sonarr_key = get_string_setting(conn, "sonarr_api_key", secret_key=config.secret_key)
     if sonarr_url and sonarr_key:
         try:
             from mediaman.services.sonarr import SonarrClient
@@ -188,11 +160,7 @@ def fetch_arr_queue(conn: sqlite3.Connection) -> list[dict]:
 
                 season_num = episode.get("seasonNumber")
                 ep_num = episode.get("episodeNumber")
-                ep_label = ""
-                if season_num is not None:
-                    ep_label = f"S{season_num:02d}"
-                    if ep_num is not None:
-                        ep_label += f"E{ep_num:02d}"
+                ep_label = _fmt_episode_label(season_num, ep_num)
 
                 ep_entry = {
                     "label": ep_label,

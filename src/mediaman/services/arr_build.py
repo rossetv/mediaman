@@ -1,4 +1,4 @@
-"""Factory helpers for building Radarr / Sonarr clients from DB settings.
+"""Factory helpers for building Radarr / Sonarr / NZBGet clients from DB settings.
 
 Every route module used to have its own inline copy of the
 "read URL + decrypt API key + construct client" dance. Those copies
@@ -51,3 +51,21 @@ def build_arr_client(conn: sqlite3.Connection, service: str):
     if service == "sonarr":
         return build_sonarr_from_db(conn, config.secret_key)
     return None
+
+
+def build_nzbget_from_db(conn: sqlite3.Connection) -> "NzbgetClient | None":
+    """Return an ``NzbgetClient`` or ``None`` if NZBGet isn't configured.
+
+    Reads ``nzbget_url``, ``nzbget_username``, and ``nzbget_password`` (which
+    may be encrypted) from DB settings via :func:`~mediaman.services.settings_reader.get_string_setting`.
+    """
+    from mediaman.config import load_config
+    from mediaman.services.nzbget import NzbgetClient
+
+    config = load_config()
+    url = get_string_setting(conn, "nzbget_url")
+    user = get_string_setting(conn, "nzbget_username")
+    password = get_string_setting(conn, "nzbget_password", secret_key=config.secret_key)
+    if not url or not user:
+        return None
+    return NzbgetClient(url, user, password)

@@ -602,7 +602,7 @@ class TestClassifySeriesUpcoming:
 
 
 from unittest.mock import MagicMock, patch
-from mediaman.services.download_queue import _get_arr_queue
+from mediaman.services.arr_fetcher import fetch_arr_queue as _get_arr_queue
 
 
 class TestGetArrQueueEnrichment:
@@ -877,10 +877,10 @@ class TestBuildDownloadsResponseBuckets:
         conn.execute.return_value = cursor
 
         monkeypatch.setattr(
-            "mediaman.services.download_queue._get_arr_queue", lambda c: []
+            "mediaman.services.download_queue.fetch_arr_queue", lambda c: []
         )
         monkeypatch.setattr(
-            "mediaman.services.download_queue._get_nzbget_client", lambda c: None
+            "mediaman.services.download_queue.build_nzbget_from_db", lambda c: None
         )
 
         resp = _build_downloads_response(conn)
@@ -916,11 +916,11 @@ class TestBuildDownloadsResponseBuckets:
             "release_label": "Releases 14 Jun 2099",
         }
         monkeypatch.setattr(
-            "mediaman.services.download_queue._get_arr_queue",
+            "mediaman.services.download_queue.fetch_arr_queue",
             lambda c: [upcoming_item],
         )
         monkeypatch.setattr(
-            "mediaman.services.download_queue._get_nzbget_client", lambda c: None
+            "mediaman.services.download_queue.build_nzbget_from_db", lambda c: None
         )
         monkeypatch.setattr(
             "mediaman.services.download_queue._maybe_trigger_search",
@@ -979,11 +979,11 @@ class TestBuildDownloadsResponseBuckets:
             "release_label": "Not yet released",
         }
         monkeypatch.setattr(
-            "mediaman.services.download_queue._get_arr_queue",
+            "mediaman.services.download_queue.fetch_arr_queue",
             lambda c: [released, upcoming],
         )
         monkeypatch.setattr(
-            "mediaman.services.download_queue._get_nzbget_client", lambda c: None
+            "mediaman.services.download_queue.build_nzbget_from_db", lambda c: None
         )
         monkeypatch.setattr(
             "mediaman.services.download_queue._maybe_trigger_search",
@@ -1090,11 +1090,11 @@ class TestNzbSeriesMatching:
         ]
 
         monkeypatch.setattr(
-            "mediaman.services.download_queue._get_arr_queue",
+            "mediaman.services.download_queue.fetch_arr_queue",
             lambda c: [arr_series],
         )
         monkeypatch.setattr(
-            "mediaman.services.download_queue._get_nzbget_client",
+            "mediaman.services.download_queue.build_nzbget_from_db",
             lambda c: _fake_nzbget_client(nzb_queue),
         )
         monkeypatch.setattr(
@@ -1158,11 +1158,11 @@ class TestNzbSeriesMatching:
         ]
 
         monkeypatch.setattr(
-            "mediaman.services.download_queue._get_arr_queue",
+            "mediaman.services.download_queue.fetch_arr_queue",
             lambda c: [arr_movie, arr_series],  # Radarr iterated first
         )
         monkeypatch.setattr(
-            "mediaman.services.download_queue._get_nzbget_client",
+            "mediaman.services.download_queue.build_nzbget_from_db",
             lambda c: _fake_nzbget_client(nzb_queue),
         )
         monkeypatch.setattr(
@@ -1195,10 +1195,10 @@ class TestNzbSeriesMatching:
         ]
 
         monkeypatch.setattr(
-            "mediaman.services.download_queue._get_arr_queue", lambda c: []
+            "mediaman.services.download_queue.fetch_arr_queue", lambda c: []
         )
         monkeypatch.setattr(
-            "mediaman.services.download_queue._get_nzbget_client",
+            "mediaman.services.download_queue.build_nzbget_from_db",
             lambda c: _fake_nzbget_client(nzb_queue),
         )
         monkeypatch.setattr(
@@ -1247,11 +1247,11 @@ class TestNzbSeriesMatching:
         ]
 
         monkeypatch.setattr(
-            "mediaman.services.download_queue._get_arr_queue",
+            "mediaman.services.download_queue.fetch_arr_queue",
             lambda c: [arr_series],
         )
         monkeypatch.setattr(
-            "mediaman.services.download_queue._get_nzbget_client",
+            "mediaman.services.download_queue.build_nzbget_from_db",
             lambda c: _fake_nzbget_client(nzb_queue),
         )
         monkeypatch.setattr(
