@@ -187,9 +187,9 @@ def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple:
     media_type = row["media_type"] or "movie"
 
     poster_url = None
+    config = load_config()
 
     if media_type == "movie":
-        config = load_config()
         radarr_client = build_radarr_from_db(conn, config.secret_key)
         if radarr_client:
             try:
@@ -200,7 +200,6 @@ def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple:
             except Exception:
                 logger.warning("Failed to fetch Radarr poster for title=%r", title, exc_info=True)
     else:
-        config = load_config()
         sonarr_client = build_sonarr_from_db(conn, config.secret_key)
         if sonarr_client:
             try:
@@ -344,7 +343,7 @@ def proxy_poster(
         tmp_path.write_bytes(content)
         tmp_path.rename(cached_path)
     except OSError:
-        pass  # Cache write failure is non-fatal
+        logger.warning("Poster cache write failed for %s", rating_key, exc_info=True)
 
     return Response(
         content=content,

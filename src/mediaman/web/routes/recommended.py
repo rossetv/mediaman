@@ -106,6 +106,7 @@ def recommended_page(request: Request) -> Response:
     enabled_row = conn.execute(
         "SELECT value FROM settings WHERE key='suggestions_enabled'"
     ).fetchone()
+    # Disabled by storing "false"; any other value (including missing) means enabled
     enabled = not enabled_row or enabled_row["value"] != "false"
 
     recommendations = _fetch_recommendations(conn) if enabled else []

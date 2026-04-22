@@ -162,6 +162,8 @@ class ScanEngine:
         because it reflects when the file actually landed on disk, which
         is more accurate than the Plex 'added_at' date.  Falls back to
         the DB 'updated_at' / 'added_at' fields when no Arr record exists.
+        Falls back to datetime.now(UTC) via ensure_tz(None) when both
+        updated_at and added_at are None.
         """
         arr_date_str = self._arr_dates.get(self._normalise_path(item.get("file_path", "")))
         if arr_date_str:
@@ -364,6 +366,7 @@ class ScanEngine:
         rec_row = self._conn.execute(
             "SELECT value FROM settings WHERE key='suggestions_enabled'"
         ).fetchone()
+        # Disabled by storing "false"; any other value (including missing) means enabled
         if not rec_row or rec_row["value"] != "false":
             try:
                 from mediaman.services.openai_recommendations import refresh_recommendations
@@ -750,7 +753,11 @@ class ScanEngine:
         return row is not None
 
     def _is_show_kept(self, show_rating_key: str | None) -> bool:
-        """Return True if the show has an active keep rule in kept_shows."""
+        """Return True if the show has an active keep rule in kept_shows.
+
+        Side effect: deletes expired snooze rows from kept_shows when
+        a snoozed entry is found past its execute_at timestamp.
+        """
         if not show_rating_key:
             return False
         now = datetime.now(timezone.utc).isoformat()

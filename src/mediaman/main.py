@@ -216,4 +216,5 @@ def cli_main() -> None:
         )
 
 
+# Module-level instantiation for uvicorn; importing this module triggers all route imports.
 app = create_app()

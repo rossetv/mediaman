@@ -364,7 +364,7 @@ def refresh_recommendations(conn, plex_client, manual: bool = False) -> int:
         user_ratings = plex_client.get_user_ratings()
         logger.info("Fetched %d user ratings from Plex", len(user_ratings))
     except Exception:
-        logger.warning("Failed to fetch Plex user ratings — proceeding without them")
+        logger.warning("Failed to fetch Plex user ratings — proceeding without them", exc_info=True)
 
     # Gather previous recommendation titles for deduplication (last 30 days)
     cutoff_30d = (now - timedelta(days=30)).strftime("%Y-%m-%d")
