@@ -8,45 +8,15 @@ end of every scan and on-demand from the admin UI.
 from __future__ import annotations
 
 import logging
-import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from mediaman.services.format import ensure_tz as _ensure_tz
+from mediaman.services.format import rk_from_audit_detail as _extract_rk_from_detail
+from mediaman.services.format import title_from_audit_detail as _extract_title_from_detail
+
 logger = logging.getLogger("mediaman")
-
-
-def _ensure_tz(dt: datetime) -> datetime:
-    """Return *dt* in UTC, treating naive datetimes as local time.
-
-    Matches the helper used elsewhere in the scanner — PlexAPI emits
-    naive datetimes via ``fromtimestamp`` (which means local time), so
-    ``astimezone`` is the correct coercion, not ``replace(tzinfo=UTC)``.
-    """
-    if dt is None:
-        return datetime.now(timezone.utc)
-    if dt.tzinfo is None:
-        return dt.astimezone(timezone.utc)
-    return dt
-
-
-def _extract_title_from_detail(detail: str | None) -> str:
-    """Extract a media title from an ``audit_log.detail`` string.
-
-    Handles ``"Deleted: Title [rk:X]"`` and ``"Deleted 'Title' by user [rk:X]"``.
-    """
-    if not detail:
-        return "Unknown"
-    m = re.match(r"^Deleted[: ]+['\"]?(.+?)['\"]?(?:\s+by\s+.+?)?(?:\s+\[rk:.*\])?$", detail)
-    return m.group(1) if m else detail
-
-
-def _extract_rk_from_detail(detail: str | None) -> str | None:
-    """Extract the ``plex_rating_key`` from an ``[rk:...]`` tag in a detail string."""
-    if not detail:
-        return None
-    m = re.search(r"\[rk:([^\]]+)\]", detail)
-    return m.group(1) if m else None
 
 
 def send_newsletter(

@@ -1,6 +1,8 @@
 """Movie scanning and deletion eligibility logic."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
+
+from mediaman.services.format import ensure_tz as _ensure_tz
 
 
 def evaluate_movie(
@@ -31,8 +33,3 @@ def evaluate_movie(
     return "schedule_deletion"
 
 
-def _ensure_tz(dt: datetime) -> datetime:
-    """Return dt with UTC timezone if it lacks tzinfo."""
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt

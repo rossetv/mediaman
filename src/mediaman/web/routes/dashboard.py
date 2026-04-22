@@ -8,13 +8,13 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-import re
-
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.db import get_db
 from mediaman.services.format import days_ago as _days_ago
 from mediaman.services.format import format_bytes as _format_bytes
 from mediaman.services.format import parse_iso_utc
+from mediaman.services.format import rk_from_audit_detail as _rk_from_detail
+from mediaman.services.format import title_from_audit_detail as _title_from_detail
 from mediaman.services.storage import get_aggregate_disk_usage
 
 logger = logging.getLogger("mediaman")
@@ -39,31 +39,6 @@ def _days_until(dt_str: str | None) -> str:
     if delta == 1:
         return "Deletes tomorrow"
     return f"Deletes in {delta} days"
-
-
-_DETAIL_TITLE_RE = re.compile(r"^Deleted[: ]+['\"]?(.+?)['\"]?(?:\s+by\s+.+?)?(?:\s+\[rk:.*\])?$")
-_DETAIL_RK_RE = re.compile(r"\[rk:([^\]]+)\]")
-
-
-def _title_from_detail(detail: str | None) -> str:
-    """Extract the media title from an audit_log detail string.
-
-    Handles both formats:
-    - ``"Deleted: Some Title [rk:123]"`` (scanner engine)
-    - ``"Deleted 'Some Title' by admin [rk:123]"`` (library route)
-    """
-    if not detail:
-        return "Unknown"
-    m = _DETAIL_TITLE_RE.match(detail)
-    return m.group(1) if m else detail
-
-
-def _rk_from_detail(detail: str | None) -> str | None:
-    """Extract the plex_rating_key from an audit_log detail ``[rk:...]`` tag."""
-    if not detail:
-        return None
-    m = _DETAIL_RK_RE.search(detail)
-    return m.group(1) if m else None
 
 
 def _fetch_scheduled(conn) -> list[dict]:

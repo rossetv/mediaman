@@ -7,7 +7,61 @@ different places with subtle drift.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
+
+# ---------------------------------------------------------------------------
+# Audit-log detail parsers — shared by dashboard and newsletter.
+# ---------------------------------------------------------------------------
+
+_AUDIT_TITLE_RE = re.compile(
+    r"^Deleted[: ]+['\"]?(.+?)['\"]?(?:\s+by\s+.+?)?(?:\s+\[rk:.*\])?$"
+)
+_AUDIT_RK_RE = re.compile(r"\[rk:([^\]]+)\]")
+
+
+def title_from_audit_detail(detail: str | None) -> str:
+    """Extract a media title from an ``audit_log.detail`` string.
+
+    Handles both formats produced by the application:
+
+    * ``"Deleted: Some Title [rk:123]"`` — scanner engine
+    * ``"Deleted 'Some Title' by admin [rk:123]"`` — library route
+
+    Returns ``"Unknown"`` when *detail* is empty or does not match.
+    """
+    if not detail:
+        return "Unknown"
+    m = _AUDIT_TITLE_RE.match(detail)
+    return m.group(1) if m else detail
+
+
+def rk_from_audit_detail(detail: str | None) -> str | None:
+    """Extract the ``plex_rating_key`` from an ``[rk:...]`` tag in a detail string.
+
+    Returns ``None`` if *detail* is empty or contains no ``[rk:…]`` tag.
+    """
+    if not detail:
+        return None
+    m = _AUDIT_RK_RE.search(detail)
+    return m.group(1) if m else None
+
+
+def ensure_tz(dt: datetime | None) -> datetime:
+    """Return *dt* in UTC, treating naive datetimes as local time.
+
+    PlexAPI returns naive datetimes via ``datetime.fromtimestamp()``,
+    which produces **local** time. Using ``.replace(tzinfo=UTC)``
+    would mislabel the local time as UTC — off by the local UTC offset.
+    ``.astimezone(UTC)`` correctly converts from local to UTC.
+
+    A ``None`` input returns the current UTC time.
+    """
+    if dt is None:
+        return datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        return dt.astimezone(timezone.utc)
+    return dt
 
 
 def format_bytes(n: int | None) -> str:
