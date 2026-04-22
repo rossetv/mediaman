@@ -619,6 +619,17 @@ def validate_poster_token(token: str, secret_key: str, rating_key: str) -> bool:
     return payload.get("rk") == rating_key
 
 
+def sign_poster_url(rating_key: str, secret_key: str) -> str:
+    """Return a signed ``/api/poster/{rating_key}?sig=...`` URL.
+
+    Lives in crypto alongside :func:`generate_poster_token` so service
+    modules (e.g. newsletter) can import it without depending on the web
+    layer.
+    """
+    token = generate_poster_token(rating_key, secret_key)
+    return f"/api/poster/{rating_key}?sig={token}"
+
+
 def generate_session_token() -> str:
     """Generate a cryptographically random session token.
 

@@ -78,7 +78,7 @@ def send_newsletter(
     )
     from mediaman.services.mailgun import MailgunClient
     from mediaman.services.settings_reader import get_string_setting
-    from mediaman.web.routes.poster import sign_poster_url
+    from mediaman.crypto import sign_poster_url
 
     # ── Load Mailgun settings ────────────────────────────────────────────────
     domain = get_string_setting(conn, "mailgun_domain", secret_key=secret_key)

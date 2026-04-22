@@ -36,6 +36,7 @@ from mediaman.auth.middleware import get_optional_admin
 from mediaman.crypto import (
     decrypt_value,
     generate_poster_token,
+    sign_poster_url,
     validate_poster_token,
 )
 from mediaman.db import get_db
@@ -70,18 +71,6 @@ _POSTER_ALLOWED_HOST_SUFFIXES = (
     "imdb.com",
     "media-amazon.com",
 )
-
-
-def sign_poster_url(rating_key: str, secret_key: str) -> str:
-    """Return a signed ``/api/poster/{rating_key}?sig=...`` URL.
-
-    Uses the new expiry-bearing poster token so emails eventually
-    stop working as access credentials. Used by the newsletter
-    service so email clients (which have no session cookie) can
-    still fetch posters from the authenticated proxy endpoint.
-    """
-    token = generate_poster_token(rating_key, secret_key)
-    return f"/api/poster/{rating_key}?sig={token}"
 
 
 def _get_cache_dir(data_dir: str) -> Path:
