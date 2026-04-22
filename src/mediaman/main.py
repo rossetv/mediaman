@@ -30,6 +30,13 @@ async def lifespan(app: FastAPI):
     app.state.config = config
     app.state.db = conn
 
+    # ── Ensure poster cache directory exists at startup ───────────────────────
+    # Doing this here means the per-request _get_cache_dir() path is never
+    # the first to create the directory, so it never races with the first
+    # incoming request.
+    from mediaman.web.routes.poster import _get_cache_dir
+    _get_cache_dir(config.data_dir)
+
     # ── AES key canary: detect a rotated/mismatched MEDIAMAN_SECRET_KEY ──────
     # Does NOT refuse to start on mismatch — the admin must still be able to
     # log in and re-enter secrets. A LOUD warning is logged by canary_check.

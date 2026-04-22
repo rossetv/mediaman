@@ -426,7 +426,9 @@ def _disk_usage_allowed_paths() -> set[str]:
                 allowed.add(str(_Path(token).resolve()))
             except (OSError, ValueError):
                 continue
-    data_dir = _os.environ.get("MEDIAMAN_DATA_DIR", "/data").strip()
+    # Default is "" not "/data" so that the guard below is meaningful —
+    # "/data" is already in the unconditional allow-list below.
+    data_dir = _os.environ.get("MEDIAMAN_DATA_DIR", "").strip()
     if data_dir:
         try:
             allowed.add(str(_Path(data_dir).resolve()))

@@ -209,8 +209,7 @@ def classify_series_upcoming(
     now = datetime.now(timezone.utc)
     status = (series.get("status") or "").lower()
     has_aired = any(
-        parse_iso(e.get("airDateUtc", "")) is not None
-        and parse_iso(e.get("airDateUtc", "")) < now
+        (dt := parse_iso(e.get("airDateUtc", ""))) is not None and dt < now
         for e in episodes
     )
 

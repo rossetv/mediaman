@@ -83,7 +83,14 @@ def sign_poster_url(rating_key: str, secret_key: str) -> str:
 
 
 def _get_cache_dir(data_dir: str) -> Path:
-    """Return (and lazily create) the poster cache directory."""
+    """Return (and lazily create) the poster cache directory.
+
+    The lifespan in ``main.py`` calls this at startup so the directory
+    exists before any request arrives. The lazy-init guard keeps subsequent
+    per-request calls cheap (a module-level attribute check rather than a
+    filesystem stat) while remaining safe if called before startup completes
+    in tests or CLI contexts.
+    """
     global _cache_dir
     if _cache_dir is None:
         _cache_dir = Path(data_dir) / "poster_cache"

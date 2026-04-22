@@ -35,6 +35,7 @@ from mediaman.services.download_format import (
     map_episode_state,
     extract_poster_url,
 )
+from mediaman.services.download_queue import _build_episode_dicts
 
 logger = logging.getLogger("mediaman")
 
@@ -540,16 +541,7 @@ def download_status(
 
             if ep_entries:
                 ep_entries.sort(key=lambda e: e["label"])
-                # Build the episodes list for the response
-                episodes = [
-                    {
-                        "label": e["label"],
-                        "title": e["title"],
-                        "state": map_episode_state(e),
-                        "progress": e["progress"],
-                    }
-                    for e in ep_entries
-                ]
+                episodes = _build_episode_dicts(ep_entries)
                 total_size = sum(e["size"] for e in ep_entries)
                 total_left = sum(e["sizeleft"] for e in ep_entries)
                 overall_progress = (
