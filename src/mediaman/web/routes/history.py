@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.db import get_db
-from mediaman.services.format import format_bytes as _fmt_bytes_canonical
+from mediaman.services.format import format_bytes
 
 logger = logging.getLogger("mediaman")
 
@@ -58,13 +58,6 @@ ACTION_LABELS = {
     "removed_show_keep":  "unkept show",
     "dry_run_skip":       "dry run",
 }
-
-
-def _format_bytes(n: int | None) -> str:
-    """Return a human-readable byte-count string, or '' when absent/zero."""
-    if not n:
-        return ""
-    return _fmt_bytes_canonical(n)
 
 
 def _fetch_history(conn, action: str | None, page: int, per_page: int) -> tuple[list[dict], int]:
@@ -138,7 +131,7 @@ def _fetch_history(conn, action: str | None, page: int, per_page: int) -> tuple[
             "action_label": action_label,
             "badge_class": ACTION_BADGE_CLASS.get(r["action"], "badge-action-scanned"),
             "detail": r["detail"] or "",
-            "space_impact": _format_bytes(r["space_reclaimed_bytes"]),
+            "space_impact": format_bytes(r["space_reclaimed_bytes"]) if r["space_reclaimed_bytes"] else "",
             "created_at": r["created_at"],
             "title": title,
             "plex_rating_key": r["plex_rating_key"],

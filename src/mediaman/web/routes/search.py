@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.crypto import decrypt_value
 from mediaman.db import get_db
-from mediaman.services.arr_build import build_radarr_from_db as _build_radarr, build_sonarr_from_db as _build_sonarr
+from mediaman.services.arr_build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.download_notifications import record_download_notification as _record_dn
 from mediaman.services.omdb import fetch_ratings
 
@@ -107,13 +107,13 @@ def _annotate_states(results: list[dict], request: Request) -> None:
     secret_key = request.app.state.config.secret_key
 
     try:
-        radarr_cache = build_radarr_cache(_build_radarr(conn, secret_key))
+        radarr_cache = build_radarr_cache(build_radarr_from_db(conn, secret_key))
     except Exception:
         logger.warning("Radarr cache build failed; Search results won't reflect Radarr state", exc_info=True)
         radarr_cache = build_radarr_cache(None)
 
     try:
-        sonarr_cache = build_sonarr_cache(_build_sonarr(conn, secret_key))
+        sonarr_cache = build_sonarr_cache(build_sonarr_from_db(conn, secret_key))
     except Exception:
         logger.warning("Sonarr cache build failed; Search results won't reflect Sonarr state", exc_info=True)
         sonarr_cache = build_sonarr_cache(None)
@@ -350,13 +350,13 @@ def _pick_trailer(videos: list[dict]) -> str | None:
     return None
 
 
-def _build_sonarr_detail_cache(tmdb_id: int, sonarr_cache: dict, conn, secret_key: str) -> dict:
+def _fetch_sonarr_series_detail(tmdb_id: int, sonarr_cache: dict, conn, secret_key: str) -> dict:
     """Return ``{'tracked': bool, 'seasons_in_library': set[int]}`` for a TV show.
 
     Reuses the ``sonarr_cache`` already built for download_state — avoids
     a second round-trip to Sonarr for the same series list.
     """
-    client = _build_sonarr(conn, secret_key)
+    client = build_sonarr_from_db(conn, secret_key)
     if not client:
         return {"tracked": False, "seasons_in_library": set()}
     lookup = client.lookup_series_by_tmdb(tmdb_id)
@@ -444,7 +444,7 @@ def api_detail(
 
     if media_type == "movie":
         try:
-            radarr_cache = build_radarr_cache(_build_radarr(conn, secret_key))
+            radarr_cache = build_radarr_cache(build_radarr_from_db(conn, secret_key))
         except Exception:
             logger.warning("Radarr cache build failed during detail fetch", exc_info=True)
             radarr_cache = build_radarr_cache(None)
@@ -452,7 +452,7 @@ def api_detail(
     else:
         radarr_cache = build_radarr_cache(None)
         try:
-            sonarr_cache = build_sonarr_cache(_build_sonarr(conn, secret_key))
+            sonarr_cache = build_sonarr_cache(build_sonarr_from_db(conn, secret_key))
         except Exception:
             logger.warning("Sonarr cache build failed during detail fetch", exc_info=True)
             sonarr_cache = build_sonarr_cache(None)
@@ -485,7 +485,7 @@ def api_detail(
         out["rating_metascore"] = ratings["metascore"]
 
     if media_type == "tv":
-        sonarr_info = _build_sonarr_detail_cache(tmdb_id, sonarr_cache, conn, secret_key)
+        sonarr_info = _fetch_sonarr_series_detail(tmdb_id, sonarr_cache, conn, secret_key)
         out["sonarr_tracked"] = sonarr_info["tracked"]
         seasons_in_lib = sonarr_info["seasons_in_library"]
         out["seasons"] = [
@@ -532,7 +532,7 @@ def api_download(body: _DownloadRequest, request: Request, admin: str = Depends(
     notify_email = admin_row["email"] if admin_row else admin
 
     if body.media_type == "movie":
-        radarr = _build_radarr(conn, secret_key)
+        radarr = build_radarr_from_db(conn, secret_key)
         if not radarr:
             return JSONResponse({"ok": False, "error": "Radarr not configured"})
         try:
@@ -547,7 +547,7 @@ def api_download(body: _DownloadRequest, request: Request, admin: str = Depends(
         return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Radarr"})
 
     # TV
-    sonarr = _build_sonarr(conn, secret_key)
+    sonarr = build_sonarr_from_db(conn, secret_key)
     if not sonarr:
         return JSONResponse({"ok": False, "error": "Sonarr not configured"})
     try:

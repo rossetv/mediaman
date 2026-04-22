@@ -19,10 +19,7 @@ from mediaman.auth.middleware import get_current_admin
 from mediaman.auth.rate_limit import ActionRateLimiter, RateLimiter, get_client_ip
 
 _NEWSLETTER_LIMITER = ActionRateLimiter(max_in_window=3, window_seconds=300, max_per_day=10)
-from mediaman.crypto import (
-    generate_unsubscribe_token as _generate_unsubscribe_token,
-    validate_unsubscribe_token,
-)
+from mediaman.crypto import validate_unsubscribe_token
 from mediaman.db import get_db
 
 
@@ -199,16 +196,6 @@ def api_send_newsletter(
 # ---------------------------------------------------------------------------
 # Public unsubscribe (no login required — uses HMAC token)
 # ---------------------------------------------------------------------------
-
-
-def generate_unsubscribe_token(email: str, secret_key: str) -> str:
-    """Backwards-compatible wrapper — delegates to :mod:`mediaman.crypto`.
-
-    Exposed so ``services/newsletter.py`` can import it without having
-    to know about the underlying HMAC details. The token now carries
-    an expiry and a purpose-specific HMAC sub-key (see crypto.py).
-    """
-    return _generate_unsubscribe_token(email=email, secret_key=secret_key)
 
 
 def _generic_invalid_response() -> HTMLResponse:

@@ -326,7 +326,7 @@ class TestDetailEndpoint:
     def test_tv_detail_marks_in_library_seasons(self, mock_get, mock_ratings, authed_client):
         mock_get.return_value = MagicMock(ok=True, status_code=200, json=lambda: _tmdb_tv_payload())
         mock_ratings.return_value = {}
-        with patch("mediaman.web.routes.search._build_sonarr_detail_cache") as mock_cache:
+        with patch("mediaman.web.routes.search._fetch_sonarr_series_detail") as mock_cache:
             mock_cache.return_value = {"tracked": True, "seasons_in_library": {1}}
             resp = authed_client.get("/api/search/detail/tv/12345")
         data = resp.json()
@@ -364,7 +364,7 @@ class TestSearchPage:
 
 
 class TestDownloadEndpoint:
-    @patch("mediaman.web.routes.search._build_radarr")
+    @patch("mediaman.web.routes.search.build_radarr_from_db")
     def test_movie_adds_to_radarr(self, mock_build_radarr, authed_client):
         radarr = MagicMock()
         radarr.get_movie_by_tmdb.return_value = None
@@ -377,7 +377,7 @@ class TestDownloadEndpoint:
         assert resp.json()["ok"] is True
         radarr.add_movie.assert_called_once_with(438631, "Dune")
 
-    @patch("mediaman.web.routes.search._build_radarr")
+    @patch("mediaman.web.routes.search.build_radarr_from_db")
     def test_movie_already_in_radarr_blocked(self, mock_build_radarr, authed_client):
         radarr = MagicMock()
         radarr.get_movie_by_tmdb.return_value = {"id": 1, "tmdbId": 438631}
@@ -390,7 +390,7 @@ class TestDownloadEndpoint:
         assert "already" in resp.json()["error"].lower()
         radarr.add_movie.assert_not_called()
 
-    @patch("mediaman.web.routes.search._build_sonarr")
+    @patch("mediaman.web.routes.search.build_sonarr_from_db")
     def test_tv_all_seasons_flow(self, mock_build_sonarr, authed_client):
         sonarr = MagicMock()
         sonarr.lookup_series_by_tmdb.return_value = {"tvdbId": 999, "title": "BB"}
@@ -405,7 +405,7 @@ class TestDownloadEndpoint:
         sonarr.add_series.assert_called_once_with(999, "BB")
         sonarr.add_series_with_seasons.assert_not_called()
 
-    @patch("mediaman.web.routes.search._build_sonarr")
+    @patch("mediaman.web.routes.search.build_sonarr_from_db")
     def test_tv_selective_seasons_flow(self, mock_build_sonarr, authed_client):
         sonarr = MagicMock()
         sonarr.lookup_series_by_tmdb.return_value = {"tvdbId": 999, "title": "BB"}
@@ -421,7 +421,7 @@ class TestDownloadEndpoint:
             999, "BB", [1, 2, 3], [2, 3],
         )
 
-    @patch("mediaman.web.routes.search._build_sonarr")
+    @patch("mediaman.web.routes.search.build_sonarr_from_db")
     def test_tv_empty_search_seasons_rejected(self, mock_build_sonarr, authed_client):
         sonarr = MagicMock()
         sonarr.lookup_series_by_tmdb.return_value = {"tvdbId": 999}
@@ -435,7 +435,7 @@ class TestDownloadEndpoint:
         assert resp.json()["ok"] is False
         assert "season" in resp.json()["error"].lower()
 
-    @patch("mediaman.web.routes.search._build_sonarr")
+    @patch("mediaman.web.routes.search.build_sonarr_from_db")
     def test_tv_already_tracked_blocked(self, mock_build_sonarr, authed_client):
         sonarr = MagicMock()
         sonarr.lookup_series_by_tmdb.return_value = {"tvdbId": 999, "title": "BB"}
