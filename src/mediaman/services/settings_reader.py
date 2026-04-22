@@ -69,6 +69,7 @@ def get_setting(
 def get_int_setting(
     conn: sqlite3.Connection,
     key: str,
+    *,
     default: int,
 ) -> int:
     """Return an integer setting, falling back to *default* on any error."""

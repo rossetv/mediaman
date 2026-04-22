@@ -11,11 +11,12 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Body, Depends, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from mediaman.auth.audit import security_event
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
+from mediaman.models import SettingsUpdate
 from mediaman.auth.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.crypto import decrypt_value, encrypt_value
 from mediaman.db import get_db
@@ -159,7 +160,8 @@ def settings_page(request: Request):
 
     # Build library list for the Plex library toggles.
     # plex_libraries is stored as a JSON array of selected library IDs.
-    plex_libraries_selected: list[str] = settings.get("plex_libraries", []) or []  # type: ignore[assignment]
+    _libs_raw = settings.get("plex_libraries") or []
+    plex_libraries_selected: list[str] = list(_libs_raw) if isinstance(_libs_raw, list) else []
 
     templates = request.app.state.templates
     return templates.TemplateResponse(request, "settings.html", {
@@ -187,7 +189,7 @@ def api_get_settings(request: Request, admin: str = Depends(get_current_admin)):
 @router.put("/api/settings")
 def api_update_settings(
     request: Request,
-    body: dict = Body(...),
+    body: SettingsUpdate,
     admin: str = Depends(get_current_admin),
 ):
     """Persist settings from the request body.
@@ -195,6 +197,10 @@ def api_update_settings(
     Secret fields are encrypted before storage. If a secret field value is
     "****" or empty, the existing stored value is left untouched.
     """
+    # Convert to a plain dict (exclude unset/None fields so omitted keys are
+    # not treated as explicit clears). The rest of this handler works with a
+    # dict, which avoids touching every access site.
+    body: dict = body.model_dump(exclude_none=True)  # type: ignore[no-redef]
     if not _SETTINGS_WRITE_LIMITER.check(admin):
         logger.warning("settings.write_throttled user=%s", admin)
         return JSONResponse(

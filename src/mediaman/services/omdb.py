@@ -33,6 +33,7 @@ def fetch_ratings(
     title: str,
     year: int | None,
     media_type: str,
+    *,
     conn,
     secret_key: str,
 ) -> dict[str, str]:

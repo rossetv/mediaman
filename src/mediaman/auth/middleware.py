@@ -72,8 +72,13 @@ def get_optional_admin_from_token(
     )
 
 
-def require_admin_or_redirect(request: Request):
-    """For page routes — redirects to login instead of 401."""
+def require_admin_or_redirect(request: Request) -> str | RedirectResponse:
+    """Validate the session cookie for page routes.
+
+    Returns the authenticated username (str) when the session is valid.
+    Returns a ``RedirectResponse`` to ``/login`` (302) when the session
+    cookie is absent or the token fails validation — never raises 401.
+    """
     session_token = request.cookies.get("session_token")
     if not session_token:
         return RedirectResponse("/login", status_code=302)
