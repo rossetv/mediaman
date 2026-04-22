@@ -348,6 +348,20 @@ def _map_episode_state(ep: dict) -> str:
     return "searching"
 
 
+def _fmt_episode_label(season: int | None, episode: int | None) -> str:
+    """Format an episode label like ``"S01E02"`` or ``"S03"``.
+
+    Returns ``""`` when *season* is ``None``. Omits the episode portion
+    when *episode* is ``None`` (season-only pack entries).
+    """
+    if season is None:
+        return ""
+    label = f"S{season:02d}"
+    if episode is not None:
+        label += f"E{episode:02d}"
+    return label
+
+
 def _build_episode_summary(episodes: list[dict]) -> str:
     """Build a human-readable summary like '2 of 8 episodes ready ...'."""
     total = len(episodes)
