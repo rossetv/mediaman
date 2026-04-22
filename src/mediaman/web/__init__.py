@@ -8,7 +8,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from mediaman.auth.rate_limit import _peer_is_trusted, _trusted_proxies
+from mediaman.auth.rate_limit import peer_is_trusted, trusted_proxies
 
 # Content Security Policy.
 # - ``'unsafe-inline'`` on script/style is still present because several
@@ -73,8 +73,8 @@ def _should_emit_hsts(request: Request) -> bool:
     if request.url.scheme == "https":
         return True
     peer = request.client.host if request.client else None
-    trusted = _trusted_proxies()
-    if _peer_is_trusted(peer, trusted):
+    trusted = trusted_proxies()
+    if peer_is_trusted(peer, trusted):
         forwarded_proto = (
             request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
         )

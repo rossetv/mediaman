@@ -132,7 +132,7 @@ class TestRefreshRateLimit:
         # "Plex not configured" early-return — cooldown logic is the
         # only thing under test here.
         with patch(
-            "mediaman.web.routes.settings_routes._build_plex_client",
+            "mediaman.services.arr_build.build_plex_from_db",
             return_value=MagicMock(),
         ):
             resp = authed_client.post("/api/recommended/refresh")
@@ -146,7 +146,7 @@ class TestRefreshRateLimit:
     def test_first_call_is_allowed(self, authed_client, app):
         # Brand-new DB — no previous refresh recorded.
         with patch(
-            "mediaman.web.routes.settings_routes._build_plex_client",
+            "mediaman.services.arr_build.build_plex_from_db",
             return_value=MagicMock(),
         ):
             resp = authed_client.post("/api/recommended/refresh")

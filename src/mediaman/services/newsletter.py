@@ -127,7 +127,7 @@ def send_newsletter(
             added_dt = datetime.fromisoformat(str(added_at_raw))
             added_dt = _ensure_tz(added_dt)
             added_days_ago = (now - added_dt).days
-        except Exception:
+        except (ValueError, TypeError):
             added_days_ago = None
 
         rating_key = row["plex_rating_key"] or ""
@@ -222,7 +222,7 @@ def send_newsletter(
                 deleted_date = "yesterday"
             else:
                 deleted_date = f"{days_ago} days ago"
-        except Exception:
+        except (ValueError, TypeError):
             deleted_date = ""
 
         rating_key = row["plex_rating_key"] or _extract_rk_from_detail(row["detail"]) or ""

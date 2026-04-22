@@ -582,7 +582,7 @@ class ScanEngine:
         scanned (so we don't accidentally delete items from a library that
         was unreachable during this sync).
         """
-        if not scanned_libs or not seen_keys:
+        if not scanned_libs:
             return 0
 
         placeholders = ",".join("?" * len(scanned_libs))

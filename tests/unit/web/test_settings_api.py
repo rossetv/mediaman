@@ -69,7 +69,7 @@ class TestPlexLibrariesEndpoint:
         ]
 
         with patch(
-            "mediaman.web.routes.settings_routes._build_plex_client"
+            "mediaman.web.routes.settings_routes.build_plex_from_db"
         ) as mock_build:
             mock_client = MagicMock()
             mock_client.get_libraries.return_value = fake_libraries
@@ -114,7 +114,7 @@ class TestPlexLibrariesEndpoint:
         client = _auth_client(app, conn)
 
         with patch(
-            "mediaman.web.routes.settings_routes._build_plex_client"
+            "mediaman.web.routes.settings_routes.build_plex_from_db"
         ) as mock_build:
             mock_client = MagicMock()
             mock_client.get_libraries.side_effect = ConnectionError("unreachable")

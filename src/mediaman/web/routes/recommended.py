@@ -271,10 +271,10 @@ def api_refresh_recommendations(request: Request, admin: str = Depends(get_curre
             return JSONResponse({"status": "already_running"})
         _refresh_running = True
 
-    from mediaman.web.routes.settings_routes import _build_plex_client
+    from mediaman.services.arr_build import build_plex_from_db
 
     config = request.app.state.config
-    plex = _build_plex_client(conn, config.secret_key)
+    plex = build_plex_from_db(conn, config.secret_key)
     if not plex:
         with _refresh_lock:
             _refresh_running = False
@@ -291,11 +291,11 @@ def api_refresh_recommendations(request: Request, admin: str = Depends(get_curre
         result: dict
         try:
             from mediaman.db import get_db as get_db_
+            from mediaman.services.arr_build import build_plex_from_db
             from mediaman.services.openai_recommendations import refresh_recommendations
-            from mediaman.web.routes.settings_routes import _build_plex_client as build_plex
 
             db = get_db_()
-            plex_client = build_plex(db, _secret_key)
+            plex_client = build_plex_from_db(db, _secret_key)
             if plex_client:
                 count = refresh_recommendations(db, plex_client, manual=True)
                 result = {"ok": True, "count": count}

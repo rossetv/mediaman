@@ -20,6 +20,7 @@ from mediaman.models import SettingsUpdate
 from mediaman.auth.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.crypto import decrypt_value, encrypt_value
 from mediaman.db import get_db
+from mediaman.services.arr_build import build_plex_from_db
 from mediaman.services.storage import get_disk_usage
 
 # Per-admin rate limits for destructive or high-cost operations.
@@ -111,35 +112,6 @@ def _mask_secrets(settings: dict) -> dict:
         if key in out and out[key]:
             out[key] = "****"
     return out
-
-
-def _build_plex_client(conn, secret_key: str):
-    """Build a PlexClient from stored settings, or return None if not configured.
-
-    Reads ``plex_url`` and ``plex_token`` directly from the settings table,
-    decrypting the token if encrypted. Returns ``None`` when either value is
-    absent so callers can return a graceful error response without raising.
-    """
-    from mediaman.services.plex import PlexClient
-
-    url_row = conn.execute(
-        "SELECT value FROM settings WHERE key='plex_url'"
-    ).fetchone()
-    token_row = conn.execute(
-        "SELECT value, encrypted FROM settings WHERE key='plex_token'"
-    ).fetchone()
-    if not url_row or not token_row:
-        return None
-
-    url = (url_row["value"] or "").strip()
-    token = token_row["value"] or ""
-    if token_row["encrypted"]:
-        token = decrypt_value(token, secret_key, conn=conn, aad=b"plex_token")
-    token = token.strip()
-
-    if not url or not token:
-        return None
-    return PlexClient(url, token)
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +393,7 @@ def api_plex_libraries(request: Request, admin: str = Depends(get_current_admin)
     conn = get_db()
     config = request.app.state.config
     try:
-        client = _build_plex_client(conn, config.secret_key)
+        client = build_plex_from_db(conn, config.secret_key)
         if client is None:
             return JSONResponse({"libraries": [], "error": "Plex URL and token are not configured"})
         libraries = client.get_libraries()

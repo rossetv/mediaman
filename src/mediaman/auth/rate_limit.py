@@ -147,7 +147,7 @@ class RateLimiter:
         self._attempts.pop(oldest_key, None)
 
 
-def _trusted_proxies() -> list[ipaddress._BaseNetwork]:
+def trusted_proxies() -> list[ipaddress._BaseNetwork]:
     """Parse MEDIAMAN_TRUSTED_PROXIES env var into a list of IP networks.
 
     Format: comma-separated list of CIDRs or single IPs. When unset, no
@@ -179,7 +179,7 @@ def _ip_in_networks(ip: str, networks: list[ipaddress._BaseNetwork]) -> bool:
     return any(addr in net for net in networks)
 
 
-def _peer_is_trusted(peer: str | None, trusted: list[ipaddress._BaseNetwork]) -> bool:
+def peer_is_trusted(peer: str | None, trusted: list[ipaddress._BaseNetwork]) -> bool:
     """Return True if the direct peer IP is in the trusted-proxy allowlist."""
     if not peer:
         return False
@@ -214,8 +214,8 @@ def get_client_ip(request) -> str:
     but gains security (no spoof bypass).
     """
     peer = request.client.host if request.client else None
-    trusted = _trusted_proxies()
-    if not _peer_is_trusted(peer, trusted):
+    trusted = trusted_proxies()
+    if not peer_is_trusted(peer, trusted):
         return peer or "unknown"
 
     # Cloudflare's CF-Connecting-IP is the real client IP and CF

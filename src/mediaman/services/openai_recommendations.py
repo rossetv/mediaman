@@ -6,6 +6,7 @@ import os
 import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote as urlquote
 
 import requests
 
@@ -60,7 +61,7 @@ def _get_openai_key(conn) -> str | None:
     row = conn.execute(
         "SELECT value, encrypted FROM settings WHERE key='openai_api_key'"
     ).fetchone()
-    if row and row["value"] and row["value"] != "":
+    if row and row["value"]:
         val = row["value"]
         if row["encrypted"]:
             try:
@@ -139,7 +140,7 @@ def _parse_recommendations(items: list[dict], category: str) -> list[dict]:
         year = item.get("year")
         # YouTube search link — reliable, unlike hallucinated video IDs
         search_q = f"{title} {year} official trailer" if year else f"{title} official trailer"
-        trailer_url = "https://www.youtube.com/results?search_query=" + requests.utils.quote(search_q)
+        trailer_url = "https://www.youtube.com/results?search_query=" + urlquote(search_q)
 
         results.append({
             "title": title,
@@ -204,7 +205,7 @@ def _enrich_recommendations(recommendations: list[dict], conn) -> None:
                     search_q = f"{s['title']} {s['year']} official trailer"
                     s["trailer_url"] = (
                         "https://www.youtube.com/results?search_query="
-                        + requests.utils.quote(search_q)
+                        + urlquote(search_q)
                     )
 
             tmdb_id = s.get("tmdb_id")
@@ -352,7 +353,7 @@ def refresh_recommendations(conn, plex_client, manual: bool = False) -> int:
         media_type = r["media_type"] or "movie"
         if media_type in ("tv_season", "anime_season", "season"):
             media_type = "tv"
-        elif media_type in ("anime",):
+        elif media_type == "anime":
             media_type = "anime"
         else:
             media_type = "movie"

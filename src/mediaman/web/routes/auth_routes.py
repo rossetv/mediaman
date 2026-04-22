@@ -8,9 +8,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from mediaman.auth.rate_limit import (
     RateLimiter,
-    _peer_is_trusted,
-    _trusted_proxies,
     get_client_ip,
+    peer_is_trusted,
+    trusted_proxies,
 )
 from mediaman.auth.audit import security_event
 from mediaman.auth.password_policy import is_strong
@@ -61,8 +61,8 @@ def _is_request_secure(request: Request) -> bool:
     if request.url.scheme == "https":
         return True
     peer = request.client.host if request.client else None
-    trusted = _trusted_proxies()
-    if _peer_is_trusted(peer, trusted):
+    trusted = trusted_proxies()
+    if peer_is_trusted(peer, trusted):
         forwarded_proto = (
             request.headers.get("x-forwarded-proto", "")
             .split(",")[0]

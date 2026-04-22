@@ -17,6 +17,7 @@ from mediaman.services.settings_reader import get_string_setting
 
 if TYPE_CHECKING:
     from mediaman.services.nzbget import NzbgetClient
+    from mediaman.services.plex import PlexClient
     from mediaman.services.radarr import RadarrClient
     from mediaman.services.sonarr import SonarrClient
 
@@ -59,6 +60,16 @@ def build_arr_client(
     if service == "sonarr":
         return build_sonarr_from_db(conn, config.secret_key)
     return None
+
+
+def build_plex_from_db(conn: sqlite3.Connection, secret_key: str) -> PlexClient | None:
+    """Return a ``PlexClient`` or ``None`` if Plex isn't configured."""
+    url = get_string_setting(conn, "plex_url")
+    token = get_string_setting(conn, "plex_token", secret_key=secret_key)
+    if not url or not token:
+        return None
+    from mediaman.services.plex import PlexClient
+    return PlexClient(url, token)
 
 
 def build_nzbget_from_db(conn: sqlite3.Connection) -> NzbgetClient | None:
