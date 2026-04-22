@@ -371,7 +371,7 @@ def send_newsletter(
 
     successfully_sent: list[str] = []
     for email in recipient_emails:
-        unsub_token = generate_unsubscribe_token(email, secret_key)
+        unsub_token = generate_unsubscribe_token(email=email, secret_key=secret_key)
         # URL-encode both values so a mail address containing ``&``,
         # ``+``, ``#`` (all RFC-legal in local-parts) doesn't shred the
         # query string and confuse the unsubscribe handler.

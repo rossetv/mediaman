@@ -1,0 +1,322 @@
+"""Tests for POST /api/media/{id}/delete, /keep, and /api/media/redownload."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from unittest.mock import MagicMock, patch
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from mediaman.auth.session import create_session, create_user
+from mediaman.config import Config
+from mediaman.db import init_db, set_connection
+from mediaman.web.routes.library import router as library_router, _DELETE_LIMITER
+
+
+def _make_app(conn, secret_key: str) -> FastAPI:
+    """Build a minimal FastAPI app wired to *conn* for testing."""
+    app = FastAPI()
+    app.include_router(library_router)
+    app.state.config = Config(secret_key=secret_key)
+    app.state.db = conn
+    set_connection(conn)
+    return app
+
+
+def _auth_client(app: FastAPI, conn) -> TestClient:
+    """Return a TestClient with a valid admin session cookie."""
+    create_user(conn, "admin", "password1234", enforce_policy=False)
+    token = create_session(conn, "admin")
+    client = TestClient(app, raise_server_exceptions=True)
+    client.cookies.set("session_token", token)
+    return client
+
+
+def _insert_movie(conn, media_id: str = "m1", radarr_id: int | None = 101) -> None:
+    """Insert a minimal movie row into media_items."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """INSERT INTO media_items
+           (id, title, media_type, plex_library_id, plex_rating_key, added_at,
+            file_path, file_size_bytes, radarr_id)
+           VALUES (?, ?, 'movie', 1, 'rk1', ?, '/media/movie.mkv', 1000000, ?)""",
+        (media_id, "Test Movie", now, radarr_id),
+    )
+    conn.commit()
+
+
+def _insert_tv_season(conn, media_id: str = "s1", sonarr_id: int | None = 202, season: int = 1) -> None:
+    """Insert a minimal TV season row into media_items."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """INSERT INTO media_items
+           (id, title, media_type, plex_library_id, plex_rating_key, added_at,
+            file_path, file_size_bytes, sonarr_id, season_number,
+            show_title, show_rating_key)
+           VALUES (?, ?, 'tv_season', 1, 'rk2', ?, '/media/show', 2000000, ?, ?, 'The Show', 'show-rk')""",
+        (media_id, "The Show", now, sonarr_id, season),
+    )
+    conn.commit()
+
+
+class TestMediaDelete:
+    def setup_method(self):
+        _DELETE_LIMITER._attempts.clear()
+        _DELETE_LIMITER._day_counts.clear()
+
+    def test_delete_requires_auth(self, db_path, secret_key):
+        """DELETE endpoint returns 401 when no session cookie is present."""
+        conn = init_db(str(db_path))
+        _insert_movie(conn)
+        app = _make_app(conn, secret_key)
+        client = TestClient(app, raise_server_exceptions=True)
+
+        resp = client.post("/api/media/m1/delete")
+        assert resp.status_code == 401
+
+    def test_delete_nonexistent_returns_404(self, db_path, secret_key):
+        """Deleting an unknown media_id returns 404."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        resp = client.post("/api/media/does-not-exist/delete")
+        assert resp.status_code == 404
+
+    def test_delete_movie_calls_radarr_and_removes_row(self, db_path, secret_key):
+        """Deleting a movie calls Radarr delete_movie and removes the DB row."""
+        conn = init_db(str(db_path))
+        _insert_movie(conn, radarr_id=101)
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        mock_radarr = MagicMock()
+
+        with patch("mediaman.web.routes.library._build_radarr", return_value=mock_radarr):
+            resp = client.post("/api/media/m1/delete")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["id"] == "m1"
+
+        mock_radarr.delete_movie.assert_called_once_with(101)
+
+        # Row must be gone from DB
+        row = conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone()
+        assert row is None
+
+    def test_delete_movie_without_radarr_id_skips_radarr(self, db_path, secret_key):
+        """A movie with no stored radarr_id skips Radarr delete but still removes the DB row."""
+        conn = init_db(str(db_path))
+        _insert_movie(conn, radarr_id=None)
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        mock_radarr = MagicMock()
+
+        with patch("mediaman.web.routes.library._build_radarr", return_value=mock_radarr):
+            resp = client.post("/api/media/m1/delete")
+
+        assert resp.status_code == 200
+        mock_radarr.delete_movie.assert_not_called()
+
+        row = conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone()
+        assert row is None
+
+    def test_delete_tv_season_calls_sonarr(self, db_path, secret_key):
+        """Deleting a TV season calls Sonarr delete methods and removes the DB row."""
+        conn = init_db(str(db_path))
+        _insert_tv_season(conn, sonarr_id=202, season=1)
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        mock_sonarr = MagicMock()
+        mock_sonarr.has_remaining_files.return_value = True  # series still has other seasons
+
+        with patch("mediaman.web.routes.library._build_sonarr", return_value=mock_sonarr):
+            resp = client.post("/api/media/s1/delete")
+
+        assert resp.status_code == 200
+        mock_sonarr.delete_episode_files.assert_called_once_with(202, 1)
+        mock_sonarr.unmonitor_season.assert_called_once_with(202, 1)
+
+        row = conn.execute("SELECT id FROM media_items WHERE id='s1'").fetchone()
+        assert row is None
+
+    def test_delete_also_removes_scheduled_actions(self, db_path, secret_key):
+        """Deleting a media item also prunes its associated scheduled_actions rows."""
+        conn = init_db(str(db_path))
+        _insert_movie(conn)
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            """INSERT INTO scheduled_actions
+               (media_item_id, action, scheduled_at, token, token_used)
+               VALUES ('m1', 'snoozed', ?, 'tok1', 0)""",
+            (now,),
+        )
+        conn.commit()
+
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        mock_radarr = MagicMock()
+        with patch("mediaman.web.routes.library._build_radarr", return_value=mock_radarr):
+            resp = client.post("/api/media/m1/delete")
+
+        assert resp.status_code == 200
+        sa_row = conn.execute(
+            "SELECT id FROM scheduled_actions WHERE media_item_id='m1'"
+        ).fetchone()
+        assert sa_row is None
+
+
+class TestMediaKeep:
+    def test_keep_requires_auth(self, db_path, secret_key):
+        """Keep endpoint returns 401 without a session cookie."""
+        conn = init_db(str(db_path))
+        _insert_movie(conn)
+        app = _make_app(conn, secret_key)
+        client = TestClient(app, raise_server_exceptions=True)
+
+        resp = client.post("/api/media/m1/keep", data={"duration": "30d"})
+        assert resp.status_code == 401
+
+    def test_keep_forever_inserts_protected_forever_action(self, db_path, secret_key):
+        """Keep with duration=forever inserts a protected_forever scheduled_action."""
+        conn = init_db(str(db_path))
+        _insert_movie(conn)
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        resp = client.post("/api/media/m1/keep", data={"duration": "forever"})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+
+        sa = conn.execute(
+            "SELECT action FROM scheduled_actions WHERE media_item_id='m1' AND token_used=0"
+        ).fetchone()
+        assert sa is not None
+        assert sa["action"] == "protected_forever"
+
+    def test_keep_30d_inserts_snoozed_action(self, db_path, secret_key):
+        """Keep with duration=30d inserts a snoozed scheduled_action."""
+        conn = init_db(str(db_path))
+        _insert_movie(conn)
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        resp = client.post("/api/media/m1/keep", data={"duration": "30d"})
+
+        assert resp.status_code == 200
+
+        sa = conn.execute(
+            "SELECT action, snooze_duration FROM scheduled_actions WHERE media_item_id='m1' AND token_used=0"
+        ).fetchone()
+        assert sa is not None
+        assert sa["action"] == "snoozed"
+        assert sa["snooze_duration"] == "30 days"
+
+    def test_keep_invalid_duration_returns_400(self, db_path, secret_key):
+        """Keep with an unrecognised duration returns 400."""
+        conn = init_db(str(db_path))
+        _insert_movie(conn)
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        resp = client.post("/api/media/m1/keep", data={"duration": "1y"})
+        assert resp.status_code == 400
+
+    def test_keep_nonexistent_item_returns_404(self, db_path, secret_key):
+        """Keep for an unknown item returns 404."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        resp = client.post("/api/media/no-such-id/keep", data={"duration": "7d"})
+        assert resp.status_code == 404
+
+    def test_keep_updates_existing_action(self, db_path, secret_key):
+        """Keep on an already-kept item updates the existing row rather than inserting a duplicate."""
+        conn = init_db(str(db_path))
+        _insert_movie(conn)
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        client.post("/api/media/m1/keep", data={"duration": "7d"})
+        resp = client.post("/api/media/m1/keep", data={"duration": "forever"})
+
+        assert resp.status_code == 200
+        rows = conn.execute(
+            "SELECT id FROM scheduled_actions WHERE media_item_id='m1' AND token_used=0"
+        ).fetchall()
+        # Must be at most one active row
+        assert len(rows) == 1
+        sa = conn.execute(
+            "SELECT action FROM scheduled_actions WHERE media_item_id='m1' AND token_used=0"
+        ).fetchone()
+        assert sa["action"] == "protected_forever"
+
+
+class TestMediaRedownload:
+    def test_redownload_requires_auth(self, db_path, secret_key):
+        """Redownload endpoint returns 401 without a session cookie."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = TestClient(app, raise_server_exceptions=True)
+
+        resp = client.post("/api/media/redownload", json={"title": "Dune"})
+        assert resp.status_code == 401
+
+    def test_redownload_empty_title_returns_400(self, db_path, secret_key):
+        """Redownload with a blank title returns 400."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        resp = client.post("/api/media/redownload", json={"title": "   "})
+        assert resp.status_code == 400
+
+    def test_redownload_submits_to_radarr(self, db_path, secret_key):
+        """Redownload calls Radarr add_movie and returns ok=True."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        mock_radarr = MagicMock()
+        mock_radarr._get.return_value = [{"tmdbId": 42}]
+        mock_radarr.add_movie.return_value = None
+
+        with patch("mediaman.web.routes.library._build_radarr", return_value=mock_radarr):
+            resp = client.post("/api/media/redownload", json={"title": "Dune"})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        mock_radarr.add_movie.assert_called_once_with(42, "Dune")
+
+    def test_redownload_falls_through_to_sonarr_when_radarr_finds_nothing(self, db_path, secret_key):
+        """When Radarr returns no lookup results, Sonarr is tried next."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        mock_radarr = MagicMock()
+        mock_radarr._get.return_value = []  # Radarr finds nothing
+
+        mock_sonarr = MagicMock()
+        mock_sonarr._get.return_value = [{"tvdbId": 999, "tmdbId": None}]
+        mock_sonarr.add_series.return_value = None
+
+        with patch("mediaman.web.routes.library._build_radarr", return_value=mock_radarr), \
+             patch("mediaman.web.routes.library._build_sonarr", return_value=mock_sonarr):
+            resp = client.post("/api/media/redownload", json={"title": "Severance"})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        mock_sonarr.add_series.assert_called_once()
