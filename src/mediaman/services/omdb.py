@@ -6,6 +6,7 @@ request fails, or OMDb has nothing useful. Never raises.
 from __future__ import annotations
 
 import logging
+import sqlite3
 
 import requests
 
@@ -14,7 +15,7 @@ from mediaman.crypto import decrypt_value
 logger = logging.getLogger("mediaman")
 
 
-def _get_key(conn, secret_key: str) -> str | None:
+def _get_key(conn: sqlite3.Connection, secret_key: str) -> str | None:
     row = conn.execute(
         "SELECT value, encrypted FROM settings WHERE key='omdb_api_key'"
     ).fetchone()
@@ -34,7 +35,7 @@ def fetch_ratings(
     year: int | None,
     media_type: str,
     *,
-    conn,
+    conn: sqlite3.Connection,
     secret_key: str,
 ) -> dict[str, str]:
     """Return ratings from OMDb.

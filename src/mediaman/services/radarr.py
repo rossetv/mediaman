@@ -1,16 +1,18 @@
 """Radarr v3 API client."""
 
+from __future__ import annotations
+
 import requests
 
 from mediaman.services.arr_client_base import ArrClient
 
 
 class RadarrClient(ArrClient):
-    def get_movies(self) -> list[dict]:
-        return self._get("/api/v3/movie")
+    def get_movies(self) -> list[dict[str, object]]:
+        return self._get("/api/v3/movie")  # type: ignore[return-value]
 
-    def get_movie_by_id(self, movie_id: int) -> dict:
-        return self._get(f"/api/v3/movie/{movie_id}")
+    def get_movie_by_id(self, movie_id: int) -> dict[str, object]:
+        return self._get(f"/api/v3/movie/{movie_id}")  # type: ignore[return-value]
 
     def delete_movie(self, movie_id: int) -> None:
         """Delete a movie from Radarr and its files from disk."""
@@ -19,12 +21,12 @@ class RadarrClient(ArrClient):
     def unmonitor_movie(self, movie_id: int) -> None:
         movie = self.get_movie_by_id(movie_id)
         movie["monitored"] = False
-        self._put(f"/api/v3/movie/{movie_id}", movie)
+        self._put(f"/api/v3/movie/{movie_id}", movie)  # type: ignore[arg-type]
 
     def remonitor_movie(self, movie_id: int) -> None:
         movie = self.get_movie_by_id(movie_id)
         movie["monitored"] = True
-        self._put(f"/api/v3/movie/{movie_id}", movie)
+        self._put(f"/api/v3/movie/{movie_id}", movie)  # type: ignore[arg-type]
         self.search_movie(movie_id)
 
     def search_movie(self, movie_id: int) -> None:
@@ -37,7 +39,7 @@ class RadarrClient(ArrClient):
         )
         resp.raise_for_status()
 
-    def add_movie(self, tmdb_id: int, title: str, quality_profile_id: int = 4) -> dict:
+    def add_movie(self, tmdb_id: int, title: str, quality_profile_id: int = 4) -> dict[str, object]:
         """Add a movie by TMDB ID and trigger a search."""
         root_folders = self._get("/api/v3/rootfolder")
         root_path = root_folders[0]["path"] if root_folders else "/movies"
@@ -59,7 +61,7 @@ class RadarrClient(ArrClient):
         resp.raise_for_status()
         return resp.json()
 
-    def get_queue(self) -> list[dict]:
+    def get_queue(self) -> list[dict[str, object]]:
         """Return the current Radarr download queue.
 
         Paginates through all pages — otherwise long queues get silently
@@ -84,7 +86,7 @@ class RadarrClient(ArrClient):
             page += 1
         return out
 
-    def get_movie_by_tmdb(self, tmdb_id: int) -> dict | None:
+    def get_movie_by_tmdb(self, tmdb_id: int) -> dict[str, object] | None:
         """Find a movie in the library by its TMDB ID. Returns None if not found."""
         for movie in self.get_movies():
             if movie.get("tmdbId") == tmdb_id:

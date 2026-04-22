@@ -9,7 +9,7 @@ def evaluate_season(
     *,
     added_at: datetime,
     episode_count: int,
-    watch_history: list[dict],
+    watch_history: list[dict[str, object]],
     has_future_episodes: bool,
     min_age_days: int = 30,
     inactivity_days: int = 30,

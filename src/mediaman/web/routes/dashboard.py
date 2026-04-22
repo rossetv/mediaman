@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from starlette.responses import Response
 
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.db import get_db
@@ -41,7 +43,7 @@ def _days_until(dt_str: str | None) -> str:
     return f"Deletes in {delta} days"
 
 
-def _fetch_scheduled(conn) -> list[dict]:
+def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
     """Return scheduled-deletion items joined with media_items, enriched for the template."""
     rows = conn.execute("""
         SELECT
@@ -87,7 +89,7 @@ def _fetch_scheduled(conn) -> list[dict]:
     return items
 
 
-def _fetch_recently_deleted(conn) -> list[dict]:
+def _fetch_recently_deleted(conn: sqlite3.Connection) -> list[dict[str, object]]:
     """Return recent deleted audit_log entries joined with media_items."""
     rows = conn.execute("""
         SELECT
@@ -152,7 +154,7 @@ def _fetch_recently_deleted(conn) -> list[dict]:
     return items
 
 
-def _fill_tmdb_posters(conn, items: list[dict], needed: list[tuple[int, str]]) -> None:
+def _fill_tmdb_posters(conn: sqlite3.Connection, items: list[dict[str, object]], needed: list[tuple[int, str]]) -> None:
     """Look up TMDB poster URLs for deleted items missing a Plex poster.
 
     Reuses the shared :class:`TmdbClient`. Deduplicates by title so
@@ -185,7 +187,7 @@ def _fill_tmdb_posters(conn, items: list[dict], needed: list[tuple[int, str]]) -
         cache[title] = ""
 
 
-def _fetch_storage_stats(conn) -> dict:
+def _fetch_storage_stats(conn: sqlite3.Connection) -> dict[str, object]:
     """Return storage stats dict for the dashboard template.
 
     Disk usage is read from _MEDIA_PATH; falls back to zeroes gracefully.
@@ -241,7 +243,7 @@ def _fetch_storage_stats(conn) -> dict:
 # ---------------------------------------------------------------------------
 
 @router.get("/", response_class=HTMLResponse)
-def dashboard_page(request: Request):
+def dashboard_page(request: Request) -> Response:
     """Render the admin dashboard. Redirects to /login if session is invalid."""
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
@@ -279,7 +281,7 @@ def dashboard_page(request: Request):
 # ---------------------------------------------------------------------------
 
 @router.get("/api/dashboard/stats")
-def api_dashboard_stats(username: str = Depends(get_current_admin)):
+def api_dashboard_stats(username: str = Depends(get_current_admin)) -> JSONResponse:
     """Return storage usage and reclaimed-space totals as JSON."""
     conn = get_db()
     storage = _fetch_storage_stats(conn)
@@ -297,21 +299,21 @@ def api_dashboard_stats(username: str = Depends(get_current_admin)):
 
 
 @router.get("/api/dashboard/scheduled")
-def api_dashboard_scheduled(username: str = Depends(get_current_admin)):
+def api_dashboard_scheduled(username: str = Depends(get_current_admin)) -> JSONResponse:
     """Return scheduled-deletion items as JSON."""
     conn = get_db()
     return JSONResponse({"items": _fetch_scheduled(conn)})
 
 
 @router.get("/api/dashboard/deleted")
-def api_dashboard_deleted(username: str = Depends(get_current_admin)):
+def api_dashboard_deleted(username: str = Depends(get_current_admin)) -> JSONResponse:
     """Return recently deleted items from audit_log as JSON."""
     conn = get_db()
     return JSONResponse({"items": _fetch_recently_deleted(conn)})
 
 
 @router.get("/api/dashboard/reclaimed-chart")
-def api_dashboard_reclaimed_chart(username: str = Depends(get_current_admin)):
+def api_dashboard_reclaimed_chart(username: str = Depends(get_current_admin)) -> JSONResponse:
     """Return weekly reclaimed-space aggregates grouped by ISO week.
 
     Each row: { week: 'YYYY-WNN', reclaimed_bytes: int, reclaimed: str }

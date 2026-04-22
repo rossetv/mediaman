@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote as _url_quote
 
 from fastapi import APIRouter, Body, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from starlette.responses import Response
 
 from mediaman.auth.audit import log_audit as _log_audit
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
@@ -108,13 +110,13 @@ def _protection_label(sa_action: str | None, sa_execute_at: str | None) -> str |
 
 
 def _fetch_library(
-    conn,
+    conn: sqlite3.Connection,
     q: str = "",
     media_type: str = "",
     sort: str = "added_desc",
     page: int = 1,
     per_page: int = 20,
-) -> tuple[list[dict], int]:
+) -> tuple[list[dict[str, object]], int]:
     """Query media_items and return (items, total_count).
 
     TV seasons are grouped into one row per show. Movies are individual rows.
@@ -304,7 +306,7 @@ def _fetch_library(
     return items, total
 
 
-def _fetch_stats(conn) -> dict:
+def _fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
     """Return counts and stale count for the library stats bar.
 
     Stale = added longer ago than min_age_days AND no watch activity
@@ -370,7 +372,7 @@ def library_page(
     sort: str = "added_desc",
     page: int = 1,
     per_page: int = 20,
-):
+) -> Response:
     """Render the library page. Redirects to /login if session is invalid."""
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
@@ -420,7 +422,7 @@ def api_library(
     page: int = 1,
     per_page: int = 20,
     username: str = Depends(get_current_admin),
-):
+) -> JSONResponse:
     """Return paginated library items as JSON.
 
     Query params: q (search text), type (movie/tv/anime), sort, page, per_page.
@@ -455,7 +457,7 @@ def api_media_delete(
     media_id: str,
     request: Request,
     username: str = Depends(get_current_admin),
-):
+) -> JSONResponse:
     """Delete a media item via Radarr/Sonarr (deletes files + adds to exclusion list)."""
     if not _DELETE_LIMITER.check(username):
         logger.warning("media.delete_throttled user=%s", username)
@@ -543,7 +545,7 @@ def api_media_keep(
     media_id: str,
     duration: str = Form(...),
     username: str = Depends(get_current_admin),
-):
+) -> JSONResponse:
     """Apply protection to a media item.
 
     Duration must be one of: '7d', '30d', '90d', 'forever'.
@@ -611,7 +613,7 @@ def api_media_redownload(
     request: Request,
     title: str = Body(..., embed=True),
     username: str = Depends(get_current_admin),
-):
+) -> JSONResponse:
     """Re-download a deleted media item by searching Radarr/Sonarr by title."""
     title = title.strip()
     if not title:

@@ -1,5 +1,7 @@
 """Sonarr v3 API client."""
 
+from __future__ import annotations
+
 import logging
 
 import requests
@@ -26,30 +28,30 @@ class SonarrClient(ArrClient):
         efs = self._get(f"/api/v3/episodefile?seriesId={series_id}")
         return len(efs) > 0
 
-    def get_series(self) -> list[dict]:
-        return self._get("/api/v3/series")
+    def get_series(self) -> list[dict[str, object]]:
+        return self._get("/api/v3/series")  # type: ignore[return-value]
 
-    def get_series_by_id(self, series_id: int) -> dict:
-        return self._get(f"/api/v3/series/{series_id}")
+    def get_series_by_id(self, series_id: int) -> dict[str, object]:
+        return self._get(f"/api/v3/series/{series_id}")  # type: ignore[return-value]
 
-    def get_episodes(self, series_id: int) -> list[dict]:
+    def get_episodes(self, series_id: int) -> list[dict[str, object]]:
         """Return all episodes for a given series."""
         data = self._get(f"/api/v3/episode?seriesId={series_id}")
         return data if isinstance(data, list) else []
 
     def unmonitor_season(self, series_id: int, season_number: int) -> None:
         series = self.get_series_by_id(series_id)
-        for season in series["seasons"]:
+        for season in series["seasons"]:  # type: ignore[union-attr]
             if season["seasonNumber"] == season_number:
                 season["monitored"] = False
-        self._put(f"/api/v3/series/{series_id}", series)
+        self._put(f"/api/v3/series/{series_id}", series)  # type: ignore[arg-type]
 
     def remonitor_season(self, series_id: int, season_number: int) -> None:
         series = self.get_series_by_id(series_id)
-        for season in series["seasons"]:
+        for season in series["seasons"]:  # type: ignore[union-attr]
             if season["seasonNumber"] == season_number:
                 season["monitored"] = True
-        self._put(f"/api/v3/series/{series_id}", series)
+        self._put(f"/api/v3/series/{series_id}", series)  # type: ignore[arg-type]
         requests.post(
             f"{self._url}/api/v3/command",
             headers=self._headers,
@@ -99,7 +101,7 @@ class SonarrClient(ArrClient):
             page += 1
         return out
 
-    def add_series(self, tvdb_id: int, title: str, quality_profile_id: int = 4) -> dict:
+    def add_series(self, tvdb_id: int, title: str, quality_profile_id: int = 4) -> dict[str, object]:
         """Add a TV series by TVDB ID and trigger a search."""
         root_folders = self._get("/api/v3/rootfolder")
         root_path = root_folders[0]["path"] if root_folders else "/tv"
@@ -129,7 +131,7 @@ class SonarrClient(ArrClient):
         monitored_seasons: list[int],
         search_seasons: list[int],
         quality_profile_id: int = 4,
-    ) -> dict:
+    ) -> dict[str, object]:
         """Add a series with an explicit per-season monitor/search plan.
 
         Seasons listed in ``monitored_seasons`` are added with
@@ -186,7 +188,7 @@ class SonarrClient(ArrClient):
 
         return new_series
 
-    def get_queue(self) -> list[dict]:
+    def get_queue(self) -> list[dict[str, object]]:
         """Return the current Sonarr download queue.
 
         Paginates through all pages; Sonarr defaults to a small pageSize
@@ -213,7 +215,7 @@ class SonarrClient(ArrClient):
             page += 1
         return out
 
-    def lookup_series_by_tmdb(self, tmdb_id: int) -> dict | None:
+    def lookup_series_by_tmdb(self, tmdb_id: int) -> dict[str, object] | None:
         """Look up a series by TMDB ID via Sonarr's lookup endpoint.
 
         Returns the first match or ``None`` if nothing matched or the

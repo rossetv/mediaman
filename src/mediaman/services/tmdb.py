@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 from typing import Any
 
 import requests
@@ -47,7 +48,7 @@ class TmdbClient:
     @classmethod
     def from_db(
         cls,
-        conn,
+        conn: sqlite3.Connection,
         secret_key: str,
         *,
         timeout: float = 10.0,

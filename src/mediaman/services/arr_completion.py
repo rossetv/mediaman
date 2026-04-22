@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from typing import Any, Callable
 
 from mediaman.services.download_format import extract_poster_url
 
@@ -53,7 +54,7 @@ def cleanup_recent_downloads(conn: sqlite3.Connection) -> int:
 def record_verified_completions(
     conn: sqlite3.Connection,
     completed: list[dict],
-    build_client,
+    build_client: Callable[[sqlite3.Connection, str], Any],
 ) -> None:
     """Record completed downloads in recent_downloads, skipping unverified items.
 
@@ -68,7 +69,7 @@ def record_verified_completions(
     _radarr_built = False
     _sonarr_built = False
 
-    def _get_radarr_movies():
+    def _get_radarr_movies() -> list[dict]:
         nonlocal _radarr_movies, _radarr_built
         if not _radarr_built:
             client = build_client(conn, "radarr")
@@ -76,7 +77,7 @@ def record_verified_completions(
             _radarr_built = True
         return _radarr_movies or []
 
-    def _get_sonarr_series():
+    def _get_sonarr_series() -> list[dict]:
         nonlocal _sonarr_series, _sonarr_built
         if not _sonarr_built:
             client = build_client(conn, "sonarr")
@@ -136,7 +137,7 @@ def load_recent_downloads(
     conn: sqlite3.Connection,
     active_ids: set[str],
     active_titles: set[str],
-    build_client,
+    build_client: Callable[[sqlite3.Connection, str], Any],
 ) -> list[dict]:
     """Load recent downloads (last 7 days), excluding anything active.
 

@@ -6,8 +6,11 @@ under ``mediaman.services``. The route layer just authenticates the
 request and hands the response dict to the template or JSON serialiser.
 """
 
+from __future__ import annotations
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from starlette.responses import Response
 
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.db import get_db
@@ -17,7 +20,7 @@ router = APIRouter()
 
 
 @router.get("/downloads", response_class=HTMLResponse)
-def downloads_page(request: Request):
+def downloads_page(request: Request) -> Response:
     """Render the unified downloads page."""
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
@@ -40,7 +43,7 @@ def downloads_page(request: Request):
 
 
 @router.get("/api/downloads")
-def downloads_api(admin: str = Depends(get_current_admin)):
+def downloads_api(admin: str = Depends(get_current_admin)) -> JSONResponse:
     """Return the simplified download queue as JSON."""
     conn = get_db()
     return JSONResponse(build_downloads_response(conn))

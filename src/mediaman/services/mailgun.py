@@ -1,5 +1,7 @@
 """Mailgun email client with EU/US region fallback."""
 
+from __future__ import annotations
+
 import logging
 
 import requests
@@ -19,13 +21,14 @@ class MailgunClient:
     _EU_BASE = "https://api.eu.mailgun.net"
     _US_BASE = "https://api.mailgun.net"
 
-    def __init__(self, domain: str, api_key: str, from_address: str, region: str = "eu"):
+    def __init__(self, domain: str, api_key: str, from_address: str, region: str = "eu") -> None:
         self._domain = domain
         self._api_key = api_key
         self._from = from_address
         self._base = self._EU_BASE if region == "eu" else self._US_BASE
 
     def _other_base(self) -> str:
+        """Return the alternate (EU/US) base URL to the currently active one."""
         return self._US_BASE if self._base == self._EU_BASE else self._EU_BASE
 
     def send(self, *, to: str, subject: str, html: str) -> None:

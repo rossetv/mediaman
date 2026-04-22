@@ -8,7 +8,7 @@ from mediaman.services.format import ensure_tz as _ensure_tz
 def evaluate_movie(
     *,
     added_at: datetime,
-    watch_history: list[dict],
+    watch_history: list[dict[str, object]],
     min_age_days: int = 30,
     inactivity_days: int = 30,
 ) -> str:

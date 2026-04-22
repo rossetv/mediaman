@@ -1,18 +1,20 @@
 """Filesystem operations — disk usage, deletion, size calculation."""
 
+from __future__ import annotations
+
 import os
 import shutil
 from pathlib import Path
 
 
-def get_disk_usage(path: str) -> dict:
+def get_disk_usage(path: str) -> dict[str, int]:
     if not os.path.exists(path):
         raise FileNotFoundError(f"Path does not exist: {path}")
     usage = shutil.disk_usage(path)
     return {"total_bytes": usage.total, "used_bytes": usage.used, "free_bytes": usage.free}
 
 
-def get_aggregate_disk_usage(base_path: str) -> dict:
+def get_aggregate_disk_usage(base_path: str) -> dict[str, int]:
     """Return combined disk usage across all unique mount points under *base_path*.
 
     Detects subdirectories on different devices (e.g. a separate disk mounted

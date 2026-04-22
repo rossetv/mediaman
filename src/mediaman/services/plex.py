@@ -1,5 +1,7 @@
 """Plex API client for library scanning and watch history."""
 
+from __future__ import annotations
+
 from datetime import datetime, timezone
 
 import defusedxml.ElementTree as ET
@@ -47,7 +49,7 @@ class PlexClient:
     watch history retrieval, and account listing.
     """
 
-    def __init__(self, url: str, token: str):
+    def __init__(self, url: str, token: str) -> None:
         """Create a PlexServer connection.
 
         Args:
