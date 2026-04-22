@@ -138,7 +138,7 @@ def create_app() -> FastAPI:
     from mediaman.web.routes.keep import router as keep_router
     from mediaman.web.routes.library import router as library_router
     from mediaman.web.routes.poster import router as poster_router
-    from mediaman.web.routes.protected import router as protected_router
+    from mediaman.web.routes.kept import router as protected_router
     from mediaman.web.routes.scan import router as scan_router
     from mediaman.web.routes.settings import router as settings_router
     from mediaman.web.routes.subscribers import router as subscribers_router
