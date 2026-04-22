@@ -34,6 +34,16 @@ class ArrCaches(RadarrCaches, SonarrCaches):
     """Full merged cache; produced by ``{**build_radarr_cache(), **build_sonarr_cache()}``."""
 
 
+def movie_has_file(movie_data: dict) -> bool:
+    """Return True if Radarr reports the movie file is present."""
+    return bool(movie_data.get("hasFile"))
+
+
+def series_has_files(series_data: dict) -> bool:
+    """Return True if Sonarr reports at least one episode file is present."""
+    return (series_data.get("statistics") or {}).get("episodeFileCount", 0) > 0
+
+
 def compute_download_state(media_type: str, tmdb_id: int, caches: ArrCaches) -> str | None:
     """Return the download state for an item, or ``None`` if untracked.
 

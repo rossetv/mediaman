@@ -37,6 +37,7 @@ from mediaman.crypto import (
     validate_poster_token,
 )
 from mediaman.db import get_db
+from mediaman.services.arr_build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.download_format import extract_poster_url
 
 logger = logging.getLogger("mediaman")
@@ -164,11 +165,7 @@ def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple:
 
     Returns (content_bytes, content_type) or (None, None).
     """
-    import json
-    import logging
     from mediaman.config import load_config
-
-    logger = logging.getLogger("mediaman")
 
     row = conn.execute(
         "SELECT title, media_type FROM media_items WHERE id = ?",
@@ -177,48 +174,28 @@ def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple:
     if not row:
         return None, None
 
-    config = load_config()
     title = row["title"]
     media_type = row["media_type"] or "movie"
-
-    def _setting(key):
-        r = conn.execute("SELECT value, encrypted FROM settings WHERE key=?", (key,)).fetchone()
-        if not r or not r["value"]:
-            return ""
-        val = r["value"]
-        if r["encrypted"]:
-            try:
-                val = decrypt_value(val, config.secret_key, conn=conn, aad=key.encode())
-            except Exception:
-                return ""
-        try:
-            return json.loads(val)
-        except (json.JSONDecodeError, TypeError):
-            return val or ""
 
     poster_url = None
 
     if media_type == "movie":
-        radarr_url = _setting("radarr_url")
-        radarr_key = _setting("radarr_api_key")
-        if radarr_url and radarr_key:
+        config = load_config()
+        radarr_client = build_radarr_from_db(conn, config.secret_key)
+        if radarr_client:
             try:
-                from mediaman.services.radarr import RadarrClient
-                client = RadarrClient(radarr_url, radarr_key)
-                for movie in client.get_movies():
+                for movie in radarr_client.get_movies():
                     if movie.get("title", "").lower() == title.lower():
                         poster_url = extract_poster_url(movie.get("images")) or ""
                         break
             except Exception:
                 logger.warning("Failed to fetch Radarr poster for title=%r", title, exc_info=True)
     else:
-        sonarr_url = _setting("sonarr_url")
-        sonarr_key = _setting("sonarr_api_key")
-        if sonarr_url and sonarr_key:
+        config = load_config()
+        sonarr_client = build_sonarr_from_db(conn, config.secret_key)
+        if sonarr_client:
             try:
-                from mediaman.services.sonarr import SonarrClient
-                client = SonarrClient(sonarr_url, sonarr_key)
-                for series in client.get_series():
+                for series in sonarr_client.get_series():
                     if series.get("title", "").lower() == title.lower():
                         poster_url = extract_poster_url(series.get("images")) or ""
                         break

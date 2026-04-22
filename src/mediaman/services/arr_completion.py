@@ -17,6 +17,7 @@ import logging
 import sqlite3
 from typing import Any, Callable
 
+from mediaman.services.arr_state import movie_has_file, series_has_files
 from mediaman.services.download_format import extract_poster_url
 
 logger = logging.getLogger("mediaman")
@@ -94,14 +95,13 @@ def record_verified_completions(
         try:
             if dl_id.startswith("radarr:"):
                 for movie in _get_radarr_movies():
-                    if movie.get("title") == title and movie.get("hasFile"):
+                    if movie.get("title") == title and movie_has_file(movie):
                         verified = True
                         break
             elif dl_id.startswith("sonarr:"):
                 for series in _get_sonarr_series():
                     if series.get("title") == title:
-                        stats = series.get("statistics") or {}
-                        if stats.get("episodeFileCount", 0) > 0:
+                        if series_has_files(series):
                             verified = True
                         break
             else:

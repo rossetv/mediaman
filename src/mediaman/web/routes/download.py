@@ -204,32 +204,24 @@ def download_page(request: Request, token: str) -> HTMLResponse:
     # Check if item is already in Radarr/Sonarr so we can show the right state
     item["download_state"] = None  # None = show download button
     tmdb_id = payload.get("tmdb")
-    if tmdb_id and payload.get("mt") == "movie":
+    if tmdb_id:
         try:
-            client = _build_radarr(conn, config.secret_key)
-            if client:
-                movie = client.get_movie_by_tmdb(tmdb_id)
-                if movie:
-                    if movie.get("hasFile"):
-                        item["download_state"] = "in_library"
-                    else:
-                        item["download_state"] = "queued"
+            from mediaman.services.arr_state import (
+                build_radarr_cache,
+                build_sonarr_cache,
+                compute_download_state,
+            )
+            radarr_client = _build_radarr(conn, config.secret_key)
+            sonarr_client = _build_sonarr(conn, config.secret_key)
+            radarr_cache = build_radarr_cache(radarr_client)
+            sonarr_cache = build_sonarr_cache(sonarr_client)
+            caches = {**radarr_cache, **sonarr_cache}
+            mt = "movie" if payload.get("mt") == "movie" else "tv"
+            state = compute_download_state(mt, tmdb_id, caches)
+            if state is not None:
+                item["download_state"] = state
         except Exception:
-            logger.warning("Failed to check Radarr library status for tmdb_id=%s", tmdb_id, exc_info=True)
-    elif tmdb_id:
-        try:
-            client = _build_sonarr(conn, config.secret_key)
-            if client:
-                for s in client.get_series():
-                    if s.get("tmdbId") == tmdb_id:
-                        stats = s.get("statistics") or {}
-                        if stats.get("episodeFileCount", 0) > 0:
-                            item["download_state"] = "in_library"
-                        else:
-                            item["download_state"] = "queued"
-                        break
-        except Exception:
-            logger.warning("Failed to check Sonarr library status for tmdb_id=%s", tmdb_id, exc_info=True)
+            logger.warning("Failed to check Arr library status for tmdb_id=%s", tmdb_id, exc_info=True)
 
     # When the item is already queued, build a hero_item for the shared
     # hero card partial so the progress section can be server-rendered.

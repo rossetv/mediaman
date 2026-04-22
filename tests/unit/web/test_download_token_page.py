@@ -110,7 +110,10 @@ class TestDownloadPageGet:
 
         token = _valid_token(secret_key)
         mock_radarr = MagicMock()
-        mock_radarr.get_movie_by_tmdb.return_value = {"hasFile": True, "title": "Dune"}
+        mock_radarr.get_movies.return_value = [
+            {"tmdbId": 42, "hasFile": True, "title": "Dune"}
+        ]
+        mock_radarr.get_queue.return_value = []
 
         with patch("mediaman.web.routes.download._build_radarr", return_value=mock_radarr):
             resp = client.get(f"/download/{token}")
