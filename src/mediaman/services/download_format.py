@@ -25,7 +25,7 @@ def extract_poster_url(images: list[dict] | None) -> str | None:
     return None
 
 
-def _fmt_relative_time(ts: float, now: float) -> str:
+def fmt_relative_time(ts: float, now: float) -> str:
     """Render a relative-time string like ``"12m ago"`` or ``"3d ago"``.
 
     Returns ``""`` when ``ts`` is non-positive (meaning "unknown"). Used
@@ -47,7 +47,7 @@ def _fmt_relative_time(ts: float, now: float) -> str:
     return f"{delta // 86400}d ago"
 
 
-def _fmt_bytes(n: int) -> str:
+def fmt_bytes(n: int) -> str:
     """Human-readable byte string."""
     if n <= 0:
         return "0 B"
@@ -61,7 +61,7 @@ def _fmt_bytes(n: int) -> str:
 _SERIES_MARKER = re.compile(r"\bS\d{2}(?:E\d{1,3})?\b", flags=re.IGNORECASE)
 
 
-def _looks_like_series_nzb(nzb_name: str) -> bool:
+def looks_like_series_nzb(nzb_name: str) -> bool:
     """Return True when an NZB filename carries a SxxExx / Sxx marker.
 
     Used to stop a movie-kind arr item from greedily claiming a TV episode
@@ -71,7 +71,7 @@ def _looks_like_series_nzb(nzb_name: str) -> bool:
     return bool(_SERIES_MARKER.search(nzb_name or ""))
 
 
-def _parse_clean_title(nzb_name: str) -> str:
+def parse_clean_title(nzb_name: str) -> str:
     """Extract a clean title from an NZB filename."""
     name = nzb_name.replace(".", " ").replace("_", " ")
     parts = re.split(
@@ -91,7 +91,7 @@ def _parse_clean_title(nzb_name: str) -> str:
 _MATCH_NORMALISE = re.compile(r"[^a-z0-9]+")
 
 
-def _normalise_for_match(title: str) -> str:
+def normalise_for_match(title: str) -> str:
     """Canonicalise a title for fuzzy substring matching against NZB names.
 
     Lowercases, replaces every run of non-alphanumeric characters with a
@@ -104,7 +104,7 @@ def _normalise_for_match(title: str) -> str:
     return _MATCH_NORMALISE.sub(" ", (title or "").lower()).strip()
 
 
-def _map_state(nzbget_status: str | None, has_nzbget_match: bool) -> str:
+def map_state(nzbget_status: str | None, has_nzbget_match: bool) -> str:
     """Map internal NZBGet/Arr state to a user-facing state string.
 
     Returns one of: "searching", "downloading", "almost_ready".
@@ -119,7 +119,7 @@ def _map_state(nzbget_status: str | None, has_nzbget_match: bool) -> str:
     return "searching"
 
 
-def _map_arr_status(status: str, tracked_state: str = "") -> str:
+def map_arr_status(status: str, tracked_state: str = "") -> str:
     """Map a Radarr/Sonarr queue item to a user-facing state.
 
     Checks both the queue ``status`` field and ``trackedDownloadState``
@@ -150,7 +150,7 @@ def _map_arr_status(status: str, tracked_state: str = "") -> str:
     return "searching"
 
 
-def _parse_iso(dt_str: str) -> "datetime | None":
+def parse_iso(dt_str: str) -> "datetime | None":
     """Parse an ISO 8601 timestamp. Returns None on failure."""
     if not dt_str:
         return None
@@ -165,7 +165,7 @@ def _fmt_release_date(dt: "datetime") -> str:
     return dt.strftime("%-d %b %Y")
 
 
-def _classify_movie_upcoming(movie: dict) -> tuple[bool, str]:
+def classify_movie_upcoming(movie: dict) -> tuple[bool, str]:
     """Classify a Radarr movie as upcoming and build its release label.
 
     Returns (is_upcoming, release_label). Label is "" when not upcoming.
@@ -180,7 +180,7 @@ def _classify_movie_upcoming(movie: dict) -> tuple[bool, str]:
     now = datetime.now(timezone.utc)
     candidates = []
     for key in ("digitalRelease", "physicalRelease", "inCinemas"):
-        dt = _parse_iso(movie.get(key, ""))
+        dt = parse_iso(movie.get(key, ""))
         if dt and dt > now:
             candidates.append(dt)
 
@@ -190,7 +190,7 @@ def _classify_movie_upcoming(movie: dict) -> tuple[bool, str]:
     return True, "Not yet released"
 
 
-def _classify_series_upcoming(
+def classify_series_upcoming(
     series: dict, episodes: list[dict]
 ) -> tuple[bool, str]:
     """Classify a Sonarr series as upcoming and build its premiere label.
@@ -209,15 +209,15 @@ def _classify_series_upcoming(
     now = datetime.now(timezone.utc)
     status = (series.get("status") or "").lower()
     has_aired = any(
-        _parse_iso(e.get("airDateUtc", "")) is not None
-        and _parse_iso(e.get("airDateUtc", "")) < now
+        parse_iso(e.get("airDateUtc", "")) is not None
+        and parse_iso(e.get("airDateUtc", "")) < now
         for e in episodes
     )
 
     future_airs = [
         dt
         for e in episodes
-        if (dt := _parse_iso(e.get("airDateUtc", ""))) and dt > now
+        if (dt := parse_iso(e.get("airDateUtc", ""))) and dt > now
     ]
 
     # Only classify as upcoming when we have a real signal:
@@ -234,7 +234,7 @@ def _classify_series_upcoming(
     return False, ""
 
 
-def _build_item(
+def build_item(
     dl_id: str,
     title: str,
     media_type: str,
@@ -289,7 +289,7 @@ def _build_item(
     }
 
 
-def _select_hero(items: list[dict]) -> tuple[dict | None, list[dict]]:
+def select_hero(items: list[dict]) -> tuple[dict | None, list[dict]]:
     """Pick the hero item from a list of download items.
 
     The actively downloading item with the highest progress becomes the hero.
@@ -309,7 +309,7 @@ def _select_hero(items: list[dict]) -> tuple[dict | None, list[dict]]:
     return ranked[0], ranked[1:]
 
 
-def _fmt_eta(remain_mb: float, download_rate: int) -> str:
+def fmt_eta(remain_mb: float, download_rate: int) -> str:
     """Format ETA string from remaining MB and download rate (bytes/sec)."""
     if download_rate > 0 and remain_mb > 0:
         eta_sec = int(remain_mb * 1024 * 1024 / download_rate)
@@ -324,7 +324,7 @@ def _fmt_eta(remain_mb: float, download_rate: int) -> str:
     return ""
 
 
-def _map_episode_state(ep: dict) -> str:
+def map_episode_state(ep: dict) -> str:
     """Map a Sonarr episode entry to a simplified state.
 
     Returns one of: "ready", "downloading", "queued", "searching".
@@ -348,7 +348,7 @@ def _map_episode_state(ep: dict) -> str:
     return "searching"
 
 
-def _fmt_episode_label(season: int | None, episode: int | None) -> str:
+def fmt_episode_label(season: int | None, episode: int | None) -> str:
     """Format an episode label like ``"S01E02"`` or ``"S03"``.
 
     Returns ``""`` when *season* is ``None``. Omits the episode portion
@@ -362,7 +362,7 @@ def _fmt_episode_label(season: int | None, episode: int | None) -> str:
     return label
 
 
-def _build_episode_summary(episodes: list[dict]) -> str:
+def build_episode_summary(episodes: list[dict]) -> str:
     """Build a human-readable summary like '2 of 8 episodes ready ...'."""
     total = len(episodes)
     ready = sum(1 for e in episodes if e["state"] == "ready")
