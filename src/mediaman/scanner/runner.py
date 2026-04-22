@@ -13,6 +13,7 @@ from mediaman.services.arr_build import (
     build_radarr_from_db as _build_radarr,
     build_sonarr_from_db as _build_sonarr,
 )
+from mediaman.services.settings_reader import get_int_setting as _get_int_setting
 from mediaman.services.storage import get_disk_usage
 
 logger = logging.getLogger("mediaman")
@@ -31,24 +32,6 @@ def _load_library_ids(conn: sqlite3.Connection) -> list[str]:
         logger.warning("plex_libraries setting contains invalid JSON — scanning no libraries")
         return []
 
-
-def _get_setting(conn: sqlite3.Connection, key: str, default: str = "") -> str:
-    """Read a plain-text setting from the DB, falling back to *default*."""
-    row = conn.execute(
-        "SELECT value FROM settings WHERE key=?", (key,)
-    ).fetchone()
-    return row["value"] if row else default
-
-
-def _get_int_setting(conn: sqlite3.Connection, key: str, default: int) -> int:
-    """Read an integer setting from the DB, falling back to *default*."""
-    row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-    if row:
-        try:
-            return int(row["value"])
-        except (ValueError, TypeError):
-            pass
-    return default
 
 
 def _filter_libraries_by_disk(
@@ -116,6 +99,43 @@ def _filter_libraries_by_disk(
     return filtered
 
 
+def _build_plex_client(
+    conn: sqlite3.Connection, secret_key: str
+) -> "tuple | None":
+    """Build a PlexClient and resolve library metadata from DB settings.
+
+    Returns a ``(plex, lib_ids, lib_types, lib_titles)`` tuple, or ``None``
+    if the required ``plex_url`` / ``plex_token`` settings are absent.
+
+    The caller is responsible for any filtering or further configuration
+    (disk thresholds, *arr clients, etc.) before constructing a ScanEngine.
+    """
+    from mediaman.crypto import decrypt_value
+    from mediaman.services.plex import PlexClient
+
+    plex_url_row = conn.execute(
+        "SELECT value FROM settings WHERE key='plex_url'"
+    ).fetchone()
+    plex_token_row = conn.execute(
+        "SELECT value, encrypted FROM settings WHERE key='plex_token'"
+    ).fetchone()
+
+    if not plex_url_row or not plex_token_row:
+        return None
+
+    token_val = plex_token_row["value"]
+    if plex_token_row["encrypted"]:
+        token_val = decrypt_value(token_val, secret_key, conn=conn, aad=b"plex_token")
+
+    lib_ids = _load_library_ids(conn)
+    plex = PlexClient(plex_url_row["value"], token_val)
+    plex_libs = plex.get_libraries()
+    lib_types: dict[str, str] = {lib["id"]: lib["type"] for lib in plex_libs}
+    lib_titles: dict[str, str] = {lib["id"]: lib["title"].lower() for lib in plex_libs}
+
+    return plex, lib_ids, lib_types, lib_titles
+
+
 def run_scan_from_db(conn: sqlite3.Connection, secret_key: str, *, skip_disk_check: bool = False) -> dict:
     """Build a ScanEngine from DB settings and execute a full scan.
 
@@ -133,35 +153,13 @@ def run_scan_from_db(conn: sqlite3.Connection, secret_key: str, *, skip_disk_che
         skip_disk_check: When True, bypass the per-library disk-usage threshold
             check and scan all configured libraries unconditionally.
     """
-    from mediaman.crypto import decrypt_value
     from mediaman.scanner.engine import ScanEngine
-    from mediaman.services.plex import PlexClient
 
-    # ── Required Plex settings ───────────────────────────────────────────────
-    plex_url_row = conn.execute(
-        "SELECT value FROM settings WHERE key='plex_url'"
-    ).fetchone()
-    plex_token_row = conn.execute(
-        "SELECT value, encrypted FROM settings WHERE key='plex_token'"
-    ).fetchone()
-
-    if not plex_url_row or not plex_token_row:
+    result = _build_plex_client(conn, secret_key)
+    if result is None:
         logger.warning("Scan skipped — plex_url or plex_token not configured")
         return {}
-
-    token_val = plex_token_row["value"]
-    if plex_token_row["encrypted"]:
-        token_val = decrypt_value(token_val, secret_key, conn=conn, aad=b"plex_token")
-
-    # ── Library IDs ──────────────────────────────────────────────────────────
-    lib_ids = _load_library_ids(conn)
-
-    plex = PlexClient(plex_url_row["value"], token_val)
-
-    # Derive library types from Plex
-    plex_libs = plex.get_libraries()
-    lib_types: dict[str, str] = {lib["id"]: lib["type"] for lib in plex_libs}
-    lib_titles: dict[str, str] = {lib["id"]: lib["title"].lower() for lib in plex_libs}
+    plex, lib_ids, lib_types, lib_titles = result
 
     # ── Disk threshold filtering ────────────────────────────────────────────
     if not skip_disk_check:
@@ -172,9 +170,9 @@ def run_scan_from_db(conn: sqlite3.Connection, secret_key: str, *, skip_disk_che
     radarr_client = _build_radarr(conn, secret_key)
 
     # ── Thresholds ───────────────────────────────────────────────────────────
-    min_age = _get_int_setting(conn, "min_age_days", 30)
-    inactivity = _get_int_setting(conn, "inactivity_days", 30)
-    grace = _get_int_setting(conn, "grace_days", 14)
+    min_age = _get_int_setting(conn, "min_age_days", default=30)
+    inactivity = _get_int_setting(conn, "inactivity_days", default=30)
+    grace = _get_int_setting(conn, "grace_days", default=14)
     dry_run_row = conn.execute(
         "SELECT value FROM settings WHERE key='dry_run'"
     ).fetchone()
@@ -205,31 +203,13 @@ def run_library_sync(conn: sqlite3.Connection, secret_key: str) -> dict:
     eligibility checks, no deletions, no newsletter. Designed to run
     frequently (every N minutes) to keep the Library page current.
     """
-    from mediaman.crypto import decrypt_value
     from mediaman.scanner.engine import ScanEngine
-    from mediaman.services.plex import PlexClient
 
-    plex_url_row = conn.execute(
-        "SELECT value FROM settings WHERE key='plex_url'"
-    ).fetchone()
-    plex_token_row = conn.execute(
-        "SELECT value, encrypted FROM settings WHERE key='plex_token'"
-    ).fetchone()
-
-    if not plex_url_row or not plex_token_row:
+    result = _build_plex_client(conn, secret_key)
+    if result is None:
         logger.debug("Library sync skipped — Plex not configured")
         return {}
-
-    token_val = plex_token_row["value"]
-    if plex_token_row["encrypted"]:
-        token_val = decrypt_value(token_val, secret_key, conn=conn, aad=b"plex_token")
-
-    lib_ids = _load_library_ids(conn)
-
-    plex = PlexClient(plex_url_row["value"], token_val)
-    plex_libs = plex.get_libraries()
-    lib_types: dict[str, str] = {lib["id"]: lib["type"] for lib in plex_libs}
-    lib_titles: dict[str, str] = {lib["id"]: lib["title"].lower() for lib in plex_libs}
+    plex, lib_ids, lib_types, lib_titles = result
 
     engine = ScanEngine(
         conn=conn,
