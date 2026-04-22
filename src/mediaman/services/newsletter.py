@@ -285,7 +285,7 @@ def send_newsletter(
         used_bytes = disk["used_bytes"]
         free_bytes = disk["free_bytes"]
     except Exception:
-        pass
+        logger.warning("Failed to fetch disk usage for newsletter", exc_info=True)
 
     storage = {
         "total_bytes": total_bytes,
@@ -321,8 +321,7 @@ def send_newsletter(
     report_date = now.strftime("%-d %B %Y")
 
     # ── Send per-recipient (each gets a unique unsubscribe link) ───────────
-    from mediaman.crypto import generate_download_token
-    from mediaman.web.routes.subscribers import generate_unsubscribe_token
+    from mediaman.crypto import generate_download_token, generate_unsubscribe_token
 
     total_size_bytes = sum(i["file_size_bytes"] for i in scheduled_items)
     if total_size_bytes >= 1 << 40:
@@ -439,7 +438,7 @@ def send_newsletter(
         if action_ids:
             placeholders = ",".join("?" * len(action_ids))
             conn.execute(
-                f"UPDATE scheduled_actions SET notified=1 WHERE id IN ({placeholders})",
+                f"UPDATE scheduled_actions SET notified=1 WHERE id IN ({placeholders})",  # noqa: S608 — placeholders are '?' only, not user input
                 action_ids,
             )
             conn.commit()
