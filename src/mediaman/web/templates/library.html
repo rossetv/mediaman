@@ -115,27 +115,40 @@
           <td style="text-align:right">
             <div class="u-flex" style="justify-content:flex-end;gap:6px">
               {% if item.protected %}
-              <div class="keep-wrapper"
+              <div class="keep-wrapper keep-split keep-split--kept"
                 data-id="{{ item.id }}" data-tv="{{ item.is_tv | tojson }}"
                 data-show-rk="{{ item.show_rating_key }}" data-show-title="{{ item.show_title_raw | e }}">
-                <button class="btn btn--success btn--sm"
-                  onclick="{% if item.is_tv %}submitKeep(this, 'current');{% else %}removeKeep('{{ item.id }}');{% endif %} return false;">Kept ✓</button>
+                <button type="button" class="keep-split__main"
+                  onclick="{% if item.is_tv %}submitKeep(this, 'current');{% else %}removeKeep('{{ item.id }}');{% endif %} return false;">
+                  <svg class="keep-split__tick" viewBox="0 0 24 24" aria-hidden="true"><polyline points="5 12 10 17 19 8"/></svg>
+                  Kept
+                </button>
+                <button type="button" class="keep-split__caret btn-sm-caret" aria-haspopup="menu" aria-expanded="false" aria-label="Manage keep">
+                  <svg class="keep-split__chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <div class="snooze-dropdown" role="menu">
+                  <button class="snooze-option" role="menuitem" tabindex="-1" onclick="submitKeep(this, '7d'); return false;">Keep 7 days</button>
+                  <button class="snooze-option" role="menuitem" tabindex="-1" onclick="submitKeep(this, '30d'); return false;">Keep 30 days</button>
+                  <button class="snooze-option" role="menuitem" tabindex="-1" onclick="submitKeep(this, '90d'); return false;">Keep 90 days</button>
+                  <button class="snooze-option" role="menuitem" tabindex="-1" onclick="submitKeep(this, 'forever'); return false;">Keep forever</button>
+                  <button class="snooze-option snooze-option--remove" role="menuitem" tabindex="-1" onclick="removeKeep('{{ item.id }}'); return false;">Remove keep</button>
+                </div>
               </div>
               {% else %}
-              <span class="split keep-wrapper"
+              <div class="keep-wrapper keep-split"
                 data-id="{{ item.id }}" data-tv="{{ item.is_tv | tojson }}"
                 data-show-rk="{{ item.show_rating_key }}" data-show-title="{{ item.show_title_raw | e }}">
-                <button class="btn btn--sm" onclick="submitKeep(this, '30d'); return false;">Keep</button>
-                <button type="button" class="caret btn-sm-caret" aria-haspopup="menu" aria-expanded="false" aria-label="More keep options">
-                  <svg width="10" height="10" viewBox="0 0 24 24" style="stroke:var(--accent);fill:none;stroke-width:2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                <button type="button" class="keep-split__main" onclick="submitKeep(this, '30d'); return false;">Keep</button>
+                <button type="button" class="keep-split__caret btn-sm-caret" aria-haspopup="menu" aria-expanded="false" aria-label="More keep options">
+                  <svg class="keep-split__chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
                 <div class="snooze-dropdown" role="menu">
                   <button class="snooze-option" role="menuitem" tabindex="-1" onclick="submitKeep(this, '7d'); return false;">7 days</button>
                   <button class="snooze-option" role="menuitem" tabindex="-1" onclick="submitKeep(this, '30d'); return false;">30 days</button>
                   <button class="snooze-option" role="menuitem" tabindex="-1" onclick="submitKeep(this, '90d'); return false;">90 days</button>
-                  <button class="snooze-option forever" role="menuitem" tabindex="-1" onclick="submitKeep(this, 'forever'); return false;">Forever</button>
+                  <button class="snooze-option snooze-option--forever" role="menuitem" tabindex="-1" onclick="submitKeep(this, 'forever'); return false;">Forever</button>
                 </div>
-              </span>
+              </div>
               <button class="btn btn--danger btn--sm"
                 data-id="{{ item.id }}" data-title="{{ item.title }}"
                 onclick="confirmDelete(this.dataset.id, this.dataset.title); return false;">Delete</button>

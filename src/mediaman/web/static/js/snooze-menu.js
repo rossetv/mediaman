@@ -7,8 +7,7 @@
  *     <div class="snooze-dropdown" role="menu"> ... </div>
  *   </div>
  *
- * Desktop: CSS :hover still opens the menu.
- * Touch/keyboard: click/tap the caret to toggle .is-open on the wrapper. Escape or outside click closes.
+ * Click/tap the caret to toggle .is-open on the wrapper. Escape or outside click closes.
  */
 (function () {
   'use strict';
