@@ -47,7 +47,7 @@ _UNSUB_LIMITER = RateLimiter(max_attempts=20, window_seconds=60)
 
 
 def _validate_email(email: str) -> bool:
-    """Return True if email looks syntactically valid."""
+    # Conservative regex — avoids heavy dependencies for a rarely-called admin helper.
     return bool(_EMAIL_RE.match(email.strip()))
 
 

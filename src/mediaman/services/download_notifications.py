@@ -100,7 +100,6 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
             _sonarr_built = True
         return _sonarr
 
-    # Load the email template
     template_dir = Path(__file__).parent.parent / "web" / "templates"
     env = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
     template = env.get_template("email/download_ready.html")

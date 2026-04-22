@@ -107,7 +107,6 @@ def _call_openai(prompt: str, conn: sqlite3.Connection | None, use_web_search: b
         resp.raise_for_status()
         data = resp.json()
 
-        # Extract text from the response output
         content = ""
         for item in data.get("output", []):
             if item.get("type") == "message":

@@ -150,7 +150,6 @@ def send_newsletter(
             else ""
         )
 
-        # Format last watched info from DB
         last_watched_info = None
         lw_raw = row["last_watched_at"]
         if lw_raw:
@@ -163,7 +162,6 @@ def send_newsletter(
                 else:
                     last_watched_info = f"Watched {lw_days} days ago"
 
-        # Build human-readable type label with season number
         media_type = row["media_type"] or "movie"
         season_num = row["season_number"]
         if media_type in ("tv_season", "season", "tv"):

@@ -554,7 +554,6 @@ class ScanEngine:
         # no lock). See :meth:`sync_library` for rationale.
         fetched = self._fetch_library_items(library_id)
 
-        # Phase 2: DB-only work via the shared skeleton.
         def _evaluate(f: _PlexItemFetch, added_at: Any, watch_history: list) -> str | None:
             return evaluate_movie(
                 added_at=added_at,
@@ -579,7 +578,6 @@ class ScanEngine:
         # Phase 1: network fetch (see :meth:`sync_library`).
         fetched = self._fetch_library_items(library_id)
 
-        # Phase 2: DB-only work via the shared skeleton.
         # The show-kept check is TV-specific; returning None from evaluate_fn
         # signals the skeleton to count this item as skipped without scheduling.
         def _evaluate(f: _PlexItemFetch, added_at: Any, watch_history: list) -> str | None:
