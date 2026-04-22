@@ -54,10 +54,18 @@ def build_arr_client(
 ) -> RadarrClient | SonarrClient | None:
     """Build a Radarr or Sonarr client from DB settings. Returns None if unconfigured.
 
-    ``secret_key`` is optional: when omitted the key is loaded from
-    :func:`~mediaman.config.load_config`. Pass it explicitly when the
-    caller already has a config handle to avoid a redundant load.
+    ``secret_key`` is optional for backward compatibility: callers that don't
+    already hold a config handle (e.g. :func:`arr_search_trigger.trigger_pending_searches`)
+    can omit it and the key will be loaded via :func:`~mediaman.config.load_config`.
+    Prefer passing it explicitly when the caller already has a config handle to
+    avoid a redundant ``load_config()`` call.
+
+    .. note::
+        ``secret_key`` is intentionally optional here — this is the one internal
+        convenience wrapper where the fallback load is acceptable. All other
+        builder functions require it as an explicit argument.
     """
+    # secret_key is optional for backward compat; prefer passing it explicitly.
     if secret_key is None:
         from mediaman.config import load_config
         secret_key = load_config().secret_key
@@ -78,19 +86,30 @@ def build_plex_from_db(conn: sqlite3.Connection, secret_key: str) -> PlexClient 
     return PlexClient(url, token)
 
 
-def build_nzbget_from_db(conn: sqlite3.Connection) -> NzbgetClient | None:
+def build_nzbget_from_db(
+    conn: sqlite3.Connection,
+    secret_key: str | None = None,
+) -> NzbgetClient | None:
     """Return an ``NzbgetClient`` or ``None`` if NZBGet isn't configured.
 
     Reads ``nzbget_url``, ``nzbget_username``, and ``nzbget_password`` (which
-    may be encrypted) from DB settings via :func:`~mediaman.services.settings_reader.get_string_setting`.
+    may be encrypted) from DB settings via
+    :func:`~mediaman.services.settings_reader.get_string_setting`.
+
+    Pass ``secret_key`` explicitly when the caller already holds a config
+    handle to avoid a redundant ``load_config()`` call. When omitted, the
+    key is loaded internally — this keeps backward compatibility with
+    existing callers such as :func:`~mediaman.services.download_queue.build_queue`.
     """
-    from mediaman.config import load_config
     from mediaman.services.nzbget import NzbgetClient
 
-    config = load_config()
+    if secret_key is None:
+        from mediaman.config import load_config
+        secret_key = load_config().secret_key
+
     url = get_string_setting(conn, "nzbget_url")
     user = get_string_setting(conn, "nzbget_username")
-    password = get_string_setting(conn, "nzbget_password", secret_key=config.secret_key)
+    password = get_string_setting(conn, "nzbget_password", secret_key=secret_key)
     if not url or not user:
         return None
     return NzbgetClient(url, user, password)

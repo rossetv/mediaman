@@ -35,7 +35,7 @@ def authed_client(app):
 
 
 class TestSearchEndpoint:
-    @patch("mediaman.web.routes.search.requests.get")
+    @patch("mediaman.services.tmdb.requests.get")
     def test_returns_merged_pages_filtered(self, mock_get, authed_client):
         page1 = {
             "results": [
@@ -54,8 +54,11 @@ class TestSearchEndpoint:
         }
 
         def by_page(*_args, **kwargs):
-            page = kwargs["params"]["page"]
-            return MagicMock(status_code=200, json=lambda p=page: page1 if p == 1 else page2)
+            page = kwargs.get("params", {}).get("page", 1)
+            resp = MagicMock(status_code=200)
+            resp.raise_for_status = MagicMock()
+            resp.json = lambda p=page: page1 if p == 1 else page2
+            return resp
 
         mock_get.side_effect = by_page
 
@@ -66,13 +69,14 @@ class TestSearchEndpoint:
         titles = {r["title"] for r in data["results"]}
         assert titles == {"Dune", "Dune: Prophecy"}
 
-        # Both pages must be requested.
-        pages_requested = sorted(call.kwargs["params"]["page"] for call in mock_get.call_args_list)
+        # Both pages must be requested — filter to search/multi calls only
+        search_calls = [c for c in mock_get.call_args_list if "search/multi" in c.args[0]]
+        pages_requested = sorted(c.kwargs["params"]["page"] for c in search_calls)
         assert pages_requested == [1, 2]
-        assert mock_get.call_args_list[0].kwargs["params"]["query"] == "dune"
-        assert mock_get.call_args_list[0].kwargs["params"]["include_adult"] is False
+        assert search_calls[0].kwargs["params"]["query"] == "dune"
+        assert search_calls[0].kwargs["params"]["include_adult"] is False
 
-    @patch("mediaman.web.routes.search.requests.get")
+    @patch("mediaman.services.tmdb.requests.get")
     def test_survives_single_page_failure(self, mock_get, authed_client):
         page1 = {
             "results": [
@@ -83,9 +87,13 @@ class TestSearchEndpoint:
         }
 
         def flaky(*_args, **kwargs):
-            if kwargs["params"]["page"] == 2:
+            page = kwargs.get("params", {}).get("page", 1)
+            if "search/multi" in _args[0] and page == 2:
                 raise RuntimeError("page 2 timeout")
-            return MagicMock(status_code=200, json=lambda: page1)
+            resp = MagicMock(status_code=200)
+            resp.raise_for_status = MagicMock()
+            resp.json = lambda: page1
+            return resp
 
         mock_get.side_effect = flaky
         resp = authed_client.get("/api/search?q=dune")
@@ -93,7 +101,7 @@ class TestSearchEndpoint:
         data = resp.json()
         assert [r["title"] for r in data["results"]] == ["Dune"]
 
-    @patch("mediaman.web.routes.search.requests.get")
+    @patch("mediaman.services.tmdb.requests.get")
     def test_both_pages_failing_returns_502(self, mock_get, authed_client):
         mock_get.side_effect = Exception("down")
         resp = authed_client.get("/api/search?q=dune")
@@ -101,7 +109,7 @@ class TestSearchEndpoint:
         assert "error" in resp.json()
 
     def test_short_query_returns_empty_without_tmdb_call(self, authed_client):
-        with patch("mediaman.web.routes.search.requests.get") as mock_get:
+        with patch("mediaman.services.tmdb.requests.get") as mock_get:
             resp = authed_client.get("/api/search?q=d")
             assert resp.status_code == 200
             assert resp.json() == {"results": []}
@@ -125,7 +133,7 @@ class TestDiscoverEndpoint:
         yield
         _discover_cache.clear()
 
-    @patch("mediaman.web.routes.search.requests.get")
+    @patch("mediaman.services.tmdb.requests.get")
     def test_returns_three_shelves(self, mock_get, authed_client):
         trending_payload = {
             "results": [
@@ -156,15 +164,20 @@ class TestDiscoverEndpoint:
         def by_url(url, **kwargs):
             # Each shelf fetches pages 1 and 2 to reach the 21-card target;
             # only page 1 has content in this fixture so results stay deterministic.
+            resp = MagicMock(status_code=200)
+            resp.raise_for_status = MagicMock()
             if kwargs.get("params", {}).get("page", 1) != 1:
-                return MagicMock(status_code=200, json=lambda: {"results": []})
+                resp.json = lambda: {"results": []}
+                return resp
             if "/trending/" in url:
-                return MagicMock(status_code=200, json=lambda: trending_payload)
-            if "/movie/popular" in url:
-                return MagicMock(status_code=200, json=lambda: movies_payload)
-            if "/tv/popular" in url:
-                return MagicMock(status_code=200, json=lambda: tv_payload)
-            raise AssertionError(f"unexpected url: {url}")
+                resp.json = lambda: trending_payload
+            elif "/movie/popular" in url:
+                resp.json = lambda: movies_payload
+            elif "/tv/popular" in url:
+                resp.json = lambda: tv_payload
+            else:
+                raise AssertionError(f"unexpected url: {url}")
+            return resp
 
         mock_get.side_effect = by_url
         resp = authed_client.get("/api/search/discover")
@@ -176,7 +189,7 @@ class TestDiscoverEndpoint:
         assert [r["title"] for r in data["popular_tv"]] == ["Popular Show"]
         assert [r["media_type"] for r in data["popular_tv"]] == ["tv"]
 
-    @patch("mediaman.web.routes.search.requests.get")
+    @patch("mediaman.services.tmdb.requests.get")
     def test_survives_single_shelf_failure(self, mock_get, authed_client):
         good = {
             "results": [
@@ -189,9 +202,13 @@ class TestDiscoverEndpoint:
         def selective(url, **kwargs):
             if "/tv/popular" in url:
                 raise RuntimeError("sonar down")
+            resp = MagicMock(status_code=200)
+            resp.raise_for_status = MagicMock()
             if kwargs.get("params", {}).get("page", 1) != 1:
-                return MagicMock(status_code=200, json=lambda: {"results": []})
-            return MagicMock(status_code=200, json=lambda: good)
+                resp.json = lambda: {"results": []}
+            else:
+                resp.json = lambda: good
+            return resp
 
         mock_get.side_effect = selective
         resp = authed_client.get("/api/search/discover")
@@ -200,7 +217,7 @@ class TestDiscoverEndpoint:
         assert data["popular_tv"] == []
         assert data["trending"] and data["popular_movies"]
 
-    @patch("mediaman.web.routes.search.requests.get")
+    @patch("mediaman.services.tmdb.requests.get")
     def test_caps_trending_at_21_and_filters_person(self, mock_get, authed_client):
         trending_payload = {
             "results": (
@@ -215,11 +232,15 @@ class TestDiscoverEndpoint:
         }
 
         def by_url(url, **kwargs):
+            resp = MagicMock(status_code=200)
+            resp.raise_for_status = MagicMock()
             if kwargs.get("params", {}).get("page", 1) != 1:
-                return MagicMock(status_code=200, json=lambda: {"results": []})
-            if "/trending/" in url:
-                return MagicMock(status_code=200, json=lambda: trending_payload)
-            return MagicMock(status_code=200, json=lambda: {"results": []})
+                resp.json = lambda: {"results": []}
+            elif "/trending/" in url:
+                resp.json = lambda: trending_payload
+            else:
+                resp.json = lambda: {"results": []}
+            return resp
 
         mock_get.side_effect = by_url
         resp = authed_client.get("/api/search/discover")

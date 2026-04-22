@@ -146,6 +146,82 @@ class TmdbClient:
             return None
         return results[0] if results else None
 
+    def search_multi_paged(self, query: str, page: int = 1) -> list[dict]:
+        """Return one page of ``/search/multi`` results as a raw list.
+
+        Unlike :meth:`search_multi` (which returns only the first hit),
+        this returns the full page so callers can merge multiple pages
+        themselves. Returns an empty list on error or when TMDB returns
+        no hits — never raises.
+        """
+        try:
+            resp = requests.get(
+                f"{_BASE}/search/multi",
+                headers=self._headers,
+                params={"query": query, "include_adult": False, "page": page},
+                timeout=self._timeout,
+            )
+            resp.raise_for_status()
+            return resp.json().get("results") or []
+        except Exception:
+            return []
+
+    def trending(self, page: int = 1) -> list[dict]:
+        """Return one page of ``/trending/all/week`` results.
+
+        TMDB recomputes this daily so the caller may cache aggressively.
+        Returns an empty list on error — never raises.
+        """
+        try:
+            resp = requests.get(
+                f"{_BASE}/trending/all/week",
+                headers=self._headers,
+                params={"page": page},
+                timeout=self._timeout,
+            )
+            resp.raise_for_status()
+            return resp.json().get("results") or []
+        except Exception:
+            return []
+
+    def popular_movies(self, page: int = 1) -> list[dict]:
+        """Return one page of ``/movie/popular`` results.
+
+        Items do not include a ``media_type`` field — callers that need
+        it must inject ``"movie"`` themselves.
+        Returns an empty list on error — never raises.
+        """
+        try:
+            resp = requests.get(
+                f"{_BASE}/movie/popular",
+                headers=self._headers,
+                params={"page": page},
+                timeout=self._timeout,
+            )
+            resp.raise_for_status()
+            return resp.json().get("results") or []
+        except Exception:
+            return []
+
+    def popular_tv(self, page: int = 1) -> list[dict]:
+        """Return one page of ``/tv/popular`` results.
+
+        Items do not include a ``media_type`` field — callers that need
+        it must inject ``"tv"`` themselves.
+        Returns an empty list on error — never raises.
+        """
+        try:
+            resp = requests.get(
+                f"{_BASE}/tv/popular",
+                headers=self._headers,
+                params={"page": page},
+                timeout=self._timeout,
+            )
+            resp.raise_for_status()
+            return resp.json().get("results") or []
+        except Exception:
+            return []
+
     def details(self, media_type: str, tmdb_id: int) -> dict | None:
         """Return the raw TMDB details payload with videos + credits appended.
 

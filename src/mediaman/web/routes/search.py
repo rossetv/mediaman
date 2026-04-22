@@ -8,7 +8,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 
-import requests
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.responses import Response
@@ -35,16 +34,9 @@ logger = logging.getLogger("mediaman")
 
 router = APIRouter()
 
-_TMDB_BASE = "https://api.themoviedb.org/3"
 _POSTER_BASE = "https://image.tmdb.org/t/p/w342"
 _PROFILE_BASE = "https://image.tmdb.org/t/p/w185"
 _BACKDROP_BASE = "https://image.tmdb.org/t/p/w780"
-
-
-def _tmdb_headers(conn, secret_key: str) -> dict[str, str] | None:
-    """Return TMDB auth headers, or None if not configured."""
-    client = TmdbClient.from_db(conn, secret_key)
-    return client.headers if client is not None else None
 
 
 def _poster_url(path: str | None) -> str | None:
@@ -221,34 +213,20 @@ def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)
     if len(q) < 2:
         return JSONResponse({"results": []})
     conn = get_db()
-    headers = _tmdb_headers(conn, request.app.state.config.secret_key)
-    if not headers:
+    client = TmdbClient.from_db(conn, request.app.state.config.secret_key)
+    if client is None:
         return JSONResponse({"error": "TMDB not configured"}, status_code=502)
 
-    def _fetch_page(page: int) -> tuple[list[dict] | None, Exception | None]:
-        try:
-            resp = requests.get(
-                f"{_TMDB_BASE}/search/multi",
-                headers=headers,
-                params={"query": q, "include_adult": False, "page": page},
-                timeout=10,
-            )
-            resp.raise_for_status()
-            return resp.json().get("results", []), None
-        except Exception as exc:
-            logger.exception("TMDB multi-search page %s failed", page)
-            return None, exc
-
     with ThreadPoolExecutor(max_workers=2) as pool:
-        f1 = pool.submit(_fetch_page, 1)
-        f2 = pool.submit(_fetch_page, 2)
-        page1, err1 = f1.result()
-        page2, err2 = f2.result()
+        f1 = pool.submit(client.search_multi_paged, q, 1)
+        f2 = pool.submit(client.search_multi_paged, q, 2)
+        page1 = f1.result()
+        page2 = f2.result()
 
-    if page1 is None and page2 is None:
+    if not page1 and not page2:
         return JSONResponse({"error": "TMDB request failed"}, status_code=502)
 
-    raw = (page1 or []) + (page2 or [])
+    raw = page1 + page2
     shaped = [s for s in (_shape_result(x) for x in raw) if s is not None][:40]
     _annotate_states(shaped, request)
     _enrich_ratings(shaped, request)
@@ -267,28 +245,29 @@ def api_discover(request: Request, admin: str = Depends(get_current_admin)) -> J
     back empty — the endpoint only 502s if TMDB isn't configured at all.
     """
     conn = get_db()
-    headers = _tmdb_headers(conn, request.app.state.config.secret_key)
-    if not headers:
+    client = TmdbClient.from_db(conn, request.app.state.config.secret_key)
+    if client is None:
         return JSONResponse({"error": "TMDB not configured"}, status_code=502)
 
-    def _fetch(path: str, inject_media_type: str | None = None, page: int = 1) -> list[dict]:
-        cache_key = f"{path}?page={page}"
+    def _fetch_cached(
+        shelf_key: str,
+        fetch_fn,
+        inject_media_type: str | None,
+        page: int,
+    ) -> list[dict]:
+        """Call ``fetch_fn(page)`` with a per-shelf TTL cache.
+
+        Results from ``/movie/popular`` and ``/tv/popular`` don't include a
+        ``media_type`` field; ``inject_media_type`` patches that in place so
+        ``_shape_result`` can filter them correctly.
+        """
+        cache_key = f"{shelf_key}?page={page}"
         now = time.monotonic()
         with _discover_cache_lock:
             entry = _discover_cache.get(cache_key)
             if entry and now - entry[0] < _DISCOVER_TMDB_TTL_SECONDS:
                 return entry[1]
-        try:
-            resp = requests.get(
-                f"{_TMDB_BASE}{path}", headers=headers, params={"page": page}, timeout=10,
-            )
-            resp.raise_for_status()
-            raw = resp.json().get("results", []) or []
-        except Exception:
-            logger.exception("TMDB %s page=%s failed", path, page)
-            return []
-        # /movie/popular and /tv/popular don't include media_type in each item
-        # (the /trending/all endpoint does). Inject it so _shape_result works.
+        raw = fetch_fn(page)
         if inject_media_type:
             for x in raw:
                 x["media_type"] = inject_media_type
@@ -300,12 +279,12 @@ def api_discover(request: Request, admin: str = Depends(get_current_admin)) -> J
     # reach the 21-card display target. The 6 calls still fan out in parallel
     # and each page caches independently.
     with ThreadPoolExecutor(max_workers=6) as pool:
-        f_trending_1 = pool.submit(_fetch, "/trending/all/week", None, 1)
-        f_trending_2 = pool.submit(_fetch, "/trending/all/week", None, 2)
-        f_movies_1 = pool.submit(_fetch, "/movie/popular", "movie", 1)
-        f_movies_2 = pool.submit(_fetch, "/movie/popular", "movie", 2)
-        f_tv_1 = pool.submit(_fetch, "/tv/popular", "tv", 1)
-        f_tv_2 = pool.submit(_fetch, "/tv/popular", "tv", 2)
+        f_trending_1 = pool.submit(_fetch_cached, "trending", client.trending, None, 1)
+        f_trending_2 = pool.submit(_fetch_cached, "trending", client.trending, None, 2)
+        f_movies_1 = pool.submit(_fetch_cached, "popular_movies", client.popular_movies, "movie", 1)
+        f_movies_2 = pool.submit(_fetch_cached, "popular_movies", client.popular_movies, "movie", 2)
+        f_tv_1 = pool.submit(_fetch_cached, "popular_tv", client.popular_tv, "tv", 1)
+        f_tv_2 = pool.submit(_fetch_cached, "popular_tv", client.popular_tv, "tv", 2)
         trending_raw = f_trending_1.result() + f_trending_2.result()
         movies_raw = f_movies_1.result() + f_movies_2.result()
         tv_raw = f_tv_1.result() + f_tv_2.result()
