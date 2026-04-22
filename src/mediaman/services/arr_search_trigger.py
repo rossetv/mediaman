@@ -1,9 +1,7 @@
 """Auto-trigger Radarr/Sonarr searches for stalled monitored items.
 
-Owns the module-level throttle state and the background scheduler job
-:func:`trigger_pending_searches`. The per-request trigger function
-``_maybe_trigger_search`` lives in :mod:`mediaman.services.download_queue`
-because tests patch it there.
+Owns the module-level throttle state, :func:`_maybe_trigger_search`, and
+the background scheduler job :func:`trigger_pending_searches`.
 """
 
 from __future__ import annotations
@@ -11,6 +9,10 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
+import time
+
+from mediaman.services.arr_build import build_arr_client
+from mediaman.services.arr_fetcher import fetch_arr_queue
 
 logger = logging.getLogger("mediaman")
 
@@ -34,6 +36,58 @@ def _reset_search_triggers() -> None:
     """Clear the in-memory search-trigger snapshot. Used by tests."""
     _last_search_trigger.clear()
     _search_count.clear()
+
+
+def _maybe_trigger_search(
+    conn: sqlite3.Connection, item: dict, matched_nzb: bool
+) -> None:
+    """Trigger a Radarr/Sonarr search for a stalled item, with throttling.
+
+    Does nothing when:
+    - item is upcoming (Radarr/Sonarr correctly won't search for it)
+    - item is matched to an NZBGet entry (actively downloading)
+    - item was added less than 5 minutes ago
+    - a search was triggered for the same dl_id within the last 15 minutes
+    """
+    if item.get("is_upcoming"):
+        return
+    if matched_nzb:
+        return
+    arr_id = item.get("arr_id") or 0
+    if not arr_id:
+        return
+    added_at = item.get("added_at") or 0.0
+    now = time.time()
+    if now - added_at < _SEARCH_STALE_SECONDS:
+        return
+
+    dl_id = item.get("dl_id") or ""
+
+    with _state_lock:
+        last = _last_search_trigger.get(dl_id, 0.0)
+        if now - last < _SEARCH_THROTTLE_SECONDS:
+            return
+
+        try:
+            if item.get("kind") == "movie":
+                client = build_arr_client(conn, "radarr")
+                if client is None:
+                    return
+                client.search_movie(arr_id)
+            elif item.get("kind") == "series":
+                client = build_arr_client(conn, "sonarr")
+                if client is None:
+                    return
+                client.search_series(arr_id)
+            else:
+                return
+            _last_search_trigger[dl_id] = now
+            _search_count[dl_id] = _search_count.get(dl_id, 0) + 1
+            logger.info("Triggered search for stalled item %s", dl_id)
+        except Exception:
+            logger.warning(
+                "Failed to trigger search for %s", dl_id, exc_info=True
+            )
 
 
 def _get_search_info(dl_id: str) -> tuple[int, float]:
@@ -65,20 +119,11 @@ def trigger_pending_searches(conn: sqlite3.Connection) -> None:
        :func:`fetch_arr_queue`.
 
     Reuses the per-item throttle and ``arr_id == 0`` gate inside
-    :func:`_maybe_trigger_search` (from :mod:`mediaman.services.download_queue`),
-    so already-queued items and recently-searched items are skipped automatically.
+    :func:`_maybe_trigger_search`, so already-queued items and
+    recently-searched items are skipped automatically.
     """
-    # Import here to avoid circular dependency: download_queue imports from
-    # arr_search_trigger, so arr_search_trigger must not import from
-    # download_queue at module level.
-    from mediaman.services.download_queue import (
-        _build_arr_client,
-        _maybe_trigger_search,
-        _get_arr_queue,
-    )
-
     try:
-        arr_items = _get_arr_queue(conn)
+        arr_items = fetch_arr_queue(conn)
     except Exception:
         logger.warning("trigger_pending_searches: failed to fetch arr queue", exc_info=True)
         arr_items = []
@@ -104,9 +149,7 @@ def _trigger_sonarr_partial_missing(
     ``arr_id``, and reuses the ``sonarr:{title}`` dl_id format so the
     per-item throttle recognises the same series across passes.
     """
-    from mediaman.services.download_queue import _build_arr_client, _maybe_trigger_search
-
-    client = _build_arr_client(conn, "sonarr")
+    client = build_arr_client(conn, "sonarr")
     if client is None:
         return
 

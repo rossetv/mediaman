@@ -694,7 +694,7 @@ class TestGetArrQueueEnrichment:
         assert hit["arr_id"] == 55
 
 
-from mediaman.services.download_queue import (
+from mediaman.services.arr_search_trigger import (
     _maybe_trigger_search,
     _reset_search_triggers,
     _last_search_trigger,
@@ -714,7 +714,7 @@ class TestSearchTriggerThrottle:
             return mock_radarr if svc == "radarr" else None
 
         monkeypatch.setattr(
-            "mediaman.services.download_queue._build_arr_client", fake_build
+            "mediaman.services.arr_search_trigger.build_arr_client", fake_build
         )
 
         import time
@@ -735,7 +735,7 @@ class TestSearchTriggerThrottle:
         conn = MagicMock()
 
         monkeypatch.setattr(
-            "mediaman.services.download_queue._build_arr_client",
+            "mediaman.services.arr_search_trigger.build_arr_client",
             lambda c, svc: mock_radarr if svc == "radarr" else None,
         )
 
@@ -757,7 +757,7 @@ class TestSearchTriggerThrottle:
         conn = MagicMock()
 
         monkeypatch.setattr(
-            "mediaman.services.download_queue._build_arr_client",
+            "mediaman.services.arr_search_trigger.build_arr_client",
             lambda c, svc: mock_radarr if svc == "radarr" else None,
         )
 
@@ -778,7 +778,7 @@ class TestSearchTriggerThrottle:
         conn = MagicMock()
 
         monkeypatch.setattr(
-            "mediaman.services.download_queue._build_arr_client",
+            "mediaman.services.arr_search_trigger.build_arr_client",
             lambda c, svc: mock_radarr if svc == "radarr" else None,
         )
 
@@ -799,7 +799,7 @@ class TestSearchTriggerThrottle:
         conn = MagicMock()
 
         monkeypatch.setattr(
-            "mediaman.services.download_queue._build_arr_client",
+            "mediaman.services.arr_search_trigger.build_arr_client",
             lambda c, svc: mock_radarr if svc == "radarr" else None,
         )
 
@@ -820,7 +820,7 @@ class TestSearchTriggerThrottle:
         conn = MagicMock()
 
         monkeypatch.setattr(
-            "mediaman.services.download_queue._build_arr_client",
+            "mediaman.services.arr_search_trigger.build_arr_client",
             lambda c, svc: mock_sonarr if svc == "sonarr" else None,
         )
 
@@ -842,7 +842,7 @@ class TestSearchTriggerThrottle:
         conn = MagicMock()
 
         monkeypatch.setattr(
-            "mediaman.services.download_queue._build_arr_client",
+            "mediaman.services.arr_search_trigger.build_arr_client",
             lambda c, svc: mock_radarr if svc == "radarr" else None,
         )
 
@@ -1273,7 +1273,7 @@ class TestNzbSeriesMatching:
         assert card["state"] == "downloading"
 
 
-from mediaman.services.download_queue import trigger_pending_searches
+from mediaman.services.arr_search_trigger import trigger_pending_searches
 
 
 class TestTriggerPendingSearches:
@@ -1288,12 +1288,12 @@ class TestTriggerPendingSearches:
             {"kind": "series", "dl_id": "sonarr:B", "arr_id": 2, "is_upcoming": False, "added_at": 0},
         ]
         monkeypatch.setattr(
-            "mediaman.services.download_queue._get_arr_queue",
+            "mediaman.services.arr_search_trigger.fetch_arr_queue",
             lambda c: items,
         )
         calls: list[tuple] = []
         monkeypatch.setattr(
-            "mediaman.services.download_queue._maybe_trigger_search",
+            "mediaman.services.arr_search_trigger._maybe_trigger_search",
             lambda c, i, matched_nzb: calls.append((i["dl_id"], matched_nzb)),
         )
 
@@ -1309,16 +1309,16 @@ class TestTriggerPendingSearches:
             raise RuntimeError("radarr down")
 
         monkeypatch.setattr(
-            "mediaman.services.download_queue._get_arr_queue", boom
+            "mediaman.services.arr_search_trigger.fetch_arr_queue", boom
         )
         # Sonarr pass still runs — stub it out so the test is deterministic.
         monkeypatch.setattr(
-            "mediaman.services.download_queue._build_arr_client",
+            "mediaman.services.arr_search_trigger.build_arr_client",
             lambda c, svc: None,
         )
         called = []
         monkeypatch.setattr(
-            "mediaman.services.download_queue._maybe_trigger_search",
+            "mediaman.services.arr_search_trigger._maybe_trigger_search",
             lambda *a, **kw: called.append(a),
         )
 
@@ -1337,7 +1337,7 @@ class TestTriggerPendingSearches:
              "is_upcoming": False, "added_at": 0},
         ]
         monkeypatch.setattr(
-            "mediaman.services.download_queue._get_arr_queue",
+            "mediaman.services.arr_search_trigger.fetch_arr_queue",
             lambda c: arr_items,
         )
 
@@ -1348,13 +1348,13 @@ class TestTriggerPendingSearches:
             2: "Partial Show",
         }
         monkeypatch.setattr(
-            "mediaman.services.download_queue._build_arr_client",
+            "mediaman.services.arr_search_trigger.build_arr_client",
             lambda c, svc: mock_sonarr if svc == "sonarr" else None,
         )
 
         calls: list[tuple] = []
         monkeypatch.setattr(
-            "mediaman.services.download_queue._maybe_trigger_search",
+            "mediaman.services.arr_search_trigger._maybe_trigger_search",
             lambda c, i, matched_nzb: calls.append((i["dl_id"], i["arr_id"])),
         )
 
@@ -1366,16 +1366,16 @@ class TestTriggerPendingSearches:
     def test_sonarr_partial_missing_skipped_when_client_missing(self, monkeypatch):
         conn = MagicMock()
         monkeypatch.setattr(
-            "mediaman.services.download_queue._get_arr_queue",
+            "mediaman.services.arr_search_trigger.fetch_arr_queue",
             lambda c: [],
         )
         monkeypatch.setattr(
-            "mediaman.services.download_queue._build_arr_client",
+            "mediaman.services.arr_search_trigger.build_arr_client",
             lambda c, svc: None,
         )
         calls = []
         monkeypatch.setattr(
-            "mediaman.services.download_queue._maybe_trigger_search",
+            "mediaman.services.arr_search_trigger._maybe_trigger_search",
             lambda *a, **kw: calls.append(a),
         )
 

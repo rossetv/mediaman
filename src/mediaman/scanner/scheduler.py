@@ -6,7 +6,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from mediaman.db import get_db
 from mediaman.services.arr_completion import cleanup_recent_downloads
-from mediaman.services.download_queue import trigger_pending_searches
+from mediaman.services.arr_search_trigger import trigger_pending_searches
 
 _scheduler: BackgroundScheduler | None = None
 

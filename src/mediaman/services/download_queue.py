@@ -32,10 +32,12 @@ from mediaman.services.arr_completion import (
     load_recent_downloads,
     record_verified_completions,
 )
+from mediaman.services.arr_build import build_arr_client as _build_arr_client
 from mediaman.services.arr_fetcher import fetch_arr_queue, get_nzbget_client
 from mediaman.services.arr_search_trigger import (
     _get_search_info,
     _last_search_trigger,
+    _maybe_trigger_search,
     _reset_search_triggers,
     _SEARCH_STALE_SECONDS,
     _SEARCH_THROTTLE_SECONDS,
@@ -78,74 +80,6 @@ _state_lock = threading.Lock()
 # Aliases so existing callers that imported these names from this module keep working.
 _get_arr_queue = fetch_arr_queue
 _get_nzbget_client = get_nzbget_client
-
-
-def _build_arr_client(conn: sqlite3.Connection, service: str):
-    """Build a Radarr or Sonarr client from DB settings. Returns None if unconfigured."""
-    from mediaman.config import load_config
-    from mediaman.services.arr_build import (
-        build_radarr_from_db,
-        build_sonarr_from_db,
-    )
-
-    config = load_config()
-    if service == "radarr":
-        return build_radarr_from_db(conn, config.secret_key)
-    if service == "sonarr":
-        return build_sonarr_from_db(conn, config.secret_key)
-    return None
-
-
-def _maybe_trigger_search(
-    conn: sqlite3.Connection, item: dict, matched_nzb: bool
-) -> None:
-    """Trigger a Radarr/Sonarr search for a stalled item, with throttling.
-
-    Does nothing when:
-    - item is upcoming (Radarr/Sonarr correctly won't search for it)
-    - item is matched to an NZBGet entry (actively downloading)
-    - item was added less than 5 minutes ago
-    - a search was triggered for the same dl_id within the last 15 minutes
-    """
-    if item.get("is_upcoming"):
-        return
-    if matched_nzb:
-        return
-    arr_id = item.get("arr_id") or 0
-    if not arr_id:
-        return
-    added_at = item.get("added_at") or 0.0
-    now = time.time()
-    if now - added_at < _SEARCH_STALE_SECONDS:
-        return
-
-    dl_id = item.get("dl_id") or ""
-
-    with _search_state_lock:
-        last = _last_search_trigger.get(dl_id, 0.0)
-        if now - last < _SEARCH_THROTTLE_SECONDS:
-            return
-
-        try:
-            if item.get("kind") == "movie":
-                client = _build_arr_client(conn, "radarr")
-                if client is None:
-                    return
-                client.search_movie(arr_id)
-            elif item.get("kind") == "series":
-                client = _build_arr_client(conn, "sonarr")
-                if client is None:
-                    return
-                client.search_series(arr_id)
-            else:
-                return
-            _last_search_trigger[dl_id] = now
-            _search_count[dl_id] = _search_count.get(dl_id, 0) + 1
-            logger.info("Triggered search for stalled item %s", dl_id)
-        except Exception:
-            logger.warning(
-                "Failed to trigger search for %s", dl_id, exc_info=True
-            )
 
 
 def _build_search_hint(

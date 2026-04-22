@@ -40,3 +40,14 @@ def build_sonarr_from_db(conn: sqlite3.Connection, secret_key: str):
         return None
     from mediaman.services.sonarr import SonarrClient
     return SonarrClient(url, key)
+
+
+def build_arr_client(conn: sqlite3.Connection, service: str):
+    """Build a Radarr or Sonarr client from DB settings. Returns None if unconfigured."""
+    from mediaman.config import load_config
+    config = load_config()
+    if service == "radarr":
+        return build_radarr_from_db(conn, config.secret_key)
+    if service == "sonarr":
+        return build_sonarr_from_db(conn, config.secret_key)
+    return None
