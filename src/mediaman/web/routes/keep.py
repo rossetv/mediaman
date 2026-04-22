@@ -1,5 +1,6 @@
 """Public keep page — token-authenticated snooze for scheduled deletions."""
 
+import sqlite3
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Form, Request
@@ -21,7 +22,7 @@ router = APIRouter()
 _KEEP_LIMITER = RateLimiter(max_attempts=30, window_seconds=60)
 
 
-def _lookup_verified_action(conn, token: str, secret_key: str):
+def _lookup_verified_action(conn: sqlite3.Connection, token: str, secret_key: str) -> sqlite3.Row | None:
     """Validate the keep-token HMAC, then look up its scheduled action.
 
     Returns the matching ``scheduled_actions`` row joined with the

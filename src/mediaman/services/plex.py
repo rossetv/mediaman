@@ -3,10 +3,71 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Literal, TypedDict
 
 import defusedxml.ElementTree as ET
 import requests as http_requests
 from plexapi.server import PlexServer
+
+class PlexLibrarySection(TypedDict):
+    """A Plex library section as returned by :meth:`PlexClient.get_libraries`."""
+
+    id: str
+    type: str
+    title: str
+
+
+class PlexMovieItem(TypedDict):
+    """A movie item as returned by :meth:`PlexClient.get_movie_items`."""
+
+    plex_rating_key: str
+    title: str
+    added_at: datetime | None
+    updated_at: datetime | None
+    file_path: str
+    file_size_bytes: int
+    poster_path: str
+
+
+class PlexSeasonItem(TypedDict):
+    """A TV season item as returned by :meth:`PlexClient.get_show_seasons`."""
+
+    plex_rating_key: str
+    title: str          # show title, kept for DB compat
+    show_title: str
+    season_number: int
+    added_at: datetime | None
+    updated_at: datetime | None
+    file_path: str
+    file_size_bytes: int
+    poster_path: str
+    episode_count: int
+    show_rating_key: str
+    is_anime: bool
+
+
+class PlexWatchEntry(TypedDict, total=False):
+    """One view event from :meth:`PlexClient.get_watch_history` / :meth:`get_season_watch_history`."""
+
+    viewed_at: datetime
+    account_id: int
+    episode_title: str  # only present for season watch history entries
+
+
+class PlexRatedItem(TypedDict):
+    """A user-rated item from :meth:`PlexClient.get_user_ratings`."""
+
+    title: str
+    type: Literal["movie", "tv"]
+    stars: float
+
+
+class PlexAccount(TypedDict):
+    """A named Plex home/managed account from :meth:`PlexClient.get_accounts`."""
+
+    id: int
+    name: str
+
 
 # Hard cap on a single /status/sessions/history response. Plex history
 # XML is small; 4 MiB is orders of magnitude above normal and still
@@ -58,7 +119,7 @@ class PlexClient:
         """
         self.server = PlexServer(url, token)
 
-    def get_libraries(self) -> list[dict]:
+    def get_libraries(self) -> list[PlexLibrarySection]:
         """Return all library sections as minimal dicts.
 
         Returns:
@@ -70,7 +131,7 @@ class PlexClient:
             for s in self.server.library.sections()
         ]
 
-    def get_movie_items(self, library_id: str) -> list[dict]:
+    def get_movie_items(self, library_id: str) -> list[PlexMovieItem]:
         """Return all movies in a library section.
 
         Each dict contains:
@@ -104,7 +165,7 @@ class PlexClient:
             })
         return items
 
-    def get_show_seasons(self, library_id: str) -> list[dict]:
+    def get_show_seasons(self, library_id: str) -> list[PlexSeasonItem]:
         """Return all non-special seasons across every show in a TV library.
 
         Season 0 / Specials are skipped. The season directory is derived from
@@ -164,7 +225,7 @@ class PlexClient:
                 })
         return results
 
-    def get_watch_history(self, rating_key: str) -> list[dict]:
+    def get_watch_history(self, rating_key: str) -> list[PlexWatchEntry]:
         """Return watch history for a single item (movie) via the raw Plex API.
 
         Uses /status/sessions/history/all which is more reliable than
@@ -217,7 +278,7 @@ class PlexClient:
                 })
         return entries
 
-    def get_season_watch_history(self, season_rating_key: str) -> list[dict]:
+    def get_season_watch_history(self, season_rating_key: str) -> list[PlexWatchEntry]:
         """Aggregate watch history across all episodes in a season.
 
         Fetches each episode's rating key, then queries the raw Plex history
@@ -232,7 +293,7 @@ class PlexClient:
                 entries.append(h)
         return entries
 
-    def get_user_ratings(self) -> list[dict]:
+    def get_user_ratings(self) -> list[PlexRatedItem]:
         """Return all user-rated items across movie and TV libraries.
 
         Iterates every movie and show across all libraries and collects items
@@ -270,7 +331,7 @@ class PlexClient:
         except Exception:
             return False
 
-    def get_accounts(self) -> list[dict]:
+    def get_accounts(self) -> list[PlexAccount]:
         """Return named Plex accounts from the /accounts XML endpoint.
 
         The home admin account (id=1, name="") is excluded — only named

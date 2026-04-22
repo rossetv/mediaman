@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import requests
 
 from mediaman.services.arr_client_base import ArrClient
@@ -9,10 +11,10 @@ from mediaman.services.arr_client_base import ArrClient
 
 class RadarrClient(ArrClient):
     def get_movies(self) -> list[dict[str, object]]:
-        return self._get("/api/v3/movie")  # type: ignore[return-value]
+        return cast(list[dict[str, object]], self._get("/api/v3/movie"))
 
     def get_movie_by_id(self, movie_id: int) -> dict[str, object]:
-        return self._get(f"/api/v3/movie/{movie_id}")  # type: ignore[return-value]
+        return cast(dict[str, object], self._get(f"/api/v3/movie/{movie_id}"))
 
     def delete_movie(self, movie_id: int) -> None:
         """Delete a movie from Radarr and its files from disk."""
@@ -21,12 +23,12 @@ class RadarrClient(ArrClient):
     def unmonitor_movie(self, movie_id: int) -> None:
         movie = self.get_movie_by_id(movie_id)
         movie["monitored"] = False
-        self._put(f"/api/v3/movie/{movie_id}", movie)  # type: ignore[arg-type]
+        self._put(f"/api/v3/movie/{movie_id}", cast(dict, movie))
 
     def remonitor_movie(self, movie_id: int) -> None:
         movie = self.get_movie_by_id(movie_id)
         movie["monitored"] = True
-        self._put(f"/api/v3/movie/{movie_id}", movie)  # type: ignore[arg-type]
+        self._put(f"/api/v3/movie/{movie_id}", cast(dict, movie))
         self.search_movie(movie_id)
 
     def search_movie(self, movie_id: int) -> None:
@@ -41,7 +43,7 @@ class RadarrClient(ArrClient):
 
     def add_movie(self, tmdb_id: int, title: str, quality_profile_id: int = 4) -> dict[str, object]:
         """Add a movie by TMDB ID and trigger a search."""
-        root_folders = self._get("/api/v3/rootfolder")
+        root_folders = cast(list[dict[str, object]], self._get("/api/v3/rootfolder"))
         root_path = root_folders[0]["path"] if root_folders else "/movies"
 
         movie_data = {

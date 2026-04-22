@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 import requests
 
@@ -14,7 +15,7 @@ logger = logging.getLogger("mediaman")
 class SonarrClient(ArrClient):
     def delete_episode_files(self, series_id: int, season_number: int) -> None:
         """Delete all episode files for a season from disk via Sonarr."""
-        efs = self._get(f"/api/v3/episodefile?seriesId={series_id}")
+        efs = cast(list[dict[str, object]], self._get(f"/api/v3/episodefile?seriesId={series_id}"))
         for ef in efs:
             if ef.get("seasonNumber") == season_number:
                 self._delete(f"/api/v3/episodefile/{ef['id']}")
@@ -25,14 +26,14 @@ class SonarrClient(ArrClient):
 
     def has_remaining_files(self, series_id: int) -> bool:
         """Return True if the series still has any episode files on disk."""
-        efs = self._get(f"/api/v3/episodefile?seriesId={series_id}")
+        efs = cast(list[dict[str, object]], self._get(f"/api/v3/episodefile?seriesId={series_id}"))
         return len(efs) > 0
 
     def get_series(self) -> list[dict[str, object]]:
-        return self._get("/api/v3/series")  # type: ignore[return-value]
+        return cast(list[dict[str, object]], self._get("/api/v3/series"))
 
     def get_series_by_id(self, series_id: int) -> dict[str, object]:
-        return self._get(f"/api/v3/series/{series_id}")  # type: ignore[return-value]
+        return cast(dict[str, object], self._get(f"/api/v3/series/{series_id}"))
 
     def get_episodes(self, series_id: int) -> list[dict[str, object]]:
         """Return all episodes for a given series."""
@@ -46,17 +47,21 @@ class SonarrClient(ArrClient):
 
     def unmonitor_season(self, series_id: int, season_number: int) -> None:
         series = self.get_series_by_id(series_id)
-        for season in series["seasons"]:  # type: ignore[union-attr]
+        seasons = series.get("seasons")
+        assert isinstance(seasons, list), f"Sonarr series {series_id} has no 'seasons' list"
+        for season in seasons:
             if season["seasonNumber"] == season_number:
                 season["monitored"] = False
-        self._put(f"/api/v3/series/{series_id}", series)  # type: ignore[arg-type]
+        self._put(f"/api/v3/series/{series_id}", cast(dict, series))
 
     def remonitor_season(self, series_id: int, season_number: int) -> None:
         series = self.get_series_by_id(series_id)
-        for season in series["seasons"]:  # type: ignore[union-attr]
+        seasons = series.get("seasons")
+        assert isinstance(seasons, list), f"Sonarr series {series_id} has no 'seasons' list"
+        for season in seasons:
             if season["seasonNumber"] == season_number:
                 season["monitored"] = True
-        self._put(f"/api/v3/series/{series_id}", series)  # type: ignore[arg-type]
+        self._put(f"/api/v3/series/{series_id}", cast(dict, series))
         requests.post(
             f"{self._url}/api/v3/command",
             headers=self._headers,
@@ -108,7 +113,7 @@ class SonarrClient(ArrClient):
 
     def add_series(self, tvdb_id: int, title: str, quality_profile_id: int = 4) -> dict[str, object]:
         """Add a TV series by TVDB ID and trigger a search."""
-        root_folders = self._get("/api/v3/rootfolder")
+        root_folders = cast(list[dict[str, object]], self._get("/api/v3/rootfolder"))
         root_path = root_folders[0]["path"] if root_folders else "/tv"
 
         series_data = {
@@ -145,10 +150,10 @@ class SonarrClient(ArrClient):
         is suppressed; instead a ``SeasonSearch`` command is issued
         for each season number in ``search_seasons``.
         """
-        root_folders = self._get("/api/v3/rootfolder")
+        root_folders = cast(list[dict[str, object]], self._get("/api/v3/rootfolder"))
         root_path = root_folders[0]["path"] if root_folders else "/tv"
 
-        lookup = self._get(f"/api/v3/series/lookup?term=tvdb:{tvdb_id}")
+        lookup = cast(list[dict[str, object]], self._get(f"/api/v3/series/lookup?term=tvdb:{tvdb_id}"))
         if not lookup:
             raise RuntimeError(f"Sonarr lookup returned no results for tvdb:{tvdb_id}")
         meta = lookup[0]

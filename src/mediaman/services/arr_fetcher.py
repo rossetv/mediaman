@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from typing import TypedDict
 
 from mediaman.services.download_format import (
     classify_movie_upcoming,
@@ -21,14 +22,62 @@ from mediaman.services.download_format import (
 logger = logging.getLogger("mediaman")
 
 
-def _fetch_radarr_queue(client) -> list[dict]:
+class ArrEpisodeEntry(TypedDict, total=False):
+    """A single episode entry within an :class:`ArrCard` (series cards only)."""
+
+    label: str
+    title: str
+    progress: int
+    size: int
+    sizeleft: int
+    size_str: str
+    status: str
+    download_id: str
+    is_pack_episode: bool
+
+
+class ArrCard(TypedDict, total=False):
+    """A download card produced by :func:`fetch_arr_queue`.
+
+    Both movie and series cards share this shape; series cards additionally
+    carry an ``episodes`` list.  ``total=False`` allows partial construction
+    as cards are built up incrementally.
+    """
+
+    kind: str            # 'movie' or 'series'
+    dl_id: str
+    title: str
+    year: int | None
+    source: str          # 'Radarr' or 'Sonarr'
+    poster_url: str
+    progress: int
+    size: int
+    sizeleft: int
+    size_str: str
+    done_str: str
+    timeleft: str
+    status: str
+    is_upcoming: bool
+    release_label: str
+    arr_id: int
+    title_slug: str
+    added_at: float
+    release_names: list[str]
+    # Series-only fields
+    episodes: list[ArrEpisodeEntry]
+    episode_count: int
+    downloading_count: int
+    has_pack: bool
+
+
+def _fetch_radarr_queue(client) -> list[ArrCard]:
     """Build Radarr download cards from an already-constructed client.
 
     Returns cards for queue entries plus monitored movies still searching.
     The inner loop over ``get_movies()`` keeps its own try/except so a
     failure there doesn't wipe out the queue entries we already have.
     """
-    items: list[dict] = []
+    items: list[ArrCard] = []
     for q in client.get_queue():
         movie = q.get("movie") or {}
         size = q.get("size") or 0
@@ -119,7 +168,7 @@ def _fetch_radarr_queue(client) -> list[dict]:
     return items
 
 
-def _fetch_sonarr_queue(client) -> list[dict]:
+def _fetch_sonarr_queue(client) -> list[ArrCard]:
     """Build Sonarr download cards from an already-constructed client.
 
     Groups queue episodes by series into one card each, then appends
@@ -127,8 +176,8 @@ def _fetch_sonarr_queue(client) -> list[dict]:
     ``get_series()`` keeps its own try/except for the same reason as
     :func:`_fetch_radarr_queue`.
     """
-    items: list[dict] = []
-    series_map: dict[int, dict] = {}  # series_id -> grouped card
+    items: list[ArrCard] = []
+    series_map: dict[int, ArrCard] = {}  # series_id -> grouped card
 
     for q in client.get_queue():
         series = q.get("series") or {}
@@ -309,7 +358,7 @@ def _fetch_sonarr_queue(client) -> list[dict]:
     return items
 
 
-def fetch_arr_queue(conn: sqlite3.Connection) -> list[dict]:
+def fetch_arr_queue(conn: sqlite3.Connection) -> list[ArrCard]:
     """Fetch Radarr/Sonarr queues, grouping Sonarr episodes by series.
 
     Returns a list of download cards.  Movies are one card each.
@@ -319,7 +368,7 @@ def fetch_arr_queue(conn: sqlite3.Connection) -> list[dict]:
     from mediaman.services.arr_build import build_radarr_from_db, build_sonarr_from_db
 
     config = load_config()
-    items: list[dict] = []
+    items: list[ArrCard] = []
     try:
         radarr_client = build_radarr_from_db(conn, config.secret_key)
         if radarr_client is not None:
