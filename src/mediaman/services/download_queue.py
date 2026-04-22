@@ -141,7 +141,7 @@ def _arr_base_urls(conn: sqlite3.Connection) -> dict[str, str]:
             out[service] = chosen.rstrip("/")
         return out
     except Exception:
-        logger.debug("Failed to load arr base URLs for deep links", exc_info=True)
+        logger.warning("Failed to load arr base URLs for deep links", exc_info=True)
         return {"radarr": "", "sonarr": ""}
 
 

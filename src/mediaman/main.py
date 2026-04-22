@@ -11,17 +11,12 @@ from fastapi.templating import Jinja2Templates
 
 from mediaman.config import load_config
 from mediaman.db import init_db, set_connection
+from mediaman.services.settings_reader import get_string_setting as _get_setting
 
 logger = logging.getLogger("mediaman")
 
 _STATIC_DIR = Path(__file__).parent / "web" / "static"
 _TEMPLATE_DIR = Path(__file__).parent / "web" / "templates"
-
-
-def _get_setting(conn, key: str, default: str = "") -> str:
-    """Read a plain-text setting from the DB, falling back to *default*."""
-    row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-    return row["value"] if row else default
 
 
 @asynccontextmanager
@@ -49,9 +44,9 @@ async def lifespan(app: FastAPI):
 
     scheduler_started = False
     try:
-        scan_day = _get_setting(conn, "scan_day", "mon")
-        scan_time = _get_setting(conn, "scan_time", "09:00")
-        scan_tz = _get_setting(conn, "scan_timezone", "UTC")
+        scan_day = _get_setting(conn, "scan_day", default="mon")
+        scan_time = _get_setting(conn, "scan_time", default="09:00")
+        scan_tz = _get_setting(conn, "scan_timezone", default="UTC")
         hour, minute = (int(x) for x in scan_time.split(":"))
 
         # Capture the secret key now; conn is accessed at scan time via get_db()
@@ -79,7 +74,7 @@ async def lifespan(app: FastAPI):
             except Exception:
                 logger.exception("Library sync failed")
 
-        sync_interval = int(_get_setting(conn, "library_sync_interval", "30"))
+        sync_interval = int(_get_setting(conn, "library_sync_interval", default="30"))
 
         start_scheduler(
             scan_fn=run_scheduled_scan,
