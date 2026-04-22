@@ -1,23 +1,25 @@
-/* Snooze-menu: split-button dropdown used on Library and Dashboard cards.
+/* Snooze-menu: dropdown used on Library (whole pill) and Dashboard (caret).
  *
  * Markup shape expected:
  *   <div class="keep-wrapper">
- *     <button class="btn-sm btn-sm-keep" ...>Keep</button>
- *     <button class="btn-sm-caret" aria-haspopup="menu" aria-expanded="false" aria-label="More keep options">&#9662;</button>
+ *     <button class="keep-trigger" aria-haspopup="menu" aria-expanded="false">...</button>
  *     <div class="snooze-dropdown" role="menu"> ... </div>
  *   </div>
  *
- * Click/tap the caret to toggle .is-open on the wrapper. Escape or outside click closes.
+ * Any element matching `.keep-trigger` or `.btn-sm-caret` toggles the dropdown
+ * on its parent `.keep-wrapper`. Escape or outside-click closes.
  */
 (function () {
   'use strict';
+
+  var TRIGGER_SELECTOR = '.keep-trigger, .btn-sm-caret';
 
   function closeAll(except) {
     var wrappers = document.querySelectorAll('.keep-wrapper.is-open');
     for (var i = 0; i < wrappers.length; i++) {
       if (wrappers[i] === except) continue;
       wrappers[i].classList.remove('is-open');
-      var trigger = wrappers[i].querySelector('.btn-sm-caret');
+      var trigger = wrappers[i].querySelector(TRIGGER_SELECTOR);
       if (trigger) trigger.setAttribute('aria-expanded', 'false');
     }
   }
@@ -26,7 +28,7 @@
     var open = !wrapper.classList.contains('is-open');
     closeAll(wrapper);
     wrapper.classList.toggle('is-open', open);
-    var trigger = wrapper.querySelector('.btn-sm-caret');
+    var trigger = wrapper.querySelector(TRIGGER_SELECTOR);
     if (trigger) trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
     if (open) {
       var first = wrapper.querySelector('.snooze-dropdown .snooze-option');
@@ -35,16 +37,17 @@
   }
 
   document.addEventListener('click', function (e) {
-    var caret = e.target.closest && e.target.closest('.btn-sm-caret');
-    if (caret) {
+    if (!e.target.closest) return;
+    var trigger = e.target.closest(TRIGGER_SELECTOR);
+    if (trigger) {
       e.preventDefault();
       e.stopPropagation();
-      var wrapper = caret.closest('.keep-wrapper');
+      var wrapper = trigger.closest('.keep-wrapper');
       if (wrapper) toggle(wrapper);
       return;
     }
     // Outside click closes everything
-    if (!e.target.closest || !e.target.closest('.keep-wrapper')) {
+    if (!e.target.closest('.keep-wrapper')) {
       closeAll(null);
     }
   });

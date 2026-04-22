@@ -115,16 +115,14 @@
           <td style="text-align:right">
             <div class="u-flex" style="justify-content:flex-end;gap:6px">
               {% if item.protected %}
-              <div class="keep-wrapper keep-split keep-split--kept"
+              <div class="keep-wrapper"
                 data-id="{{ item.id }}" data-tv="{{ item.is_tv | tojson }}"
                 data-show-rk="{{ item.show_rating_key }}" data-show-title="{{ item.show_title_raw | e }}">
-                <button type="button" class="keep-split__main"
-                  onclick="{% if item.is_tv %}submitKeep(this, 'current');{% else %}removeKeep('{{ item.id }}');{% endif %} return false;">
-                  <svg class="keep-split__tick" viewBox="0 0 24 24" aria-hidden="true"><polyline points="5 12 10 17 19 8"/></svg>
-                  Kept
-                </button>
-                <button type="button" class="keep-split__caret btn-sm-caret" aria-haspopup="menu" aria-expanded="false" aria-label="Manage keep">
-                  <svg class="keep-split__chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                <button type="button" class="keep-trigger keep-trigger--kept"
+                  aria-haspopup="menu" aria-expanded="false" aria-label="Manage keep">
+                  <svg class="keep-trigger__tick" viewBox="0 0 24 24" aria-hidden="true"><polyline points="5 12 10 17 19 8"/></svg>
+                  <span>Kept</span>
+                  <svg class="keep-trigger__chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
                 <div class="snooze-dropdown" role="menu">
                   <button class="snooze-option" role="menuitem" tabindex="-1" onclick="submitKeep(this, '7d'); return false;">Keep 7 days</button>
@@ -135,12 +133,13 @@
                 </div>
               </div>
               {% else %}
-              <div class="keep-wrapper keep-split"
+              <div class="keep-wrapper"
                 data-id="{{ item.id }}" data-tv="{{ item.is_tv | tojson }}"
                 data-show-rk="{{ item.show_rating_key }}" data-show-title="{{ item.show_title_raw | e }}">
-                <button type="button" class="keep-split__main" onclick="submitKeep(this, '30d'); return false;">Keep</button>
-                <button type="button" class="keep-split__caret btn-sm-caret" aria-haspopup="menu" aria-expanded="false" aria-label="More keep options">
-                  <svg class="keep-split__chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                <button type="button" class="keep-trigger"
+                  aria-haspopup="menu" aria-expanded="false" aria-label="Keep this item">
+                  <span>Keep</span>
+                  <svg class="keep-trigger__chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
                 <div class="snooze-dropdown" role="menu">
                   <button class="snooze-option" role="menuitem" tabindex="-1" onclick="submitKeep(this, '7d'); return false;">7 days</button>

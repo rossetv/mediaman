@@ -454,66 +454,45 @@ h1, h2, h3, h4 {
 .btn.is-error { background: rgba(255,69,58,.12); color: var(--danger); }
 .btn.is-success { background: rgba(48,209,88,.14); color: var(--success); }
 
-/* Library split button — Keep (accent) / Kept (success) main + caret dropdown.
- * No overflow:hidden here; .snooze-dropdown is position:absolute and must escape
- * the pill to render below the row. */
-.keep-split {
-  position: relative;
-  display: inline-flex;
-  align-items: stretch;
-  height: 26px;
-  border-radius: var(--r-pill);
-  background: rgba(41,151,255,.15);
-  letter-spacing: -.01em;
-}
-.keep-split__main,
-.keep-split__caret {
+/* Library keep/kept trigger — single pill. The whole button opens the
+ * snooze-dropdown so there is no default-duration trap door; duration is
+ * always an explicit choice from the menu. */
+.keep-trigger {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  background: transparent;
+  gap: 6px;
+  height: 26px;
+  padding: 0 12px;
+  background: rgba(41,151,255,.15);
   color: var(--accent);
   font-size: 12px;
   font-weight: 500;
+  letter-spacing: -.01em;
   border: 0;
-  cursor: pointer;
-  transition: background .15s, color .15s;
+  border-radius: var(--r-pill);
   white-space: nowrap;
+  cursor: pointer;
+  transition: background .15s, color .15s, transform .1s;
 }
-.keep-split__main {
-  gap: 5px;
-  padding: 0 12px 0 14px;
-  border-radius: var(--r-pill) 0 0 var(--r-pill);
-}
-.keep-split__caret {
-  padding: 0 10px;
-  border-left: 1px solid rgba(41,151,255,.22);
-  border-radius: 0 var(--r-pill) var(--r-pill) 0;
-}
-.keep-split__main:hover,
-.keep-split__caret:hover { background: rgba(41,151,255,.1); }
-.keep-split__main:active,
-.keep-split__caret:active { transform: scale(.97); }
-.keep-split__chev {
+.keep-trigger:hover { background: rgba(41,151,255,.24); }
+.keep-trigger:active { transform: scale(.97); }
+.keep-trigger__chev {
   width: 10px; height: 10px;
   stroke: currentColor; fill: none; stroke-width: 2.5;
   stroke-linecap: round; stroke-linejoin: round;
   transition: transform .15s;
+  margin-left: 1px;
 }
-.keep-split.is-open .keep-split__chev { transform: rotate(180deg); }
-.keep-split__tick {
-  width: 11px; height: 11px;
+.keep-wrapper.is-open .keep-trigger__chev { transform: rotate(180deg); }
+.keep-trigger__tick {
+  width: 12px; height: 12px;
   stroke: currentColor; fill: none; stroke-width: 2.5;
   stroke-linecap: round; stroke-linejoin: round;
 }
 
 /* Kept variant — success green */
-.keep-split--kept { background: rgba(48,209,88,.14); }
-.keep-split--kept .keep-split__main,
-.keep-split--kept .keep-split__caret { color: var(--success); }
-.keep-split--kept .keep-split__caret { border-left-color: rgba(48,209,88,.22); }
-.keep-split--kept .keep-split__main:hover,
-.keep-split--kept .keep-split__caret:hover { background: rgba(48,209,88,.08); }
+.keep-trigger--kept { background: rgba(48,209,88,.14); color: var(--success); }
+.keep-trigger--kept:hover { background: rgba(48,209,88,.22); }
 
 /* Legacy button aliases (templates / JS still emit these). */
 .btn-keep,
