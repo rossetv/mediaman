@@ -1,26 +1,15 @@
 """Sonarr v3 API client."""
 
+import logging
+
 import requests
 
+from mediaman.services.arr_client_base import ArrClient
 
-class SonarrClient:
-    def __init__(self, url: str, api_key: str):
-        self._url = url.rstrip("/")
-        self._headers = {"X-Api-Key": api_key}
+logger = logging.getLogger("mediaman")
 
-    def _get(self, path: str) -> dict | list:
-        resp = requests.get(f"{self._url}{path}", headers=self._headers, timeout=15)
-        resp.raise_for_status()
-        return resp.json()
 
-    def _put(self, path: str, data: dict) -> None:
-        resp = requests.put(f"{self._url}{path}", headers=self._headers, json=data, timeout=15)
-        resp.raise_for_status()
-
-    def _delete(self, path: str) -> None:
-        resp = requests.delete(f"{self._url}{path}", headers=self._headers, timeout=15)
-        resp.raise_for_status()
-
+class SonarrClient(ArrClient):
     def delete_episode_files(self, series_id: int, season_number: int) -> None:
         """Delete all episode files for a season from disk via Sonarr."""
         efs = self._get(f"/api/v3/episodefile?seriesId={series_id}")
@@ -236,11 +225,5 @@ class SonarrClient:
                 return results[0]
             return None
         except Exception:
+            logger.debug("lookup_series_by_tmdb failed for tmdb_id %s", tmdb_id, exc_info=True)
             return None
-
-    def test_connection(self) -> bool:
-        try:
-            self._get("/api/v3/system/status")
-            return True
-        except Exception:
-            return False

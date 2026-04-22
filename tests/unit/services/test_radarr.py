@@ -10,7 +10,7 @@ def client():
 
 
 class TestRadarrClient:
-    @patch("mediaman.services.radarr.requests.get")
+    @patch("mediaman.services.arr_client_base.requests.get")
     def test_get_movies(self, mock_get, client):
         mock_get.return_value = MagicMock(status_code=200, json=lambda: [
             {"id": 1, "title": "Test Movie", "path": "/movies/Test Movie (2024)", "monitored": True, "hasFile": True},
@@ -19,8 +19,8 @@ class TestRadarrClient:
         assert len(movies) == 1
         assert movies[0]["title"] == "Test Movie"
 
-    @patch("mediaman.services.radarr.requests.put")
-    @patch("mediaman.services.radarr.requests.get")
+    @patch("mediaman.services.arr_client_base.requests.put")
+    @patch("mediaman.services.arr_client_base.requests.get")
     def test_unmonitor_movie(self, mock_get, mock_put, client):
         mock_get.return_value = MagicMock(status_code=200, json=lambda: {"id": 1, "title": "Test", "monitored": True})
         mock_put.return_value = MagicMock(status_code=202)
@@ -29,8 +29,8 @@ class TestRadarrClient:
         assert put_data["monitored"] is False
 
     @patch("mediaman.services.radarr.requests.post")
-    @patch("mediaman.services.radarr.requests.put")
-    @patch("mediaman.services.radarr.requests.get")
+    @patch("mediaman.services.arr_client_base.requests.put")
+    @patch("mediaman.services.arr_client_base.requests.get")
     def test_remonitor_movie(self, mock_get, mock_put, mock_post, client):
         mock_get.return_value = MagicMock(status_code=200, json=lambda: {"id": 1, "title": "Test", "monitored": False})
         mock_put.return_value = MagicMock(status_code=202)
@@ -40,7 +40,7 @@ class TestRadarrClient:
         assert put_data["monitored"] is True
         mock_post.assert_called_once()
 
-    @patch("mediaman.services.radarr.requests.get")
+    @patch("mediaman.services.arr_client_base.requests.get")
     def test_test_connection(self, mock_get, client):
         mock_get.return_value = MagicMock(status_code=200, json=lambda: {"version": "5.0"})
         assert client.test_connection() is True

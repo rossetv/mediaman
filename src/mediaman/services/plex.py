@@ -260,6 +260,14 @@ class PlexClient:
                         })
         return rated
 
+    def test_connection(self) -> bool:
+        """Return True if the Plex server responds and lists at least one library."""
+        try:
+            self.server.library.sections()
+            return True
+        except Exception:
+            return False
+
     def get_accounts(self) -> list[dict]:
         """Return named Plex accounts from the /accounts XML endpoint.
 

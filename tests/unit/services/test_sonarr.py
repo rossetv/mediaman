@@ -10,7 +10,7 @@ def client():
 
 
 class TestSonarrClient:
-    @patch("mediaman.services.sonarr.requests.get")
+    @patch("mediaman.services.arr_client_base.requests.get")
     def test_get_series(self, mock_get, client):
         mock_get.return_value = MagicMock(status_code=200, json=lambda: [
             {"id": 1, "title": "Modern Family", "path": "/tv/Modern Family", "seasons": [{"seasonNumber": 1, "monitored": True}]},
@@ -19,8 +19,8 @@ class TestSonarrClient:
         assert len(series) == 1
         assert series[0]["title"] == "Modern Family"
 
-    @patch("mediaman.services.sonarr.requests.put")
-    @patch("mediaman.services.sonarr.requests.get")
+    @patch("mediaman.services.arr_client_base.requests.put")
+    @patch("mediaman.services.arr_client_base.requests.get")
     def test_unmonitor_season(self, mock_get, mock_put, client):
         mock_get.return_value = MagicMock(status_code=200, json=lambda: {
             "id": 1, "title": "Modern Family",
@@ -33,8 +33,8 @@ class TestSonarrClient:
         assert season_2["monitored"] is False
 
     @patch("mediaman.services.sonarr.requests.post")
-    @patch("mediaman.services.sonarr.requests.put")
-    @patch("mediaman.services.sonarr.requests.get")
+    @patch("mediaman.services.arr_client_base.requests.put")
+    @patch("mediaman.services.arr_client_base.requests.get")
     def test_remonitor_season(self, mock_get, mock_put, mock_post, client):
         mock_get.return_value = MagicMock(status_code=200, json=lambda: {
             "id": 1, "title": "Test", "seasons": [{"seasonNumber": 1, "monitored": False}],
@@ -46,12 +46,12 @@ class TestSonarrClient:
         assert put_data["seasons"][0]["monitored"] is True
         mock_post.assert_called_once()
 
-    @patch("mediaman.services.sonarr.requests.get")
+    @patch("mediaman.services.arr_client_base.requests.get")
     def test_test_connection(self, mock_get, client):
         mock_get.return_value = MagicMock(status_code=200, json=lambda: {"version": "4.0"})
         assert client.test_connection() is True
 
-    @patch("mediaman.services.sonarr.requests.get")
+    @patch("mediaman.services.arr_client_base.requests.get")
     def test_test_connection_failure(self, mock_get, client):
         mock_get.side_effect = Exception("Connection refused")
         assert client.test_connection() is False
@@ -102,7 +102,7 @@ def test_get_episodes_returns_episode_list(monkeypatch):
 
         return R()
 
-    monkeypatch.setattr("mediaman.services.sonarr.requests.get", fake_get)
+    monkeypatch.setattr("mediaman.services.arr_client_base.requests.get", fake_get)
 
     client = SonarrClient("https://sonarr.local", "key456")
     result = client.get_episodes(42)
@@ -126,14 +126,14 @@ def test_get_episodes_returns_empty_list_on_non_list_response(monkeypatch):
 
         return R()
 
-    monkeypatch.setattr("mediaman.services.sonarr.requests.get", fake_get)
+    monkeypatch.setattr("mediaman.services.arr_client_base.requests.get", fake_get)
     client = SonarrClient("https://sonarr.local", "key456")
     result = client.get_episodes(1)
     assert result == []
 
 
 class TestLookupSeriesByTmdb:
-    @patch("mediaman.services.sonarr.requests.get")
+    @patch("mediaman.services.arr_client_base.requests.get")
     def test_returns_first_hit(self, mock_get, client):
         mock_get.return_value = MagicMock(
             status_code=200,
@@ -147,12 +147,12 @@ class TestLookupSeriesByTmdb:
         called_url = mock_get.call_args[0][0]
         assert "term=tmdb:12345" in called_url
 
-    @patch("mediaman.services.sonarr.requests.get")
+    @patch("mediaman.services.arr_client_base.requests.get")
     def test_returns_none_on_empty(self, mock_get, client):
         mock_get.return_value = MagicMock(status_code=200, json=lambda: [])
         assert client.lookup_series_by_tmdb(12345) is None
 
-    @patch("mediaman.services.sonarr.requests.get")
+    @patch("mediaman.services.arr_client_base.requests.get")
     def test_returns_none_on_exception(self, mock_get, client):
         mock_get.side_effect = Exception("boom")
         assert client.lookup_series_by_tmdb(12345) is None
@@ -160,7 +160,7 @@ class TestLookupSeriesByTmdb:
 
 class TestAddSeriesWithSeasons:
     @patch("mediaman.services.sonarr.requests.post")
-    @patch("mediaman.services.sonarr.requests.get")
+    @patch("mediaman.services.arr_client_base.requests.get")
     def test_sends_correct_monitored_flags(self, mock_get, mock_post, client):
         # Sonarr returns root folders, lookup, then the add response.
         lookup_result = [{
@@ -200,7 +200,7 @@ class TestAddSeriesWithSeasons:
         }
 
     @patch("mediaman.services.sonarr.requests.post")
-    @patch("mediaman.services.sonarr.requests.get")
+    @patch("mediaman.services.arr_client_base.requests.get")
     def test_no_search_when_search_seasons_empty(self, mock_get, mock_post, client):
         mock_get.side_effect = [
             MagicMock(status_code=200, json=lambda: [{"path": "/tv"}]),
@@ -224,7 +224,7 @@ class TestAddSeriesWithSeasons:
 
 
 class TestGetMissingSeries:
-    @patch("mediaman.services.sonarr.requests.get")
+    @patch("mediaman.services.arr_client_base.requests.get")
     def test_dedupes_by_series_id_across_pages(self, mock_get, client):
         page_one = {
             "records": [
@@ -256,7 +256,7 @@ class TestGetMissingSeries:
 
         assert out == {1: "A", 2: "B", 3: "C"}
 
-    @patch("mediaman.services.sonarr.requests.get")
+    @patch("mediaman.services.arr_client_base.requests.get")
     def test_empty_response_short_circuits(self, mock_get, client):
         mock_get.return_value = MagicMock(
             status_code=200,

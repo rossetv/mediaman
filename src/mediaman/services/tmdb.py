@@ -73,6 +73,18 @@ class TmdbClient:
     # Network calls
     # ------------------------------------------------------------------
 
+    def test_connection(self) -> bool:
+        """Return True if the TMDB API is reachable and the token is valid."""
+        try:
+            resp = requests.get(
+                f"{_BASE}/configuration",
+                headers=self._headers,
+                timeout=self._timeout,
+            )
+            return resp.ok
+        except Exception:
+            return False
+
     def search(
         self,
         title: str,

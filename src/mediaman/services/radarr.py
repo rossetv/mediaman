@@ -2,25 +2,10 @@
 
 import requests
 
+from mediaman.services.arr_client_base import ArrClient
 
-class RadarrClient:
-    def __init__(self, url: str, api_key: str):
-        self._url = url.rstrip("/")
-        self._headers = {"X-Api-Key": api_key}
 
-    def _get(self, path: str) -> dict | list:
-        resp = requests.get(f"{self._url}{path}", headers=self._headers, timeout=15)
-        resp.raise_for_status()
-        return resp.json()
-
-    def _put(self, path: str, data: dict) -> None:
-        resp = requests.put(f"{self._url}{path}", headers=self._headers, json=data, timeout=15)
-        resp.raise_for_status()
-
-    def _delete(self, path: str) -> None:
-        resp = requests.delete(f"{self._url}{path}", headers=self._headers, timeout=15)
-        resp.raise_for_status()
-
+class RadarrClient(ArrClient):
     def get_movies(self) -> list[dict]:
         return self._get("/api/v3/movie")
 
@@ -106,9 +91,3 @@ class RadarrClient:
                 return movie
         return None
 
-    def test_connection(self) -> bool:
-        try:
-            self._get("/api/v3/system/status")
-            return True
-        except Exception:
-            return False
