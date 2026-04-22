@@ -39,6 +39,11 @@ class SonarrClient(ArrClient):
         data = self._get(f"/api/v3/episode?seriesId={series_id}")
         return data if isinstance(data, list) else []
 
+    def get_episode_files(self, series_id: int) -> list[dict[str, object]]:
+        """Return episode file records for a given series."""
+        data = self._get(f"/api/v3/episodefile?seriesId={series_id}")
+        return data if isinstance(data, list) else []
+
     def unmonitor_season(self, series_id: int, season_number: int) -> None:
         series = self.get_series_by_id(series_id)
         for season in series["seasons"]:  # type: ignore[union-attr]

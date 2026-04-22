@@ -15,6 +15,8 @@ import threading
 import time
 from urllib.parse import quote as _url_quote
 
+import requests
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -362,14 +364,17 @@ def download_submit(request: Request, token: str):
                 "tmdb_id": tmdb_id,
             })
 
-    except Exception as exc:
-        error_msg = str(exc)
-        if "already" in error_msg.lower() or "exists" in error_msg.lower():
+    except requests.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else 0
+        if status in (409, 422):
             service = "Radarr" if media_type == "movie" else "Sonarr"
             return JSONResponse({
-                "ok":      False,
-                "error":   f"'{title}' already exists in your {service} library",
+                "ok":    False,
+                "error": f"'{title}' already exists in your {service} library",
             })
+        logger.warning("Download token submit failed for '%s': %s", title, exc)
+        return JSONResponse({"ok": False, "error": "Download request failed — check service connectivity"})
+    except Exception as exc:
         logger.warning("Download token submit failed for '%s': %s", title, exc)
         return JSONResponse({"ok": False, "error": "Download request failed — check service connectivity"})
 
@@ -631,6 +636,6 @@ def download_status(
         else:
             return JSONResponse(_unknown_item())
 
-    except Exception as exc:
+    except requests.RequestException as exc:
         logger.warning("download_status error (service=%s tmdb_id=%s): %s", service, tmdb_id, exc)
         return JSONResponse(_unknown_item())

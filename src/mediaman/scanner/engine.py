@@ -155,6 +155,19 @@ class ScanEngine:
             return parts[1]
         return path.strip("/")
 
+    def _resolve_added_at(self, item: dict) -> datetime:
+        """Return the best available 'added' datetime for a media item.
+
+        Prefers the Arr download date (looked up by normalised file path)
+        because it reflects when the file actually landed on disk, which
+        is more accurate than the Plex 'added_at' date.  Falls back to
+        the DB 'updated_at' / 'added_at' fields when no Arr record exists.
+        """
+        arr_date_str = self._arr_dates.get(self._normalise_path(item.get("file_path", "")))
+        if arr_date_str:
+            return _ensure_tz(_parse_iso_utc(arr_date_str) or datetime.now(timezone.utc))
+        return _ensure_tz(item.get("updated_at") or item.get("added_at"))
+
     def _build_arr_date_cache(self) -> None:
         """Build a lookup of normalised file paths → download dates from Radarr/Sonarr."""
         # Radarr: movieFile.dateAdded keyed by movie file path
@@ -173,7 +186,7 @@ class ScanEngine:
             try:
                 for series in self._sonarr.get_series():
                     try:
-                        efs = self._sonarr._get(f"/api/v3/episodefile?seriesId={series['id']}")
+                        efs = self._sonarr.get_episode_files(series["id"])
                         for ef in efs:
                             path = ef.get("path", "")
                             date_added = ef.get("dateAdded", "")
@@ -487,13 +500,7 @@ class ScanEngine:
                     summary["skipped"] += 1
                     continue
 
-                # Use updated_at (same as what's stored in DB) for age check
-                arr_date_str = self._arr_dates.get(self._normalise_path(item.get("file_path", "")))
-                if arr_date_str:
-                    raw_added = _parse_iso_utc(arr_date_str) or datetime.now(timezone.utc)
-                else:
-                    raw_added = item.get("updated_at") or item.get("added_at")
-                added_at = _ensure_tz(raw_added)
+                added_at = self._resolve_added_at(item)
                 decision = evaluate_movie(
                     added_at=added_at,
                     watch_history=watch_history,
@@ -545,12 +552,7 @@ class ScanEngine:
                     summary["skipped"] += 1
                     continue
 
-                arr_date_str = self._arr_dates.get(self._normalise_path(season.get("file_path", "")))
-                if arr_date_str:
-                    raw_added = _parse_iso_utc(arr_date_str) or datetime.now(timezone.utc)
-                else:
-                    raw_added = season.get("updated_at") or season.get("added_at")
-                added_at = _ensure_tz(raw_added)
+                added_at = self._resolve_added_at(season)
                 decision = evaluate_season(
                     added_at=added_at,
                     episode_count=season.get("episode_count", 0),
