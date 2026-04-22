@@ -20,6 +20,7 @@ from mediaman.auth.middleware import (
 )
 from mediaman.auth.audit import log_audit
 from mediaman.db import get_db
+from mediaman.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
 from mediaman.services.format import format_bytes as _format_bytes
 
 
@@ -36,7 +37,7 @@ router = APIRouter()
 
 def _format_expiry(action: str, execute_at: str | None) -> str:
     """Return a human-readable expiry string for a protected item."""
-    if action == "protected_forever":
+    if action == ACTION_PROTECTED_FOREVER:
         return "Forever"
     if not execute_at:
         return "Unknown"
@@ -103,7 +104,7 @@ def _fetch_protected(conn) -> tuple[list[dict], list[dict]]:
             "file_size": _format_bytes(r["file_size_bytes"] or 0),
         }
 
-        if r["action"] == "protected_forever":
+        if r["action"] == ACTION_PROTECTED_FOREVER:
             forever.append(item)
         else:
             snoozed.append(item)
@@ -262,9 +263,6 @@ def api_show_seasons(show_rating_key: str, request: Request, admin: str = Depend
     })
 
 
-_DURATION_DAYS = {"7 days": 7, "30 days": 30, "90 days": 90, "forever": None}
-
-
 @router.post("/api/show/{show_rating_key}/keep")
 def api_keep_show(
     show_rating_key: str,
@@ -281,7 +279,7 @@ def api_keep_show(
     if not season_ids:
         return JSONResponse({"ok": False, "error": "No seasons selected"}, status_code=400)
 
-    if duration not in _DURATION_DAYS:
+    if duration not in VALID_KEEP_DURATIONS:
         return JSONResponse({"ok": False, "error": "Invalid duration"}, status_code=400)
 
     # Guard against IDOR — every season_id must actually belong to this show.
@@ -296,14 +294,14 @@ def api_keep_show(
     if owned_ids != set(season_ids):
         return JSONResponse({"ok": False, "error": "Seasons do not belong to this show"}, status_code=400)
 
-    days = _DURATION_DAYS.get(duration)
+    days = VALID_KEEP_DURATIONS.get(duration)
 
     now = datetime.now(timezone.utc)
     if duration == "forever":
-        action = "protected_forever"
+        action = ACTION_PROTECTED_FOREVER
         execute_at = None
     else:
-        action = "snoozed"
+        action = ACTION_SNOOZED
         execute_at = (now + timedelta(days=days)).isoformat() if days else None
 
     title_row = conn.execute(

@@ -10,6 +10,7 @@ from starlette.responses import Response
 
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.db import get_db
+from mediaman.models import ACTION_PROTECTED_FOREVER, ACTION_SCHEDULED_DELETION, ACTION_SNOOZED
 from mediaman.services.format import format_bytes
 
 logger = logging.getLogger("mediaman")
@@ -20,7 +21,7 @@ router = APIRouter()
 ACTION_TYPES = [
     "scanned",
     "scheduled",
-    "snoozed",
+    ACTION_SNOOZED,
     "kept",
     "deleted",
     "downloaded",
@@ -34,11 +35,11 @@ ACTION_TYPES = [
 ACTION_BADGE_CLASS = {
     "scanned":            "badge-action-scanned",
     "scheduled":          "badge-action-scheduled",
-    "scheduled_deletion": "badge-action-scheduled",
-    "snoozed":            "badge-action-snoozed",
-    "kept":               "badge-action-protected",
-    "protected":          "badge-action-protected",
-    "protected_forever":  "badge-action-protected",
+    ACTION_SCHEDULED_DELETION: "badge-action-scheduled",
+    ACTION_SNOOZED:            "badge-action-snoozed",
+    "kept":                    "badge-action-protected",
+    "protected":               "badge-action-protected",
+    ACTION_PROTECTED_FOREVER:  "badge-action-protected",
     "deleted":            "badge-action-deleted",
     "downloaded":         "badge-action-downloaded",
     "re_downloaded":      "badge-action-redownloaded",
@@ -52,9 +53,9 @@ ACTION_BADGE_CLASS = {
 # Display labels — rename legacy action names for the UI
 ACTION_LABELS = {
     "protected":          "kept",
-    "protected_forever":  "kept",
-    "unprotected":        "unkept",
-    "scheduled_deletion": "scheduled",
+    ACTION_PROTECTED_FOREVER:  "kept",
+    "unprotected":             "unkept",
+    ACTION_SCHEDULED_DELETION: "scheduled",
     "kept_show":          "kept show",
     "removed_show_keep":  "unkept show",
     "dry_run_skip":       "dry run",
@@ -68,7 +69,7 @@ def _fetch_history(conn, action: str | None, page: int, per_page: int) -> tuple[
     """
     # Map filter names to actual DB action values (handles renamed actions)
     _FILTER_MAP = {
-        "kept": ("protected", "protected_forever", "kept", "kept_show"),
+        "kept": ("protected", ACTION_PROTECTED_FOREVER, "kept", "kept_show"),
         "unkept": ("unprotected", "removed_show_keep"),
     }
     if action and action in _FILTER_MAP:

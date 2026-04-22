@@ -12,6 +12,7 @@ from starlette.responses import Response
 
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.db import get_db
+from mediaman.models import ACTION_SCHEDULED_DELETION
 from mediaman.services.format import days_ago as _days_ago
 from mediaman.services.format import format_bytes as _format_bytes
 from mediaman.services.format import parse_iso_utc
@@ -59,10 +60,10 @@ def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
             mi.file_size_bytes
         FROM scheduled_actions sa
         JOIN media_items mi ON mi.id = sa.media_item_id
-        WHERE sa.action = 'scheduled_deletion'
+        WHERE sa.action = ?
           AND sa.token_used = 0
         ORDER BY sa.execute_at ASC
-    """).fetchall()
+    """, (ACTION_SCHEDULED_DELETION,)).fetchall()
 
     items = []
     for r in rows:

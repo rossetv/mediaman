@@ -15,6 +15,7 @@ from mediaman.auth.rate_limit import RateLimiter, get_client_ip
 from mediaman.config import load_config
 from mediaman.crypto import validate_keep_token
 from mediaman.db import get_db
+from mediaman.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
 
 router = APIRouter()
 
@@ -143,7 +144,7 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
         return RedirectResponse("/keep/expired", status_code=302)
 
     # Reject unknown durations early
-    if duration not in {"7 days", "30 days", "90 days", "forever"}:
+    if duration not in VALID_KEEP_DURATIONS:
         return RedirectResponse(f"/keep/{token}", status_code=302)
 
     # HMAC-verify the token and confirm it maps to an existing, unused action.
@@ -162,17 +163,17 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
 
     if duration == "forever":
         cursor = conn.execute(
-            "UPDATE scheduled_actions SET action='protected_forever', token_used=1, "
+            "UPDATE scheduled_actions SET action=?, token_used=1, "
             "snoozed_at=?, snooze_duration=? WHERE token=? AND token_used=0",
-            (now.isoformat(), "forever", token),
+            (ACTION_PROTECTED_FOREVER, now.isoformat(), "forever", token),
         )
     else:
-        days = {"7 days": 7, "30 days": 30, "90 days": 90}[duration]
-        new_execute = now + timedelta(days=days)
+        days = VALID_KEEP_DURATIONS[duration]
+        new_execute = now + timedelta(days=days)  # type: ignore[arg-type]
         cursor = conn.execute(
-            "UPDATE scheduled_actions SET action='snoozed', token_used=1, "
+            "UPDATE scheduled_actions SET action=?, token_used=1, "
             "execute_at=?, snoozed_at=?, snooze_duration=? WHERE token=? AND token_used=0",
-            (new_execute.isoformat(), now.isoformat(), duration, token),
+            (ACTION_SNOOZED, new_execute.isoformat(), now.isoformat(), duration, token),
         )
 
     if cursor.rowcount == 0:

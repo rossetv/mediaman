@@ -15,6 +15,7 @@ from mediaman.auth.audit import log_audit as _log_audit
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.auth.rate_limit import ActionRateLimiter as _ActionRateLimiter
 from mediaman.db import get_db
+from mediaman.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
 from mediaman.services.arr_build import (
     build_radarr_from_db as _build_radarr,
     build_sonarr_from_db as _build_sonarr,
@@ -69,9 +70,9 @@ def _protection_label(sa_action: str | None, sa_execute_at: str | None) -> str |
     """Return a human-friendly protection label, or None if not protected."""
     if sa_action is None:
         return None
-    if sa_action == "protected_forever":
+    if sa_action == ACTION_PROTECTED_FOREVER:
         return "Kept forever"
-    if sa_action == "snoozed" and sa_execute_at:
+    if sa_action == ACTION_SNOOZED and sa_execute_at:
         try:
             execute_at = datetime.fromisoformat(sa_execute_at)
             if execute_at.tzinfo is None:
@@ -524,13 +525,12 @@ def api_media_keep(
 ) -> JSONResponse:
     """Apply protection to a media item.
 
-    Duration must be one of: '7d', '30d', '90d', 'forever'.
+    Duration must be one of: '7 days', '30 days', '90 days', 'forever'.
     Inserts or replaces the scheduled_actions row for the item.
     """
     conn = get_db()
 
-    valid_durations = {"7d": 7, "30d": 30, "90d": 90, "forever": None}
-    if duration not in valid_durations:
+    if duration not in VALID_KEEP_DURATIONS:
         return JSONResponse({"error": "Invalid duration"}, status_code=400)
 
     # Verify item exists
@@ -541,14 +541,14 @@ def api_media_keep(
     now = datetime.now(timezone.utc)
 
     if duration == "forever":
-        action = "protected_forever"
+        action = ACTION_PROTECTED_FOREVER
         execute_at = None
         snooze_label = "forever"
     else:
-        days = valid_durations[duration]
-        action = "snoozed"
-        execute_at = (now + timedelta(days=days)).isoformat()
-        snooze_label = f"{days} days"
+        days = VALID_KEEP_DURATIONS[duration]
+        action = ACTION_SNOOZED
+        execute_at = (now + timedelta(days=days)).isoformat()  # type: ignore[arg-type]
+        snooze_label = duration
 
     # Check for an existing active scheduled action for this item
     existing = conn.execute(

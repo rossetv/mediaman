@@ -181,7 +181,7 @@ class TestMediaKeep:
         app = _make_app(conn, secret_key)
         client = TestClient(app, raise_server_exceptions=True)
 
-        resp = client.post("/api/media/m1/keep", data={"duration": "30d"})
+        resp = client.post("/api/media/m1/keep", data={"duration": "30 days"})
         assert resp.status_code == 401
 
     def test_keep_forever_inserts_protected_forever_action(self, db_path, secret_key):
@@ -204,13 +204,13 @@ class TestMediaKeep:
         assert sa["action"] == "protected_forever"
 
     def test_keep_30d_inserts_snoozed_action(self, db_path, secret_key):
-        """Keep with duration=30d inserts a snoozed scheduled_action."""
+        """Keep with duration='30 days' inserts a snoozed scheduled_action."""
         conn = init_db(str(db_path))
         _insert_movie(conn)
         app = _make_app(conn, secret_key)
         client = _auth_client(app, conn)
 
-        resp = client.post("/api/media/m1/keep", data={"duration": "30d"})
+        resp = client.post("/api/media/m1/keep", data={"duration": "30 days"})
 
         assert resp.status_code == 200
 
@@ -237,7 +237,7 @@ class TestMediaKeep:
         app = _make_app(conn, secret_key)
         client = _auth_client(app, conn)
 
-        resp = client.post("/api/media/no-such-id/keep", data={"duration": "7d"})
+        resp = client.post("/api/media/no-such-id/keep", data={"duration": "7 days"})
         assert resp.status_code == 404
 
     def test_keep_updates_existing_action(self, db_path, secret_key):
@@ -247,7 +247,7 @@ class TestMediaKeep:
         app = _make_app(conn, secret_key)
         client = _auth_client(app, conn)
 
-        client.post("/api/media/m1/keep", data={"duration": "7d"})
+        client.post("/api/media/m1/keep", data={"duration": "7 days"})
         resp = client.post("/api/media/m1/keep", data={"duration": "forever"})
 
         assert resp.status_code == 200

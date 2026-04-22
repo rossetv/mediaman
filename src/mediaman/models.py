@@ -1,6 +1,27 @@
 """Pydantic models for API request/response validation."""
 
+from __future__ import annotations
+
 from pydantic import BaseModel, field_validator
+
+# ---------------------------------------------------------------------------
+# Action type constants — canonical string values stored in scheduled_actions
+# ---------------------------------------------------------------------------
+
+ACTION_PROTECTED_FOREVER = "protected_forever"
+ACTION_SNOOZED = "snoozed"
+ACTION_SCHEDULED_DELETION = "scheduled_deletion"
+
+# ---------------------------------------------------------------------------
+# Keep duration vocabulary — maps canonical long-form label to days (None = forever)
+# ---------------------------------------------------------------------------
+
+VALID_KEEP_DURATIONS: dict[str, int | None] = {
+    "7 days": 7,
+    "30 days": 30,
+    "90 days": 90,
+    "forever": None,
+}
 
 
 class LoginRequest(BaseModel):
@@ -14,9 +35,8 @@ class KeepRequest(BaseModel):
     @field_validator("duration")
     @classmethod
     def validate_duration(cls, v: str) -> str:
-        allowed = {"7 days", "30 days", "90 days", "forever"}
-        if v not in allowed:
-            raise ValueError(f"Duration must be one of: {allowed}")
+        if v not in VALID_KEEP_DURATIONS:
+            raise ValueError(f"Duration must be one of: {set(VALID_KEEP_DURATIONS)}")
         return v
 
 
