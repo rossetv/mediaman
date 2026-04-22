@@ -45,6 +45,11 @@ class TmdbClient:
             "Accept": "application/json",
         }
 
+    @property
+    def headers(self) -> dict[str, str]:
+        """Return a copy of the auth headers for use with raw requests calls."""
+        return dict(self._headers)
+
     @classmethod
     def from_db(
         cls,

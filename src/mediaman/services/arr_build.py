@@ -50,15 +50,21 @@ def build_sonarr_from_db(conn: sqlite3.Connection, secret_key: str) -> SonarrCli
 
 
 def build_arr_client(
-    conn: sqlite3.Connection, service: str
+    conn: sqlite3.Connection, service: str, secret_key: str | None = None,
 ) -> RadarrClient | SonarrClient | None:
-    """Build a Radarr or Sonarr client from DB settings. Returns None if unconfigured."""
-    from mediaman.config import load_config
-    config = load_config()
+    """Build a Radarr or Sonarr client from DB settings. Returns None if unconfigured.
+
+    ``secret_key`` is optional: when omitted the key is loaded from
+    :func:`~mediaman.config.load_config`. Pass it explicitly when the
+    caller already has a config handle to avoid a redundant load.
+    """
+    if secret_key is None:
+        from mediaman.config import load_config
+        secret_key = load_config().secret_key
     if service == "radarr":
-        return build_radarr_from_db(conn, config.secret_key)
+        return build_radarr_from_db(conn, secret_key)
     if service == "sonarr":
-        return build_sonarr_from_db(conn, config.secret_key)
+        return build_sonarr_from_db(conn, secret_key)
     return None
 
 

@@ -14,9 +14,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
-from mediaman.crypto import decrypt_value
 from mediaman.db import get_db
 from mediaman.services.arr_build import build_radarr_from_db, build_sonarr_from_db
+from mediaman.services.tmdb import TmdbClient
 from mediaman.services.download_notifications import record_download_notification as _record_dn
 from mediaman.services.omdb import fetch_ratings
 
@@ -41,22 +41,9 @@ _BACKDROP_BASE = "https://image.tmdb.org/t/p/w780"
 
 
 def _tmdb_headers(conn, secret_key: str) -> dict[str, str] | None:
-    """Read the TMDB bearer token from settings and return auth headers.
-
-    Returns None if the token is missing or cannot be decrypted.
-    """
-    row = conn.execute(
-        "SELECT value, encrypted FROM settings WHERE key='tmdb_read_token'"
-    ).fetchone()
-    if not row or not row["value"]:
-        return None
-    token = row["value"]
-    if row["encrypted"]:
-        try:
-            token = decrypt_value(token, secret_key, conn=conn, aad=b"tmdb_read_token")
-        except Exception:
-            return None
-    return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    """Return TMDB auth headers, or None if not configured."""
+    client = TmdbClient.from_db(conn, secret_key)
+    return client.headers if client is not None else None
 
 
 def _poster_url(path: str | None) -> str | None:
