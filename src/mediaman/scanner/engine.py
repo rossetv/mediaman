@@ -16,7 +16,7 @@ import logging
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 
 from mediaman.auth.audit import log_audit
 from mediaman.crypto import generate_keep_token
@@ -179,7 +179,7 @@ class ScanEngine:
                         key = self._normalise_path(mf["path"])
                         self._arr_dates[key] = mf["dateAdded"]
             except Exception:
-                logger.warning("Failed to fetch Radarr dates — falling back to Plex")
+                logger.warning("Failed to fetch Radarr dates — falling back to Plex", exc_info=True)
 
         # Sonarr: episodefile.dateAdded keyed by season directory → latest date
         if self._sonarr:
@@ -201,7 +201,7 @@ class ScanEngine:
                             "Failed to fetch episode files for series %s", series.get("id"), exc_info=True
                         )
             except Exception:
-                logger.warning("Failed to fetch Sonarr dates — falling back to Plex")
+                logger.warning("Failed to fetch Sonarr dates — falling back to Plex", exc_info=True)
 
         if self._arr_dates:
             logger.info("Cached %d download dates from Radarr/Sonarr", len(self._arr_dates))
@@ -470,17 +470,42 @@ class ScanEngine:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _scan_movie_library(
-        self, library_id: str, summary: dict, seen_keys: set[str] | None = None,
+    def _scan_items(
+        self,
+        fetched: list[_PlexItemFetch],
+        media_type_fn: Callable[[_PlexItemFetch], str],
+        evaluate_fn: Callable[[_PlexItemFetch, Any, list], str | None],
+        item_label: str,
+        library_id: str,
+        summary: dict,
+        seen_keys: set[str] | None = None,
     ) -> None:
-        # Phase 1: pull items + watch histories from Plex (no DB writes,
-        # no lock). See :meth:`sync_library` for rationale.
-        fetched = self._fetch_library_items(library_id)
+        """Shared iteration skeleton for movie and TV scan passes.
 
-        # Phase 2: DB-only work. All reads and writes now happen without
-        # any intervening network calls, so the write transaction that
-        # opens on the first UPSERT closes within milliseconds at the
-        # caller's ``commit()``.
+        Iterates *fetched* items, upserts each one, applies the common
+        protection/schedule guards, then delegates per-item evaluation to
+        *evaluate_fn*.  The two callers differ only in ``media_type_fn``
+        (which selects the media type string from the fetch record) and
+        ``evaluate_fn`` (which calls the appropriate evaluator and applies
+        any domain-specific pre-skip logic such as the TV show-kept check).
+
+        Args:
+            fetched: Pre-fetched items from :meth:`_fetch_library_items`.
+            media_type_fn: Callable that returns the media_type string for a
+                :class:`_PlexItemFetch` record.
+            evaluate_fn: Callable ``(fetch, added_at, watch_history) →
+                decision`` where decision is ``"schedule_deletion"`` or any
+                other value meaning "skip".  May return ``None`` to signal
+                an early skip (e.g. show-kept check failed before evaluation).
+            item_label: Human-readable label used in exception log messages
+                (e.g. ``"Movie"`` or ``"TV"``).
+            library_id: Plex section ID — passed through to
+                :meth:`_upsert_media_item`.
+            summary: Mutable summary counter dict (``scanned``, ``scheduled``,
+                ``skipped``, ``errors``).
+            seen_keys: If provided, the item's Plex rating key is added so
+                orphan detection can exclude it later.
+        """
         for f in fetched:
             summary["scanned"] += 1
             item = f.item
@@ -489,7 +514,7 @@ class ScanEngine:
                 media_id = item["plex_rating_key"]
                 if seen_keys is not None:
                     seen_keys.add(media_id)
-                self._upsert_media_item(item, library_id, "movie")
+                self._upsert_media_item(item, library_id, media_type_fn(f))
                 self._update_last_watched(media_id, watch_history)
 
                 if self._is_protected(media_id):
@@ -501,12 +526,12 @@ class ScanEngine:
                     continue
 
                 added_at = self._resolve_added_at(item)
-                decision = evaluate_movie(
-                    added_at=added_at,
-                    watch_history=watch_history,
-                    min_age_days=self._min_age_days,
-                    inactivity_days=self._inactivity_days,
-                )
+                decision = evaluate_fn(f, added_at, watch_history)
+
+                if decision is None:
+                    # evaluate_fn signalled an early skip (e.g. show-kept)
+                    summary["skipped"] += 1
+                    continue
 
                 if decision == "schedule_deletion":
                     is_reentry = self._has_expired_snooze(media_id)
@@ -517,9 +542,36 @@ class ScanEngine:
             except Exception:
                 summary["errors"] += 1
                 logger.exception(
-                    "Movie scan item failed (plex_rating_key=%s)",
+                    "%s scan item failed (plex_rating_key=%s)",
+                    item_label,
                     item.get("plex_rating_key", "?"),
                 )
+
+    def _scan_movie_library(
+        self, library_id: str, summary: dict, seen_keys: set[str] | None = None,
+    ) -> None:
+        # Phase 1: pull items + watch histories from Plex (no DB writes,
+        # no lock). See :meth:`sync_library` for rationale.
+        fetched = self._fetch_library_items(library_id)
+
+        # Phase 2: DB-only work via the shared skeleton.
+        def _evaluate(f: _PlexItemFetch, added_at: Any, watch_history: list) -> str | None:
+            return evaluate_movie(
+                added_at=added_at,
+                watch_history=watch_history,
+                min_age_days=self._min_age_days,
+                inactivity_days=self._inactivity_days,
+            )
+
+        self._scan_items(
+            fetched,
+            media_type_fn=lambda f: "movie",
+            evaluate_fn=_evaluate,
+            item_label="Movie",
+            library_id=library_id,
+            summary=summary,
+            seen_keys=seen_keys,
+        )
 
     def _scan_tv_library(
         self, library_id: str, summary: dict, seen_keys: set[str] | None = None,
@@ -527,53 +579,31 @@ class ScanEngine:
         # Phase 1: network fetch (see :meth:`sync_library`).
         fetched = self._fetch_library_items(library_id)
 
-        # Phase 2: DB-only work inside a single write transaction.
-        for f in fetched:
-            summary["scanned"] += 1
+        # Phase 2: DB-only work via the shared skeleton.
+        # The show-kept check is TV-specific; returning None from evaluate_fn
+        # signals the skeleton to count this item as skipped without scheduling.
+        def _evaluate(f: _PlexItemFetch, added_at: Any, watch_history: list) -> str | None:
             season = f.item
-            watch_history = f.watch_history
-            try:
-                media_id = season["plex_rating_key"]
-                if seen_keys is not None:
-                    seen_keys.add(media_id)
-                self._upsert_media_item(season, library_id, f.media_type)
-                self._update_last_watched(media_id, watch_history)
+            if self._is_show_kept(season.get("show_rating_key")):
+                return None  # signals early skip to _scan_items
+            return evaluate_season(
+                added_at=added_at,
+                episode_count=season.get("episode_count", 0),
+                watch_history=watch_history,
+                has_future_episodes=False,
+                min_age_days=self._min_age_days,
+                inactivity_days=self._inactivity_days,
+            )
 
-                show_rk = season.get("show_rating_key")
-                if self._is_show_kept(show_rk):
-                    summary["skipped"] += 1
-                    continue
-
-                if self._is_protected(media_id):
-                    summary["skipped"] += 1
-                    continue
-
-                if self._is_already_scheduled(media_id):
-                    summary["skipped"] += 1
-                    continue
-
-                added_at = self._resolve_added_at(season)
-                decision = evaluate_season(
-                    added_at=added_at,
-                    episode_count=season.get("episode_count", 0),
-                    watch_history=watch_history,
-                    has_future_episodes=False,
-                    min_age_days=self._min_age_days,
-                    inactivity_days=self._inactivity_days,
-                )
-
-                if decision == "schedule_deletion":
-                    is_reentry = self._has_expired_snooze(media_id)
-                    self._schedule_deletion(media_id, is_reentry)
-                    summary["scheduled"] += 1
-                else:
-                    summary["skipped"] += 1
-            except Exception:
-                summary["errors"] += 1
-                logger.exception(
-                    "TV scan item failed (plex_rating_key=%s)",
-                    season.get("plex_rating_key", "?"),
-                )
+        self._scan_items(
+            fetched,
+            media_type_fn=lambda f: f.media_type,
+            evaluate_fn=_evaluate,
+            item_label="TV",
+            library_id=library_id,
+            summary=summary,
+            seen_keys=seen_keys,
+        )
 
     def _remove_orphaned_items(
         self, seen_keys: set[str], scanned_libs: set[int],

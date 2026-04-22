@@ -478,7 +478,7 @@ def api_media_delete(
                         title,
                     )
         except Exception as exc:
-            logger.warning("Radarr delete failed for '%s': %s", title, exc)
+            logger.warning("Radarr delete failed for '%s': %s", title, exc, exc_info=True)
 
     # Delete via Sonarr (TV) — delete episode files + unmonitor season
     else:
@@ -498,7 +498,7 @@ def api_media_delete(
                         client.delete_series(sid)
                         logger.info("No files remain for '%s' — deleted series from Sonarr with exclusion", title)
         except Exception as exc:
-            logger.warning("Sonarr delete failed for '%s': %s", title, exc)
+            logger.warning("Sonarr delete failed for '%s': %s", title, exc, exc_info=True)
 
     # Audit log — include title and poster key so they survive media_items deletion
     rk = row["plex_rating_key"] or ""
@@ -641,7 +641,7 @@ def api_media_redownload(
         error_msg = str(exc)
         if "already" in error_msg.lower() or "exists" in error_msg.lower():
             return JSONResponse({"ok": False, "error": f"'{title}' already exists in Sonarr"})
-        logger.warning("Re-download via Sonarr failed for '%s': %s", title, exc)
+        logger.warning("Re-download via Sonarr failed for '%s': %s", title, exc, exc_info=True)
         return JSONResponse({"ok": False, "error": "Download request failed — check service connectivity"})
 
     return JSONResponse({"ok": False, "error": f"'{title}' not found in Radarr or Sonarr"})

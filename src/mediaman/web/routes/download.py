@@ -364,10 +364,10 @@ def download_submit(request: Request, token: str) -> JSONResponse:
                 "ok":    False,
                 "error": f"'{title}' already exists in your {service} library",
             })
-        logger.warning("Download token submit failed for '%s': %s", title, exc)
+        logger.warning("Download token submit failed for '%s': %s", title, exc, exc_info=True)
         return JSONResponse({"ok": False, "error": "Download request failed — check service connectivity"})
     except Exception as exc:
-        logger.warning("Download token submit failed for '%s': %s", title, exc)
+        logger.warning("Download token submit failed for '%s': %s", title, exc, exc_info=True)
         return JSONResponse({"ok": False, "error": "Download request failed — check service connectivity"})
 
 

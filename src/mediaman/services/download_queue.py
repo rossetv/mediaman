@@ -186,6 +186,25 @@ def _build_arr_link(arr: dict, base_urls: dict[str, str]) -> str:
     return ""
 
 
+def _maybe_record_completions(conn: sqlite3.Connection, current_map: dict[str, dict]) -> None:
+    """Detect items that vanished since the last poll and record verified completions.
+
+    Mutates the module-level ``_previous_queue`` / ``_previous_initialised``
+    snapshot under ``_state_lock``.  Separated from :func:`build_downloads_response`
+    so that function only builds and returns data — it no longer has a DB-write
+    side effect hidden inside a query function.
+    """
+    global _previous_queue, _previous_initialised
+
+    with _state_lock:
+        if _previous_initialised:
+            completed = _detect_completed(_previous_queue, current_map)
+            record_verified_completions(conn, completed, _build_arr_client)
+
+        _previous_queue = current_map
+        _previous_initialised = True
+
+
 def build_downloads_response(conn: sqlite3.Connection) -> dict:
     """Build the simplified download queue with hero selection.
 
@@ -456,16 +475,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
     #    Only record as completed if Radarr/Sonarr confirms the item has files
     #    (prevents failed/removed grabs from appearing as "Ready to watch").
     current_map = {item["id"]: item for item in items}
-
-    with _state_lock:
-        global _previous_queue, _previous_initialised
-
-        if _previous_initialised:
-            completed = _detect_completed(_previous_queue, current_map)
-            record_verified_completions(conn, completed, _build_arr_client)
-
-        _previous_queue = current_map
-        _previous_initialised = True
+    _maybe_record_completions(conn, current_map)
 
     # 7. Hero selection
     hero, queue = select_hero(items)

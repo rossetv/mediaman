@@ -19,6 +19,24 @@ from mediaman.services.format import title_from_audit_detail as _extract_title_f
 logger = logging.getLogger("mediaman")
 
 
+def _parse_days_ago(value: str | None, now: datetime) -> int | None:
+    """Parse an ISO datetime string and return the number of days before *now*.
+
+    Returns ``None`` when *value* is empty or cannot be parsed, logging a
+    warning (with traceback) on parse failure so silently-wrong timestamps
+    don't go unnoticed.
+    """
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value))
+        dt = _ensure_tz(dt)
+        return (now - dt).days
+    except (ValueError, TypeError):
+        logger.warning("Failed to parse days value: %r", value, exc_info=True)
+        return None
+
+
 def send_newsletter(
     conn: sqlite3.Connection,
     secret_key: str,
@@ -123,12 +141,7 @@ def send_newsletter(
     scheduled_items = []
     for row in scheduled_rows:
         added_at_raw = row["added_at"]
-        try:
-            added_dt = datetime.fromisoformat(str(added_at_raw))
-            added_dt = _ensure_tz(added_dt)
-            added_days_ago = (now - added_dt).days
-        except (ValueError, TypeError):
-            added_days_ago = None
+        added_days_ago = _parse_days_ago(added_at_raw, now)
 
         rating_key = row["plex_rating_key"] or ""
         poster_url = (
@@ -141,18 +154,14 @@ def send_newsletter(
         last_watched_info = None
         lw_raw = row["last_watched_at"]
         if lw_raw:
-            try:
-                lw_dt = datetime.fromisoformat(str(lw_raw))
-                lw_dt = _ensure_tz(lw_dt)
-                lw_days = (now - lw_dt).days
+            lw_days = _parse_days_ago(lw_raw, now)
+            if lw_days is not None:
                 if lw_days == 0:
                     last_watched_info = "Watched today"
                 elif lw_days == 1:
                     last_watched_info = "Watched yesterday"
                 else:
                     last_watched_info = f"Watched {lw_days} days ago"
-            except (ValueError, TypeError):
-                pass
 
         # Build human-readable type label with season number
         media_type = row["media_type"] or "movie"
@@ -212,18 +221,15 @@ def send_newsletter(
         if last_redownload and last_redownload > row["created_at"]:
             continue
 
-        try:
-            del_dt = datetime.fromisoformat(str(row["created_at"]))
-            del_dt = _ensure_tz(del_dt)
-            days_ago = (now - del_dt).days
-            if days_ago == 0:
-                deleted_date = "today"
-            elif days_ago == 1:
-                deleted_date = "yesterday"
-            else:
-                deleted_date = f"{days_ago} days ago"
-        except (ValueError, TypeError):
+        days_ago = _parse_days_ago(row["created_at"], now)
+        if days_ago is None:
             deleted_date = ""
+        elif days_ago == 0:
+            deleted_date = "today"
+        elif days_ago == 1:
+            deleted_date = "yesterday"
+        else:
+            deleted_date = f"{days_ago} days ago"
 
         rating_key = row["plex_rating_key"] or _extract_rk_from_detail(row["detail"]) or ""
         poster_url = (
