@@ -17,6 +17,7 @@ import logging
 import sqlite3
 from typing import Any, Callable
 
+from mediaman.services.arr_fetcher import ArrCard
 from mediaman.services.arr_state import movie_has_file, series_has_files
 from mediaman.services.download_format import extract_poster_url
 
@@ -24,7 +25,7 @@ logger = logging.getLogger("mediaman")
 
 
 def _detect_completed(
-    previous: dict[str, dict], current: dict[str, dict]
+    previous: dict[str, ArrCard], current: dict[str, ArrCard]
 ) -> list[dict]:
     """Find items that disappeared from the queue (i.e. completed).
 

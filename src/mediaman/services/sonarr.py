@@ -30,10 +30,14 @@ class SonarrClient(ArrClient):
         return len(efs) > 0
 
     def get_series(self) -> list[dict[str, object]]:
-        return cast(list[dict[str, object]], self._get("/api/v3/series"))
+        data = self._get("/api/v3/series")
+        return cast(list[dict[str, object]], data) if isinstance(data, list) else []
 
     def get_series_by_id(self, series_id: int) -> dict[str, object]:
-        return cast(dict[str, object], self._get(f"/api/v3/series/{series_id}"))
+        data = self._get(f"/api/v3/series/{series_id}")
+        if not isinstance(data, dict):
+            raise ValueError(f"Sonarr returned unexpected response type for series {series_id}")
+        return cast(dict[str, object], data)
 
     def get_episodes(self, series_id: int) -> list[dict[str, object]]:
         """Return all episodes for a given series."""

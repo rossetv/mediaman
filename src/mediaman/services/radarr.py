@@ -11,7 +11,8 @@ from mediaman.services.arr_client_base import ArrClient
 
 class RadarrClient(ArrClient):
     def get_movies(self) -> list[dict[str, object]]:
-        return cast(list[dict[str, object]], self._get("/api/v3/movie"))
+        data = self._get("/api/v3/movie")
+        return cast(list[dict[str, object]], data) if isinstance(data, list) else []
 
     def get_movie_by_id(self, movie_id: int) -> dict[str, object]:
         return cast(dict[str, object], self._get(f"/api/v3/movie/{movie_id}"))
