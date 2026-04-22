@@ -259,7 +259,7 @@ def proxy_poster(
     rating_key: str,
     sig: str | None = None,
     admin: str | None = Depends(get_optional_admin),
-):
+) -> Response:
     """Serve a poster image, fetching from Plex only on cache miss.
 
     Authentication: either an active admin session, or a valid HMAC

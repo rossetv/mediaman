@@ -56,7 +56,7 @@ def _validate_email(email: str) -> bool:
 # ---------------------------------------------------------------------------
 
 @router.get("/api/subscribers")
-def api_list_subscribers(username: str = Depends(get_current_admin)):
+def api_list_subscribers(username: str = Depends(get_current_admin)) -> JSONResponse:
     """Return all subscribers as JSON."""
     conn = get_db()
     rows = conn.execute(
@@ -79,7 +79,7 @@ def api_list_subscribers(username: str = Depends(get_current_admin)):
 def api_add_subscriber(
     email: str = Form(...),
     username: str = Depends(get_current_admin),
-):
+) -> JSONResponse:
     """Add a new subscriber.
 
     Validates email format, then inserts into subscribers. Returns 409 if
@@ -111,7 +111,7 @@ def api_add_subscriber(
 def api_remove_subscriber(
     subscriber_id: int,
     username: str = Depends(get_current_admin),
-):
+) -> JSONResponse:
     """Remove a subscriber by ID."""
     conn = get_db()
     row = conn.execute(
@@ -132,7 +132,7 @@ def api_send_newsletter(
     request: Request,
     body: _SendNewsletterBody,
     admin: str = Depends(get_current_admin),
-):
+) -> JSONResponse:
     """Manually send the newsletter to selected recipients.
 
     Expects JSON body: ``{"recipients": ["email@example.com", ...]}``.
@@ -206,7 +206,7 @@ def _generic_invalid_response() -> HTMLResponse:
 
 
 @router.get("/unsubscribe", response_class=HTMLResponse)
-def unsubscribe_page(request: Request, email: str = "", token: str = ""):
+def unsubscribe_page(request: Request, email: str = "", token: str = "") -> HTMLResponse:
     """Show unsubscribe confirmation page. Actual unsubscribe happens via POST."""
     from mediaman.config import load_config
     config = load_config()
@@ -232,7 +232,7 @@ def unsubscribe_confirm(
     request: Request,
     email: str = Form(default=""),
     token: str = Form(default=""),
-):
+) -> HTMLResponse:
     """Process the unsubscribe after user confirmation."""
     from mediaman.config import load_config
     config = load_config()

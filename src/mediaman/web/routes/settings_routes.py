@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from starlette.responses import Response
 
 from mediaman.auth.audit import security_event
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
@@ -120,7 +121,7 @@ def _mask_secrets(settings: dict) -> dict:
 
 
 @router.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request):
+def settings_page(request: Request) -> Response:
     """Render the settings page. Redirects to /login if session is invalid."""
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
@@ -150,7 +151,7 @@ def settings_page(request: Request):
 
 
 @router.get("/api/settings")
-def api_get_settings(request: Request, admin: str = Depends(get_current_admin)):
+def api_get_settings(request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
     """Return all settings as JSON with secret fields masked as '****'."""
     conn = get_db()
     config = request.app.state.config
@@ -163,7 +164,7 @@ def api_update_settings(
     request: Request,
     body: SettingsUpdate,
     admin: str = Depends(get_current_admin),
-):
+) -> Response:
     """Persist settings from the request body.
 
     Secret fields are encrypted before storage. If a secret field value is
@@ -268,7 +269,7 @@ def api_update_settings(
 
 
 @router.post("/api/settings/test/{service}")
-def api_test_service(service: str, request: Request, admin: str = Depends(get_current_admin)):
+def api_test_service(service: str, request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
     """Test connectivity for a named service using current stored settings.
 
     Returns ``{"ok": true}`` on success or ``{"ok": false, "error": "..."}``
@@ -383,7 +384,7 @@ def api_test_service(service: str, request: Request, admin: str = Depends(get_cu
 
 
 @router.get("/api/plex/libraries")
-def api_plex_libraries(request: Request, admin: str = Depends(get_current_admin)):
+def api_plex_libraries(request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
     """Return all Plex library sections available on the configured server.
 
     Returns ``{"libraries": [...]}`` on success or
@@ -438,7 +439,7 @@ def _disk_usage_allowed_paths() -> set[str]:
 
 
 @router.get("/api/settings/disk-usage")
-def api_disk_usage(request: Request, path: str = "", admin: str = Depends(get_current_admin)):
+def api_disk_usage(request: Request, path: str = "", admin: str = Depends(get_current_admin)) -> JSONResponse:
     """Return disk usage stats for a whitelisted filesystem path.
 
     The *path* parameter is resolved and must equal — or be a

@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from starlette.responses import Response
 
 from mediaman.auth.middleware import (
     get_current_admin,
@@ -76,7 +77,7 @@ def _record_manual_refresh(conn, when: datetime) -> None:
 
 
 @router.get("/suggestions")
-def _legacy_suggestions_redirect(request: Request):
+def _legacy_suggestions_redirect(request: Request) -> RedirectResponse:
     """Permanent redirect for bookmarked /suggestions URLs — auth-gated."""
     if get_optional_admin_from_token(
         request.cookies.get("session_token"), request=request
@@ -86,7 +87,7 @@ def _legacy_suggestions_redirect(request: Request):
 
 
 @router.get("/recommended", response_class=HTMLResponse)
-def recommended_page(request: Request):
+def recommended_page(request: Request) -> Response:
     """Render the Recommended For You page, grouping recommendations by batch into accordion sections."""
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
@@ -225,7 +226,7 @@ def recommended_page(request: Request):
 
 
 @router.get("/api/recommended")
-def api_recommended(admin: str = Depends(get_current_admin)):
+def api_recommended(admin: str = Depends(get_current_admin)) -> JSONResponse:
     """Return cached recommendations as JSON."""
     conn = get_db()
     return JSONResponse({"recommendations": _fetch_recommendations(conn)})
@@ -239,7 +240,7 @@ _refresh_result: dict | None = None
 
 
 @router.post("/api/recommended/refresh")
-def api_refresh_recommendations(request: Request, admin: str = Depends(get_current_admin)):
+def api_refresh_recommendations(request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
     """Start a manual recommendation refresh in the background.
 
     Rate-limited to once per 24 hours to keep OpenAI spend bounded.
@@ -314,7 +315,7 @@ def api_refresh_recommendations(request: Request, admin: str = Depends(get_curre
 
 
 @router.get("/api/recommended/refresh/status")
-def api_refresh_status(admin: str = Depends(get_current_admin)):
+def api_refresh_status(admin: str = Depends(get_current_admin)) -> JSONResponse:
     """Poll whether the background refresh is still running.
 
     Also returns cooldown info so the page can keep the button hidden
@@ -341,7 +342,7 @@ def api_refresh_status(admin: str = Depends(get_current_admin)):
 
 
 @router.post("/api/recommended/{recommendation_id}/download")
-def api_download_recommendation(recommendation_id: int, request: Request, admin: str = Depends(get_current_admin)):
+def api_download_recommendation(recommendation_id: int, request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
     """Add a recommended movie/show to Radarr or Sonarr and trigger download."""
     conn = get_db()
     config = request.app.state.config

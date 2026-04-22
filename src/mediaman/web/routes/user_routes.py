@@ -18,6 +18,7 @@ import logging
 
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse
+from starlette.responses import Response
 from pydantic import BaseModel
 
 from mediaman.auth.audit import security_event
@@ -57,7 +58,7 @@ class _ChangePasswordBody(BaseModel):
 
 
 @router.get("/api/users")
-def api_list_users(admin: str = Depends(get_current_admin)):
+def api_list_users(admin: str = Depends(get_current_admin)) -> dict:
     """List all admin users."""
     conn = get_db()
     return {"users": list_users(conn), "current": admin}
@@ -67,7 +68,7 @@ def api_list_users(admin: str = Depends(get_current_admin)):
 def api_create_user(
     body: _CreateUserBody,
     admin: str = Depends(get_current_admin),
-):
+) -> Response:
     """Create a new admin user."""
     username = body.username.strip()
     password = body.password
@@ -105,7 +106,7 @@ def api_delete_user(
     admin: str = Depends(get_current_admin),
     confirm_password: str = "",
     x_confirm_password: str | None = Header(default=None),
-):
+) -> Response:
     """Delete an admin user. Cannot delete yourself.
 
     Requires the caller's password, accepted from either:
@@ -146,7 +147,7 @@ def api_change_password(
     request: Request,
     body: _ChangePasswordBody,
     admin: str = Depends(get_current_admin),
-):
+) -> JSONResponse:
     """Change the current user's password."""
     old_password = body.old_password
     new_password = body.new_password
@@ -192,7 +193,7 @@ def api_change_password(
 
 
 @router.get("/api/users/sessions")
-def api_list_sessions(admin: str = Depends(get_current_admin)):
+def api_list_sessions(admin: str = Depends(get_current_admin)) -> dict:
     """List active sessions for the current admin.
 
     Returns metadata only (timestamps, issued IP, fingerprint) — never
@@ -207,7 +208,7 @@ def api_list_sessions(admin: str = Depends(get_current_admin)):
 def api_revoke_other_sessions(
     request: Request,
     admin: str = Depends(get_current_admin),
-):
+) -> JSONResponse:
     """Revoke every session for the current admin EXCEPT the current one.
 
     Useful after "I think my cookie leaked" — the admin keeps working

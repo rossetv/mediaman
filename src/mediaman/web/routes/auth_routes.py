@@ -5,6 +5,7 @@ import os
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from starlette.responses import Response
 
 from mediaman.auth.rate_limit import (
     RateLimiter,
@@ -79,7 +80,7 @@ def is_request_secure(request: Request) -> bool:
 
 
 @router.get("/login", response_class=HTMLResponse)
-def login_page(request: Request):
+def login_page(request: Request) -> HTMLResponse:
     templates = request.app.state.templates
     return templates.TemplateResponse(request, "login.html", {"error": None})
 
@@ -89,7 +90,7 @@ def login_submit(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
-):
+) -> Response:
     client_ip = get_client_ip(request)
     if not _limiter.check(client_ip):
         templates = request.app.state.templates
@@ -146,7 +147,7 @@ def login_submit(
 
 
 @router.post("/api/auth/logout")
-def logout(request: Request):
+def logout(request: Request) -> Response:
     """Log out the current session.
 
     Requires a valid session cookie — a cross-origin POST (including

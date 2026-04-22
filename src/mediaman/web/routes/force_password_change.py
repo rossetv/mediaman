@@ -25,6 +25,7 @@ import logging
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.responses import Response
 
 from mediaman.auth.audit import security_event
 from mediaman.auth.middleware import resolve_page_session
@@ -50,7 +51,7 @@ def _require_flagged_admin(request: Request):
 
 
 @router.get("/force-password-change", response_class=HTMLResponse)
-def force_change_page(request: Request):
+def force_change_page(request: Request) -> Response:
     """Render the force-change form."""
     username, redirect = _require_flagged_admin(request)
     if redirect is not None:
@@ -75,7 +76,7 @@ def force_change_submit(
     old_password: str = Form(default=""),
     new_password: str = Form(default=""),
     confirm_password: str = Form(default=""),
-):
+) -> Response:
     """Accept the password change."""
     username, redirect = _require_flagged_admin(request)
     if redirect is not None:
