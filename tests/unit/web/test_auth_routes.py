@@ -10,7 +10,7 @@ downgrade bug found in the security audit.
 
 from unittest.mock import MagicMock
 
-from mediaman.web.routes.auth_routes import is_request_secure
+from mediaman.web.routes.auth import is_request_secure
 
 
 def _request(headers=None, peer="203.0.113.99", scheme="http"):

@@ -1,5 +1,7 @@
 """Recommended For You page — AI-powered media recommendations."""
 
+from __future__ import annotations
+
 import logging
 import threading
 from datetime import datetime, timedelta, timezone

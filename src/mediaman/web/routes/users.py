@@ -180,7 +180,7 @@ def api_change_password(
             user_agent=request.headers.get("user-agent", ""),
             client_ip=get_client_ip(request),
         )
-        from mediaman.web.routes.auth_routes import is_request_secure
+        from mediaman.web.routes.auth import is_request_secure
         response = JSONResponse({"ok": True, "message": "Password changed. You will be re-authenticated."})
         response.set_cookie(
             "session_token", new_token,
@@ -225,7 +225,7 @@ def api_revoke_other_sessions(
         user_agent=request.headers.get("user-agent", ""),
         client_ip=get_client_ip(request),
     )
-    from mediaman.web.routes.auth_routes import is_request_secure
+    from mediaman.web.routes.auth import is_request_secure
     response = JSONResponse({
         "ok": True,
         "revoked": destroyed,

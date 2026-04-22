@@ -137,7 +137,7 @@ def force_change_submit(
         client_ip=client_ip,
     )
 
-    from mediaman.web.routes.auth_routes import is_request_secure
+    from mediaman.web.routes.auth import is_request_secure
 
     response = RedirectResponse("/", status_code=302)
     response.set_cookie(

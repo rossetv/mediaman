@@ -129,7 +129,7 @@ def create_app() -> FastAPI:
 
     app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
 
-    from mediaman.web.routes.auth_routes import router as auth_router
+    from mediaman.web.routes.auth import router as auth_router
     from mediaman.web.routes.dashboard import router as dashboard_router
     from mediaman.web.routes.download import router as download_router
     from mediaman.web.routes.downloads import router as downloads_router
@@ -140,11 +140,11 @@ def create_app() -> FastAPI:
     from mediaman.web.routes.poster import router as poster_router
     from mediaman.web.routes.protected import router as protected_router
     from mediaman.web.routes.scan import router as scan_router
-    from mediaman.web.routes.settings_routes import router as settings_router
+    from mediaman.web.routes.settings import router as settings_router
     from mediaman.web.routes.subscribers import router as subscribers_router
     from mediaman.web.routes.search import router as search_router
     from mediaman.web.routes.recommended import router as recommended_router
-    from mediaman.web.routes.user_routes import router as user_router
+    from mediaman.web.routes.users import router as user_router
 
     app.include_router(auth_router)
     app.include_router(force_pw_router)

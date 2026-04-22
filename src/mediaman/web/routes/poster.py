@@ -21,6 +21,8 @@ Plex server. This prevents the endpoint being used as an existence
 oracle to enumerate the user's library rating keys.
 """
 
+from __future__ import annotations
+
 import hashlib
 import logging
 from pathlib import Path

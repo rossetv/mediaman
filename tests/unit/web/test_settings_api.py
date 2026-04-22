@@ -12,7 +12,7 @@ from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.crypto import encrypt_value
 from mediaman.db import init_db, set_connection
-from mediaman.web.routes.settings_routes import router
+from mediaman.web.routes.settings import router
 
 
 def _make_app(conn, secret_key: str) -> FastAPI:
@@ -69,7 +69,7 @@ class TestPlexLibrariesEndpoint:
         ]
 
         with patch(
-            "mediaman.web.routes.settings_routes.build_plex_from_db"
+            "mediaman.web.routes.settings.build_plex_from_db"
         ) as mock_build:
             mock_client = MagicMock()
             mock_client.get_libraries.return_value = fake_libraries
@@ -114,7 +114,7 @@ class TestPlexLibrariesEndpoint:
         client = _auth_client(app, conn)
 
         with patch(
-            "mediaman.web.routes.settings_routes.build_plex_from_db"
+            "mediaman.web.routes.settings.build_plex_from_db"
         ) as mock_build:
             mock_client = MagicMock()
             mock_client.get_libraries.side_effect = ConnectionError("unreachable")
@@ -146,7 +146,7 @@ class TestDiskUsageAPI:
         fake_usage = {"total_bytes": 1000, "used_bytes": 400, "free_bytes": 600}
 
         with patch(
-            "mediaman.web.routes.settings_routes.get_disk_usage",
+            "mediaman.web.routes.settings.get_disk_usage",
             return_value=fake_usage,
         ):
             resp = client.get("/api/settings/disk-usage?path=/media/movies")
@@ -184,7 +184,7 @@ class TestDiskUsageAPI:
         client = _auth_client(app, conn)
 
         with patch(
-            "mediaman.web.routes.settings_routes.get_disk_usage",
+            "mediaman.web.routes.settings.get_disk_usage",
             side_effect=FileNotFoundError("not found"),
         ):
             resp = client.get("/api/settings/disk-usage?path=/nonexistent-but-allowed")
