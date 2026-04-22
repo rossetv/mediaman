@@ -43,7 +43,6 @@ from mediaman.services.arr_search_trigger import (
 from mediaman.services.download_format import (
     build_episode_summary,
     build_item,
-    fmt_bytes,
     fmt_eta,
     fmt_relative_time,
     looks_like_series_nzb,
@@ -53,6 +52,7 @@ from mediaman.services.download_format import (
     parse_clean_title,
     select_hero,
 )
+from mediaman.services.format import format_bytes
 
 logger = logging.getLogger("mediaman")
 
@@ -368,8 +368,8 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
                     state=state,
                     progress=matched_nzb["progress"],
                     eta=eta,
-                    size_done=fmt_bytes(matched_nzb["done_mb"] * 1024 * 1024),
-                    size_total=fmt_bytes(matched_nzb["file_mb"] * 1024 * 1024),
+                    size_done=format_bytes(matched_nzb["done_mb"] * 1024 * 1024),
+                    size_total=format_bytes(matched_nzb["file_mb"] * 1024 * 1024),
                 ))
             _maybe_trigger_search(conn, arr, matched_nzb=True)
         else:
@@ -467,8 +467,8 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
                 state=state,
                 progress=nzb["progress"],
                 eta=eta,
-                size_done=fmt_bytes(nzb["done_mb"] * 1024 * 1024),
-                size_total=fmt_bytes(nzb["file_mb"] * 1024 * 1024),
+                size_done=format_bytes(nzb["done_mb"] * 1024 * 1024),
+                size_total=format_bytes(nzb["file_mb"] * 1024 * 1024),
             ))
 
     # 6. Completion detection — items that vanished since the last poll.

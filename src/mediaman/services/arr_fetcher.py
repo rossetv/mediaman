@@ -13,11 +13,10 @@ from typing import TypedDict
 from mediaman.services.download_format import (
     classify_movie_upcoming,
     classify_series_upcoming,
-    fmt_bytes,
     fmt_episode_label,
-    parse_iso,
     extract_poster_url,
 )
+from mediaman.services.format import format_bytes, parse_iso_utc
 
 logger = logging.getLogger("mediaman")
 
@@ -106,8 +105,8 @@ def _fetch_radarr_queue(client) -> list[ArrCard]:
                 "progress": progress,
                 "size": size,
                 "sizeleft": sizeleft,
-                "size_str": fmt_bytes(size),
-                "done_str": fmt_bytes(size - sizeleft),
+                "size_str": format_bytes(size),
+                "done_str": format_bytes(size - sizeleft),
                 "timeleft": q.get("timeleft") or "",
                 "status": status,
                 "is_upcoming": False,
@@ -137,7 +136,7 @@ def _fetch_radarr_queue(client) -> list[ArrCard]:
 
             # Parse added timestamp to epoch seconds (for search throttle)
             added_at = 0.0
-            added_dt = parse_iso(movie.get("added", ""))
+            added_dt = parse_iso_utc(movie.get("added", ""))
             if added_dt is not None:
                 added_at = added_dt.timestamp()
 
@@ -204,7 +203,7 @@ def _fetch_sonarr_queue(client) -> list[ArrCard]:
             "progress": progress,
             "size": size,
             "sizeleft": sizeleft,
-            "size_str": fmt_bytes(size),
+            "size_str": format_bytes(size),
             "status": status,
             "download_id": q.get("downloadId", ""),
         }
@@ -285,8 +284,8 @@ def _fetch_sonarr_queue(client) -> list[ArrCard]:
         card["progress"] = overall_pct
         card["size"] = total_size
         card["sizeleft"] = total_left
-        card["size_str"] = fmt_bytes(total_size)
-        card["done_str"] = fmt_bytes(total_size - total_left)
+        card["size_str"] = format_bytes(total_size)
+        card["done_str"] = format_bytes(total_size - total_left)
         card["has_pack"] = any(e["is_pack_episode"] for e in eps)
         # Sort episodes by label
         eps.sort(key=lambda e: e["label"])
@@ -326,7 +325,7 @@ def _fetch_sonarr_queue(client) -> list[ArrCard]:
             )
 
             added_at = 0.0
-            added_dt = parse_iso(series.get("added", ""))
+            added_dt = parse_iso_utc(series.get("added", ""))
             if added_dt is not None:
                 added_at = added_dt.timestamp()
 

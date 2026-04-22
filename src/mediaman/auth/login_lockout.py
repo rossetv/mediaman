@@ -32,6 +32,8 @@ import logging
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
+from mediaman.services.format import parse_iso_utc as _parse_iso
+
 logger = logging.getLogger("mediaman")
 
 #: Threshold → lock duration (minutes). Ordered from highest to lowest
@@ -52,15 +54,6 @@ def _now() -> datetime:
 
 def _iso(dt: datetime) -> str:
     return dt.isoformat()
-
-
-def _parse_iso(s: str | None) -> datetime | None:
-    if not s:
-        return None
-    try:
-        return datetime.fromisoformat(s)
-    except ValueError:
-        return None
 
 
 def _ensure_table(conn: sqlite3.Connection) -> None:

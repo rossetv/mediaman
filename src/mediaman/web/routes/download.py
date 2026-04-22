@@ -29,12 +29,12 @@ from mediaman.db import get_db
 from mediaman.services.download_format import (
     build_episode_summary,
     build_item,
-    fmt_bytes,
     fmt_episode_label,
     map_arr_status,
     map_episode_state,
     extract_poster_url,
 )
+from mediaman.services.format import format_bytes
 from mediaman.services.download_queue import _build_episode_dicts
 
 logger = logging.getLogger("mediaman")
@@ -473,8 +473,8 @@ def download_status(
                         dl_id=f"radarr:{title}", title=title,
                         media_type="movie", poster_url=poster_url,
                         state=state, progress=progress, eta=eta,
-                        size_done=fmt_bytes(size_total - size_left),
-                        size_total=fmt_bytes(size_total),
+                        size_done=format_bytes(size_total - size_left),
+                        size_total=format_bytes(size_total),
                     ))
 
             # Check recent_downloads — the movie may have completed already
@@ -570,8 +570,8 @@ def download_status(
                     dl_id=f"sonarr:{series_title}", title=series_title,
                     media_type="series", poster_url=series_poster,
                     state=state, progress=overall_progress, eta=eta,
-                    size_done=fmt_bytes(total_size - total_left),
-                    size_total=fmt_bytes(total_size),
+                    size_done=format_bytes(total_size - total_left),
+                    size_total=format_bytes(total_size),
                     episodes=episodes, episode_summary=episode_summary,
                 ))
 

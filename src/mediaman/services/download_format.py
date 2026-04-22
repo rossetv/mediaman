@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 
+from mediaman.services.format import format_bytes, parse_iso_utc
+
 
 def extract_poster_url(images: list[dict] | None) -> str | None:
     """Return the first poster remoteUrl from an *arr images list, or None.
@@ -45,17 +47,6 @@ def fmt_relative_time(ts: float, now: float) -> str:
     if delta < 86400:
         return f"{delta // 3600}h ago"
     return f"{delta // 86400}d ago"
-
-
-def fmt_bytes(n: int) -> str:
-    """Human-readable byte string."""
-    if n <= 0:
-        return "0 B"
-    if n >= 1 << 30:
-        return f"{n / (1 << 30):.1f} GB"
-    if n >= 1 << 20:
-        return f"{n / (1 << 20):.0f} MB"
-    return f"{n} B"
 
 
 _SERIES_MARKER = re.compile(r"\bS\d{2}(?:E\d{1,3})?\b", flags=re.IGNORECASE)
@@ -150,16 +141,6 @@ def map_arr_status(status: str, tracked_state: str = "") -> str:
     return "searching"
 
 
-def parse_iso(dt_str: str) -> "datetime | None":
-    """Parse an ISO 8601 timestamp. Returns None on failure."""
-    if not dt_str:
-        return None
-    try:
-        return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        return None
-
-
 def _fmt_release_date(dt: "datetime") -> str:
     """Format a datetime as '<d MMM yyyy>' e.g. '14 Jun 2099'."""
     return dt.strftime("%-d %b %Y")
@@ -180,7 +161,7 @@ def classify_movie_upcoming(movie: dict) -> tuple[bool, str]:
     now = datetime.now(timezone.utc)
     candidates = []
     for key in ("digitalRelease", "physicalRelease", "inCinemas"):
-        dt = parse_iso(movie.get(key, ""))
+        dt = parse_iso_utc(movie.get(key, ""))
         if dt and dt > now:
             candidates.append(dt)
 
@@ -209,14 +190,14 @@ def classify_series_upcoming(
     now = datetime.now(timezone.utc)
     status = (series.get("status") or "").lower()
     has_aired = any(
-        (dt := parse_iso(e.get("airDateUtc", ""))) is not None and dt < now
+        (dt := parse_iso_utc(e.get("airDateUtc", ""))) is not None and dt < now
         for e in episodes
     )
 
     future_airs = [
         dt
         for e in episodes
-        if (dt := parse_iso(e.get("airDateUtc", ""))) and dt > now
+        if (dt := parse_iso_utc(e.get("airDateUtc", ""))) and dt > now
     ]
 
     # Only classify as upcoming when we have a real signal:
