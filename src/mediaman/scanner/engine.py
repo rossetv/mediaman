@@ -22,6 +22,7 @@ from mediaman.auth.audit import log_audit
 from mediaman.crypto import generate_keep_token
 from mediaman.scanner.movies import evaluate_movie
 from mediaman.scanner.tv import evaluate_season
+from mediaman.services.format import ensure_tz as _ensure_tz
 from mediaman.services.format import parse_iso_utc as _parse_iso_utc
 from mediaman.services.storage import delete_path
 
@@ -183,7 +184,9 @@ class ScanEngine:
                                 if date_added > existing:
                                     self._arr_dates[key] = date_added
                     except Exception:
-                        pass
+                        logger.warning(
+                            "Failed to fetch episode files for series %s", series.get("id"), exc_info=True
+                        )
             except Exception:
                 logger.warning("Failed to fetch Sonarr dates — falling back to Plex")
 
@@ -303,7 +306,15 @@ class ScanEngine:
         """Execute a full scan and return a summary dict.
 
         Returns:
-            Dict with ``scanned``, ``scheduled``, ``skipped``, ``errors`` counts.
+            Dict with the following integer keys:
+
+            - ``scanned``: total items examined across all libraries.
+            - ``scheduled``: items newly scheduled for deletion this run.
+            - ``skipped``: items skipped (protected, already scheduled, or ineligible).
+            - ``errors``: items that raised an unexpected exception during processing.
+            - ``removed``: orphaned DB rows whose Plex rating key no longer exists.
+            - ``deleted``: items whose grace period elapsed and were deleted from disk.
+            - ``reclaimed_bytes``: total bytes freed by deletions this run.
         """
         summary = {"scanned": 0, "scheduled": 0, "skipped": 0, "errors": 0}
         seen_keys: set[str] = set()
@@ -417,13 +428,18 @@ class ScanEngine:
                 try:
                     self._radarr.unmonitor_movie(row["radarr_id"])
                 except Exception:
-                    pass
+                    logger.warning(
+                        "Failed to unmonitor movie %s after deletion", row["radarr_id"], exc_info=True
+                    )
 
             if row["sonarr_id"] and row["season_number"] is not None and self._sonarr:
                 try:
                     self._sonarr.unmonitor_season(row["sonarr_id"], row["season_number"])
                 except Exception:
-                    pass
+                    logger.warning(
+                        "Failed to unmonitor season %s of series %s after deletion",
+                        row["season_number"], row["sonarr_id"], exc_info=True
+                    )
 
             deleted_count += 1
             reclaimed_bytes += row["file_size_bytes"] or 0
@@ -792,21 +808,5 @@ class ScanEngine:
             _DELETION_ACTION,
             "scheduled by scan engine" + (" (re-entry)" if is_reentry else ""),
         )
-
-
-def _ensure_tz(dt: datetime) -> datetime:
-    """Convert *dt* to UTC, assuming naive datetimes represent local time.
-
-    PlexAPI returns naive datetimes via ``datetime.fromtimestamp()``,
-    which produces **local** time.  Using ``.replace(tzinfo=UTC)``
-    would mislabel the local time as UTC — off by the local UTC offset.
-    ``.astimezone(UTC)`` correctly converts from local to UTC.
-    """
-    if dt is None:
-        return datetime.now(timezone.utc)
-    if dt.tzinfo is None:
-        return dt.astimezone(timezone.utc)
-    return dt
-
 
 
