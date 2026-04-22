@@ -16,11 +16,22 @@ from __future__ import annotations
 from typing import TypedDict
 
 
-class ArrCaches(TypedDict):
+class RadarrCaches(TypedDict):
+    """Cache fragment returned by :func:`build_radarr_cache`."""
+
     radarr_movies: dict[int, dict]
     radarr_queue_tmdb_ids: set[int]
+
+
+class SonarrCaches(TypedDict):
+    """Cache fragment returned by :func:`build_sonarr_cache`."""
+
     sonarr_series: dict[int, dict]
     sonarr_queue_tmdb_ids: set[int]
+
+
+class ArrCaches(RadarrCaches, SonarrCaches):
+    """Full merged cache; produced by ``{**build_radarr_cache(), **build_sonarr_cache()}``."""
 
 
 def compute_download_state(media_type: str, tmdb_id: int, caches: ArrCaches) -> str | None:
@@ -78,7 +89,7 @@ def compute_download_state(media_type: str, tmdb_id: int, caches: ArrCaches) -> 
     return "queued"
 
 
-def build_radarr_cache(client) -> ArrCaches:
+def build_radarr_cache(client) -> RadarrCaches:
     """Build the per-request Radarr cache fragment. Returns a partial
     ``ArrCaches`` containing only the Radarr keys; combine with
     ``build_sonarr_cache`` via dict-spread to get a full ``ArrCaches``.
@@ -94,7 +105,7 @@ def build_radarr_cache(client) -> ArrCaches:
     return {"radarr_movies": movies, "radarr_queue_tmdb_ids": queue_ids}
 
 
-def build_sonarr_cache(client) -> ArrCaches:
+def build_sonarr_cache(client) -> SonarrCaches:
     """Build the per-request Sonarr cache fragment. Returns a partial
     ``ArrCaches`` containing only the Sonarr keys; combine with
     ``build_radarr_cache`` via dict-spread to get a full ``ArrCaches``.

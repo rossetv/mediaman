@@ -5,6 +5,8 @@ across every *arr service so that subclasses only contain service-specific
 logic.
 """
 
+from __future__ import annotations
+
 import requests
 
 

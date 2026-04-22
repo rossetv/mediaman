@@ -11,13 +11,19 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from typing import TYPE_CHECKING
 
 from mediaman.services.settings_reader import get_string_setting
+
+if TYPE_CHECKING:
+    from mediaman.services.nzbget import NzbgetClient
+    from mediaman.services.radarr import RadarrClient
+    from mediaman.services.sonarr import SonarrClient
 
 logger = logging.getLogger("mediaman")
 
 
-def build_radarr_from_db(conn: sqlite3.Connection, secret_key: str):
+def build_radarr_from_db(conn: sqlite3.Connection, secret_key: str) -> RadarrClient | None:
     """Return a ``RadarrClient`` or ``None`` if Radarr isn't configured.
 
     Looks up ``radarr_url`` / ``radarr_api_key`` and, if both are set,
@@ -32,7 +38,7 @@ def build_radarr_from_db(conn: sqlite3.Connection, secret_key: str):
     return RadarrClient(url, key)
 
 
-def build_sonarr_from_db(conn: sqlite3.Connection, secret_key: str):
+def build_sonarr_from_db(conn: sqlite3.Connection, secret_key: str) -> SonarrClient | None:
     """Return a ``SonarrClient`` or ``None`` if Sonarr isn't configured."""
     url = get_string_setting(conn, "sonarr_url")
     key = get_string_setting(conn, "sonarr_api_key", secret_key=secret_key)
@@ -42,7 +48,9 @@ def build_sonarr_from_db(conn: sqlite3.Connection, secret_key: str):
     return SonarrClient(url, key)
 
 
-def build_arr_client(conn: sqlite3.Connection, service: str):
+def build_arr_client(
+    conn: sqlite3.Connection, service: str
+) -> RadarrClient | SonarrClient | None:
     """Build a Radarr or Sonarr client from DB settings. Returns None if unconfigured."""
     from mediaman.config import load_config
     config = load_config()
@@ -53,7 +61,7 @@ def build_arr_client(conn: sqlite3.Connection, service: str):
     return None
 
 
-def build_nzbget_from_db(conn: sqlite3.Connection) -> "NzbgetClient | None":
+def build_nzbget_from_db(conn: sqlite3.Connection) -> NzbgetClient | None:
     """Return an ``NzbgetClient`` or ``None`` if NZBGet isn't configured.
 
     Reads ``nzbget_url``, ``nzbget_username``, and ``nzbget_password`` (which
