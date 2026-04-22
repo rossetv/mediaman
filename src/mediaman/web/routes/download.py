@@ -25,12 +25,12 @@ from mediaman.auth.rate_limit import RateLimiter, get_client_ip
 from mediaman.crypto import validate_download_token
 from mediaman.db import get_db
 from mediaman.services.download_format import (
-    _build_episode_summary,
-    _build_item,
-    _fmt_bytes,
-    _fmt_episode_label,
-    _map_arr_status,
-    _map_episode_state,
+    build_episode_summary,
+    build_item,
+    fmt_bytes,
+    fmt_episode_label,
+    map_arr_status,
+    map_episode_state,
     extract_poster_url,
 )
 
@@ -234,7 +234,7 @@ def download_page(request: Request, token: str):
     hero_item = None
     if item["download_state"] == "queued":
         service = "radarr" if item["media_type"] == "movie" else "sonarr"
-        hero_item = _build_item(
+        hero_item = build_item(
             dl_id=f"{service}:{item['title']}",
             title=item["title"],
             media_type=item["media_type"],
@@ -378,7 +378,7 @@ def download_submit(request: Request, token: str):
 
 def _unknown_item() -> dict:
     """Return the minimal item shape for an unknown/error state."""
-    return _build_item(
+    return build_item(
         dl_id="", title="", media_type="movie", poster_url="",
         state="unknown", progress=0, eta="", size_done="", size_total="",
     )
@@ -445,7 +445,7 @@ def download_status(
             if movie and movie.get("hasFile"):
                 title = movie.get("title", "")
                 poster_url = extract_poster_url(movie.get("images")) or ""
-                return JSONResponse(_build_item(
+                return JSONResponse(build_item(
                     dl_id=f"radarr:{title}", title=title, media_type="movie",
                     poster_url=poster_url, state="ready", progress=100,
                     eta="", size_done="", size_total="",
@@ -462,7 +462,7 @@ def download_status(
                         round((1 - size_left / size_total) * 100)
                         if size_total > 0 else 0
                     )
-                    state = _map_arr_status(
+                    state = map_arr_status(
                         item.get("status") or "",
                         item.get("trackedDownloadState") or "",
                     )
@@ -471,12 +471,12 @@ def download_status(
                         eta = "Post-processing\u2026"
                     title = item_movie.get("title", "")
                     poster_url = extract_poster_url(item_movie.get("images")) or ""
-                    return JSONResponse(_build_item(
+                    return JSONResponse(build_item(
                         dl_id=f"radarr:{title}", title=title,
                         media_type="movie", poster_url=poster_url,
                         state=state, progress=progress, eta=eta,
-                        size_done=_fmt_bytes(size_total - size_left),
-                        size_total=_fmt_bytes(size_total),
+                        size_done=fmt_bytes(size_total - size_left),
+                        size_total=fmt_bytes(size_total),
                     ))
 
             # Check recent_downloads — the movie may have completed already
@@ -487,7 +487,7 @@ def download_status(
                     (f"radarr:{title}",),
                 ).fetchone()
                 if recent:
-                    return JSONResponse(_build_item(
+                    return JSONResponse(build_item(
                         dl_id=recent["dl_id"], title=recent["title"],
                         media_type="movie", poster_url=recent["poster_url"] or "",
                         state="ready", progress=100,
@@ -495,7 +495,7 @@ def download_status(
                     ))
 
             # Movie exists in Radarr but nothing in the queue — still searching
-            return JSONResponse(_build_item(
+            return JSONResponse(build_item(
                 dl_id=f"radarr:{title}" if title else "", title=title,
                 media_type="movie", poster_url="", state="searching",
                 progress=0, eta="", size_done="", size_total="",
@@ -528,7 +528,7 @@ def download_status(
                 ep_progress = round((1 - sizeleft / max(size, 1)) * 100) if size else 0
                 season_num = episode.get("seasonNumber")
                 ep_num = episode.get("episodeNumber")
-                ep_label = _fmt_episode_label(season_num, ep_num)
+                ep_label = fmt_episode_label(season_num, ep_num)
 
                 ep_entries.append({
                     "label": ep_label,
@@ -548,7 +548,7 @@ def download_status(
                     {
                         "label": e["label"],
                         "title": e["title"],
-                        "state": _map_episode_state(e),
+                        "state": map_episode_state(e),
                         "progress": e["progress"],
                     }
                     for e in ep_entries
@@ -569,20 +569,20 @@ def download_status(
                     (s for s in raw_tracked if s.lower() in ("downloading", "importing", "importpending")),
                     raw_tracked[0] if raw_tracked else "",
                 )
-                state = _map_arr_status(combined_status, combined_tracked)
+                state = map_arr_status(combined_status, combined_tracked)
                 # ETA from the episode with the most timeleft
                 eta = _format_timeleft(
                     max((e["timeleft"] for e in ep_entries if e["timeleft"]), default="")
                 )
                 if state == "almost_ready":
                     eta = "Post-processing\u2026"
-                episode_summary = _build_episode_summary(episodes)
-                return JSONResponse(_build_item(
+                episode_summary = build_episode_summary(episodes)
+                return JSONResponse(build_item(
                     dl_id=f"sonarr:{series_title}", title=series_title,
                     media_type="series", poster_url=series_poster,
                     state=state, progress=overall_progress, eta=eta,
-                    size_done=_fmt_bytes(total_size - total_left),
-                    size_total=_fmt_bytes(total_size),
+                    size_done=fmt_bytes(total_size - total_left),
+                    size_total=fmt_bytes(total_size),
                     episodes=episodes, episode_summary=episode_summary,
                 ))
 
@@ -596,7 +596,7 @@ def download_status(
                 stats = matched.get("statistics") or {}
                 s_title = matched.get("title", "")
                 if stats.get("episodeFileCount", 0) > 0:
-                    return JSONResponse(_build_item(
+                    return JSONResponse(build_item(
                         dl_id=f"sonarr:{s_title}", title=s_title,
                         media_type="series", poster_url="", state="ready",
                         progress=100, eta="", size_done="", size_total="",
@@ -608,7 +608,7 @@ def download_status(
                     (f"sonarr:{s_title}",),
                 ).fetchone()
                 if recent:
-                    return JSONResponse(_build_item(
+                    return JSONResponse(build_item(
                         dl_id=recent["dl_id"], title=recent["title"],
                         media_type="series", poster_url=recent["poster_url"] or "",
                         state="ready", progress=100,
@@ -616,13 +616,13 @@ def download_status(
                     ))
 
                 # Series in Sonarr but no episodes downloading or downloaded
-                return JSONResponse(_build_item(
+                return JSONResponse(build_item(
                     dl_id=f"sonarr:{s_title}", title=s_title,
                     media_type="series", poster_url="", state="searching",
                     progress=0, eta="", size_done="", size_total="",
                 ))
 
-            return JSONResponse(_build_item(
+            return JSONResponse(build_item(
                 dl_id="", title="", media_type="series", poster_url="",
                 state="searching", progress=0, eta="", size_done="",
                 size_total="",
