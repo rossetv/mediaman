@@ -15,7 +15,7 @@ _scan_running = False
 
 
 @router.post("/api/scan/trigger")
-def trigger_scan(admin: str = Depends(get_current_admin)):
+def trigger_scan(admin: str = Depends(get_current_admin)) -> dict:
     """Trigger a manual scan. Returns immediately; scan runs in background thread."""
     global _scan_running
     with _scan_lock:
@@ -43,13 +43,13 @@ def trigger_scan(admin: str = Depends(get_current_admin)):
 
 
 @router.get("/api/scan/status")
-def scan_status(admin: str = Depends(get_current_admin)):
+def scan_status(admin: str = Depends(get_current_admin)) -> dict:
     """Return whether a scan is currently running."""
     return {"running": _scan_running}
 
 
 @router.post("/api/scan/clear-scheduled")
-def clear_scheduled(admin: str = Depends(get_current_admin)):
+def clear_scheduled(admin: str = Depends(get_current_admin)) -> dict:
     """Delete all pending scheduled_deletion actions."""
     import logging
     from mediaman.db import get_db
@@ -67,7 +67,7 @@ def clear_scheduled(admin: str = Depends(get_current_admin)):
 
 
 @router.post("/api/library/sync")
-def api_library_sync(request: Request, admin: str = Depends(get_current_admin)):
+def api_library_sync(request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
     """Trigger a manual library sync from Plex."""
     from mediaman.scanner.runner import run_library_sync
 

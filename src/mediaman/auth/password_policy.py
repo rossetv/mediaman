@@ -98,13 +98,19 @@ def _char_classes(password: str) -> set[str]:
 
 
 def _looks_like_passphrase(password: str) -> bool:
-    """Accept long high-variance strings without requiring 3+ classes."""
+    """Accept long high-variance strings without requiring 3+ character classes.
+
+    A passphrase qualifies when it is long enough AND either contains whitespace
+    (multi-word phrase) or has high character variance (≥60% unique characters).
+    """
     if len(password) < PASSPHRASE_MIN_LENGTH:
         return False
     if len(set(password)) < PASSPHRASE_MIN_UNIQUE:
         return False
-    # Either contains whitespace (multi-word) or has high variance alone.
-    return True
+    # Multi-word passphrase OR high variance (≥60% of characters are unique).
+    has_whitespace = any(c.isspace() for c in password)
+    high_variance = len(set(password)) / len(password) >= 0.6
+    return has_whitespace or high_variance
 
 
 def password_issues(password: str, username: str = "") -> list[str]:

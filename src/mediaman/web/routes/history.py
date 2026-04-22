@@ -6,6 +6,7 @@ import logging
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from starlette.responses import Response
 
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.db import get_db
@@ -144,7 +145,7 @@ def _fetch_history(conn, action: str | None, page: int, per_page: int) -> tuple[
 # ---------------------------------------------------------------------------
 
 @router.get("/history", response_class=HTMLResponse)
-def history_page(request: Request):
+def history_page(request: Request) -> Response:
     """Render the audit-log history page. Redirects to /login if session is invalid."""
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
@@ -191,7 +192,7 @@ def api_history(
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=25, ge=1, le=100),
     username: str = Depends(get_current_admin),
-):
+) -> JSONResponse:
     """Return paginated audit log as JSON.
 
     Query params:

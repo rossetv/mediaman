@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.responses import Response
 
 from mediaman.auth.audit import log_audit
 from mediaman.auth.middleware import get_optional_admin_from_token
@@ -57,7 +58,7 @@ def _lookup_verified_action(conn, token: str, secret_key: str):
 
 
 @router.get("/keep/{token}", response_class=HTMLResponse)
-def keep_page(request: Request, token: str):
+def keep_page(request: Request, token: str) -> HTMLResponse:
     """Render the keep page. Three states: active, already-kept, expired."""
     conn = get_db()
     templates = request.app.state.templates
@@ -122,7 +123,7 @@ def keep_page(request: Request, token: str):
 
 
 @router.post("/keep/{token}", response_class=HTMLResponse)
-def keep_submit(request: Request, token: str, duration: str = Form(default="")):
+def keep_submit(request: Request, token: str, duration: str = Form(default="")) -> Response:
     """Apply a snooze via the keep page.
 
     The UPDATE filters on ``token_used = 0`` and inspects ``rowcount`` so

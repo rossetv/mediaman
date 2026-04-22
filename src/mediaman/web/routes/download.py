@@ -108,7 +108,7 @@ from mediaman.services.item_enrichment import (
 
 
 @router.get("/download/{token}", response_class=HTMLResponse)
-def download_page(request: Request, token: str):
+def download_page(request: Request, token: str) -> HTMLResponse:
     """Render the download confirmation page.
 
     State is one of:
@@ -257,7 +257,7 @@ def download_page(request: Request, token: str):
 
 
 @router.post("/download/{token}")
-def download_submit(request: Request, token: str):
+def download_submit(request: Request, token: str) -> JSONResponse:
     """Trigger a download via Radarr or Sonarr.
 
     Returns JSON: ``{"ok": true, "message": "...", "service": "radarr"|"sonarr", "tmdb_id": N}``
@@ -396,7 +396,7 @@ def download_status(
     tmdb_id: int,
     token: str | None = None,
     admin: str | None = Depends(get_optional_admin),
-):
+) -> JSONResponse:
     """Poll the download progress for a recently-requested item.
 
     Query parameters:

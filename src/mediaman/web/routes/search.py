@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from starlette.responses import Response
 from pydantic import BaseModel
 
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
@@ -112,7 +113,7 @@ def _annotate_states(results: list[dict], request: Request) -> None:
 
 
 @router.get("/search", response_class=HTMLResponse)
-def search_page(request: Request):
+def search_page(request: Request) -> Response:
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
@@ -209,7 +210,7 @@ def _enrich_ratings(results: list[dict], request: Request) -> None:
 
 
 @router.get("/api/search")
-def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)):
+def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
     """Return up to ~40 TMDB multi-search hits (two pages, concurrently).
 
     TMDB's ``/search/multi`` returns 20 hits per page. Fetching page 1 and 2 in
@@ -255,7 +256,7 @@ def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)
 
 
 @router.get("/api/search/discover")
-def api_discover(request: Request, admin: str = Depends(get_current_admin)):
+def api_discover(request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
     """Return the empty-state browse shelves in a single response.
 
     Six TMDB calls fire concurrently (pages 1+2 of trending / popular movies /
@@ -370,7 +371,7 @@ def api_detail(
     tmdb_id: int,
     request: Request,
     admin: str = Depends(get_current_admin),
-):
+) -> JSONResponse:
     """Return rich detail for a single movie or TV show from TMDB.
 
     Appends videos and credits in a single TMDB call, then enriches the
@@ -502,7 +503,7 @@ class _DownloadRequest(BaseModel):
 
 
 @router.post("/api/search/download")
-def api_download(body: _DownloadRequest, request: Request, admin: str = Depends(get_current_admin)):
+def api_download(body: _DownloadRequest, request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
     """Add a movie or TV series to Radarr / Sonarr from the Search page.
 
     For TV, if ``monitored_seasons`` is omitted the full series is added via

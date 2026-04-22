@@ -116,7 +116,7 @@ def _fetch_protected(conn) -> tuple[list[dict], list[dict]]:
 # ---------------------------------------------------------------------------
 
 @router.get("/kept")
-def redirect_kept_to_library(request: Request):
+def redirect_kept_to_library(request: Request) -> RedirectResponse:
     """Redirect /kept to the library Kept filter — auth-gated.
 
     Gated so an unauthenticated caller can't use the 301 target to
@@ -131,7 +131,7 @@ def redirect_kept_to_library(request: Request):
 
 
 @router.get("/kept/page")
-def redirect_kept_page(request: Request):
+def redirect_kept_page(request: Request) -> RedirectResponse:
     """Redirect legacy /kept/page to /library?type=kept — auth-gated."""
     if get_optional_admin_from_token(
         request.cookies.get("session_token"), request=request
@@ -145,7 +145,7 @@ def redirect_kept_page(request: Request):
 # ---------------------------------------------------------------------------
 
 @router.get("/api/kept")
-def api_protected(username: str = Depends(get_current_admin)):
+def api_protected(username: str = Depends(get_current_admin)) -> JSONResponse:
     """Return all actively kept items as JSON."""
     conn = get_db()
     forever, snoozed = _fetch_protected(conn)
@@ -153,7 +153,7 @@ def api_protected(username: str = Depends(get_current_admin)):
 
 
 @router.post("/api/media/{media_item_id}/unprotect")
-def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)):
+def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)) -> JSONResponse:
     """Remove protection from a media item.
 
     Deletes the scheduled_actions entry (protected_forever or snoozed) and
@@ -183,7 +183,7 @@ def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)
 
 
 @router.get("/api/show/{show_rating_key}/seasons")
-def api_show_seasons(show_rating_key: str, request: Request, admin: str = Depends(get_current_admin)):
+def api_show_seasons(show_rating_key: str, request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
     """Return all seasons of a show for the keep dialog season picker.
 
     Looks up by show_rating_key first. If that yields no results (column
@@ -270,7 +270,7 @@ def api_keep_show(
     show_rating_key: str,
     body: _KeepShowBody,
     admin: str = Depends(get_current_admin),
-):
+) -> JSONResponse:
     """Keep an entire show (all listed seasons + future seasons via kept_shows rule)."""
     import secrets
 
@@ -348,7 +348,7 @@ def api_keep_show(
 
 
 @router.post("/api/show/{show_rating_key}/remove")
-def api_remove_show_keep(show_rating_key: str, admin: str = Depends(get_current_admin)):
+def api_remove_show_keep(show_rating_key: str, admin: str = Depends(get_current_admin)) -> JSONResponse:
     """Remove a show-level keep rule. Individual season keeps are not affected."""
     conn = get_db()
     row = conn.execute(
@@ -372,7 +372,7 @@ def api_remove_show_keep(show_rating_key: str, admin: str = Depends(get_current_
 # ---------------------------------------------------------------------------
 
 @router.get("/protected")
-def redirect_protected_page(request: Request):
+def redirect_protected_page(request: Request) -> RedirectResponse:
     """Redirect old /protected URL to library kept filter — auth-gated."""
     if get_optional_admin_from_token(
         request.cookies.get("session_token"), request=request
