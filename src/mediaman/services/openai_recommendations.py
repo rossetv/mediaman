@@ -66,6 +66,7 @@ def _get_openai_key(conn) -> str | None:
             try:
                 val = decrypt_value(val, load_config().secret_key, aad=b"openai_api_key")
             except Exception:
+                logger.warning("Failed to decrypt OpenAI API key from settings", exc_info=True)
                 return None
         return val
     return os.environ.get("OPENAI_API_KEY")

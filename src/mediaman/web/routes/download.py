@@ -28,6 +28,7 @@ from mediaman.services.download_format import (
     _build_episode_summary,
     _build_item,
     _fmt_bytes,
+    _fmt_episode_label,
     _map_arr_status,
     _map_episode_state,
     extract_poster_url,
@@ -212,7 +213,7 @@ def download_page(request: Request, token: str):
                     else:
                         item["download_state"] = "queued"
         except Exception:
-            pass
+            logger.warning("Failed to check Radarr library status for tmdb_id=%s", tmdb_id, exc_info=True)
     elif tmdb_id:
         try:
             client = _build_sonarr(conn, config.secret_key)
@@ -226,7 +227,7 @@ def download_page(request: Request, token: str):
                             item["download_state"] = "queued"
                         break
         except Exception:
-            pass
+            logger.warning("Failed to check Sonarr library status for tmdb_id=%s", tmdb_id, exc_info=True)
 
     # When the item is already queued, build a hero_item for the shared
     # hero card partial so the progress section can be server-rendered.
@@ -527,11 +528,7 @@ def download_status(
                 ep_progress = round((1 - sizeleft / max(size, 1)) * 100) if size else 0
                 season_num = episode.get("seasonNumber")
                 ep_num = episode.get("episodeNumber")
-                ep_label = ""
-                if season_num is not None:
-                    ep_label = f"S{season_num:02d}"
-                    if ep_num is not None:
-                        ep_label += f"E{ep_num:02d}"
+                ep_label = _fmt_episode_label(season_num, ep_num)
 
                 ep_entries.append({
                     "label": ep_label,

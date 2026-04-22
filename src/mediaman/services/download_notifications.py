@@ -167,7 +167,7 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
                         if url:
                             meta["poster_url"] = url
                 except Exception:
-                    pass
+                    logger.warning("Failed to fetch Radarr poster for notification", exc_info=True)
 
             media_label = "Movie" if media_type == "movie" else "TV"
 

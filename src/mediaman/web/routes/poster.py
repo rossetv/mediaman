@@ -209,7 +209,7 @@ def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple:
                         poster_url = extract_poster_url(movie.get("images")) or ""
                         break
             except Exception:
-                pass
+                logger.warning("Failed to fetch Radarr poster for title=%r", title, exc_info=True)
     else:
         sonarr_url = _setting("sonarr_url")
         sonarr_key = _setting("sonarr_api_key")
@@ -222,7 +222,7 @@ def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple:
                         poster_url = extract_poster_url(series.get("images")) or ""
                         break
             except Exception:
-                pass
+                logger.warning("Failed to fetch Sonarr poster for title=%r", title, exc_info=True)
 
     if not poster_url:
         return None, None
@@ -245,7 +245,7 @@ def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple:
                 return None, None
             return body, _safe_mime(resp.headers.get("Content-Type"))
     except Exception:
-        pass
+        logger.warning("Failed to fetch arr poster from %s", poster_url, exc_info=True)
 
     return None, None
 
@@ -342,7 +342,7 @@ def proxy_poster(
                 content = body
                 content_type = _safe_mime(resp.headers.get("Content-Type"))
     except Exception:
-        pass
+        logger.warning("Failed to fetch Plex poster for rating_key=%s", rating_key, exc_info=True)
 
     # Fallback: fetch poster from Radarr/Sonarr via TMDB if Plex has none
     if content is None:

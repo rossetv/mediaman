@@ -587,7 +587,7 @@ class ScanEngine:
 
         placeholders = ",".join("?" * len(scanned_libs))
         rows = self._conn.execute(
-            f"SELECT id FROM media_items WHERE plex_library_id IN ({placeholders})",
+            f"SELECT id FROM media_items WHERE plex_library_id IN ({placeholders})",  # noqa: S608 — placeholders are '?' only, not user input
             tuple(scanned_libs),
         ).fetchall()
 
@@ -600,11 +600,11 @@ class ScanEngine:
             chunk = orphans[start:start + 500]
             placeholders = ",".join("?" * len(chunk))
             self._conn.execute(
-                f"DELETE FROM scheduled_actions WHERE media_item_id IN ({placeholders})",
+                f"DELETE FROM scheduled_actions WHERE media_item_id IN ({placeholders})",  # noqa: S608 — placeholders are '?' only, not user input
                 tuple(chunk),
             )
             self._conn.execute(
-                f"DELETE FROM media_items WHERE id IN ({placeholders})",
+                f"DELETE FROM media_items WHERE id IN ({placeholders})",  # noqa: S608 — placeholders are '?' only, not user input
                 tuple(chunk),
             )
 

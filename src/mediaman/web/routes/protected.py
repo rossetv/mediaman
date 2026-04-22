@@ -287,7 +287,7 @@ def api_keep_show(
     # Guard against IDOR — every season_id must actually belong to this show.
     placeholders = ",".join("?" * len(season_ids))
     owned = conn.execute(
-        f"SELECT id FROM media_items WHERE id IN ({placeholders}) "
+        f"SELECT id FROM media_items WHERE id IN ({placeholders}) "  # noqa: S608 — placeholders are '?' only, not user input
         f"AND (show_rating_key = ? OR show_title = (SELECT show_title FROM media_items "
         f"WHERE show_rating_key = ? LIMIT 1))",
         tuple(season_ids) + (show_rating_key, show_rating_key),

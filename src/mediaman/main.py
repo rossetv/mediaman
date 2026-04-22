@@ -191,7 +191,7 @@ def cli_main() -> None:
     if trusted_proxies:
         uvicorn.run(
             app,
-            host="0.0.0.0",
+            host="0.0.0.0",  # noqa: S104 — intentional: server must bind all interfaces
             port=config.port,
             forwarded_allow_ips=trusted_proxies,
             proxy_headers=True,
@@ -203,7 +203,7 @@ def cli_main() -> None:
         # whose IP isn't available at config time.
         uvicorn.run(
             app,
-            host="0.0.0.0",
+            host="0.0.0.0",  # noqa: S104 — intentional: server must bind all interfaces
             port=config.port,
             proxy_headers=False,
         )

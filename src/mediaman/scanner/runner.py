@@ -157,7 +157,7 @@ def run_scan_from_db(conn: sqlite3.Connection, secret_key: str, *, skip_disk_che
 
     result = _build_plex_client(conn, secret_key)
     if result is None:
-        logger.warning("Scan skipped — plex_url or plex_token not configured")
+        logger.warning("Scan skipped — plex_url or plex_token not configured")  # noqa: S105 — no token value logged, only the string "plex_token"
         return {}
     plex, lib_ids, lib_types, lib_titles = result
 
