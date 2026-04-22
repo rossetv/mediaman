@@ -350,13 +350,13 @@ def _pick_trailer(videos: list[dict]) -> str | None:
     return None
 
 
-def _fetch_sonarr_series_detail(tmdb_id: int, sonarr_cache: dict, conn, secret_key: str) -> dict:
+def _fetch_sonarr_series_detail(tmdb_id: int, sonarr_cache: dict, client) -> dict:
     """Return ``{'tracked': bool, 'seasons_in_library': set[int]}`` for a TV show.
 
-    Reuses the ``sonarr_cache`` already built for download_state — avoids
-    a second round-trip to Sonarr for the same series list.
+    Reuses the ``sonarr_cache`` already built for download_state and the
+    ``client`` already constructed upstream — avoids a second client
+    construction and round-trip to Sonarr for the same series list.
     """
-    client = build_sonarr_from_db(conn, secret_key)
     if not client:
         return {"tracked": False, "seasons_in_library": set()}
     lookup = client.lookup_series_by_tmdb(tmdb_id)
@@ -442,6 +442,7 @@ def api_detail(
         compute_download_state,
     )
 
+    sonarr_client = None
     if media_type == "movie":
         try:
             radarr_cache = build_radarr_cache(build_radarr_from_db(conn, secret_key))
@@ -452,7 +453,8 @@ def api_detail(
     else:
         radarr_cache = build_radarr_cache(None)
         try:
-            sonarr_cache = build_sonarr_cache(build_sonarr_from_db(conn, secret_key))
+            sonarr_client = build_sonarr_from_db(conn, secret_key)
+            sonarr_cache = build_sonarr_cache(sonarr_client)
         except Exception:
             logger.warning("Sonarr cache build failed during detail fetch", exc_info=True)
             sonarr_cache = build_sonarr_cache(None)
@@ -485,7 +487,7 @@ def api_detail(
         out["rating_metascore"] = ratings["metascore"]
 
     if media_type == "tv":
-        sonarr_info = _fetch_sonarr_series_detail(tmdb_id, sonarr_cache, conn, secret_key)
+        sonarr_info = _fetch_sonarr_series_detail(tmdb_id, sonarr_cache, sonarr_client)
         out["sonarr_tracked"] = sonarr_info["tracked"]
         seasons_in_lib = sonarr_info["seasons_in_library"]
         out["seasons"] = [

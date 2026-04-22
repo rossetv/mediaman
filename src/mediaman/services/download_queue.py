@@ -35,7 +35,7 @@ from mediaman.services.arr_completion import (
 from mediaman.services.arr_build import build_arr_client as _build_arr_client, build_nzbget_from_db
 from mediaman.services.arr_fetcher import fetch_arr_queue
 from mediaman.services.arr_search_trigger import (
-    _get_search_info,
+    get_search_info,
     _maybe_trigger_search,
     _reset_search_triggers,
     trigger_pending_searches,
@@ -376,7 +376,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
                     state = "downloading"
                 else:
                     state = map_state(None, has_nzbget_match=False)
-                search_count, last_search_ts = _get_search_info(arr.get("dl_id", ""))
+                search_count, last_search_ts = get_search_info(arr.get("dl_id", ""))
                 added_at = arr.get("added_at", 0.0)
                 items.append(build_item(
                     dl_id=arr.get("dl_id", ""),
@@ -407,7 +407,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> dict:
                     state = "almost_ready"
                 else:
                     state = map_state(None, has_nzbget_match=False)
-                search_count, last_search_ts = _get_search_info(arr.get("dl_id", ""))
+                search_count, last_search_ts = get_search_info(arr.get("dl_id", ""))
                 added_at = arr.get("added_at", 0.0)
                 items.append(build_item(
                     dl_id=arr.get("dl_id", ""),

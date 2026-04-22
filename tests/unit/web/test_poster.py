@@ -148,7 +148,10 @@ class TestPosterEndpointAuth:
         conn = init_db(str(tmp_path / "mediaman.db"))
         set_connection(conn)
 
+        from mediaman.config import load_config
+
         app = FastAPI()
+        app.state.config = load_config()
         app.include_router(router)
         client = TestClient(app)
 
@@ -160,7 +163,7 @@ class TestPosterEndpointAuth:
             safe_name = hashlib.sha256(b"12345").hexdigest()
             (cache_dir / f"{safe_name}.jpg").write_bytes(b"fake-jpg")
 
-        # Reset the module-level cache dir so the new tmp env var wins.
+        # Reset the module-level cache dir so the new data_dir wins.
         import mediaman.web.routes.poster as poster_mod
         poster_mod._cache_dir = None
 

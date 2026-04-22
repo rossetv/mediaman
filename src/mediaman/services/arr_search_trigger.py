@@ -90,7 +90,7 @@ def _maybe_trigger_search(
             )
 
 
-def _get_search_info(dl_id: str) -> tuple[int, float]:
+def get_search_info(dl_id: str) -> tuple[int, float]:
     """Return ``(count, last_epoch_seconds)`` for a dl_id.
 
     ``(0, 0.0)`` means mediaman has never fired a search for this item

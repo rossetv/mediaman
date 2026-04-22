@@ -22,12 +22,11 @@ oracle to enumerate the user's library rating keys.
 """
 
 import hashlib
-import os
 from pathlib import Path
 from urllib.parse import urlparse
 
 import requests as http_requests
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 
 from mediaman.auth.middleware import get_optional_admin
@@ -41,7 +40,7 @@ from mediaman.services.download_format import extract_poster_url
 
 router = APIRouter()
 
-_cache_dir: Path | None = None
+_cache_dir: Path | None = None  # populated on first request from app config
 
 # Cache posters for 7 days (response header) — browser won't re-request
 _CACHE_MAX_AGE = 7 * 24 * 60 * 60
@@ -79,11 +78,10 @@ def sign_poster_url(rating_key: str, secret_key: str) -> str:
     return f"/api/poster/{rating_key}?sig={token}"
 
 
-def _get_cache_dir() -> Path:
+def _get_cache_dir(data_dir: str) -> Path:
     """Return (and lazily create) the poster cache directory."""
     global _cache_dir
     if _cache_dir is None:
-        data_dir = os.environ.get("MEDIAMAN_DATA_DIR", "/data")
         _cache_dir = Path(data_dir) / "poster_cache"
         _cache_dir.mkdir(parents=True, exist_ok=True)
     return _cache_dir
@@ -257,6 +255,7 @@ def _validate_rating_key(rating_key: str) -> bool:
 
 @router.get("/api/poster/{rating_key}")
 def proxy_poster(
+    request: Request,
     rating_key: str,
     sig: str | None = None,
     admin: str | None = Depends(get_optional_admin),
@@ -286,7 +285,7 @@ def proxy_poster(
         if not _validate_rating_key(rating_key):
             return Response(status_code=404)
 
-    cache_dir = _get_cache_dir()
+    cache_dir = _get_cache_dir(request.app.state.config.data_dir)
     # Use a safe filename derived from the rating key. Full SHA-256 so
     # we're never worried about collisions; filesystems handle 64 hex
     # chars without complaint.

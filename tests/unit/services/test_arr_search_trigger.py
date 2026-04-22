@@ -2,7 +2,7 @@
 
 The throttling / trigger-on-call behaviour is already covered in
 tests/unit/web/test_downloads_api.py (TestSearchTriggerThrottle and
-TestTriggerPendingSearches).  This file covers the gaps: _get_search_info,
+TestTriggerPendingSearches).  This file covers the gaps: get_search_info,
 _trigger_sonarr_partial_missing, and _reset_search_triggers.
 """
 
@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mediaman.services.arr_search_trigger import (
-    _get_search_info,
+    get_search_info,
     _maybe_trigger_search,
     _reset_search_triggers,
     _trigger_sonarr_partial_missing,
@@ -30,19 +30,19 @@ def clean_state():
 
 
 # ---------------------------------------------------------------------------
-# _get_search_info
+# get_search_info
 # ---------------------------------------------------------------------------
 
 
 class TestGetSearchInfo:
     def test_returns_zeros_for_unknown_id(self):
         """An id never seen before returns (0, 0.0)."""
-        count, last = _get_search_info("unknown_id")
+        count, last = get_search_info("unknown_id")
         assert count == 0
         assert last == 0.0
 
     def test_returns_count_after_trigger(self, monkeypatch):
-        """After a search fires, _get_search_info reflects the updated count."""
+        """After a search fires, get_search_info reflects the updated count."""
         mock_radarr = MagicMock()
         conn = MagicMock()
 
@@ -60,7 +60,7 @@ class TestGetSearchInfo:
         }
         _maybe_trigger_search(conn, item, matched_nzb=False)
 
-        count, last = _get_search_info("radarr:Interstellar")
+        count, last = get_search_info("radarr:Interstellar")
         assert count > 0
         assert last > 0.0
 
@@ -91,12 +91,12 @@ class TestResetSearchTriggers:
         _maybe_trigger_search(conn, item, matched_nzb=False)
 
         # Confirm state was written
-        count, last = _get_search_info("radarr:Arrival")
+        count, last = get_search_info("radarr:Arrival")
         assert count > 0
 
         _reset_search_triggers()
 
-        count, last = _get_search_info("radarr:Arrival")
+        count, last = get_search_info("radarr:Arrival")
         assert count == 0
         assert last == 0.0
 
