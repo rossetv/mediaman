@@ -28,19 +28,15 @@ def fetch_arr_queue(conn: sqlite3.Connection) -> list[dict]:
     TV series are grouped into a single card with an ``episodes`` list.
     """
     from mediaman.config import load_config
-    from mediaman.services.settings_reader import get_string_setting
+    from mediaman.services.arr_build import build_radarr_from_db, build_sonarr_from_db
 
     config = load_config()
     items: list[dict] = []
 
     # Radarr queue — one card per movie
-    radarr_url = get_string_setting(conn, "radarr_url", secret_key=config.secret_key)
-    radarr_key = get_string_setting(conn, "radarr_api_key", secret_key=config.secret_key)
-    if radarr_url and radarr_key:
-        try:
-            from mediaman.services.radarr import RadarrClient
-
-            client = RadarrClient(radarr_url, radarr_key)
+    try:
+        client = build_radarr_from_db(conn, config.secret_key)
+        if client is not None:
             for q in client.get_queue():
                 movie = q.get("movie") or {}
                 size = q.get("size") or 0
@@ -129,18 +125,13 @@ def fetch_arr_queue(conn: sqlite3.Connection) -> list[dict]:
             except Exception:
                 logger.warning("Failed to check Radarr for searching movies", exc_info=True)
 
-        except Exception:
-            logger.warning("Failed to fetch Radarr queue", exc_info=True)
+    except Exception:
+        logger.warning("Failed to fetch Radarr queue", exc_info=True)
 
     # Sonarr queue — group episodes by series
-    sonarr_url = get_string_setting(conn, "sonarr_url", secret_key=config.secret_key)
-    sonarr_key = get_string_setting(conn, "sonarr_api_key", secret_key=config.secret_key)
-    if sonarr_url and sonarr_key:
-        try:
-            from mediaman.services.sonarr import SonarrClient
-
-            client = SonarrClient(sonarr_url, sonarr_key)
-
+    try:
+        client = build_sonarr_from_db(conn, config.secret_key)
+        if client is not None:
             series_map: dict[int, dict] = {}  # series_id -> grouped card
 
             for q in client.get_queue():
@@ -320,7 +311,7 @@ def fetch_arr_queue(conn: sqlite3.Connection) -> list[dict]:
             except Exception:
                 logger.warning("Failed to check Sonarr for searching series", exc_info=True)
 
-        except Exception:
-            logger.warning("Failed to fetch Sonarr queue", exc_info=True)
+    except Exception:
+        logger.warning("Failed to fetch Sonarr queue", exc_info=True)
 
     return items

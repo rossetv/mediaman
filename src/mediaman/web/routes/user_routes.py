@@ -179,12 +179,12 @@ def api_change_password(
             user_agent=request.headers.get("user-agent", ""),
             client_ip=get_client_ip(request),
         )
-        from mediaman.web.routes.auth_routes import _is_request_secure
+        from mediaman.web.routes.auth_routes import is_request_secure
         response = JSONResponse({"ok": True, "message": "Password changed. You will be re-authenticated."})
         response.set_cookie(
             "session_token", new_token,
             httponly=True, samesite="strict", max_age=86400,
-            secure=_is_request_secure(request),
+            secure=is_request_secure(request),
         )
         return response
     logger.warning("password.change_rejected user=%s reason=wrong_old_password", admin)
@@ -224,7 +224,7 @@ def api_revoke_other_sessions(
         user_agent=request.headers.get("user-agent", ""),
         client_ip=get_client_ip(request),
     )
-    from mediaman.web.routes.auth_routes import _is_request_secure
+    from mediaman.web.routes.auth_routes import is_request_secure
     response = JSONResponse({
         "ok": True,
         "revoked": destroyed,
@@ -233,7 +233,7 @@ def api_revoke_other_sessions(
     response.set_cookie(
         "session_token", new_token,
         httponly=True, samesite="strict", max_age=86400,
-        secure=_is_request_secure(request),
+        secure=is_request_secure(request),
     )
     logger.info("session.revoke_all user=%s revoked=%d", admin, destroyed)
     security_event(

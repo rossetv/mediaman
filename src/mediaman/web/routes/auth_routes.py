@@ -30,7 +30,7 @@ router = APIRouter()
 _limiter = RateLimiter(max_attempts=5, window_seconds=60)
 
 
-def _is_request_secure(request: Request) -> bool:
+def is_request_secure(request: Request) -> bool:
     """Return True when the effective scheme is HTTPS.
 
     Resolution order:
@@ -140,7 +140,7 @@ def login_submit(
     response.set_cookie(
         "session_token", token,
         httponly=True, samesite="strict", max_age=86400,
-        secure=_is_request_secure(request),
+        secure=is_request_secure(request),
     )
     return response
 

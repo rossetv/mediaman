@@ -136,13 +136,13 @@ def force_change_submit(
         client_ip=client_ip,
     )
 
-    from mediaman.web.routes.auth_routes import _is_request_secure
+    from mediaman.web.routes.auth_routes import is_request_secure
 
     response = RedirectResponse("/", status_code=302)
     response.set_cookie(
         "session_token", new_token,
         httponly=True, samesite="strict", max_age=86400,
-        secure=_is_request_secure(request),
+        secure=is_request_secure(request),
     )
     logger.info("force_password_change.ok user=%s ip=%s", username, client_ip)
     security_event(

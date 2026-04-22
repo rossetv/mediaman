@@ -1,6 +1,6 @@
 """Tests for :mod:`mediaman.web.routes.auth_routes` helpers.
 
-``_is_request_secure`` now defaults to True on a public deployment
+``is_request_secure`` now defaults to True on a public deployment
 (the common case); operators who genuinely need plaintext cookies in
 local dev can set ``MEDIAMAN_FORCE_SECURE_COOKIES=false``. This is
 the opposite of the previous default — accepting the previous
@@ -10,11 +10,11 @@ downgrade bug found in the security audit.
 
 from unittest.mock import MagicMock
 
-from mediaman.web.routes.auth_routes import _is_request_secure
+from mediaman.web.routes.auth_routes import is_request_secure
 
 
 def _request(headers=None, peer="203.0.113.99", scheme="http"):
-    """Build a minimal FastAPI Request-alike for ``_is_request_secure``."""
+    """Build a minimal FastAPI Request-alike for ``is_request_secure``."""
     req = MagicMock()
     req.headers = headers or {}
     req.client = MagicMock()
@@ -36,19 +36,19 @@ class TestIsRequestSecure:
         monkeypatch.delenv("MEDIAMAN_TRUSTED_PROXIES", raising=False)
 
         req = _request(headers={}, peer="203.0.113.99", scheme="http")
-        assert _is_request_secure(req) is True
+        assert is_request_secure(req) is True
 
     def test_force_false_opt_out(self, monkeypatch):
         """Operator can force-off Secure cookies for local dev."""
         monkeypatch.setenv("MEDIAMAN_FORCE_SECURE_COOKIES", "false")
         req = _request(headers={}, peer="127.0.0.1", scheme="http")
-        assert _is_request_secure(req) is False
+        assert is_request_secure(req) is False
 
     def test_force_true_override(self, monkeypatch):
         """MEDIAMAN_FORCE_SECURE_COOKIES=true wins regardless of headers."""
         monkeypatch.setenv("MEDIAMAN_FORCE_SECURE_COOKIES", "true")
         req = _request(headers={}, peer="203.0.113.99", scheme="http")
-        assert _is_request_secure(req) is True
+        assert is_request_secure(req) is True
 
     def test_direct_https_request(self, monkeypatch):
         """Native HTTPS request is secure."""
@@ -56,7 +56,7 @@ class TestIsRequestSecure:
         monkeypatch.delenv("MEDIAMAN_TRUSTED_PROXIES", raising=False)
 
         req = _request(headers={}, peer="203.0.113.99", scheme="https")
-        assert _is_request_secure(req) is True
+        assert is_request_secure(req) is True
 
     def test_trusted_proxy_header_honoured(self, monkeypatch):
         """Trusted-peer X-Forwarded-Proto still honoured (belt-and-braces)."""
@@ -68,7 +68,7 @@ class TestIsRequestSecure:
             peer="10.1.2.3",
             scheme="http",
         )
-        assert _is_request_secure(req) is True
+        assert is_request_secure(req) is True
 
     def test_spoofed_header_without_trusted_proxy_still_secure_by_default(
         self, monkeypatch
@@ -83,4 +83,4 @@ class TestIsRequestSecure:
             peer="203.0.113.99",
             scheme="http",
         )
-        assert _is_request_secure(req) is True
+        assert is_request_secure(req) is True
