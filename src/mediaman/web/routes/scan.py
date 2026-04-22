@@ -1,6 +1,9 @@
 """Manual scan trigger API."""
 
+import logging
 import threading
+
+logger = logging.getLogger("mediaman")
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
@@ -51,9 +54,6 @@ def scan_status(admin: str = Depends(get_current_admin)) -> dict:
 @router.post("/api/scan/clear-scheduled")
 def clear_scheduled(admin: str = Depends(get_current_admin)) -> dict:
     """Delete all pending scheduled_deletion actions."""
-    import logging
-    from mediaman.db import get_db
-
     conn = get_db()
     count = conn.execute(
         "SELECT COUNT(*) FROM scheduled_actions WHERE action='scheduled_deletion' AND token_used=0"
@@ -62,7 +62,7 @@ def clear_scheduled(admin: str = Depends(get_current_admin)) -> dict:
         "DELETE FROM scheduled_actions WHERE action='scheduled_deletion' AND token_used=0"
     )
     conn.commit()
-    logging.getLogger("mediaman").info("Cleared %d scheduled deletions by %s", count, admin)
+    logger.info("Cleared %d scheduled deletions by %s", count, admin)
     return {"ok": True, "cleared": count}
 
 
@@ -77,6 +77,5 @@ def api_library_sync(request: Request, admin: str = Depends(get_current_admin)) 
         result = run_library_sync(conn, config.secret_key)
         return JSONResponse({"ok": True, "synced": result.get("synced", 0)})
     except Exception as exc:
-        import logging
-        logging.getLogger("mediaman").warning("Library sync failed: %s", exc)
+        logger.warning("Library sync failed: %s", exc)
         return JSONResponse({"ok": False, "error": "Library sync failed"})

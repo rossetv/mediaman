@@ -353,10 +353,12 @@ def send_newsletter(
         try:
             radarr_cache = build_radarr_cache(radarr_client)
         except Exception:
+            logger.warning("Failed to build Radarr cache for newsletter; skipping download states", exc_info=True)
             radarr_cache = build_radarr_cache(None)
         try:
             sonarr_cache = build_sonarr_cache(sonarr_client)
         except Exception:
+            logger.warning("Failed to build Sonarr cache for newsletter; skipping download states", exc_info=True)
             sonarr_cache = build_sonarr_cache(None)
         caches = {**radarr_cache, **sonarr_cache}
         for item in rec_items:

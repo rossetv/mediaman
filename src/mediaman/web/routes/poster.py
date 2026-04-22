@@ -22,6 +22,7 @@ oracle to enumerate the user's library rating keys.
 """
 
 import hashlib
+import logging
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -37,6 +38,8 @@ from mediaman.crypto import (
 )
 from mediaman.db import get_db
 from mediaman.services.download_format import extract_poster_url
+
+logger = logging.getLogger("mediaman")
 
 router = APIRouter()
 

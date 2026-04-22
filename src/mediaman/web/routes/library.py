@@ -56,19 +56,6 @@ def _days_ago(dt_str: str | None) -> str:
     return _days_ago_fmt(dt_str)
 
 
-def _type_label(media_type: str, season_number: int | None) -> str:
-    """Return a display label for a media type, including season number where relevant."""
-    if media_type in ("tv_season", "season", "tv"):
-        label = "TV"
-    elif media_type in ("anime_season", "anime"):
-        label = "ANIME"
-    else:
-        label = "MOVIE"
-    if media_type != "movie" and season_number:
-        label = f"{label} · S{season_number}"
-    return label
-
-
 def _type_css(media_type: str) -> str:
     """Return the CSS class for a type badge."""
     if media_type in ("tv_season", "season", "tv"):
@@ -76,17 +63,6 @@ def _type_css(media_type: str) -> str:
     if media_type in ("anime_season", "anime"):
         return "type-anime"
     return "type-mov"
-
-
-def _subtitle(row: dict) -> str:
-    """Build the subtitle line for a library row."""
-    parts = []
-    if row["media_type"] in ("tv_season", "anime_season", "season", "tv", "anime") and row["show_title"] and row["show_title"] != row["title"]:
-        parts.append(row["show_title"])
-    added = _days_ago(row["added_at"])
-    if added:
-        parts.append(f"Added {added}")
-    return " · ".join(parts)
 
 
 def _protection_label(sa_action: str | None, sa_execute_at: str | None) -> str | None:

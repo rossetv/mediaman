@@ -1,7 +1,10 @@
 """Recommended For You page — AI-powered media recommendations."""
 
 import logging
+import threading
 from datetime import datetime, timedelta, timezone
+
+import requests as _requests
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -22,6 +25,10 @@ from mediaman.services.download_notifications import record_download_notificatio
 logger = logging.getLogger("mediaman")
 
 router = APIRouter()
+
+_refresh_lock = threading.Lock()
+_refresh_running = False
+_refresh_result: dict | None = None
 
 
 def _fetch_recommendations(conn) -> list[dict]:
@@ -232,13 +239,6 @@ def api_recommended(admin: str = Depends(get_current_admin)) -> JSONResponse:
     return JSONResponse({"recommendations": _fetch_recommendations(conn)})
 
 
-import threading
-
-_refresh_lock = threading.Lock()
-_refresh_running = False
-_refresh_result: dict | None = None
-
-
 @router.post("/api/recommended/refresh")
 def api_refresh_recommendations(request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
     """Start a manual recommendation refresh in the background.
@@ -407,9 +407,12 @@ def api_download_recommendation(recommendation_id: int, request: Request, admin:
             conn.commit()
             return JSONResponse({"ok": True, "message": f"Added '{row['title']}' to Sonarr"})
 
-    except Exception as exc:
-        error_msg = str(exc)
-        if "already" in error_msg.lower() or "exists" in error_msg.lower():
+    except _requests.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else 0
+        if status in (409, 422):
             return JSONResponse({"ok": False, "error": f"'{row['title']}' already exists in your library"})
-        logger.warning("Failed to add recommendation: %s", exc)
+        logger.warning("Failed to add recommendation '%s': HTTP %s", row["title"], status, exc_info=True)
+        return JSONResponse({"ok": False, "error": "Failed to add to download queue"})
+    except Exception as exc:
+        logger.warning("Failed to add recommendation '%s': %s", row["title"], exc, exc_info=True)
         return JSONResponse({"ok": False, "error": "Failed to add to download queue"})
