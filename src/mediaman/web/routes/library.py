@@ -136,8 +136,8 @@ def _fetch_library(
     elif media_type == "stale":
         stale_filter = True
         # Read thresholds for stale calculation
-        _min_age = _get_int_setting(conn, "min_age_days", 30)
-        _inactivity = _get_int_setting(conn, "inactivity_days", 30)
+        _min_age = _get_int_setting(conn, "min_age_days", default=30)
+        _inactivity = _get_int_setting(conn, "inactivity_days", default=30)
         _now = datetime.now(timezone.utc)
         age_cutoff = (_now - timedelta(days=_min_age)).isoformat()
         watch_cutoff = (_now - timedelta(days=_inactivity)).isoformat()
@@ -328,8 +328,8 @@ def _fetch_stats(conn) -> dict:
     anime = anime_row["n"] if anime_row else 0
 
     # Read thresholds from settings, falling back to sensible defaults
-    min_age = _get_int_setting(conn, "min_age_days", 30)
-    inactivity = _get_int_setting(conn, "inactivity_days", 30)
+    min_age = _get_int_setting(conn, "min_age_days", default=30)
+    inactivity = _get_int_setting(conn, "inactivity_days", default=30)
 
     now = datetime.now(timezone.utc)
     age_cutoff = (now - timedelta(days=min_age)).isoformat()

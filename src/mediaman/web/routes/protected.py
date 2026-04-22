@@ -11,13 +11,12 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 from mediaman.auth.middleware import (
     get_current_admin,
     get_optional_admin_from_token,
-    resolve_page_session,
 )
 from mediaman.auth.audit import log_audit
 from mediaman.db import get_db
@@ -131,42 +130,14 @@ def redirect_kept_to_library(request: Request):
     return RedirectResponse("/library?type=kept", status_code=301)
 
 
-@router.get("/kept/page", response_class=HTMLResponse)
-def protected_page(request: Request):
-    """Legacy kept items page (kept for API compatibility)."""
-    resolved = resolve_page_session(request)
-    if isinstance(resolved, RedirectResponse):
-        return resolved
-    username, conn = resolved
-
-    forever_items, snoozed_items = _fetch_protected(conn)
-
-    kept_shows_rows = conn.execute("""
-        SELECT ks.id, ks.show_rating_key, ks.show_title, ks.action, ks.execute_at,
-               (SELECT mi.plex_rating_key FROM media_items mi
-                WHERE mi.show_rating_key = ks.show_rating_key LIMIT 1) AS plex_rating_key
-        FROM kept_shows ks
-        ORDER BY ks.created_at DESC
-    """).fetchall()
-
-    show_items = []
-    for r in kept_shows_rows:
-        show_items.append({
-            "show_rating_key": r["show_rating_key"],
-            "show_title": r["show_title"],
-            "action": r["action"],
-            "expiry": _format_expiry(r["action"], r["execute_at"]),
-            "plex_rating_key": r["plex_rating_key"],
-        })
-
-    templates = request.app.state.templates
-    return templates.TemplateResponse(request, "protected.html", {
-        "username": username,
-        "nav_active": "kept",
-        "forever_items": forever_items,
-        "snoozed_items": snoozed_items,
-        "show_items": show_items,
-    })
+@router.get("/kept/page")
+def redirect_kept_page(request: Request):
+    """Redirect legacy /kept/page to /library?type=kept — auth-gated."""
+    if get_optional_admin_from_token(
+        request.cookies.get("session_token"), request=request
+    ) is None:
+        return RedirectResponse("/login", status_code=302)
+    return RedirectResponse("/library?type=kept", status_code=301)
 
 
 # ---------------------------------------------------------------------------

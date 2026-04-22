@@ -202,7 +202,7 @@ def _enrich_ratings(results: list[dict], request: Request) -> None:
         key, group = key_group
         probe = group[0]
         try:
-            data = fetch_ratings(probe["title"], probe.get("year"), probe["media_type"], conn, secret_key)
+            data = fetch_ratings(probe["title"], probe.get("year"), probe["media_type"], conn=conn, secret_key=secret_key)
         except Exception:
             data = {}
         return key, group, data
@@ -444,7 +444,7 @@ def api_detail(
     ]
 
     trailer_key = _pick_trailer((data.get("videos") or {}).get("results") or [])
-    ratings = fetch_ratings(title, year, media_type, conn, secret_key)
+    ratings = fetch_ratings(title, year, media_type, conn=conn, secret_key=secret_key)
 
     from mediaman.services.arr_state import (
         build_radarr_cache,

@@ -86,10 +86,9 @@ def delete_path(path: str, *, allowed_roots: list[str] | None = None) -> None:
 
 
 def get_directory_size(path: str) -> int:
+    """Return the total size in bytes of all regular files under *path*."""
     total = 0
-    for dirpath, _, filenames in os.walk(path):
-        for f in filenames:
-            fp = os.path.join(dirpath, f)
-            if os.path.isfile(fp):
-                total += os.path.getsize(fp)
+    for fp in Path(path).rglob("*"):
+        if fp.is_file():
+            total += fp.stat().st_size
     return total
