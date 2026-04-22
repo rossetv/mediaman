@@ -69,7 +69,7 @@ def _fetch_tmdb_for_item(item: dict, conn, secret_key: str) -> None:
                     item["rating"] = card["rating"]
 
     # OMDB ratings
-    ratings = fetch_ratings(title, item.get("year"), media_type, conn, secret_key)
+    ratings = fetch_ratings(title, item.get("year"), media_type, conn=conn, secret_key=secret_key)
     if "rt" in ratings:
         item["rt_rating"] = ratings["rt"]
     if "imdb" in ratings:

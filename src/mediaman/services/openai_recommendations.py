@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import sqlite3
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -65,12 +66,12 @@ def _get_openai_key(conn) -> str | None:
             try:
                 val = decrypt_value(val, load_config().secret_key, aad=b"openai_api_key")
             except Exception:
-                pass
+                return None
         return val
     return os.environ.get("OPENAI_API_KEY")
 
 
-def _call_openai(prompt: str, conn, use_web_search: bool = True) -> list[dict]:
+def _call_openai(prompt: str, conn: sqlite3.Connection | None, use_web_search: bool = True) -> list[dict]:
     """Send a prompt to OpenAI Responses API and parse the JSON array response.
 
     Always uses the Responses API (``/v1/responses``). When
@@ -227,7 +228,7 @@ def _enrich_recommendations(recommendations: list[dict], conn) -> None:
         if not title:
             continue
         ratings = fetch_ratings(
-            title, s.get("year"), s["media_type"], conn, secret_key
+            title, s.get("year"), s["media_type"], conn=conn, secret_key=secret_key
         )
         if "rt" in ratings:
             s["rt_rating"] = ratings["rt"]

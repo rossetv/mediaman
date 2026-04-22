@@ -78,7 +78,7 @@ def compute_download_state(media_type: str, tmdb_id: int, caches: ArrCaches) -> 
     return "queued"
 
 
-def build_radarr_cache(client) -> dict:
+def build_radarr_cache(client) -> ArrCaches:
     """Build the per-request Radarr cache fragment. Returns a partial
     ``ArrCaches`` containing only the Radarr keys; combine with
     ``build_sonarr_cache`` via dict-spread to get a full ``ArrCaches``.
@@ -94,7 +94,7 @@ def build_radarr_cache(client) -> dict:
     return {"radarr_movies": movies, "radarr_queue_tmdb_ids": queue_ids}
 
 
-def build_sonarr_cache(client) -> dict:
+def build_sonarr_cache(client) -> ArrCaches:
     """Build the per-request Sonarr cache fragment. Returns a partial
     ``ArrCaches`` containing only the Sonarr keys; combine with
     ``build_radarr_cache`` via dict-spread to get a full ``ArrCaches``.

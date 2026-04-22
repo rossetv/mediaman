@@ -23,7 +23,7 @@ from mediaman.services.download_format import (
 logger = logging.getLogger("mediaman")
 
 
-def get_nzbget_client(conn: sqlite3.Connection):
+def get_nzbget_client(conn: sqlite3.Connection) -> "NzbgetClient | None":
     """Build NZBGet client from DB settings. Returns ``None`` if not configured."""
     from mediaman.config import load_config
     from mediaman.crypto import decrypt_value
