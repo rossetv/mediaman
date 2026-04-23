@@ -7,6 +7,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
+from typing import TypedDict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -320,8 +321,13 @@ def _pick_trailer(videos: list[dict]) -> str | None:
     return None
 
 
-def _fetch_sonarr_series_detail(tmdb_id: int, sonarr_cache: dict, client) -> dict:
-    """Return ``{'tracked': bool, 'seasons_in_library': set[int]}`` for a TV show.
+class _SonarrDetail(TypedDict):
+    tracked: bool
+    seasons_in_library: set[int]
+
+
+def _fetch_sonarr_series_detail(tmdb_id: int, sonarr_cache: dict, client) -> _SonarrDetail:
+    """Return Sonarr tracking state for a TV show.
 
     Reuses the ``sonarr_cache`` already built for download_state and the
     ``client`` already constructed upstream — avoids a second client

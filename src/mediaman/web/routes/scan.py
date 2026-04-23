@@ -5,13 +5,13 @@ from __future__ import annotations
 import logging
 import threading
 
-logger = logging.getLogger("mediaman")
-
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from mediaman.auth.middleware import get_current_admin
 from mediaman.db import get_db
+
+logger = logging.getLogger("mediaman")
 
 router = APIRouter()
 

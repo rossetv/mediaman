@@ -39,7 +39,7 @@ logger = logging.getLogger("mediaman")
 router = APIRouter()
 
 
-def _require_flagged_admin(request: Request) -> tuple[str | None, RedirectResponse | None]:
+def _require_flagged_admin(request: Request) -> tuple[str, None] | tuple[None, RedirectResponse]:
     """Resolve the current session. Returns ``(username, None)`` when
     the session is valid, or ``(None, RedirectResponse)`` when the
     caller must be sent elsewhere (no session, or not flagged)."""
