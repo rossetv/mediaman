@@ -2,6 +2,7 @@
 
 import time
 
+from mediaman.config import Config
 from mediaman.crypto import generate_keep_token, validate_keep_token
 from mediaman.db import init_db
 
@@ -128,6 +129,7 @@ class TestKeepSignatureEnforcement:
         app = FastAPI()
         tpl_dir = Path(__file__).parent.parent.parent / "src" / "mediaman" / "web" / "templates"
         app.state.templates = Jinja2Templates(directory=str(tpl_dir))
+        app.state.config = Config(secret_key=secret_key)
         app.include_router(keep_router)
         client = TestClient(app)
 
@@ -189,6 +191,7 @@ class TestKeepSignatureEnforcement:
         app = FastAPI()
         tpl_dir = Path(__file__).parent.parent.parent / "src" / "mediaman" / "web" / "templates"
         app.state.templates = Jinja2Templates(directory=str(tpl_dir))
+        app.state.config = Config(secret_key=secret_key)
         app.include_router(keep_router)
         client = TestClient(app)
 
@@ -223,6 +226,7 @@ class TestKeepSignatureEnforcement:
         app = FastAPI()
         tpl_dir = Path(__file__).parent.parent.parent / "src" / "mediaman" / "web" / "templates"
         app.state.templates = Jinja2Templates(directory=str(tpl_dir))
+        app.state.config = Config(secret_key=secret_key)
         app.include_router(keep_router)
         client = TestClient(app)
 
