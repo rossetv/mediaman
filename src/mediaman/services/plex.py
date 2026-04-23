@@ -10,6 +10,7 @@ import defusedxml.ElementTree as ET
 import requests as http_requests
 from plexapi.server import PlexServer
 
+from mediaman.services.anime_detect import is_anime as _is_anime_show
 from mediaman.services.http_client import SafeHTTPClient, SafeHTTPError
 
 # Matches X-Plex-Token query parameter values so they can be redacted from
@@ -93,31 +94,61 @@ class PlexAccount(TypedDict):
 _HISTORY_MAX_BYTES = 4 * 1024 * 1024
 
 
-def _is_anime(show) -> bool:
-    """Detect anime by Plex genre tags.
+# ---------------------------------------------------------------------------
+# Module-level private helpers — row-to-item conversion
+# ---------------------------------------------------------------------------
 
-    Returns True if the show has the ``Anime`` genre, or has ``Animation``
-    combined with a Japanese studio. This avoids false positives for
-    Western animation (SpongeBob, etc.).
-    """
-    genres = {g.tag.lower() for g in getattr(show, "genres", [])}
-    if "anime" in genres:
-        return True
-    if "animation" not in genres:
-        return False
-    # Animation + Japanese studio = anime
-    studio = (show.studio or "").lower()
-    _JP_STUDIOS = {
-        "a-1 pictures", "bones", "cloverworks", "david production",
-        "doga kobo", "j.c.staff", "kyoto animation", "lerche",
-        "madhouse", "mappa", "o.l.m.", "olm", "orange",
-        "p.a. works", "pierrot", "production i.g", "science saru",
-        "shaft", "silver link.", "studio deen", "sunrise",
-        "tms entertainment", "toei animation", "trigger",
-        "ufotable", "white fox", "wit studio", "remow",
-        "the answerstudio", "ezóla", "g&g entertainment",
+def _movie_to_item(movie) -> "PlexMovieItem":
+    """Convert a plexapi Movie object to a :class:`PlexMovieItem` dict."""
+    file_path = ""
+    file_size = 0
+    if movie.media:
+        for part in movie.media[0].parts:
+            file_path = file_path or part.file
+            file_size += part.size or 0
+    return {
+        "plex_rating_key": str(movie.ratingKey),
+        "title": movie.title,
+        "added_at": movie.addedAt,
+        "updated_at": movie.updatedAt,
+        "file_path": file_path,
+        "file_size_bytes": file_size,
+        "poster_path": movie.thumb,
     }
-    return studio in _JP_STUDIOS
+
+
+def _season_to_item(show, season) -> "PlexSeasonItem":
+    """Convert a plexapi Season object (and its parent Show) to a :class:`PlexSeasonItem` dict."""
+    episodes = season.episodes()
+    file_size = 0
+    file_path = ""
+    earliest_added = None
+    for ep in episodes:
+        if ep.media:
+            for part in ep.media[0].parts:
+                file_size += part.size or 0
+                if not file_path and part.file:
+                    file_path = str(part.file).rsplit("/", 1)[0]
+        ep_added = ep.addedAt
+        if ep_added is not None and (
+            earliest_added is None or ep_added < earliest_added
+        ):
+            earliest_added = ep_added
+    added_at = season.addedAt or earliest_added
+    return {
+        "plex_rating_key": str(season.ratingKey),
+        "title": show.title,
+        "show_title": show.title,
+        "season_number": season.index,
+        "added_at": added_at,
+        "updated_at": show.updatedAt,
+        "file_path": file_path,
+        "file_size_bytes": file_size,
+        "poster_path": show.thumb,
+        "episode_count": len(episodes),
+        "show_rating_key": str(show.ratingKey),
+        "is_anime": _is_anime_show(show),
+    }
 
 
 class PlexClient:
@@ -169,24 +200,7 @@ class PlexClient:
             library_id: The section key (as returned by :meth:`get_libraries`).
         """
         section = self.server.library.sectionByID(int(library_id))
-        items = []
-        for movie in section.all():
-            file_path = ""
-            file_size = 0
-            if movie.media:
-                for part in movie.media[0].parts:
-                    file_path = file_path or part.file
-                    file_size += part.size or 0
-            items.append({
-                "plex_rating_key": str(movie.ratingKey),
-                "title": movie.title,
-                "added_at": movie.addedAt,
-                "updated_at": movie.updatedAt,
-                "file_path": file_path,
-                "file_size_bytes": file_size,
-                "poster_path": movie.thumb,
-            })
-        return items
+        return [_movie_to_item(movie) for movie in section.all()]
 
     def get_show_seasons(self, library_id: str) -> list[PlexSeasonItem]:
         """Return all non-special seasons across every show in a TV library.
@@ -216,36 +230,7 @@ class PlexClient:
             for season in show.seasons():
                 if season.index == 0:
                     continue
-                episodes = season.episodes()
-                file_size = 0
-                file_path = ""
-                earliest_added = None
-                for ep in episodes:
-                    if ep.media:
-                        for part in ep.media[0].parts:
-                            file_size += part.size or 0
-                            if not file_path and part.file:
-                                file_path = str(part.file).rsplit("/", 1)[0]
-                    ep_added = ep.addedAt
-                    if ep_added is not None and (
-                        earliest_added is None or ep_added < earliest_added
-                    ):
-                        earliest_added = ep_added
-                added_at = season.addedAt or earliest_added
-                results.append({
-                    "plex_rating_key": str(season.ratingKey),
-                    "title": show.title,
-                    "show_title": show.title,
-                    "season_number": season.index,
-                    "added_at": added_at,
-                    "updated_at": show.updatedAt,
-                    "file_path": file_path,
-                    "file_size_bytes": file_size,
-                    "poster_path": show.thumb,
-                    "episode_count": len(episodes),
-                    "show_rating_key": str(show.ratingKey),
-                    "is_anime": _is_anime(show),
-                })
+                results.append(_season_to_item(show, season))
         return results
 
     def get_watch_history(self, rating_key: str) -> list[PlexWatchEntry]:

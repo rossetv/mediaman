@@ -87,10 +87,20 @@ class TmdbClient:
     # Network calls
     # ------------------------------------------------------------------
 
+    def _get(self, path: str, params: dict | None = None) -> Any:
+        """Perform an authenticated GET against *path* and return the parsed JSON.
+
+        Centralises the ``self._http.get(..., headers=self._headers, params=...)``
+        repetition shared by every public network method.  Propagates all
+        exceptions to the caller — each public method has its own ``except``
+        clause that decides whether to return ``None`` or ``[]``.
+        """
+        return self._http.get(path, headers=self._headers, params=params or {}).json()
+
     def test_connection(self) -> bool:
         """Return True if the TMDB API is reachable and the token is valid."""
         try:
-            self._http.get("/configuration", headers=self._headers)
+            self._get("/configuration")
             return True
         except Exception:
             return False
@@ -114,12 +124,7 @@ class TmdbClient:
         if year:
             params["year" if endpoint == "movie" else "first_air_date_year"] = year
         try:
-            resp = self._http.get(
-                f"/search/{endpoint}",
-                headers=self._headers,
-                params=params,
-            )
-            results = resp.json().get("results") or []
+            results = self._get(f"/search/{endpoint}", params).get("results") or []
         except Exception:
             return None
         return results[0] if results else None
@@ -134,12 +139,7 @@ class TmdbClient:
         is responsible for checking ``poster_path``.
         """
         try:
-            resp = self._http.get(
-                "/search/multi",
-                headers=self._headers,
-                params={"query": title},
-            )
-            results = resp.json().get("results") or []
+            results = self._get("/search/multi", {"query": title}).get("results") or []
         except Exception:
             return None
         return results[0] if results else None
@@ -153,12 +153,10 @@ class TmdbClient:
         no hits — never raises.
         """
         try:
-            resp = self._http.get(
+            return self._get(
                 "/search/multi",
-                headers=self._headers,
-                params={"query": query, "include_adult": False, "page": page},
-            )
-            return resp.json().get("results") or []
+                {"query": query, "include_adult": False, "page": page},
+            ).get("results") or []
         except Exception:
             return []
 
@@ -169,12 +167,7 @@ class TmdbClient:
         Returns an empty list on error — never raises.
         """
         try:
-            resp = self._http.get(
-                "/trending/all/week",
-                headers=self._headers,
-                params={"page": page},
-            )
-            return resp.json().get("results") or []
+            return self._get("/trending/all/week", {"page": page}).get("results") or []
         except Exception:
             return []
 
@@ -186,12 +179,7 @@ class TmdbClient:
         Returns an empty list on error — never raises.
         """
         try:
-            resp = self._http.get(
-                "/movie/popular",
-                headers=self._headers,
-                params={"page": page},
-            )
-            return resp.json().get("results") or []
+            return self._get("/movie/popular", {"page": page}).get("results") or []
         except Exception:
             return []
 
@@ -203,12 +191,7 @@ class TmdbClient:
         Returns an empty list on error — never raises.
         """
         try:
-            resp = self._http.get(
-                "/tv/popular",
-                headers=self._headers,
-                params={"page": page},
-            )
-            return resp.json().get("results") or []
+            return self._get("/tv/popular", {"page": page}).get("results") or []
         except Exception:
             return []
 
@@ -220,12 +203,10 @@ class TmdbClient:
         """
         endpoint = "movie" if media_type == "movie" else "tv"
         try:
-            resp = self._http.get(
+            return self._get(
                 f"/{endpoint}/{tmdb_id}",
-                headers=self._headers,
-                params={"append_to_response": "videos,credits"},
+                {"append_to_response": "videos,credits"},
             )
-            return resp.json()
         except Exception:
             return None
 
