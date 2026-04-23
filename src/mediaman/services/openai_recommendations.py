@@ -124,11 +124,17 @@ def _call_openai(prompt: str, conn: sqlite3.Connection | None, use_web_search: b
         else:
             logger.exception("OpenAI API returned HTTP error: %s", exc)
         return []
+    except requests.Timeout:
+        logger.warning("OpenAI API call timed out after 90 s", exc_info=True)
+        return []
+    except requests.RequestException as exc:
+        logger.exception("OpenAI API network error: %s", exc)
+        return []
     except (ValueError, KeyError) as exc:
         logger.exception("Failed to parse OpenAI response: %s", exc)
         return []
     except Exception:
-        logger.exception("OpenAI API call failed")
+        logger.exception("OpenAI API call failed unexpectedly")
         return []
 
 

@@ -109,14 +109,12 @@ def record_verified_completions(
                 # NZBGet-only items — no Arr verification possible
                 verified = True
         except Exception:
-            logger.warning(
-                "Failed to verify completion for %s", dl_id, exc_info=True,
-            )
+            # Skip rather than log "no files confirmed" — the real cause is a network error
+            logger.warning("Failed to verify completion for %s — skipping", dl_id, exc_info=True)
+            continue
 
         if not verified:
-            logger.info(
-                "Skipping completion for %s — no files confirmed", dl_id
-            )
+            logger.info("Skipping completion for %s — no files confirmed", dl_id)
             continue
 
         try:
