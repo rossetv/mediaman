@@ -62,7 +62,7 @@ class TestOpenAIModelSelection:
 
     def test_call_openai_sends_configured_model(self, conn, monkeypatch):
         """``_call_openai`` must forward the configured model in the request body."""
-        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "cc8f808b3ca1172bb012bbc9458dd31f61937afd404abd78523184f012d89391")
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
         conn.execute(
             "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
             ("openai_api_key", "sk-test", "2026-04-18T00:00:00+00:00"),
