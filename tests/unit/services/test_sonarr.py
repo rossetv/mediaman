@@ -32,7 +32,7 @@ class TestSonarrClient:
         season_2 = next(s for s in put_data["seasons"] if s["seasonNumber"] == 2)
         assert season_2["monitored"] is False
 
-    @patch("mediaman.services.sonarr.requests.post")
+    @patch("mediaman.services.arr_client_base.requests.post")
     @patch("mediaman.services.arr_client_base.requests.put")
     @patch("mediaman.services.arr_client_base.requests.get")
     def test_remonitor_season(self, mock_get, mock_put, mock_post, client):
@@ -40,7 +40,7 @@ class TestSonarrClient:
             "id": 1, "title": "Test", "seasons": [{"seasonNumber": 1, "monitored": False}],
         })
         mock_put.return_value = MagicMock(status_code=202)
-        mock_post.return_value = MagicMock(status_code=201)
+        mock_post.return_value = MagicMock(status_code=201, json=lambda: {})
         client.remonitor_season(series_id=1, season_number=1)
         put_data = mock_put.call_args[1]["json"]
         assert put_data["seasons"][0]["monitored"] is True
@@ -56,80 +56,89 @@ class TestSonarrClient:
         mock_get.side_effect = Exception("Connection refused")
         assert client.test_connection() is False
 
+    @patch("mediaman.services.arr_client_base.requests.post")
+    def test_search_series_posts_seriessearch_command(self, mock_post, client):
+        """search_series issues POST /api/v3/command with SeriesSearch payload."""
+        mock_post.return_value = MagicMock(status_code=201, json=lambda: {})
+        client.search_series(7)
+        mock_post.assert_called_once()
+        call_kwargs = mock_post.call_args[1]
+        assert call_kwargs["json"] == {"name": "SeriesSearch", "seriesId": 7}
+        assert "sonarr:8989/api/v3/command" in mock_post.call_args[0][0]
 
-def test_search_series_posts_seriessearch_command(monkeypatch):
-    """search_series issues POST /api/v3/command with SeriesSearch payload."""
-    from mediaman.services.sonarr import SonarrClient
+    @patch("mediaman.services.arr_client_base.requests.get")
+    def test_get_episodes_returns_episode_list(self, mock_get, client):
+        """get_episodes fetches /api/v3/episode?seriesId=<id> and returns the list."""
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: [{"id": 1, "airDateUtc": "2099-01-01T00:00:00Z"}],
+        )
+        result = client.get_episodes(42)
+        called_url = mock_get.call_args[0][0]
+        assert "episode?seriesId=42" in called_url
+        assert isinstance(result, list)
+        assert result[0]["id"] == 1
 
-    captured = {}
+    @patch("mediaman.services.arr_client_base.requests.get")
+    def test_get_episodes_returns_empty_list_on_non_list_response(self, mock_get, client):
+        """get_episodes returns [] when the API returns a non-list (e.g. error envelope)."""
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {"error": "unexpected"},
+        )
+        result = client.get_episodes(1)
+        assert result == []
 
-    def fake_post(url, headers=None, json=None, timeout=None):
-        captured["url"] = url
-        captured["headers"] = headers
-        captured["json"] = json
+    @patch("mediaman.services.arr_client_base.requests.post")
+    @patch("mediaman.services.arr_client_base.requests.get")
+    def test_add_series_sends_correct_payload(self, mock_get, mock_post, client):
+        mock_get.return_value = MagicMock(status_code=200, json=lambda: [{"path": "/tv"}])
+        mock_post.return_value = MagicMock(status_code=201, json=lambda: {"id": 10})
+        result = client.add_series(tvdb_id=999, title="Severance")
+        payload = mock_post.call_args[1]["json"]
+        assert payload["tvdbId"] == 999
+        assert payload["monitored"] is True
+        assert payload["addOptions"]["searchForMissingEpisodes"] is True
+        assert payload["rootFolderPath"] == "/tv"
+        assert result["id"] == 10
 
-        class R:
-            def raise_for_status(self):
-                return None
+    @patch("mediaman.services.arr_client_base.requests.post")
+    @patch("mediaman.services.arr_client_base.requests.get")
+    def test_add_series_falls_back_to_default_root(self, mock_get, mock_post, client):
+        mock_get.return_value = MagicMock(status_code=200, json=lambda: [])
+        mock_post.return_value = MagicMock(status_code=201, json=lambda: {"id": 5})
+        client.add_series(tvdb_id=1, title="Test")
+        payload = mock_post.call_args[1]["json"]
+        assert payload["rootFolderPath"] == "/tv"
 
-        return R()
+    @patch("mediaman.services.arr_client_base.requests.get")
+    def test_get_queue_single_page(self, mock_get, client):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {"records": [{"id": 1}], "totalRecords": 1},
+        )
+        result = client.get_queue()
+        assert len(result) == 1
+        assert mock_get.call_count == 1
 
-    monkeypatch.setattr("mediaman.services.sonarr.requests.post", fake_post)
+    @patch("mediaman.services.arr_client_base.requests.get")
+    def test_get_queue_multi_page(self, mock_get, client):
+        page1 = {"records": [{"id": 1}] * 500, "totalRecords": 501}
+        page2 = {"records": [{"id": 2}], "totalRecords": 501}
+        mock_get.side_effect = [
+            MagicMock(status_code=200, json=lambda: page1),
+            MagicMock(status_code=200, json=lambda: page2),
+        ]
+        result = client.get_queue()
+        assert len(result) == 501
 
-    client = SonarrClient("https://sonarr.local", "key456")
-    client.search_series(7)
-
-    assert captured["url"] == "https://sonarr.local/api/v3/command"
-    assert captured["headers"] == {"X-Api-Key": "key456"}
-    assert captured["json"] == {"name": "SeriesSearch", "seriesId": 7}
-
-
-def test_get_episodes_returns_episode_list(monkeypatch):
-    """get_episodes fetches /api/v3/episode?seriesId=<id> and returns the list."""
-    from mediaman.services.sonarr import SonarrClient
-
-    captured = {}
-
-    def fake_get(url, headers=None, timeout=None):
-        captured["url"] = url
-
-        class R:
-            def raise_for_status(self):
-                return None
-
-            def json(self):
-                return [{"id": 1, "airDateUtc": "2099-01-01T00:00:00Z"}]
-
-        return R()
-
-    monkeypatch.setattr("mediaman.services.arr_client_base.requests.get", fake_get)
-
-    client = SonarrClient("https://sonarr.local", "key456")
-    result = client.get_episodes(42)
-
-    assert captured["url"] == "https://sonarr.local/api/v3/episode?seriesId=42"
-    assert isinstance(result, list)
-    assert result[0]["id"] == 1
-
-
-def test_get_episodes_returns_empty_list_on_non_list_response(monkeypatch):
-    """get_episodes returns [] when the API returns a non-list (e.g. error envelope)."""
-    from mediaman.services.sonarr import SonarrClient
-
-    def fake_get(url, headers=None, timeout=None):
-        class R:
-            def raise_for_status(self):
-                return None
-
-            def json(self):
-                return {"error": "unexpected"}
-
-        return R()
-
-    monkeypatch.setattr("mediaman.services.arr_client_base.requests.get", fake_get)
-    client = SonarrClient("https://sonarr.local", "key456")
-    result = client.get_episodes(1)
-    assert result == []
+    @patch("mediaman.services.arr_client_base.requests.get")
+    def test_get_queue_empty(self, mock_get, client):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {"records": [], "totalRecords": 0},
+        )
+        assert client.get_queue() == []
 
 
 class TestLookupSeriesByTmdb:
@@ -159,7 +168,7 @@ class TestLookupSeriesByTmdb:
 
 
 class TestAddSeriesWithSeasons:
-    @patch("mediaman.services.sonarr.requests.post")
+    @patch("mediaman.services.arr_client_base.requests.post")
     @patch("mediaman.services.arr_client_base.requests.get")
     def test_sends_correct_monitored_flags(self, mock_get, mock_post, client):
         # Sonarr returns root folders, lookup, then the add response.
@@ -199,7 +208,7 @@ class TestAddSeriesWithSeasons:
             "name": "SeasonSearch", "seriesId": 42, "seasonNumber": 2,
         }
 
-    @patch("mediaman.services.sonarr.requests.post")
+    @patch("mediaman.services.arr_client_base.requests.post")
     @patch("mediaman.services.arr_client_base.requests.get")
     def test_no_search_when_search_seasons_empty(self, mock_get, mock_post, client):
         mock_get.side_effect = [
