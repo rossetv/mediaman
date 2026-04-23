@@ -48,7 +48,7 @@ class TestRecentDownloadsTable:
             )
 
 
-from mediaman.services.download_format import build_item, map_state, select_hero
+from mediaman.services.download_format import build_item, map_state, select_hero  # noqa: E402
 
 
 class TestStateMapping:
@@ -187,8 +187,8 @@ class TestHeroSelection:
         assert rest == []
 
 
-from mediaman.services.arr_completion import detect_completed
-from mediaman.services.download_queue import _reset_previous_queue
+from mediaman.services.arr_completion import detect_completed  # noqa: E402
+from mediaman.services.download_queue import _reset_previous_queue  # noqa: E402
 
 
 class TestCompletionDetection:
@@ -222,15 +222,15 @@ class TestCompletionDetection:
         _reset_previous_queue()  # Should not raise
 
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch  # noqa: E402
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
-from mediaman.auth.session import create_session, create_user
-from mediaman.config import Config
-from mediaman.db import set_connection
-from mediaman.web.routes.download import router as download_router
+from mediaman.auth.session import create_session, create_user  # noqa: E402
+from mediaman.config import Config  # noqa: E402
+from mediaman.db import set_connection  # noqa: E402
+from mediaman.web.routes.download import router as download_router  # noqa: E402
 
 
 def _make_download_app(conn, secret_key: str) -> FastAPI:
@@ -435,7 +435,10 @@ class TestRecentDownloadsCleanup:
         assert "radarr:New" in dl_ids
 
 
-from mediaman.services.download_format import classify_movie_upcoming, classify_series_upcoming
+from mediaman.services.download_format import (  # noqa: E402
+    classify_movie_upcoming,
+    classify_series_upcoming,
+)
 
 
 class TestClassifyMovieUpcoming:
@@ -602,7 +605,7 @@ class TestClassifySeriesUpcoming:
         assert label == ""
 
 
-from mediaman.services.arr_fetcher import fetch_arr_queue as _get_arr_queue
+from mediaman.services.arr_fetcher import fetch_arr_queue as _get_arr_queue  # noqa: E402
 
 
 class TestGetArrQueueEnrichment:
@@ -694,7 +697,7 @@ class TestGetArrQueueEnrichment:
         assert hit["arr_id"] == 55
 
 
-from mediaman.services.arr_search_trigger import (
+from mediaman.services.arr_search_trigger import (  # noqa: E402
     _last_search_trigger,
     maybe_trigger_search,
     reset_search_triggers,
@@ -862,7 +865,9 @@ class TestSearchTriggerThrottle:
         assert mock_radarr.search_movie.call_count == 2
 
 
-from mediaman.services.download_queue import build_downloads_response as _build_downloads_response
+from mediaman.services.download_queue import (  # noqa: E402
+    build_downloads_response as _build_downloads_response,
+)
 
 
 class TestBuildDownloadsResponseBuckets:
@@ -998,7 +1003,7 @@ class TestBuildDownloadsResponseBuckets:
         assert resp["upcoming"][0]["title"] == "Project Hail Mary"
 
 
-from mediaman.services.download_format import looks_like_series_nzb
+from mediaman.services.download_format import looks_like_series_nzb  # noqa: E402
 
 
 class TestLooksLikeSeriesNzb:
@@ -1273,7 +1278,7 @@ class TestNzbSeriesMatching:
         assert card["state"] == "downloading"
 
 
-from mediaman.services.arr_search_trigger import trigger_pending_searches
+from mediaman.services.arr_search_trigger import trigger_pending_searches  # noqa: E402
 
 
 class TestTriggerPendingSearches:

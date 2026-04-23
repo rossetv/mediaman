@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re as _re
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -35,8 +36,6 @@ _limiter = RateLimiter(max_attempts=5, window_seconds=60)
 # Characters permitted in sanitised log fields.  Anything outside this
 # set is stripped before interpolation so CR/LF and control characters
 # cannot be used to forge additional log lines.
-import re as _re
-
 _LOG_FIELD_RE = _re.compile(r"[^A-Za-z0-9._@\-]")
 
 

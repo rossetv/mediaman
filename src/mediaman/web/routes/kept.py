@@ -198,7 +198,6 @@ def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)
     logs the action to audit_log.
     """
     conn = get_db()
-    now = datetime.now(timezone.utc)
 
     # Pick the most-recent protection row — avoids targeting a stale
     # snooze when a newer protect/snooze has already been applied.

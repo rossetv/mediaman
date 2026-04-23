@@ -246,7 +246,7 @@ class TestSessionFingerprint:
 
         conn = self._conn(tmp_path)
         create_user(conn, "carol", "test-password-long-enough", enforce_policy=False)
-        token = create_session(conn, "carol", user_agent="UA", client_ip="1.1.1.1")
+        create_session(conn, "carol", user_agent="UA", client_ip="1.1.1.1")
 
         row = conn.execute(
             "SELECT token_hash, fingerprint, issued_ip FROM admin_sessions"

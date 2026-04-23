@@ -71,7 +71,6 @@ class TestLogAudit:
         conn = _make_conn()
         log_audit(conn, "item-5", "test", "no commit")
         # Without an explicit commit, another connection should not see the row.
-        conn2 = sqlite3.connect(":memory:")
         # We can't check across a shared in-memory DB easily, but we verify
         # the row IS visible within the same connection (write happened).
         row = conn.execute("SELECT * FROM audit_log").fetchone()

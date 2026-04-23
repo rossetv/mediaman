@@ -17,9 +17,6 @@ import time
 from typing import TypedDict
 from urllib.parse import quote as _url_quote
 
-# YouTube video IDs are exactly 11 URL-safe base64 characters.
-_YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
-
 import requests
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -45,6 +42,9 @@ from mediaman.services.download_queue import build_episode_dicts
 from mediaman.services.format import format_bytes
 from mediaman.services.http_client import SafeHTTPError
 from mediaman.services.item_enrichment import enrich_redownload_item
+
+# YouTube video IDs are exactly 11 URL-safe base64 characters.
+_YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
 logger = logging.getLogger("mediaman")
 

@@ -115,11 +115,9 @@ def _fetch_library(
         params.extend([like, like])
 
     kept_filter = False
-    stale_filter = False
     if media_type == "kept":
         kept_filter = True
     elif media_type == "stale":
-        stale_filter = True
         # Read thresholds for stale calculation
         _min_age = get_int_setting(conn, "min_age_days", default=30)
         _inactivity = get_int_setting(conn, "inactivity_days", default=30)

@@ -315,7 +315,7 @@ def cli_main() -> None:
 # ``python -m mediaman.main``, CLI subcommands). The CLI path constructs
 # its own app via ``cli_main`` so the module-level instance is only
 # needed when uvicorn is invoked with this dotted path.
-import os as _os
+import os as _os  # noqa: E402 — gated import to avoid side-effects on module load
 
 if _os.environ.get("MEDIAMAN_EAGER_APP", "").strip() == "1":
     app = create_app()

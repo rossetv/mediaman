@@ -90,14 +90,20 @@ class TestLastError:
     def test_last_error_initially_none(self):
         """last_error is None before any call is made."""
         from mediaman.services.arr_client_base import ArrClient
-        class TC(ArrClient): pass
+
+        class TC(ArrClient):
+            pass
+
         c = TC("http://arr.local", "key")
         assert c.last_error is None
 
     def test_split_timeout_applied(self):
         """SafeHTTPClient is configured with the split connect/read timeout."""
         from mediaman.services.arr_client_base import _ARR_TIMEOUT, ArrClient
-        class TC(ArrClient): pass
+
+        class TC(ArrClient):
+            pass
+
         c = TC("http://arr.local", "key")
         assert c._http._default_timeout == _ARR_TIMEOUT
         assert _ARR_TIMEOUT == (5.0, 30.0)

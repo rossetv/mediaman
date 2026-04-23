@@ -108,9 +108,9 @@ def test_tv_season_without_statistics_key_is_skipped():
 
 
 # Tests for cache builders
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock  # noqa: E402 — grouped after test classes intentionally
 
-from mediaman.services.arr_state import build_radarr_cache, build_sonarr_cache
+from mediaman.services.arr_state import build_radarr_cache, build_sonarr_cache  # noqa: E402
 
 
 def test_build_radarr_cache_indexes_by_tmdb_id():

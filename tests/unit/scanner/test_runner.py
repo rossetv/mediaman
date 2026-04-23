@@ -80,7 +80,7 @@ class TestDiskThresholdFiltering:
             raise FileNotFoundError(path)
 
         with (
-            patch("mediaman.services.plex.PlexClient", return_value=_make_plex_mock(plex_libs)) as MockPlex,
+            patch("mediaman.services.plex.PlexClient", return_value=_make_plex_mock(plex_libs)),
             patch("mediaman.scanner.engine.ScanEngine", return_value=engine_instance) as MockEngine,
             patch("mediaman.scanner.runner.get_disk_usage", side_effect=fake_disk_usage),
             patch("mediaman.crypto.decrypt_value", return_value="fake-token"),

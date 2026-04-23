@@ -463,7 +463,7 @@ class TestMediaRedownload:
         mock_sonarr.lookup_by_term.return_value = []
         with patch("mediaman.web.routes.library.build_radarr_from_db", return_value=mock_radarr), \
              patch("mediaman.web.routes.library.build_sonarr_from_db", return_value=mock_sonarr):
-            resp = client.post(
+            client.post(
                 "/api/media/redownload",
                 json={"title": "Inception", "year": 2020},  # wrong year
             )
