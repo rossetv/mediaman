@@ -35,7 +35,7 @@ def _strip_season_suffix(title: str) -> str:
 _DEFAULT_MODEL = "gpt-4.1"
 
 
-def _get_openai_model(conn) -> str:
+def _get_openai_model(conn: sqlite3.Connection) -> str:
     """Return the OpenAI model to use, honouring the ``openai_model`` setting."""
     from mediaman.services.settings_reader import get_string_setting
 
@@ -55,7 +55,7 @@ Example:
 JSON array only, no markdown, no explanation."""
 
 
-def _get_openai_key(conn) -> str | None:
+def _get_openai_key(conn: sqlite3.Connection) -> str | None:
     """Read the OpenAI API key from settings, falling back to env var."""
     from mediaman.crypto import decrypt_value
     from mediaman.config import load_config
@@ -67,7 +67,7 @@ def _get_openai_key(conn) -> str | None:
         val = row["value"]
         if row["encrypted"]:
             try:
-                val = decrypt_value(val, load_config().secret_key, aad=b"openai_api_key")
+                val = decrypt_value(val, load_config().secret_key, conn=conn, aad=b"openai_api_key")
             except Exception:
                 logger.warning("Failed to decrypt OpenAI API key from settings", exc_info=True)
                 return None
@@ -158,7 +158,7 @@ def _parse_recommendations(items: list[dict], category: str) -> list[dict]:
     return results
 
 
-def _enrich_recommendations(recommendations: list[dict], conn) -> None:
+def _enrich_recommendations(recommendations: list[dict], conn: sqlite3.Connection) -> None:
     """Enrich recommendations in place with TMDB data + OMDB ratings.
 
     Replaces the previous three-pass pipeline
@@ -247,7 +247,7 @@ def _enrich_recommendations(recommendations: list[dict], conn) -> None:
                 pass
 
 
-def _generate_trending(conn, previous_titles: list[str] | None = None) -> list[dict]:
+def _generate_trending(conn: sqlite3.Connection, previous_titles: list[str] | None = None) -> list[dict]:
     """Generate trending media recommendations using web search.
 
     Args:
@@ -281,7 +281,7 @@ Return exactly 14 items (mix of movies and TV shows).
     return _parse_recommendations(items, "trending")
 
 
-def _generate_personal(conn, watch_history: list[dict], user_ratings: list[dict] | None = None, previous_titles: list[str] | None = None) -> list[dict]:
+def _generate_personal(conn: sqlite3.Connection, watch_history: list[dict], user_ratings: list[dict] | None = None, previous_titles: list[str] | None = None) -> list[dict]:
     """Generate personalised recommendations based on watch history and user ratings.
 
     Args:
@@ -326,7 +326,7 @@ Return exactly 14 items (mix of movies and TV shows).
     return _parse_recommendations(items, "personal")
 
 
-def refresh_recommendations(conn, plex_client, manual: bool = False) -> int:
+def refresh_recommendations(conn: sqlite3.Connection, plex_client, manual: bool = False) -> int:
     """Fetch watch history, generate both trending and personal recommendations.
 
     Args:

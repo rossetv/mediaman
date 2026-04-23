@@ -19,14 +19,14 @@ from typing import TypedDict
 class RadarrCaches(TypedDict):
     """Cache fragment returned by :func:`build_radarr_cache`."""
 
-    radarr_movies: dict[int, dict]
+    radarr_movies: dict[int, dict[str, object]]
     radarr_queue_tmdb_ids: set[int]
 
 
 class SonarrCaches(TypedDict):
     """Cache fragment returned by :func:`build_sonarr_cache`."""
 
-    sonarr_series: dict[int, dict]
+    sonarr_series: dict[int, dict[str, object]]
     sonarr_queue_tmdb_ids: set[int]
 
 
@@ -70,23 +70,25 @@ def compute_download_state(media_type: str, tmdb_id: int, caches: ArrCaches) -> 
     if series is None:
         return None
 
+    def _stats(season: dict) -> dict[str, object]:
+        return season.get("statistics") or {}
+
     # Only consider seasons that have aired (previousAiring is set) and
     # are not season 0 (specials).
     aired_seasons = [
         s for s in series.get("seasons", [])
         if s.get("seasonNumber", 0) > 0
-        and (s.get("statistics") or {}).get("previousAiring")
+        and _stats(s).get("previousAiring")
     ]
 
     if aired_seasons:
         have_any = any(
-            (s.get("statistics") or {}).get("episodeFileCount", 0) > 0
+            _stats(s).get("episodeFileCount", 0) > 0
             for s in aired_seasons
         )
         have_all = all(
-            (s.get("statistics") or {}).get("episodeFileCount", 0)
-            >= (s.get("statistics") or {}).get("episodeCount", 0)
-            and (s.get("statistics") or {}).get("episodeCount", 0) > 0
+            _stats(s).get("episodeFileCount", 0) >= _stats(s).get("episodeCount", 0)
+            and _stats(s).get("episodeCount", 0) > 0
             for s in aired_seasons
         )
         if have_all:

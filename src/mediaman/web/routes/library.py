@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+
+import requests as _requests
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote as _url_quote
 
@@ -101,7 +103,7 @@ def _fetch_library(
     """
     # ── Build WHERE clause for the base CTE ──────────────────────────────
     where_clauses: list[str] = []
-    params: list = []
+    params: list[object] = []
 
     if q:
         where_clauses.append("(title LIKE ? OR show_title LIKE ?)")
@@ -613,9 +615,9 @@ def api_media_redownload(
                     conn.commit()
                     logger.info("Re-downloaded '%s' via Radarr by %s", title, username)
                     return JSONResponse({"ok": True, "message": f"Added '{title}' to Radarr"})
-    except Exception as exc:
-        error_msg = str(exc)
-        if "already" in error_msg.lower() or "exists" in error_msg.lower():
+    except _requests.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else 0
+        if status in (409, 422):
             return JSONResponse({"ok": False, "error": f"'{title}' already exists in Radarr"})
         # Fall through to try Sonarr
 
@@ -637,10 +639,13 @@ def api_media_redownload(
                     conn.commit()
                     logger.info("Re-downloaded '%s' via Sonarr by %s", title, username)
                     return JSONResponse({"ok": True, "message": f"Added '{title}' to Sonarr"})
-    except Exception as exc:
-        error_msg = str(exc)
-        if "already" in error_msg.lower() or "exists" in error_msg.lower():
+    except _requests.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else 0
+        if status in (409, 422):
             return JSONResponse({"ok": False, "error": f"'{title}' already exists in Sonarr"})
+        logger.warning("Re-download via Sonarr failed for '%s': HTTP %s", title, status, exc_info=True)
+        return JSONResponse({"ok": False, "error": "Download request failed — check service connectivity"})
+    except Exception as exc:
         logger.warning("Re-download via Sonarr failed for '%s': %s", title, exc, exc_info=True)
         return JSONResponse({"ok": False, "error": "Download request failed — check service connectivity"})
 

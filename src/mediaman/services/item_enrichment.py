@@ -6,8 +6,10 @@ no side effects beyond DB reads and outbound API calls.
 
 from __future__ import annotations
 
+import sqlite3
 
-def _fetch_tmdb_for_item(item: dict, conn, secret_key: str) -> None:
+
+def _fetch_tmdb_for_item(item: dict, conn: sqlite3.Connection, secret_key: str) -> None:
     """Fetch TMDB search + details + OMDB ratings for a single item.
 
     Thin wrapper around :class:`services.tmdb.TmdbClient` — fills gaps on
@@ -78,7 +80,7 @@ def _fetch_tmdb_for_item(item: dict, conn, secret_key: str) -> None:
         item["metascore"] = ratings["metascore"]
 
 
-def _enrich_redownload_item(item: dict, conn, secret_key: str) -> None:
+def _enrich_redownload_item(item: dict, conn: sqlite3.Connection, secret_key: str) -> None:
     """Enrich a re-download item with rich metadata for the cinematic layout.
 
     First checks the recommendations cache (fast, no API calls).
