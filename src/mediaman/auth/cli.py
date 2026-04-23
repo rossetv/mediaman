@@ -1,4 +1,6 @@
 """CLI commands for admin user management."""
+from __future__ import annotations
+
 
 import argparse
 import getpass

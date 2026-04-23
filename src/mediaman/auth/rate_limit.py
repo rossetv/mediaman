@@ -16,6 +16,8 @@ the naive version:
 The limiter also caps total bucket count so a distributed attack
 can't grow the dict without bound.
 """
+from __future__ import annotations
+
 
 import ipaddress
 import os

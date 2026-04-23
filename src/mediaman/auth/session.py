@@ -19,6 +19,8 @@ The table still stores the raw token as ``token`` for backward
 compatibility with any already-issued session rows, but new sessions
 only store the hash. validate_session accepts either shape.
 """
+from __future__ import annotations
+
 
 import hashlib
 import logging

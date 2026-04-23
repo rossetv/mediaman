@@ -1,4 +1,6 @@
 """TV season scanning and deletion eligibility logic."""
+from __future__ import annotations
+
 
 from datetime import datetime, timezone
 

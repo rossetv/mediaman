@@ -1,4 +1,6 @@
 """APScheduler setup for periodic scanning and library sync."""
+from __future__ import annotations
+
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger

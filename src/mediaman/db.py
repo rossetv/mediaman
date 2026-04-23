@@ -383,6 +383,10 @@ def get_db() -> sqlite3.Connection:
     verbatim for the thread that owns it so tests (which stash and
     reuse that same object directly) continue to see the familiar
     connection identity.
+
+    Requires :func:`init_db` (or :func:`set_connection`) to have been
+    called first — raises ``RuntimeError`` otherwise. No caller should
+    invoke this at module import time.
     """
     if _db_path is None and _owning_conn is None:
         raise RuntimeError("Database not initialised — call init_db first")

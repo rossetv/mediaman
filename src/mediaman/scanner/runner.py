@@ -4,6 +4,8 @@ Extracts the "build everything from DB settings and run a scan" logic so it
 can be called from both the manual trigger route (scan.py) and the scheduled
 lifespan job (main.py) without duplication.
 """
+from __future__ import annotations
+
 
 import json
 import logging

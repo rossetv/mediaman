@@ -11,6 +11,8 @@ For each configured library the engine:
 7. Writes an ``audit_log`` entry for every scheduled action.
 8. Sends a newsletter to all active subscribers via Mailgun.
 """
+from __future__ import annotations
+
 
 import logging
 import sqlite3

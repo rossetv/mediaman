@@ -126,6 +126,9 @@ def _enrich_ratings(results: list[dict], request: Request) -> None:
     same title in multiple shelves (e.g. Trending and Popular Movies), and every
     duplicate dict must receive the enriched ratings, not just whichever one
     happened to be last in the input list.
+
+    Side effect: writes fetched ratings back to ``ratings_cache`` so subsequent
+    requests for the same title skip the OMDb round-trip.
     """
     conn = get_db()
     secret_key = request.app.state.config.secret_key

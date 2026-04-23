@@ -1,4 +1,6 @@
 """Generate media recommendations via OpenAI — trending and personalised."""
+from __future__ import annotations
+
 
 import json
 import logging
