@@ -130,6 +130,20 @@ MEDIAMAN_SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32))") 
   mediaman
 ```
 
+## Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before
+opening a pull request. For bugs and feature requests, use the issue templates.
+
+## Security
+
+Security issues must be reported privately. See [SECURITY.md](SECURITY.md) for
+the disclosure policy, scope, and response timeline.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a history of notable changes.
+
 ## Licence
 
 MIT. See `LICENSE`.

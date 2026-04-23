@@ -6,31 +6,151 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel any in-flight run for the same branch/PR when a new one is triggered.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege default: jobs opt in to the permissions they need.
+permissions:
+  contents: read
+
 jobs:
   tests:
+    name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run tests
+        run: pytest -q --cov=mediaman --cov-report=term-missing --cov-fail-under=51
+
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    # Soft gate: there are pre-existing ruff errors and formatting drift in the
+    # codebase. This step surfaces them without blocking merges. Promote to a
+    # hard gate once the baseline is clean (run `ruff check --fix . && ruff
+    # format .` to apply auto-fixes in a dedicated clean-up commit).
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install -r requirements-dev.txt && pip install -e .
-      - run: pytest -q --cov=mediaman --cov-report=term-missing --cov-fail-under=30
 
-  docker:
-    needs: tests
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: ruff check
+        run: ruff check .
+
+      - name: ruff format
+        run: ruff format --check .
+
+  typecheck:
+    name: Type check (mypy)
     runs-on: ubuntu-latest
+    # Soft gate: the codebase has pre-existing mypy errors. This step surfaces
+    # them as a warning without blocking merges. Promote to a hard gate once
+    # the baseline errors are resolved.
+    continue-on-error: true
+
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: mypy
+        run: mypy src/
+
+  security-scan:
+    name: Security scan (bandit)
+    runs-on: ubuntu-latest
+    # Soft gate: run bandit and surface findings without blocking merges.
+    # Review the output and promote to a hard gate once baseline findings
+    # are assessed and any genuine issues are remediated or skipped.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install bandit
+        run: pip install bandit[toml]
+
+      - name: bandit
+        run: bandit -r src/ -ll -f text
+
+  dependency-audit:
+    name: Dependency audit (pip-audit)
+    runs-on: ubuntu-latest
+    # Soft gate: advisory databases change independently of this repo.
+    # Failures here signal a new CVE in a dependency; review promptly but
+    # do not block unrelated merges. Promote to a hard gate once a fix
+    # workflow (Dependabot + required checks) is in place.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install pip-audit and project dependencies
+        run: pip install pip-audit && pip install -e ".[dev]"
+
+      - name: pip-audit
+        run: pip-audit
+
+  docker:
+    name: Docker build
+    needs: tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
       - uses: docker/setup-qemu-action@v3
+
       - uses: docker/setup-buildx-action@v3
+
       - name: Login to Docker Hub
         if: github.event_name == 'push'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Build (PR validation)
         if: github.event_name == 'pull_request'
         uses: docker/build-push-action@v6
@@ -38,6 +158,7 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
       - name: Build and push
         if: github.event_name == 'push'
         uses: docker/build-push-action@v6
@@ -51,12 +172,17 @@ jobs:
           cache-to: type=gha,mode=max
 
   cloudflare-refresh:
+    name: Cloudflare cache purge
     needs: docker
-    if: github.event_name == 'push'
+    # Guard: only run on the canonical repository so forks do not attempt
+    # to contact the maintainer's Cloudflare zone.
+    if: github.event_name == 'push' && github.repository == 'rossetv/mediaman'
     runs-on: ubuntu-latest
+
     env:
       CF_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
       CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
     steps:
       - name: Enable Cloudflare Development Mode
         run: |
@@ -65,6 +191,7 @@ jobs:
             -H "Authorization: Bearer ${CF_API_TOKEN}" \
             -H "Content-Type: application/json" \
             --data '{"value":"on"}'
+
       - name: Purge Cloudflare cache
         run: |
           curl --fail-with-body -sS -X POST \

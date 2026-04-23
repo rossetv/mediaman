@@ -82,7 +82,17 @@ markers = [
     "unit: Unit tests (fast, no I/O)",
     "integration: Integration tests (module boundaries)",
 ]
-addopts = "-q --tb=short"
+addopts = "-q --tb=short --strict-markers --strict-config"
+filterwarnings = [
+    "error",
+    # Pre-existing unclosed SQLite connections in source code (P6 fix scope).
+    # Remove this ignore once connection lifecycle is cleaned up.
+    "ignore::ResourceWarning",
+    # Third-party deprecations we cannot fix upstream:
+    "ignore::DeprecationWarning:apscheduler",
+    "ignore::DeprecationWarning:plexapi",
+    "ignore::DeprecationWarning:passlib",
+]
 
 [tool.ruff]
 target-version = "py311"
@@ -113,5 +123,6 @@ omit = [
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
-# TODO(P7): raise floor once coverage is measured and plugged.
-fail_under = 30
+# Floor set at 51% (measured baseline: 56.01%, margin: ~5%).
+# Raise incrementally as new tests are added.
+fail_under = 51

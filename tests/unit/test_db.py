@@ -536,3 +536,56 @@ class TestSchemaV18KeepTokensUsed:
     def test_migration_idempotent(self, db_path):
         init_db(str(db_path)).close()
         init_db(str(db_path)).close()  # must not raise
+
+
+class TestFactories:
+    """Proof-of-life for ``tests/helpers/factories.py``.
+
+    Verifies that the factory helpers produce dicts whose keys match the
+    ``media_items`` and ``scheduled_actions`` schema so they can be used
+    as a quick scaffold in other tests rather than duplicating raw SQL
+    dictionaries everywhere.
+    """
+
+    def test_make_media_item_roundtrip(self, db_path):
+        """A dict from ``make_media_item`` can be inserted into the DB."""
+        from tests.helpers.factories import make_media_item
+
+        conn = init_db(str(db_path))
+        item = make_media_item(id="f1", title="Factory Film", media_type="movie")
+        conn.execute(
+            "INSERT INTO media_items "
+            "(id, title, media_type, plex_library_id, plex_rating_key, "
+            "added_at, file_path, file_size_bytes) "
+            "VALUES (:id, :title, :media_type, :plex_library_id, "
+            ":plex_rating_key, :added_at, :file_path, :file_size_bytes)",
+            item,
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT title, media_type FROM media_items WHERE id='f1'"
+        ).fetchone()
+        assert row["title"] == "Factory Film"
+        assert row["media_type"] == "movie"
+        conn.close()
+
+    def test_make_media_item_defaults_are_sane(self):
+        """Default values do not require any keyword arguments."""
+        from tests.helpers.factories import make_media_item
+
+        item = make_media_item()
+        assert item["media_type"] == "movie"
+        assert item["file_size_bytes"] > 0
+        # added_at must be an ISO 8601 string (so it can be stored as TEXT).
+        assert "T" in item["added_at"] or "-" in item["added_at"]
+
+    def test_make_scheduled_action_defaults_are_sane(self):
+        """Scheduled action factory produces a complete dict."""
+        from tests.helpers.factories import make_scheduled_action
+
+        action = make_scheduled_action()
+        assert action["action"] == "scheduled_deletion"
+        assert action["token_used"] is False
+        assert action["notified"] is False
+        # execute_at must be after scheduled_at.
+        assert action["execute_at"] > action["scheduled_at"]
