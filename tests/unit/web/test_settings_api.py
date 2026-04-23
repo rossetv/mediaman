@@ -239,7 +239,10 @@ class TestSettingsPutSsrfGuard:
             json={"plex_url": "file:///etc/passwd"},
         )
 
-        assert resp.status_code == 400
+        # file:// is now caught at the Pydantic model layer (422) before
+        # the route's URL validation (400) has a chance to run. Either
+        # status signals rejection — what matters is it is not 200.
+        assert resp.status_code in (400, 422)
 
     def test_allows_lan_address(self, conn, secret_key):
         app = _make_app(conn, secret_key)
@@ -251,3 +254,281 @@ class TestSettingsPutSsrfGuard:
         )
 
         assert resp.status_code == 200
+
+
+class TestSettingsPutPersistsEveryDeclaredKey:
+    """PUT /api/settings must persist every key declared in SettingsUpdate.
+
+    This is the regression guard for C11: previously, keys missing from
+    SettingsUpdate were silently dropped by Pydantic before reaching the
+    route handler, so the UI's save returned 200 but changed nothing.
+    """
+
+    # Non-secret, non-URL fields that round-trip as plain strings / ints / bools.
+    _PLAIN_FIELDS: dict = {
+        "nzbget_username": "nzbuser",
+        "mailgun_domain": "mg.example.com",
+        "mailgun_from_address": "no-reply@example.com",
+        "scan_day": "Monday",
+        "scan_time": "03:00",
+        "scan_timezone": "Europe/London",
+        "library_sync_interval": 3600,
+        "min_age_days": 30,
+        "inactivity_days": 60,
+        "grace_days": 7,
+        "dry_run": True,
+        "suggestions_enabled": False,
+    }
+
+    # URL fields validated for http(s) scheme.
+    _URL_FIELDS: dict = {
+        "plex_url": "http://plex.lan:32400",
+        "plex_public_url": "http://plex.example.com:32400",
+        "sonarr_url": "http://sonarr.lan:8989",
+        "sonarr_public_url": "http://sonarr.example.com",
+        "radarr_url": "http://radarr.lan:7878",
+        "radarr_public_url": "http://radarr.example.com",
+        "nzbget_url": "http://nzbget.lan:6789",
+        "nzbget_public_url": "http://nzbget.example.com",
+        "base_url": "https://media.example.com",
+    }
+
+    # Secret fields — stored encrypted, returned as "****" by GET.
+    _SECRET_FIELDS: dict = {
+        "plex_token": "fake-plex-token-1234",
+        "sonarr_api_key": "sonarr-key-abcd",
+        "radarr_api_key": "radarr-key-efgh",
+        "nzbget_password": "nzbpassword",
+        "mailgun_api_key": "mg-key-ijkl",
+        "tmdb_api_key": "tmdb-key-mnop",
+        "tmdb_read_token": "tmdb-read-qrst",
+        "openai_api_key": "sk-openai-uvwx",
+        "omdb_api_key": "omdb-key-yz01",
+    }
+
+    def _put_and_get(self, conn, secret_key, payload: dict):
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+        put_resp = client.put("/api/settings", json=payload)
+        assert put_resp.status_code == 200, put_resp.json()
+        get_resp = client.get("/api/settings")
+        assert get_resp.status_code == 200
+        return get_resp.json()
+
+    def test_put_persists_plain_fields(self, conn, secret_key):
+        """All plain (non-secret, non-URL) keys round-trip correctly."""
+        data = self._put_and_get(conn, secret_key, self._PLAIN_FIELDS)
+        for key, expected in self._PLAIN_FIELDS.items():
+            assert key in data, f"key {key!r} missing from GET response"
+            assert data[key] == expected, f"{key}: expected {expected!r}, got {data[key]!r}"
+
+    def test_put_persists_url_fields(self, conn, secret_key):
+        """All URL-shaped settings keys round-trip correctly."""
+        data = self._put_and_get(conn, secret_key, self._URL_FIELDS)
+        for key, expected in self._URL_FIELDS.items():
+            assert key in data, f"key {key!r} missing from GET response"
+            assert data[key] == expected, f"{key}: expected {expected!r}, got {data[key]!r}"
+
+    def test_put_persists_secret_fields_as_masked(self, conn, secret_key):
+        """Secret keys are stored; GET returns '****' for each non-empty one."""
+        data = self._put_and_get(conn, secret_key, self._SECRET_FIELDS)
+        for key in self._SECRET_FIELDS:
+            assert key in data, f"secret key {key!r} missing from GET response"
+            assert data[key] == "****", (
+                f"secret key {key!r} should be masked as '****' in GET, got {data[key]!r}"
+            )
+
+    def test_put_persists_plex_libraries(self, conn, secret_key):
+        """plex_libraries (a list) round-trips correctly."""
+        payload = {"plex_libraries": ["1", "2", "3"]}
+        data = self._put_and_get(conn, secret_key, payload)
+        assert data.get("plex_libraries") == ["1", "2", "3"]
+
+    def test_put_persists_disk_thresholds(self, conn, secret_key):
+        """disk_thresholds (a dict) round-trips correctly."""
+        payload = {"disk_thresholds": {"/media": 85, "/data": 90}}
+        data = self._put_and_get(conn, secret_key, payload)
+        assert data.get("disk_thresholds") == {"/media": 85, "/data": 90}
+
+    def test_put_rejects_unknown_key_with_422(self, conn, secret_key):
+        """Unknown key must be rejected at the Pydantic layer (HTTP 422)."""
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+        resp = client.put("/api/settings", json={"not_a_real_setting": "oops"})
+        assert resp.status_code == 422
+
+    def test_put_rejects_crlf_in_plain_string(self, conn, secret_key):
+        """CR/LF in a plain string field must be rejected (HTTP 422)."""
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+        resp = client.put(
+            "/api/settings",
+            json={"scan_day": "Monday\r\nX-Injected: evil"},
+        )
+        assert resp.status_code == 422
+
+    def test_put_rejects_crlf_in_api_key(self, conn, secret_key):
+        """CR/LF in a secret field must be rejected (HTTP 422)."""
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+        resp = client.put(
+            "/api/settings",
+            json={"openai_api_key": "sk-valid\nevil"},
+        )
+        assert resp.status_code == 422
+
+    def test_put_rejects_invalid_timezone(self, conn, secret_key):
+        """An unrecognised IANA timezone must be rejected (HTTP 422)."""
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+        resp = client.put(
+            "/api/settings",
+            json={"scan_timezone": "Moon/FarSide"},
+        )
+        assert resp.status_code == 422
+
+    def test_put_rejects_library_sync_interval_out_of_range(self, conn, secret_key):
+        """library_sync_interval outside 60–86400 must be rejected (HTTP 422)."""
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+        resp = client.put("/api/settings", json={"library_sync_interval": 10})
+        assert resp.status_code == 422
+
+
+class TestApiTestServiceOpenAiTmdbOmdb:
+    """api_test_service for openai/tmdb/omdb must use SafeHTTPClient and
+    validate API-key character set before placing the key in a header."""
+
+    def _client(self, conn, secret_key):
+        app = _make_app(conn, secret_key)
+        return _auth_client(app, conn)
+
+    def _store_setting(self, conn, key, value):
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)"
+            " ON CONFLICT(key) DO UPDATE SET value=excluded.value, encrypted=0, updated_at=excluded.updated_at",
+            (key, value, now),
+        )
+        conn.commit()
+
+    def test_openai_missing_key_returns_error(self, conn, secret_key):
+        client = self._client(conn, secret_key)
+        resp = client.post("/api/settings/test/openai")
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is False
+        assert "required" in resp.json()["error"].lower()
+
+    def test_tmdb_missing_key_returns_error(self, conn, secret_key):
+        client = self._client(conn, secret_key)
+        resp = client.post("/api/settings/test/tmdb")
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is False
+
+    def test_omdb_missing_key_returns_error(self, conn, secret_key):
+        client = self._client(conn, secret_key)
+        resp = client.post("/api/settings/test/omdb")
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is False
+
+    def test_openai_invalid_key_charset_rejected(self, conn, secret_key):
+        """Non-ASCII characters in an OpenAI key must be caught before the header is set."""
+        self._store_setting(conn, "openai_api_key", "sk-\x00evil")
+        client = self._client(conn, secret_key)
+        resp = client.post("/api/settings/test/openai")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert "auth_failed" in data["error"]
+
+    def test_tmdb_invalid_key_charset_rejected(self, conn, secret_key):
+        self._store_setting(conn, "tmdb_read_token", "bad\nevil")
+        client = self._client(conn, secret_key)
+        resp = client.post("/api/settings/test/tmdb")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert "auth_failed" in data["error"]
+
+    def test_omdb_invalid_key_charset_rejected(self, conn, secret_key):
+        self._store_setting(conn, "omdb_api_key", "bad\x00key")
+        client = self._client(conn, secret_key)
+        resp = client.post("/api/settings/test/omdb")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert "auth_failed" in data["error"]
+
+    def test_openai_success_via_safe_http_client(self, conn, secret_key):
+        """A 200 from the SafeHTTPClient returns ok=True."""
+        self._store_setting(conn, "openai_api_key", "sk-validkey1234")
+        client = self._client(conn, secret_key)
+
+        from unittest.mock import MagicMock, patch
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp._content = b"{}"
+        mock_resp._content_consumed = True
+        mock_resp.headers = {}
+
+        with patch(
+            "mediaman.services.http_client._dispatch", return_value=mock_resp
+        ):
+            resp = client.post("/api/settings/test/openai")
+
+        assert resp.json()["ok"] is True
+
+    def test_openai_auth_failure_classified(self, conn, secret_key):
+        """A 401 from the backend must be classified as auth_failed."""
+        self._store_setting(conn, "openai_api_key", "sk-badkey9999")
+        client = self._client(conn, secret_key)
+
+        from unittest.mock import MagicMock, patch
+        from mediaman.services.http_client import SafeHTTPError
+
+        with patch(
+            "mediaman.services.http_client._dispatch",
+            side_effect=SafeHTTPError(401, "Unauthorized", "https://api.openai.com/v1/models"),
+        ):
+            resp = client.post("/api/settings/test/openai")
+
+        data = resp.json()
+        assert data["ok"] is False
+        assert "auth_failed" in data["error"]
+
+    def test_openai_connection_error_classified(self, conn, secret_key):
+        """A transport error must be classified as connection_refused."""
+        self._store_setting(conn, "openai_api_key", "sk-goodkey1234")
+        client = self._client(conn, secret_key)
+
+        from unittest.mock import patch
+        from mediaman.services.http_client import SafeHTTPError
+
+        with patch(
+            "mediaman.services.http_client._dispatch",
+            side_effect=SafeHTTPError(0, "transport error: ConnectionError", "https://api.openai.com/v1/models"),
+        ):
+            resp = client.post("/api/settings/test/openai")
+
+        data = resp.json()
+        assert data["ok"] is False
+        assert "connection_refused" in data["error"]
+
+    def test_openai_ssrf_classified(self, conn, secret_key):
+        """SSRF guard refusal must surface as ssrf_refused."""
+        self._store_setting(conn, "openai_api_key", "sk-goodkey1234")
+        client = self._client(conn, secret_key)
+
+        from unittest.mock import patch
+        from mediaman.services.http_client import SafeHTTPError
+
+        with patch(
+            "mediaman.services.http_client._dispatch",
+            side_effect=SafeHTTPError(0, "refused by SSRF guard", "https://api.openai.com/v1/models"),
+        ):
+            resp = client.post("/api/settings/test/openai")
+
+        data = resp.json()
+        assert data["ok"] is False
+        assert "ssrf_refused" in data["error"]

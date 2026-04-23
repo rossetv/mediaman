@@ -331,49 +331,88 @@ def api_test_service(service: str, request: Request, admin: str = Depends(get_cu
             return JSONResponse({"ok": ok} if ok else {"ok": False, "error": "Connection failed"})
 
         elif service == "openai":
-            import requests as http_requests
+            from mediaman.models import _API_KEY_RE
+            from mediaman.services.http_client import SafeHTTPClient, SafeHTTPError
             api_key = str(settings.get("openai_api_key") or "")
             if not api_key:
                 return JSONResponse({"ok": False, "error": "OpenAI API key is required"})
-            resp = http_requests.get(
-                "https://api.openai.com/v1/models",
-                headers={"Authorization": f"Bearer {api_key}"},
-                timeout=10,
-            )
-            if resp.status_code == 200:
+            if not _API_KEY_RE.match(api_key):
+                return JSONResponse({"ok": False, "error": "auth_failed: API key contains invalid characters"})
+            try:
+                SafeHTTPClient().get(
+                    "https://api.openai.com/v1/models",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    timeout=(5.0, 15.0),
+                )
                 return JSONResponse({"ok": True})
-            return JSONResponse({"ok": False, "error": f"HTTP {resp.status_code}"})
+            except SafeHTTPError as exc:
+                if exc.status_code == 0 and "refused by SSRF" in exc.body_snippet:
+                    return JSONResponse({"ok": False, "error": "ssrf_refused"})
+                if exc.status_code == 0 and "transport error" in exc.body_snippet:
+                    err_lower = exc.body_snippet.lower()
+                    if "timeout" in err_lower:
+                        return JSONResponse({"ok": False, "error": "timeout"})
+                    return JSONResponse({"ok": False, "error": "connection_refused"})
+                if exc.status_code in (401, 403):
+                    return JSONResponse({"ok": False, "error": "auth_failed"})
+                return JSONResponse({"ok": False, "error": f"other: HTTP {exc.status_code}"})
 
         elif service == "tmdb":
-            import requests as http_requests
+            from mediaman.models import _API_KEY_RE
+            from mediaman.services.http_client import SafeHTTPClient, SafeHTTPError
             read_token = str(settings.get("tmdb_read_token") or "")
             if not read_token:
                 return JSONResponse({"ok": False, "error": "TMDB Read Token is required"})
-            resp = http_requests.get(
-                "https://api.themoviedb.org/3/configuration",
-                headers={"Authorization": f"Bearer {read_token}"},
-                timeout=10,
-            )
-            if resp.status_code == 200:
+            if not _API_KEY_RE.match(read_token):
+                return JSONResponse({"ok": False, "error": "auth_failed: token contains invalid characters"})
+            try:
+                SafeHTTPClient().get(
+                    "https://api.themoviedb.org/3/configuration",
+                    headers={"Authorization": f"Bearer {read_token}"},
+                    timeout=(5.0, 15.0),
+                )
                 return JSONResponse({"ok": True})
-            return JSONResponse({"ok": False, "error": f"HTTP {resp.status_code}"})
+            except SafeHTTPError as exc:
+                if exc.status_code == 0 and "refused by SSRF" in exc.body_snippet:
+                    return JSONResponse({"ok": False, "error": "ssrf_refused"})
+                if exc.status_code == 0 and "transport error" in exc.body_snippet:
+                    err_lower = exc.body_snippet.lower()
+                    if "timeout" in err_lower:
+                        return JSONResponse({"ok": False, "error": "timeout"})
+                    return JSONResponse({"ok": False, "error": "connection_refused"})
+                if exc.status_code in (401, 403):
+                    return JSONResponse({"ok": False, "error": "auth_failed"})
+                return JSONResponse({"ok": False, "error": f"other: HTTP {exc.status_code}"})
 
         elif service == "omdb":
-            import requests as http_requests
+            from mediaman.models import _API_KEY_RE
+            from mediaman.services.http_client import SafeHTTPClient, SafeHTTPError
             api_key = str(settings.get("omdb_api_key") or "")
             if not api_key:
                 return JSONResponse({"ok": False, "error": "OMDB API key is required"})
-            resp = http_requests.get(
-                "https://www.omdbapi.com/",
-                params={"apikey": api_key, "i": "tt0111161"},
-                timeout=10,
-            )
-            if resp.status_code == 200:
+            if not _API_KEY_RE.match(api_key):
+                return JSONResponse({"ok": False, "error": "auth_failed: API key contains invalid characters"})
+            try:
+                resp = SafeHTTPClient().get(
+                    "https://www.omdbapi.com/",
+                    params={"apikey": api_key, "i": "tt0111161"},
+                    timeout=(5.0, 15.0),
+                )
                 data = resp.json()
                 if data.get("Response") == "True":
                     return JSONResponse({"ok": True})
-                return JSONResponse({"ok": False, "error": data.get("Error", "Invalid API key")})
-            return JSONResponse({"ok": False, "error": f"HTTP {resp.status_code}"})
+                return JSONResponse({"ok": False, "error": data.get("Error", "auth_failed")})
+            except SafeHTTPError as exc:
+                if exc.status_code == 0 and "refused by SSRF" in exc.body_snippet:
+                    return JSONResponse({"ok": False, "error": "ssrf_refused"})
+                if exc.status_code == 0 and "transport error" in exc.body_snippet:
+                    err_lower = exc.body_snippet.lower()
+                    if "timeout" in err_lower:
+                        return JSONResponse({"ok": False, "error": "timeout"})
+                    return JSONResponse({"ok": False, "error": "connection_refused"})
+                if exc.status_code in (401, 403):
+                    return JSONResponse({"ok": False, "error": "auth_failed"})
+                return JSONResponse({"ok": False, "error": f"other: HTTP {exc.status_code}"})
 
         else:
             return JSONResponse({"ok": False, "error": f"Unknown service: {service}"}, status_code=400)
