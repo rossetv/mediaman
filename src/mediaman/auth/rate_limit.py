@@ -47,23 +47,55 @@ class ActionRateLimiter:
         self._attempts: dict[str, list[float]] = {}
         self._day_counts: dict[str, tuple[str, int]] = {}
         self._lock = threading.Lock()
+        self._calls_since_prune = 0
+
+    # Prune _day_counts after this many check() calls to bound memory.
+    # Keyed by actor username so a large admin set is the bound — 10 k
+    # is generous for any realistic deployment.
+    _DAY_COUNT_PRUNE_EVERY = 512
 
     def check(self, actor: str) -> bool:
-        """Return True if the action is allowed, False if rate-limited."""
+        """Return True if the action is allowed, False if rate-limited.
+
+        Ordering: check the daily cap first (read-only) so an actor that
+        has exhausted their day allowance doesn't also consume a slot in
+        the burst window. The burst window is checked second and only
+        bumped when the action is actually permitted.
+        """
         now = time.monotonic()
         today = time.strftime("%Y-%m-%d", time.gmtime())
         with self._lock:
+            # --- Daily cap (check before bumping the burst window) ----------
+            if self._max_per_day > 0:
+                day_key, day_count = self._day_counts.get(actor, ("", 0))
+                if day_key != today:
+                    # Day rolled over — reset the count for this actor.
+                    day_count = 0
+                if day_count >= self._max_per_day:
+                    return False
+
+            # --- Burst window -----------------------------------------------
             attempts = [t for t in self._attempts.get(actor, []) if now - t < self._window]
             if len(attempts) >= self._max_in_window:
                 self._attempts[actor] = attempts
                 return False
+
+            # --- Permitted: bump both counters ------------------------------
             if self._max_per_day > 0:
                 day_key, day_count = self._day_counts.get(actor, ("", 0))
                 if day_key != today:
                     day_count = 0
-                if day_count >= self._max_per_day:
-                    return False
                 self._day_counts[actor] = (today, day_count + 1)
+                # Prune stale day_counts entries periodically to bound memory.
+                self._calls_since_prune += 1
+                if self._calls_since_prune >= self._DAY_COUNT_PRUNE_EVERY:
+                    self._calls_since_prune = 0
+                    stale_actors = [
+                        k for k, (dk, _) in self._day_counts.items() if dk != today
+                    ]
+                    for k in stale_actors:
+                        self._day_counts.pop(k, None)
+
             attempts.append(now)
             self._attempts[actor] = attempts
             return True

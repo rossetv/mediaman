@@ -176,6 +176,10 @@ def _derive_aes_key_legacy(secret_key: str) -> bytes:
     return hashlib.sha256(secret_key.encode()).digest()
 
 
+_subkey_cache: dict[tuple[str, bytes], bytes] = {}
+_subkey_cache_lock = threading.Lock()
+
+
 def _derive_token_subkey(secret_key: str, purpose: bytes) -> bytes:
     """Derive a per-purpose HMAC sub-key from the master secret.
 
@@ -184,8 +188,21 @@ def _derive_token_subkey(secret_key: str, purpose: bytes) -> bytes:
     that yields 32 independent-looking bytes for each purpose without
     any DB access. Callers pass a static byte string like ``b"keep"``,
     ``b"download"``, ``b"unsubscribe"``, ``b"poster"``.
+
+    The result is cached in ``_subkey_cache`` keyed by
+    ``(secret_key, purpose)`` so repeated calls (once per authenticated
+    request) skip the HMAC round after the first computation. The cache
+    is a correctness-neutral optimisation: rotating ``secret_key`` at
+    runtime produces a new cache entry under the new key.
     """
-    return hmac.new(secret_key.encode(), purpose, hashlib.sha256).digest()
+    cache_key = (secret_key, purpose)
+    with _subkey_cache_lock:
+        if cache_key in _subkey_cache:
+            return _subkey_cache[cache_key]
+    subkey = hmac.new(secret_key.encode(), purpose, hashlib.sha256).digest()
+    with _subkey_cache_lock:
+        _subkey_cache[cache_key] = subkey
+    return subkey
 
 
 # ---------------------------------------------------------------------------

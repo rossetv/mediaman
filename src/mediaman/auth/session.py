@@ -26,6 +26,7 @@ from __future__ import annotations
 
 
 import hashlib
+import ipaddress
 import logging
 import os
 import re
@@ -133,8 +134,6 @@ def _client_fingerprint(user_agent: str | None, client_ip: str | None) -> str:
     the empty string, which deliberately does not match the empty-
     fingerprint sentinel stored for unbound sessions.
     """
-    import ipaddress
-
     ua_hash = hashlib.sha256((user_agent or "").encode()).hexdigest()[:16]
     if not client_ip:
         prefix = "unknown"
@@ -532,14 +531,42 @@ def validate_session(
         raise
 
 
-def destroy_session(conn: sqlite3.Connection, token: str) -> None:
-    """Delete the session row for the given token (logout)."""
+def destroy_session(
+    conn: sqlite3.Connection,
+    token: str,
+    *,
+    actor: str = "",
+    ip: str = "",
+) -> None:
+    """Delete the session row for the given token (logout).
+
+    Appends a ``sec:session.destroy`` audit row so operators can trace
+    voluntary logouts. ``actor`` and ``ip`` are optional — callers that
+    have the username and client IP should pass them so the audit trail
+    is meaningful.
+    """
     token_hash = _hash_token(token)
+    # Fetch the username from the row before deleting so we can include
+    # it in the audit log even when the caller doesn't pass ``actor``.
+    row = conn.execute(
+        "SELECT username FROM admin_sessions WHERE token_hash = ?",
+        (token_hash,),
+    ).fetchone()
+    username = actor or (row["username"] if row else "")
     conn.execute(
         "DELETE FROM admin_sessions WHERE token_hash = ?",
         (token_hash,),
     )
     conn.commit()
+    logger.info("session.destroyed user=%s ip=%s", username or "-", ip or "-")
+    # Best-effort audit — import deferred to avoid circular imports at
+    # module level (audit imports nothing from session, but session is
+    # imported early in the auth stack).
+    try:
+        from mediaman.auth.audit import security_event
+        security_event(conn, event="session.destroy", actor=username, ip=ip)
+    except Exception:  # pragma: no cover
+        pass
 
 
 def destroy_all_sessions_for(conn: sqlite3.Connection, username: str) -> int:

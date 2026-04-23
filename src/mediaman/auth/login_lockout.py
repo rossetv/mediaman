@@ -110,9 +110,13 @@ def check_lockout(conn: sqlite3.Connection, username: str) -> bool:
 
     Does not mutate state. Intended to be called before the password
     check so a locked account short-circuits bcrypt entirely.
+
+    ``username`` is normalised to lowercase before the lookup so that
+    ``Admin`` and ``admin`` share the same failure counter (M16).
     """
     if not username:
         return False
+    username = username.lower()
     _ensure_table(conn)
     row = conn.execute(
         "SELECT locked_until FROM login_failures WHERE username = ?",
@@ -141,9 +145,13 @@ def record_failure(conn: sqlite3.Connection, username: str) -> int | None:
     429 + ``Retry-After`` without re-querying the DB (lock state is
     still not exposed to the HTTP client — the caller translates the
     duration into a generic retry window).
+
+    ``username`` is normalised to lowercase before writing so that
+    ``Admin`` and ``admin`` share the same failure counter (M16).
     """
     if not username:
         return None
+    username = username.lower()
     _ensure_table(conn)
     now = _now()
     now_iso = _iso(now)
@@ -230,9 +238,14 @@ def record_failure(conn: sqlite3.Connection, username: str) -> int | None:
 
 
 def record_success(conn: sqlite3.Connection, username: str) -> None:
-    """Clear the failure counter after a successful login."""
+    """Clear the failure counter after a successful login.
+
+    ``username`` is normalised to lowercase to match the form written by
+    :func:`record_failure`.
+    """
     if not username:
         return
+    username = username.lower()
     _ensure_table(conn)
     conn.execute(
         "DELETE FROM login_failures WHERE username = ?",
