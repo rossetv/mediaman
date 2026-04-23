@@ -334,7 +334,7 @@ class ScanEngine:
             - ``deleted``: items whose grace period elapsed and were deleted from disk.
             - ``reclaimed_bytes``: total bytes freed by deletions this run.
         """
-        summary = {"scanned": 0, "scheduled": 0, "skipped": 0, "errors": 0}
+        summary = {"scanned": 0, "scheduled": 0, "skipped": 0, "errors": 0, "removed": 0}
         seen_keys: set[str] = set()
 
         for lib_id in self._library_ids:
