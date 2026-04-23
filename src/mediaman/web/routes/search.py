@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from typing import TypedDict
+
+import requests as _requests
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -17,12 +20,22 @@ from pydantic import BaseModel
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.db import get_db
 from mediaman.services.arr_build import build_radarr_from_db, build_sonarr_from_db
+from mediaman.services.http_client import SafeHTTPError
 from mediaman.services.tmdb import TmdbClient
 from mediaman.services.download_notifications import record_download_notification as _record_dn
 from mediaman.services.omdb import fetch_ratings
 
 _RATINGS_TTL_DAYS = 30
 _DISCOVER_TMDB_TTL_SECONDS = 3600
+
+# Bounded module-level executor for ratings enrichment. Using a single
+# reusable pool avoids creating a fresh thread pool on every search
+# request under load, which could exhaust OS thread limits.
+_SEARCH_EXECUTOR = ThreadPoolExecutor(max_workers=6, thread_name_prefix="search_enrich")
+
+# Maximum query length accepted by /api/search. Longer strings offer no
+# extra recall from TMDB and just waste bandwidth / open injection surface.
+_MAX_QUERY_LEN = 100
 
 # In-process cache of raw TMDB discover responses keyed by request path.
 # Trending/popular shelves change slowly (TMDB recomputes daily), so an hour-long
@@ -89,13 +102,13 @@ def _annotate_states(results: list[dict], request: Request) -> None:
 
     try:
         radarr_cache = build_radarr_cache(build_radarr_from_db(conn, secret_key))
-    except Exception:
+    except (_requests.RequestException, SafeHTTPError, sqlite3.Error):
         logger.warning("Radarr cache build failed; Search results won't reflect Radarr state", exc_info=True)
         radarr_cache = build_radarr_cache(None)
 
     try:
         sonarr_cache = build_sonarr_cache(build_sonarr_from_db(conn, secret_key))
-    except Exception:
+    except (_requests.RequestException, SafeHTTPError, sqlite3.Error):
         logger.warning("Sonarr cache build failed; Search results won't reflect Sonarr state", exc_info=True)
         sonarr_cache = build_sonarr_cache(None)
 
@@ -182,27 +195,34 @@ def _enrich_ratings(results: list[dict], request: Request) -> None:
         return key, group, data
 
     now_iso = datetime.now(timezone.utc).isoformat()
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = [pool.submit(fetch, kg) for kg in misses]
-        for fut in as_completed(futures, timeout=None):
-            try:
-                key, group, data = fut.result(timeout=3)
-            except Exception:
-                continue
-            rt = data.get("rt")
-            imdb = data.get("imdb")
-            meta = data.get("metascore")
-            _apply(group, rt=rt, imdb=imdb)
-            try:
-                conn.execute(
-                    "INSERT OR REPLACE INTO ratings_cache "
-                    "(tmdb_id, media_type, imdb_rating, rt_rating, metascore, fetched_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    (key[0], key[1], imdb, rt, meta, now_iso),
-                )
-            except Exception:
-                logger.debug("ratings_cache write failed", exc_info=True)
-        conn.commit()
+    # H13: workers return tuples; commit is done on the main thread after
+    # all futures resolve to avoid concurrent writes on the main connection.
+    # H12: reuse the module-level executor instead of spawning a new pool.
+    futures = [_SEARCH_EXECUTOR.submit(fetch, kg) for kg in misses]
+    pending_writes: list[tuple] = []
+    for fut in as_completed(futures, timeout=None):
+        try:
+            key, group, data = fut.result(timeout=3)
+        except Exception:
+            continue
+        rt = data.get("rt")
+        imdb = data.get("imdb")
+        meta = data.get("metascore")
+        _apply(group, rt=rt, imdb=imdb)
+        pending_writes.append((key[0], key[1], imdb, rt, meta, now_iso))
+    # Batch-write all ratings on the main thread to avoid concurrent
+    # SQLite writes from worker threads on the shared connection.
+    if pending_writes:
+        try:
+            conn.executemany(
+                "INSERT OR REPLACE INTO ratings_cache "
+                "(tmdb_id, media_type, imdb_rating, rt_rating, metascore, fetched_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                pending_writes,
+            )
+            conn.commit()
+        except Exception:
+            logger.debug("ratings_cache batch write failed", exc_info=True)
 
 
 @router.get("/api/search")
@@ -216,6 +236,10 @@ def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)
     """
     if len(q) < 2:
         return JSONResponse({"results": []})
+    # Truncate silently — the extra characters add no recall value and
+    # just make TMDB queries bigger. Client should enforce this too, but
+    # server-side cap is the authoritative gate.
+    q = q[:_MAX_QUERY_LEN]
     conn = get_db()
     client = TmdbClient.from_db(conn, request.app.state.config.secret_key)
     if client is None:
@@ -422,7 +446,7 @@ def api_detail(
     if media_type == "movie":
         try:
             radarr_cache = build_radarr_cache(build_radarr_from_db(conn, secret_key))
-        except Exception:
+        except (_requests.RequestException, SafeHTTPError, sqlite3.Error):
             logger.warning("Radarr cache build failed during detail fetch", exc_info=True)
             radarr_cache = build_radarr_cache(None)
         sonarr_cache = build_sonarr_cache(None)
@@ -431,7 +455,7 @@ def api_detail(
         try:
             sonarr_client = build_sonarr_from_db(conn, secret_key)
             sonarr_cache = build_sonarr_cache(sonarr_client)
-        except Exception:
+        except (_requests.RequestException, SafeHTTPError, sqlite3.Error):
             logger.warning("Sonarr cache build failed during detail fetch", exc_info=True)
             sonarr_cache = build_sonarr_cache(None)
 
@@ -504,10 +528,9 @@ def api_download(body: _DownloadRequest, request: Request, admin: str = Depends(
     conn = get_db()
     secret_key = request.app.state.config.secret_key
 
-    admin_row = conn.execute(
-        "SELECT email FROM subscribers WHERE active=1 LIMIT 1"
-    ).fetchone()
-    notify_email = admin_row["email"] if admin_row else admin
+    # H24: notify only the admin who initiated the download, not an
+    # arbitrary "first active subscriber" which could be a different person.
+    notify_email = admin
 
     if body.media_type == "movie":
         radarr = build_radarr_from_db(conn, secret_key)

@@ -184,7 +184,7 @@ class TestDownloadPagePost:
         token = _valid_token(secret_key, title="Severance", media_type="tv", tmdb_id=99)
 
         mock_sonarr = MagicMock()
-        mock_sonarr._get.return_value = [{"tvdbId": 12345, "tmdbId": 99}]
+        mock_sonarr.lookup_by_tmdb_id.return_value = [{"tvdbId": 12345, "tmdbId": 99}]
         mock_sonarr.add_series.return_value = None
 
         with patch("mediaman.web.routes.download.build_sonarr_from_db", return_value=mock_sonarr):
@@ -321,7 +321,7 @@ class TestTwoPhaseConsumption:
         token = _valid_token(secret_key, title="Severance", media_type="tv", tmdb_id=99)
 
         mock_sonarr = MagicMock()
-        mock_sonarr._get.side_effect = Exception("Timeout")
+        mock_sonarr.lookup_by_tmdb_id.side_effect = Exception("Timeout")
 
         with patch("mediaman.web.routes.download.build_sonarr_from_db", return_value=mock_sonarr):
             resp1 = client.post(f"/download/{token}")
@@ -330,7 +330,7 @@ class TestTwoPhaseConsumption:
 
         # Should be retryable
         mock_sonarr2 = MagicMock()
-        mock_sonarr2._get.return_value = [{"tvdbId": 777, "tmdbId": 99}]
+        mock_sonarr2.lookup_by_tmdb_id.return_value = [{"tvdbId": 777, "tmdbId": 99}]
         mock_sonarr2.add_series.return_value = None
 
         with patch("mediaman.web.routes.download.build_sonarr_from_db", return_value=mock_sonarr2):
@@ -478,3 +478,79 @@ class TestPollingCapability:
             params={"service": "radarr", "tmdb_id": 42},
         )
         assert resp.status_code == 401
+
+
+class TestYoutubeTrailerKeyValidation:
+    """H72 — trailer_key must pass the YouTube ID regex before reaching the template."""
+
+    def test_valid_youtube_id_passes_through(self):
+        """A well-formed 11-char YouTube ID is returned unchanged."""
+        from mediaman.web.routes.download import _validate_youtube_id
+        assert _validate_youtube_id("dQw4w9WgXcQ") == "dQw4w9WgXcQ"
+
+    def test_short_id_is_rejected(self):
+        """An ID shorter than 11 chars is rejected."""
+        from mediaman.web.routes.download import _validate_youtube_id
+        assert _validate_youtube_id("short") is None
+
+    def test_long_id_is_rejected(self):
+        """An ID longer than 11 chars is rejected."""
+        from mediaman.web.routes.download import _validate_youtube_id
+        assert _validate_youtube_id("a" * 12) is None
+
+    def test_id_with_slash_is_rejected(self):
+        """An ID containing a slash (path traversal) is rejected."""
+        from mediaman.web.routes.download import _validate_youtube_id
+        assert _validate_youtube_id("abc/def1234") is None
+
+    def test_id_with_angle_brackets_is_rejected(self):
+        """An ID containing HTML metacharacters is rejected."""
+        from mediaman.web.routes.download import _validate_youtube_id
+        assert _validate_youtube_id("<script>abc") is None
+
+    def test_none_input_returns_none(self):
+        """None input returns None without raising."""
+        from mediaman.web.routes.download import _validate_youtube_id
+        assert _validate_youtube_id(None) is None
+
+    def test_empty_string_returns_none(self):
+        """Empty string returns None."""
+        from mediaman.web.routes.download import _validate_youtube_id
+        assert _validate_youtube_id("") is None
+
+    def test_valid_id_with_dash_and_underscore(self):
+        """YouTube IDs may contain - and _ characters."""
+        from mediaman.web.routes.download import _validate_youtube_id
+        assert _validate_youtube_id("abc-efg_hij") == "abc-efg_hij"
+
+    def test_suggestion_trailer_key_validated_on_page_load(self, db_path, secret_key):
+        """A malicious trailer_key from the DB is sanitised to None before rendering."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = TestClient(app)
+
+        # Insert a suggestion with a malicious trailer_key
+        conn.execute(
+            "INSERT INTO suggestions (title, media_type, category, tmdb_id, trailer_key, created_at) "
+            "VALUES ('Dune', 'movie', 'personal', 42, '<script>evil</script>', '2026-01-01')"
+        )
+        conn.commit()
+        row = conn.execute("SELECT id FROM suggestions WHERE title='Dune'").fetchone()
+        sid = row["id"]
+
+        from mediaman.crypto import generate_download_token
+        token = generate_download_token(
+            email="test@example.com",
+            action="download",
+            title="Dune",
+            media_type="movie",
+            tmdb_id=42,
+            recommendation_id=sid,
+            secret_key=secret_key,
+        )
+
+        resp = client.get(f"/download/{token}")
+        assert resp.status_code == 200
+        ctx = resp.json()
+        # The malicious key must have been sanitised
+        assert ctx["item"]["trailer_key"] is None

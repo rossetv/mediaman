@@ -430,12 +430,8 @@ def api_download_recommendation(recommendation_id: int, request: Request, admin:
                 "UPDATE suggestions SET downloaded_at = ? WHERE id = ?",
                 (now, recommendation_id),
             )
-            # Get admin email for download notification
-            admin_row = conn.execute(
-                "SELECT email FROM subscribers WHERE active=1 LIMIT 1"
-            ).fetchone()
-            notify_email = admin_row["email"] if admin_row else admin
-            record_download_notification(conn, email=notify_email, title=row["title"], media_type="movie", tmdb_id=tmdb_id, service="radarr")
+            # H24: notify the authenticated admin, not an arbitrary subscriber.
+            record_download_notification(conn, email=admin, title=row["title"], media_type="movie", tmdb_id=tmdb_id, service="radarr")
             conn.commit()
             return JSONResponse({"ok": True, "message": f"Added '{row['title']}' to Radarr"})
 
@@ -444,7 +440,7 @@ def api_download_recommendation(recommendation_id: int, request: Request, admin:
             if not client:
                 return JSONResponse({"ok": False, "error": "Sonarr not configured"})
             # Sonarr lookup by TMDB ID to get TVDB ID
-            results = client._get(f"/api/v3/series/lookup?term=tmdb:{tmdb_id}")
+            results = client.lookup_by_tmdb_id(tmdb_id, endpoint="/api/v3/series/lookup")
             if not results:
                 return JSONResponse({"ok": False, "error": "Show not found in Sonarr lookup"})
             tvdb_id = results[0].get("tvdbId")
@@ -458,13 +454,10 @@ def api_download_recommendation(recommendation_id: int, request: Request, admin:
                 "UPDATE suggestions SET downloaded_at = ? WHERE id = ?",
                 (now, recommendation_id),
             )
-            admin_row = conn.execute(
-                "SELECT email FROM subscribers WHERE active=1 LIMIT 1"
-            ).fetchone()
-            notify_email = admin_row["email"] if admin_row else admin
+            # H24: notify the authenticated admin, not an arbitrary subscriber.
             # Sonarr matches series by TVDB id, not TMDB — keep both so the
             # completion checker uses the right field per service.
-            record_download_notification(conn, email=notify_email, title=row["title"], media_type="tv", tmdb_id=tmdb_id, tvdb_id=tvdb_id, service="sonarr")
+            record_download_notification(conn, email=admin, title=row["title"], media_type="tv", tmdb_id=tmdb_id, tvdb_id=tvdb_id, service="sonarr")
             conn.commit()
             return JSONResponse({"ok": True, "message": f"Added '{row['title']}' to Sonarr"})
 

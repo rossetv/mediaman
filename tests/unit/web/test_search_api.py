@@ -435,3 +435,61 @@ class TestDownloadEndpoint:
         assert resp.json()["ok"] is False
         assert "already tracked" in resp.json()["error"].lower()
         sonarr.add_series.assert_not_called()
+
+
+class TestSearchQueryCap:
+    """H12 — /api/search must silently truncate queries over 100 chars."""
+
+    def test_query_over_100_chars_is_accepted_and_truncated(self, authed_client, fake_http, fake_response):
+        """A query over 100 chars must be truncated to 100 before passing to TMDB."""
+        page1 = {"results": [
+            {"media_type": "movie", "id": 1, "title": "Dune",
+             "poster_path": "/d.jpg", "release_date": "2021-10-01",
+             "vote_average": 8.0, "popularity": 100.0},
+        ]}
+
+        def handler(method, url, **kwargs):
+            page = kwargs.get("params", {}).get("page", 1)
+            return fake_response(json_data=page1 if page == 1 else {"results": []})
+
+        fake_http.handler(handler)
+        long_query = "a" * 200
+        resp = authed_client.get(f"/api/search?q={long_query}")
+        assert resp.status_code == 200
+        # The TMDB call must have received only 100 chars
+        search_calls = [c for c in fake_http.calls if "search/multi" in c[1]]
+        assert len(search_calls) > 0
+        sent_query = search_calls[0][2]["params"]["query"]
+        assert len(sent_query) <= 100
+
+
+class TestDownloadNotifiesRequestingAdmin:
+    """H24 — download notification must go to the requesting admin, not first subscriber."""
+
+    @patch("mediaman.web.routes.search.build_radarr_from_db")
+    @patch("mediaman.web.routes.search._record_dn")
+    def test_movie_download_notifies_requesting_admin(self, mock_record, mock_build_radarr, authed_client, app):
+        """The notification email must be the admin who made the request, not a subscriber."""
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = None
+        radarr.add_movie.return_value = {"id": 1}
+        mock_build_radarr.return_value = radarr
+
+        # Insert a subscriber with a different email to prove it's ignored
+        conn = app.state.db
+        conn.execute(
+            "INSERT INTO subscribers (email, active, created_at) "
+            "VALUES ('other@example.com', 1, '2026-01-01')"
+        )
+        conn.commit()
+
+        authed_client.post("/api/search/download", json={
+            "media_type": "movie", "tmdb_id": 438631, "title": "Dune",
+        })
+
+        assert mock_record.called
+        _, kwargs = mock_record.call_args[0], mock_record.call_args[1] if mock_record.call_args[1] else {}
+        # The email argument should be the admin username, not 'other@example.com'
+        call_email = mock_record.call_args[1].get("email") if mock_record.call_args[1] else mock_record.call_args[0][1]
+        assert call_email == "admin"
+        assert call_email != "other@example.com"

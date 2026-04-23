@@ -131,3 +131,57 @@ class TestLastError:
         client._get("/ok")
         assert client.last_error is None
 
+
+class TestPublicLookupHelpers:
+    """H14 — public helpers that replace direct _get() calls at call sites."""
+
+    def test_lookup_by_tmdb_id_builds_correct_url(self, client, fake_http, fake_response):
+        """lookup_by_tmdb_id appends the tmdb:<id> term to the endpoint."""
+        fake_http.queue("GET", fake_response(json_data=[{"tmdbId": 42, "title": "Dune"}]))
+        result = client.lookup_by_tmdb_id(42, endpoint="/api/v3/movie/lookup")
+        assert result == [{"tmdbId": 42, "title": "Dune"}]
+        _, url, _ = fake_http.calls[0]
+        assert "tmdb:42" in url
+
+    def test_lookup_by_tvdb_id_builds_correct_url(self, client, fake_http, fake_response):
+        """lookup_by_tvdb_id appends the tvdb:<id> term to the endpoint."""
+        fake_http.queue("GET", fake_response(json_data=[{"tvdbId": 99}]))
+        result = client.lookup_by_tvdb_id(99, endpoint="/api/v3/series/lookup")
+        assert result == [{"tvdbId": 99}]
+        _, url, _ = fake_http.calls[0]
+        assert "tvdb:99" in url
+
+    def test_lookup_by_imdb_id_builds_correct_url(self, client, fake_http, fake_response):
+        """lookup_by_imdb_id appends the imdb:<id> term to the endpoint."""
+        fake_http.queue("GET", fake_response(json_data=[{"imdbId": "tt1234567"}]))
+        result = client.lookup_by_imdb_id("tt1234567", endpoint="/api/v3/movie/lookup")
+        assert result == [{"imdbId": "tt1234567"}]
+        _, url, _ = fake_http.calls[0]
+        assert "imdb:tt1234567" in url
+
+    def test_lookup_by_term_builds_correct_url(self, client, fake_http, fake_response):
+        """lookup_by_term appends the provided term to the endpoint."""
+        fake_http.queue("GET", fake_response(json_data=[{"title": "Dune"}]))
+        result = client.lookup_by_term("Dune", endpoint="/api/v3/movie/lookup")
+        assert result == [{"title": "Dune"}]
+        _, url, _ = fake_http.calls[0]
+        assert "term=Dune" in url
+
+    def test_lookup_returns_empty_list_when_none(self, client, fake_http, fake_response):
+        """Helpers return [] when the upstream response is empty."""
+        fake_http.queue("GET", fake_response(json_data=[]))
+        assert client.lookup_by_tmdb_id(1, endpoint="/api/v3/movie/lookup") == []
+
+    def test_get_release_returns_dict_for_valid_id(self, client, fake_http, fake_response):
+        """get_release returns the item dict for a known ID."""
+        fake_http.queue("GET", fake_response(json_data={"id": 7, "title": "Dune"}))
+        result = client.get_release(7, endpoint="/api/v3/movie")
+        assert result == {"id": 7, "title": "Dune"}
+
+    def test_get_release_returns_none_on_error(self, client, fake_http, fake_response):
+        """get_release returns None rather than raising when the ID is not found."""
+        from mediaman.services.http_client import SafeHTTPError
+        fake_http.queue("GET", fake_response(status=404, text="not found"))
+        result = client.get_release(999, endpoint="/api/v3/movie")
+        assert result is None
+

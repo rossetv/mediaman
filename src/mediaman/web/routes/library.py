@@ -107,8 +107,11 @@ def _fetch_library(
     params: list[object] = []
 
     if q:
-        where_clauses.append("(title LIKE ? OR show_title LIKE ?)")
-        like = f"%{q}%"
+        where_clauses.append("(title LIKE ? ESCAPE '\\' OR show_title LIKE ? ESCAPE '\\')")
+        # Escape LIKE metacharacters so a search for "50%" or "foo_bar"
+        # matches literally rather than as wildcards.
+        q_escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{q_escaped}%"
         params.extend([like, like])
 
     kept_filter = False
@@ -431,6 +434,12 @@ _DELETE_LIMITER = ActionRateLimiter(
     max_in_window=20, window_seconds=60, max_per_day=300,
 )
 
+# Per-admin cap on keep/snooze actions. 60/min is generous for UI use
+# but stops a scripted loop from filling scheduled_actions endlessly.
+_KEEP_LIMITER = ActionRateLimiter(
+    max_in_window=60, window_seconds=60, max_per_day=500,
+)
+
 
 @router.post("/api/media/{media_id}/delete")
 def api_media_delete(
@@ -572,6 +581,13 @@ def api_media_keep(
     Duration must be one of: '7 days', '30 days', '90 days', 'forever'.
     Inserts or replaces the scheduled_actions row for the item.
     """
+    if not _KEEP_LIMITER.check(username):
+        logger.warning("media.keep_throttled user=%s", username)
+        return JSONResponse(
+            {"error": "Too many keep operations — slow down"},
+            status_code=429,
+        )
+
     conn = get_db()
 
     if duration not in VALID_KEEP_DURATIONS:
@@ -737,7 +753,7 @@ def api_media_redownload(
     when the Radarr/Sonarr lookup returns exactly one entry with
     ``SequenceMatcher`` ratio >= 0.9 AND an exactly-matching year.
     """
-    title = str(body.get("title") or "").strip()
+    title = str(body.get("title") or "").strip()[:256]
     year_raw = body.get("year")
     try:
         year = int(year_raw) if year_raw not in (None, "") else None
@@ -785,7 +801,7 @@ def api_media_redownload(
     try:
         client = build_radarr_from_db(conn, config.secret_key)
         if client:
-            lookup = client._get(f"/api/v3/movie/lookup?term={_url_quote(title)}")
+            lookup = client.lookup_by_term(_url_quote(title), endpoint="/api/v3/movie/lookup")
             entry, _err = _pick_lookup_match(
                 lookup or [],
                 title=title,
@@ -818,7 +834,7 @@ def api_media_redownload(
     try:
         client = build_sonarr_from_db(conn, config.secret_key)
         if client:
-            results = client._get(f"/api/v3/series/lookup?term={_url_quote(title)}")
+            results = client.lookup_by_term(_url_quote(title), endpoint="/api/v3/series/lookup")
             entry, err = _pick_lookup_match(
                 results or [],
                 title=title,

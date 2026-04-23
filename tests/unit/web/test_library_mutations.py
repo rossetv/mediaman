@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
-from mediaman.web.routes.library import router as library_router, _DELETE_LIMITER
+from mediaman.web.routes.library import router as library_router, _DELETE_LIMITER, _KEEP_LIMITER
 
 
 def _make_app(conn, secret_key: str) -> FastAPI:
@@ -355,7 +355,7 @@ class TestMediaRedownload:
         client = _auth_client(app, conn)
 
         mock_radarr = MagicMock()
-        mock_radarr._get.return_value = [{"tmdbId": 42, "title": "Dune", "year": 2021}]
+        mock_radarr.lookup_by_term.return_value = [{"tmdbId": 42, "title": "Dune", "year": 2021}]
         mock_radarr.add_movie.return_value = None
 
         with patch("mediaman.web.routes.library.build_radarr_from_db", return_value=mock_radarr):
@@ -376,10 +376,10 @@ class TestMediaRedownload:
         client = _auth_client(app, conn)
 
         mock_radarr = MagicMock()
-        mock_radarr._get.return_value = []  # Radarr finds nothing
+        mock_radarr.lookup_by_term.return_value = []  # Radarr finds nothing
 
         mock_sonarr = MagicMock()
-        mock_sonarr._get.return_value = [{"tvdbId": 999, "tmdbId": None, "title": "Severance", "year": 2022}]
+        mock_sonarr.lookup_by_term.return_value = [{"tvdbId": 999, "tmdbId": None, "title": "Severance", "year": 2022}]
         mock_sonarr.add_series.return_value = None
 
         with patch("mediaman.web.routes.library.build_radarr_from_db", return_value=mock_radarr), \
@@ -410,7 +410,7 @@ class TestMediaRedownload:
         client = _auth_client(app, conn)
 
         mock_radarr = MagicMock()
-        mock_radarr._get.return_value = [
+        mock_radarr.lookup_by_term.return_value = [
             {"tmdbId": 99, "title": "Dune", "year": 2021},
             {"tmdbId": 7, "title": "Completely Different", "year": 1999},
         ]
@@ -430,12 +430,12 @@ class TestMediaRedownload:
 
         mock_radarr = MagicMock()
         # Two identical titles, same year — ambiguous.
-        mock_radarr._get.return_value = [
+        mock_radarr.lookup_by_term.return_value = [
             {"tmdbId": 1, "title": "Inception", "year": 2010},
             {"tmdbId": 2, "title": "Inception", "year": 2010},
         ]
         mock_sonarr = MagicMock()
-        mock_sonarr._get.return_value = []
+        mock_sonarr.lookup_by_term.return_value = []
         with patch("mediaman.web.routes.library.build_radarr_from_db", return_value=mock_radarr), \
              patch("mediaman.web.routes.library.build_sonarr_from_db", return_value=mock_sonarr):
             resp = client.post(
@@ -456,11 +456,11 @@ class TestMediaRedownload:
         client = _auth_client(app, conn)
 
         mock_radarr = MagicMock()
-        mock_radarr._get.return_value = [
+        mock_radarr.lookup_by_term.return_value = [
             {"tmdbId": 10, "title": "Inception", "year": 2010},
         ]
         mock_sonarr = MagicMock()
-        mock_sonarr._get.return_value = []
+        mock_sonarr.lookup_by_term.return_value = []
         with patch("mediaman.web.routes.library.build_radarr_from_db", return_value=mock_radarr), \
              patch("mediaman.web.routes.library.build_sonarr_from_db", return_value=mock_sonarr):
             resp = client.post(
@@ -468,3 +468,116 @@ class TestMediaRedownload:
                 json={"title": "Inception", "year": 2020},  # wrong year
             )
         mock_radarr.add_movie.assert_not_called()
+
+
+class TestMediaKeepRateLimit:
+    """H20 — /api/media/{id}/keep must be rate-limited."""
+
+    def setup_method(self):
+        _KEEP_LIMITER._attempts.clear()
+        _KEEP_LIMITER._day_counts.clear()
+        _DELETE_LIMITER._attempts.clear()
+        _DELETE_LIMITER._day_counts.clear()
+
+    def test_keep_rate_limit_blocks_after_window_exceeded(self, db_path, secret_key):
+        """Hammering /keep more than 60 times per minute returns 429."""
+        conn = init_db(str(db_path))
+        _insert_movie(conn)
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        cap = _KEEP_LIMITER._max_in_window
+        for i in range(cap):
+            r = client.post("/api/media/m1/keep", data={"duration": "forever"})
+            assert r.status_code != 429, f"Rate limit fired early on iteration {i}"
+
+        r = client.post("/api/media/m1/keep", data={"duration": "forever"})
+        assert r.status_code == 429
+        assert r.json()["error"] is not None
+
+
+class TestLibrarySearchLikeEscape:
+    """H10 — LIKE metacharacters in the search query must not be treated as wildcards."""
+
+    def test_percent_sign_is_treated_as_literal(self, db_path, secret_key):
+        """A query containing '%' must only match titles containing a literal '%'."""
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key, added_at, file_path, file_size_bytes) "
+            "VALUES ('m1', '50% Off', 'movie', 1, 'rk1', ?, '/f1', 1000000)",
+            (now,),
+        )
+        conn.execute(
+            "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key, added_at, file_path, file_size_bytes) "
+            "VALUES ('m2', 'Normal Movie', 'movie', 1, 'rk2', ?, '/f2', 1000000)",
+            (now,),
+        )
+        conn.commit()
+
+        from mediaman.web.routes.library import _fetch_library
+        items, total = _fetch_library(conn, q="%")
+        titles = {i["title"] for i in items}
+        assert "50% Off" in titles
+        assert "Normal Movie" not in titles
+
+    def test_underscore_is_treated_as_literal(self, db_path, secret_key):
+        """A query containing '_' must match titles with a literal underscore only."""
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key, added_at, file_path, file_size_bytes) "
+            "VALUES ('m1', 'foo_bar', 'movie', 1, 'rk1', ?, '/f1', 1000000)",
+            (now,),
+        )
+        conn.execute(
+            "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key, added_at, file_path, file_size_bytes) "
+            "VALUES ('m2', 'fooXbar', 'movie', 1, 'rk2', ?, '/f2', 1000000)",
+            (now,),
+        )
+        conn.commit()
+
+        from mediaman.web.routes.library import _fetch_library
+        items, total = _fetch_library(conn, q="_")
+        titles = {i["title"] for i in items}
+        assert "foo_bar" in titles
+        assert "fooXbar" not in titles
+
+
+class TestRedownloadTitleCap:
+    """H11 — redownload title must be capped at 256 chars."""
+
+    def setup_method(self):
+        _DELETE_LIMITER._attempts.clear()
+        _DELETE_LIMITER._day_counts.clear()
+        _KEEP_LIMITER._attempts.clear()
+        _KEEP_LIMITER._day_counts.clear()
+
+    def test_overlong_title_is_silently_truncated(self, db_path, secret_key):
+        """A title over 256 chars is truncated, not rejected."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        long_title = "A" * 300
+        mock_radarr = MagicMock()
+        # Simulate lookup returning nothing (title won't match after truncation)
+        mock_radarr.lookup_by_term.return_value = []
+        mock_sonarr = MagicMock()
+        mock_sonarr.lookup_by_term.return_value = []
+
+        with patch("mediaman.web.routes.library.build_radarr_from_db", return_value=mock_radarr), \
+             patch("mediaman.web.routes.library.build_sonarr_from_db", return_value=mock_sonarr):
+            resp = client.post(
+                "/api/media/redownload",
+                json={"title": long_title, "tmdb_id": 42},
+            )
+        # Must not raise; result doesn't matter (lookup returns nothing)
+        assert resp.status_code in (200, 400, 404)
+        # The lookup term must have been truncated to 256 chars
+        call_args = mock_radarr.lookup_by_term.call_args
+        if call_args is not None:
+            term_used = call_args[0][0] if call_args[0] else ""
+            assert len(term_used) <= 256 + 10  # +10 for URL encoding overhead

@@ -11,9 +11,13 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import threading
 import time
 from urllib.parse import quote as _url_quote
+
+# YouTube video IDs are exactly 11 URL-safe base64 characters.
+_YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
 import requests
 
@@ -24,6 +28,7 @@ from mediaman.auth.audit import log_audit
 from mediaman.auth.middleware import get_optional_admin
 from mediaman.services.download_notifications import record_download_notification
 from mediaman.auth.rate_limit import RateLimiter, get_client_ip
+from mediaman.services.http_client import SafeHTTPError
 from mediaman.crypto import generate_poll_token, validate_download_token, validate_poll_token
 from mediaman.db import get_db
 from mediaman.services.download_format import (
@@ -95,6 +100,19 @@ def _unmark_token_used(token: str) -> None:
         _USED_TOKENS.pop(digest, None)
 
 
+def _validate_youtube_id(s: str | None) -> str | None:
+    """Return *s* if it is a valid YouTube video ID, else ``None``.
+
+    YouTube v3 IDs are exactly 11 URL-safe base64 characters
+    (``[A-Za-z0-9_-]``).  Anything else is rejected to prevent an
+    attacker-controlled value from being embedded in the template as an
+    iframe ``src``.
+    """
+    if not s:
+        return None
+    return s if _YOUTUBE_ID_RE.match(s) else None
+
+
 def _base_download_item(payload: dict) -> dict:
     """Build the skeleton download item from a validated token payload.
 
@@ -141,7 +159,7 @@ def _build_item_from_suggestion(payload: dict, row) -> dict:
         "genres":      row["genres"],
         "cast_json":   row["cast_json"],
         "director":    row["director"],
-        "trailer_key": row["trailer_key"],
+        "trailer_key": _validate_youtube_id(row["trailer_key"]),
         "imdb_rating": row["imdb_rating"],
         "metascore":   row["metascore"],
     })
@@ -214,6 +232,11 @@ def download_page(request: Request, token: str) -> HTMLResponse:
     else:
         item = _base_download_item(payload)
 
+    # H72: validate trailer_key before it reaches the template.
+    # enrich_redownload_item and _build_item_from_suggestion both set it,
+    # so sanitise here as the single authoritative gate before rendering.
+    item["trailer_key"] = _validate_youtube_id(item.get("trailer_key"))
+
     # Parse JSON fields into lists for the template
     if item.get("genres"):
         try:
@@ -245,7 +268,7 @@ def download_page(request: Request, token: str) -> HTMLResponse:
             state = compute_download_state(mt, tmdb_id, caches)
             if state is not None:
                 item["download_state"] = state
-        except Exception:
+        except (requests.RequestException, SafeHTTPError):
             logger.warning("Failed to check Arr library status for tmdb_id=%s", tmdb_id, exc_info=True)
 
     # When the item is already queued, build a hero_item for the shared
@@ -328,7 +351,7 @@ def download_submit(request: Request, token: str) -> JSONResponse:
 
             if not tmdb_id:
                 # Re-download: look up by title
-                lookup = client._get(f"/api/v3/movie/lookup?term={_url_quote(title)}")
+                lookup = client.lookup_by_term(_url_quote(title), endpoint="/api/v3/movie/lookup")
                 if not lookup:
                     _unmark_token_used(token)
                     return JSONResponse({"ok": False, "error": f"'{title}' not found in Radarr"})
@@ -363,9 +386,9 @@ def download_submit(request: Request, token: str) -> JSONResponse:
                 return JSONResponse({"ok": False, "error": "Sonarr not configured"})
 
             if tmdb_id:
-                results = client._get(f"/api/v3/series/lookup?term=tmdb:{tmdb_id}")
+                results = client.lookup_by_tmdb_id(tmdb_id, endpoint="/api/v3/series/lookup")
             else:
-                results = client._get(f"/api/v3/series/lookup?term={_url_quote(title)}")
+                results = client.lookup_by_term(_url_quote(title), endpoint="/api/v3/series/lookup")
             if not results:
                 _unmark_token_used(token)
                 return JSONResponse({"ok": False, "error": "Series not found in Sonarr lookup"})
