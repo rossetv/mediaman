@@ -66,6 +66,7 @@ _ALL_KEYS = SECRET_FIELDS | {
     "dry_run",
     "disk_thresholds",
     "suggestions_enabled",
+    "openai_web_search_enabled",
 }
 
 

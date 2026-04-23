@@ -200,6 +200,7 @@ class SettingsUpdate(BaseModel):
     # OpenAI
     # ------------------------------------------------------------------
     openai_api_key: str | None = None
+    openai_web_search_enabled: bool | None = None
 
     # ------------------------------------------------------------------
     # OMDb

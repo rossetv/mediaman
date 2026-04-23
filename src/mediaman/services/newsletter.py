@@ -19,6 +19,14 @@ from mediaman.services.format import title_from_audit_detail as _extract_title_f
 logger = logging.getLogger("mediaman")
 
 
+class NewsletterConfigError(Exception):
+    """Raised when the newsletter cannot be sent due to missing configuration.
+
+    Distinct from a transient send failure — callers should not retry
+    automatically; the administrator must fix the settings first.
+    """
+
+
 def _parse_days_ago(value: str | None, now: datetime) -> int | None:
     """Parse an ISO datetime string and return the number of days before *now*.
 
@@ -86,9 +94,30 @@ def send_newsletter(
     from_address = get_string_setting(conn, "mailgun_from_address", secret_key=secret_key)
     base_url = get_string_setting(conn, "base_url", secret_key=secret_key).rstrip("/")
 
-    if not domain or not api_key:
-        logger.debug("Newsletter skipped — Mailgun not configured")
-        return
+    # All four fields are required.  Missing domain/api_key means Mailgun
+    # cannot authenticate at all; missing from_address violates CAN-SPAM /
+    # UK PECR (no sender identity); missing base_url means the unsubscribe
+    # URL resolves to nothing, which is also a PECR violation.
+    missing = [k for k, v in (
+        ("mailgun_domain", domain),
+        ("mailgun_api_key", api_key),
+        ("mailgun_from_address", from_address),
+        ("base_url", base_url),
+    ) if not v]
+    if missing:
+        if set(missing) == {"mailgun_domain", "mailgun_api_key", "mailgun_from_address", "base_url"}:
+            # Nothing at all configured — quiet debug log, no exception.
+            logger.debug("Newsletter skipped — Mailgun not configured")
+            return
+        logger.error(
+            "Newsletter aborted — required setting(s) missing: %s. "
+            "Configure all of mailgun_domain, mailgun_api_key, "
+            "mailgun_from_address, and base_url before sending.",
+            ", ".join(missing),
+        )
+        raise NewsletterConfigError(
+            f"Newsletter cannot be sent: missing required setting(s): {', '.join(missing)}"
+        )
 
     # ── Recipients ───────────────────────────────────────────────────────────
     if recipients:
@@ -344,7 +373,7 @@ def send_newsletter(
     if dry_run:
         subject = f"[DRY RUN] {subject}"
 
-    dashboard_url = base_url or "http://mediaman"
+    dashboard_url = base_url
     mailgun = MailgunClient(domain, api_key, from_address)
 
     # ── Mark download state on recommendation items ─────────────────────────

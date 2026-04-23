@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mediaman.db import init_db
-from mediaman.services.newsletter import send_newsletter
+from mediaman.services.newsletter import NewsletterConfigError, send_newsletter
 
 
 _SECRET_KEY = "0123456789abcdef" * 4  # 64 hex chars — matches test conftest fixture
@@ -77,7 +77,7 @@ def _fake_disk():
 
 class TestSendNewsletterNoMailgunConfig:
     def test_no_mailgun_config_sends_nothing(self, db_path):
-        """When Mailgun is not configured, send_newsletter exits early without sending."""
+        """When Mailgun is not configured at all, send_newsletter exits early without sending."""
         conn = init_db(str(db_path))
         _add_subscriber(conn, "alice@example.com")
 
@@ -86,6 +86,64 @@ class TestSendNewsletterNoMailgunConfig:
             send_newsletter(conn, _SECRET_KEY)
 
         mock_mailgun_cls.assert_not_called()
+
+    def test_missing_from_address_raises_config_error(self, db_path):
+        """When only from_address is missing, NewsletterConfigError is raised (CAN-SPAM / PECR)."""
+        conn = init_db(str(db_path))
+        _insert_setting(conn, "mailgun_domain", "mg.example.com")
+        _insert_setting(conn, "mailgun_api_key", "key-testvalue")
+        # from_address deliberately omitted
+        _insert_setting(conn, "base_url", "http://mediaman.local")
+        _add_subscriber(conn, "alice@example.com")
+        _add_scheduled_item(conn)
+
+        mock_mailgun_cls = MagicMock()
+        with patch(_PATCH_MAILGUN, mock_mailgun_cls), \
+             patch(_PATCH_STORAGE, return_value=_fake_disk()), \
+             patch(_PATCH_RADARR, return_value=None), \
+             patch(_PATCH_SONARR, return_value=None), \
+             pytest.raises(NewsletterConfigError, match="mailgun_from_address"):
+            send_newsletter(conn, _SECRET_KEY)
+
+        mock_mailgun_cls.assert_not_called()
+
+    def test_missing_base_url_raises_config_error(self, db_path):
+        """When base_url is missing, NewsletterConfigError is raised (no unsubscribe URL)."""
+        conn = init_db(str(db_path))
+        _insert_setting(conn, "mailgun_domain", "mg.example.com")
+        _insert_setting(conn, "mailgun_api_key", "key-testvalue")
+        _insert_setting(conn, "mailgun_from_address", "media@example.com")
+        # base_url deliberately omitted
+        _add_subscriber(conn, "alice@example.com")
+        _add_scheduled_item(conn)
+
+        mock_mailgun_cls = MagicMock()
+        with patch(_PATCH_MAILGUN, mock_mailgun_cls), \
+             patch(_PATCH_STORAGE, return_value=_fake_disk()), \
+             patch(_PATCH_RADARR, return_value=None), \
+             patch(_PATCH_SONARR, return_value=None), \
+             pytest.raises(NewsletterConfigError, match="base_url"):
+            send_newsletter(conn, _SECRET_KEY)
+
+        mock_mailgun_cls.assert_not_called()
+
+    def test_missing_domain_only_raises_config_error(self, db_path):
+        """When only domain is missing (api_key present), NewsletterConfigError is raised."""
+        conn = init_db(str(db_path))
+        _insert_setting(conn, "mailgun_api_key", "key-testvalue")
+        _insert_setting(conn, "mailgun_from_address", "media@example.com")
+        _insert_setting(conn, "base_url", "http://mediaman.local")
+        # mailgun_domain deliberately omitted
+        _add_subscriber(conn, "alice@example.com")
+        _add_scheduled_item(conn)
+
+        mock_mailgun_cls = MagicMock()
+        with patch(_PATCH_MAILGUN, mock_mailgun_cls), \
+             patch(_PATCH_STORAGE, return_value=_fake_disk()), \
+             patch(_PATCH_RADARR, return_value=None), \
+             patch(_PATCH_SONARR, return_value=None), \
+             pytest.raises(NewsletterConfigError, match="mailgun_domain"):
+            send_newsletter(conn, _SECRET_KEY)
 
 
 class TestSendNewsletterNoSubscribers:
