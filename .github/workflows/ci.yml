@@ -107,7 +107,7 @@ jobs:
         run: pip install bandit[toml]
 
       - name: bandit
-        run: bandit -r src/ -ll -f text
+        run: bandit -r src/ -ll -f txt
 
   dependency-audit:
     name: Dependency audit (pip-audit)
@@ -158,6 +158,12 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # Provenance/SBOM attestation enabled by default in v6 tries to
+          # fetch the PR's git context from the public endpoint, which 500s
+          # on Dependabot PRs. PR builds only validate the Dockerfile can
+          # build; the main-branch push picks up attestation as normal.
+          provenance: false
+          sbom: false
 
       - name: Build and push
         if: github.event_name == 'push'
