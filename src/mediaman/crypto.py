@@ -318,6 +318,12 @@ def decrypt_value(
     still decrypt. The v1 fallback does not use AAD (the legacy format
     never supported it).
 
+    **Salt precondition**: if neither ``conn`` nor ``salt`` is supplied,
+    the v2 (HKDF) path is skipped entirely and only the legacy v1
+    (SHA-256 key derivation) path is attempted. Callers that only hold a
+    ``secret_key`` and no ``conn`` should be aware that v2 ciphertexts
+    will raise ``InvalidTag`` unless they provide the salt explicitly.
+
     Raises ``cryptography.exceptions.InvalidTag`` if neither path can
     authenticate the ciphertext. Raises ``ValueError`` for malformed
     input that isn't even valid base64, for inputs that exceed the
