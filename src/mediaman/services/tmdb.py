@@ -286,10 +286,10 @@ class TmdbClient:
         director: str | None = None
         if endpoint == "movie":
             credits = data.get("credits") or {}
-            for crew in credits.get("crew") or []:
-                if crew.get("job") == "Director":
-                    director = crew.get("name")
-                    break
+            director = next(
+                (c.get("name") for c in credits.get("crew") or [] if c.get("job") == "Director"),
+                None,
+            )
         else:
             creators = data.get("created_by") or []
             if creators:

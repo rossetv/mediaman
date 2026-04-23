@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
 from urllib.parse import urlparse as _urlparse
 
 from fastapi import APIRouter, Depends, Request
@@ -13,15 +12,15 @@ from starlette.responses import Response
 
 from mediaman.auth.audit import security_event
 from mediaman.auth.middleware import get_current_admin
-from mediaman.auth.rate_limit import ActionRateLimiter, get_client_ip
+from mediaman.auth.rate_limit import get_client_ip
 from mediaman.crypto import encrypt_value
 from mediaman.db import get_db
 from mediaman.models import SettingsUpdate
+from mediaman.services.rate_limits import SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER
+from mediaman.services.time import now_iso
 from mediaman.services.url_safety import is_safe_outbound_url
 
 from ._helpers import _ALL_KEYS, SECRET_FIELDS, _load_settings, _mask_secrets
-
-_SETTINGS_WRITE_LIMITER = ActionRateLimiter(max_in_window=20, window_seconds=60, max_per_day=200)
 
 logger = logging.getLogger("mediaman")
 
@@ -53,7 +52,7 @@ def api_update_settings(
         )
     conn = get_db()
     config = request.app.state.config
-    now = datetime.now(timezone.utc).isoformat()
+    now = now_iso()
 
     _URL_FIELDS = {
         "base_url",

@@ -18,18 +18,18 @@ _MAX_FUTURE_YEARS = 100
 logger = logging.getLogger("mediaman")
 
 
-def extract_poster_url(images: list[dict] | None) -> str | None:
-    """Return the first poster remoteUrl from an *arr images list, or None.
+def extract_poster_url(images: list[dict] | None) -> str:
+    """Return the first poster remoteUrl from an *arr images list, or ``""``.
 
     Iterates the ``images`` list (as returned by Radarr/Sonarr API responses)
     and returns the ``remoteUrl`` of the first entry whose ``coverType`` is
-    ``"poster"``. Returns ``None`` when no matching entry is found or when
-    ``images`` is falsy.
+    ``"poster"``. Returns ``""`` when no matching entry is found or when
+    ``images`` is falsy — callers no longer need ``or ""`` patches.
     """
     for img in images or []:
         if img.get("coverType") == "poster" and img.get("remoteUrl"):
             return img["remoteUrl"]
-    return None
+    return ""
 
 
 def _fmt_release_date(dt: datetime) -> str:

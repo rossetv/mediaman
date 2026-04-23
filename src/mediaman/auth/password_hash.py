@@ -10,9 +10,10 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
-from datetime import datetime, timezone
 
 import bcrypt
+
+from mediaman.services.time import now_iso
 
 logger = logging.getLogger("mediaman")
 
@@ -67,7 +68,7 @@ def create_user(
             raise ValueError("Password does not meet strength policy: " + "; ".join(issues))
 
     password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode()
-    now = datetime.now(timezone.utc).isoformat()
+    now = now_iso()
     try:
         conn.execute(
             "INSERT INTO admin_users (username, password_hash, created_at, must_change_password) "

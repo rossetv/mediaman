@@ -33,7 +33,7 @@ from mediaman.auth.password_policy import password_issues, policy_summary
 from mediaman.auth.rate_limit import get_client_ip
 from mediaman.auth.session import change_password
 from mediaman.db import get_db
-from mediaman.web.routes._helpers import SESSION_COOKIE_MAX_AGE
+from mediaman.web.routes._helpers import set_session_cookie
 
 logger = logging.getLogger("mediaman")
 
@@ -149,11 +149,7 @@ def force_change_submit(
     from mediaman.web.routes.auth import is_request_secure
 
     response = RedirectResponse("/", status_code=302)
-    response.set_cookie(
-        "session_token", new_token,
-        httponly=True, samesite="strict", max_age=SESSION_COOKIE_MAX_AGE,
-        secure=is_request_secure(request),
-    )
+    set_session_cookie(response, new_token, secure=is_request_secure(request))
     logger.info("force_password_change.ok user=%s ip=%s", username, client_ip)
     security_event(
         conn, event="password.force_changed", actor=username, ip=client_ip,

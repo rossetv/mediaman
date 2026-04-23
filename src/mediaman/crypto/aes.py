@@ -20,12 +20,13 @@ import re
 import secrets
 import sqlite3
 import threading
-from datetime import datetime, timezone
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+from mediaman.services.time import now_iso as _now_iso
 
 logger = logging.getLogger("mediaman")
 
@@ -85,9 +86,6 @@ def _db_path(conn: sqlite3.Connection) -> str:
     row = conn.execute("PRAGMA database_list").fetchone()
     return row[2] if row else ""
 
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _load_or_create_salt(conn: sqlite3.Connection) -> bytes:

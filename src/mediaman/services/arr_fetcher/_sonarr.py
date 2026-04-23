@@ -178,7 +178,7 @@ def fetch_sonarr_queue(client) -> list[ArrCard]:
         }
 
         if series_id not in series_map:
-            poster_url = extract_poster_url(series.get("images")) or ""
+            poster_url = extract_poster_url(series.get("images"))
             s_title = series.get("title") or "Unknown"
             series_map[series_id] = _make_sonarr_card(
                 s_title,
@@ -230,7 +230,7 @@ def fetch_sonarr_queue(client) -> list[ArrCard]:
             if added_dt is not None:
                 added_at = added_dt.timestamp()
 
-            poster_url = extract_poster_url(series.get("images")) or ""
+            poster_url = extract_poster_url(series.get("images"))
 
             items.append(_make_sonarr_card(
                 s_title,

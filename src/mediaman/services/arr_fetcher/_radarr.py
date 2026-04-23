@@ -72,7 +72,7 @@ def fetch_radarr_queue(client) -> list[ArrCard]:
             or q.get("trackedDownloadStatus")
             or "queued"
         )
-        poster_url = extract_poster_url(movie.get("images")) or ""
+        poster_url = extract_poster_url(movie.get("images"))
         m_title = (
             movie.get("title") or q.get("title") or "Unknown"
         )
@@ -109,7 +109,7 @@ def fetch_radarr_queue(client) -> list[ArrCard]:
             if added_dt is not None:
                 added_at = added_dt.timestamp()
 
-            poster_url = extract_poster_url(movie.get("images")) or ""
+            poster_url = extract_poster_url(movie.get("images"))
 
             items.append(_make_radarr_card(
                 m_title,

@@ -508,7 +508,7 @@ def _radarr_status(conn, secret_key: str, tmdb_id: int) -> dict:
     movie = client.get_movie_by_tmdb(tmdb_id)
     if movie and movie.get("hasFile"):
         title = movie.get("title", "")
-        poster_url = extract_poster_url(movie.get("images")) or ""
+        poster_url = extract_poster_url(movie.get("images"))
         return build_item(
             dl_id=f"radarr:{title}", title=title, media_type="movie",
             poster_url=poster_url, state="ready", progress=100,
@@ -533,7 +533,7 @@ def _radarr_status(conn, secret_key: str, tmdb_id: int) -> dict:
             if state == "almost_ready":
                 eta = "Post-processing…"
             title = item_movie.get("title", "")
-            poster_url = extract_poster_url(item_movie.get("images")) or ""
+            poster_url = extract_poster_url(item_movie.get("images"))
             return build_item(
                 dl_id=f"radarr:{title}", title=title,
                 media_type="movie", poster_url=poster_url,
@@ -587,7 +587,7 @@ def _sonarr_status(conn, secret_key: str, tmdb_id: int) -> dict:
         if not series_title:
             series_title = item_series.get("title", "")
         if not series_poster:
-            series_poster = extract_poster_url(item_series.get("images")) or ""
+            series_poster = extract_poster_url(item_series.get("images"))
 
         episode = item.get("episode") or {}
         size = item.get("size") or 0

@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse as _urlparse
 
@@ -20,21 +19,16 @@ from starlette.responses import Response
 
 from mediaman.auth.audit import security_event
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
-from mediaman.auth.rate_limit import ActionRateLimiter, get_client_ip
+from mediaman.auth.rate_limit import get_client_ip
 from mediaman.crypto import decrypt_value, encrypt_value
 from mediaman.db import get_db
 from mediaman.models import _API_KEY_RE, SettingsUpdate
 from mediaman.services.arr_build import build_plex_from_db
 from mediaman.services.http_client import SafeHTTPClient, SafeHTTPError
+from mediaman.services.rate_limits import SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER
 from mediaman.services.storage import get_disk_usage
+from mediaman.services.time import now_iso
 from mediaman.services.url_safety import is_safe_outbound_url
-
-# Per-admin rate limit for settings writes — generous for legitimate ops
-# but caps the damage a compromised session can inflict.
-_SETTINGS_WRITE_LIMITER = ActionRateLimiter(max_in_window=20, window_seconds=60, max_per_day=200)
-
-# Newsletter limiter lives in services.rate_limits — imported here so any
-# code that references the old module-level name still works.
 
 logger = logging.getLogger("mediaman")
 
@@ -188,7 +182,7 @@ def api_update_settings(
         )
     conn = get_db()
     config = request.app.state.config
-    now = datetime.now(timezone.utc).isoformat()
+    now = now_iso()
 
     # Validate URL-shaped settings before storage. These values flow
     # into outbound HTTP base URLs and, for ``base_url``, into the

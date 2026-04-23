@@ -7,6 +7,7 @@ different places with subtle drift.
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone
 
@@ -140,6 +141,58 @@ def format_day_month(dt: "datetime", *, long_month: bool = False) -> str:
     if s and s[0] == "0":
         s = s[1:]
     return s
+
+
+def safe_json_list(value: object) -> list:
+    """Parse *value* as JSON and return a list, or ``[]`` on any failure.
+
+    Handles the repeated pattern of ``json.loads(genres_or_cast or "[]")``
+    with a try/except that was copy-pasted across six call sites.
+
+    Args:
+        value: A JSON string, an already-parsed list, or any falsy value.
+
+    Returns:
+        The parsed list, or ``[]`` when *value* is falsy or invalid JSON.
+    """
+    if not value:
+        return []
+    if isinstance(value, list):
+        return value
+    try:
+        result = json.loads(value)
+        return result if isinstance(result, list) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def normalise_media_type(raw: str | None) -> str:
+    """Normalise a raw media-type string to ``"movie"``, ``"tv"``, or ``"anime"``.
+
+    Returns ``"movie"`` for any unrecognised or empty input.
+    """
+    if not raw:
+        return "movie"
+    lower = raw.strip().lower()
+    if lower in ("tv", "show", "series"):
+        return "tv"
+    if lower == "anime":
+        return "anime"
+    return "movie"
+
+
+def media_type_badge(media_type: str | None) -> tuple[str, str]:
+    """Return ``(badge_class, type_label)`` for a media-type string.
+
+    Encapsulates the ``{"movie": "badge-movie", ...}.get(...)`` dict that
+    was repeated in kept.py, dashboard.py, and history.py.
+
+    Returns:
+        A tuple ``(badge_class, type_label)`` where both are non-empty strings.
+    """
+    mt = normalise_media_type(media_type)
+    badge = {"movie": "badge-movie", "tv": "badge-tv", "anime": "badge-anime"}.get(mt, "badge-movie")
+    return badge, mt.upper()
 
 
 def days_ago(value: str | None) -> str:

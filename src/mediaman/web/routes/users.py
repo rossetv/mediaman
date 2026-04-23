@@ -34,7 +34,7 @@ from mediaman.auth.session import (
     list_users,
 )
 from mediaman.db import get_db
-from mediaman.web.routes._helpers import SESSION_COOKIE_MAX_AGE
+from mediaman.web.routes._helpers import set_session_cookie
 
 logger = logging.getLogger("mediaman")
 
@@ -206,11 +206,7 @@ def api_change_password(
         )
         from mediaman.web.routes.auth import is_request_secure
         response = JSONResponse({"ok": True, "message": "Password changed. You will be re-authenticated."})
-        response.set_cookie(
-            "session_token", new_token,
-            httponly=True, samesite="strict", max_age=SESSION_COOKIE_MAX_AGE,
-            secure=is_request_secure(request),
-        )
+        set_session_cookie(response, new_token, secure=is_request_secure(request))
         return response
     logger.warning("password.change_rejected user=%s reason=wrong_old_password", admin)
     return JSONResponse({"ok": False, "error": "Current password is incorrect"}, status_code=403)
@@ -255,11 +251,7 @@ def api_revoke_other_sessions(
         "revoked": destroyed,
         "message": "Other sessions revoked. You are now logged in with a fresh token.",
     })
-    response.set_cookie(
-        "session_token", new_token,
-        httponly=True, samesite="strict", max_age=SESSION_COOKIE_MAX_AGE,
-        secure=is_request_secure(request),
-    )
+    set_session_cookie(response, new_token, secure=is_request_secure(request))
     logger.info("session.revoke_all user=%s revoked=%d", admin, destroyed)
     security_event(
         conn, event="session.revoke_all", actor=admin,

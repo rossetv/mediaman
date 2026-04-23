@@ -25,6 +25,7 @@ from mediaman.auth.audit import log_audit
 from mediaman.crypto import generate_keep_token
 from mediaman.services.format import ensure_tz as _ensure_tz
 from mediaman.services.format import parse_iso_utc as _parse_iso_utc
+from mediaman.services.time import now_iso
 
 logger = logging.getLogger("mediaman")
 
@@ -54,7 +55,7 @@ def upsert_media_item(
     to Plex's ``addedAt``. The ``added_at`` column is always updated to
     reflect the best known date.
     """
-    now = datetime.now(timezone.utc).isoformat()
+    now = now_iso()
 
     if arr_date:
         parsed = _parse_iso_utc(arr_date)
@@ -182,7 +183,7 @@ def is_protected(conn: sqlite3.Connection, media_id: str) -> bool:
     (regardless of ``token_used``) or a ``snoozed`` action whose
     ``execute_at`` is still in the future.
     """
-    now = datetime.now(timezone.utc).isoformat()
+    now = now_iso()
     row = conn.execute(
         """
         SELECT action, execute_at FROM scheduled_actions
@@ -234,7 +235,7 @@ def is_show_kept(conn: sqlite3.Connection, show_rating_key: str | None) -> bool:
     """
     if not show_rating_key:
         return False
-    now = datetime.now(timezone.utc).isoformat()
+    now = now_iso()
     row = conn.execute(
         """
         SELECT id, action, execute_at FROM kept_shows

@@ -16,13 +16,13 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
 from mediaman.auth.audit import log_audit
-from mediaman.auth.middleware import (
-    get_current_admin,
-    get_optional_admin_from_token,
-)
+from mediaman.auth.middleware import get_current_admin
 from mediaman.db import get_db
 from mediaman.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
 from mediaman.services.format import format_bytes as _format_bytes
+from mediaman.services.format import media_type_badge
+from mediaman.services.time import now_iso
+from mediaman.web.routes._helpers import is_admin as _is_admin
 
 
 def _resolve_show_rating_key(conn, supplied_key: str) -> tuple[str | None, str | None]:
@@ -95,7 +95,7 @@ def _format_expiry(action: str, execute_at: str | None) -> str:
 
 def _fetch_protected(conn) -> tuple[list[dict], list[dict]]:
     """Return (forever_items, snoozed_items) from scheduled_actions joined with media_items."""
-    now = datetime.now(timezone.utc).isoformat()
+    now = now_iso()
 
     rows = conn.execute("""
         SELECT
@@ -121,10 +121,7 @@ def _fetch_protected(conn) -> tuple[list[dict], list[dict]]:
     snoozed = []
     for r in rows:
         media_type = r["media_type"] or "movie"
-        badge_class = {"movie": "badge-movie", "tv": "badge-tv", "anime": "badge-anime"}.get(
-            media_type, "badge-movie"
-        )
-        type_label = media_type.upper()
+        badge_class, type_label = media_type_badge(media_type)
         if media_type in ("tv", "anime") and r["season_number"]:
             type_label = f"{type_label} · S{r['season_number']}"
 
@@ -161,9 +158,7 @@ def redirect_kept_to_library(request: Request) -> RedirectResponse:
     enumerate internal URL structure; unauth callers just see the
     login redirect.
     """
-    if get_optional_admin_from_token(
-        request.cookies.get("session_token"), request=request
-    ) is None:
+    if not _is_admin(request):
         return RedirectResponse("/login", status_code=302)
     return RedirectResponse("/library?type=kept", status_code=301)
 
@@ -171,9 +166,7 @@ def redirect_kept_to_library(request: Request) -> RedirectResponse:
 @router.get("/kept/page")
 def redirect_kept_page(request: Request) -> RedirectResponse:
     """Redirect legacy /kept/page to /library?type=kept — auth-gated."""
-    if get_optional_admin_from_token(
-        request.cookies.get("session_token"), request=request
-    ) is None:
+    if not _is_admin(request):
         return RedirectResponse("/login", status_code=302)
     return RedirectResponse("/library?type=kept", status_code=301)
 
@@ -434,8 +427,6 @@ def api_remove_show_keep(show_rating_key: str, admin: str = Depends(get_current_
 @router.get("/protected")
 def redirect_protected_page(request: Request) -> RedirectResponse:
     """Redirect old /protected URL to library kept filter — auth-gated."""
-    if get_optional_admin_from_token(
-        request.cookies.get("session_token"), request=request
-    ) is None:
+    if not _is_admin(request):
         return RedirectResponse("/login", status_code=302)
     return RedirectResponse("/library?type=kept", status_code=301)

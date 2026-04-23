@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
 
 from mediaman.services.download_format import extract_poster_url
+from mediaman.services.time import now_iso
 
 logger = logging.getLogger("mediaman")
 
@@ -38,7 +38,7 @@ def record_download_notification(
 
     Does **not** call ``conn.commit()`` — callers manage their own transactions.
     """
-    now = datetime.now(timezone.utc).isoformat()
+    now = now_iso()
     conn.execute(
         "INSERT INTO download_notifications "
         "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "

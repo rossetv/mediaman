@@ -17,6 +17,7 @@ from mediaman.models import ACTION_SCHEDULED_DELETION
 from mediaman.services.format import (
     days_ago,
     format_bytes,
+    media_type_badge,
     parse_iso_utc,
     rk_from_audit_detail,
     title_from_audit_detail,
@@ -74,10 +75,7 @@ def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
     items = []
     for r in rows:
         media_type = r["media_type"] or "movie"
-        badge_class = {"movie": "badge-movie", "tv": "badge-tv", "anime": "badge-anime"}.get(
-            media_type, "badge-movie"
-        )
-        type_label = media_type.upper()
+        badge_class, type_label = media_type_badge(media_type)
         if media_type in ("tv", "anime") and r["season_number"]:
             type_label = f"{type_label} · S{r['season_number']}"
 

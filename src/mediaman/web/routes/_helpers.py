@@ -6,7 +6,12 @@ copy-pasted into three or more route files belong here.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from fastapi.responses import JSONResponse
+
+if TYPE_CHECKING:
+    from fastapi import Request
 
 # ---------------------------------------------------------------------------
 # Session cookie
@@ -27,6 +32,27 @@ def set_session_cookie(response: JSONResponse, token: str, *, secure: bool) -> N
         max_age=SESSION_COOKIE_MAX_AGE,
         secure=secure,
     )
+
+
+# ---------------------------------------------------------------------------
+# Admin gating shorthand
+# ---------------------------------------------------------------------------
+
+
+def is_admin(request: "Request") -> bool:
+    """Return True when the current request carries a valid admin session.
+
+    Replaces the repeated ``get_optional_admin_from_token(request.cookies.get(
+    "session_token"), request=request) is not None`` pattern at four call
+    sites (keep.py × 2, kept.py × 2, recommended.py).
+
+    Uses a deferred import to avoid a circular import cycle (middleware
+    depends on session, helpers must not depend on middleware at module level).
+    """
+    from mediaman.auth.middleware import get_optional_admin_from_token
+    return get_optional_admin_from_token(
+        request.cookies.get("session_token"), request=request
+    ) is not None
 
 
 # ---------------------------------------------------------------------------

@@ -12,7 +12,8 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from datetime import datetime, timezone
+
+from mediaman.services.time import now_iso
 
 logger = logging.getLogger("mediaman")
 
@@ -39,7 +40,7 @@ def log_audit(
     committing in their own transaction so the audit row and the business
     row land in the same commit.
     """
-    now = datetime.now(timezone.utc).isoformat()
+    now = now_iso()
     if space_bytes is not None:
         conn.execute(
             "INSERT INTO audit_log "
@@ -90,8 +91,7 @@ def security_event(
         conn.execute(
             "INSERT INTO audit_log (media_item_id, action, detail, created_at) "
             "VALUES (?, ?, ?, ?)",
-            ("_security", f"sec:{event}", body,
-             datetime.now(timezone.utc).isoformat()),
+            ("_security", f"sec:{event}", body, now_iso()),
         )
         conn.commit()
     except Exception:  # pragma: no cover — never break flow on log failure

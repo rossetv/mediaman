@@ -16,7 +16,6 @@ from starlette.responses import Response
 
 from mediaman.auth.middleware import (
     get_current_admin,
-    get_optional_admin_from_token,
     resolve_page_session,
 )
 from mediaman.auth.rate_limit import ActionRateLimiter
@@ -39,6 +38,8 @@ from mediaman.services.arr_state import (
 )
 from mediaman.services.download_notifications import record_download_notification
 from mediaman.services.settings_reader import get_bool_setting, get_string_setting
+from mediaman.services.time import now_iso
+from mediaman.web.routes._helpers import is_admin as _is_admin
 
 logger = logging.getLogger("mediaman")
 
@@ -108,9 +109,7 @@ def _record_manual_refresh(conn, when: datetime) -> None:
 @router.get("/suggestions")
 def _legacy_suggestions_redirect(request: Request) -> RedirectResponse:
     """Permanent redirect for bookmarked /suggestions URLs — auth-gated."""
-    if get_optional_admin_from_token(
-        request.cookies.get("session_token"), request=request
-    ) is None:
+    if not _is_admin(request):
         return RedirectResponse("/login", status_code=302)
     return RedirectResponse("/recommended", status_code=301)
 
@@ -430,7 +429,7 @@ def api_download_recommendation(recommendation_id: int, request: Request, admin:
                 return JSONResponse({"ok": False, "error": "Radarr not configured"})
             client.add_movie(tmdb_id, row["title"])
             logger.info("Added movie '%s' (tmdb:%d) to Radarr", row["title"], tmdb_id)
-            now = datetime.now(timezone.utc).isoformat()
+            now = now_iso()
             conn.execute(
                 "UPDATE suggestions SET downloaded_at = ? WHERE id = ?",
                 (now, recommendation_id),
@@ -454,7 +453,7 @@ def api_download_recommendation(recommendation_id: int, request: Request, admin:
 
             client.add_series(tvdb_id, row["title"])
             logger.info("Added series '%s' (tvdb:%d) to Sonarr", row["title"], tvdb_id)
-            now = datetime.now(timezone.utc).isoformat()
+            now = now_iso()
             conn.execute(
                 "UPDATE suggestions SET downloaded_at = ? WHERE id = ?",
                 (now, recommendation_id),

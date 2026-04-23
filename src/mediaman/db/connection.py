@@ -11,6 +11,8 @@ import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
 
+from mediaman.services.time import now_iso
+
 from .schema import apply_migrations
 
 logger = logging.getLogger("mediaman")
@@ -112,7 +114,7 @@ def _start_job_run(conn: sqlite3.Connection, table: str) -> int | None:
         if _is_job_running(conn, table):
             conn.execute("ROLLBACK")
             return None
-        now = datetime.now(timezone.utc).isoformat()
+        now = now_iso()
         cursor = conn.execute(
             f"INSERT INTO {table} (started_at, status) VALUES (?, 'running')",
             (now,),
@@ -136,7 +138,7 @@ def _finish_job_run(
     error: str | None = None,
 ) -> None:
     """Mark *run_id* in *table* as finished with the given *status*."""
-    now = datetime.now(timezone.utc).isoformat()
+    now = now_iso()
     conn.execute(
         f"UPDATE {table} SET finished_at=?, status=?, error=? WHERE id=?",
         (now, status, error, run_id),

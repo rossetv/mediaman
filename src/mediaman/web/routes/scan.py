@@ -25,6 +25,7 @@ def trigger_scan(request: Request, admin: str = Depends(get_current_admin)) -> d
         return {"status": "already_running"}
 
     db_path = request.app.state.db_path
+    secret_key = request.app.state.config.secret_key
 
     def run():
         import sqlite3
@@ -34,11 +35,9 @@ def trigger_scan(request: Request, admin: str = Depends(get_current_admin)) -> d
         thread_conn = sqlite3.connect(db_path)
         _configure_connection(thread_conn)
         try:
-            from mediaman.config import load_config
             from mediaman.scanner.runner import run_scan_from_db
 
-            config = load_config()
-            run_scan_from_db(thread_conn, config.secret_key, skip_disk_check=True)
+            run_scan_from_db(thread_conn, secret_key, skip_disk_check=True)
             finish_scan_run(thread_conn, run_id, "done")
         except Exception as exc:
             try:

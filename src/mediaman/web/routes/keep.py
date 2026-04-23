@@ -11,11 +11,11 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.responses import Response
 
 from mediaman.auth.audit import log_audit
-from mediaman.auth.middleware import get_optional_admin_from_token
 from mediaman.auth.rate_limit import RateLimiter, get_client_ip
 from mediaman.crypto import validate_keep_token
 from mediaman.db import get_db
 from mediaman.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
+from mediaman.web.routes._helpers import is_admin as _is_admin
 
 router = APIRouter()
 
@@ -115,7 +115,7 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
         item_dict["added_display"] = raw_added[:10] if raw_added else ""
 
     # Check if admin is logged in
-    is_admin = get_optional_admin_from_token(request.cookies.get("session_token"), request=request) is not None
+    is_admin = _is_admin(request)
 
     # Compute "days left" server-side in the scheduled action's timezone
     # (UTC). Doing this in the template via ``execute_at.today()`` fails
@@ -181,7 +181,7 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
     row = verified
 
     # Only admins can use "forever"
-    is_admin = get_optional_admin_from_token(request.cookies.get("session_token"), request=request) is not None
+    is_admin = _is_admin(request)
     if duration == "forever" and not is_admin:
         # Roll back the token-used insert so the admin can retry later.
         conn.rollback()

@@ -27,6 +27,7 @@ from mediaman.services.arr_state import (
 from mediaman.services.download_notifications import record_download_notification as _record_dn
 from mediaman.services.http_client import SafeHTTPError
 from mediaman.services.omdb import fetch_ratings
+from mediaman.services.time import now_iso as _now_iso
 from mediaman.services.tmdb import TmdbClient
 
 _RATINGS_TTL_DAYS = 30
@@ -193,7 +194,7 @@ def _enrich_ratings(results: list[dict], request: Request) -> None:
             data = {}
         return key, group, data
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = _now_iso()
     # H13: workers return tuples; commit is done on the main thread after
     # all futures resolve to avoid concurrent writes on the main connection.
     # H12: reuse the module-level executor instead of spawning a new pool.
@@ -393,11 +394,10 @@ def _extract_credits(data: dict, media_type: str) -> tuple[int | None, str | Non
     """
     if media_type == "movie":
         runtime = data.get("runtime")
-        director: str | None = None
-        for crew in (data.get("credits") or {}).get("crew", []):
-            if crew.get("job") == "Director":
-                director = crew.get("name")
-                break
+        director: str | None = next(
+            (c.get("name") for c in (data.get("credits") or {}).get("crew", []) if c.get("job") == "Director"),
+            None,
+        )
     else:
         ert = data.get("episode_run_time") or []
         runtime = ert[0] if ert else None

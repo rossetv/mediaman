@@ -198,7 +198,7 @@ def _fetch_arr_poster(conn, rating_key: str, plex_token_row, config) -> tuple[by
             try:
                 for movie in radarr_client.get_movies():
                     if movie.get("id") == radarr_id:
-                        poster_url = extract_poster_url(movie.get("images")) or ""
+                        poster_url = extract_poster_url(movie.get("images"))
                         break
             except Exception:
                 logger.warning("Failed to fetch Radarr poster for id=%s", radarr_id, exc_info=True)
@@ -214,7 +214,7 @@ def _fetch_arr_poster(conn, rating_key: str, plex_token_row, config) -> tuple[by
             try:
                 for series in sonarr_client.get_series():
                     if series.get("id") == sonarr_id:
-                        poster_url = extract_poster_url(series.get("images")) or ""
+                        poster_url = extract_poster_url(series.get("images"))
                         break
             except Exception:
                 logger.warning("Failed to fetch Sonarr poster for id=%s", sonarr_id, exc_info=True)

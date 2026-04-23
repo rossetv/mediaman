@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
 from html import escape
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -20,6 +19,7 @@ from mediaman.auth.rate_limit import RateLimiter, get_client_ip
 from mediaman.crypto import validate_unsubscribe_token
 from mediaman.db import get_db
 from mediaman.services.rate_limits import NEWSLETTER_LIMITER as _NEWSLETTER_LIMITER
+from mediaman.services.time import now_iso
 
 
 class _SendNewsletterBody(BaseModel):
@@ -95,7 +95,7 @@ def api_add_subscriber(
     if existing:
         return JSONResponse({"error": "Email already subscribed"}, status_code=409)
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = now_iso()
     conn.execute(
         "INSERT INTO subscribers (email, active, created_at) VALUES (?, 1, ?)",
         (email, now),
@@ -243,8 +243,7 @@ def _generic_invalid_response(request: Request) -> HTMLResponse:
 @router.get("/unsubscribe", response_class=HTMLResponse)
 def unsubscribe_page(request: Request, email: str = "", token: str = "") -> HTMLResponse:
     """Show unsubscribe confirmation page. Actual unsubscribe happens via POST."""
-    from mediaman.config import load_config
-    config = load_config()
+    config = request.app.state.config
 
     if not _UNSUB_LIMITER.check(get_client_ip(request)):
         return _render_result(
@@ -273,8 +272,7 @@ def unsubscribe_confirm(
     token: str = Form(default=""),
 ) -> HTMLResponse:
     """Process the unsubscribe after user confirmation."""
-    from mediaman.config import load_config
-    config = load_config()
+    config = request.app.state.config
 
     if not _UNSUB_LIMITER.check(get_client_ip(request)):
         return _render_result(
