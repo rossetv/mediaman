@@ -80,6 +80,27 @@ def get_int_setting(
         return default
 
 
+def get_bool_setting(
+    conn: sqlite3.Connection,
+    key: str,
+    *,
+    default: bool = True,
+) -> bool:
+    """Return a boolean setting from the ``settings`` table.
+
+    Treats the stored string 'false', '0', 'no', or 'off' (case-insensitive)
+    as ``False``; any other value (including missing rows) returns *default*.
+    This avoids the silent 'value != "false"' trap where 'False', '0', or
+    'disabled' would incorrectly be treated as truthy.
+    """
+    row = conn.execute(
+        "SELECT value FROM settings WHERE key=?", (key,)
+    ).fetchone()
+    if row is None or row["value"] in (None, ""):
+        return default
+    return row["value"].strip().lower() not in ("false", "0", "no", "off")
+
+
 def get_string_setting(
     conn: sqlite3.Connection,
     key: str,

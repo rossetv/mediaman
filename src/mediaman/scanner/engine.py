@@ -24,6 +24,9 @@ from mediaman.scanner.movies import evaluate_movie
 from mediaman.scanner.tv import evaluate_season
 from mediaman.services.format import ensure_tz as _ensure_tz
 from mediaman.services.format import parse_iso_utc as _parse_iso_utc
+from mediaman.services.newsletter import send_newsletter as _send_newsletter
+from mediaman.services.openai_recommendations import refresh_recommendations as _refresh_recommendations
+from mediaman.services.settings_reader import get_bool_setting as _get_bool_setting
 from mediaman.services.storage import delete_path
 
 logger = logging.getLogger("mediaman")
@@ -352,8 +355,7 @@ class ScanEngine:
         summary["reclaimed_bytes"] = deletion_result["reclaimed_bytes"]
 
         try:
-            from mediaman.services.newsletter import send_newsletter
-            send_newsletter(
+            _send_newsletter(
                 conn=self._conn,
                 secret_key=self._secret_key,
                 dry_run=self._dry_run,
@@ -363,14 +365,9 @@ class ScanEngine:
             logger.exception("Newsletter sending failed — scan results unaffected")
 
         # Refresh AI recommendations if enabled
-        rec_row = self._conn.execute(
-            "SELECT value FROM settings WHERE key='suggestions_enabled'"
-        ).fetchone()
-        # Disabled by storing "false"; any other value (including missing) means enabled
-        if not rec_row or rec_row["value"] != "false":
+        if _get_bool_setting(self._conn, "suggestions_enabled", default=True):
             try:
-                from mediaman.services.openai_recommendations import refresh_recommendations
-                refresh_recommendations(self._conn, self._plex)
+                _refresh_recommendations(self._conn, self._plex)
             except Exception:
                 logger.exception("Recommendation generation failed — scan results unaffected")
 
