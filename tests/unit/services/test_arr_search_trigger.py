@@ -13,7 +13,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from mediaman.db import init_db
 from mediaman.services.arr_search_trigger import (
+    _load_last_trigger_from_db,
+    _save_trigger_to_db,
     get_search_info,
     maybe_trigger_search,
     reset_search_triggers,
@@ -160,4 +163,93 @@ class TestTriggerSonarrPartialMissing:
 
         # Must not raise
         _trigger_sonarr_partial_missing(conn, [])
+        assert calls == []
+
+
+# ---------------------------------------------------------------------------
+# H44: DB-backed throttle persistence
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def db_conn(tmp_path):
+    conn = init_db(str(tmp_path / "mediaman.db"))
+    yield conn
+    conn.close()
+
+
+class TestThrottleDbPersistence:
+    """_load_last_trigger_from_db and _save_trigger_to_db round-trip correctly."""
+
+    def test_load_returns_zero_for_unknown_key(self, db_conn):
+        assert _load_last_trigger_from_db(db_conn, "radarr:Unknown") == 0.0
+
+    def test_save_then_load_round_trips(self, db_conn):
+        epoch = 1_700_000_000.0
+        _save_trigger_to_db(db_conn, "radarr:Dune", epoch)
+        loaded = _load_last_trigger_from_db(db_conn, "radarr:Dune")
+        # Allow 1-second rounding from ISO-string conversion
+        assert abs(loaded - epoch) < 1.0
+
+    def test_save_is_idempotent(self, db_conn):
+        """Saving a second time replaces the first value."""
+        _save_trigger_to_db(db_conn, "radarr:Inception", 1_000_000.0)
+        _save_trigger_to_db(db_conn, "radarr:Inception", 2_000_000.0)
+        loaded = _load_last_trigger_from_db(db_conn, "radarr:Inception")
+        assert abs(loaded - 2_000_000.0) < 1.0
+
+    def test_load_returns_zero_on_broken_db(self):
+        """A broken/missing DB never raises — returns 0.0 gracefully."""
+        bad_conn = MagicMock()
+        bad_conn.execute.side_effect = Exception("DB locked")
+        assert _load_last_trigger_from_db(bad_conn, "radarr:X") == 0.0
+
+    def test_save_swallows_db_error(self):
+        """_save_trigger_to_db is best-effort; never raises on DB failure."""
+        bad_conn = MagicMock()
+        bad_conn.execute.side_effect = Exception("write failed")
+        _save_trigger_to_db(bad_conn, "radarr:X", 999.0)  # must not raise
+
+    def test_maybe_trigger_search_persists_to_db(self, db_conn, monkeypatch):
+        """After maybe_trigger_search fires, the DB row is written."""
+        mock_radarr = MagicMock()
+        monkeypatch.setattr(
+            "mediaman.services.arr_search_trigger.build_arr_client",
+            lambda c, svc: mock_radarr if svc == "radarr" else None,
+        )
+        item = {
+            "kind": "movie",
+            "dl_id": "radarr:Tenet",
+            "arr_id": 42,
+            "is_upcoming": False,
+            "added_at": time.time() - 600,
+        }
+        maybe_trigger_search(db_conn, item, matched_nzb=False)
+
+        loaded = _load_last_trigger_from_db(db_conn, "radarr:Tenet")
+        assert loaded > 0.0
+
+    def test_cold_start_reads_db_and_throttles(self, db_conn, monkeypatch):
+        """A freshly restarted process reads from the DB and respects the throttle."""
+        # Simulate: trigger was saved 5 minutes ago (within throttle window)
+        recent_epoch = time.time() - 60  # 1 minute ago — inside 15-min throttle
+        _save_trigger_to_db(db_conn, "radarr:Tenet2", recent_epoch)
+
+        calls: list = []
+        mock_radarr = MagicMock()
+        mock_radarr.search_movie.side_effect = lambda _: calls.append("searched")
+        monkeypatch.setattr(
+            "mediaman.services.arr_search_trigger.build_arr_client",
+            lambda c, svc: mock_radarr if svc == "radarr" else None,
+        )
+
+        item = {
+            "kind": "movie",
+            "dl_id": "radarr:Tenet2",
+            "arr_id": 99,
+            "is_upcoming": False,
+            "added_at": time.time() - 600,
+        }
+        maybe_trigger_search(db_conn, item, matched_nzb=False)
+        # The DB read should have warmed the cache and blocked the search
         assert calls == []

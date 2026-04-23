@@ -1,6 +1,11 @@
 """Fetch Radarr/Sonarr queue.
 
-Public entry point: :func:`fetch_arr_queue`.
+Public entry points:
+
+- :func:`fetch_arr_queue` -- backward-compatible, returns a plain list of cards.
+- :func:`fetch_arr_queue_result` -- returns a :class:`FetchResult` that also
+  carries any fetch errors so the UI can display a banner.
+
 NZBGet client construction lives in :func:`mediaman.services.arr_build.build_nzbget_from_db`.
 """
 
@@ -8,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from dataclasses import dataclass, field
 from typing import TypedDict
 
 from mediaman.services.download_format import (
@@ -19,6 +25,20 @@ from mediaman.services.download_format import (
 from mediaman.services.format import format_bytes, parse_iso_utc
 
 logger = logging.getLogger("mediaman")
+
+
+@dataclass
+class FetchResult:
+    """Container returned by :func:`fetch_arr_queue_result`.
+
+    ``cards`` is the list of download cards (same content as :func:`fetch_arr_queue`).
+    ``errors`` is a list of human-readable error strings -- one per service that
+    failed.  Empty when all fetches succeeded.  UI layers should surface these
+    as a dismissible banner rather than hiding them silently.
+    """
+
+    cards: list = field(default_factory=list)
+    errors: list = field(default_factory=list)
 
 
 class ArrEpisodeEntry(TypedDict, total=False):
@@ -192,6 +212,50 @@ def _fetch_radarr_queue(client) -> list[ArrCard]:
     return items
 
 
+
+def _make_sonarr_card(
+    title: str,
+    *,
+    year: int | None = None,
+    poster_url: str = "",
+    episodes: list | None = None,
+    episode_count: int = 0,
+    downloading_count: int = 0,
+    progress: int = 0,
+    size: int = 0,
+    sizeleft: int = 0,
+    arr_id: int = 0,
+    title_slug: str = "",
+    added_at: float = 0.0,
+    is_upcoming: bool = False,
+    release_label: str = "",
+    release_names: list | None = None,
+) -> "ArrCard":
+    """Build a Sonarr series card with all required fields populated."""
+    return ArrCard(
+        kind="series",
+        dl_id="sonarr:" + title,
+        title=title,
+        source="Sonarr",
+        poster_url=poster_url,
+        year=year,
+        episodes=episodes if episodes is not None else [],
+        episode_count=episode_count,
+        downloading_count=downloading_count,
+        progress=progress,
+        size=size,
+        sizeleft=sizeleft,
+        size_str=format_bytes(size),
+        done_str=format_bytes(size - sizeleft),
+        arr_id=arr_id,
+        title_slug=title_slug,
+        added_at=added_at,
+        is_upcoming=is_upcoming,
+        release_label=release_label,
+        release_names=release_names if release_names is not None else [],
+    )
+
+
 def _fetch_sonarr_queue(client) -> list[ArrCard]:
     """Build Sonarr download cards from an already-constructed client.
 
@@ -236,24 +300,15 @@ def _fetch_sonarr_queue(client) -> list[ArrCard]:
         if series_id not in series_map:
             poster_url = extract_poster_url(series.get("images")) or ""
             s_title = series.get("title") or "Unknown"
-            series_map[series_id] = {
-                "kind": "series",
-                "dl_id": "sonarr:" + s_title,
-                "title": s_title,
-                "year": series.get("year"),
-                "source": "Sonarr",
-                "poster_url": poster_url,
-                "episodes": [],
-                "is_upcoming": False,
-                "release_label": "",
-                "arr_id": 0,
-                "added_at": 0.0,
-                # Release filenames Sonarr grabbed — used to match NZBs
-                # whose cleaned title differs from the series title
-                # (localised names like "Sousou no Frieren" vs the
-                # Sonarr title "Frieren: Beyond Journey's End").
-                "release_names": [],
-            }
+            # Release filenames Sonarr grabbed — used to match NZBs
+            # whose cleaned title differs from the series title
+            # (localised names like "Sousou no Frieren" vs the
+            # Sonarr title "Frieren: Beyond Journey's End").
+            series_map[series_id] = _make_sonarr_card(
+                s_title,
+                year=series.get("year"),
+                poster_url=poster_url,
+            )
 
         release_name = q.get("title") or ""
         if release_name:
@@ -385,30 +440,51 @@ def _fetch_sonarr_queue(client) -> list[ArrCard]:
 
             poster_url = extract_poster_url(series.get("images")) or ""
 
-            items.append({
-                "kind": "series",
-                "dl_id": "sonarr:" + s_title,
-                "title": s_title,
-                "source": "Sonarr",
-                "poster_url": poster_url,
-                "episodes": [],
-                "episode_count": 0,
-                "downloading_count": 0,
-                "progress": 0,
-                "size": 0,
-                "sizeleft": 0,
-                "size_str": "0 B",
-                "done_str": "0 B",
-                "arr_id": series_id,
-                "title_slug": series.get("titleSlug", ""),
-                "added_at": added_at,
-                "is_upcoming": is_upcoming,
-                "release_label": release_label,
-                "release_names": [],
-            })
+            items.append(_make_sonarr_card(
+                s_title,
+                poster_url=poster_url,
+                arr_id=series_id,
+                title_slug=series.get("titleSlug", ""),
+                added_at=added_at,
+                is_upcoming=is_upcoming,
+                release_label=release_label,
+            ))
     except Exception:
         logger.warning("Failed to check Sonarr for searching series", exc_info=True)
     return items
+
+
+def fetch_arr_queue_result(conn: sqlite3.Connection) -> FetchResult:
+    """Fetch Radarr/Sonarr queues and return a :class:`FetchResult`.
+
+    Unlike :func:`fetch_arr_queue`, this surfaces errors alongside cards so
+    callers can show a UI banner when a service is unreachable.
+    """
+    from mediaman.config import load_config
+    from mediaman.services.arr_build import build_radarr_from_db, build_sonarr_from_db
+
+    config = load_config()
+    result = FetchResult()
+
+    try:
+        radarr_client = build_radarr_from_db(conn, config.secret_key)
+        if radarr_client is not None:
+            result.cards.extend(_fetch_radarr_queue(radarr_client))
+    except Exception as exc:
+        msg = f"Radarr fetch failed: {exc}"
+        logger.warning("Failed to fetch Radarr queue: %s", exc, exc_info=True)
+        result.errors.append(msg)
+
+    try:
+        sonarr_client = build_sonarr_from_db(conn, config.secret_key)
+        if sonarr_client is not None:
+            result.cards.extend(_fetch_sonarr_queue(sonarr_client))
+    except Exception as exc:
+        msg = f"Sonarr fetch failed: {exc}"
+        logger.warning("Failed to fetch Sonarr queue: %s", exc, exc_info=True)
+        result.errors.append(msg)
+
+    return result
 
 
 def fetch_arr_queue(conn: sqlite3.Connection) -> list[ArrCard]:
@@ -416,22 +492,9 @@ def fetch_arr_queue(conn: sqlite3.Connection) -> list[ArrCard]:
 
     Returns a list of download cards.  Movies are one card each.
     TV series are grouped into a single card with an ``episodes`` list.
-    """
-    from mediaman.config import load_config
-    from mediaman.services.arr_build import build_radarr_from_db, build_sonarr_from_db
 
-    config = load_config()
-    items: list[ArrCard] = []
-    try:
-        radarr_client = build_radarr_from_db(conn, config.secret_key)
-        if radarr_client is not None:
-            items.extend(_fetch_radarr_queue(radarr_client))
-    except Exception:
-        logger.warning("Failed to fetch Radarr queue", exc_info=True)
-    try:
-        sonarr_client = build_sonarr_from_db(conn, config.secret_key)
-        if sonarr_client is not None:
-            items.extend(_fetch_sonarr_queue(sonarr_client))
-    except Exception:
-        logger.warning("Failed to fetch Sonarr queue", exc_info=True)
-    return items
+    This is the backward-compatible wrapper around :func:`fetch_arr_queue_result`.
+    Callers that need to surface fetch errors to the UI should use that function
+    instead.
+    """
+    return fetch_arr_queue_result(conn).cards

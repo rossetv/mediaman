@@ -28,7 +28,7 @@ from pathlib import Path
 
 logger = logging.getLogger("mediaman")
 
-DB_SCHEMA_VERSION = 15
+DB_SCHEMA_VERSION = 17
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (
@@ -519,7 +519,19 @@ def init_db(db_path: str) -> sqlite3.Connection:
                 error TEXT
             )
         """)
-    conn.execute(f"PRAGMA user_version={DB_SCHEMA_VERSION}")
+    if current_version < 17:
+        # H44: persist search throttle state across process restarts so a
+        # deploy does not re-burst Radarr/Sonarr.  ``key`` is either a
+        # ``dl_id`` (e.g. ``"radarr:Dune"``) or a global sentinel; a future
+        # version may use per-username keys.  Idempotent: CREATE TABLE IF
+        # NOT EXISTS is safe to re-run.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS arr_search_throttle (
+                key TEXT PRIMARY KEY,
+                last_triggered_at TEXT NOT NULL
+            )
+        """)
+        conn.execute(f"PRAGMA user_version={DB_SCHEMA_VERSION}")
     conn.commit()
 
     return conn

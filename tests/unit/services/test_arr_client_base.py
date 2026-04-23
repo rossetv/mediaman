@@ -83,3 +83,51 @@ class TestConstructor:
         """API key is forwarded verbatim in the X-Api-Key header."""
         c = _TestClient("http://arr.local", "my-secret-key")
         assert c._headers["X-Api-Key"] == "my-secret-key"
+
+class TestLastError:
+    """H35 -- last_error is populated on failure and cleared on success."""
+
+    def test_last_error_initially_none(self):
+        """last_error is None before any call is made."""
+        from mediaman.services.arr_client_base import ArrClient
+        class TC(ArrClient): pass
+        c = TC("http://arr.local", "key")
+        assert c.last_error is None
+
+    def test_split_timeout_applied(self):
+        """SafeHTTPClient is configured with the split connect/read timeout."""
+        from mediaman.services.arr_client_base import _ARR_TIMEOUT, ArrClient
+        class TC(ArrClient): pass
+        c = TC("http://arr.local", "key")
+        assert c._http._default_timeout == _ARR_TIMEOUT
+        assert _ARR_TIMEOUT == (5.0, 30.0)
+
+    def test_last_error_cleared_on_success(self, client, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data={"status": "ok"}))
+        client._get("/api/v3/system/status")
+        assert client.last_error is None
+
+    def test_last_error_set_on_get_failure(self, client, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(status=500, text="boom"))
+        with pytest.raises(Exception):
+            client._get("/api/v3/system/status")
+        assert client.last_error is not None
+        assert len(client.last_error) > 0
+
+    def test_last_error_set_on_post_failure(self, client, fake_http, fake_response):
+        fake_http.queue("POST", fake_response(status=503, text="unavailable"))
+        with pytest.raises(Exception):
+            client._post("/api/v3/command", {"name": "TestCommand"})
+        assert client.last_error is not None
+
+    def test_last_error_cleared_after_recovery(self, client, fake_http, fake_response):
+        """A successful call after a failure should reset last_error."""
+        fake_http.queue("GET", fake_response(status=500, text="boom"))
+        with pytest.raises(Exception):
+            client._get("/fail")
+        assert client.last_error is not None
+
+        fake_http.queue("GET", fake_response(json_data={"ok": True}))
+        client._get("/ok")
+        assert client.last_error is None
+

@@ -64,28 +64,49 @@ def record_verified_completions(
     has a file / episode file. NZBGet-only items (those without the
     ``radarr:`` / ``sonarr:`` prefix) are treated as verified by default
     because there's no Arr source to cross-check against.
+
+    Performance: the Radarr/Sonarr library is fetched once per call and
+    indexed by ``{tmdbId: movie}`` / ``{tmdbId: series}`` so lookups are
+    O(1) by ID.  A title-only fallback is used when no ``tmdbId`` is present
+    on the completed item (older entries, NZB-only grabs).
     """
-    # Fetch Radarr/Sonarr libraries once per call and reuse across items.
-    _radarr_movies: list[dict] | None = None
-    _sonarr_series: list[dict] | None = None
+    # Fetch Radarr/Sonarr libraries once per call and index by tmdbId + title.
+    _radarr_by_id: dict[int, dict] = {}
+    _radarr_by_title: dict[str, dict] = {}
+    _sonarr_by_id: dict[int, dict] = {}
+    _sonarr_by_title: dict[str, dict] = {}
     _radarr_built = False
     _sonarr_built = False
 
-    def _get_radarr_movies() -> list[dict]:
-        nonlocal _radarr_movies, _radarr_built
-        if not _radarr_built:
-            client = build_client(conn, "radarr")
-            _radarr_movies = client.get_movies() if client else []
-            _radarr_built = True
-        return _radarr_movies or []
+    def _build_radarr() -> None:
+        nonlocal _radarr_built
+        if _radarr_built:
+            return
+        client = build_client(conn, "radarr")
+        movies = client.get_movies() if client else []
+        for m in movies:
+            tid = m.get("tmdbId")
+            if tid:
+                _radarr_by_id[int(tid)] = m
+            t = m.get("title") or ""
+            if t:
+                _radarr_by_title[t] = m
+        _radarr_built = True
 
-    def _get_sonarr_series() -> list[dict]:
-        nonlocal _sonarr_series, _sonarr_built
-        if not _sonarr_built:
-            client = build_client(conn, "sonarr")
-            _sonarr_series = client.get_series() if client else []
-            _sonarr_built = True
-        return _sonarr_series or []
+    def _build_sonarr() -> None:
+        nonlocal _sonarr_built
+        if _sonarr_built:
+            return
+        client = build_client(conn, "sonarr")
+        series_list = client.get_series() if client else []
+        for s in series_list:
+            tid = s.get("tmdbId")
+            if tid:
+                _sonarr_by_id[int(tid)] = s
+            t = s.get("title") or ""
+            if t:
+                _sonarr_by_title[t] = s
+        _sonarr_built = True
 
     for c in completed:
         dl_id = c["dl_id"]
@@ -95,16 +116,21 @@ def record_verified_completions(
         verified = False
         try:
             if dl_id.startswith("radarr:"):
-                for movie in _get_radarr_movies():
-                    if movie.get("title") == title and movie_has_file(movie):
-                        verified = True
-                        break
+                _build_radarr()
+                tmdb_id = c.get("tmdb_id")
+                movie = _radarr_by_id.get(int(tmdb_id)) if tmdb_id else None
+                if movie is None:
+                    movie = _radarr_by_title.get(title)
+                if movie is not None and movie_has_file(movie):
+                    verified = True
             elif dl_id.startswith("sonarr:"):
-                for series in _get_sonarr_series():
-                    if series.get("title") == title:
-                        if series_has_files(series):
-                            verified = True
-                        break
+                _build_sonarr()
+                tmdb_id = c.get("tmdb_id")
+                series = _sonarr_by_id.get(int(tmdb_id)) if tmdb_id else None
+                if series is None:
+                    series = _sonarr_by_title.get(title)
+                if series is not None and series_has_files(series):
+                    verified = True
             else:
                 # NZBGet-only items — no Arr verification possible
                 verified = True

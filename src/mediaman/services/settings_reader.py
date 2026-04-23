@@ -113,3 +113,65 @@ def get_string_setting(
     if value is None:
         return default
     return str(value) if not isinstance(value, str) else value
+
+
+class ConfigDecryptError(Exception):
+    """Raised by :func:`get_string_setting_strict` when a setting exists but
+    cannot be decrypted with the supplied *secret_key*.
+
+    Callers that need to distinguish "setting not configured" from "setting
+    present but key is wrong" should catch this exception separately from a
+    ``None`` return.
+
+    :param key: the settings-table key that failed to decrypt.
+    :param cause: the underlying exception from the crypto layer.
+    """
+
+    def __init__(self, key: str, cause: Exception) -> None:
+        self.key = key
+        super().__init__(f"Failed to decrypt setting '{key}': {cause}")
+
+
+def get_string_setting_strict(
+    conn: sqlite3.Connection,
+    key: str,
+    *,
+    secret_key: str | None = None,
+) -> str | None:
+    """Return a string setting, distinguishing *missing* from *undecryptable*.
+
+    Unlike :func:`get_string_setting`, this function raises
+    :exc:`ConfigDecryptError` instead of returning the ``default`` when the
+    setting row is present but cannot be decrypted.  This lets callers show
+    the user a meaningful error banner rather than silently acting as if the
+    setting was never saved.
+
+    Returns ``None`` when:
+    - the key is absent from the ``settings`` table, or
+    - the row value is empty/``None``, or
+    - the row is marked encrypted but no ``secret_key`` was provided.
+
+    Raises :exc:`ConfigDecryptError` when the row is encrypted, a
+    ``secret_key`` is provided, but decryption fails (e.g. rotated key).
+    """
+    row = conn.execute(
+        "SELECT value, encrypted FROM settings WHERE key=?", (key,)
+    ).fetchone()
+    if row is None or row["value"] in (None, ""):
+        return None
+
+    val = row["value"]
+    if row["encrypted"]:
+        if not secret_key:
+            return None
+        try:
+            from mediaman.crypto import decrypt_value
+            val = decrypt_value(val, secret_key, conn=conn, aad=key.encode())
+        except Exception as exc:
+            raise ConfigDecryptError(key, exc) from exc
+
+    try:
+        parsed = json.loads(val)
+        return str(parsed) if not isinstance(parsed, str) else parsed
+    except (TypeError, ValueError):
+        return val

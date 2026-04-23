@@ -37,6 +37,46 @@ def reset_search_triggers() -> None:
     _last_search_trigger.clear()
     _search_count.clear()
 
+def _load_last_trigger_from_db(conn: sqlite3.Connection, dl_id: str) -> float:
+    """Return the persisted last-triggered epoch for *dl_id*, or 0.0.
+
+    Reads from the ``arr_search_throttle`` table.  Returns 0.0 when the
+    table doesn't exist yet (pre-migration DBs during startup).
+    """
+    try:
+        row = conn.execute(
+            "SELECT last_triggered_at FROM arr_search_throttle WHERE key=?",
+            (dl_id,),
+        ).fetchone()
+        if row is None:
+            return 0.0
+        from mediaman.services.format import parse_iso_utc
+        dt = parse_iso_utc(row[0])
+        return dt.timestamp() if dt is not None else 0.0
+    except Exception:
+        return 0.0
+
+
+def _save_trigger_to_db(conn: sqlite3.Connection, dl_id: str, epoch: float) -> None:
+    """Persist *epoch* as the last-triggered time for *dl_id*.
+
+    Uses ``INSERT OR REPLACE`` so the upsert is idempotent.  Failures are
+    logged and swallowed — the in-memory state is still correct even when
+    the write fails (e.g. DB locked briefly).
+    """
+    try:
+        from datetime import datetime, timezone
+        ts = datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat()
+        conn.execute(
+            "INSERT OR REPLACE INTO arr_search_throttle (key, last_triggered_at) VALUES (?, ?)",
+            (dl_id, ts),
+        )
+        conn.commit()
+    except Exception:
+        logger.warning(
+            "arr_search_trigger: failed to persist throttle for %s", dl_id, exc_info=True
+        )
+
 
 def maybe_trigger_search(
     conn: sqlite3.Connection, item: dict, matched_nzb: bool
@@ -65,6 +105,11 @@ def maybe_trigger_search(
 
     with _state_lock:
         last = _last_search_trigger.get(dl_id, 0.0)
+        if last == 0.0:
+            # Not in memory — check the DB (handles restarts/deploys).
+            last = _load_last_trigger_from_db(conn, dl_id)
+            if last > 0.0:
+                _last_search_trigger[dl_id] = last  # warm the cache
         if now - last < _SEARCH_THROTTLE_SECONDS:
             return
 
@@ -84,6 +129,7 @@ def maybe_trigger_search(
             _last_search_trigger[dl_id] = now
             _search_count[dl_id] = _search_count.get(dl_id, 0) + 1
             logger.info("Triggered search for stalled item %s", dl_id)
+            _save_trigger_to_db(conn, dl_id, now)
         except Exception:
             logger.warning(
                 "Failed to trigger search for %s", dl_id, exc_info=True

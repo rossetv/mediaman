@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mediaman.db import init_db
-from mediaman.services.arr_fetcher import fetch_arr_queue
+from mediaman.services.arr_fetcher import FetchResult, fetch_arr_queue, fetch_arr_queue_result
 
 
 # ---------------------------------------------------------------------------
@@ -414,3 +414,57 @@ def test_sonarr_searching_series_appears(mock_sonarr_cls, conn):
     result = fetch_arr_queue(conn)
 
     assert any(c["title"] == "House of the Dragon" for c in result)
+
+
+# ---------------------------------------------------------------------------
+# H38: FetchResult dataclass and fetch_arr_queue_result
+# ---------------------------------------------------------------------------
+
+
+class TestFetchResult:
+    def test_default_fields_are_empty_lists(self):
+        result = FetchResult()
+        assert result.cards == []
+        assert result.errors == []
+
+    def test_fields_are_independent_instances(self):
+        """cards and errors must not share the same list object between instances."""
+        a = FetchResult()
+        b = FetchResult()
+        a.cards.append({"title": "X"})
+        assert b.cards == []
+
+    def test_fetch_arr_queue_result_returns_fetch_result(self, conn):
+        result = fetch_arr_queue_result(conn)
+        assert isinstance(result, FetchResult)
+
+    def test_fetch_arr_queue_result_cards_empty_when_unconfigured(self, conn):
+        result = fetch_arr_queue_result(conn)
+        assert result.cards == []
+
+    def test_fetch_arr_queue_result_no_errors_when_unconfigured(self, conn):
+        """Nothing is configured — no clients to build — errors list stays empty."""
+        result = fetch_arr_queue_result(conn)
+        assert result.errors == []
+
+    @patch("mediaman.services.radarr.RadarrClient")
+    def test_fetch_arr_queue_result_errors_on_radarr_failure(
+        self, mock_radarr_cls, conn
+    ):
+        """If RadarrClient raises, the error is captured in result.errors, not raised."""
+        _configure_radarr(conn)
+        mock_radarr_cls.side_effect = RuntimeError("timeout")
+        result = fetch_arr_queue_result(conn)
+        assert any("Radarr" in e for e in result.errors)
+
+    @patch("mediaman.services.radarr.RadarrClient")
+    def test_fetch_arr_queue_wraps_fetch_arr_queue_result(self, mock_radarr_cls, conn):
+        """fetch_arr_queue is a backward-compat shim — it returns only the cards list."""
+        _configure_radarr(conn)
+        mock_client = MagicMock()
+        mock_client.get_queue.return_value = []
+        mock_client.get_movies.return_value = []
+        mock_radarr_cls.return_value = mock_client
+
+        cards = fetch_arr_queue(conn)
+        assert isinstance(cards, list)

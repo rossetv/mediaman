@@ -12,11 +12,45 @@ logger = logging.getLogger("mediaman")
 
 class SonarrClient(ArrClient):
     def delete_episode_files(self, series_id: int, season_number: int) -> None:
-        """Delete all episode files for a season from disk via Sonarr."""
+        """Delete all episode files for a season from disk via Sonarr.
+
+        Uses the ``/api/v3/episodefile/bulk`` endpoint (single POST with an
+        ``episodeFileIds`` list) rather than N serial DELETEs, which would
+        hammer Sonarr on large seasons.
+        """
         efs = cast(list[dict[str, object]], self._get(f"/api/v3/episodefile?seriesId={series_id}"))
-        for ef in efs:
-            if ef.get("seasonNumber") == season_number:
-                self._delete(f"/api/v3/episodefile/{ef['id']}")
+        ids = [
+            int(ef["id"])
+            for ef in efs
+            if ef.get("seasonNumber") == season_number and ef.get("id") is not None
+        ]
+        if ids:
+            self._delete_bulk_episode_files(ids)
+
+    def _delete_bulk_episode_files(self, episode_file_ids: list[int]) -> None:
+        """Delete multiple episode files in a single Sonarr API call.
+
+        Calls ``DELETE /api/v3/episodefile/bulk`` with ``{"episodeFileIds": [...]}``
+        — supported since Sonarr v3.  Falls back to serial deletes when the
+        endpoint returns 404 (Sonarr version too old).
+        """
+        from mediaman.services.http_client import SafeHTTPError
+        try:
+            self._http.delete(
+                "/api/v3/episodefile/bulk",
+                headers=self._headers,
+                json={"episodeFileIds": episode_file_ids},
+            )
+        except SafeHTTPError as exc:
+            if exc.status_code == 404:
+                logger.debug(
+                    "sonarr.delete_episode_files: bulk endpoint not available "
+                    "(HTTP 404), falling back to serial deletes"
+                )
+                for ef_id in episode_file_ids:
+                    self._delete(f"/api/v3/episodefile/{ef_id}")
+            else:
+                raise
 
     def delete_series(self, series_id: int) -> None:
         """Delete a series from Sonarr, its files, and add to exclusion list."""

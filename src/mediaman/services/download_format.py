@@ -7,11 +7,14 @@ from ``web/routes/downloads.py``; if a bug surfaces here, fix it here.
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timezone
 from typing import TypedDict
 
 from mediaman.services.format import format_bytes, parse_iso_utc
+
+logger = logging.getLogger("mediaman")
 
 
 class DownloadItem(TypedDict):
@@ -88,19 +91,47 @@ def looks_like_series_nzb(nzb_name: str) -> bool:
 
 
 def parse_clean_title(nzb_name: str) -> str:
-    """Extract a clean title from an NZB filename."""
-    name = nzb_name.replace(".", " ").replace("_", " ")
-    parts = re.split(
-        r"\b(19|20)\d{2}\b|"
-        r"\b(2160p|1080p|720p|480p|4K|UHD|HDR|BDRip|BluRay|WEB|WEBDL|WEBRip|"
-        r"HDTV|DVDRip|BRRip|Remux|AMZN|NF|DSNP|HMAX|x264|x265|h264|h265|"
+    """Extract a clean title from an NZB filename.
+
+    Strips recognised technical tokens (year, resolution, codec, source,
+    audio, episode markers) from both ends and keeps everything else as the
+    title.  Year-prefixed names like ``"2021.Dune.1080p.x264"`` correctly
+    return ``"Dune"`` rather than the year alone.
+
+    Strategy:
+    1. Normalise separators (dots/underscores -> spaces).
+    2. Split on the first recognised token from the *left*.
+    3. If that split yields an empty prefix (token was the first word, i.e.
+       a year-prefixed name), strip the leading token and re-split on the
+       remaining string from the *left* again, continuing until a non-empty
+       prefix is found or we run out of tokens.
+    """
+    _TOKEN_PAT = re.compile(
+        r"\b(?:(?:19|20)\d{2}|2160p|1080p|720p|480p|4K|UHD|HDR|BDRip|BluRay|WEB[-]?DL|"
+        r"WEBRip|WEB|HDTV|DVDRip|BRRip|Remux|AMZN|NF|DSNP|HMAX|x264|x265|h264|h265|"
         r"HEVC|AAC|DTS|TrueHD|Atmos|DDP|DD5|AC3|FLAC|S\d{2}E?\d{0,2})\b",
-        name, maxsplit=1, flags=re.IGNORECASE,
+        flags=re.IGNORECASE,
     )
-    title = parts[0].strip().rstrip("- ")
-    if not title and len(parts) > 1:
-        first_word = name.split()[0] if name.split() else name
-        title = first_word.strip().rstrip("- ")
+
+    name = nzb_name.replace(".", " ").replace("_", " ")
+
+    # Walk left-to-right: find the position of the first token match, take
+    # everything before it.  If that prefix is empty the name starts with a
+    # token (e.g. "2021 Dune 1080p") -- skip past that token and repeat.
+    remaining = name
+    while True:
+        m = _TOKEN_PAT.search(remaining)
+        if m is None:
+            # No tokens found at all -- the whole string is the title.
+            title = remaining.strip().rstrip("- ")
+            break
+        prefix = remaining[: m.start()].strip().rstrip("- ")
+        if prefix:
+            title = prefix
+            break
+        # Leading token -- skip it and continue.
+        remaining = remaining[m.end():].strip()
+
     return title
 
 
@@ -201,10 +232,15 @@ def classify_series_upcoming(
 ) -> tuple[bool, str]:
     """Classify a Sonarr series as upcoming and build its premiere label.
 
-    Returns (is_upcoming, release_label). Label is "" when not upcoming.
+    Returns ``(is_upcoming, release_label)``. Label is ``""`` when not upcoming.
 
     ``episodes`` is the list of episodes for this series (may be empty).
     An empty list is treated as "no aired episodes".
+
+    Episodes whose ``airDateUtc`` field is missing or cannot be parsed are
+    counted and logged at DEBUG level, then placed in an "unknown airdate"
+    bucket.  They do not affect the classification but are not silently
+    dropped -- the log entry shows the count so operators can investigate.
     """
     if not series.get("monitored"):
         return False, ""
@@ -214,16 +250,32 @@ def classify_series_upcoming(
 
     now = datetime.now(timezone.utc)
     status = (series.get("status") or "").lower()
-    has_aired = any(
-        (dt := parse_iso_utc(e.get("airDateUtc", ""))) is not None and dt < now
-        for e in episodes
-    )
 
-    future_airs = [
-        dt
-        for e in episodes
-        if (dt := parse_iso_utc(e.get("airDateUtc", ""))) and dt > now
-    ]
+    has_aired = False
+    future_airs: list[datetime] = []
+    unknown_count = 0
+
+    for e in episodes:
+        raw = e.get("airDateUtc", "")
+        if not raw:
+            unknown_count += 1
+            continue
+        dt = parse_iso_utc(raw)
+        if dt is None:
+            unknown_count += 1
+            continue
+        if dt < now:
+            has_aired = True
+        else:
+            future_airs.append(dt)
+
+    if unknown_count:
+        logger.debug(
+            "classify_series_upcoming: series=%r unknown_airdate_count=%d -- "
+            "episodes with unparseable airDateUtc are in the unknown bucket",
+            series.get("title", ""),
+            unknown_count,
+        )
 
     # Only classify as upcoming when we have a real signal:
     # - Sonarr explicitly says "upcoming", OR

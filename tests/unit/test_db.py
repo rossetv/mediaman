@@ -272,9 +272,9 @@ class TestSchemaV13LegacySessionPurge:
         init_db(str(db_path)).close()  # must not raise
 
     def test_schema_version_is_current(self, db_path):
-        assert DB_SCHEMA_VERSION == 15
+        assert DB_SCHEMA_VERSION == 17
         conn = init_db(str(db_path))
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 15
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 17
 
 
 class TestSchemaV14DeleteStatus:
@@ -396,7 +396,7 @@ class TestSchemaV15JobRunTables:
         }
         assert "scan_runs" in tables
         assert "refresh_runs" in tables
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 15
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 17
 
     def test_migration_idempotent(self, db_path):
         init_db(str(db_path)).close()
