@@ -1,183 +1,58 @@
 """Mediaman application entry point."""
 
 import logging
-import re
 import sys
 from contextlib import asynccontextmanager
-from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from mediaman.bootstrap import (
+    bootstrap_crypto,
+    bootstrap_db,
+    bootstrap_scheduling,
+    shutdown_scheduling,
+)
+from mediaman.bootstrap.scheduling import _validate_scan_time  # noqa: F401
 from mediaman.config import load_config
-from mediaman.db import init_db, set_connection
-from mediaman.services.settings_reader import get_string_setting as _get_setting
+
+# ``_validate_scan_time`` is re-exported above so the legacy
+# ``from mediaman.main import _validate_scan_time`` import in the
+# scheduler tests continues to resolve after the R23 bootstrap split.
 
 logger = logging.getLogger("mediaman")
 
 _STATIC_DIR = Path(__file__).parent / "web" / "static"
 _TEMPLATE_DIR = Path(__file__).parent / "web" / "templates"
 
-_SCAN_TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
-
-
-def _validate_scan_time(s: str) -> tuple[int, int]:
-    """Parse and validate a scan time string in ``HH:MM`` 24-hour format.
-
-    Returns ``(hour, minute)`` on success. Raises :class:`ValueError` with
-    a descriptive message on any invalid input so the operator sees a clear
-    startup error rather than a silent misconfiguration.
-
-    Validation is two-stage: a regex confirms the shape, then
-    :func:`datetime.strptime` confirms the value is a real time (e.g.
-    ``"25:00"`` would pass the regex but fail strptime).
-    """
-    if not _SCAN_TIME_RE.match(s):
-        raise ValueError(
-            f"scan_time {s!r} is invalid — expected HH:MM in 24-hour format (e.g. '09:00')"
-        )
-    try:
-        dt = datetime.strptime(s, "%H:%M")
-    except ValueError:
-        raise ValueError(
-            f"scan_time {s!r} is not a valid time — expected HH:MM in 24-hour format"
-        )
-    return dt.hour, dt.minute
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup and shutdown lifecycle."""
+    """Startup and shutdown lifecycle.
+
+    Delegates the actual work to the :mod:`mediaman.bootstrap` package
+    so this function stays a slim orchestrator. Order matters:
+
+    1. DB first — every later step needs an open connection.
+    2. Crypto canary — must run before the scheduler so a key mismatch
+       refuses to spawn background jobs that would silently fail.
+    3. Scheduling — opt-in; failures here are logged but do NOT take
+       the web UI down.
+    """
     config = load_config()
-    db_path = f"{config.data_dir}/mediaman.db"
-    Path(config.data_dir).mkdir(parents=True, exist_ok=True)
-    conn = init_db(db_path)
-    set_connection(conn)
-    app.state.config = config
-    app.state.db = conn
-    app.state.db_path = db_path
-
-    # ── Ensure poster cache directory exists at startup ───────────────────────
-    # Doing this here means the per-request _get_cache_dir() path is never
-    # the first to create the directory, so it never races with the first
-    # incoming request.
-    from mediaman.web.routes.poster import _get_cache_dir
-    _get_cache_dir(config.data_dir)
-
-    # ── AES key canary: detect a rotated/mismatched MEDIAMAN_SECRET_KEY ──────
-    # Does NOT refuse to start — the admin must still be able to log in and
-    # re-enter secrets — but a mismatch means every scheduled scan would
-    # silently fail forever (the closure below captures the wrong key). So
-    # the canary state is tracked on app.state and the scheduler refuses to
-    # start when the check failed. A LOUD warning is logged by canary_check.
-    canary_ok = True
-    try:
-        from mediaman.crypto import canary_check
-        canary_ok = canary_check(conn, config.secret_key)
-    except Exception:
-        logger.exception("AES canary check failed unexpectedly")
-        canary_ok = False
-    app.state.canary_ok = canary_ok
-    app.state.scheduler_healthy = False  # set True below on successful start
-
-    # ── Start scheduler if scan settings are configured ──────────────────────
-    from mediaman.scanner.scheduler import start_scheduler, stop_scheduler
-
-    scheduler_started = False
-    try:
-        if not canary_ok:
-            raise RuntimeError(
-                "Refusing to start scheduler: AES canary check failed. "
-                "Fix MEDIAMAN_SECRET_KEY (or re-enter encrypted settings) "
-                "and restart. The web UI is still accessible so an admin "
-                "can investigate."
-            )
-
-        # Reconcile any rows left in the 'deleting' state by a previous
-        # crash — safe even if no scan runs this boot.
-        try:
-            from mediaman.scanner.engine import _recover_stuck_deletions
-            _recover_stuck_deletions(conn)
-        except Exception:
-            logger.exception("Stuck-deletion recovery failed at startup")
-
-        scan_day = _get_setting(conn, "scan_day", default="mon")
-        scan_time = _get_setting(conn, "scan_time", default="09:00")
-        scan_tz = _get_setting(conn, "scan_timezone", default="UTC")
-        hour, minute = _validate_scan_time(scan_time)
-
-        # Capture the secret key now; conn is accessed at scan time via get_db()
-        _secret_key = config.secret_key
-
-        def run_scheduled_scan() -> None:
-            """Execute a scheduled scan, reading all settings fresh from the DB.
-
-            Uses the DB-backed ``scan_runs`` lock so a concurrent manual
-            trigger and a cron firing cannot both run simultaneously — only
-            the first caller to acquire the lock proceeds; the other exits
-            immediately.
-            """
-            from mediaman.db import finish_scan_run, get_db, start_scan_run
-            from mediaman.scanner.runner import run_scan_from_db
-
-            db_conn = get_db()
-            run_id = start_scan_run(db_conn)
-            if run_id is None:
-                logger.info("Scheduled scan skipped — another scan is already running")
-                return
-            try:
-                run_scan_from_db(db_conn, _secret_key)
-                finish_scan_run(db_conn, run_id, "done")
-            except Exception as exc:
-                try:
-                    finish_scan_run(db_conn, run_id, "error", str(exc))
-                except Exception:
-                    pass
-                logger.exception("Scheduled scan failed")
-
-        def run_library_sync_job() -> None:
-            """Execute a lightweight library sync from Plex."""
-            from mediaman.db import get_db
-            from mediaman.scanner.runner import run_library_sync
-
-            try:
-                db_conn = get_db()
-                run_library_sync(db_conn, _secret_key)
-            except Exception:
-                logger.exception("Library sync failed")
-
-        sync_interval = int(_get_setting(conn, "library_sync_interval", default="30"))
-
-        start_scheduler(
-            scan_fn=run_scheduled_scan,
-            day_of_week=scan_day,
-            hour=hour,
-            minute=minute,
-            timezone=scan_tz,
-            sync_fn=run_library_sync_job,
-            sync_interval_minutes=sync_interval,
-        )
-        scheduler_started = True
-        app.state.scheduler_healthy = True
-        logger.info(
-            "Scheduler started: scan every %s at %02d:%02d %s, library sync every %d min",
-            scan_day, hour, minute, scan_tz, sync_interval,
-        )
-    except Exception as e:
-        # On failure keep scheduler_healthy=False so the UI can surface
-        # a banner in a future cluster. Don't take the app down.
-        logger.error("Could not start scheduler: %s", e)
+    bootstrap_db(app, config)
+    bootstrap_crypto(app, config)
+    scheduler_started = bootstrap_scheduling(app, config)
 
     logger.info("Mediaman started on port %s", config.port)
     yield
 
     if scheduler_started:
-        from mediaman.scanner.scheduler import stop_scheduler
-        stop_scheduler()
+        shutdown_scheduling()
 
-    conn.close()
+    app.state.db.close()
     logger.info("Mediaman shutting down")
 
 
@@ -265,23 +140,10 @@ def cli_main() -> None:
     trusted_proxies = config.trusted_proxies
 
     # Uvicorn's ``proxy_headers`` machinery rewrites BOTH
-    # ``request.url.scheme`` (from X-Forwarded-Proto) AND
-    # ``request.client.host`` (from the first X-Forwarded-For entry)
-    # whenever the direct peer is in ``forwarded_allow_ips``. The
-    # second rewrite is a rate-limit-bypass footgun: if we trust any
-    # peer, an attacker supplying ``X-Forwarded-For: 1.2.3.4`` gets
-    # ``client.host`` replaced with their spoofed value, breaking the
-    # per-prefix bucketing.
-    #
-    # So: only enable uvicorn's proxy_headers rewrite when the
-    # operator has EXPLICITLY set ``MEDIAMAN_TRUSTED_PROXIES`` to the
-    # reverse-proxy CIDR they control. Default is off. The app's own
-    # HSTS / Secure-cookie logic defaults to "secure" regardless so
-    # the plaintext-scheme deployment still ships a Secure cookie.
-    #
-    # ``server_header=False`` and ``date_header=False`` suppress the
-    # ``Server: uvicorn`` and ``Date: ...`` response headers, which
-    # leak implementation and version details.
+    # ``request.url.scheme`` and ``request.client.host`` whenever the
+    # direct peer is in ``forwarded_allow_ips``. The second rewrite is a
+    # rate-limit-bypass footgun, so only enable proxy_headers when the
+    # operator has EXPLICITLY set ``MEDIAMAN_TRUSTED_PROXIES``.
     if trusted_proxies:
         uvicorn.run(
             app,
@@ -293,10 +155,6 @@ def cli_main() -> None:
             date_header=False,
         )
     else:
-        # No trusted proxy → don't let uvicorn rewrite client.host at
-        # all. Rate limiter sees the actual peer, which is good on
-        # bare metal and correct (if imperfect) behind a single proxy
-        # whose IP isn't available at config time.
         uvicorn.run(
             app,
             host=bind_host,
@@ -308,13 +166,8 @@ def cli_main() -> None:
 
 
 # Module-level instantiation for uvicorn targets such as
-# ``uvicorn mediaman.main:app``. Importing this module triggers all route
-# imports AND the lifespan (DB open, scheduler setup) on server start, so
-# it is gated behind ``MEDIAMAN_EAGER_APP=1`` to avoid import-time side
-# effects for anything that just wants to introspect the module (tests,
-# ``python -m mediaman.main``, CLI subcommands). The CLI path constructs
-# its own app via ``cli_main`` so the module-level instance is only
-# needed when uvicorn is invoked with this dotted path.
+# ``uvicorn mediaman.main:app``. Gated behind ``MEDIAMAN_EAGER_APP=1`` to
+# avoid import-time side effects for tests and CLI subcommands.
 import os as _os  # noqa: E402 — gated import to avoid side-effects on module load
 
 if _os.environ.get("MEDIAMAN_EAGER_APP", "").strip() == "1":

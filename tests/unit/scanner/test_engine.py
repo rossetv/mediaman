@@ -431,7 +431,7 @@ class TestExecuteDeletions:
         self._insert_item(conn, "800", "Deletable Movie", file_size=2_000_000)
         self._insert_scheduled_deletion(conn, "800", past)
 
-        with patch("mediaman.scanner.engine.delete_path") as mock_delete:
+        with patch("mediaman.scanner.deletions.delete_path") as mock_delete:
             engine = ScanEngine(
                 conn=conn,
                 plex_client=mock_plex,
@@ -467,7 +467,7 @@ class TestExecuteDeletions:
         self._insert_item(conn, "900", "Future Movie")
         self._insert_scheduled_deletion(conn, "900", future)
 
-        with patch("mediaman.scanner.engine.delete_path") as mock_delete:
+        with patch("mediaman.scanner.deletions.delete_path") as mock_delete:
             engine = ScanEngine(
                 conn=conn,
                 plex_client=mock_plex,
@@ -497,7 +497,7 @@ class TestExecuteDeletions:
 
         mock_radarr = MagicMock()
 
-        with patch("mediaman.scanner.engine.delete_path"):
+        with patch("mediaman.scanner.deletions.delete_path"):
             engine = ScanEngine(
                 conn=conn,
                 plex_client=mock_plex,
@@ -527,7 +527,7 @@ class TestExecuteDeletions:
 
         mock_sonarr = MagicMock()
 
-        with patch("mediaman.scanner.engine.delete_path"):
+        with patch("mediaman.scanner.deletions.delete_path"):
             engine = ScanEngine(
                 conn=conn,
                 plex_client=mock_plex,
@@ -558,7 +558,7 @@ class TestExecuteDeletions:
         mock_radarr = MagicMock()
         mock_radarr.unmonitor_movie.side_effect = RuntimeError("radarr down")
 
-        with patch("mediaman.scanner.engine.delete_path"):
+        with patch("mediaman.scanner.deletions.delete_path"):
             engine = ScanEngine(
                 conn=conn,
                 plex_client=mock_plex,
@@ -583,7 +583,7 @@ class TestExecuteDeletions:
         self._insert_item(conn, "880", "No Roots Movie")
         self._insert_scheduled_deletion(conn, "880", past)
 
-        with patch("mediaman.scanner.engine.delete_path") as mock_delete:
+        with patch("mediaman.scanner.deletions.delete_path") as mock_delete:
             engine = ScanEngine(
                 conn=conn,
                 plex_client=mock_plex,
@@ -627,7 +627,7 @@ class TestExecuteDeletions:
             if path == "/etc/passwd":
                 raise ValueError("outside allowed roots")
 
-        with patch("mediaman.scanner.engine.delete_path", side_effect=fake_delete):
+        with patch("mediaman.scanner.deletions.delete_path", side_effect=fake_delete):
             engine = ScanEngine(
                 conn=conn,
                 plex_client=mock_plex,
@@ -926,7 +926,7 @@ class TestTwoPhaseDelete:
             ).fetchone()
             seen["status_during_rm"] = row["delete_status"]
 
-        with patch("mediaman.scanner.engine.delete_path", side_effect=fake_delete):
+        with patch("mediaman.scanner.deletions.delete_path", side_effect=fake_delete):
             engine = ScanEngine(
                 conn=conn, plex_client=mock_plex,
                 library_ids=[], library_types={},
@@ -951,7 +951,7 @@ class TestTwoPhaseDelete:
         self._insert_sched(conn, "d2", past)
 
         with patch(
-            "mediaman.scanner.engine.delete_path",
+            "mediaman.scanner.deletions.delete_path",
             side_effect=ValueError("outside allowed roots"),
         ):
             engine = ScanEngine(
