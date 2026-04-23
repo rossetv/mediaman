@@ -12,7 +12,7 @@ on:
 permissions:
   contents: read
   security-events: write
-  # actions: read is required by github/codeql-action/analyze@v3 so it can
+  # actions: read is required by github/codeql-action/analyze@v4 so it can
   # read the workflow run metadata; without it the action aborts with
   # "Resource not accessible by integration".
   actions: read
@@ -32,7 +32,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Initialise CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           # Use the default query suite; add 'security-extended' when the
@@ -40,9 +40,9 @@ jobs:
           queries: security-and-quality
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@v4
 
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
