@@ -28,7 +28,7 @@ import sqlite3
 import threading
 import time
 from datetime import datetime, timedelta, timezone
-from typing import TypedDict
+from typing import TypedDict, cast
 
 import bcrypt
 
@@ -453,7 +453,7 @@ def list_sessions_for(conn: sqlite3.Connection, username: str) -> list[SessionMe
         "FROM admin_sessions WHERE username = ? ORDER BY created_at DESC",
         (username,),
     ).fetchall()
-    return [dict(r) for r in rows]  # type: ignore[return-value]
+    return [cast(SessionMetadata, dict(r)) for r in rows]
 
 
 def change_password(

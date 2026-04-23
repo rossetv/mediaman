@@ -298,6 +298,11 @@ class ScanEngine:
                         season["plex_rating_key"]
                     )
                 except Exception:
+                    logger.warning(
+                        "Failed to fetch watch history for season %s — treating as unwatched",
+                        season.get("plex_rating_key"),
+                        exc_info=True,
+                    )
                     watch_history = []
                 out.append(_PlexItemFetch(
                     item=season,
@@ -313,6 +318,11 @@ class ScanEngine:
                         item["plex_rating_key"]
                     )
                 except Exception:
+                    logger.warning(
+                        "Failed to fetch watch history for item %s — treating as unwatched",
+                        item.get("plex_rating_key"),
+                        exc_info=True,
+                    )
                     watch_history = []
                 out.append(_PlexItemFetch(
                     item=item,

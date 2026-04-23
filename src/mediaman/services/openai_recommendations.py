@@ -118,6 +118,15 @@ def _call_openai(prompt: str, conn: sqlite3.Connection | None, use_web_search: b
         items = json.loads(content)
         return items if isinstance(items, list) else []
 
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 401:
+            logger.error("OpenAI API key rejected (401) — check settings", exc_info=True)
+        else:
+            logger.exception("OpenAI API returned HTTP error: %s", exc)
+        return []
+    except (ValueError, KeyError) as exc:
+        logger.exception("Failed to parse OpenAI response: %s", exc)
+        return []
     except Exception:
         logger.exception("OpenAI API call failed")
         return []

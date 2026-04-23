@@ -549,7 +549,7 @@ def api_media_keep(
     else:
         days = VALID_KEEP_DURATIONS[duration]
         action = ACTION_SNOOZED
-        execute_at = (now + timedelta(days=days)).isoformat()  # type: ignore[arg-type]
+        execute_at = (now + timedelta(days=int(days))).isoformat()
         snooze_label = duration
 
     # Check for an existing active scheduled action for this item
