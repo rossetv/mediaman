@@ -5,8 +5,6 @@ from __future__ import annotations
 import logging
 from typing import cast
 
-import requests
-
 from mediaman.services.arr_client_base import ArrClient
 
 logger = logging.getLogger("mediaman")
@@ -40,19 +38,12 @@ class RadarrClient(ArrClient):
 
     def search_movie(self, movie_id: int) -> None:
         """Trigger a Radarr MoviesSearch command for a single movie."""
-        resp = requests.post(
-            f"{self._url}/api/v3/command",
-            headers=self._headers,
-            json={"name": "MoviesSearch", "movieIds": [movie_id]},
-            timeout=15,
-        )
-        resp.raise_for_status()
+        self._post("/api/v3/command", {"name": "MoviesSearch", "movieIds": [movie_id]})
 
     def add_movie(self, tmdb_id: int, title: str, quality_profile_id: int = 4) -> dict[str, object]:
         """Add a movie by TMDB ID and trigger a search."""
         root_folders = cast(list[dict[str, object]], self._get("/api/v3/rootfolder"))
         root_path = root_folders[0]["path"] if root_folders else "/movies"
-
         movie_data = {
             "tmdbId": tmdb_id,
             "title": title,
@@ -61,14 +52,7 @@ class RadarrClient(ArrClient):
             "monitored": True,
             "addOptions": {"searchForMovie": True},
         }
-        resp = requests.post(
-            f"{self._url}/api/v3/movie",
-            headers=self._headers,
-            json=movie_data,
-            timeout=15,
-        )
-        resp.raise_for_status()
-        return resp.json()
+        return cast(dict[str, object], self._post("/api/v3/movie", movie_data))
 
     def get_queue(self) -> list[dict[str, object]]:
         """Return the current Radarr download queue.
@@ -100,5 +84,6 @@ class RadarrClient(ArrClient):
         for movie in self.get_movies():
             if movie.get("tmdbId") == tmdb_id:
                 return movie
+        logger.debug("get_movie_by_tmdb: no match for tmdb_id=%s", tmdb_id)
         return None
 

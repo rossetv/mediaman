@@ -5,8 +5,6 @@ from __future__ import annotations
 import logging
 from typing import cast
 
-import requests
-
 from mediaman.services.arr_client_base import ArrClient
 
 logger = logging.getLogger("mediaman")
@@ -70,23 +68,11 @@ class SonarrClient(ArrClient):
             if season["seasonNumber"] == season_number:
                 season["monitored"] = True
         self._put(f"/api/v3/series/{series_id}", cast(dict, series))
-        resp = requests.post(
-            f"{self._url}/api/v3/command",
-            headers=self._headers,
-            json={"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number},
-            timeout=15,
-        )
-        resp.raise_for_status()
+        self._post("/api/v3/command", {"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number})
 
     def search_series(self, series_id: int) -> None:
         """Trigger a Sonarr SeriesSearch command for a single series."""
-        resp = requests.post(
-            f"{self._url}/api/v3/command",
-            headers=self._headers,
-            json={"name": "SeriesSearch", "seriesId": series_id},
-            timeout=15,
-        )
-        resp.raise_for_status()
+        self._post("/api/v3/command", {"name": "SeriesSearch", "seriesId": series_id})
 
     def get_missing_series(self) -> dict[int, str]:
         """Return ``{series_id: series_title}`` for every series with at least
@@ -134,14 +120,7 @@ class SonarrClient(ArrClient):
             "seasonFolder": True,
             "addOptions": {"searchForMissingEpisodes": True},
         }
-        resp = requests.post(
-            f"{self._url}/api/v3/series",
-            headers=self._headers,
-            json=series_data,
-            timeout=15,
-        )
-        resp.raise_for_status()
-        return resp.json()
+        return cast(dict[str, object], self._post("/api/v3/series", series_data))
 
     def add_series_with_seasons(
         self,
@@ -189,21 +168,11 @@ class SonarrClient(ArrClient):
                 "monitor": "none",
             },
         }
-        resp = requests.post(
-            f"{self._url}/api/v3/series",
-            headers=self._headers, json=body, timeout=15,
-        )
-        resp.raise_for_status()
-        new_series = resp.json()
+        new_series = cast(dict[str, object], self._post("/api/v3/series", body))
         series_id = new_series.get("id")
 
         for season_number in search_seasons:
-            requests.post(
-                f"{self._url}/api/v3/command",
-                headers=self._headers,
-                json={"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number},
-                timeout=15,
-            ).raise_for_status()
+            self._post("/api/v3/command", {"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number})
 
         return new_series
 

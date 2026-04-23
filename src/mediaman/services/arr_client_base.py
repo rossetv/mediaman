@@ -31,6 +31,11 @@ class ArrClient:
         resp = requests.put(f"{self._url}{path}", headers=self._headers, json=data, timeout=15)
         resp.raise_for_status()
 
+    def _post(self, path: str, data: dict) -> dict | list:
+        resp = requests.post(f"{self._url}{path}", headers=self._headers, json=data, timeout=15)
+        resp.raise_for_status()
+        return resp.json()
+
     def _delete(self, path: str) -> None:
         resp = requests.delete(f"{self._url}{path}", headers=self._headers, timeout=15)
         resp.raise_for_status()
