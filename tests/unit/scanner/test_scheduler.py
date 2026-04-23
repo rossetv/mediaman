@@ -23,7 +23,7 @@ def reset_scheduler():
         _sched_module._scheduler = None
 
 
-@patch("mediaman.scanner.scheduler.BackgroundScheduler")
+@patch("apscheduler.schedulers.background.BackgroundScheduler")
 def test_start_scheduler_starts_and_returns(mock_cls):
     mock_instance = MagicMock()
     mock_cls.return_value = mock_instance
@@ -34,7 +34,7 @@ def test_start_scheduler_starts_and_returns(mock_cls):
     assert result is mock_instance
 
 
-@patch("mediaman.scanner.scheduler.BackgroundScheduler")
+@patch("apscheduler.schedulers.background.BackgroundScheduler")
 def test_start_scheduler_registers_weekly_scan(mock_cls):
     mock_instance = MagicMock()
     mock_cls.return_value = mock_instance
@@ -47,7 +47,7 @@ def test_start_scheduler_registers_weekly_scan(mock_cls):
     assert "weekly_scan" in ids
 
 
-@patch("mediaman.scanner.scheduler.BackgroundScheduler")
+@patch("apscheduler.schedulers.background.BackgroundScheduler")
 def test_start_scheduler_registers_fixed_background_jobs(mock_cls):
     mock_instance = MagicMock()
     mock_cls.return_value = mock_instance
@@ -61,7 +61,7 @@ def test_start_scheduler_registers_fixed_background_jobs(mock_cls):
     assert "trigger_pending_searches" in job_ids
 
 
-@patch("mediaman.scanner.scheduler.BackgroundScheduler")
+@patch("apscheduler.schedulers.background.BackgroundScheduler")
 def test_start_scheduler_no_sync_fn_skips_library_sync(mock_cls):
     mock_instance = MagicMock()
     mock_cls.return_value = mock_instance
@@ -72,7 +72,7 @@ def test_start_scheduler_no_sync_fn_skips_library_sync(mock_cls):
     assert "library_sync" not in job_ids
 
 
-@patch("mediaman.scanner.scheduler.BackgroundScheduler")
+@patch("apscheduler.schedulers.background.BackgroundScheduler")
 def test_start_scheduler_with_sync_fn_registers_library_sync(mock_cls):
     mock_instance = MagicMock()
     mock_cls.return_value = mock_instance
@@ -83,7 +83,7 @@ def test_start_scheduler_with_sync_fn_registers_library_sync(mock_cls):
     assert "library_sync" in job_ids
 
 
-@patch("mediaman.scanner.scheduler.BackgroundScheduler")
+@patch("apscheduler.schedulers.background.BackgroundScheduler")
 def test_stop_scheduler_shuts_down(mock_cls):
     mock_instance = MagicMock()
     mock_cls.return_value = mock_instance
@@ -101,7 +101,7 @@ def test_stop_scheduler_noop_when_not_started():
     stop_scheduler()  # should not raise
 
 
-@patch("mediaman.scanner.scheduler.BackgroundScheduler")
+@patch("apscheduler.schedulers.background.BackgroundScheduler")
 def test_start_scheduler_sets_module_level_ref(mock_cls):
     mock_instance = MagicMock()
     mock_cls.return_value = mock_instance
@@ -111,7 +111,7 @@ def test_start_scheduler_sets_module_level_ref(mock_cls):
     assert _sched_module._scheduler is mock_instance
 
 
-@patch("mediaman.scanner.scheduler.BackgroundScheduler")
+@patch("apscheduler.schedulers.background.BackgroundScheduler")
 def test_start_scheduler_called_twice_does_not_create_two_schedulers(mock_cls):
     """Calling start_scheduler a second time must return the existing instance
     and must not instantiate a second BackgroundScheduler (C17: idempotent start)."""

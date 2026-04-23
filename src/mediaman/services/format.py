@@ -109,8 +109,37 @@ def parse_iso_utc(value: str | None) -> datetime | None:
     except ValueError:
         return None
     if dt.tzinfo is None:
+        # Naive datetimes are assumed to represent UTC — this matches the
+        # behaviour of Radarr/Sonarr/Plex which emit UTC timestamps but
+        # sometimes omit the offset marker.  Callers that have an
+        # authoritative non-UTC offset should convert before calling.
         dt = dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+def format_day_month(dt: "datetime", *, long_month: bool = False) -> str:
+    """Format *dt* as a day-month-year string without the ``%-d`` platform gotcha.
+
+    ``%-d`` (GNU strftime extension for zero-strip) works on Linux but
+    raises ``ValueError`` on Windows and some BSD platforms.  This helper
+    uses ``%d`` and then strips the leading zero manually, so it is safe
+    everywhere.
+
+    Args:
+        dt: A :class:`datetime` instance (aware or naive).
+        long_month: When ``True``, use the full month name (e.g. ``"April"``);
+            when ``False`` (default), use the abbreviated form (e.g. ``"Apr"``).
+
+    Examples:
+        ``format_day_month(dt)``          → ``"1 Apr 2026"``
+        ``format_day_month(dt, long_month=True)`` → ``"1 April 2026"``
+    """
+    fmt = "%d %B %Y" if long_month else "%d %b %Y"
+    s = dt.strftime(fmt)
+    # Strip a leading zero from the day component (e.g. "01" → "1").
+    if s and s[0] == "0":
+        s = s[1:]
+    return s
 
 
 def days_ago(value: str | None) -> str:

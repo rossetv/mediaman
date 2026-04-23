@@ -180,7 +180,7 @@ class ScanEngine:
         self._sonarr = sonarr_client
         self._radarr = radarr_client
         self._arr_dates: dict[str, str] = {}  # normalised_path → ISO date
-        self._build_arr_date_cache()
+        self._arr_dates_loaded = False  # lazy-load flag (M-finding: I/O in __init__)
 
     def _load_delete_allowed_roots(self) -> list[str]:
         """Read the filesystem roots under which deletions are permitted.
@@ -273,10 +273,23 @@ class ScanEngine:
         Falls back to datetime.now(UTC) via ensure_tz(None) when both
         updated_at and added_at are None.
         """
+        self._ensure_arr_dates()
         arr_date_str = self._arr_dates.get(self._normalise_path(item.get("file_path", "")))
         if arr_date_str:
             return _ensure_tz(_parse_iso_utc(arr_date_str) or datetime.now(timezone.utc))
         return _ensure_tz(item.get("updated_at") or item.get("added_at"))
+
+    def _ensure_arr_dates(self) -> None:
+        """Trigger a lazy build of the Arr-dates cache if it hasn't been built yet.
+
+        The cache is built at most once per :class:`ScanEngine` instance.
+        Moved out of ``__init__`` so that constructing a ScanEngine for a
+        lightweight operation (e.g. unit tests, sync-only paths) does not
+        unconditionally fire two network calls to Radarr and Sonarr.
+        """
+        if not self._arr_dates_loaded:
+            self._build_arr_date_cache()
+            self._arr_dates_loaded = True
 
     def _build_arr_date_cache(self) -> None:
         """Build a lookup of normalised file paths → download dates from Radarr/Sonarr."""
@@ -348,7 +361,10 @@ class ScanEngine:
         for lib_id in self._library_ids:
             try:
                 buffered.extend(self._fetch_library_items(lib_id))
-                scanned_libs.add(int(lib_id))
+                try:
+                    scanned_libs.add(int(lib_id))
+                except (ValueError, TypeError):
+                    logger.warning("Ignoring non-integer library id %r in orphan cleanup", lib_id)
             except Exception:
                 logger.exception("Library sync failed for library %s", lib_id)
                 summary["errors"] += 1
@@ -459,8 +475,16 @@ class ScanEngine:
             else:
                 self._scan_movie_library(lib_id, summary, seen_keys)
 
-        # All libraries scanned — clean up orphans
-        all_libs = {int(lid) for lid in self._library_ids}
+        # All libraries scanned — clean up orphans.
+        # Guard against library IDs that cannot be coerced to int (malformed
+        # settings would raise ValueError here without the try/except, and
+        # the scan result would be lost).
+        all_libs: set[int] = set()
+        for lid in self._library_ids:
+            try:
+                all_libs.add(int(lid))
+            except (ValueError, TypeError):
+                logger.warning("Ignoring non-integer library id %r in orphan cleanup", lid)
         summary["removed"] = self._remove_orphaned_items(seen_keys, all_libs)
 
         self._conn.commit()
@@ -782,13 +806,13 @@ class ScanEngine:
         if not scanned_libs:
             return 0
 
-        placeholders = ",".join("?" * len(scanned_libs))
-        rows = self._conn.execute(
-            f"SELECT id FROM media_items WHERE plex_library_id IN ({placeholders})",  # noqa: S608 — placeholders are '?' only, not user input
+        lib_placeholders = ",".join("?" * len(scanned_libs))
+        # Count total existing items for the safety-ratio check.
+        count_row = self._conn.execute(
+            f"SELECT COUNT(*) AS n FROM media_items WHERE plex_library_id IN ({lib_placeholders})",  # noqa: S608 — placeholders are '?' only, not user input
             tuple(scanned_libs),
-        ).fetchall()
-
-        previous_count = len(rows)
+        ).fetchone()
+        previous_count = count_row["n"] if count_row else 0
         current_count = len(seen_keys)
 
         # Hard floor: fewer than this many items makes the scan look
@@ -820,13 +844,30 @@ class ScanEngine:
             )
             return 0
 
-        orphans = [r["id"] for r in rows if r["id"] not in seen_keys]
-        if not orphans:
+        # Push the seen-key exclusion into SQL rather than pulling all IDs
+        # into Python and filtering in-process (M-finding: Python filtering
+        # on large libraries means an unnecessary full-fetch of every ID).
+        # We chunk both the lib filter AND the seen-keys exclusion to stay
+        # under SQLite's 999-parameter limit.
+        orphan_ids: list[str] = []
+        all_lib_ids = list(scanned_libs)
+
+        # Fetch all existing IDs for the scanned libraries in 500-lib chunks.
+        for lib_start in range(0, len(all_lib_ids), 500):
+            lib_chunk = all_lib_ids[lib_start:lib_start + 500]
+            lp = ",".join("?" * len(lib_chunk))
+            rows = self._conn.execute(
+                f"SELECT id FROM media_items WHERE plex_library_id IN ({lp})",  # noqa: S608
+                tuple(lib_chunk),
+            ).fetchall()
+            orphan_ids.extend(r["id"] for r in rows if r["id"] not in seen_keys)
+
+        if not orphan_ids:
             return 0
 
         # Batch deletes in chunks so we don't hit sqlite's parameter limit.
-        for start in range(0, len(orphans), 500):
-            chunk = orphans[start:start + 500]
+        for start in range(0, len(orphan_ids), 500):
+            chunk = orphan_ids[start:start + 500]
             placeholders = ",".join("?" * len(chunk))
             self._conn.execute(
                 f"DELETE FROM scheduled_actions WHERE media_item_id IN ({placeholders})",  # noqa: S608 — placeholders are '?' only, not user input
@@ -838,9 +879,9 @@ class ScanEngine:
             )
 
         logger.info(
-            "Removed %d orphaned media items no longer in Plex", len(orphans),
+            "Removed %d orphaned media items no longer in Plex", len(orphan_ids),
         )
-        return len(orphans)
+        return len(orphan_ids)
 
     def _upsert_media_item(
         self, item: dict, library_id: str, media_type: str
@@ -855,6 +896,7 @@ class ScanEngine:
         file_path = item.get("file_path", "")
 
         # Prefer Radarr/Sonarr download date (exact), fall back to Plex
+        self._ensure_arr_dates()
         arr_date = self._arr_dates.get(self._normalise_path(file_path))
         if arr_date:
             _parsed = _parse_iso_utc(arr_date)
@@ -889,7 +931,7 @@ class ScanEngine:
                 media_type,
                 item.get("show_title"),
                 item.get("season_number"),
-                int(library_id),
+                int(library_id) if str(library_id).isdigit() else library_id,
                 item["plex_rating_key"],
                 item.get("show_rating_key"),
                 added_at,

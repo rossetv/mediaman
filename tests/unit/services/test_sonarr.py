@@ -49,7 +49,8 @@ class TestSonarrClient:
         assert client.test_connection() is True
 
     def test_test_connection_failure(self, client, fake_http):
-        fake_http.raise_on("GET", Exception("Connection refused"))
+        import requests
+        fake_http.raise_on("GET", requests.ConnectionError("Connection refused"))
         assert client.test_connection() is False
 
     def test_search_series_posts_seriessearch_command(self, client, fake_http, fake_response):

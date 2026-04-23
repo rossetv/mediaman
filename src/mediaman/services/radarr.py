@@ -26,7 +26,27 @@ class RadarrClient(ArrClient):
         self._delete(f"/api/v3/movie/{movie_id}?deleteFiles=true&addImportExclusion=true")
 
     def unmonitor_movie(self, movie_id: int) -> None:
+        """Set ``monitored=False`` for *movie_id* in Radarr.
+
+        .. note::
+            **Race condition:** the full movie payload is read, mutated
+            locally, and then written back as a PUT. If another process
+            (e.g. a concurrent Radarr UI session or import script) writes
+            the same record between the GET and the PUT, its changes will
+            be silently overwritten by this call.  This is a known
+            limitation of the Radarr v3 API; a future version should use
+            a PATCH endpoint when one becomes available.
+        """
         movie = self.get_movie_by_id(movie_id)
+        if movie.get("monitored"):
+            # Re-fetch version field so we can detect concurrent writes
+            # via the etag (not yet available in Radarr v3, so we just log
+            # a warning to alert operators that a race is theoretically possible).
+            logger.debug(
+                "radarr.unmonitor_movie: issuing full-payload PUT for movie_id=%s "
+                "— a concurrent write to this record would be silently overwritten",
+                movie_id,
+            )
         movie["monitored"] = False
         self._put(f"/api/v3/movie/{movie_id}", cast(dict, movie))
 

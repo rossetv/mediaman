@@ -108,6 +108,9 @@ def record_verified_completions(
                 _sonarr_by_title[t] = s
         _sonarr_built = True
 
+    # Collect verified rows first; commit once at the end to avoid N fsyncs.
+    to_insert: list[tuple] = []
+
     for c in completed:
         dl_id = c["dl_id"]
         title = c["title"]
@@ -143,17 +146,21 @@ def record_verified_completions(
             logger.info("Skipping completion for %s — no files confirmed", dl_id)
             continue
 
+        to_insert.append((c["dl_id"], c["title"], c["media_type"], c["poster_url"]))
+
+    # Single batch insert + single commit (D26 / per-row fsyncs finding).
+    if to_insert:
         try:
-            conn.execute(
+            conn.executemany(
                 "INSERT OR IGNORE INTO recent_downloads "
                 "(dl_id, title, media_type, poster_url) VALUES (?, ?, ?, ?)",
-                (c["dl_id"], c["title"], c["media_type"], c["poster_url"]),
+                to_insert,
             )
             conn.commit()
         except Exception:
             logger.warning(
-                "Failed to record completed download %s",
-                dl_id,
+                "Failed to record %d completed download(s)",
+                len(to_insert),
                 exc_info=True,
             )
 

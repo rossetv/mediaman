@@ -8,8 +8,8 @@ from __future__ import annotations
 import logging
 import sqlite3
 
-from mediaman.crypto import decrypt_value
 from mediaman.services.http_client import SafeHTTPClient
+from mediaman.services.settings_reader import get_string_setting
 
 # Module-level client so the connection pool is shared across calls.
 _OMDB_CLIENT = SafeHTTPClient("https://www.omdbapi.com")
@@ -18,18 +18,12 @@ logger = logging.getLogger("mediaman")
 
 
 def _get_key(conn: sqlite3.Connection, secret_key: str) -> str | None:
-    row = conn.execute(
-        "SELECT value, encrypted FROM settings WHERE key='omdb_api_key'"
-    ).fetchone()
-    if not row or not row["value"]:
-        return None
-    value = row["value"]
-    if row["encrypted"]:
-        try:
-            value = decrypt_value(value, secret_key, conn=conn, aad=b"omdb_api_key")
-        except Exception:
-            return None
-    return value
+    """Return the OMDb API key from settings, or ``None`` if not configured.
+
+    Delegates to :func:`~mediaman.services.settings_reader.get_string_setting`
+    so the decrypt-and-unwrap logic is not duplicated here.
+    """
+    return get_string_setting(conn, "omdb_api_key", secret_key=secret_key) or None
 
 
 def fetch_ratings(

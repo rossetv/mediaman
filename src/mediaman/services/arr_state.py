@@ -9,15 +9,33 @@ States:
 - ``queued`` — item is added to Radarr/Sonarr but has no files yet
   and is not in the queue.
 - ``None`` — item is not tracked at all.
+
+``ACTION_*`` constants are the canonical strings used as the ``action``
+column value in ``compute_download_state``.  Import these instead of
+repeating the string literals so a future rename touches one place.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, TypedDict
+import sqlite3
+from typing import TYPE_CHECKING, Final, TypedDict
 
 if TYPE_CHECKING:
     from mediaman.services.radarr import RadarrClient
     from mediaman.services.sonarr import SonarrClient
+
+# ---------------------------------------------------------------------------
+# Download-state action constants
+# ---------------------------------------------------------------------------
+
+#: Item has every file present.
+ACTION_IN_LIBRARY: Final = "in_library"
+#: TV item has *some* episode files but not all aired episodes.
+ACTION_PARTIAL: Final = "partial"
+#: Item is currently in the Arr download queue.
+ACTION_DOWNLOADING: Final = "downloading"
+#: Item is tracked by Arr but has no files and is not in the queue.
+ACTION_QUEUED: Final = "queued"
 
 
 class RadarrCaches(TypedDict):
@@ -65,10 +83,10 @@ def compute_download_state(media_type: str, tmdb_id: int, caches: ArrCaches) -> 
         if movie is None:
             return None
         if movie.get("hasFile"):
-            return "in_library"
+            return ACTION_IN_LIBRARY
         if tmdb_id in caches["radarr_queue_tmdb_ids"]:
-            return "downloading"
-        return "queued"
+            return ACTION_DOWNLOADING
+        return ACTION_QUEUED
 
     series = caches["sonarr_series"].get(tmdb_id)
     if series is None:
@@ -96,13 +114,13 @@ def compute_download_state(media_type: str, tmdb_id: int, caches: ArrCaches) -> 
             for s in aired_seasons
         )
         if have_all:
-            return "in_library"
+            return ACTION_IN_LIBRARY
         if have_any:
-            return "partial"
+            return ACTION_PARTIAL
 
     if tmdb_id in caches["sonarr_queue_tmdb_ids"]:
-        return "downloading"
-    return "queued"
+        return ACTION_DOWNLOADING
+    return ACTION_QUEUED
 
 
 def build_radarr_cache(client: RadarrClient | None) -> RadarrCaches:
@@ -135,3 +153,51 @@ def build_sonarr_cache(client: SonarrClient | None) -> SonarrCaches:
         if (q.get("series") or {}).get("tmdbId")
     }
     return {"sonarr_series": series, "sonarr_queue_tmdb_ids": queue_ids}
+
+
+# ---------------------------------------------------------------------------
+# LazyArrClients — request-scoped Radarr/Sonarr client pair
+# ---------------------------------------------------------------------------
+
+
+class LazyArrClients:
+    """Request-scoped Radarr/Sonarr client pair built lazily from DB settings.
+
+    The D3 finding identified three inline copies of the pattern
+    ``build_radarr_from_db(conn, secret_key)`` / ``build_sonarr_from_db(...)``
+    scattered across route modules. This class encapsulates both builds
+    behind a single lazy-initialised accessor so the pattern is written once.
+
+    Each client is built at most once per :class:`LazyArrClients` instance.
+    Call :meth:`radarr` / :meth:`sonarr` to obtain the client (or ``None``
+    when the service is not configured).
+
+    Args:
+        conn: Open SQLite connection with ``row_factory`` set to
+            :class:`sqlite3.Row`.
+        secret_key: Application secret used to decrypt encrypted settings.
+    """
+
+    def __init__(self, conn: sqlite3.Connection, secret_key: str) -> None:
+        self._conn = conn
+        self._secret_key = secret_key
+        self._radarr: "RadarrClient | None | _SENTINEL" = _SENTINEL
+        self._sonarr: "SonarrClient | None | _SENTINEL" = _SENTINEL
+
+    def radarr(self) -> "RadarrClient | None":
+        """Return the :class:`~mediaman.services.radarr.RadarrClient`, building it on first call."""
+        if self._radarr is _SENTINEL:
+            from mediaman.services.arr_build import build_radarr_from_db
+            self._radarr = build_radarr_from_db(self._conn, self._secret_key)
+        return self._radarr  # type: ignore[return-value]
+
+    def sonarr(self) -> "SonarrClient | None":
+        """Return the :class:`~mediaman.services.sonarr.SonarrClient`, building it on first call."""
+        if self._sonarr is _SENTINEL:
+            from mediaman.services.arr_build import build_sonarr_from_db
+            self._sonarr = build_sonarr_from_db(self._conn, self._secret_key)
+        return self._sonarr  # type: ignore[return-value]
+
+
+class _SENTINEL:  # noqa: N801 — used as a type-safe uninitialised sentinel
+    """Sentinel class used to distinguish "not yet built" from ``None``."""

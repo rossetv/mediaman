@@ -24,7 +24,25 @@ if TYPE_CHECKING:
 
 
 class ScanSummary(TypedDict, total=False):
-    """Return type for :func:`run_scan_from_db` and :meth:`ScanEngine.run_scan`."""
+    """Return type for :func:`run_scan_from_db` and :meth:`ScanEngine.run_scan`.
+
+    All keys are optional (``total=False``) because the type is also used
+    for the lightweight :meth:`~mediaman.scanner.engine.ScanEngine.sync_library`
+    return value which only populates a subset.  The canonical full-scan
+    keys are:
+
+    * ``scanned`` — total items examined across all libraries.
+    * ``scheduled`` — items newly scheduled for deletion.
+    * ``skipped`` — items that were protected, already scheduled, or ineligible.
+    * ``errors`` — items that raised an unexpected exception.
+    * ``removed`` — orphaned DB rows whose Plex key no longer exists.
+    * ``deleted`` — items deleted from disk this run.
+    * ``reclaimed_bytes`` — bytes freed by deletions.
+
+    Do NOT add new keys here without also updating :meth:`ScanEngine.run_scan`
+    and any callers that check specific keys — this is the single source of
+    truth for the shape of the summary dict.
+    """
 
     scanned: int
     scheduled: int

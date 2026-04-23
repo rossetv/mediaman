@@ -13,10 +13,27 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from mediaman.services.format import ensure_tz as _ensure_tz
+from mediaman.services.format import format_day_month as _format_day_month
 from mediaman.services.format import rk_from_audit_detail as _extract_rk_from_detail
 from mediaman.services.format import title_from_audit_detail as _extract_title_from_detail
 
 logger = logging.getLogger("mediaman")
+
+# ---------------------------------------------------------------------------
+# Module-level Jinja2 environment — built once per process, not per send.
+# Re-building ``Environment`` on every call was wasteful: it re-compiled
+# templates, re-initialised the filter registry, and re-walked the template
+# directory.  The environment is stateless once built so sharing it is safe.
+# ---------------------------------------------------------------------------
+_TEMPLATE_DIR = Path(__file__).parent.parent / "web" / "templates"
+
+try:
+    from jinja2 import Environment, FileSystemLoader
+    _JINJA_ENV: "Environment | None" = Environment(
+        loader=FileSystemLoader(str(_TEMPLATE_DIR)), autoescape=True
+    )
+except Exception:  # pragma: no cover — only fails if Jinja2 is missing
+    _JINJA_ENV = None
 
 
 class NewsletterConfigError(Exception):
@@ -76,8 +93,6 @@ def send_newsletter(
         mark_notified: If True (default), mark scheduled items as notified=1
             after sending.
     """
-    from jinja2 import Environment, FileSystemLoader
-
     from mediaman.services.arr_build import build_radarr_from_db, build_sonarr_from_db
     from mediaman.services.arr_state import (
         build_radarr_cache,
@@ -366,11 +381,17 @@ def send_newsletter(
     reclaimed_total = reclaimed_total_row["total"] if reclaimed_total_row else 0
 
     # ── Render template ──────────────────────────────────────────────────────
-    template_dir = Path(__file__).parent.parent / "web" / "templates"
-    env = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
+    # Use the module-level Jinja env (built once per process).  Fall back to
+    # a fresh env only when the module-level initialisation failed (e.g. in a
+    # test environment where Jinja2 is not installed — extremely unusual).
+    if _JINJA_ENV is not None:
+        env = _JINJA_ENV
+    else:
+        from jinja2 import Environment, FileSystemLoader  # pragma: no cover
+        env = Environment(loader=FileSystemLoader(str(_TEMPLATE_DIR)), autoescape=True)
     template = env.get_template("email/newsletter.html")
 
-    report_date = now.strftime("%-d %B %Y")
+    report_date = _format_day_month(now, long_month=True)
 
     # ── Send per-recipient (each gets a unique unsubscribe link) ───────────
     from mediaman.crypto import generate_download_token, generate_unsubscribe_token

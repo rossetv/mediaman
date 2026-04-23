@@ -82,11 +82,27 @@ class SonarrClient(ArrClient):
         return cast(list[dict[str, object]], data) if isinstance(data, list) else []
 
     def unmonitor_season(self, series_id: int, season_number: int) -> None:
-        """Raises ValueError if the series payload contains no seasons list."""
+        """Set ``monitored=False`` for *season_number* of *series_id* in Sonarr.
+
+        Raises :exc:`ValueError` if the series payload contains no seasons list.
+
+        .. note::
+            **Race condition:** the full series payload is read, mutated
+            locally, and then written back as a PUT. If another process
+            writes the same series between the GET and the PUT, its changes
+            will be silently overwritten. This is a known limitation of the
+            Sonarr v3 API; use a PATCH endpoint when one becomes available.
+        """
         series = self.get_series_by_id(series_id)
         seasons = series.get("seasons")
         if not isinstance(seasons, list):
             raise ValueError(f"Sonarr series {series_id} has no 'seasons' list")
+        logger.debug(
+            "sonarr.unmonitor_season: issuing full-payload PUT for series_id=%s "
+            "season=%s — a concurrent write to this series would be silently "
+            "overwritten",
+            series_id, season_number,
+        )
         for season in seasons:
             if season["seasonNumber"] == season_number:
                 season["monitored"] = False

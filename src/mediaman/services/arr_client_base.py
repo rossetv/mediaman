@@ -13,8 +13,9 @@ layers can display a banner instead of silently showing a stale queue.
 from __future__ import annotations
 
 import requests
+from requests import RequestException
 
-from mediaman.services.http_client import SafeHTTPClient
+from mediaman.services.http_client import SafeHTTPClient, SafeHTTPError
 
 #: Split timeout: 5 s to establish a TCP connection, 30 s to read the body.
 #: Radarr/Sonarr responses are usually under 1 s on the LAN; the 30 s read
@@ -131,9 +132,15 @@ class ArrClient:
             return None
 
     def test_connection(self) -> bool:
-        """Return True if the service's /api/v3/system/status endpoint responds."""
+        """Return True if the service's /api/v3/system/status endpoint responds.
+
+        Catches :exc:`SafeHTTPError` (non-2xx responses) and
+        :exc:`~requests.RequestException` (network/transport errors) only —
+        not the broad ``Exception`` which would swallow ``SystemExit``,
+        ``KeyboardInterrupt``, and programming errors.
+        """
         try:
             self._get("/api/v3/system/status")
             return True
-        except Exception:
+        except (SafeHTTPError, RequestException):
             return False

@@ -9,10 +9,19 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from datetime import datetime, timezone
 from typing import TypedDict
 
-from mediaman.services.format import format_bytes, parse_iso_utc
+from mediaman.services.format import format_bytes, format_day_month, parse_iso_utc
+
+# Maximum number of years into the future that a release date is trusted.
+# TMDB sometimes stores year 9999 for unreleased titles — such values should
+# not be surfaced as "Releases in 7973 years", so anything beyond this
+# threshold is treated as "no valid date". 100 years comfortably covers
+# legitimate announced-but-undated entries while still rejecting the 9999
+# sentinel.
+_MAX_FUTURE_YEARS = 100
 
 logger = logging.getLogger("mediaman")
 
@@ -141,14 +150,26 @@ _MATCH_NORMALISE = re.compile(r"[^a-z0-9]+")
 def normalise_for_match(title: str) -> str:
     """Canonicalise a title for fuzzy substring matching against NZB names.
 
-    Lowercases, replaces every run of non-alphanumeric characters with a
-    single space, and trims. Fixes punctuation drift between a Sonarr
-    series title like ``"Married at First Sight (AU)"`` and the cleaned
-    NZB filename ``"Married at First Sight AU"`` — both normalise to
+    Steps applied in order:
+    1. Strip Unicode ``Cf`` (format) characters — these are invisible
+       zero-width joiners, left-to-right marks, etc. that can make two
+       visually identical strings compare as unequal.
+    2. Lowercase.
+    3. Replace every run of non-alphanumeric characters with a single
+       space and trim.
+
+    Fixes punctuation drift between a Sonarr series title like
+    ``"Married at First Sight (AU)"`` and the cleaned NZB filename
+    ``"Married at First Sight AU"`` — both normalise to
     ``"married at first sight au"`` so the substring check in
     :mod:`mediaman.services.download_queue` stops orphaning episodes.
     """
-    return _MATCH_NORMALISE.sub(" ", (title or "").lower()).strip()
+    s = (title or "").lower()
+    # Strip Unicode Cf (format) characters — invisible glue that can
+    # silently break equality checks between titles with/without BOM,
+    # zero-width joiners, or directional marks.
+    s = "".join(c for c in s if unicodedata.category(c) != "Cf")
+    return _MATCH_NORMALISE.sub(" ", s).strip()
 
 
 def map_state(nzbget_status: str | None, has_nzbget_match: bool) -> str:
@@ -198,8 +219,12 @@ def map_arr_status(status: str, tracked_state: str = "") -> str:
 
 
 def _fmt_release_date(dt: "datetime") -> str:
-    """Format a datetime as '<d MMM yyyy>' e.g. '14 Jun 2099'."""
-    return dt.strftime("%-d %b %Y")
+    """Format a datetime as '<d MMM yyyy>' e.g. '14 Jun 2099'.
+
+    Uses :func:`~mediaman.services.format.format_day_month` rather than
+    ``%-d`` (a GNU-only strftime extension that fails on Windows/BSD).
+    """
+    return format_day_month(dt)
 
 
 def classify_movie_upcoming(movie: dict) -> tuple[bool, str]:
@@ -215,10 +240,11 @@ def classify_movie_upcoming(movie: dict) -> tuple[bool, str]:
         return False, ""
 
     now = datetime.now(timezone.utc)
+    max_year = now.year + _MAX_FUTURE_YEARS
     candidates = []
     for key in ("digitalRelease", "physicalRelease", "inCinemas"):
         dt = parse_iso_utc(movie.get(key, ""))
-        if dt and dt > now:
+        if dt and dt > now and dt.year <= max_year:
             candidates.append(dt)
 
     if candidates:

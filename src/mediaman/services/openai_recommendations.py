@@ -398,7 +398,8 @@ def _generate_trending(conn: sqlite3.Connection, previous_titles: list[str] | No
     now = datetime.now(timezone.utc)
     last_week_end = now - timedelta(days=now.weekday() + 1)  # Last Sunday
     last_week_start = last_week_end - timedelta(days=6)       # Last Monday
-    week_str = f"{last_week_start.strftime('%-d')}–{last_week_end.strftime('%-d %B %Y')}"
+    from mediaman.services.format import format_day_month as _fmt_dm
+    week_str = f"{_fmt_dm(last_week_start)}–{_fmt_dm(last_week_end, long_month=True)}"
 
     dedup_block = ""
     if previous_titles:

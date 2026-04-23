@@ -1,19 +1,17 @@
-"""APScheduler setup for periodic scanning and library sync."""
+"""APScheduler setup for periodic scanning and library sync.
+
+Imports of :mod:`apscheduler`, :mod:`mediaman.db`, and the service
+modules are deferred to :func:`start_scheduler` so that importing
+this module does not drag in heavy dependencies or trigger DB access
+at import time (M-finding: unconditional top-level imports).
+"""
 from __future__ import annotations
 
 import logging
 
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.interval import IntervalTrigger
-
-from mediaman.db import get_db
-from mediaman.services.arr_completion import cleanup_recent_downloads
-from mediaman.services.arr_search_trigger import trigger_pending_searches
-
 logger = logging.getLogger("mediaman")
 
-_scheduler: BackgroundScheduler | None = None
+_scheduler = None
 
 
 def start_scheduler(
@@ -25,7 +23,7 @@ def start_scheduler(
     timezone: str = "UTC",
     sync_fn=None,
     sync_interval_minutes: int = 30,
-) -> BackgroundScheduler:
+):
     """Start a background scheduler with weekly scan and optional library sync.
 
     Args:
@@ -40,6 +38,14 @@ def start_scheduler(
     Returns:
         The running :class:`BackgroundScheduler` instance.
     """
+    from apscheduler.schedulers.background import BackgroundScheduler
+    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.interval import IntervalTrigger
+
+    from mediaman.db import get_db
+    from mediaman.services.arr_completion import cleanup_recent_downloads
+    from mediaman.services.arr_search_trigger import trigger_pending_searches
+
     global _scheduler
     if _scheduler is not None:
         logger.debug("start_scheduler: scheduler already running, skipping duplicate start")
@@ -90,6 +96,6 @@ def start_scheduler(
 def stop_scheduler() -> None:
     """Shut down the running scheduler, if any."""
     global _scheduler
-    if _scheduler:
+    if _scheduler is not None:
         _scheduler.shutdown(wait=False)
         _scheduler = None
