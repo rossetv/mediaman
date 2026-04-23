@@ -20,9 +20,9 @@ import requests
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from mediaman.auth.audit import log_audit as _log_audit
+from mediaman.auth.audit import log_audit
 from mediaman.auth.middleware import get_optional_admin
-from mediaman.services.download_notifications import record_download_notification as _record_dn
+from mediaman.services.download_notifications import record_download_notification
 from mediaman.auth.rate_limit import RateLimiter, get_client_ip
 from mediaman.crypto import validate_download_token
 from mediaman.db import get_db
@@ -35,7 +35,7 @@ from mediaman.services.download_format import (
     extract_poster_url,
 )
 from mediaman.services.format import format_bytes
-from mediaman.services.download_queue import _build_episode_dicts
+from mediaman.services.download_queue import build_episode_dicts
 
 logger = logging.getLogger("mediaman")
 
@@ -99,8 +99,8 @@ def _format_timeleft(timeleft: str) -> str:
 
 
 from mediaman.services.arr_build import (
-    build_radarr_from_db as _build_radarr,
-    build_sonarr_from_db as _build_sonarr,
+    build_radarr_from_db,
+    build_sonarr_from_db,
 )
 from mediaman.services.item_enrichment import (
     _enrich_redownload_item,
@@ -212,8 +212,8 @@ def download_page(request: Request, token: str) -> HTMLResponse:
                 build_sonarr_cache,
                 compute_download_state,
             )
-            radarr_client = _build_radarr(conn, config.secret_key)
-            sonarr_client = _build_sonarr(conn, config.secret_key)
+            radarr_client = build_radarr_from_db(conn, config.secret_key)
+            sonarr_client = build_sonarr_from_db(conn, config.secret_key)
             radarr_cache = build_radarr_cache(radarr_client)
             sonarr_cache = build_sonarr_cache(sonarr_client)
             caches = {**radarr_cache, **sonarr_cache}
@@ -297,7 +297,7 @@ def download_submit(request: Request, token: str) -> JSONResponse:
 
     try:
         if media_type == "movie":
-            client = _build_radarr(conn, config.secret_key)
+            client = build_radarr_from_db(conn, config.secret_key)
             if not client:
                 return JSONResponse({"ok": False, "error": "Radarr not configured"})
 
@@ -311,8 +311,8 @@ def download_submit(request: Request, token: str) -> JSONResponse:
             client.add_movie(tmdb_id, title)
             logger.info("Download token: added movie '%s' (tmdb:%s) to Radarr for %s", title, tmdb_id, email)
 
-            _log_audit(conn, title, audit_action, audit_detail)
-            _record_dn(conn, email=email, title=title, media_type="movie", tmdb_id=tmdb_id, service="radarr")
+            log_audit(conn, title, audit_action, audit_detail)
+            record_download_notification(conn, email=email, title=title, media_type="movie", tmdb_id=tmdb_id, service="radarr")
             conn.commit()
 
             return JSONResponse({
@@ -324,7 +324,7 @@ def download_submit(request: Request, token: str) -> JSONResponse:
 
         else:
             # TV series — need TVDB ID via Sonarr lookup
-            client = _build_sonarr(conn, config.secret_key)
+            client = build_sonarr_from_db(conn, config.secret_key)
             if not client:
                 return JSONResponse({"ok": False, "error": "Sonarr not configured"})
 
@@ -341,10 +341,10 @@ def download_submit(request: Request, token: str) -> JSONResponse:
             client.add_series(tvdb_id, title)
             logger.info("Download token: added series '%s' (tvdb:%s) to Sonarr for %s", title, tvdb_id, email)
 
-            _log_audit(conn, title, audit_action, audit_detail)
+            log_audit(conn, title, audit_action, audit_detail)
             # Store the TVDB id against the TVDB column; preserve tmdb_id
             # too so future UI linking to TMDB still works.
-            _record_dn(
+            record_download_notification(
                 conn, email=email, title=title, media_type="tv",
                 tmdb_id=tmdb_id, tvdb_id=tvdb_id, service="sonarr",
             )
@@ -434,7 +434,7 @@ def download_status(
 
     try:
         if service == "radarr":
-            client = _build_radarr(conn, config.secret_key)
+            client = build_radarr_from_db(conn, config.secret_key)
             if not client:
                 return JSONResponse(_unknown_item())
 
@@ -500,7 +500,7 @@ def download_status(
             ))
 
         elif service == "sonarr":
-            client = _build_sonarr(conn, config.secret_key)
+            client = build_sonarr_from_db(conn, config.secret_key)
             if not client:
                 return JSONResponse(_unknown_item())
 
@@ -541,7 +541,7 @@ def download_status(
 
             if ep_entries:
                 ep_entries.sort(key=lambda e: e["label"])
-                episodes = _build_episode_dicts(ep_entries)
+                episodes = build_episode_dicts(ep_entries)
                 total_size = sum(e["size"] for e in ep_entries)
                 total_left = sum(e["sizeleft"] for e in ep_entries)
                 overall_progress = (

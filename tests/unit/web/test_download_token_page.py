@@ -67,7 +67,7 @@ class TestDownloadPageGet:
         mock_radarr = MagicMock()
         mock_radarr.get_movie_by_tmdb.return_value = None
 
-        with patch("mediaman.web.routes.download._build_radarr", return_value=mock_radarr):
+        with patch("mediaman.web.routes.download.build_radarr_from_db", return_value=mock_radarr):
             resp = client.get(f"/download/{token}")
 
         assert resp.status_code == 200
@@ -115,7 +115,7 @@ class TestDownloadPageGet:
         ]
         mock_radarr.get_queue.return_value = []
 
-        with patch("mediaman.web.routes.download._build_radarr", return_value=mock_radarr):
+        with patch("mediaman.web.routes.download.build_radarr_from_db", return_value=mock_radarr):
             resp = client.get(f"/download/{token}")
 
         assert resp.status_code == 200
@@ -137,7 +137,7 @@ class TestDownloadPageGet:
         mock_radarr.get_movie_by_tmdb.return_value = None
 
         try:
-            with patch("mediaman.web.routes.download._build_radarr", return_value=mock_radarr):
+            with patch("mediaman.web.routes.download.build_radarr_from_db", return_value=mock_radarr):
                 for _ in range(cap):
                     r = client.get(f"/download/{token}")
                     assert r.status_code == 200
@@ -166,7 +166,7 @@ class TestDownloadPagePost:
         mock_radarr = MagicMock()
         mock_radarr.add_movie.return_value = None
 
-        with patch("mediaman.web.routes.download._build_radarr", return_value=mock_radarr):
+        with patch("mediaman.web.routes.download.build_radarr_from_db", return_value=mock_radarr):
             resp = client.post(f"/download/{token}")
 
         assert resp.status_code == 200
@@ -187,7 +187,7 @@ class TestDownloadPagePost:
         mock_sonarr._get.return_value = [{"tvdbId": 12345, "tmdbId": 99}]
         mock_sonarr.add_series.return_value = None
 
-        with patch("mediaman.web.routes.download._build_sonarr", return_value=mock_sonarr):
+        with patch("mediaman.web.routes.download.build_sonarr_from_db", return_value=mock_sonarr):
             resp = client.post(f"/download/{token}")
 
         assert resp.status_code == 200
@@ -207,7 +207,7 @@ class TestDownloadPagePost:
         mock_radarr = MagicMock()
         mock_radarr.add_movie.return_value = None
 
-        with patch("mediaman.web.routes.download._build_radarr", return_value=mock_radarr):
+        with patch("mediaman.web.routes.download.build_radarr_from_db", return_value=mock_radarr):
             # First POST — consumes the token
             resp1 = client.post(f"/download/{token}")
             assert resp1.status_code == 200
@@ -244,7 +244,7 @@ class TestDownloadPagePost:
         mock_radarr.add_movie.return_value = None
 
         try:
-            with patch("mediaman.web.routes.download._build_radarr", return_value=mock_radarr):
+            with patch("mediaman.web.routes.download.build_radarr_from_db", return_value=mock_radarr):
                 # Burn through the window using distinct tokens so none are "already used"
                 for i in range(cap):
                     t = generate_download_token(

@@ -53,7 +53,9 @@ from mediaman.services.download_format import (
     parse_clean_title,
     select_hero,
 )
+from mediaman.config import load_config as _load_config
 from mediaman.services.format import format_bytes
+from mediaman.services.settings_reader import get_string_setting as _get_string_setting
 
 logger = logging.getLogger("mediaman")
 
@@ -81,7 +83,7 @@ def _nzb_matches_arr(nzb_t_norm: str, arr_candidates: list[str]) -> bool:
     return False
 
 
-def _build_episode_dicts(eps_raw: list[dict]) -> list[dict]:
+def build_episode_dicts(eps_raw: list[dict]) -> list[dict]:
     """Map raw Sonarr episode entries to simplified display dicts.
 
     Used in both the NZBGet-matched and unmatched branches so the two
@@ -159,16 +161,13 @@ def _arr_base_urls(conn: sqlite3.Connection) -> dict[str, str]:
     configured.
     """
     try:
-        from mediaman.config import load_config
-        from mediaman.services.settings_reader import get_string_setting
-
-        secret_key = load_config().secret_key
+        secret_key = _load_config().secret_key
         out = {}
         for service in ("radarr", "sonarr"):
-            public = get_string_setting(
+            public = _get_string_setting(
                 conn, f"{service}_public_url", secret_key=secret_key,
             ) or ""
-            internal = get_string_setting(
+            internal = _get_string_setting(
                 conn, f"{service}_url", secret_key=secret_key,
             ) or ""
             chosen = public.strip() or internal.strip()
@@ -353,7 +352,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> DownloadsResponse:
                 eta = "Post-processing\u2026"
 
             if arr.get("kind") == "series":
-                episodes = _build_episode_dicts(arr.get("episodes", []))
+                episodes = build_episode_dicts(arr.get("episodes", []))
                 episode_summary = build_episode_summary(episodes)
                 items.append(build_item(
                     dl_id=arr.get("dl_id", matched_nzb["dl_id"]),
@@ -392,7 +391,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> DownloadsResponse:
             # users don't see "Looking for the best version" while a
             # progress bar is visibly advancing below it.
             if arr.get("kind") == "series":
-                episodes = _build_episode_dicts(arr.get("episodes", []))
+                episodes = build_episode_dicts(arr.get("episodes", []))
                 episode_summary = build_episode_summary(episodes)
                 if episodes and all(e["state"] == "ready" for e in episodes):
                     state = "almost_ready"

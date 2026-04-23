@@ -267,7 +267,7 @@ class TestDownloadStatusAPI:
         mock_client.get_queue.return_value = [mock_queue_item]
         mock_client.get_movie_by_tmdb.return_value = {"hasFile": False, "tmdbId": 123}
 
-        with patch("mediaman.web.routes.download._build_radarr", return_value=mock_client):
+        with patch("mediaman.web.routes.download.build_radarr_from_db", return_value=mock_client):
             resp = client.get("/api/download/status?service=radarr&tmdb_id=123")
 
         assert resp.status_code == 200
@@ -309,7 +309,7 @@ class TestDownloadStatusAPI:
             "images": [],
         }
 
-        with patch("mediaman.web.routes.download._build_radarr", return_value=mock_client):
+        with patch("mediaman.web.routes.download.build_radarr_from_db", return_value=mock_client):
             resp = client.get("/api/download/status?service=radarr&tmdb_id=42")
 
         assert resp.status_code == 200
@@ -330,7 +330,7 @@ class TestDownloadStatusAPI:
         mock_client.get_movie_by_tmdb.return_value = None
         mock_client.get_queue.return_value = []
 
-        with patch("mediaman.web.routes.download._build_radarr", return_value=mock_client):
+        with patch("mediaman.web.routes.download.build_radarr_from_db", return_value=mock_client):
             resp = client.get("/api/download/status?service=radarr&tmdb_id=999")
 
         assert resp.status_code == 200
@@ -364,7 +364,7 @@ class TestDownloadStatusAPI:
         # Burn through the whole window.
         try:
             with patch(
-                "mediaman.web.routes.download._build_radarr", return_value=mock_client
+                "mediaman.web.routes.download.build_radarr_from_db", return_value=mock_client
             ):
                 for _ in range(cap):
                     r = client.get("/api/download/status?service=radarr&tmdb_id=1")
@@ -400,7 +400,7 @@ class TestDownloadStatusAPI:
         mock_client.get_movie_by_tmdb.return_value = {"hasFile": False}
         mock_client.get_queue.return_value = [mock_queue_item]
 
-        with patch("mediaman.web.routes.download._build_radarr", return_value=mock_client):
+        with patch("mediaman.web.routes.download.build_radarr_from_db", return_value=mock_client):
             resp = client.get("/api/download/status?service=radarr&tmdb_id=77")
 
         assert resp.status_code == 200
