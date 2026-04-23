@@ -75,6 +75,47 @@ class ArrCard(BaseArrCard, total=False):
     has_pack: bool
 
 
+def _make_radarr_card(
+    title: str,
+    *,
+    year: int | None = None,
+    poster_url: str = "",
+    progress: int = 0,
+    size: int = 0,
+    sizeleft: int = 0,
+    timeleft: str = "",
+    status: str = "searching",
+    is_upcoming: bool = False,
+    release_label: str = "",
+    arr_id: int = 0,
+    title_slug: str = "",
+    added_at: float = 0.0,
+    release_names: list[str] | None = None,
+) -> ArrCard:
+    """Build a Radarr movie card with all required fields populated."""
+    return ArrCard(
+        kind="movie",
+        dl_id="radarr:" + title,
+        title=title,
+        source="Radarr",
+        poster_url=poster_url,
+        year=year,
+        progress=progress,
+        size=size,
+        sizeleft=sizeleft,
+        size_str=format_bytes(size),
+        done_str=format_bytes(size - sizeleft),
+        timeleft=timeleft,
+        status=status,
+        is_upcoming=is_upcoming,
+        release_label=release_label,
+        arr_id=arr_id,
+        title_slug=title_slug,
+        added_at=added_at,
+        release_names=release_names if release_names is not None else [],
+    )
+
+
 def _fetch_radarr_queue(client) -> list[ArrCard]:
     """Build Radarr download cards from an already-constructed client.
 
@@ -100,28 +141,17 @@ def _fetch_radarr_queue(client) -> list[ArrCard]:
             movie.get("title") or q.get("title") or "Unknown"
         )
         release_name = q.get("title") or ""
-        items.append(
-            {
-                "kind": "movie",
-                "dl_id": "radarr:" + m_title,
-                "title": m_title,
-                "year": movie.get("year"),
-                "source": "Radarr",
-                "poster_url": poster_url,
-                "progress": progress,
-                "size": size,
-                "sizeleft": sizeleft,
-                "size_str": format_bytes(size),
-                "done_str": format_bytes(size - sizeleft),
-                "timeleft": q.get("timeleft") or "",
-                "status": status,
-                "is_upcoming": False,
-                "release_label": "",
-                "arr_id": 0,
-                "added_at": 0.0,
-                "release_names": [release_name] if release_name else [],
-            }
-        )
+        items.append(_make_radarr_card(
+            m_title,
+            year=movie.get("year"),
+            poster_url=poster_url,
+            progress=progress,
+            size=size,
+            sizeleft=sizeleft,
+            timeleft=q.get("timeleft") or "",
+            status=status,
+            release_names=[release_name] if release_name else [],
+        ))
     # Also include monitored movies still searching (not yet in queue).
     # Includes both released-but-stalled items and unreleased items.
     # Use (title, year) as the dedup key so same-title remakes don't
@@ -148,26 +178,15 @@ def _fetch_radarr_queue(client) -> list[ArrCard]:
 
             poster_url = extract_poster_url(movie.get("images")) or ""
 
-            items.append({
-                "kind": "movie",
-                "dl_id": "radarr:" + m_title,
-                "title": m_title,
-                "source": "Radarr",
-                "poster_url": poster_url,
-                "progress": 0,
-                "size": 0,
-                "sizeleft": 0,
-                "size_str": "0 B",
-                "done_str": "0 B",
-                "timeleft": "",
-                "status": "searching",
-                "arr_id": movie.get("id", 0),
-                "title_slug": movie.get("titleSlug", ""),
-                "added_at": added_at,
-                "is_upcoming": is_upcoming,
-                "release_label": release_label,
-                "release_names": [],
-            })
+            items.append(_make_radarr_card(
+                m_title,
+                poster_url=poster_url,
+                arr_id=movie.get("id", 0),
+                title_slug=movie.get("titleSlug", ""),
+                added_at=added_at,
+                is_upcoming=is_upcoming,
+                release_label=release_label,
+            ))
     except Exception:
         logger.warning("Failed to check Radarr for searching movies", exc_info=True)
     return items
