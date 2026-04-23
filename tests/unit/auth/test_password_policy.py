@@ -12,6 +12,35 @@ from mediaman.auth.password_policy import (
 )
 
 
+class TestCommonPasswordsDataFile:
+    """H5: common passwords are loaded from the data file, not an inline tuple."""
+
+    def test_common_passwords_is_frozenset(self):
+        from mediaman.auth.password_policy import _COMMON_PASSWORDS
+        assert isinstance(_COMMON_PASSWORDS, frozenset)
+
+    def test_common_passwords_non_empty(self):
+        from mediaman.auth.password_policy import _COMMON_PASSWORDS
+        assert len(_COMMON_PASSWORDS) > 50
+
+    def test_no_duplicates(self):
+        """Deduplication is guaranteed because we load into a set before frozenset."""
+        from mediaman.auth.password_policy import _COMMON_PASSWORDS
+        # Duplicate check is trivially true for a set, but verify
+        # that the canonical entries are all lowercase.
+        assert all(entry == entry.lower() for entry in _COMMON_PASSWORDS)
+
+    def test_known_entries_present(self):
+        from mediaman.auth.password_policy import _COMMON_PASSWORDS
+        for expected in ("password", "trustno1", "qwerty", "admin", "letmein"):
+            assert expected in _COMMON_PASSWORDS
+
+    def test_data_file_exists(self):
+        from pathlib import Path
+        data_file = Path(__file__).parent.parent.parent.parent / "src" / "mediaman" / "auth" / "data" / "common_passwords.txt"
+        assert data_file.exists()
+
+
 class TestPasswordIssues:
     def test_empty_is_rejected(self):
         issues = password_issues("")

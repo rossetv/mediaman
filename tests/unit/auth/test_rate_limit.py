@@ -137,3 +137,86 @@ class TestGetClientIp:
             client = None
 
         assert get_client_ip(FakeRequest()) == "unknown"
+
+
+class TestGetClientIpH7:
+    """H7: focused test matrix for multi-hop XFF chains and X-Real-IP validation."""
+
+    # ------------------------------------------------------------------ H7(a)
+    def test_chain_only_innermost_proxy_trusted(self, monkeypatch):
+        """Proxy chain A → B → client where only B is trusted.
+
+        XFF: attacker, real, B — only B is in MEDIAMAN_TRUSTED_PROXIES.
+        Must return ``real`` (first untrusted right-to-left), not
+        ``attacker`` (the leftmost, attacker-controlled entry).
+        """
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.2")
+
+        class FakeRequest:
+            headers = {"x-forwarded-for": "203.0.113.1, 198.51.100.7, 10.0.0.2"}
+            client = type("C", (), {"host": "10.0.0.2"})()
+
+        # 10.0.0.2 is trusted (peer == proxy B), 198.51.100.7 is real client,
+        # 203.0.113.1 is attacker-supplied — must NOT be returned.
+        result = get_client_ip(FakeRequest())
+        assert result == "198.51.100.7"
+
+    # ------------------------------------------------------------------ H7(b)
+    def test_untrusted_proxy_xff_is_ignored(self, monkeypatch):
+        """An untrusted proxy's XFF header must not be honoured.
+
+        Even if XFF looks plausible, the peer is not in the trusted list,
+        so we fall back to the peer address.
+        """
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
+
+        class FakeRequest:
+            headers = {"x-forwarded-for": "1.2.3.4, 5.6.7.8"}
+            client = type("C", (), {"host": "203.0.113.99"})()  # NOT in 10/8
+
+        assert get_client_ip(FakeRequest()) == "203.0.113.99"
+
+    # ------------------------------------------------------------------ H7(c)
+    def test_malformed_x_real_ip_falls_through_to_peer(self, monkeypatch):
+        """A non-IP X-Real-IP must be silently discarded; peer is returned."""
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
+
+        class FakeRequest:
+            headers = {"x-real-ip": "not-an-ip-address"}
+            client = type("C", (), {"host": "10.0.0.1"})()
+
+        # Malformed X-Real-IP — must NOT be returned. Peer is trusted but
+        # no valid forwarded IP is available, so return the peer itself.
+        assert get_client_ip(FakeRequest()) == "10.0.0.1"
+
+    def test_valid_x_real_ip_is_accepted(self, monkeypatch):
+        """Sanity: a well-formed X-Real-IP from a trusted proxy is accepted."""
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
+
+        class FakeRequest:
+            headers = {"x-real-ip": "198.51.100.42"}
+            client = type("C", (), {"host": "10.0.0.1"})()
+
+        assert get_client_ip(FakeRequest()) == "198.51.100.42"
+
+    # ------------------------------------------------------------------ H7(d)
+    def test_empty_xff_falls_through_to_peer(self, monkeypatch):
+        """An empty (or absent) XFF header must fall through to peer."""
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
+
+        class FakeRequest:
+            headers = {"x-forwarded-for": ""}
+            client = type("C", (), {"host": "10.0.0.1"})()
+
+        # No XFF entries, no X-Real-IP — trusted peer itself is returned.
+        assert get_client_ip(FakeRequest()) == "10.0.0.1"
+
+    def test_all_xff_entries_trusted_falls_through_to_peer(self, monkeypatch):
+        """When every XFF entry is a trusted proxy, fall back to the direct peer."""
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
+
+        class FakeRequest:
+            headers = {"x-forwarded-for": "10.0.0.3, 10.0.0.2, 10.0.0.1"}
+            client = type("C", (), {"host": "10.0.0.1"})()
+
+        assert get_client_ip(FakeRequest()) == "10.0.0.1"

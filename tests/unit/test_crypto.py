@@ -294,6 +294,54 @@ class TestV2V1PlausibilityGate:
         assert decrypt_value(legacy, secret_key, conn=conn) == "legacy"
 
 
+class TestCiphertextCap:
+    """H3: per-call ciphertext cap is enforced by decrypt_value."""
+
+    def test_oversized_ciphertext_rejected(self, secret_key, conn):
+        """Ciphertexts that exceed _MAX_CIPHERTEXT_LEN must be rejected."""
+        import base64
+        from mediaman.crypto import _MAX_CIPHERTEXT_LEN
+        # Build a base64 string that decodes to more than _MAX_CIPHERTEXT_LEN bytes.
+        raw_len = _MAX_CIPHERTEXT_LEN + 1
+        oversize = base64.urlsafe_b64encode(b"A" * raw_len).decode()
+        with pytest.raises(ValueError, match="exceeds max length"):
+            decrypt_value(oversize, secret_key, conn=conn)
+
+    def test_ciphertext_at_exact_cap_is_rejected(self, secret_key, conn):
+        """A base64 string that decodes to exactly _MAX_CIPHERTEXT_LEN + 1 bytes fails."""
+        from mediaman.crypto import _MAX_CIPHERTEXT_LEN
+        # The cap is checked on the base64 *string* length, not the raw bytes.
+        # Build a string whose length is _MAX_CIPHERTEXT_LEN + 1.
+        over = "A" * (_MAX_CIPHERTEXT_LEN + 1)
+        with pytest.raises(ValueError, match="exceeds max length"):
+            decrypt_value(over, secret_key, conn=conn)
+
+
+class TestSaltCache:
+    """H4: salt is cached per-DB-path, avoiding repeated DB reads."""
+
+    def test_salt_cached_after_first_call(self, conn):
+        """Subsequent calls to _load_or_create_salt return cached value without DB hit."""
+        from mediaman.crypto import _db_path, _load_or_create_salt, _salt_cache
+        first = _load_or_create_salt(conn)
+        # Must be in cache now, keyed by DB file path.
+        assert _db_path(conn) in _salt_cache
+        second = _load_or_create_salt(conn)
+        assert first == second
+
+    def test_cache_invalidated_on_canary_key_mismatch(self, conn, secret_key):
+        """canary_check returning False (key mismatch) must evict the cached salt."""
+        from mediaman.crypto import _db_path, _load_or_create_salt, _salt_cache
+        # Prime the cache.
+        _load_or_create_salt(conn)
+        assert _db_path(conn) in _salt_cache
+        # Seed canary with correct key.
+        canary_check(conn, secret_key)
+        # Now fail with a wrong key — cache must be cleared.
+        canary_check(conn, "wrong-key-32-chars-padding-xxxxx")
+        assert _db_path(conn) not in _salt_cache
+
+
 class TestValidateSignedNarrowedException:
     """C7 / C34: the bare-except in _validate_signed was replaced with
     a narrow tuple. Non-dict JSON must also be rejected up front."""

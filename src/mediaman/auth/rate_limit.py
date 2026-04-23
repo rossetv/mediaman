@@ -247,6 +247,14 @@ def get_client_ip(request) -> str:
 
     x_real = request.headers.get("x-real-ip")
     if x_real:
-        return x_real.strip()
+        x_real = x_real.strip()
+        # Validate before trusting — a misconfigured or lying proxy could
+        # deliver a non-IP value and let an attacker spoof their apparent
+        # address. On parse failure, fall through to the direct peer.
+        try:
+            ipaddress.ip_address(x_real)
+            return x_real
+        except ValueError:
+            pass  # Malformed X-Real-IP — fall through to direct peer
 
     return peer or "unknown"

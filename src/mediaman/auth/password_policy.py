@@ -24,56 +24,34 @@ validation just checks whether the list is empty.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 
-# Top-~300 common passwords — sourced from public breach corpora.
+def _load_common_passwords() -> frozenset[str]:
+    """Load the common-password list from the bundled data file.
+
+    The file lives at ``auth/data/common_passwords.txt`` (one lowercase
+    entry per line, blank lines and ``#``-comments ignored). Loading at
+    module import gives a single allocation; the ``frozenset`` makes
+    membership checks O(1).  Keeping the list in a text file rather than
+    an inline tuple means deduplication is trivially auditable with
+    standard Unix tools and avoids Python-level duplicates silently
+    inflating the tuple size.
+    """
+    data_file = Path(__file__).parent / "data" / "common_passwords.txt"
+    passwords: set[str] = set()
+    with data_file.open(encoding="utf-8") as fh:
+        for line in fh:
+            entry = line.strip().lower()
+            if entry and not entry.startswith("#"):
+                passwords.add(entry)
+    return frozenset(passwords)
+
+
+# Top common passwords — sourced from public breach corpora.
 # Kept as a frozenset so membership is O(1). Entries are stored
 # lowercase; callers compare against ``pw.lower()``.
-_COMMON_PASSWORDS: frozenset[str] = frozenset(
-    p.lower()
-    for p in (
-        # Top 50 essentials
-        "password", "password1", "password123", "password123!", "password!", "qwerty",
-        "qwerty123", "qwertyuiop", "123456", "123456789", "12345678",
-        "12345", "1234567", "111111", "1234567890", "letmein",
-        "admin", "admin123", "administrator", "welcome", "welcome1",
-        "changeme", "default", "login", "abc123", "abcdef",
-        "iloveyou", "monkey", "dragon", "master", "superman",
-        "batman", "sunshine", "princess", "football", "baseball",
-        "trustno1", "shadow", "ashley", "michael", "jennifer",
-        "jordan", "harley", "pepper", "summer", "winter",
-        "spring", "autumn", "hello", "hello123", "secret",
-        # Common keyboard walks and trivial patterns
-        "qazwsx", "qazwsxedc", "asdf", "asdfgh", "asdfghjkl",
-        "zxcvbn", "zxcvbnm", "1q2w3e", "1q2w3e4r", "1q2w3e4r5t",
-        "qwer1234", "qwerty1", "passw0rd", "p@ssw0rd", "p@ssword",
-        "passw0rd1", "passw0rd!", "correctbatteryhorse",
-        # Variants of "mediaman"
-        "mediaman", "mediaman1", "mediaman!", "mediaman123",
-        "plex", "plex123", "plexserver",
-        # Seasons + numbers
-        "winter2023", "winter2024", "winter2025", "winter2026",
-        "summer2023", "summer2024", "summer2025", "summer2026",
-        "spring2023", "spring2024", "spring2025", "spring2026",
-        "autumn2023", "autumn2024", "autumn2025", "autumn2026",
-        # Miscellaneous popular
-        "letmein123", "iloveu", "whatever", "starwars", "hunter2",
-        "trustno1", "computer", "internet", "freedom", "liverpool",
-        "chelsea", "arsenal", "manutd", "cricket", "charlie",
-        "donald", "nicole", "daniel", "anthony", "ranger",
-        "joshua", "andrew", "buster", "thomas", "robert",
-        "jessica", "amanda", "michelle", "diamond", "killer",
-        "jasmine", "golfer", "tigger", "mustang", "mercedes",
-        "ferrari", "porsche", "corvette", "nascar", "chevrolet",
-        "honda", "toyota", "nissan", "hyundai", "volkswagen",
-        # Common "secure-looking" but known patterns
-        "Passw0rd!", "Passw0rd1", "Welcome123!", "Admin@123",
-        "Changeme1!", "Letmein1!", "Qwerty1!", "Password1!",
-        "Password2!", "Password@1", "Spring2025!", "Summer2025!",
-        "Autumn2025!", "Winter2025!", "Spring2026!", "Summer2026!",
-        "Autumn2026!", "Winter2026!",
-    )
-)
+_COMMON_PASSWORDS: frozenset[str] = _load_common_passwords()
 
 
 MIN_LENGTH = 12

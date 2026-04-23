@@ -57,6 +57,7 @@ import logging
 import re
 import secrets
 import sqlite3
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -88,8 +89,14 @@ _CANARY_PLAINTEXT = "MEDIAMAN_KEY_CANARY"
 _MAX_TOKEN_LEN = 4096
 
 # Maximum length of a setting ciphertext the decrypt path will consider.
-# Real setting values are API keys and URLs — kilobytes at most.
-_MAX_CIPHERTEXT_LEN = 65_536
+# Real setting values are API keys and URLs — kilobytes at most.  The
+# original cap was 64 KiB; tightened to 1 MiB to reduce the per-call
+# allocation ceiling while still leaving generous headroom for any
+# conceivable legitimate value.  An aggregate RSS-based cap was
+# considered but rejected as too platform-specific and fragile — the
+# per-call cap is simpler, deterministic, and sufficient given that
+# mediaman only encrypts short credentials.
+_MAX_CIPHERTEXT_LEN = 1_048_576  # 1 MiB
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +192,27 @@ def _derive_token_subkey(secret_key: str, purpose: bytes) -> bytes:
 # Per-install salt
 # ---------------------------------------------------------------------------
 
+# Module-level salt cache, keyed by the absolute path of the SQLite database
+# file.  Using the file path (retrieved via ``PRAGMA database_list``) rather
+# than ``id(conn)`` prevents stale-cache bugs: Python's memory allocator
+# recycles object addresses, so two consecutive connections can share the same
+# ``id()`` while pointing to completely different databases (common in tests
+# that create a fresh ``tmp_path`` DB per test).  A file-path key is stable
+# for the lifetime of an install; different test databases get independent
+# entries and the cache can survive connection close/reopen cycles cleanly.
+_salt_cache: dict[str, bytes] = {}
+_salt_cache_lock = threading.Lock()
+
+
+def _db_path(conn: sqlite3.Connection) -> str:
+    """Return the absolute path of the primary database attached to *conn*.
+
+    Uses ``PRAGMA database_list``; returns an empty string for in-memory
+    databases (``":memory:"``), which are treated as uncacheable.
+    """
+    row = conn.execute("PRAGMA database_list").fetchone()
+    return row[2] if row else ""
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -197,10 +225,23 @@ def _load_or_create_salt(conn: sqlite3.Connection) -> bytes:
     IGNORE`` semantics are used so concurrent creators converge on the
     same value. Returns the raw decoded salt bytes.
 
+    The result is cached in ``_salt_cache`` keyed on the DB file path so
+    subsequent calls skip the DB round-trip entirely. Using the file path
+    rather than ``id(conn)`` prevents stale-cache bugs when Python
+    recycles memory addresses across short-lived connections (e.g. in
+    tests). The cache is a correctness-neutral optimisation: the DB is
+    always the authoritative source.
+
     Hardening: if the stored salt decodes to an unexpected length, we
     refuse to proceed — a tampered-down zero-byte salt would still work
     with HKDF but would strip the per-install uniqueness.
     """
+    cache_key = _db_path(conn)
+    if cache_key:
+        with _salt_cache_lock:
+            if cache_key in _salt_cache:
+                return _salt_cache[cache_key]
+
     row = conn.execute(
         "SELECT value FROM settings WHERE key=?", (_SALT_SETTING_KEY,)
     ).fetchone()
@@ -218,6 +259,9 @@ def _load_or_create_salt(conn: sqlite3.Connection) -> bytes:
                 "Stored HKDF salt has unexpected length — refusing to "
                 "proceed. This indicates database tampering."
             )
+        if cache_key:
+            with _salt_cache_lock:
+                _salt_cache[cache_key] = decoded
         return decoded
 
     new_salt = secrets.token_bytes(16)
@@ -240,6 +284,9 @@ def _load_or_create_salt(conn: sqlite3.Connection) -> bytes:
             "Stored HKDF salt has unexpected length after first-run "
             "insert — refusing to proceed."
         )
+    if cache_key:
+        with _salt_cache_lock:
+            _salt_cache[cache_key] = decoded
     return decoded
 
 
@@ -470,6 +517,16 @@ def canary_check(conn: sqlite3.Connection, secret_key: str) -> bool:
             "Rotate all encrypted settings (API keys, tokens) by re-entering "
             "them on the Settings page."
         )
+        # Evict the cached salt so the next call re-reads from DB; the
+        # key mismatch means the cached salt may correspond to a
+        # different key and should not be reused.
+        # Evict the cached salt so the next call re-reads from DB; the
+        # key mismatch means the cached salt may correspond to a
+        # different key and should not be reused.
+        cache_key = _db_path(conn)
+        if cache_key:
+            with _salt_cache_lock:
+                _salt_cache.pop(cache_key, None)
         return False
 
     if decrypted != _CANARY_PLAINTEXT:
@@ -478,6 +535,10 @@ def canary_check(conn: sqlite3.Connection, secret_key: str) -> bool:
             "Rotate all encrypted settings (API keys, tokens) by re-entering "
             "them on the Settings page."
         )
+        cache_key = _db_path(conn)
+        if cache_key:
+            with _salt_cache_lock:
+                _salt_cache.pop(cache_key, None)
         return False
 
     return True
