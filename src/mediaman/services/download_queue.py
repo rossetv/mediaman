@@ -26,6 +26,7 @@ import logging
 import sqlite3
 import threading
 import time
+from typing import TypedDict
 
 from mediaman.services.arr_completion import (
     _detect_completed,
@@ -55,6 +56,15 @@ from mediaman.services.download_format import (
 from mediaman.services.format import format_bytes
 
 logger = logging.getLogger("mediaman")
+
+
+class DownloadsResponse(TypedDict):
+    """Return type for :func:`build_downloads_response`."""
+
+    hero: dict | None
+    queue: list
+    upcoming: list
+    recent: list
 
 
 def _nzb_matches_arr(nzb_t_norm: str, arr_candidates: list[str]) -> bool:
@@ -205,7 +215,7 @@ def _maybe_record_completions(conn: sqlite3.Connection, current_map: dict[str, d
         _previous_initialised = True
 
 
-def build_downloads_response(conn: sqlite3.Connection) -> dict:
+def build_downloads_response(conn: sqlite3.Connection) -> DownloadsResponse:
     """Build the simplified download queue with hero selection.
 
     Merges NZBGet + Radarr/Sonarr queues using fuzzy title matching,

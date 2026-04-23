@@ -49,7 +49,7 @@ class TestDetectCompleted:
         arr_item = {
             "id": "radarr:Dune",
             "title": "Dune",
-            "media_type": "movie",
+            "kind": "movie",
             "poster_url": "http://img/dune.jpg",
         }
         previous = {"radarr:Dune": arr_item}
@@ -62,12 +62,12 @@ class TestDetectCompleted:
         assert result[0]["title"] == "Dune"
 
     def test_propagates_media_type_and_poster(self):
-        """Completed entries carry the original media_type and poster_url."""
+        """Completed entries carry the ArrCard.kind mapped to media_type and poster_url."""
         previous = {
             "sonarr:Severance": {
                 "id": "sonarr:Severance",
                 "title": "Severance",
-                "media_type": "series",
+                "kind": "series",
                 "poster_url": "http://img/sev.jpg",
             }
         }
@@ -84,7 +84,7 @@ class TestDetectCompleted:
             "radarr:FilmA": {
                 "id": "radarr:FilmA",
                 "title": "Film A",
-                "media_type": "movie",
+                "kind": "movie",
                 "poster_url": "",
             }
         }
@@ -92,7 +92,7 @@ class TestDetectCompleted:
             "radarr:FilmB": {
                 "id": "radarr:FilmB",
                 "title": "Film B",
-                "media_type": "movie",
+                "kind": "movie",
                 "poster_url": "",
             }
         }
@@ -109,7 +109,7 @@ class TestDetectCompleted:
             "radarr:Dune": {
                 "id": "radarr:Dune",
                 "title": "Dune",
-                "media_type": "movie",
+                "kind": "movie",
                 "poster_url": "",
             }
         }

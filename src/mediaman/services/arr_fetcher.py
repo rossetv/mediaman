@@ -35,20 +35,26 @@ class ArrEpisodeEntry(TypedDict, total=False):
     is_pack_episode: bool
 
 
-class ArrCard(TypedDict, total=False):
+class BaseArrCard(TypedDict):
+    """Fields guaranteed present on every download card."""
+
+    kind: str        # 'movie' or 'series'
+    dl_id: str
+    title: str
+    source: str      # 'Radarr' or 'Sonarr'
+    poster_url: str
+
+
+class ArrCard(BaseArrCard, total=False):
     """A download card produced by :func:`fetch_arr_queue`.
 
     Both movie and series cards share this shape; series cards additionally
     carry an ``episodes`` list.  ``total=False`` allows partial construction
-    as cards are built up incrementally.
+    as cards are built up incrementally. The five fields in :class:`BaseArrCard`
+    are always present; all others are optional.
     """
 
-    kind: str            # 'movie' or 'series'
-    dl_id: str
-    title: str
     year: int | None
-    source: str          # 'Radarr' or 'Sonarr'
-    poster_url: str
     progress: int
     size: int
     sizeleft: int

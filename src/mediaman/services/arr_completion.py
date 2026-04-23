@@ -38,7 +38,7 @@ def _detect_completed(
             completed.append({
                 "dl_id": dl_id,
                 "title": item.get("title", ""),
-                "media_type": item.get("media_type", "movie"),
+                "media_type": item.get("kind", "movie"),
                 "poster_url": item.get("poster_url", ""),
             })
     return completed

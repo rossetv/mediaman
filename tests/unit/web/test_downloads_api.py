@@ -198,7 +198,7 @@ class TestCompletionDetection:
 
     def test_item_disappearing_is_completed(self):
         """An item present previously but absent now is detected as completed."""
-        previous = {"radarr:Dune": {"id": "radarr:Dune", "title": "Dune", "media_type": "movie", "poster_url": ""}}
+        previous = {"radarr:Dune": {"id": "radarr:Dune", "title": "Dune", "kind": "movie", "poster_url": ""}}
         current = {}
         completed = _detect_completed(previous, current)
         assert len(completed) == 1
@@ -206,14 +206,14 @@ class TestCompletionDetection:
 
     def test_no_change_means_no_completions(self):
         """Same items in both snapshots → nothing completed."""
-        snapshot = {"radarr:Dune": {"id": "radarr:Dune", "title": "Dune", "media_type": "movie", "poster_url": ""}}
+        snapshot = {"radarr:Dune": {"id": "radarr:Dune", "title": "Dune", "kind": "movie", "poster_url": ""}}
         completed = _detect_completed(snapshot, snapshot)
         assert completed == []
 
     def test_new_item_is_not_completed(self):
         """An item appearing for the first time is not a completion."""
         previous = {}
-        current = {"radarr:Dune": {"id": "radarr:Dune", "title": "Dune", "media_type": "movie", "poster_url": ""}}
+        current = {"radarr:Dune": {"id": "radarr:Dune", "title": "Dune", "kind": "movie", "poster_url": ""}}
         completed = _detect_completed(previous, current)
         assert completed == []
 

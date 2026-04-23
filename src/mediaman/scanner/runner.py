@@ -8,6 +8,7 @@ lifespan job (main.py) without duplication.
 import json
 import logging
 import sqlite3
+from typing import TYPE_CHECKING, NamedTuple, TypedDict
 
 from mediaman.services.arr_build import (
     build_radarr_from_db as _build_radarr,
@@ -15,6 +16,30 @@ from mediaman.services.arr_build import (
 )
 from mediaman.services.settings_reader import get_int_setting as _get_int_setting
 from mediaman.services.storage import get_disk_usage
+
+if TYPE_CHECKING:
+    from mediaman.services.plex import PlexClient
+
+
+class ScanSummary(TypedDict, total=False):
+    """Return type for :func:`run_scan_from_db` and :meth:`ScanEngine.run_scan`."""
+
+    scanned: int
+    scheduled: int
+    skipped: int
+    errors: int
+    removed: int
+    deleted: int
+    reclaimed_bytes: int
+
+
+class PlexClientBundle(NamedTuple):
+    """Return type for :func:`_build_plex_client`."""
+
+    plex: "PlexClient"
+    lib_ids: list[str]
+    lib_types: dict[str, str]
+    lib_titles: dict[str, str]
 
 logger = logging.getLogger("mediaman")
 
@@ -101,7 +126,7 @@ def _filter_libraries_by_disk(
 
 def _build_plex_client(
     conn: sqlite3.Connection, secret_key: str
-) -> "tuple | None":
+) -> "PlexClientBundle | None":
     """Build a PlexClient and resolve library metadata from DB settings.
 
     Returns a ``(plex, lib_ids, lib_types, lib_titles)`` tuple, or ``None``
@@ -133,10 +158,10 @@ def _build_plex_client(
     lib_types: dict[str, str] = {lib["id"]: lib["type"] for lib in plex_libs}
     lib_titles: dict[str, str] = {lib["id"]: lib["title"].lower() for lib in plex_libs}
 
-    return plex, lib_ids, lib_types, lib_titles
+    return PlexClientBundle(plex, lib_ids, lib_types, lib_titles)
 
 
-def run_scan_from_db(conn: sqlite3.Connection, secret_key: str, *, skip_disk_check: bool = False) -> dict:
+def run_scan_from_db(conn: sqlite3.Connection, secret_key: str, *, skip_disk_check: bool = False) -> ScanSummary:
     """Build a ScanEngine from DB settings and execute a full scan.
 
     Reads all required configuration from the ``settings`` table — Plex URL/
