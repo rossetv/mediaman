@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 
 
-def fetch_tmdb_for_item(item: dict, conn: sqlite3.Connection, secret_key: str) -> None:
+def enrich_item_with_tmdb(item: dict, conn: sqlite3.Connection, secret_key: str) -> None:
     """Fetch TMDB search + details + OMDB ratings for a single item.
 
     Thin wrapper around :class:`services.tmdb.TmdbClient` — fills gaps on
@@ -121,4 +121,4 @@ def enrich_redownload_item(item: dict, conn: sqlite3.Connection, secret_key: str
         return
 
     # 2. Fall back to TMDB + OMDB APIs
-    fetch_tmdb_for_item(item, conn, secret_key)
+    enrich_item_with_tmdb(item, conn, secret_key)

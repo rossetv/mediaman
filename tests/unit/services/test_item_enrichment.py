@@ -10,7 +10,7 @@ import pytest
 from mediaman.db import init_db
 from mediaman.services.item_enrichment import (
     enrich_redownload_item,
-    fetch_tmdb_for_item,
+    enrich_item_with_tmdb,
 )
 
 
@@ -29,7 +29,7 @@ def conn(tmp_path) -> sqlite3.Connection:
 
 
 # ---------------------------------------------------------------------------
-# fetch_tmdb_for_item
+# enrich_item_with_tmdb
 # ---------------------------------------------------------------------------
 
 class TestFetchTmdbForItem:
@@ -63,7 +63,7 @@ class TestFetchTmdbForItem:
         mock_fetch_ratings.return_value = {"rt": "83%", "imdb": "7.9"}
 
         item: dict = {"title": "Dune", "media_type": "movie"}
-        fetch_tmdb_for_item(item, conn, SECRET)
+        enrich_item_with_tmdb(item, conn, SECRET)
 
         assert item["poster_url"] == "https://example.com/dune.jpg"
         assert item["year"] == 2021
@@ -95,7 +95,7 @@ class TestFetchTmdbForItem:
             "poster_url": "https://example.com/poster.jpg",
             "year": 2020,
         }
-        fetch_tmdb_for_item(item, conn, SECRET)
+        enrich_item_with_tmdb(item, conn, SECRET)
 
         mock_client.search.assert_not_called()
 
@@ -107,7 +107,7 @@ class TestFetchTmdbForItem:
         mock_fetch_ratings.return_value = {}
 
         item = {"title": "No Token Film", "media_type": "movie"}
-        fetch_tmdb_for_item(item, conn, SECRET)  # must not raise
+        enrich_item_with_tmdb(item, conn, SECRET)  # must not raise
 
         assert item.get("poster_url") is None  # nothing was filled in
 
@@ -117,7 +117,7 @@ class TestFetchTmdbForItem:
         """If fetch_ratings raises, the item is still returned without crashing.
 
         fetch_ratings is documented as never-raising, but if it did the caller
-        (route handler) should not crash — we verify fetch_tmdb_for_item
+        (route handler) should not crash — we verify enrich_item_with_tmdb
         itself doesn't suppress this incorrectly. In practice fetch_ratings
         returns {} on failure; we simulate that here.
         """
@@ -125,7 +125,7 @@ class TestFetchTmdbForItem:
         mock_fetch_ratings.return_value = {}  # OMDB quietly failed
 
         item = {"title": "Graceful Failure", "media_type": "movie"}
-        fetch_tmdb_for_item(item, conn, SECRET)
+        enrich_item_with_tmdb(item, conn, SECRET)
 
         # No ratings keys added, but no exception either
         assert "rt_rating" not in item
@@ -151,7 +151,7 @@ class TestFetchTmdbForItem:
 
         existing_poster = "https://arr.example.com/existing.jpg"
         item = {"title": "Existing Poster Film", "media_type": "movie", "poster_url": existing_poster}
-        fetch_tmdb_for_item(item, conn, SECRET)
+        enrich_item_with_tmdb(item, conn, SECRET)
 
         # The search populates poster_url if missing; since item already had
         # one the search result replaces it (shape_card result is used
@@ -195,14 +195,14 @@ class TestEnrichRedownloadItem:
         assert item["director"] == "Christopher Nolan"
         assert item["rt_rating"] == "87%"
 
-    @patch("mediaman.services.item_enrichment.fetch_tmdb_for_item")
+    @patch("mediaman.services.item_enrichment.enrich_item_with_tmdb")
     def test_enrichment_falls_back_to_tmdb_when_no_cache(self, mock_fetch, conn):
-        """Cache miss: fetch_tmdb_for_item is called as the fallback."""
+        """Cache miss: enrich_item_with_tmdb is called as the fallback."""
         item = {"title": "Uncached Film", "media_type": "movie"}
         enrich_redownload_item(item, conn, SECRET)
         mock_fetch.assert_called_once_with(item, conn, SECRET)
 
-    @patch("mediaman.services.item_enrichment.fetch_tmdb_for_item")
+    @patch("mediaman.services.item_enrichment.enrich_item_with_tmdb")
     def test_enrichment_skips_tmdb_when_cache_has_poster(self, mock_fetch, conn):
         """Cache hit with poster_url bypasses TMDB entirely."""
         conn.execute(
@@ -229,7 +229,7 @@ class TestEnrichRedownloadItem:
 
         mock_fetch.assert_not_called()
 
-    @patch("mediaman.services.item_enrichment.fetch_tmdb_for_item")
+    @patch("mediaman.services.item_enrichment.enrich_item_with_tmdb")
     def test_enrichment_falls_back_when_cache_row_has_no_poster(self, mock_fetch, conn):
         """Cache row with a NULL/empty poster_url still triggers TMDB fallback."""
         conn.execute(

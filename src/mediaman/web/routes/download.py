@@ -40,10 +40,7 @@ from mediaman.services.arr_build import (
     build_radarr_from_db,
     build_sonarr_from_db,
 )
-from mediaman.services.item_enrichment import (
-    enrich_redownload_item,
-    fetch_tmdb_for_item,
-)
+from mediaman.services.item_enrichment import enrich_redownload_item
 
 logger = logging.getLogger("mediaman")
 
