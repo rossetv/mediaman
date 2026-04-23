@@ -62,13 +62,11 @@ _LAST_REFRESH_KEY = "last_manual_recommendation_refresh"
 
 
 def _last_manual_refresh(conn) -> datetime | None:
-    row = conn.execute(
-        "SELECT value FROM settings WHERE key=?", (_LAST_REFRESH_KEY,),
-    ).fetchone()
-    if not row or not row["value"]:
+    val = get_string_setting(conn, _LAST_REFRESH_KEY)
+    if not val:
         return None
     try:
-        return datetime.fromisoformat(row["value"])
+        return datetime.fromisoformat(val)
     except (TypeError, ValueError):
         return None
 
@@ -169,8 +167,7 @@ def recommended_page(request: Request) -> Response:
 
     # Generate share URLs and check library state for downloaded items
     config = request.app.state.config
-    base_url_row = conn.execute("SELECT value FROM settings WHERE key='base_url'").fetchone()
-    base_url = (base_url_row["value"] if base_url_row else "").rstrip("/")
+    base_url = (get_string_setting(conn, "base_url") or "").rstrip("/")
 
     radarr_cache: dict | None = None
     sonarr_cache: dict | None = None

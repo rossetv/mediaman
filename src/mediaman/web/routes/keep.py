@@ -12,7 +12,6 @@ from starlette.responses import Response
 from mediaman.auth.audit import log_audit
 from mediaman.auth.middleware import get_optional_admin_from_token
 from mediaman.auth.rate_limit import RateLimiter, get_client_ip
-from mediaman.config import load_config
 from mediaman.crypto import validate_keep_token
 from mediaman.db import get_db
 from mediaman.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
@@ -66,7 +65,7 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
     """Render the keep page. Three states: active, already-kept, expired."""
     conn = get_db()
     templates = request.app.state.templates
-    config = load_config()
+    config = request.app.state.config
 
     if not _KEEP_LIMITER.check(get_client_ip(request)):
         return HTMLResponse("Too many requests. Try again later.", status_code=429)
@@ -136,7 +135,7 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
     admin/duration validation.
     """
     conn = get_db()
-    config = load_config()
+    config = request.app.state.config
 
     if not _KEEP_LIMITER.check(get_client_ip(request)):
         return HTMLResponse("Too many requests. Try again later.", status_code=429)
