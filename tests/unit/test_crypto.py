@@ -202,3 +202,116 @@ class TestSessionToken:
         a = generate_session_token()
         b = generate_session_token()
         assert a != b
+
+
+class TestCanaryNoReseedOnTamper:
+    """C26: canary_check must NOT re-seed when other encrypted rows
+    exist but the canary row is missing. Previously it re-seeded,
+    self-erasing the tamper signal after one run."""
+
+    def test_missing_canary_with_encrypted_rows_returns_false(self, conn, secret_key):
+        # Seed a non-canary encrypted setting.
+        from mediaman.crypto import encrypt_value
+        ct = encrypt_value("api-key-value", secret_key, conn=conn)
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) "
+            "VALUES ('plex_token', ?, 1, '2026-01-01')",
+            (ct,),
+        )
+        conn.commit()
+
+        # No canary row exists yet. canary_check must refuse to seed
+        # and must return False.
+        ok = canary_check(conn, secret_key)
+        assert ok is False
+
+        # Canary row must NOT have been created.
+        row = conn.execute(
+            "SELECT 1 FROM settings WHERE key='aes_kdf_canary'"
+        ).fetchone()
+        assert row is None
+
+    def test_tamper_signal_persists_across_runs(self, conn, secret_key):
+        """Second run must also report False — no silent self-heal."""
+        from mediaman.crypto import encrypt_value
+        ct = encrypt_value("api-key-value", secret_key, conn=conn)
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) "
+            "VALUES ('plex_token', ?, 1, '2026-01-01')",
+            (ct,),
+        )
+        conn.commit()
+
+        assert canary_check(conn, secret_key) is False
+        assert canary_check(conn, secret_key) is False
+
+    def test_genuine_first_run_still_seeds(self, conn, secret_key):
+        """No encrypted rows at all → clean first-run → seed + True."""
+        assert canary_check(conn, secret_key) is True
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key='aes_kdf_canary'"
+        ).fetchone()
+        assert row is not None
+
+
+class TestV2V1PlausibilityGate:
+    """C33: fallback from v2 → v1 must check v1 structural shape
+    first — don't burn a second AES round on bytes that clearly
+    aren't v1."""
+
+    def test_junk_bytes_do_not_fall_back_to_v1(self, secret_key, conn):
+        """Short garbage input must fail fast as InvalidTag, not as a
+        second AES attempt. We can't directly observe CPU burn but we
+        can at least confirm the error surfaces and the input is
+        rejected cleanly."""
+        # 10 random bytes, base64-encoded — far too short for v1 (needs
+        # ≥ 12 nonce + 16 tag = 28) and doesn't start with the v2 prefix.
+        junk = base64.urlsafe_b64encode(b"\x03" * 10).decode()
+        with pytest.raises(InvalidTag):
+            decrypt_value(junk, secret_key, conn=conn)
+
+    def test_v2_prefixed_failure_does_not_attempt_v1(self, secret_key, conn):
+        """A valid-length v2 payload with the right prefix byte but a
+        wrong tag should NOT fall back to v1 — it's clearly a v2
+        ciphertext that failed authentication, not a v1 coincidence."""
+        # Fabricate a fake v2 payload whose tag will fail.
+        fake = b"\x02" + b"\x00" * 12 + b"\x00" * 32
+        encoded = base64.urlsafe_b64encode(fake).decode()
+        with pytest.raises(InvalidTag):
+            decrypt_value(encoded, secret_key, conn=conn)
+
+    def test_legit_v1_ciphertext_still_decrypts(self, secret_key, conn):
+        """Regression: valid v1 bytes must still round-trip — the
+        plausibility gate only blocks bytes that can't structurally be
+        v1 or that started life as v2."""
+        # Synthesise a v1 ciphertext: no prefix, 12-byte nonce, then
+        # AES-GCM ciphertext.
+        key = hashlib.sha256(secret_key.encode()).digest()
+        aesgcm = AESGCM(key)
+        nonce = secrets.token_bytes(12)
+        ct = aesgcm.encrypt(nonce, b"legacy", None)
+        legacy = base64.urlsafe_b64encode(nonce + ct).decode()
+        assert decrypt_value(legacy, secret_key, conn=conn) == "legacy"
+
+
+class TestValidateSignedNarrowedException:
+    """C7 / C34: the bare-except in _validate_signed was replaced with
+    a narrow tuple. Non-dict JSON must also be rejected up front."""
+
+    def test_non_dict_payload_rejected(self):
+        """A JSON-array or JSON-null payload must not slide through —
+        even with the right signature, it's not a valid token shape."""
+        from mediaman.crypto import _encode_signed, _validate_signed, _TOKEN_PURPOSE_KEEP
+        key = "0123456789abcdef" * 4
+        # Craft a payload that's a list, not a dict. _encode_signed
+        # will still produce a valid signature over it.
+        token = _encode_signed([1, 2, 3], key, _TOKEN_PURPOSE_KEEP)  # type: ignore[arg-type]
+        assert _validate_signed(token, key, _TOKEN_PURPOSE_KEEP) is None
+
+    def test_malformed_token_returns_none_not_exception(self):
+        from mediaman.crypto import _validate_signed, _TOKEN_PURPOSE_KEEP
+        key = "0123456789abcdef" * 4
+        # Bad base64, bad JSON, no dot — all must degrade to None
+        # via the narrowed except.
+        assert _validate_signed("no-dot-here", key, _TOKEN_PURPOSE_KEEP) is None
+        assert _validate_signed("not_base64!!.also_bad", key, _TOKEN_PURPOSE_KEEP) is None

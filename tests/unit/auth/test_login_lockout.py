@@ -193,3 +193,155 @@ class TestAuthenticateIntegration:
         ).fetchone()
         assert row is not None
         assert row["failure_count"] == 3
+
+
+class TestEscalatingLockoutWindows:
+    """5-9 → 15 min, 10-14 → 1 h, 15+ → 24 h."""
+
+    def test_fifteen_failures_lock_for_twenty_four_hours(self, conn):
+        for _ in range(15):
+            record_failure(conn, "alice")
+        row = conn.execute(
+            "SELECT locked_until, failure_count FROM login_failures "
+            "WHERE username = ?",
+            ("alice",),
+        ).fetchone()
+        locked_until = datetime.fromisoformat(row["locked_until"])
+        delta = locked_until - datetime.now(timezone.utc)
+        # 24 h within 60 s slack.
+        assert timedelta(hours=23, minutes=59) < delta <= timedelta(hours=24, seconds=60)
+        assert row["failure_count"] == 15
+
+    def test_record_failure_returns_current_window_minutes(self, conn):
+        # First four failures: sub-threshold → None.
+        for _ in range(4):
+            assert record_failure(conn, "alice") is None
+        # Fifth failure crosses 5 → 15 min.
+        assert record_failure(conn, "alice") == 15
+        # Continue to 10 → 60 min.
+        for _ in range(4):
+            record_failure(conn, "alice")
+        assert record_failure(conn, "alice") == 60
+        # Continue to 15 → 1440 min.
+        for _ in range(4):
+            record_failure(conn, "alice")
+        assert record_failure(conn, "alice") == 24 * 60
+
+
+class TestAuthenticateKeepsCountingWhileLocked:
+    """C6: the 5-failure wall must not freeze the counter — otherwise
+    the 10/15 escalation windows are unreachable."""
+
+    def test_counter_keeps_climbing_while_locked(self, conn):
+        create_user(conn, "alice", "correct-password-123", enforce_policy=False)
+        # Trip the 5-failure lock.
+        for _ in range(5):
+            authenticate(conn, "alice", "bad-password")
+
+        row = conn.execute(
+            "SELECT failure_count FROM login_failures WHERE username = ?",
+            ("alice",),
+        ).fetchone()
+        assert row["failure_count"] == 5
+
+        # Attempt 5 more times while the account is locked. Previously
+        # the authenticate() fast-path skipped record_failure() when
+        # locked, so the counter sat at 5 forever and the 10-failure
+        # escalation never fired.
+        for _ in range(5):
+            authenticate(conn, "alice", "bad-password")
+
+        row = conn.execute(
+            "SELECT failure_count, locked_until FROM login_failures "
+            "WHERE username = ?",
+            ("alice",),
+        ).fetchone()
+        assert row["failure_count"] == 10
+        # Lock now escalated to 1 h.
+        locked_until = datetime.fromisoformat(row["locked_until"])
+        delta = locked_until - datetime.now(timezone.utc)
+        assert timedelta(minutes=59) < delta <= timedelta(minutes=61)
+
+
+class TestConcurrentRecordFailure:
+    """C25: record_failure must be atomic under parallel writes.
+
+    The previous read-modify-write lost increments around the 5/10
+    boundary — two threads reading failure_count=4 both wrote back
+    failure_count=5, so a 10-failure attack counted as 9 and the 1 h
+    escalation never fired.
+    """
+
+    def test_parallel_failures_all_counted(self, tmp_path):
+        import threading
+        from mediaman.db import init_db
+
+        db_file = tmp_path / "mm.db"
+        init_db(str(db_file))  # create schema on the bootstrap conn
+
+        # 20 threads, each recording one failure against the same user
+        # through its own connection. All 20 must be counted.
+        errors: list[BaseException] = []
+        barrier = threading.Barrier(20)
+
+        def worker() -> None:
+            try:
+                import sqlite3
+                c = sqlite3.connect(str(db_file))
+                c.row_factory = sqlite3.Row
+                c.execute("PRAGMA busy_timeout=30000")
+                barrier.wait()
+                record_failure(c, "alice")
+                c.close()
+            except BaseException as exc:  # noqa: BLE001 — propagate to test
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker) for _ in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == [], f"worker errors: {errors}"
+
+        import sqlite3
+        c = sqlite3.connect(str(db_file))
+        c.row_factory = sqlite3.Row
+        row = c.execute(
+            "SELECT failure_count FROM login_failures WHERE username = ?",
+            ("alice",),
+        ).fetchone()
+        c.close()
+        assert row["failure_count"] == 20
+
+
+class TestAuthenticateRecordFailuresFlag:
+    """H9: change_password must not lock the user out of their own account."""
+
+    def test_record_failures_false_does_not_lock(self, conn):
+        create_user(conn, "alice", "correct-password-123", enforce_policy=False)
+        # 10 failed attempts with record_failures=False — should NOT lock.
+        for _ in range(10):
+            assert authenticate(
+                conn, "alice", "bad", record_failures=False,
+            ) is False
+        assert check_lockout(conn, "alice") is False
+        row = conn.execute(
+            "SELECT failure_count FROM login_failures WHERE username = ?",
+            ("alice",),
+        ).fetchone()
+        assert row is None
+
+    def test_record_failures_false_still_clears_counter_on_success(self, conn):
+        create_user(conn, "alice", "correct-password-123", enforce_policy=False)
+        # Trip some failures with the normal path.
+        for _ in range(3):
+            authenticate(conn, "alice", "bad")
+        # A correct password via the trusted path must still clear them.
+        assert authenticate(
+            conn, "alice", "correct-password-123", record_failures=False,
+        ) is True
+        row = conn.execute(
+            "SELECT * FROM login_failures WHERE username = ?", ("alice",),
+        ).fetchone()
+        assert row is None

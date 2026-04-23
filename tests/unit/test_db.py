@@ -156,3 +156,122 @@ class TestThreadLocalConnection:
         # The main-thread connection must still be usable.
         row = conn_main.execute("SELECT 1").fetchone()
         assert row[0] == 1
+
+
+class TestSchemaV13LegacySessionPurge:
+    """C9 / C10: migration v13 hoists the session columns and purges
+    legacy rows that pre-date the token-hashing hardening."""
+
+    def test_purges_rows_with_null_token_hash(self, tmp_path):
+        """A session row with ``token_hash IS NULL`` is unreachable under
+        the new scheme and was also issued under the 7-day hard expiry.
+        It must be deleted by the migration — forcing the user to log
+        in again so they end up on the hardened path."""
+        db_path = tmp_path / "legacy.db"
+        # Hand-craft a v12 DB with a legacy session row.
+        conn_old = sqlite3.connect(str(db_path))
+        conn_old.row_factory = sqlite3.Row
+        conn_old.executescript("""
+            CREATE TABLE admin_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE admin_sessions (
+                token TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            );
+            CREATE TABLE settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                encrypted INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            );
+            INSERT INTO admin_users (username, password_hash, created_at)
+                VALUES ('legacy', 'x', '2026-01-01');
+            INSERT INTO admin_sessions (token, username, created_at, expires_at)
+                VALUES ('legacy-raw-token', 'legacy', '2026-01-01', '2099-12-31');
+        """)
+        conn_old.execute("PRAGMA user_version=12")
+        conn_old.commit()
+        conn_old.close()
+
+        conn = init_db(str(db_path))
+        # Legacy row must have been purged.
+        rows = conn.execute("SELECT * FROM admin_sessions").fetchall()
+        assert rows == []
+        # New columns exist on the table.
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(admin_sessions)").fetchall()}
+        assert {"token_hash", "last_used_at", "fingerprint", "issued_ip"} <= cols
+        # Version bumped.
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == DB_SCHEMA_VERSION
+
+    def test_purges_rows_with_expiry_over_one_day_cap(self, tmp_path):
+        """Any session whose stored expiry is more than the new 1-day
+        cap past its created_at gets purged — defensive against
+        long-lived rows crafted directly in the DB or left from the old
+        7-day hard expiry."""
+        db_path = tmp_path / "legacy.db"
+        # Start from a fresh v12 DB so we control the state precisely.
+        conn = init_db(str(db_path))
+        # Drop back to v12 and write a row with a 7-day TTL + populated
+        # token_hash (so the null-hash branch doesn't catch it).
+        conn.execute("PRAGMA user_version=12")
+        conn.execute("DELETE FROM admin_sessions")
+        conn.execute(
+            "INSERT INTO admin_users (username, password_hash, created_at) "
+            "VALUES ('legacy', 'x', '2026-01-01')"
+        )
+        conn.execute(
+            "INSERT INTO admin_sessions "
+            "(token, token_hash, username, created_at, expires_at) "
+            "VALUES ('tok', 'hash', 'legacy', '2026-01-01T00:00:00+00:00', "
+            "'2026-01-08T00:00:00+00:00')"  # 7 days > 1 day cap
+        )
+        conn.commit()
+        conn.close()
+
+        # Re-open → migration v13 runs.
+        conn = init_db(str(db_path))
+        rows = conn.execute("SELECT * FROM admin_sessions").fetchall()
+        assert rows == []
+
+    def test_keeps_rows_within_cap(self, tmp_path):
+        """A well-formed row inside the 1-day cap must be left alone."""
+        db_path = tmp_path / "legacy.db"
+        conn = init_db(str(db_path))
+        conn.execute("PRAGMA user_version=12")
+        conn.execute("DELETE FROM admin_sessions")
+        conn.execute(
+            "INSERT INTO admin_users (username, password_hash, created_at) "
+            "VALUES ('keep', 'x', '2026-01-01')"
+        )
+        conn.execute(
+            "INSERT INTO admin_sessions "
+            "(token, token_hash, username, created_at, expires_at) "
+            "VALUES ('tok', 'h', 'keep', '2026-01-01T00:00:00+00:00', "
+            "'2026-01-01T12:00:00+00:00')"  # 12 h < 1 day cap
+        )
+        conn.commit()
+        conn.close()
+
+        conn = init_db(str(db_path))
+        rows = conn.execute(
+            "SELECT username FROM admin_sessions"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["username"] == "keep"
+
+    def test_migration_idempotent(self, db_path):
+        """Running init_db twice must not error (migration re-runs are
+        guarded)."""
+        init_db(str(db_path)).close()
+        init_db(str(db_path)).close()  # must not raise
+
+    def test_schema_version_is_13(self, db_path):
+        assert DB_SCHEMA_VERSION == 13
+        conn = init_db(str(db_path))
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 13

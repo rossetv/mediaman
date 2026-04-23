@@ -49,6 +49,7 @@ tokens of another type.
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -363,8 +364,25 @@ def decrypt_value(
                 pass
 
     # --- v1 fallback --------------------------------------------------------
-    # legacy v1 — pre-HKDF ciphertexts before 2026-04-16
+    # legacy v1 — pre-HKDF ciphertexts before 2026-04-16.
     # No prefix byte; raw = nonce(12) || ciphertext+tag. Key is SHA-256(secret).
+    #
+    # Plausibility gate: only attempt the v1 path when the bytes look
+    # structurally like a v1 ciphertext. AES-GCM always emits a 16-byte
+    # tag, so the minimum meaningful v1 payload is 12 + 16 = 28 bytes.
+    # Without this guard, every random InvalidTag on the v2 branch
+    # triggered a second PBKDF-then-AES round on attacker-controlled
+    # bytes — a free CPU amplifier if the decrypt path were ever
+    # reachable without auth. Callers are already auth-gated (this is
+    # defence in depth), but the guard keeps the blast radius finite
+    # even if that assumption ever changes.
+    if len(raw) < 12 + 16:
+        raise InvalidTag()
+    # An input that started with the v2 prefix but failed v2 decrypt is
+    # almost certainly NOT a legacy ciphertext — treat the v2 failure
+    # as authoritative rather than burning another AES round.
+    if raw[:1] == _V2_PREFIX:
+        raise InvalidTag()
     key = _derive_aes_key_legacy(secret_key)
     aesgcm = AESGCM(key)
     nonce, ciphertext = raw[:12], raw[12:]
@@ -395,8 +413,11 @@ def canary_check(conn: sqlite3.Connection, secret_key: str) -> bool:
     refuse to start (otherwise the admin can never log in to fix it).
 
     Tamper detection: if the canary row is missing BUT other encrypted
-    rows exist, that's not first-run — it's possible tampering. Log
-    and return False.
+    rows exist, that's not first-run — it's possible tampering. In that
+    case we **refuse to re-seed** (re-seeding would erase the tamper
+    signal after one run and make the check useless) and return False.
+    Genuine first-run (no encrypted rows at all) is the only path that
+    writes a new canary.
     """
     row = conn.execute(
         "SELECT value FROM settings WHERE key=?", (_CANARY_SETTING_KEY,)
@@ -408,13 +429,19 @@ def canary_check(conn: sqlite3.Connection, secret_key: str) -> bool:
             (_CANARY_SETTING_KEY,),
         ).fetchone()
         if other is not None:
-            logger.warning(
-                "AES canary is missing but encrypted settings exist — "
-                "possible database tampering. The app will reseed the "
-                "canary, but you should verify encrypted settings are "
-                "still decryptable."
+            # Do NOT re-seed. Previously this branch re-seeded a fresh
+            # canary, which meant the tamper signal self-erased after
+            # one boot. Leave the table untouched so subsequent boots
+            # keep failing the check and the admin has a chance to
+            # investigate.
+            logger.error(
+                "AES canary row is missing but encrypted settings exist — "
+                "possible database tampering. Refusing to re-seed the "
+                "canary; investigate the DB before restarting."
             )
-        # Seed the canary using AAD binding so the row is tamper-evident.
+            return False
+
+        # Genuine first-run: no encrypted rows at all. Safe to seed.
         ciphertext = encrypt_value(
             _CANARY_PLAINTEXT,
             secret_key,
@@ -427,7 +454,7 @@ def canary_check(conn: sqlite3.Connection, secret_key: str) -> bool:
             (_CANARY_SETTING_KEY, ciphertext, _now_iso()),
         )
         conn.commit()
-        return other is None  # False if tamper suspected; True on genuine first-run
+        return True
 
     try:
         decrypted = decrypt_value(
@@ -497,13 +524,33 @@ def _validate_signed(
         if not hmac.compare_digest(sig, expected_sig):
             return None
         payload = json.loads(payload_bytes)
+        # Reject non-dict top-level payloads up front. A JSON ``null``,
+        # ``true``, a number, a string, or a list would otherwise slide
+        # into downstream ``payload.get(...)`` calls that are typed for
+        # dicts. Callers already assume dict; make it explicit at the
+        # trust boundary instead of relying on attribute-error pluck via
+        # a blanket ``except Exception`` swallow further down.
         if not isinstance(payload, dict):
             return None
         exp = payload.get("exp", 0)
         if not isinstance(exp, (int, float)) or exp < time.time():
             return None
         return payload
-    except Exception:
+    except (
+        ValueError,          # invalid JSON, bad base64 padding, etc.
+        TypeError,
+        binascii.Error,      # base64.urlsafe_b64decode on non-base64 bytes
+        json.JSONDecodeError,
+        KeyError,
+    ):
+        # Never log the payload itself — that would echo an attacker's
+        # input into the log file. Signature prefix only, and only at
+        # DEBUG level so a probe campaign does not fill the log.
+        logger.debug(
+            "crypto.token_invalid purpose=%s sig_prefix=%s",
+            purpose.decode(errors="replace"),
+            (token.split(".", 1)[-1][:8] if "." in token else token[:8]),
+        )
         return None
 
 

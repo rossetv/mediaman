@@ -30,8 +30,11 @@ def get_current_admin(
     if not session_token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     conn = get_db()
-    user_agent = request.headers.get("user-agent", "")
-    client_ip = get_client_ip(request)
+    # ``or None`` ensures an empty header is treated as missing. Previously
+    # we passed ``""`` through, which tripped the fingerprint check's
+    # ``is not None`` guard against a blank UA.
+    user_agent = request.headers.get("user-agent") or None
+    client_ip = get_client_ip(request) or None
     username = validate_session(
         conn, session_token, user_agent=user_agent, client_ip=client_ip,
     )
@@ -68,11 +71,11 @@ def get_optional_admin_from_token(
         return None
     conn = get_db()
     if request is not None:
-        user_agent = request.headers.get("user-agent", "")
-        client_ip = get_client_ip(request)
+        user_agent = request.headers.get("user-agent") or None
+        client_ip = get_client_ip(request) or None
     else:
-        user_agent = ""
-        client_ip = ""
+        user_agent = None
+        client_ip = None
     return validate_session(
         conn, session_token, user_agent=user_agent, client_ip=client_ip,
     )
@@ -93,8 +96,8 @@ def resolve_page_session(
     if not token:
         return RedirectResponse("/login", status_code=302)
     conn = get_db()
-    user_agent = request.headers.get("user-agent", "")
-    client_ip = get_client_ip(request)
+    user_agent = request.headers.get("user-agent") or None
+    client_ip = get_client_ip(request) or None
     username = validate_session(
         conn, token, user_agent=user_agent, client_ip=client_ip,
     )

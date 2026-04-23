@@ -20,11 +20,15 @@ migration runs exactly once at startup on the main thread before any
 other threads are spawned.
 """
 
+import logging
 import sqlite3
 import threading
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-DB_SCHEMA_VERSION = 12
+logger = logging.getLogger("mediaman")
+
+DB_SCHEMA_VERSION = 13
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (
@@ -361,6 +365,94 @@ def init_db(db_path: str) -> sqlite3.Connection:
                 locked_until TEXT
             )
         """)
+    if current_version < 13:
+        # Hoist the admin_sessions / admin_users hardening columns out of
+        # the runtime ``_ensure_session_columns`` helper and into the
+        # migration system. Previously every session write re-issued the
+        # PRAGMA + ALTER guard; that was both noisy and incomplete (one
+        # call site, ``destroy_all_sessions_for``, forgot it entirely).
+        #
+        # Idempotent: guarded by PRAGMA table_info lookups so re-running
+        # the migration is a no-op. Legacy test DBs that skip the
+        # initial schema (e.g. the v10/v11 migration tests) won't have
+        # the table at all — detect that and skip cleanly.
+        has_sessions_table = conn.execute(
+            "SELECT 1 FROM sqlite_master "
+            "WHERE type='table' AND name='admin_sessions'"
+        ).fetchone() is not None
+        has_users_table = conn.execute(
+            "SELECT 1 FROM sqlite_master "
+            "WHERE type='table' AND name='admin_users'"
+        ).fetchone() is not None
+        session_cols = set()
+        if has_sessions_table:
+            session_cols = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(admin_sessions)").fetchall()
+            }
+        if has_sessions_table:
+            if "token_hash" not in session_cols:
+                conn.execute("ALTER TABLE admin_sessions ADD COLUMN token_hash TEXT")
+            if "last_used_at" not in session_cols:
+                conn.execute("ALTER TABLE admin_sessions ADD COLUMN last_used_at TEXT")
+            if "fingerprint" not in session_cols:
+                conn.execute("ALTER TABLE admin_sessions ADD COLUMN fingerprint TEXT")
+            if "issued_ip" not in session_cols:
+                conn.execute("ALTER TABLE admin_sessions ADD COLUMN issued_ip TEXT")
+
+        if has_users_table:
+            user_cols = {
+                row[1]
+                for row in conn.execute("PRAGMA table_info(admin_users)").fetchall()
+            }
+            if "must_change_password" not in user_cols:
+                conn.execute(
+                    "ALTER TABLE admin_users ADD COLUMN "
+                    "must_change_password INTEGER NOT NULL DEFAULT 0"
+                )
+
+        # Purge legacy pre-hardening sessions:
+        #  * rows with no token_hash (cannot be validated under the new
+        #    scheme; they would also retain the pre-hardening 7-day hard
+        #    expiry), and
+        #  * any row whose stored expiry is more than the current 1-day
+        #    hard cap past its created_at (defensive: someone who crafted
+        #    a long-lived row directly in the DB is forced to re-login).
+        if has_sessions_table:
+            deleted_null = conn.execute(
+                "DELETE FROM admin_sessions "
+                "WHERE token_hash IS NULL OR token_hash = ''"
+            ).rowcount
+            if deleted_null:
+                logger.warning(
+                    "db.migration_v13 purged_legacy_sessions count=%d reason=token_hash_missing",
+                    deleted_null,
+                )
+            # 1-day hard cap. Use a generous +60 s slack against clock drift.
+            cap = timedelta(days=1, seconds=60)
+            rows = conn.execute(
+                "SELECT rowid, created_at, expires_at FROM admin_sessions "
+                "WHERE created_at IS NOT NULL AND expires_at IS NOT NULL"
+            ).fetchall()
+            stale_rowids: list[int] = []
+            for row in rows:
+                try:
+                    created = datetime.fromisoformat(row["created_at"])
+                    expires = datetime.fromisoformat(row["expires_at"])
+                except (TypeError, ValueError):
+                    continue
+                if expires - created > cap:
+                    stale_rowids.append(row["rowid"])
+            if stale_rowids:
+                placeholders = ",".join("?" for _ in stale_rowids)
+                conn.execute(
+                    f"DELETE FROM admin_sessions WHERE rowid IN ({placeholders})",
+                    stale_rowids,
+                )
+                logger.warning(
+                    "db.migration_v13 purged_legacy_sessions count=%d reason=expiry_over_cap",
+                    len(stale_rowids),
+                )
     conn.execute(f"PRAGMA user_version={DB_SCHEMA_VERSION}")
     conn.commit()
 
