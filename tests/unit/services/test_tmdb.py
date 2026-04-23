@@ -1,6 +1,4 @@
 """Tests for the unified TMDB client and shaping helpers."""
-from unittest.mock import MagicMock, patch
-
 import pytest
 
 from mediaman.crypto import encrypt_value
@@ -114,108 +112,91 @@ class TestFromDb:
 
 
 class TestSearch:
-    @patch("mediaman.services.tmdb.requests.get")
-    def test_movie_search_returns_first_result(self, mock_get):
-        mock_get.return_value = MagicMock(ok=True, json=lambda: _movie_search_payload())
+    def test_movie_search_returns_first_result(self, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data=_movie_search_payload()))
         client = TmdbClient("token")
         result = client.search("Dune")
         assert result["id"] == 438631
-        # Bearer token sent
-        assert mock_get.call_args[1]["headers"]["Authorization"] == "Bearer token"
-        # Endpoint + params correct
-        assert mock_get.call_args[0][0].endswith("/search/movie")
-        params = mock_get.call_args[1]["params"]
+        _, url, kwargs = fake_http.calls[0]
+        assert kwargs["headers"]["Authorization"] == "Bearer token"
+        assert url.endswith("/search/movie")
+        params = kwargs["params"]
         assert params["query"] == "Dune"
         assert "year" not in params
 
-    @patch("mediaman.services.tmdb.requests.get")
-    def test_movie_search_with_year(self, mock_get):
-        mock_get.return_value = MagicMock(ok=True, json=lambda: _movie_search_payload())
+    def test_movie_search_with_year(self, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data=_movie_search_payload()))
         client = TmdbClient("token")
         client.search("Dune", year=2021, media_type="movie")
-        assert mock_get.call_args[1]["params"]["year"] == 2021
+        assert fake_http.calls[0][2]["params"]["year"] == 2021
 
-    @patch("mediaman.services.tmdb.requests.get")
-    def test_tv_search_uses_first_air_date_year(self, mock_get):
-        mock_get.return_value = MagicMock(
-            ok=True,
-            json=lambda: {"results": [{"id": 1, "name": "X", "first_air_date": "2021-01-01"}]},
-        )
+    def test_tv_search_uses_first_air_date_year(self, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data={
+            "results": [{"id": 1, "name": "X", "first_air_date": "2021-01-01"}]
+        }))
         client = TmdbClient("token")
         client.search("Arcane", year=2021, media_type="tv")
-        assert mock_get.call_args[0][0].endswith("/search/tv")
-        assert mock_get.call_args[1]["params"]["first_air_date_year"] == 2021
+        _, url, kwargs = fake_http.calls[0]
+        assert url.endswith("/search/tv")
+        assert kwargs["params"]["first_air_date_year"] == 2021
 
-    @patch("mediaman.services.tmdb.requests.get")
-    def test_returns_none_on_empty_results(self, mock_get):
-        mock_get.return_value = MagicMock(ok=True, json=lambda: {"results": []})
+    def test_returns_none_on_empty_results(self, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data={"results": []}))
         client = TmdbClient("token")
         assert client.search("Nothing") is None
 
-    @patch("mediaman.services.tmdb.requests.get")
-    def test_returns_none_on_http_error(self, mock_get):
-        mock_get.return_value = MagicMock(ok=False)
+    def test_returns_none_on_http_error(self, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(status=500, text="no"))
         client = TmdbClient("token")
         assert client.search("Dune") is None
 
-    @patch("mediaman.services.tmdb.requests.get")
-    def test_returns_none_on_exception(self, mock_get):
-        mock_get.side_effect = Exception("timeout")
+    def test_returns_none_on_exception(self, fake_http):
+        fake_http.raise_on("GET", Exception("timeout"))
         client = TmdbClient("token")
         assert client.search("Dune") is None
 
 
 class TestSearchMulti:
-    @patch("mediaman.services.tmdb.requests.get")
-    def test_returns_raw_first_result(self, mock_get):
-        mock_get.return_value = MagicMock(
-            ok=True,
-            json=lambda: {
-                "results": [
-                    {"media_type": "person", "id": 999},
-                    {"media_type": "movie", "id": 1, "poster_path": "/x.jpg"},
-                ]
-            },
-        )
+    def test_returns_raw_first_result(self, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data={
+            "results": [
+                {"media_type": "person", "id": 999},
+                {"media_type": "movie", "id": 1, "poster_path": "/x.jpg"},
+            ]
+        }))
         client = TmdbClient("token")
         result = client.search_multi("Anything")
-        # First result is returned as-is (including person entries) — dashboard
-        # relies on this to mirror the previous behaviour.
         assert result["id"] == 999
 
-    @patch("mediaman.services.tmdb.requests.get")
-    def test_returns_none_on_failure(self, mock_get):
-        mock_get.side_effect = Exception("boom")
+    def test_returns_none_on_failure(self, fake_http):
+        fake_http.raise_on("GET", Exception("boom"))
         client = TmdbClient("token")
         assert client.search_multi("x") is None
 
 
 class TestDetails:
-    @patch("mediaman.services.tmdb.requests.get")
-    def test_movie_details_appends_videos_and_credits(self, mock_get):
-        mock_get.return_value = MagicMock(ok=True, json=lambda: _movie_details_payload())
+    def test_movie_details_appends_videos_and_credits(self, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data=_movie_details_payload()))
         client = TmdbClient("token")
         data = client.details("movie", 438631)
         assert data["id"] == 438631
-        assert mock_get.call_args[0][0].endswith("/movie/438631")
-        assert mock_get.call_args[1]["params"]["append_to_response"] == "videos,credits"
+        _, url, kwargs = fake_http.calls[0]
+        assert url.endswith("/movie/438631")
+        assert kwargs["params"]["append_to_response"] == "videos,credits"
 
-    @patch("mediaman.services.tmdb.requests.get")
-    def test_tv_details_uses_tv_endpoint(self, mock_get):
-        mock_get.return_value = MagicMock(ok=True, json=lambda: _tv_details_payload())
+    def test_tv_details_uses_tv_endpoint(self, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data=_tv_details_payload()))
         client = TmdbClient("token")
         client.details("tv", 12345)
-        assert mock_get.call_args[0][0].endswith("/tv/12345")
+        assert fake_http.calls[0][1].endswith("/tv/12345")
 
-    @patch("mediaman.services.tmdb.requests.get")
-    def test_returns_none_on_http_error(self, mock_get):
-        mock_get.return_value = MagicMock(ok=False)
+    def test_returns_none_on_http_error(self, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(status=500))
         client = TmdbClient("token")
         assert client.details("movie", 1) is None
 
-    @patch("mediaman.services.tmdb.requests.get")
-    def test_returns_none_on_exception(self, mock_get):
-        mock_get.side_effect = Exception("down")
+    def test_returns_none_on_exception(self, fake_http):
+        fake_http.raise_on("GET", Exception("down"))
         client = TmdbClient("token")
         assert client.details("movie", 1) is None
 

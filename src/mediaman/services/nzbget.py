@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import requests
 
+from mediaman.services.http_client import SafeHTTPClient
+
 
 class NzbgetClient:
     """Thin JSON-RPC wrapper around the NZBGet HTTP API."""
@@ -11,16 +13,16 @@ class NzbgetClient:
     def __init__(self, url: str, username: str, password: str) -> None:
         self._url = url.rstrip("/")
         self._auth: tuple[str, str] = (username, password)
+        self._session = requests.Session()
+        self._http = SafeHTTPClient(self._url, session=self._session)
 
     def _call(self, method: str) -> dict | list:
         """Invoke *method* on the NZBGet JSON-RPC endpoint and return the result."""
-        resp = requests.post(
-            f"{self._url}/jsonrpc",
+        resp = self._http.post(
+            "/jsonrpc",
             json={"method": method},
             auth=self._auth,
-            timeout=15,
         )
-        resp.raise_for_status()
         return resp.json().get("result", {})
 
     def get_status(self) -> dict:

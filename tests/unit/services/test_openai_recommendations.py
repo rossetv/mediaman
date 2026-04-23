@@ -60,7 +60,7 @@ class TestOpenAIModelSelection:
         assert strip("The Mummy") == "The Mummy"
         assert strip("Margo's Got Money Troubles") == "Margo's Got Money Troubles"
 
-    def test_call_openai_sends_configured_model(self, conn, monkeypatch):
+    def test_call_openai_sends_configured_model(self, conn, monkeypatch, fake_http, fake_response):
         """``_call_openai`` must forward the configured model in the request body."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
         conn.execute(
@@ -73,20 +73,8 @@ class TestOpenAIModelSelection:
         )
         conn.commit()
 
-        captured: dict = {}
+        fake_http.queue("POST", fake_response(json_data={"output": []}))
+        openai_recommendations._call_openai("hello", conn, use_web_search=False)
 
-        class FakeResp:
-            def raise_for_status(self):
-                return None
-
-            def json(self):
-                return {"output": []}
-
-        def fake_post(url, headers=None, json=None, timeout=None):
-            captured["body"] = json
-            return FakeResp()
-
-        with patch.object(openai_recommendations.requests, "post", side_effect=fake_post):
-            openai_recommendations._call_openai("hello", conn, use_web_search=False)
-
-        assert captured["body"]["model"] == "gpt-4.1-mini"
+        post_call = next(c for c in fake_http.calls if c[0] == "POST")
+        assert post_call[2]["json"]["model"] == "gpt-4.1-mini"

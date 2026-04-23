@@ -9,6 +9,8 @@ import defusedxml.ElementTree as ET
 import requests as http_requests
 from plexapi.server import PlexServer
 
+from mediaman.services.http_client import SafeHTTPClient, SafeHTTPError
+
 class PlexLibrarySection(TypedDict):
     """A Plex library section as returned by :meth:`PlexClient.get_libraries`."""
 
@@ -118,6 +120,12 @@ class PlexClient:
             token: Plex authentication token (X-Plex-Token).
         """
         self.server = PlexServer(url, token)
+        # Raw HTTP calls that bypass plexapi (e.g. /status/sessions/history)
+        # route through SafeHTTPClient so SSRF/size/redirect rules apply
+        # even though the host was validated once by plexapi.
+        self._http = SafeHTTPClient(
+            default_max_bytes=_HISTORY_MAX_BYTES,
+        )
 
     def get_libraries(self) -> list[PlexLibrarySection]:
         """Return all library sections as minimal dicts.
@@ -238,35 +246,22 @@ class PlexClient:
             f"?metadataItemID={rating_key}"
             f"&sort=viewedAt:desc"
         )
-        resp = http_requests.get(
-            url, timeout=15,
-            headers={"X-Plex-Token": token},
-            stream=True,
-        )
         try:
-            resp.raise_for_status()
-            # Reject by Content-Length when the server announces one.
-            declared = resp.headers.get("Content-Length")
-            if declared is not None:
-                try:
-                    if int(declared) > _HISTORY_MAX_BYTES:
-                        raise ValueError(
-                            f"Plex history response too large: {declared} bytes"
-                        )
-                except ValueError as exc:
-                    raise ValueError(str(exc))
-            # Stream in and abort if we exceed the cap — defends against
-            # servers that omit Content-Length or lie about it.
-            buf = bytearray()
-            for chunk in resp.iter_content(chunk_size=8192):
-                if not chunk:
-                    continue
-                buf.extend(chunk)
-                if len(buf) > _HISTORY_MAX_BYTES:
-                    raise ValueError("Plex history response exceeded size cap")
-            body = bytes(buf)
-        finally:
-            resp.close()
+            resp = self._http.get(
+                url,
+                headers={"X-Plex-Token": token},
+                max_bytes=_HISTORY_MAX_BYTES,
+            )
+        except SafeHTTPError as exc:
+            # Preserve the original ValueError shape for callers that
+            # treated oversize responses as a ValueError.
+            if exc.status_code == 0 or "cap" in exc.body_snippet.lower() or "too large" in exc.body_snippet.lower():
+                raise ValueError(exc.body_snippet) from exc
+            raise http_requests.HTTPError(
+                f"Plex history returned {exc.status_code}"
+            ) from exc
+        body = resp.content
+        resp.close()
         root = ET.fromstring(body)
         entries = []
         for v in root.findall(".//Video"):

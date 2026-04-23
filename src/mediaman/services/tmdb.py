@@ -20,6 +20,7 @@ from typing import Any
 
 import requests
 
+from mediaman.services.http_client import SafeHTTPClient, SafeHTTPError
 from mediaman.services.settings_reader import get_string_setting
 
 logger = logging.getLogger("mediaman")
@@ -44,6 +45,13 @@ class TmdbClient:
             "Authorization": f"Bearer {read_token}",
             "Accept": "application/json",
         }
+        self._session = requests.Session()
+        # Per-call timeout is kept small — TMDB is expected to be snappy.
+        self._http = SafeHTTPClient(
+            _BASE,
+            session=self._session,
+            default_timeout=(5.0, float(timeout)),
+        )
 
     @property
     def headers(self) -> dict[str, str]:
@@ -82,12 +90,8 @@ class TmdbClient:
     def test_connection(self) -> bool:
         """Return True if the TMDB API is reachable and the token is valid."""
         try:
-            resp = requests.get(
-                f"{_BASE}/configuration",
-                headers=self._headers,
-                timeout=self._timeout,
-            )
-            return resp.ok
+            self._http.get("/configuration", headers=self._headers)
+            return True
         except Exception:
             return False
 
@@ -110,14 +114,11 @@ class TmdbClient:
         if year:
             params["year" if endpoint == "movie" else "first_air_date_year"] = year
         try:
-            resp = requests.get(
-                f"{_BASE}/search/{endpoint}",
+            resp = self._http.get(
+                f"/search/{endpoint}",
                 headers=self._headers,
                 params=params,
-                timeout=self._timeout,
             )
-            if not resp.ok:
-                return None
             results = resp.json().get("results") or []
         except Exception:
             return None
@@ -133,14 +134,11 @@ class TmdbClient:
         is responsible for checking ``poster_path``.
         """
         try:
-            resp = requests.get(
-                f"{_BASE}/search/multi",
+            resp = self._http.get(
+                "/search/multi",
                 headers=self._headers,
                 params={"query": title},
-                timeout=self._timeout,
             )
-            if not resp.ok:
-                return None
             results = resp.json().get("results") or []
         except Exception:
             return None
@@ -155,13 +153,11 @@ class TmdbClient:
         no hits — never raises.
         """
         try:
-            resp = requests.get(
-                f"{_BASE}/search/multi",
+            resp = self._http.get(
+                "/search/multi",
                 headers=self._headers,
                 params={"query": query, "include_adult": False, "page": page},
-                timeout=self._timeout,
             )
-            resp.raise_for_status()
             return resp.json().get("results") or []
         except Exception:
             return []
@@ -173,13 +169,11 @@ class TmdbClient:
         Returns an empty list on error — never raises.
         """
         try:
-            resp = requests.get(
-                f"{_BASE}/trending/all/week",
+            resp = self._http.get(
+                "/trending/all/week",
                 headers=self._headers,
                 params={"page": page},
-                timeout=self._timeout,
             )
-            resp.raise_for_status()
             return resp.json().get("results") or []
         except Exception:
             return []
@@ -192,13 +186,11 @@ class TmdbClient:
         Returns an empty list on error — never raises.
         """
         try:
-            resp = requests.get(
-                f"{_BASE}/movie/popular",
+            resp = self._http.get(
+                "/movie/popular",
                 headers=self._headers,
                 params={"page": page},
-                timeout=self._timeout,
             )
-            resp.raise_for_status()
             return resp.json().get("results") or []
         except Exception:
             return []
@@ -211,13 +203,11 @@ class TmdbClient:
         Returns an empty list on error — never raises.
         """
         try:
-            resp = requests.get(
-                f"{_BASE}/tv/popular",
+            resp = self._http.get(
+                "/tv/popular",
                 headers=self._headers,
                 params={"page": page},
-                timeout=self._timeout,
             )
-            resp.raise_for_status()
             return resp.json().get("results") or []
         except Exception:
             return []
@@ -230,14 +220,11 @@ class TmdbClient:
         """
         endpoint = "movie" if media_type == "movie" else "tv"
         try:
-            resp = requests.get(
-                f"{_BASE}/{endpoint}/{tmdb_id}",
+            resp = self._http.get(
+                f"/{endpoint}/{tmdb_id}",
                 headers=self._headers,
                 params={"append_to_response": "videos,credits"},
-                timeout=self._timeout,
             )
-            if not resp.ok:
-                return None
             return resp.json()
         except Exception:
             return None

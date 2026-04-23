@@ -66,3 +66,7 @@ docs/superpowers/
 .playwright-mcp/
 /*.png
 .desloppify/
+
+# Pre-OSS audit artefacts (local only)
+.review/
+FINDINGS.md

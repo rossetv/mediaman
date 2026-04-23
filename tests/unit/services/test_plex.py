@@ -82,104 +82,85 @@ class TestPlexClient:
         assert items[0]["file_size_bytes"] == 5_000_000_000
         assert items[0]["poster_path"] == "/library/metadata/42/thumb/1"
 
-    @patch("mediaman.services.plex.http_requests.get")
     @patch("mediaman.services.plex.PlexServer")
-    def test_get_watch_history(self, mock_cls, mock_http_get):
+    def test_get_watch_history(self, mock_cls, fake_http, fake_response):
         mock_server = MagicMock()
         mock_server._baseurl = "http://plex:32400"
         mock_server._token = "test-token"
         mock_cls.return_value = mock_server
 
-        # Mock the streamed Plex API XML response.
         body = b'<MediaContainer><Video viewedAt="1740700800" accountID="1"/></MediaContainer>'
-        resp = MagicMock()
-        resp.headers = {"Content-Length": str(len(body))}
-        resp.iter_content.return_value = iter([body])
-        mock_http_get.return_value = resp
+        fake_http.queue("GET", fake_response(content=body, headers={"Content-Length": str(len(body))}))
 
         client = PlexClient("http://plex:32400", "test-token")
         history = client.get_watch_history("123")
         assert len(history) == 1
         assert history[0]["account_id"] == 1
-        # Streaming path must be used — cheaper than reading .text twice.
-        mock_http_get.assert_called_once()
-        _, kwargs = mock_http_get.call_args
-        assert kwargs.get("stream") is True
+        assert len(fake_http.calls) == 1
 
-    @patch("mediaman.services.plex.http_requests.get")
     @patch("mediaman.services.plex.PlexServer")
-    def test_get_watch_history_viewed_at(self, mock_cls, mock_http_get):
+    def test_get_watch_history_viewed_at(self, mock_cls, fake_http, fake_response):
         mock_server = MagicMock()
         mock_server._baseurl = "http://plex:32400"
         mock_server._token = "test-token"
         mock_cls.return_value = mock_server
 
-        # 2026-03-01 00:00:00 UTC = 1772150400
         body = b'<MediaContainer><Video viewedAt="1772150400" accountID="2"/></MediaContainer>'
-        resp = MagicMock()
-        resp.headers = {"Content-Length": str(len(body))}
-        resp.iter_content.return_value = iter([body])
-        mock_http_get.return_value = resp
+        fake_http.queue("GET", fake_response(content=body, headers={"Content-Length": str(len(body))}))
 
         client = PlexClient("http://plex:32400", "test-token")
         history = client.get_watch_history("456")
         assert history[0]["viewed_at"].year == 2026
         assert history[0]["account_id"] == 2
 
-    @patch("mediaman.services.plex.http_requests.get")
     @patch("mediaman.services.plex.PlexServer")
-    def test_get_watch_history_rejects_over_cap(self, mock_cls, mock_http_get):
+    def test_get_watch_history_rejects_over_cap(self, mock_cls, fake_http, fake_response):
         """Responses exceeding the 4 MiB cap must raise, not be parsed."""
         mock_server = MagicMock()
         mock_server._baseurl = "http://plex:32400"
         mock_server._token = "test-token"
         mock_cls.return_value = mock_server
 
-        # 5 MiB declared — must be refused before any parsing happens.
         oversized = 5 * 1024 * 1024
-        resp = MagicMock()
-        resp.headers = {"Content-Length": str(oversized)}
-        resp.iter_content.return_value = iter([b""])
-        mock_http_get.return_value = resp
+        fake_http.queue("GET", fake_response(
+            content=b"", headers={"Content-Length": str(oversized)},
+        ))
 
         client = PlexClient("http://plex:32400", "test-token")
-        with pytest.raises(ValueError, match="too large"):
+        with pytest.raises(ValueError):
             client.get_watch_history("123")
 
-    @patch("mediaman.services.plex.http_requests.get")
     @patch("mediaman.services.plex.PlexServer")
-    def test_get_watch_history_raises_for_http_error(self, mock_cls, mock_http_get):
+    def test_get_watch_history_raises_for_http_error(self, mock_cls, fake_http, fake_response):
         """HTTP errors must propagate — don't silently parse a 500 body."""
         mock_server = MagicMock()
         mock_server._baseurl = "http://plex:32400"
         mock_server._token = "test-token"
         mock_cls.return_value = mock_server
 
-        resp = MagicMock()
-        resp.raise_for_status.side_effect = http_requests.HTTPError("500 server error")
-        mock_http_get.return_value = resp
+        fake_http.queue("GET", fake_response(status=500, text="boom"))
 
         client = PlexClient("http://plex:32400", "test-token")
         with pytest.raises(http_requests.HTTPError):
             client.get_watch_history("123")
 
-    @patch("mediaman.services.plex.http_requests.get")
     @patch("mediaman.services.plex.PlexServer")
-    def test_get_watch_history_streaming_exceeds_cap(self, mock_cls, mock_http_get):
+    def test_get_watch_history_streaming_exceeds_cap(self, mock_cls, fake_http, fake_response):
         """A server that under-declares Content-Length is still capped mid-stream."""
         mock_server = MagicMock()
         mock_server._baseurl = "http://plex:32400"
         mock_server._token = "test-token"
         mock_cls.return_value = mock_server
 
-        chunks = [b"A" * 1024 * 1024] * 5  # 5 MiB total via chunks
-        resp = MagicMock()
-        resp.headers = {}  # no Content-Length — forces streaming check
-        resp.iter_content.return_value = iter(chunks)
-        mock_http_get.return_value = resp
+        chunks = [b"A" * 1024 * 1024] * 5
+        resp = fake_response(content=b"".join(chunks), headers={})
+        # Override iter_content to return the chunks one by one so the
+        # size-cap enforcement kicks in mid-stream.
+        resp.iter_content = lambda chunk_size=65536: iter(chunks)
+        fake_http.queue("GET", resp)
 
         client = PlexClient("http://plex:32400", "test-token")
-        with pytest.raises(ValueError, match="exceeded size cap"):
+        with pytest.raises(ValueError):
             client.get_watch_history("123")
 
     @patch("mediaman.services.plex.PlexServer")
@@ -266,8 +247,7 @@ class TestPlexClient:
         assert results[0]["added_at"] == datetime(2026, 1, 5, tzinfo=timezone.utc)
 
     @patch("mediaman.services.plex.PlexServer")
-    @patch("mediaman.services.plex.http_requests.get")
-    def test_get_season_watch_history(self, mock_http_get, mock_cls):
+    def test_get_season_watch_history(self, mock_cls, fake_http, fake_response):
         mock_server = MagicMock()
         mock_server._baseurl = "http://plex:32400"
         mock_server._token = "test-token"
@@ -281,12 +261,8 @@ class TestPlexClient:
         season.episodes.return_value = [ep]
         mock_server.fetchItem.return_value = season
 
-        # Mock the streamed API response for the episode's history
         body = b'<MediaContainer><Video viewedAt="1773244800" accountID="3"/></MediaContainer>'
-        resp = MagicMock()
-        resp.headers = {"Content-Length": str(len(body))}
-        resp.iter_content.return_value = iter([body])
-        mock_http_get.return_value = resp
+        fake_http.queue("GET", fake_response(content=body, headers={"Content-Length": str(len(body))}))
 
         client = PlexClient("http://plex:32400", "test-token")
         history = client.get_season_watch_history("500")

@@ -1,11 +1,9 @@
 """Tests for the shared ArrClient HTTP base class."""
 
-from unittest.mock import MagicMock, patch
-
 import pytest
-import requests
 
 from mediaman.services.arr_client_base import ArrClient
+from mediaman.services.http_client import SafeHTTPError
 
 
 class _TestClient(ArrClient):
@@ -18,81 +16,61 @@ def client() -> _TestClient:
 
 
 class TestGetMethod:
-    @patch("mediaman.services.arr_client_base.requests.get")
-    def test_get_returns_json(self, mock_get, client):
-        mock_get.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {"status": "ok"},
-        )
-        result = client._get("/api/v3/system/status")
-        assert result == {"status": "ok"}
+    def test_get_returns_json(self, client, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data={"status": "ok"}))
+        assert client._get("/api/v3/system/status") == {"status": "ok"}
 
-    @patch("mediaman.services.arr_client_base.requests.get")
-    def test_get_raises_on_http_error(self, mock_get, client):
-        resp = MagicMock(status_code=404)
-        resp.raise_for_status.side_effect = requests.HTTPError("404 Not Found")
-        mock_get.return_value = resp
-        with pytest.raises(requests.HTTPError):
+    def test_get_raises_on_http_error(self, client, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(status=404, text="not found"))
+        with pytest.raises(SafeHTTPError):
             client._get("/api/v3/movie")
 
-    @patch("mediaman.services.arr_client_base.requests.get")
-    def test_get_passes_api_key_header(self, mock_get, client):
-        mock_get.return_value = MagicMock(status_code=200, json=lambda: [])
+    def test_get_passes_api_key_header(self, client, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data=[]))
         client._get("/api/v3/movie")
-        _, kwargs = mock_get.call_args
+        _, _, kwargs = fake_http.calls[0]
         assert kwargs["headers"]["X-Api-Key"] == "test-api-key"
 
 
 class TestPutMethod:
-    @patch("mediaman.services.arr_client_base.requests.put")
-    def test_put_sends_json_body(self, mock_put, client):
-        mock_put.return_value = MagicMock(status_code=202)
+    def test_put_sends_json_body(self, client, fake_http, fake_response):
+        fake_http.queue("PUT", fake_response(status=202, content=b""))
         client._put("/api/v3/movie/1", data={"key": "val"})
-        _, kwargs = mock_put.call_args
+        _, _, kwargs = fake_http.calls[0]
         assert kwargs["json"] == {"key": "val"}
 
-    @patch("mediaman.services.arr_client_base.requests.put")
-    def test_put_includes_correct_url(self, mock_put, client):
-        mock_put.return_value = MagicMock(status_code=202)
+    def test_put_includes_correct_url(self, client, fake_http, fake_response):
+        fake_http.queue("PUT", fake_response(status=202, content=b""))
         client._put("/api/v3/movie/42", data={})
-        url = mock_put.call_args[0][0]
+        _, url, _ = fake_http.calls[0]
         assert url == "http://arr.local:7878/api/v3/movie/42"
 
 
 class TestDeleteMethod:
-    @patch("mediaman.services.arr_client_base.requests.delete")
-    def test_delete_sends_request(self, mock_delete, client):
-        mock_delete.return_value = MagicMock(status_code=200)
+    def test_delete_sends_request(self, client, fake_http, fake_response):
+        fake_http.queue("DELETE", fake_response(content=b""))
         client._delete("/api/v3/movie/1")
-        mock_delete.assert_called_once()
+        assert len(fake_http.calls) == 1
 
-    @patch("mediaman.services.arr_client_base.requests.delete")
-    def test_delete_includes_correct_url(self, mock_delete, client):
-        mock_delete.return_value = MagicMock(status_code=200)
+    def test_delete_includes_correct_url(self, client, fake_http, fake_response):
+        fake_http.queue("DELETE", fake_response(content=b""))
         client._delete("/api/v3/movie/99")
-        url = mock_delete.call_args[0][0]
+        _, url, _ = fake_http.calls[0]
         assert url == "http://arr.local:7878/api/v3/movie/99"
 
 
 class TestTestConnection:
-    @patch("mediaman.services.arr_client_base.requests.get")
-    def test_test_connection_true(self, mock_get, client):
-        mock_get.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {"version": "5.0"},
-        )
+    def test_test_connection_true(self, client, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data={"version": "5.0"}))
         assert client.test_connection() is True
 
-    @patch("mediaman.services.arr_client_base.requests.get")
-    def test_test_connection_false_on_exception(self, mock_get, client):
-        mock_get.side_effect = requests.ConnectionError("unreachable")
+    def test_test_connection_false_on_exception(self, client, fake_http):
+        import requests
+        fake_http.raise_on("GET", requests.ConnectionError("unreachable"))
         assert client.test_connection() is False
 
-    @patch("mediaman.services.arr_client_base.requests.get")
-    def test_test_connection_false_on_http_error(self, mock_get, client):
-        resp = MagicMock(status_code=401)
-        resp.raise_for_status.side_effect = requests.HTTPError("401 Unauthorised")
-        mock_get.return_value = resp
+    def test_test_connection_false_on_http_error(self, client, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(status=401, text="nope"))
         assert client.test_connection() is False
 
 

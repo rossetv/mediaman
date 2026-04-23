@@ -13,8 +13,16 @@ from urllib.parse import quote as urlquote
 
 import requests
 
+from mediaman.services.http_client import SafeHTTPClient, SafeHTTPError
+
 if TYPE_CHECKING:
     from mediaman.services.plex import PlexClient
+
+# Module-level client so the connection pool is shared across calls.
+_OPENAI_CLIENT = SafeHTTPClient(
+    "https://api.openai.com",
+    default_timeout=(5.0, 90.0),
+)
 
 logger = logging.getLogger("mediaman")
 
@@ -90,16 +98,14 @@ def _call_openai(prompt: str, conn: sqlite3.Connection | None, use_web_search: b
         if use_web_search:
             body["tools"] = [{"type": "web_search_preview"}]
 
-        resp = requests.post(
-            "https://api.openai.com/v1/responses",
+        resp = _OPENAI_CLIENT.post(
+            "/v1/responses",
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
             json=body,
-            timeout=90,
         )
-        resp.raise_for_status()
         data = resp.json()
 
         content = ""
@@ -118,9 +124,9 @@ def _call_openai(prompt: str, conn: sqlite3.Connection | None, use_web_search: b
         items = json.loads(content)
         return items if isinstance(items, list) else []
 
-    except requests.HTTPError as exc:
-        if exc.response is not None and exc.response.status_code == 401:
-            logger.error("OpenAI API key rejected (401) — check settings", exc_info=True)
+    except SafeHTTPError as exc:
+        if exc.status_code == 401:
+            logger.error("OpenAI API key rejected (401) — check settings")
         else:
             logger.exception("OpenAI API returned HTTP error: %s", exc)
         return []

@@ -28,7 +28,6 @@ import logging
 from pathlib import Path
 from urllib.parse import urlparse
 
-import requests as http_requests
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 
@@ -42,6 +41,16 @@ from mediaman.crypto import (
 from mediaman.db import get_db
 from mediaman.services.arr_build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.download_format import extract_poster_url
+from mediaman.services.http_client import SafeHTTPClient, SafeHTTPError
+from mediaman.services.url_safety import is_safe_outbound_url
+
+# Remote poster fetches get a tight 3 s read timeout and 4 MiB cap — a
+# poster that doesn't download in 3 s is broken, and real posters run
+# well under 1 MiB. Keeping this at module scope shares the pool.
+_POSTER_HTTP = SafeHTTPClient(
+    default_timeout=(3.0, 3.0),
+    default_max_bytes=4 * 1024 * 1024,
+)
 
 logger = logging.getLogger("mediaman")
 
@@ -51,11 +60,6 @@ _cache_dir: Path | None = None  # populated on first request from app config
 
 # Cache posters for 7 days (response header) — browser won't re-request
 _CACHE_MAX_AGE = 7 * 24 * 60 * 60
-
-# Hard cap on the size of a remote-fetched poster. Real posters run
-# 100-800 KB; 10 MB is generous and stops a compromised CDN streaming
-# an unbounded body into the cache.
-_MAX_POSTER_BYTES = 10 * 1024 * 1024
 
 # Only these mime types are ever served back to the client. Everything
 # else is normalised down to image/jpeg so a malicious CDN cannot
@@ -130,31 +134,6 @@ def _safe_mime(remote_type: str | None) -> str:
     return "image/jpeg"
 
 
-def _stream_capped(response) -> bytes | None:
-    """Read up to ``_MAX_POSTER_BYTES`` from *response* and return bytes.
-
-    Returns None if the server advertised an oversize body via
-    Content-Length OR if the streamed body exceeds the cap mid-read.
-    """
-    cl = response.headers.get("Content-Length")
-    if cl:
-        try:
-            if int(cl) > _MAX_POSTER_BYTES:
-                return None
-        except ValueError:
-            return None
-    chunks: list[bytes] = []
-    total = 0
-    for chunk in response.iter_content(chunk_size=65536):
-        if not chunk:
-            continue
-        total += len(chunk)
-        if total > _MAX_POSTER_BYTES:
-            return None
-        chunks.append(chunk)
-    return b"".join(chunks)
-
-
 def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple[bytes | None, str | None]:
     """Try to fetch a poster from Radarr/Sonarr TMDB data for a media item.
 
@@ -210,19 +189,48 @@ def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple[bytes | No
         return None, None
 
     try:
-        resp = http_requests.get(
-            poster_url, timeout=10, allow_redirects=False, stream=True,
+        resp = _POSTER_HTTP.get(poster_url)
+        return resp.content, _safe_mime(resp.headers.get("Content-Type"))
+    except SafeHTTPError as exc:
+        logger.warning(
+            "Arr poster fetch refused/failed: %s (%s)",
+            poster_url, exc.status_code,
         )
-        if resp.status_code == 200:
-            body = _stream_capped(resp)
-            if body is None:
-                logger.warning("Poster body exceeded size cap from %s", poster_url)
-                return None, None
-            return body, _safe_mime(resp.headers.get("Content-Type"))
     except Exception:
         logger.warning("Failed to fetch arr poster from %s", poster_url, exc_info=True)
 
     return None, None
+
+
+def _sanitise_plex_url(raw: str | None) -> str | None:
+    """Return ``scheme://host[:port]`` if *raw* passes SSRF + scheme checks.
+
+    This runs on every poster request. The DB-stored ``plex_url`` could
+    have been rotated by an attacker who lands settings-write since the
+    app last started; a one-shot startup validation is not enough.
+    Userinfo (``user:pass@``), non-http(s) schemes, and anything the
+    SSRF guard refuses all result in ``None``.
+    """
+    if not raw or not isinstance(raw, str):
+        return None
+    try:
+        parsed = urlparse(raw.strip())
+    except ValueError:
+        return None
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return None
+    if "@" in (parsed.netloc or ""):
+        return None
+    if not parsed.hostname:
+        return None
+    # Run the central SSRF check before we use the URL. This re-resolves
+    # DNS, so a rebind answer would be caught here.
+    if not is_safe_outbound_url(raw):
+        return None
+    authority = parsed.hostname
+    if parsed.port is not None:
+        authority = f"{authority}:{parsed.port}"
+    return f"{parsed.scheme.lower()}://{authority}"
 
 
 def _validate_rating_key(rating_key: str) -> bool:
@@ -299,24 +307,35 @@ def proxy_poster(
             plex_token, config.secret_key, conn=conn, aad=b"plex_token"
         )
 
-    thumb_url = f"{plex_url}/library/metadata/{rating_key}/thumb"
+    # Re-validate plex_url on every call — it sits in the DB for weeks
+    # and an attacker who lands a settings write could have swapped it
+    # for something hostile (cloud metadata, loopback). Reject URLs
+    # with userinfo, non-http(s) schemes, and anything that fails the
+    # general SSRF guard; then strip back to scheme://host[:port]/ so
+    # path-traversal smuggling via the stored URL cannot reach a
+    # different endpoint than the templated thumb URL we expect.
+    plex_base = _sanitise_plex_url(plex_url)
+    if plex_base is None:
+        logger.warning(
+            "Refusing Plex poster fetch — plex_url failed per-request safety check"
+        )
+        return Response(status_code=502)
+
+    thumb_url = f"{plex_base}/library/metadata/{rating_key}/thumb"
     content = None
     content_type = "image/jpeg"
     try:
-        # allow_redirects=False so the X-Plex-Token header can't leak to a
-        # third-party host if Plex (or a MITM) responds with a redirect.
-        # stream=True + _stream_capped caps body size at 10 MiB.
-        resp = http_requests.get(
-            thumb_url, timeout=10,
+        resp = _POSTER_HTTP.get(
+            thumb_url,
             headers={"X-Plex-Token": plex_token},
-            allow_redirects=False,
-            stream=True,
         )
-        if resp.status_code == 200:
-            body = _stream_capped(resp)
-            if body is not None:
-                content = body
-                content_type = _safe_mime(resp.headers.get("Content-Type"))
+        content = resp.content
+        content_type = _safe_mime(resp.headers.get("Content-Type"))
+    except SafeHTTPError as exc:
+        logger.warning(
+            "Plex poster fetch failed for rating_key=%s (%s)",
+            rating_key, exc.status_code,
+        )
     except Exception:
         logger.warning("Failed to fetch Plex poster for rating_key=%s", rating_key, exc_info=True)
 

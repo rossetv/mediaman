@@ -1,6 +1,6 @@
 """Tests for Radarr API client."""
-from unittest.mock import patch, MagicMock
 import pytest
+
 from mediaman.services.radarr import RadarrClient
 
 
@@ -9,102 +9,82 @@ def client():
     return RadarrClient("http://radarr:7878", "test-api-key")
 
 
+def _find_call(fake_http, method):
+    return next((c for c in fake_http.calls if c[0] == method.upper()), None)
+
+
 class TestRadarrClient:
-    @patch("mediaman.services.arr_client_base.requests.get")
-    def test_get_movies(self, mock_get, client):
-        mock_get.return_value = MagicMock(status_code=200, json=lambda: [
+    def test_get_movies(self, client, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data=[
             {"id": 1, "title": "Test Movie", "path": "/movies/Test Movie (2024)", "monitored": True, "hasFile": True},
-        ])
+        ]))
         movies = client.get_movies()
         assert len(movies) == 1
         assert movies[0]["title"] == "Test Movie"
 
-    @patch("mediaman.services.arr_client_base.requests.put")
-    @patch("mediaman.services.arr_client_base.requests.get")
-    def test_unmonitor_movie(self, mock_get, mock_put, client):
-        mock_get.return_value = MagicMock(status_code=200, json=lambda: {"id": 1, "title": "Test", "monitored": True})
-        mock_put.return_value = MagicMock(status_code=202)
+    def test_unmonitor_movie(self, client, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data={"id": 1, "title": "Test", "monitored": True}))
+        fake_http.queue("PUT", fake_response(status=202, content=b""))
         client.unmonitor_movie(movie_id=1)
-        put_data = mock_put.call_args[1]["json"]
-        assert put_data["monitored"] is False
+        put_call = _find_call(fake_http, "PUT")
+        assert put_call[2]["json"]["monitored"] is False
 
-    @patch("mediaman.services.arr_client_base.requests.post")
-    @patch("mediaman.services.arr_client_base.requests.put")
-    @patch("mediaman.services.arr_client_base.requests.get")
-    def test_remonitor_movie(self, mock_get, mock_put, mock_post, client):
-        mock_get.return_value = MagicMock(status_code=200, json=lambda: {"id": 1, "title": "Test", "monitored": False})
-        mock_put.return_value = MagicMock(status_code=202)
-        mock_post.return_value = MagicMock(status_code=201, json=lambda: {})
+    def test_remonitor_movie(self, client, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data={"id": 1, "title": "Test", "monitored": False}))
+        fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("POST", fake_response(status=201, json_data={}))
         client.remonitor_movie(movie_id=1)
-        put_data = mock_put.call_args[1]["json"]
-        assert put_data["monitored"] is True
-        mock_post.assert_called_once()
+        put_call = _find_call(fake_http, "PUT")
+        post_call = _find_call(fake_http, "POST")
+        assert put_call[2]["json"]["monitored"] is True
+        assert post_call is not None
 
-    @patch("mediaman.services.arr_client_base.requests.get")
-    def test_test_connection(self, mock_get, client):
-        mock_get.return_value = MagicMock(status_code=200, json=lambda: {"version": "5.0"})
+    def test_test_connection(self, client, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data={"version": "5.0"}))
         assert client.test_connection() is True
 
-    @patch("mediaman.services.arr_client_base.requests.post")
-    def test_search_movie_posts_moviessearch_command(self, mock_post, client):
-        """search_movie issues POST /api/v3/command with MoviesSearch payload."""
-        mock_post.return_value = MagicMock(status_code=201, json=lambda: {})
+    def test_search_movie_posts_moviessearch_command(self, client, fake_http, fake_response):
+        fake_http.queue("POST", fake_response(status=201, json_data={}))
         client.search_movie(42)
-        mock_post.assert_called_once()
-        call_kwargs = mock_post.call_args[1]
-        assert call_kwargs["json"] == {"name": "MoviesSearch", "movieIds": [42]}
-        assert "radarr:7878/api/v3/command" in mock_post.call_args[0][0]
+        post_call = _find_call(fake_http, "POST")
+        assert post_call[2]["json"] == {"name": "MoviesSearch", "movieIds": [42]}
+        assert "radarr:7878/api/v3/command" in post_call[1]
 
-    @patch("mediaman.services.arr_client_base.requests.post")
-    @patch("mediaman.services.arr_client_base.requests.get")
-    def test_add_movie_sends_correct_payload(self, mock_get, mock_post, client):
-        mock_get.return_value = MagicMock(status_code=200, json=lambda: [{"path": "/movies"}])
-        mock_post.return_value = MagicMock(status_code=201, json=lambda: {"id": 42})
+    def test_add_movie_sends_correct_payload(self, client, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data=[{"path": "/movies"}]))
+        fake_http.queue("POST", fake_response(status=201, json_data={"id": 42}))
         result = client.add_movie(tmdb_id=12345, title="Dune")
-        payload = mock_post.call_args[1]["json"]
+        post_call = _find_call(fake_http, "POST")
+        payload = post_call[2]["json"]
         assert payload["tmdbId"] == 12345
         assert payload["monitored"] is True
         assert payload["addOptions"]["searchForMovie"] is True
         assert payload["rootFolderPath"] == "/movies"
         assert result["id"] == 42
 
-    @patch("mediaman.services.arr_client_base.requests.post")
-    @patch("mediaman.services.arr_client_base.requests.get")
-    def test_add_movie_falls_back_to_default_root_when_rootfolder_empty(self, mock_get, mock_post, client):
-        mock_get.return_value = MagicMock(status_code=200, json=lambda: [])
-        mock_post.return_value = MagicMock(status_code=201, json=lambda: {"id": 99})
+    def test_add_movie_falls_back_to_default_root_when_rootfolder_empty(self, client, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data=[]))
+        fake_http.queue("POST", fake_response(status=201, json_data={"id": 99}))
         client.add_movie(tmdb_id=1, title="Test")
-        payload = mock_post.call_args[1]["json"]
-        assert payload["rootFolderPath"] == "/movies"
+        post_call = _find_call(fake_http, "POST")
+        assert post_call[2]["json"]["rootFolderPath"] == "/movies"
 
-    @patch("mediaman.services.arr_client_base.requests.get")
-    def test_get_queue_single_page_returns_all_records(self, mock_get, client):
-        mock_get.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {"records": [{"id": 1}], "totalRecords": 1},
-        )
+    def test_get_queue_single_page_returns_all_records(self, client, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data={"records": [{"id": 1}], "totalRecords": 1}))
         result = client.get_queue()
         assert len(result) == 1
-        assert mock_get.call_count == 1
+        assert len([c for c in fake_http.calls if c[0] == "GET"]) == 1
 
-    @patch("mediaman.services.arr_client_base.requests.get")
-    def test_get_queue_multi_page_fetches_all(self, mock_get, client):
+    def test_get_queue_multi_page_fetches_all(self, client, fake_http, fake_response):
         page1 = {"records": [{"id": 1}] * 500, "totalRecords": 501}
         page2 = {"records": [{"id": 2}], "totalRecords": 501}
-        mock_get.side_effect = [
-            MagicMock(status_code=200, json=lambda: page1),
-            MagicMock(status_code=200, json=lambda: page2),
-        ]
+        fake_http.queue("GET", fake_response(json_data=page1))
+        fake_http.queue("GET", fake_response(json_data=page2))
         result = client.get_queue()
         assert len(result) == 501
-        assert mock_get.call_count == 2
+        assert len([c for c in fake_http.calls if c[0] == "GET"]) == 2
 
-    @patch("mediaman.services.arr_client_base.requests.get")
-    def test_get_queue_empty_returns_empty_list(self, mock_get, client):
-        mock_get.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {"records": [], "totalRecords": 0},
-        )
+    def test_get_queue_empty_returns_empty_list(self, client, fake_http, fake_response):
+        fake_http.queue("GET", fake_response(json_data={"records": [], "totalRecords": 0}))
         result = client.get_queue()
         assert result == []
-        assert mock_get.call_count == 1

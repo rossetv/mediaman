@@ -8,9 +8,11 @@ from __future__ import annotations
 import logging
 import sqlite3
 
-import requests
-
 from mediaman.crypto import decrypt_value
+from mediaman.services.http_client import SafeHTTPClient
+
+# Module-level client so the connection pool is shared across calls.
+_OMDB_CLIENT = SafeHTTPClient("https://www.omdbapi.com")
 
 logger = logging.getLogger("mediaman")
 
@@ -56,9 +58,7 @@ def fetch_ratings(
         params["y"] = year
 
     try:
-        resp = requests.get("https://www.omdbapi.com/", params=params, timeout=5)
-        if not resp.ok:
-            return {}
+        resp = _OMDB_CLIENT.get("/", params=params, timeout=(5.0, 5.0))
         data = resp.json()
     except Exception:
         return {}

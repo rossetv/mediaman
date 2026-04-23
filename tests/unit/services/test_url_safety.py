@@ -3,16 +3,41 @@
 from __future__ import annotations
 
 import socket
-from unittest.mock import patch
+
+import pytest
 
 from mediaman.services.url_safety import is_safe_outbound_url
 
 
+@pytest.fixture
+def fake_dns(monkeypatch):
+    """Return a helper that installs a canned DNS answer for any host.
+
+    Call the returned function with a list of IP strings; every
+    ``getaddrinfo`` lookup for the duration of the test will return
+    those addresses.
+    """
+    def _install(addrs: list[str], family: int = socket.AF_INET) -> None:
+        def fake_getaddrinfo(host, port, *args, **kwargs):
+            return [
+                (family, socket.SOCK_STREAM, 0, "", (a, 0))
+                for a in addrs
+            ]
+        monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+    return _install
+
+
+@pytest.fixture
+def clean_dns(fake_dns):
+    """Default: all hostnames resolve to a clean public IP."""
+    fake_dns(["93.184.216.34"])
+
+
 class TestSchemeValidation:
-    def test_allows_http(self):
+    def test_allows_http(self, clean_dns):
         assert is_safe_outbound_url("http://radarr.example.com")
 
-    def test_allows_https(self):
+    def test_allows_https(self, clean_dns):
         assert is_safe_outbound_url("https://radarr.example.com")
 
     def test_blocks_file_scheme(self):
@@ -62,7 +87,6 @@ class TestMetadataEndpointsBlocked:
         assert not is_safe_outbound_url("http://100.100.100.200/")
 
     def test_blocks_gcp_metadata_hostname(self):
-        # Host-literal match — no DNS required.
         assert not is_safe_outbound_url(
             "http://metadata.google.internal/computeMetadata/v1/"
         )
@@ -70,26 +94,12 @@ class TestMetadataEndpointsBlocked:
     def test_blocks_dot_internal_suffix(self):
         assert not is_safe_outbound_url("http://admin.internal/")
 
-    def test_blocks_hostname_resolving_to_metadata(self, monkeypatch):
-        """An attacker could register a public DNS name that resolves to
-        169.254.169.254. The resolver must catch it."""
-        def fake_getaddrinfo(host, port, *args, **kwargs):
-            return [
-                (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("169.254.169.254", 0))
-            ]
-        monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
-
+    def test_blocks_hostname_resolving_to_metadata(self, fake_dns):
+        fake_dns(["169.254.169.254"])
         assert not is_safe_outbound_url("http://totally-innocent.example.com/")
 
-    def test_blocks_hostname_with_any_bad_resolution(self, monkeypatch):
-        """If *any* returned address is bad, the whole URL is refused."""
-        def fake_getaddrinfo(host, port, *args, **kwargs):
-            return [
-                (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("8.8.8.8", 0)),
-                (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("169.254.169.254", 0)),
-            ]
-        monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
-
+    def test_blocks_hostname_with_any_bad_resolution(self, fake_dns):
+        fake_dns(["8.8.8.8", "169.254.169.254"])
         assert not is_safe_outbound_url("http://dual-answer.example.com/")
 
 
@@ -105,20 +115,103 @@ class TestLinkLocalAndUnspecified:
 
 
 class TestPublicHostnamesAllowed:
-    def test_allows_public_hostname_when_resolution_clean(self, monkeypatch):
-        def fake_getaddrinfo(host, port, *args, **kwargs):
-            return [
-                (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))
-            ]
-        monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
-
+    def test_allows_public_hostname_when_resolution_clean(self, fake_dns):
+        fake_dns(["93.184.216.34"])
         assert is_safe_outbound_url("http://radarr.example.com")
 
-    def test_allows_public_hostname_when_resolution_fails(self, monkeypatch):
-        """Resolution failure (DNS down, typo) should not block config —
-        the admin is allowed to save a URL that will resolve later."""
+    def test_rejects_public_hostname_when_resolution_fails(self, monkeypatch):
+        """Non-resolving names are refused — we can no longer afford to
+        let a URL through on the hope it'll resolve safely later."""
         def fake_getaddrinfo(host, port, *args, **kwargs):
             raise socket.gaierror("Name or service not known")
         monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+        assert not is_safe_outbound_url("http://radarr.example.com")
 
-        assert is_safe_outbound_url("http://radarr.example.com")
+
+class TestUserinfoRejected:
+    def test_blocks_userinfo(self, clean_dns):
+        assert not is_safe_outbound_url("http://admin:pw@radarr.example.com/")
+
+    def test_blocks_empty_userinfo(self, clean_dns):
+        assert not is_safe_outbound_url("http://@radarr.example.com/")
+
+
+class TestBlockedIPv4Ranges:
+    def test_blocks_cgnat(self):
+        assert not is_safe_outbound_url("http://100.64.1.1/")
+
+    def test_blocks_broadcast(self):
+        assert not is_safe_outbound_url("http://255.255.255.255/")
+
+    def test_blocks_multicast(self):
+        assert not is_safe_outbound_url("http://224.0.0.1/")
+
+    def test_blocks_reserved_class_e(self):
+        assert not is_safe_outbound_url("http://240.0.0.1/")
+
+    def test_blocks_this_network(self):
+        assert not is_safe_outbound_url("http://0.1.2.3/")
+
+
+class TestBlockedIPv6Ranges:
+    def test_blocks_ula(self):
+        assert not is_safe_outbound_url("http://[fc00::1]/")
+
+    def test_blocks_link_local_v6(self):
+        assert not is_safe_outbound_url("http://[fe80::1]/")
+
+    def test_blocks_teredo(self):
+        assert not is_safe_outbound_url("http://[2001::1]/")
+
+    def test_blocks_6to4(self):
+        assert not is_safe_outbound_url("http://[2002::1]/")
+
+    def test_blocks_v6_multicast(self):
+        assert not is_safe_outbound_url("http://[ff00::1]/")
+
+    def test_blocks_ipv4_mapped_metadata(self):
+        # ::ffff:169.254.169.254 — attacker tries to smuggle v4 through v6.
+        assert not is_safe_outbound_url("http://[::ffff:169.254.169.254]/")
+
+    def test_blocks_ipv4_mapped_loopback_under_strict(self):
+        assert not is_safe_outbound_url(
+            "http://[::ffff:127.0.0.1]/", strict_egress=True
+        )
+
+
+class TestStrictEgress:
+    """In strict mode even loopback and RFC1918 are refused."""
+
+    def test_strict_blocks_loopback(self):
+        assert not is_safe_outbound_url(
+            "http://127.0.0.1:7878", strict_egress=True
+        )
+
+    def test_strict_blocks_rfc1918(self):
+        assert not is_safe_outbound_url(
+            "http://192.168.1.10:7878", strict_egress=True
+        )
+
+    def test_strict_blocks_ipv6_loopback(self):
+        assert not is_safe_outbound_url("http://[::1]/", strict_egress=True)
+
+    def test_strict_env_toggle(self, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_STRICT_EGRESS", "1")
+        assert not is_safe_outbound_url("http://127.0.0.1:7878")
+
+    def test_permissive_env_default(self, monkeypatch):
+        monkeypatch.delenv("MEDIAMAN_STRICT_EGRESS", raising=False)
+        assert is_safe_outbound_url("http://127.0.0.1:7878")
+
+
+class TestIdnNormalisation:
+    """A Unicode host that IDN-normalises to a metadata label is blocked."""
+
+    def test_idn_host_normalises_and_resolves(self, fake_dns):
+        # A valid-looking IDN that resolves clean should pass.
+        fake_dns(["93.184.216.34"])
+        assert is_safe_outbound_url("http://xn--bcher-kva.example.com/")
+
+    def test_invalid_idn_rejected(self):
+        # Leading hyphen in a label is invalid under UTS-46.
+        assert not is_safe_outbound_url("http://-bad-.example.com/")
