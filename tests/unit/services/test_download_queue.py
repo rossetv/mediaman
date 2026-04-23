@@ -1,6 +1,6 @@
 """Tests for download_queue pure helper functions."""
 from __future__ import annotations
-import pytest
+
 from mediaman.services.download_queue import _nzb_matches_arr, build_episode_dicts
 
 
@@ -35,6 +35,7 @@ class TestMaybeRecordCompletionsLockDiscipline:
 
     def test_lock_not_held_during_http(self):
         from unittest.mock import MagicMock, patch
+
         import mediaman.services.download_queue as dq
 
         dq._reset_previous_queue()
@@ -80,7 +81,6 @@ class TestBuildEpisodeDicts:
         assert result[0]["is_pack_episode"] is False
 
     def test_state_mapped(self):
-        from mediaman.services.download_format import map_episode_state
         eps = [{"label": "S01E01", "title": "Ep", "state": "downloading"}]
         result = build_episode_dicts(eps)
         assert "state" in result[0]

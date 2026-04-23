@@ -20,7 +20,7 @@ from typing import Any
 
 import requests
 
-from mediaman.services.http_client import SafeHTTPClient, SafeHTTPError
+from mediaman.services.http_client import SafeHTTPClient
 from mediaman.services.settings_reader import get_string_setting
 
 logger = logging.getLogger("mediaman")

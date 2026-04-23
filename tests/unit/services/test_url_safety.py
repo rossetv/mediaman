@@ -244,7 +244,7 @@ class TestIdnNormalisation:
         Confirms the normalised form is what gets checked, not just the raw
         parsed hostname, so a UTS-46 mapping cannot slip past the ASCII list.
         """
-        from mediaman.services.url_safety import _normalise_host, _host_is_metadata
+        from mediaman.services.url_safety import _host_is_metadata, _normalise_host
 
         # A clean ASCII hostname normalises to itself.
         assert _normalise_host("radarr.example.com") == "radarr.example.com"

@@ -502,7 +502,8 @@ class TestApiTestServiceOpenAiTmdbOmdb:
         self._store_setting(conn, "openai_api_key", "sk-badkey9999")
         client = self._client(conn, secret_key)
 
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import patch
+
         from mediaman.services.http_client import SafeHTTPError
 
         with patch(
@@ -521,6 +522,7 @@ class TestApiTestServiceOpenAiTmdbOmdb:
         client = self._client(conn, secret_key)
 
         from unittest.mock import patch
+
         from mediaman.services.http_client import SafeHTTPError
 
         with patch(
@@ -539,6 +541,7 @@ class TestApiTestServiceOpenAiTmdbOmdb:
         client = self._client(conn, secret_key)
 
         from unittest.mock import patch
+
         from mediaman.services.http_client import SafeHTTPError
 
         with patch(

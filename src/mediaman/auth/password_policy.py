@@ -23,7 +23,6 @@ validation just checks whether the list is empty.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 

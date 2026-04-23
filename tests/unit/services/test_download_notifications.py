@@ -151,7 +151,6 @@ class TestSonarrSeriesMatching:
         from unittest.mock import MagicMock
 
         from mediaman.db import init_db
-        from mediaman.services import download_notifications as mod
 
         conn = init_db(str(tmp_path / "mm.db"))
 

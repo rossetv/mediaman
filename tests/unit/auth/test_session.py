@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from mediaman.db import init_db
 from mediaman.auth.session import (
     authenticate,
     create_session,
@@ -14,6 +13,7 @@ from mediaman.auth.session import (
     list_users,
     validate_session,
 )
+from mediaman.db import init_db
 
 
 @pytest.fixture
@@ -232,7 +232,6 @@ class TestCreateUserIntegrityErrorNarrowing:
         a subclass that forwards all sqlite3 operations but lets us
         target the INSERT."""
         import sqlite3
-        from unittest.mock import patch
 
         conn = init_db(str(tmp_path / "m.db"))
 

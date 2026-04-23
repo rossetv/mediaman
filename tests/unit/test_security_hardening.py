@@ -12,7 +12,6 @@ import time
 
 import pytest
 
-
 _KEY = "0123456789abcdef" * 4  # 64 hex chars, 16 unique — passes entropy check
 
 

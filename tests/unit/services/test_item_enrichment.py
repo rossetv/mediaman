@@ -9,10 +9,9 @@ import pytest
 
 from mediaman.db import init_db
 from mediaman.services.item_enrichment import (
-    enrich_redownload_item,
     enrich_item_with_tmdb,
+    enrich_redownload_item,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

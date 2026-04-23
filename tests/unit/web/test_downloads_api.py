@@ -48,7 +48,7 @@ class TestRecentDownloadsTable:
             )
 
 
-from mediaman.services.download_format import map_state, build_item, select_hero
+from mediaman.services.download_format import build_item, map_state, select_hero
 
 
 class TestStateMapping:
@@ -222,14 +222,15 @@ class TestCompletionDetection:
         _reset_previous_queue()  # Should not raise
 
 
-from mediaman.db import init_db, set_connection
-from mediaman.auth.session import create_session, create_user
-from mediaman.config import Config
-from mediaman.web.routes.download import router as download_router
+from unittest.mock import MagicMock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock, patch
+
+from mediaman.auth.session import create_session, create_user
+from mediaman.config import Config
+from mediaman.db import set_connection
+from mediaman.web.routes.download import router as download_router
 
 
 def _make_download_app(conn, secret_key: str) -> FastAPI:
@@ -601,7 +602,6 @@ class TestClassifySeriesUpcoming:
         assert label == ""
 
 
-from unittest.mock import MagicMock, patch
 from mediaman.services.arr_fetcher import fetch_arr_queue as _get_arr_queue
 
 
@@ -695,9 +695,9 @@ class TestGetArrQueueEnrichment:
 
 
 from mediaman.services.arr_search_trigger import (
+    _last_search_trigger,
     maybe_trigger_search,
     reset_search_triggers,
-    _last_search_trigger,
 )
 
 

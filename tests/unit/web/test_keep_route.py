@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -15,8 +15,13 @@ from fastapi.testclient import TestClient
 from mediaman.config import Config
 from mediaman.crypto import generate_keep_token
 from mediaman.db import init_db, set_connection
-from mediaman.web.routes.keep import _lookup_verified_action, _token_hash, router as keep_router, _KEEP_GET_LIMITER, _KEEP_POST_LIMITER
-
+from mediaman.web.routes.keep import (
+    _KEEP_GET_LIMITER,
+    _KEEP_POST_LIMITER,
+    _lookup_verified_action,
+    _token_hash,
+)
+from mediaman.web.routes.keep import router as keep_router
 
 SECRET = "a" * 64
 

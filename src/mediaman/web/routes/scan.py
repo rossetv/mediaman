@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from mediaman.auth.middleware import get_current_admin
-from mediaman.db import get_db, finish_scan_run, is_scan_running, start_scan_run
+from mediaman.db import finish_scan_run, get_db, is_scan_running, start_scan_run
 
 logger = logging.getLogger("mediaman")
 
@@ -28,6 +28,7 @@ def trigger_scan(request: Request, admin: str = Depends(get_current_admin)) -> d
 
     def run():
         import sqlite3
+
         from mediaman.db import _configure_connection
 
         thread_conn = sqlite3.connect(db_path)

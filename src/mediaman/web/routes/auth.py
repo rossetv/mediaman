@@ -9,20 +9,19 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.responses import Response
 
+from mediaman.auth.audit import security_event
+from mediaman.auth.password_policy import is_strong
 from mediaman.auth.rate_limit import (
     RateLimiter,
     get_client_ip,
     peer_is_trusted,
     trusted_proxies,
 )
-from mediaman.auth.audit import security_event
-from mediaman.auth.password_policy import is_strong
 from mediaman.auth.session import (
     authenticate,
     create_session,
     destroy_session,
     set_must_change_password,
-    user_must_change_password,
     validate_session,
 )
 from mediaman.db import get_db
@@ -37,6 +36,7 @@ _limiter = RateLimiter(max_attempts=5, window_seconds=60)
 # set is stripped before interpolation so CR/LF and control characters
 # cannot be used to forge additional log lines.
 import re as _re
+
 _LOG_FIELD_RE = _re.compile(r"[^A-Za-z0-9._@\-]")
 
 

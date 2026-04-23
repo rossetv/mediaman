@@ -1,10 +1,6 @@
 """Shared test fixtures."""
 
-import os
 import socket
-import sqlite3
-import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest

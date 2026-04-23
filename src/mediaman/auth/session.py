@@ -24,7 +24,6 @@ migration once no code path reads it.
 """
 from __future__ import annotations
 
-
 import hashlib
 import ipaddress
 import logging

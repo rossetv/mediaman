@@ -36,8 +36,7 @@ from fastapi.responses import Response
 from mediaman.auth.middleware import get_optional_admin
 from mediaman.crypto import (
     decrypt_value,
-    generate_poster_token,
-    sign_poster_url,
+    sign_poster_url,  # noqa: F401 — re-exported for web/templates + tests
     validate_poster_token,
 )
 from mediaman.db import get_db

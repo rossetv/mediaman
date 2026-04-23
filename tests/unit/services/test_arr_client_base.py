@@ -180,7 +180,6 @@ class TestPublicLookupHelpers:
 
     def test_get_release_returns_none_on_error(self, client, fake_http, fake_response):
         """get_release returns None rather than raising when the ID is not found."""
-        from mediaman.services.http_client import SafeHTTPError
         fake_http.queue("GET", fake_response(status=404, text="not found"))
         result = client.get_release(999, endpoint="/api/v3/movie")
         assert result is None

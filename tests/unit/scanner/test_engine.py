@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mediaman.db import init_db, is_scan_running, start_scan_run, finish_scan_run
+from mediaman.db import finish_scan_run, init_db, is_scan_running, start_scan_run
 from mediaman.scanner.engine import ScanEngine
 
 

@@ -1,7 +1,6 @@
 """Movie scanning and deletion eligibility logic."""
 from __future__ import annotations
 
-
 from datetime import datetime
 
 from mediaman.scanner._eligibility import check_age, check_inactivity

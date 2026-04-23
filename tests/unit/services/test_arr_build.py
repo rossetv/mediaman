@@ -8,7 +8,6 @@ from mediaman.crypto import encrypt_value
 from mediaman.db import init_db
 from mediaman.services.arr_build import build_radarr_from_db, build_sonarr_from_db
 
-
 SECRET = "test-secret-32-chars-XXXXXXXXXX"
 
 

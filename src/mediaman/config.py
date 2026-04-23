@@ -1,7 +1,7 @@
 """Bootstrap configuration from environment variables."""
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 class ConfigError(Exception):

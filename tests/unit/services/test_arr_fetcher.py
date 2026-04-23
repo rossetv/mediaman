@@ -10,7 +10,6 @@ import pytest
 from mediaman.db import init_db
 from mediaman.services.arr_fetcher import FetchResult, fetch_arr_queue, fetch_arr_queue_result
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

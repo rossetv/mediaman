@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from mediaman.auth import login_lockout
 from mediaman.auth.login_lockout import (
     check_lockout,
     record_failure,
@@ -274,6 +273,7 @@ class TestConcurrentRecordFailure:
 
     def test_parallel_failures_all_counted(self, tmp_path):
         import threading
+
         from mediaman.db import init_db
 
         db_file = tmp_path / "mm.db"

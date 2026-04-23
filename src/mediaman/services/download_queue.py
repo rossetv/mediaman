@@ -28,18 +28,18 @@ import threading
 import time
 from typing import TypedDict
 
+from mediaman.config import load_config as _load_config
+from mediaman.services.arr_build import build_arr_client as _build_arr_client
+from mediaman.services.arr_build import build_nzbget_from_db
 from mediaman.services.arr_completion import (
     detect_completed,
     fetch_and_sync_recent_downloads,
     record_verified_completions,
 )
-from mediaman.services.arr_build import build_arr_client as _build_arr_client, build_nzbget_from_db
 from mediaman.services.arr_fetcher import fetch_arr_queue
 from mediaman.services.arr_search_trigger import (
     get_search_info,
     maybe_trigger_search,
-    reset_search_triggers,
-    trigger_pending_searches,
 )
 from mediaman.services.download_format import (
     build_episode_summary,
@@ -53,7 +53,6 @@ from mediaman.services.download_format import (
     parse_clean_title,
     select_hero,
 )
-from mediaman.config import load_config as _load_config
 from mediaman.services.format import format_bytes
 from mediaman.services.settings_reader import get_string_setting as _get_string_setting
 

@@ -2,8 +2,7 @@
 
 import pytest
 
-from mediaman.config import load_config, ConfigError
-
+from mediaman.config import ConfigError, load_config
 
 _GOOD_KEY = "0123456789abcdef" * 4  # 64 hex chars, 16 unique — passes entropy check
 

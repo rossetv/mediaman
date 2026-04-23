@@ -13,7 +13,7 @@ import unicodedata
 from datetime import datetime, timezone
 from typing import TypedDict
 
-from mediaman.services.format import format_bytes, format_day_month, parse_iso_utc
+from mediaman.services.format import format_day_month, parse_iso_utc
 
 # Maximum number of years into the future that a release date is trusted.
 # TMDB sometimes stores year 9999 for unreleased titles — such values should

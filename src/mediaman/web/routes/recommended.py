@@ -6,10 +6,10 @@ import json
 import logging
 import threading
 from collections import OrderedDict
-from datetime import date as _date, datetime, timedelta, timezone
+from datetime import date as _date
+from datetime import datetime, timedelta, timezone
 
 import requests as _requests
-
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.responses import Response
@@ -282,6 +282,7 @@ def api_refresh_recommendations(request: Request, admin: str = Depends(get_curre
     def run():
         global _refresh_result
         import sqlite3
+
         from mediaman.config import load_config
         from mediaman.db import _configure_connection
 
@@ -378,7 +379,8 @@ def api_share_token(
     import time as _time
     ttl_days = 14
     expires_at_ts = int(_time.time()) + ttl_days * 86400
-    from datetime import datetime, timezone as _tz
+    from datetime import datetime
+    from datetime import timezone as _tz
     expires_at = datetime.fromtimestamp(expires_at_ts, tz=_tz.utc).isoformat()
 
     share_token = generate_download_token(

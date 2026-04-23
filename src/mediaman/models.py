@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import re
-from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # ---------------------------------------------------------------------------
 # Action type constants — canonical string values stored in scheduled_actions

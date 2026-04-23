@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
-
-import pytest
 
 _KEY = "0123456789abcdef" * 4
 

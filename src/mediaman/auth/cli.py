@@ -1,14 +1,13 @@
 """CLI commands for admin user management."""
 from __future__ import annotations
 
-
 import argparse
 import getpass
 import sys
 
+from mediaman.auth.session import create_user
 from mediaman.config import load_config
 from mediaman.db import init_db
-from mediaman.auth.session import create_user
 
 
 def create_user_cli() -> None:

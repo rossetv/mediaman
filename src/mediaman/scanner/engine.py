@@ -13,7 +13,6 @@ For each configured library the engine:
 """
 from __future__ import annotations
 
-
 import logging
 import sqlite3
 from dataclasses import dataclass
@@ -27,7 +26,9 @@ from mediaman.scanner.tv import evaluate_season
 from mediaman.services.format import ensure_tz as _ensure_tz
 from mediaman.services.format import parse_iso_utc as _parse_iso_utc
 from mediaman.services.newsletter import send_newsletter as _send_newsletter
-from mediaman.services.openai_recommendations import refresh_recommendations as _refresh_recommendations
+from mediaman.services.openai_recommendations import (
+    refresh_recommendations as _refresh_recommendations,
+)
 from mediaman.services.settings_reader import get_bool_setting as _get_bool_setting
 from mediaman.services.storage import delete_path
 

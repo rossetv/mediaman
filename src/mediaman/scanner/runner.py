@@ -6,7 +6,6 @@ lifespan job (main.py) without duplication.
 """
 from __future__ import annotations
 
-
 import json
 import logging
 import sqlite3
@@ -14,6 +13,8 @@ from typing import TYPE_CHECKING, NamedTuple, TypedDict
 
 from mediaman.services.arr_build import (
     build_radarr_from_db as _build_radarr,
+)
+from mediaman.services.arr_build import (
     build_sonarr_from_db as _build_sonarr,
 )
 from mediaman.services.settings_reader import get_int_setting as _get_int_setting

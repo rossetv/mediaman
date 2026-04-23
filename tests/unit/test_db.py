@@ -3,8 +3,6 @@
 import sqlite3
 import threading
 
-import pytest
-
 from mediaman.db import (
     DB_SCHEMA_VERSION,
     close_db,
@@ -451,6 +449,7 @@ class TestJobRunHelpers:
     def test_stale_scan_run_does_not_block(self, db_path):
         """A row older than the 2-hour sanity timeout must not be counted as running."""
         from datetime import datetime, timedelta, timezone
+
         from mediaman.db import is_scan_running
         conn = init_db(str(db_path))
         stale = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat()

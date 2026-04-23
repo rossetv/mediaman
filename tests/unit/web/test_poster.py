@@ -80,6 +80,7 @@ class TestPosterSignature:
     def test_cross_purpose_tokens_are_rejected(self):
         """A keep-token must not validate as a poster-token even if the HMAC looks right."""
         import time
+
         from mediaman.crypto import generate_keep_token, validate_poster_token
 
         keep = generate_keep_token(
@@ -102,6 +103,7 @@ class TestAllowedPosterHost:
     def _allow(self, url: str) -> bool:
         """Run ``_is_allowed_poster_host`` with DNS check stubbed to True."""
         from unittest.mock import patch
+
         from mediaman.web.routes.poster import _is_allowed_poster_host
 
         with patch("mediaman.web.routes.poster.is_safe_outbound_url", return_value=True):
@@ -156,6 +158,7 @@ class TestAllowedPosterHost:
     def test_dns_rebind_private_ip_rejected(self):
         """If is_safe_outbound_url returns False (e.g. DNS resolves private IP), reject."""
         from unittest.mock import patch
+
         from mediaman.web.routes.poster import _is_allowed_poster_host
 
         with patch("mediaman.web.routes.poster.is_safe_outbound_url", return_value=False):
@@ -266,6 +269,7 @@ class TestArrPosterByStoredId:
     def test_no_radarr_id_returns_none(self, tmp_path):
         """If the media_items row has a NULL radarr_id, the fallback returns None."""
         from datetime import datetime, timezone
+
         from mediaman.db import init_db, set_connection
         from mediaman.web.routes.poster import _fetch_arr_poster
 
@@ -412,9 +416,10 @@ class TestPosterCacheAtomicWrite:
 
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
+
+        from mediaman.config import load_config
         from mediaman.db import init_db, set_connection
         from mediaman.web.routes.poster import router
-        from mediaman.config import load_config
 
         conn = init_db(str(tmp_path / "mediaman.db"))
         set_connection(conn)
@@ -430,7 +435,6 @@ class TestPosterCacheAtomicWrite:
 
     def test_no_tmp_file_left_after_successful_cache_write(self, tmp_path):
         """After a successful poster fetch, no .tmp file should remain."""
-        import os as _os
         from unittest.mock import MagicMock, patch
 
         from mediaman.web.routes.poster import sign_poster_url
@@ -480,9 +484,10 @@ class TestPosterTimeoutFallback:
 
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
+
+        from mediaman.config import load_config
         from mediaman.db import init_db, set_connection
         from mediaman.web.routes.poster import router
-        from mediaman.config import load_config
 
         conn = init_db(str(tmp_path / "mediaman.db"))
         set_connection(conn)
@@ -498,8 +503,8 @@ class TestPosterTimeoutFallback:
 
     def test_plex_timeout_returns_404_not_500(self, tmp_path):
         """If the Plex fetch times out and there is no Arr fallback, return 404."""
-        from unittest.mock import MagicMock, patch
-        from mediaman.services.http_client import SafeHTTPError
+        from unittest.mock import patch
+
         from mediaman.web.routes.poster import sign_poster_url
 
         client, conn = self._build_test_app(tmp_path, self._KEY)

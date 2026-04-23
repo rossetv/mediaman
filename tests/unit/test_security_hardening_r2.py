@@ -15,11 +15,7 @@ Covers the fixes landed after the external pentest:
 
 from __future__ import annotations
 
-import sqlite3
-import time
 from datetime import datetime, timedelta, timezone
-
-import pytest
 
 _KEY = "0123456789abcdef" * 4
 
@@ -267,7 +263,6 @@ class TestSessionFingerprint:
 class TestSessionIdleTimeout:
     def test_idle_session_expires(self, tmp_path):
         from mediaman.auth.session import create_session, create_user, validate_session
-
         from mediaman.db import init_db
         conn = init_db(str(tmp_path / "mm.db"))
         create_user(conn, "dan", "test-password-long-enough", enforce_policy=False)

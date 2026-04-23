@@ -4,13 +4,10 @@ from __future__ import annotations
 
 import logging
 
-import pytest
-
 from mediaman.services.download_format import (
     classify_series_upcoming,
     parse_clean_title,
 )
-
 
 # ---------------------------------------------------------------------------
 # H41: parse_clean_title

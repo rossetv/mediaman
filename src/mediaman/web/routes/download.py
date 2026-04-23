@@ -21,31 +21,29 @@ from urllib.parse import quote as _url_quote
 _YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
 import requests
-
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from mediaman.auth.audit import log_audit
 from mediaman.auth.middleware import get_optional_admin
-from mediaman.services.download_notifications import record_download_notification
 from mediaman.auth.rate_limit import RateLimiter, get_client_ip
-from mediaman.services.http_client import SafeHTTPError
 from mediaman.crypto import generate_poll_token, validate_download_token, validate_poll_token
 from mediaman.db import get_db
-from mediaman.services.download_format import (
-    build_episode_summary,
-    build_item,
-    fmt_episode_label,
-    map_arr_status,
-    map_episode_state,
-    extract_poster_url,
-)
-from mediaman.services.format import format_bytes
-from mediaman.services.download_queue import build_episode_dicts
 from mediaman.services.arr_build import (
     build_radarr_from_db,
     build_sonarr_from_db,
 )
+from mediaman.services.download_format import (
+    build_episode_summary,
+    build_item,
+    extract_poster_url,
+    fmt_episode_label,
+    map_arr_status,
+)
+from mediaman.services.download_notifications import record_download_notification
+from mediaman.services.download_queue import build_episode_dicts
+from mediaman.services.format import format_bytes
+from mediaman.services.http_client import SafeHTTPError
 from mediaman.services.item_enrichment import enrich_redownload_item
 
 logger = logging.getLogger("mediaman")

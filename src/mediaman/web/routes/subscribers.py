@@ -18,8 +18,8 @@ from pydantic import BaseModel
 from mediaman.auth.middleware import get_current_admin
 from mediaman.auth.rate_limit import RateLimiter, get_client_ip
 from mediaman.crypto import validate_unsubscribe_token
-from mediaman.services.rate_limits import NEWSLETTER_LIMITER as _NEWSLETTER_LIMITER
 from mediaman.db import get_db
+from mediaman.services.rate_limits import NEWSLETTER_LIMITER as _NEWSLETTER_LIMITER
 
 
 class _SendNewsletterBody(BaseModel):

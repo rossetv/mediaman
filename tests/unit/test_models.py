@@ -1,7 +1,8 @@
 """Tests for Pydantic models."""
 
-from mediaman.models import KeepRequest, SettingsUpdate, LoginRequest
 import pytest
+
+from mediaman.models import KeepRequest, LoginRequest, SettingsUpdate
 
 
 class TestKeepRequest:

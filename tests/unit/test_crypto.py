@@ -300,6 +300,7 @@ class TestCiphertextCap:
     def test_oversized_ciphertext_rejected(self, secret_key, conn):
         """Ciphertexts that exceed _MAX_CIPHERTEXT_LEN must be rejected."""
         import base64
+
         from mediaman.crypto import _MAX_CIPHERTEXT_LEN
         # Build a base64 string that decodes to more than _MAX_CIPHERTEXT_LEN bytes.
         raw_len = _MAX_CIPHERTEXT_LEN + 1
@@ -349,7 +350,7 @@ class TestValidateSignedNarrowedException:
     def test_non_dict_payload_rejected(self):
         """A JSON-array or JSON-null payload must not slide through —
         even with the right signature, it's not a valid token shape."""
-        from mediaman.crypto import _encode_signed, _validate_signed, _TOKEN_PURPOSE_KEEP
+        from mediaman.crypto import _TOKEN_PURPOSE_KEEP, _encode_signed, _validate_signed
         key = "0123456789abcdef" * 4
         # Craft a payload that's a list, not a dict. _encode_signed
         # will still produce a valid signature over it.
@@ -357,7 +358,7 @@ class TestValidateSignedNarrowedException:
         assert _validate_signed(token, key, _TOKEN_PURPOSE_KEEP) is None
 
     def test_malformed_token_returns_none_not_exception(self):
-        from mediaman.crypto import _validate_signed, _TOKEN_PURPOSE_KEEP
+        from mediaman.crypto import _TOKEN_PURPOSE_KEEP, _validate_signed
         key = "0123456789abcdef" * 4
         # Bad base64, bad JSON, no dot — all must degrade to None
         # via the narrowed except.

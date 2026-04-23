@@ -18,12 +18,10 @@ can't grow the dict without bound.
 """
 from __future__ import annotations
 
-
 import ipaddress
 import os
 import threading
 import time
-
 
 # Cap the per-IP rate-limit dict to prevent unbounded memory growth under
 # a distributed attack. Oldest entries are evicted when the cap is hit.

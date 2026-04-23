@@ -18,15 +18,14 @@ import logging
 
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse
-from starlette.responses import Response
 from pydantic import BaseModel
+from starlette.responses import Response
 
 from mediaman.auth.audit import security_event
 from mediaman.auth.middleware import get_current_admin
 from mediaman.auth.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.auth.reauth import _require_reauth
 from mediaman.auth.session import (
-    authenticate,
     change_password,
     create_user,
     delete_user,

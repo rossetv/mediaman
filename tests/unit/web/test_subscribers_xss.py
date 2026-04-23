@@ -15,6 +15,8 @@ from mediaman.web.routes.subscribers import (
     _unsub_confirm_html,
     _unsub_html,
     _validate_email,
+)
+from mediaman.web.routes.subscribers import (
     router as subscribers_router,
 )
 

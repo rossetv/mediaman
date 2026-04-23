@@ -3,8 +3,6 @@
 import threading
 import time
 
-import pytest
-
 from mediaman.auth.rate_limit import RateLimiter, get_client_ip
 
 

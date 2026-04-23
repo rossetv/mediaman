@@ -10,17 +10,16 @@ DB-backed helpers.
 from __future__ import annotations
 
 import sqlite3
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import pytest
 
 from mediaman.db import init_db
 from mediaman.services.arr_completion import (
-    detect_completed,
     cleanup_recent_downloads,
+    detect_completed,
     record_verified_completions,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

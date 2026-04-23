@@ -95,7 +95,6 @@ class TestKeepSignatureEnforcement:
 
     def test_bad_signature_token_rejected(self, db_path, secret_key, monkeypatch):
         """A token with a bad signature must be rejected, even if it matches a DB row."""
-        import os
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", secret_key)
         monkeypatch.setenv("MEDIAMAN_DATA_DIR", str(db_path.parent))
 
@@ -119,10 +118,11 @@ class TestKeepSignatureEnforcement:
         from mediaman.db import set_connection
         set_connection(conn)
 
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-        from fastapi.templating import Jinja2Templates
         from pathlib import Path
+
+        from fastapi import FastAPI
+        from fastapi.templating import Jinja2Templates
+        from fastapi.testclient import TestClient
 
         from mediaman.web.routes.keep import router as keep_router
 
@@ -181,10 +181,11 @@ class TestKeepSignatureEnforcement:
         from mediaman.db import set_connection
         set_connection(conn)
 
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-        from fastapi.templating import Jinja2Templates
         from pathlib import Path
+
+        from fastapi import FastAPI
+        from fastapi.templating import Jinja2Templates
+        from fastapi.testclient import TestClient
 
         from mediaman.web.routes.keep import router as keep_router
 
@@ -216,10 +217,11 @@ class TestKeepSignatureEnforcement:
         from mediaman.db import set_connection
         set_connection(conn)
 
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-        from fastapi.templating import Jinja2Templates
         from pathlib import Path
+
+        from fastapi import FastAPI
+        from fastapi.templating import Jinja2Templates
+        from fastapi.testclient import TestClient
 
         from mediaman.web.routes.keep import router as keep_router
 

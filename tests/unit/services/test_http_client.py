@@ -7,15 +7,15 @@ module.
 """
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from mediaman.services import http_client
 from mediaman.services.http_client import (
+    _BODY_SNIPPET_BYTES,
     SafeHTTPClient,
     SafeHTTPError,
-    _BODY_SNIPPET_BYTES,
 )
 
 

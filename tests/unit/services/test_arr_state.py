@@ -109,6 +109,7 @@ def test_tv_season_without_statistics_key_is_skipped():
 
 # Tests for cache builders
 from unittest.mock import MagicMock
+
 from mediaman.services.arr_state import build_radarr_cache, build_sonarr_cache
 
 

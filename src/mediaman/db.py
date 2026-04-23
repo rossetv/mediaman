@@ -25,7 +25,6 @@ import logging
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 logger = logging.getLogger("mediaman")
 

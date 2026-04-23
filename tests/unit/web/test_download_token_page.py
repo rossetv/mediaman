@@ -5,17 +5,15 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.testclient import TestClient
 
-from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.crypto import generate_download_token, validate_poll_token
 from mediaman.db import init_db, set_connection
-from mediaman.web.routes.download import router as download_router
 from mediaman.web.routes import download as download_mod
+from mediaman.web.routes.download import router as download_router
 
 
 def _make_app(conn, secret_key: str) -> FastAPI:

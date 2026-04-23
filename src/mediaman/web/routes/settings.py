@@ -23,7 +23,7 @@ from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.auth.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.crypto import decrypt_value, encrypt_value
 from mediaman.db import get_db
-from mediaman.models import SettingsUpdate, _API_KEY_RE
+from mediaman.models import _API_KEY_RE, SettingsUpdate
 from mediaman.services.arr_build import build_plex_from_db
 from mediaman.services.http_client import SafeHTTPClient, SafeHTTPError
 from mediaman.services.storage import get_disk_usage
@@ -35,7 +35,6 @@ _SETTINGS_WRITE_LIMITER = ActionRateLimiter(max_in_window=20, window_seconds=60,
 
 # Newsletter limiter lives in services.rate_limits — imported here so any
 # code that references the old module-level name still works.
-from mediaman.services.rate_limits import NEWSLETTER_LIMITER as _NEWSLETTER_LIMITER  # noqa: E402
 
 logger = logging.getLogger("mediaman")
 

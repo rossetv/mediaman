@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
 from mediaman.auth.password_policy import (
-    MIN_LENGTH,
     is_strong,
     password_issues,
     policy_summary,
@@ -162,8 +159,9 @@ class TestForcePasswordChangePage:
         app.state.config = type("C", (), {"secret_key": secret_key})()
         app.state.db = conn
         # Ensure state.templates exists even without a full lifespan run.
-        from fastapi.templating import Jinja2Templates
         from pathlib import Path
+
+        from fastapi.templating import Jinja2Templates
         tpl_dir = (
             Path(__file__).resolve().parent.parent.parent.parent
             / "src" / "mediaman" / "web" / "templates"

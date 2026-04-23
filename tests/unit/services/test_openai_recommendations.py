@@ -9,8 +9,6 @@ tested here; these tests work entirely within the process.
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import pytest
 
 from mediaman.db import init_db

@@ -9,7 +9,7 @@ _trigger_sonarr_partial_missing, and reset_search_triggers.
 from __future__ import annotations
 
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -17,10 +17,10 @@ from mediaman.db import init_db
 from mediaman.services.arr_search_trigger import (
     _load_last_trigger_from_db,
     _save_trigger_to_db,
+    _trigger_sonarr_partial_missing,
     get_search_info,
     maybe_trigger_search,
     reset_search_triggers,
-    _trigger_sonarr_partial_missing,
 )
 
 

@@ -206,14 +206,14 @@ def create_app() -> FastAPI:
     from mediaman.web.routes.force_password_change import router as force_pw_router
     from mediaman.web.routes.history import router as history_router
     from mediaman.web.routes.keep import router as keep_router
+    from mediaman.web.routes.kept import router as kept_router
     from mediaman.web.routes.library import router as library_router
     from mediaman.web.routes.poster import router as poster_router
-    from mediaman.web.routes.kept import router as kept_router
+    from mediaman.web.routes.recommended import router as recommended_router
     from mediaman.web.routes.scan import router as scan_router
+    from mediaman.web.routes.search import router as search_router
     from mediaman.web.routes.settings import router as settings_router
     from mediaman.web.routes.subscribers import router as subscribers_router
-    from mediaman.web.routes.search import router as search_router
-    from mediaman.web.routes.recommended import router as recommended_router
     from mediaman.web.routes.users import router as users_router
 
     app.include_router(auth_router)
@@ -316,5 +316,6 @@ def cli_main() -> None:
 # its own app via ``cli_main`` so the module-level instance is only
 # needed when uvicorn is invoked with this dotted path.
 import os as _os
+
 if _os.environ.get("MEDIAMAN_EAGER_APP", "").strip() == "1":
     app = create_app()

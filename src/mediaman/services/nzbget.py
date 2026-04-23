@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+
 import requests
 
 from mediaman.services.http_client import SafeHTTPClient

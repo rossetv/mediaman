@@ -10,7 +10,6 @@ import pytest
 from mediaman.db import init_db
 from mediaman.services.newsletter import NewsletterConfigError, send_newsletter
 
-
 _SECRET_KEY = "0123456789abcdef" * 4  # 64 hex chars — matches test conftest fixture
 
 

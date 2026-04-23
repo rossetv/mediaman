@@ -1,10 +1,13 @@
 """Tests for force_password_change route."""
 from __future__ import annotations
+
 from unittest.mock import MagicMock, patch
+
 import pytest
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.testclient import TestClient
+
 from mediaman.db import init_db, set_connection
 from mediaman.web.routes.force_password_change import router
 

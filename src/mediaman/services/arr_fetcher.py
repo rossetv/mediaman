@@ -19,8 +19,8 @@ from typing import TypedDict
 from mediaman.services.download_format import (
     classify_movie_upcoming,
     classify_series_upcoming,
-    fmt_episode_label,
     extract_poster_url,
+    fmt_episode_label,
 )
 from mediaman.services.format import format_bytes, parse_iso_utc
 

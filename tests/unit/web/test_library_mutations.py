@@ -5,14 +5,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
-from mediaman.web.routes.library import router as library_router, _DELETE_LIMITER, _KEEP_LIMITER
+from mediaman.web.routes.library import _DELETE_LIMITER, _KEEP_LIMITER
+from mediaman.web.routes.library import router as library_router
 
 
 def _make_app(conn, secret_key: str) -> FastAPI:

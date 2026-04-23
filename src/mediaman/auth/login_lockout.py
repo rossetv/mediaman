@@ -44,6 +44,7 @@ import logging
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
+
 def _parse_iso(value: str | None) -> datetime | None:
     """Parse an ISO-8601 timestamp from the lockout table (stored by this module)."""
     if not value:

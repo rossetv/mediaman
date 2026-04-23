@@ -93,6 +93,7 @@ def send_newsletter(
         mark_notified: If True (default), mark scheduled items as notified=1
             after sending.
     """
+    from mediaman.crypto import sign_poster_url
     from mediaman.services.arr_build import build_radarr_from_db, build_sonarr_from_db
     from mediaman.services.arr_state import (
         build_radarr_cache,
@@ -101,7 +102,6 @@ def send_newsletter(
     )
     from mediaman.services.mailgun import MailgunClient
     from mediaman.services.settings_reader import get_string_setting
-    from mediaman.crypto import sign_poster_url
 
     # ── Load Mailgun settings ────────────────────────────────────────────────
     domain = get_string_setting(conn, "mailgun_domain", secret_key=secret_key)

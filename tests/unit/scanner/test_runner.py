@@ -8,7 +8,6 @@ import pytest
 
 from mediaman.db import init_db
 
-
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 
