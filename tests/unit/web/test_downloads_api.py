@@ -187,7 +187,7 @@ class TestHeroSelection:
         assert rest == []
 
 
-from mediaman.services.arr_completion import _detect_completed
+from mediaman.services.arr_completion import detect_completed
 from mediaman.services.download_queue import _reset_previous_queue
 
 
@@ -200,21 +200,21 @@ class TestCompletionDetection:
         """An item present previously but absent now is detected as completed."""
         previous = {"radarr:Dune": {"id": "radarr:Dune", "title": "Dune", "kind": "movie", "poster_url": ""}}
         current = {}
-        completed = _detect_completed(previous, current)
+        completed = detect_completed(previous, current)
         assert len(completed) == 1
         assert completed[0]["dl_id"] == "radarr:Dune"
 
     def test_no_change_means_no_completions(self):
         """Same items in both snapshots → nothing completed."""
         snapshot = {"radarr:Dune": {"id": "radarr:Dune", "title": "Dune", "kind": "movie", "poster_url": ""}}
-        completed = _detect_completed(snapshot, snapshot)
+        completed = detect_completed(snapshot, snapshot)
         assert completed == []
 
     def test_new_item_is_not_completed(self):
         """An item appearing for the first time is not a completion."""
         previous = {}
         current = {"radarr:Dune": {"id": "radarr:Dune", "title": "Dune", "kind": "movie", "poster_url": ""}}
-        completed = _detect_completed(previous, current)
+        completed = detect_completed(previous, current)
         assert completed == []
 
     def test_reset_clears_previous(self):
@@ -695,15 +695,15 @@ class TestGetArrQueueEnrichment:
 
 
 from mediaman.services.arr_search_trigger import (
-    _maybe_trigger_search,
-    _reset_search_triggers,
+    maybe_trigger_search,
+    reset_search_triggers,
     _last_search_trigger,
 )
 
 
 class TestSearchTriggerThrottle:
     def setup_method(self):
-        _reset_search_triggers()
+        reset_search_triggers()
 
     def test_stale_released_movie_triggers_search(self, monkeypatch):
         """A monitored-no-file movie older than 5 min with no prior trigger fires MoviesSearch."""
@@ -726,7 +726,7 @@ class TestSearchTriggerThrottle:
             "is_upcoming": False,
             "added_at": time.time() - 600,  # 10 minutes ago
         }
-        _maybe_trigger_search(conn, item, matched_nzb=False)
+        maybe_trigger_search(conn, item, matched_nzb=False)
 
         mock_radarr.search_movie.assert_called_once_with(42)
 
@@ -748,8 +748,8 @@ class TestSearchTriggerThrottle:
             "is_upcoming": False,
             "added_at": time.time() - 600,
         }
-        _maybe_trigger_search(conn, item, matched_nzb=False)
-        _maybe_trigger_search(conn, item, matched_nzb=False)
+        maybe_trigger_search(conn, item, matched_nzb=False)
+        maybe_trigger_search(conn, item, matched_nzb=False)
         assert mock_radarr.search_movie.call_count == 1
 
     def test_upcoming_item_does_not_trigger_search(self, monkeypatch):
@@ -770,7 +770,7 @@ class TestSearchTriggerThrottle:
             "is_upcoming": True,
             "added_at": time.time() - 99999,
         }
-        _maybe_trigger_search(conn, item, matched_nzb=False)
+        maybe_trigger_search(conn, item, matched_nzb=False)
         mock_radarr.search_movie.assert_not_called()
 
     def test_recently_added_item_does_not_trigger_search(self, monkeypatch):
@@ -791,7 +791,7 @@ class TestSearchTriggerThrottle:
             "is_upcoming": False,
             "added_at": time.time() - 60,  # 1 minute ago (below 5 min threshold)
         }
-        _maybe_trigger_search(conn, item, matched_nzb=False)
+        maybe_trigger_search(conn, item, matched_nzb=False)
         mock_radarr.search_movie.assert_not_called()
 
     def test_matched_nzb_item_does_not_trigger_search(self, monkeypatch):
@@ -812,7 +812,7 @@ class TestSearchTriggerThrottle:
             "is_upcoming": False,
             "added_at": time.time() - 9999,
         }
-        _maybe_trigger_search(conn, item, matched_nzb=True)
+        maybe_trigger_search(conn, item, matched_nzb=True)
         mock_radarr.search_movie.assert_not_called()
 
     def test_series_triggers_search_series(self, monkeypatch):
@@ -833,7 +833,7 @@ class TestSearchTriggerThrottle:
             "is_upcoming": False,
             "added_at": time.time() - 600,
         }
-        _maybe_trigger_search(conn, item, matched_nzb=False)
+        maybe_trigger_search(conn, item, matched_nzb=False)
         mock_sonarr.search_series.assert_called_once_with(77)
 
     def test_trigger_after_16_min_fires_again(self, monkeypatch):
@@ -855,10 +855,10 @@ class TestSearchTriggerThrottle:
             "is_upcoming": False,
             "added_at": time.time() - 600,
         }
-        _maybe_trigger_search(conn, item, matched_nzb=False)
+        maybe_trigger_search(conn, item, matched_nzb=False)
         # Rewind the stored timestamp by 16 minutes
         _last_search_trigger["radarr:Dune"] = time.time() - 16 * 60
-        _maybe_trigger_search(conn, item, matched_nzb=False)
+        maybe_trigger_search(conn, item, matched_nzb=False)
         assert mock_radarr.search_movie.call_count == 2
 
 
@@ -867,7 +867,7 @@ from mediaman.services.download_queue import build_downloads_response as _build_
 
 class TestBuildDownloadsResponseBuckets:
     def setup_method(self):
-        _reset_search_triggers()
+        reset_search_triggers()
 
     def test_response_has_upcoming_key(self, monkeypatch):
         conn = MagicMock()
@@ -923,7 +923,7 @@ class TestBuildDownloadsResponseBuckets:
             "mediaman.services.download_queue.build_nzbget_from_db", lambda c: None
         )
         monkeypatch.setattr(
-            "mediaman.services.download_queue._maybe_trigger_search",
+            "mediaman.services.download_queue.maybe_trigger_search",
             lambda *a, **kw: None,
         )
 
@@ -986,7 +986,7 @@ class TestBuildDownloadsResponseBuckets:
             "mediaman.services.download_queue.build_nzbget_from_db", lambda c: None
         )
         monkeypatch.setattr(
-            "mediaman.services.download_queue._maybe_trigger_search",
+            "mediaman.services.download_queue.maybe_trigger_search",
             lambda *a, **kw: None,
         )
 
@@ -1038,7 +1038,7 @@ class TestNzbSeriesMatching:
 
     def setup_method(self):
         _reset_previous_queue()
-        _reset_search_triggers()
+        reset_search_triggers()
 
     def test_multiple_episodes_of_same_series_do_not_leak_as_movies(
         self, monkeypatch
@@ -1098,7 +1098,7 @@ class TestNzbSeriesMatching:
             lambda c: _fake_nzbget_client(nzb_queue),
         )
         monkeypatch.setattr(
-            "mediaman.services.download_queue._maybe_trigger_search",
+            "mediaman.services.download_queue.maybe_trigger_search",
             lambda *a, **kw: None,
         )
 
@@ -1166,7 +1166,7 @@ class TestNzbSeriesMatching:
             lambda c: _fake_nzbget_client(nzb_queue),
         )
         monkeypatch.setattr(
-            "mediaman.services.download_queue._maybe_trigger_search",
+            "mediaman.services.download_queue.maybe_trigger_search",
             lambda *a, **kw: None,
         )
 
@@ -1202,7 +1202,7 @@ class TestNzbSeriesMatching:
             lambda c: _fake_nzbget_client(nzb_queue),
         )
         monkeypatch.setattr(
-            "mediaman.services.download_queue._maybe_trigger_search",
+            "mediaman.services.download_queue.maybe_trigger_search",
             lambda *a, **kw: None,
         )
 
@@ -1255,7 +1255,7 @@ class TestNzbSeriesMatching:
             lambda c: _fake_nzbget_client(nzb_queue),
         )
         monkeypatch.setattr(
-            "mediaman.services.download_queue._maybe_trigger_search",
+            "mediaman.services.download_queue.maybe_trigger_search",
             lambda *a, **kw: None,
         )
 
@@ -1278,10 +1278,10 @@ from mediaman.services.arr_search_trigger import trigger_pending_searches
 
 class TestTriggerPendingSearches:
     def setup_method(self):
-        _reset_search_triggers()
+        reset_search_triggers()
 
     def test_iterates_arr_items_and_pokes_search(self, monkeypatch):
-        """Scheduler job walks every arr item and calls _maybe_trigger_search."""
+        """Scheduler job walks every arr item and calls maybe_trigger_search."""
         conn = MagicMock()
         items = [
             {"kind": "movie", "dl_id": "radarr:A", "arr_id": 1, "is_upcoming": False, "added_at": 0},
@@ -1293,7 +1293,7 @@ class TestTriggerPendingSearches:
         )
         calls: list[tuple] = []
         monkeypatch.setattr(
-            "mediaman.services.arr_search_trigger._maybe_trigger_search",
+            "mediaman.services.arr_search_trigger.maybe_trigger_search",
             lambda c, i, matched_nzb: calls.append((i["dl_id"], matched_nzb)),
         )
 
@@ -1318,7 +1318,7 @@ class TestTriggerPendingSearches:
         )
         called = []
         monkeypatch.setattr(
-            "mediaman.services.arr_search_trigger._maybe_trigger_search",
+            "mediaman.services.arr_search_trigger.maybe_trigger_search",
             lambda *a, **kw: called.append(a),
         )
 
@@ -1354,7 +1354,7 @@ class TestTriggerPendingSearches:
 
         calls: list[tuple] = []
         monkeypatch.setattr(
-            "mediaman.services.arr_search_trigger._maybe_trigger_search",
+            "mediaman.services.arr_search_trigger.maybe_trigger_search",
             lambda c, i, matched_nzb: calls.append((i["dl_id"], i["arr_id"])),
         )
 
@@ -1375,7 +1375,7 @@ class TestTriggerPendingSearches:
         )
         calls = []
         monkeypatch.setattr(
-            "mediaman.services.arr_search_trigger._maybe_trigger_search",
+            "mediaman.services.arr_search_trigger.maybe_trigger_search",
             lambda *a, **kw: calls.append(a),
         )
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 
 
-def _fetch_tmdb_for_item(item: dict, conn: sqlite3.Connection, secret_key: str) -> None:
+def fetch_tmdb_for_item(item: dict, conn: sqlite3.Connection, secret_key: str) -> None:
     """Fetch TMDB search + details + OMDB ratings for a single item.
 
     Thin wrapper around :class:`services.tmdb.TmdbClient` — fills gaps on
@@ -80,7 +80,7 @@ def _fetch_tmdb_for_item(item: dict, conn: sqlite3.Connection, secret_key: str) 
         item["metascore"] = ratings["metascore"]
 
 
-def _enrich_redownload_item(item: dict, conn: sqlite3.Connection, secret_key: str) -> None:
+def enrich_redownload_item(item: dict, conn: sqlite3.Connection, secret_key: str) -> None:
     """Enrich a re-download item with rich metadata for the cinematic layout.
 
     First checks the recommendations cache (fast, no API calls).
@@ -121,4 +121,4 @@ def _enrich_redownload_item(item: dict, conn: sqlite3.Connection, secret_key: st
         return
 
     # 2. Fall back to TMDB + OMDB APIs
-    _fetch_tmdb_for_item(item, conn, secret_key)
+    fetch_tmdb_for_item(item, conn, secret_key)

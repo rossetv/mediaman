@@ -36,6 +36,14 @@ from mediaman.services.download_format import (
 )
 from mediaman.services.format import format_bytes
 from mediaman.services.download_queue import build_episode_dicts
+from mediaman.services.arr_build import (
+    build_radarr_from_db,
+    build_sonarr_from_db,
+)
+from mediaman.services.item_enrichment import (
+    enrich_redownload_item,
+    fetch_tmdb_for_item,
+)
 
 logger = logging.getLogger("mediaman")
 
@@ -96,16 +104,6 @@ def _format_timeleft(timeleft: str) -> str:
     if mins > 0:
         return f"~{mins} min remaining"
     return f"~{secs} sec remaining"
-
-
-from mediaman.services.arr_build import (
-    build_radarr_from_db,
-    build_sonarr_from_db,
-)
-from mediaman.services.item_enrichment import (
-    _enrich_redownload_item,
-    _fetch_tmdb_for_item,
-)
 
 
 @router.get("/download/{token}", response_class=HTMLResponse)
@@ -188,7 +186,7 @@ def download_page(request: Request, token: str) -> HTMLResponse:
             })
     elif payload.get("act") == "redownload":
         # Re-download — enrich with recommendation data or TMDB lookup
-        _enrich_redownload_item(item, conn, config.secret_key)
+        enrich_redownload_item(item, conn, config.secret_key)
 
     # Parse JSON fields into lists for the template
     if item.get("genres"):

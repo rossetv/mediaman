@@ -13,7 +13,11 @@ States:
 
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
+
+if TYPE_CHECKING:
+    from mediaman.services.radarr import RadarrClient
+    from mediaman.services.sonarr import SonarrClient
 
 
 class RadarrCaches(TypedDict):
@@ -101,7 +105,7 @@ def compute_download_state(media_type: str, tmdb_id: int, caches: ArrCaches) -> 
     return "queued"
 
 
-def build_radarr_cache(client) -> RadarrCaches:
+def build_radarr_cache(client: RadarrClient | None) -> RadarrCaches:
     """Build the per-request Radarr cache fragment. Returns a partial
     ``ArrCaches`` containing only the Radarr keys; combine with
     ``build_sonarr_cache`` via dict-spread to get a full ``ArrCaches``.
@@ -117,7 +121,7 @@ def build_radarr_cache(client) -> RadarrCaches:
     return {"radarr_movies": movies, "radarr_queue_tmdb_ids": queue_ids}
 
 
-def build_sonarr_cache(client) -> SonarrCaches:
+def build_sonarr_cache(client: SonarrClient | None) -> SonarrCaches:
     """Build the per-request Sonarr cache fragment. Returns a partial
     ``ArrCaches`` containing only the Sonarr keys; combine with
     ``build_radarr_cache`` via dict-spread to get a full ``ArrCaches``.

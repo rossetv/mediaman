@@ -29,7 +29,7 @@ import time
 from typing import TypedDict
 
 from mediaman.services.arr_completion import (
-    _detect_completed,
+    detect_completed,
     load_recent_downloads,
     record_verified_completions,
 )
@@ -37,8 +37,8 @@ from mediaman.services.arr_build import build_arr_client as _build_arr_client, b
 from mediaman.services.arr_fetcher import fetch_arr_queue
 from mediaman.services.arr_search_trigger import (
     get_search_info,
-    _maybe_trigger_search,
-    _reset_search_triggers,
+    maybe_trigger_search,
+    reset_search_triggers,
     trigger_pending_searches,
 )
 from mediaman.services.download_format import (
@@ -207,7 +207,7 @@ def _maybe_record_completions(conn: sqlite3.Connection, current_map: dict[str, d
 
     with _state_lock:
         if _previous_initialised:
-            completed = _detect_completed(_previous_queue, current_map)
+            completed = detect_completed(_previous_queue, current_map)
             record_verified_completions(conn, completed, _build_arr_client)
 
         _previous_queue = current_map
@@ -380,7 +380,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> DownloadsResponse:
                     size_done=format_bytes(matched_nzb["done_mb"] * 1024 * 1024),
                     size_total=format_bytes(matched_nzb["file_mb"] * 1024 * 1024),
                 ))
-            _maybe_trigger_search(conn, arr, matched_nzb=True)
+            maybe_trigger_search(conn, arr, matched_nzb=True)
         else:
             # *arr item with no NZBGet match. Default is "searching", but
             # episode-level progress often tells the real story: during
@@ -456,7 +456,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> DownloadsResponse:
                     arr_link=_build_arr_link(arr, arr_base_urls),
                     arr_source=arr.get("source", ""),
                 ))
-            _maybe_trigger_search(conn, arr, matched_nzb=False)
+            maybe_trigger_search(conn, arr, matched_nzb=False)
 
     # 5. Add unmatched NZBGet items (manual additions with no Arr match).
     #    If the NZB filename carries a SxxExx marker, render as a series so

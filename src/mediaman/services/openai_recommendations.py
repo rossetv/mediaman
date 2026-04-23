@@ -8,9 +8,13 @@ import os
 import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 from urllib.parse import quote as urlquote
 
 import requests
+
+if TYPE_CHECKING:
+    from mediaman.services.plex import PlexClient
 
 logger = logging.getLogger("mediaman")
 
@@ -326,7 +330,7 @@ Return exactly 14 items (mix of movies and TV shows).
     return _parse_recommendations(items, "personal")
 
 
-def refresh_recommendations(conn: sqlite3.Connection, plex_client, manual: bool = False) -> int:
+def refresh_recommendations(conn: sqlite3.Connection, plex_client: PlexClient | None, manual: bool = False) -> int:
     """Fetch watch history, generate both trending and personal recommendations.
 
     Args:

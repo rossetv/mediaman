@@ -1,7 +1,7 @@
-"""Tests for arr_completion — _detect_completed, cleanup_recent_downloads,
+"""Tests for arr_completion — detect_completed, cleanup_recent_downloads,
 and record_verified_completions.
 
-The basic disappear / appear / no-change coverage for _detect_completed is
+The basic disappear / appear / no-change coverage for detect_completed is
 in tests/unit/web/test_downloads_api.py (TestCompletionDetection).
 This file extends that with media-type / poster propagation checks and the
 DB-backed helpers.
@@ -16,7 +16,7 @@ import pytest
 
 from mediaman.db import init_db
 from mediaman.services.arr_completion import (
-    _detect_completed,
+    detect_completed,
     cleanup_recent_downloads,
     record_verified_completions,
 )
@@ -35,7 +35,7 @@ def conn(tmp_path) -> sqlite3.Connection:
 
 
 # ---------------------------------------------------------------------------
-# _detect_completed
+# detect_completed
 # ---------------------------------------------------------------------------
 
 
@@ -55,7 +55,7 @@ class TestDetectCompleted:
         previous = {"radarr:Dune": arr_item}
         current: dict = {}
 
-        result = _detect_completed(previous, current)
+        result = detect_completed(previous, current)
 
         assert len(result) == 1
         assert result[0]["dl_id"] == "radarr:Dune"
@@ -73,7 +73,7 @@ class TestDetectCompleted:
         }
         current: dict = {}
 
-        result = _detect_completed(previous, current)
+        result = detect_completed(previous, current)
 
         assert result[0]["media_type"] == "series"
         assert result[0]["poster_url"] == "http://img/sev.jpg"
@@ -97,7 +97,7 @@ class TestDetectCompleted:
             }
         }
 
-        result = _detect_completed(previous, current)
+        result = detect_completed(previous, current)
 
         # FilmA vanished → completed; FilmB is new → not a completion
         assert len(result) == 1
@@ -113,7 +113,7 @@ class TestDetectCompleted:
                 "poster_url": "",
             }
         }
-        result = _detect_completed({}, current)
+        result = detect_completed({}, current)
         assert result == []
 
 

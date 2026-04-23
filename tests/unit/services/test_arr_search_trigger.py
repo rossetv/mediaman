@@ -3,7 +3,7 @@
 The throttling / trigger-on-call behaviour is already covered in
 tests/unit/web/test_downloads_api.py (TestSearchTriggerThrottle and
 TestTriggerPendingSearches).  This file covers the gaps: get_search_info,
-_trigger_sonarr_partial_missing, and _reset_search_triggers.
+_trigger_sonarr_partial_missing, and reset_search_triggers.
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ import pytest
 
 from mediaman.services.arr_search_trigger import (
     get_search_info,
-    _maybe_trigger_search,
-    _reset_search_triggers,
+    maybe_trigger_search,
+    reset_search_triggers,
     _trigger_sonarr_partial_missing,
 )
 
@@ -24,9 +24,9 @@ from mediaman.services.arr_search_trigger import (
 @pytest.fixture(autouse=True)
 def clean_state():
     """Ensure a clean slate before every test in this module."""
-    _reset_search_triggers()
+    reset_search_triggers()
     yield
-    _reset_search_triggers()
+    reset_search_triggers()
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ class TestGetSearchInfo:
             "is_upcoming": False,
             "added_at": time.time() - 600,  # stale enough to trigger
         }
-        _maybe_trigger_search(conn, item, matched_nzb=False)
+        maybe_trigger_search(conn, item, matched_nzb=False)
 
         count, last = get_search_info("radarr:Interstellar")
         assert count > 0
@@ -66,13 +66,13 @@ class TestGetSearchInfo:
 
 
 # ---------------------------------------------------------------------------
-# _reset_search_triggers
+# reset_search_triggers
 # ---------------------------------------------------------------------------
 
 
 class TestResetSearchTriggers:
     def test_reset_clears_state(self, monkeypatch):
-        """After triggering a search, _reset_search_triggers zeros everything out."""
+        """After triggering a search, reset_search_triggers zeros everything out."""
         mock_radarr = MagicMock()
         conn = MagicMock()
 
@@ -88,13 +88,13 @@ class TestResetSearchTriggers:
             "is_upcoming": False,
             "added_at": time.time() - 999,
         }
-        _maybe_trigger_search(conn, item, matched_nzb=False)
+        maybe_trigger_search(conn, item, matched_nzb=False)
 
         # Confirm state was written
         count, last = get_search_info("radarr:Arrival")
         assert count > 0
 
-        _reset_search_triggers()
+        reset_search_triggers()
 
         count, last = get_search_info("radarr:Arrival")
         assert count == 0
@@ -124,7 +124,7 @@ class TestTriggerSonarrPartialMissing:
 
         calls: list[tuple] = []
         monkeypatch.setattr(
-            "mediaman.services.arr_search_trigger._maybe_trigger_search",
+            "mediaman.services.arr_search_trigger.maybe_trigger_search",
             lambda c, i, matched_nzb: calls.append((i["dl_id"], i["arr_id"])),
         )
 
@@ -154,7 +154,7 @@ class TestTriggerSonarrPartialMissing:
 
         calls: list = []
         monkeypatch.setattr(
-            "mediaman.services.arr_search_trigger._maybe_trigger_search",
+            "mediaman.services.arr_search_trigger.maybe_trigger_search",
             lambda *a, **kw: calls.append(a),
         )
 

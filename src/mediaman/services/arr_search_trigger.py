@@ -1,6 +1,6 @@
 """Auto-trigger Radarr/Sonarr searches for stalled monitored items.
 
-Owns the module-level throttle state, :func:`_maybe_trigger_search`, and
+Owns the module-level throttle state, :func:`maybe_trigger_search`, and
 the background scheduler job :func:`trigger_pending_searches`.
 """
 
@@ -32,13 +32,13 @@ _SEARCH_STALE_SECONDS = 5 * 60     # trigger if item has been searching > 5 min
 _SEARCH_THROTTLE_SECONDS = 15 * 60  # don't re-trigger within 15 min
 
 
-def _reset_search_triggers() -> None:
+def reset_search_triggers() -> None:
     """Clear the in-memory search-trigger snapshot. Used by tests."""
     _last_search_trigger.clear()
     _search_count.clear()
 
 
-def _maybe_trigger_search(
+def maybe_trigger_search(
     conn: sqlite3.Connection, item: dict, matched_nzb: bool
 ) -> None:
     """Trigger a Radarr/Sonarr search for a stalled item, with throttling.
@@ -119,7 +119,7 @@ def trigger_pending_searches(conn: sqlite3.Connection) -> None:
        :func:`fetch_arr_queue`.
 
     Reuses the per-item throttle and ``arr_id == 0`` gate inside
-    :func:`_maybe_trigger_search`, so already-queued items and
+    :func:`maybe_trigger_search`, so already-queued items and
     recently-searched items are skipped automatically.
     """
     try:
@@ -129,7 +129,7 @@ def trigger_pending_searches(conn: sqlite3.Connection) -> None:
         arr_items = []
 
     for item in arr_items:
-        _maybe_trigger_search(conn, item, matched_nzb=False)
+        maybe_trigger_search(conn, item, matched_nzb=False)
 
     try:
         _trigger_sonarr_partial_missing(conn, arr_items)
@@ -163,7 +163,7 @@ def _trigger_sonarr_partial_missing(
     for series_id, title in missing.items():
         if series_id in already_poked:
             continue
-        _maybe_trigger_search(
+        maybe_trigger_search(
             conn,
             {
                 "kind": "series",

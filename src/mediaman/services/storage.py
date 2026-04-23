@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 def get_disk_usage(path: str) -> dict[str, int]:
+    """Return disk usage for *path*. Raises :exc:`FileNotFoundError` if the path does not exist."""
     if not os.path.exists(path):
         raise FileNotFoundError(f"Path does not exist: {path}")
     usage = shutil.disk_usage(path)

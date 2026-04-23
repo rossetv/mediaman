@@ -6,7 +6,7 @@ polls, we treat it as completed and record it in ``recent_downloads``
 is probably a failed grab, not a finished one).
 
 Kept separate from the queue builder so the pure completion logic
-(``_detect_completed``) can be unit-tested without any DB or HTTP
+(``detect_completed``) can be unit-tested without any DB or HTTP
 dependencies, and so the scheduler can import ``cleanup_recent_downloads``
 without dragging in the whole queue module.
 """
@@ -24,7 +24,7 @@ from mediaman.services.download_format import extract_poster_url
 logger = logging.getLogger("mediaman")
 
 
-def _detect_completed(
+def detect_completed(
     previous: dict[str, ArrCard], current: dict[str, ArrCard]
 ) -> list[dict]:
     """Find items that disappeared from the queue (i.e. completed).
