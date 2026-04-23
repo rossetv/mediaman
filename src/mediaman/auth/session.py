@@ -28,6 +28,7 @@ import sqlite3
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+from typing import TypedDict
 
 import bcrypt
 
@@ -432,7 +433,15 @@ def destroy_all_sessions_for(conn: sqlite3.Connection, username: str) -> int:
     return cur.rowcount
 
 
-def list_sessions_for(conn: sqlite3.Connection, username: str) -> list[dict]:
+class SessionMetadata(TypedDict):
+    created_at: str | None
+    expires_at: str | None
+    last_used_at: str | None
+    issued_ip: str | None
+    fingerprint: str | None
+
+
+def list_sessions_for(conn: sqlite3.Connection, username: str) -> list[SessionMetadata]:
     """Return metadata about the active sessions owned by *username*.
 
     Excludes the raw token/hash — callers get timestamps, fingerprint,
@@ -444,7 +453,7 @@ def list_sessions_for(conn: sqlite3.Connection, username: str) -> list[dict]:
         "FROM admin_sessions WHERE username = ? ORDER BY created_at DESC",
         (username,),
     ).fetchall()
-    return [dict(r) for r in rows]
+    return [dict(r) for r in rows]  # type: ignore[return-value]
 
 
 def change_password(

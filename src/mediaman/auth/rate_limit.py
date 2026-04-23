@@ -149,7 +149,12 @@ class RateLimiter:
         self._attempts.pop(oldest_key, None)
 
 
-def _parse_trusted_proxies() -> list[ipaddress._BaseNetwork]:
+def trusted_proxies() -> list[ipaddress._BaseNetwork]:
+    """Return the list of trusted proxy networks from MEDIAMAN_TRUSTED_PROXIES.
+
+    Format: comma-separated CIDRs or single IPs.
+    When unset, no proxy is trusted and forwarded-IP headers are ignored.
+    """
     raw = os.environ.get("MEDIAMAN_TRUSTED_PROXIES", "").strip()
     if not raw:
         return []
@@ -163,15 +168,6 @@ def _parse_trusted_proxies() -> list[ipaddress._BaseNetwork]:
         except ValueError:
             continue
     return networks
-
-
-def trusted_proxies() -> list[ipaddress._BaseNetwork]:
-    """Return the list of trusted proxy networks from MEDIAMAN_TRUSTED_PROXIES.
-
-    Format: comma-separated CIDRs or single IPs.
-    When unset, no proxy is trusted and forwarded-IP headers are ignored.
-    """
-    return _parse_trusted_proxies()
 
 
 def _ip_in_networks(ip: str, networks: list[ipaddress._BaseNetwork]) -> bool:

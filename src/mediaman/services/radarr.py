@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from typing import cast
 
 import requests
 
 from mediaman.services.arr_client_base import ArrClient
+
+logger = logging.getLogger("mediaman")
 
 
 class RadarrClient(ArrClient):
@@ -15,7 +18,10 @@ class RadarrClient(ArrClient):
         return cast(list[dict[str, object]], data) if isinstance(data, list) else []
 
     def get_movie_by_id(self, movie_id: int) -> dict[str, object]:
-        return cast(dict[str, object], self._get(f"/api/v3/movie/{movie_id}"))
+        data = self._get(f"/api/v3/movie/{movie_id}")
+        if not isinstance(data, dict):
+            raise ValueError(f"Radarr returned unexpected type for movie {movie_id}: {type(data).__name__}")
+        return data
 
     def delete_movie(self, movie_id: int) -> None:
         """Delete a movie from Radarr and its files from disk."""

@@ -61,22 +61,11 @@ JSON array only, no markdown, no explanation."""
 
 def _get_openai_key(conn: sqlite3.Connection) -> str | None:
     """Read the OpenAI API key from settings, falling back to env var."""
-    from mediaman.crypto import decrypt_value
     from mediaman.config import load_config
+    from mediaman.services.settings_reader import get_string_setting
 
-    row = conn.execute(
-        "SELECT value, encrypted FROM settings WHERE key='openai_api_key'"
-    ).fetchone()
-    if row and row["value"]:
-        val = row["value"]
-        if row["encrypted"]:
-            try:
-                val = decrypt_value(val, load_config().secret_key, conn=conn, aad=b"openai_api_key")
-            except Exception:
-                logger.warning("Failed to decrypt OpenAI API key from settings", exc_info=True)
-                return None
-        return val
-    return os.environ.get("OPENAI_API_KEY")
+    val = get_string_setting(conn, "openai_api_key", secret_key=load_config().secret_key)
+    return val or os.environ.get("OPENAI_API_KEY")
 
 
 def _call_openai(prompt: str, conn: sqlite3.Connection | None, use_web_search: bool = True) -> list[dict]:

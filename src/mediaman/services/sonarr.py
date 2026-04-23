@@ -50,28 +50,33 @@ class SonarrClient(ArrClient):
         return cast(list[dict[str, object]], data) if isinstance(data, list) else []
 
     def unmonitor_season(self, series_id: int, season_number: int) -> None:
+        """Raises ValueError if the series payload contains no seasons list."""
         series = self.get_series_by_id(series_id)
         seasons = series.get("seasons")
-        assert isinstance(seasons, list), f"Sonarr series {series_id} has no 'seasons' list"
+        if not isinstance(seasons, list):
+            raise ValueError(f"Sonarr series {series_id} has no 'seasons' list")
         for season in seasons:
             if season["seasonNumber"] == season_number:
                 season["monitored"] = False
         self._put(f"/api/v3/series/{series_id}", cast(dict, series))
 
     def remonitor_season(self, series_id: int, season_number: int) -> None:
+        """Raises ValueError if the series payload contains no seasons list."""
         series = self.get_series_by_id(series_id)
         seasons = series.get("seasons")
-        assert isinstance(seasons, list), f"Sonarr series {series_id} has no 'seasons' list"
+        if not isinstance(seasons, list):
+            raise ValueError(f"Sonarr series {series_id} has no 'seasons' list")
         for season in seasons:
             if season["seasonNumber"] == season_number:
                 season["monitored"] = True
         self._put(f"/api/v3/series/{series_id}", cast(dict, series))
-        requests.post(
+        resp = requests.post(
             f"{self._url}/api/v3/command",
             headers=self._headers,
             json={"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number},
             timeout=15,
         )
+        resp.raise_for_status()
 
     def search_series(self, series_id: int) -> None:
         """Trigger a Sonarr SeriesSearch command for a single series."""
