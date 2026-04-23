@@ -17,4 +17,10 @@ htmlcov/
 .remember/
 docs/
 data/
-*.md
+# Exclude markdown files individually — keep README.md so `pip install .`
+# can read the readme field in pyproject.toml (pyproject references README.md).
+FINDINGS.md
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+SECURITY.md
+CHANGELOG.md

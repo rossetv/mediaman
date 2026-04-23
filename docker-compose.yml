@@ -1,4 +1,5 @@
-# Minimal example compose file. Customise the media volume path and TZ for your environment.
+# Minimal example compose file. Copy to your deployment and customise.
+# All ${VAR:-default} placeholders read from an .env file (see .env.example).
 services:
   mediaman:
     build: .
@@ -6,11 +7,41 @@ services:
     container_name: mediaman
     environment:
       - MEDIAMAN_SECRET_KEY=${MEDIAMAN_SECRET_KEY}
-      - MEDIAMAN_PORT=8282
+      - MEDIAMAN_PORT=${MEDIAMAN_PORT:-8282}
+      - MEDIAMAN_DATA_DIR=${MEDIAMAN_DATA_DIR:-/data}
+      - MEDIAMAN_BIND_HOST=${MEDIAMAN_BIND_HOST:-0.0.0.0}
+      - MEDIAMAN_TRUSTED_PROXIES=${MEDIAMAN_TRUSTED_PROXIES:-}
+      # Colon-separated list of filesystem roots inside which mediaman may
+      # delete files. Required for deletion to work; fails closed if unset.
+      # Example: MEDIAMAN_DELETE_ROOTS=/media:/media2
+      - MEDIAMAN_DELETE_ROOTS=${MEDIAMAN_DELETE_ROOTS:-}
       - TZ=${TZ:-UTC}
     volumes:
       - ./data:/data
-      - /path/to/your/media:/media:rw  # replace with the path to your media root
+      # Replace /path/to/your/media with the actual path on your host.
+      # :ro (read-only) is the safe default — mediaman only needs write
+      # access to media roots listed in MEDIAMAN_DELETE_ROOTS. If you
+      # enable deletion, add a second rw-mounted volume for the roots
+      # that mediaman is allowed to delete from.
+      - /path/to/your/media:/media:ro
     ports:
-      - 8282:8282
+      - "${MEDIAMAN_PORT:-8282}:${MEDIAMAN_PORT:-8282}"
     restart: unless-stopped
+    # Harden the container: drop all capabilities and prevent privilege
+    # escalation. The process runs as uid/gid 1000 by default (set in the
+    # Dockerfile). Override with `user: "HOST_UID:HOST_GID"` if the media
+    # volume is owned by a different user.
+    user: "1000:1000"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # TODO(P3): enable `read_only: true` once the tmp/cache paths are
+    #           reworked to use an explicit tmpfs mount.
+    healthcheck:
+      # TODO(P3): add /healthz route; until then this is a TCP-level check.
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:${MEDIAMAN_PORT:-8282}/healthz')\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3

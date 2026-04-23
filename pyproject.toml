@@ -1,15 +1,22 @@
 [build-system]
+# setuptools >=61.0 is sufficient for src layout + package-data discovery.
+# PEP 639 SPDX licence fields (license = "MIT" flat string) require >=77;
+# leave the classic { text = "MIT" } form until we pin setuptools >=77.
+# TODO(P7): bump to setuptools>=77 and adopt PEP 639 + setuptools-scm for
+#           version management once CI lockfile is in place.
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "mediaman"
+# Keep a literal version for now; bump here and in src/mediaman/__init__.py
+# together. TODO(P7): switch to setuptools-scm + dynamic = ["version"].
 version = "0.1.0"
 description = "Self-hosted media lifecycle management for Plex, with scanner, newsletter, and admin web UI."
 readme = "README.md"
 license = { text = "MIT" }
 authors = [
-    { name = "mediaman contributors", email = "glowingshark6393@rosset.ie" },
+    { name = "mediaman contributors", email = "mediaman@users.noreply.github.com" },
 ]
 keywords = ["plex", "sonarr", "radarr", "nzbget", "media-management", "self-hosted"]
 classifiers = [
@@ -22,6 +29,7 @@ classifiers = [
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Multimedia :: Video",
 ]
 requires-python = ">=3.11"
@@ -39,6 +47,19 @@ dependencies = [
     "pydantic~=2.0",
 ]
 
+[project.optional-dependencies]
+# Install with: pip install -e ".[dev]"
+dev = [
+    "pytest",
+    "pytest-cov",
+    "pytest-mock",
+    "pytest-asyncio",
+    "httpx",
+    "ruff",
+    "mypy",
+    "coverage[toml]",
+]
+
 [project.urls]
 Homepage = "https://github.com/rossetv/mediaman"
 Repository = "https://github.com/rossetv/mediaman"
@@ -52,7 +73,7 @@ mediaman-create-user = "mediaman.auth.cli:create_user_cli"
 where = ["src"]
 
 [tool.setuptools.package-data]
-mediaman = ["web/templates/**/*.html", "web/static/**/*", "auth/data/*.txt"]
+mediaman = ["web/templates/**/*.html", "web/static/**/*", "auth/data/*.txt", "py.typed"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
@@ -62,3 +83,35 @@ markers = [
     "integration: Integration tests (module boundaries)",
 ]
 addopts = "-q --tb=short"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+# Start permissive; tighten in P7 once the existing code is clean.
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",  # line too long — enforced by formatter, not linter
+]
+
+[tool.mypy]
+# Permissive baseline; tighten incrementally in later phases.
+python_version = "3.11"
+warn_unused_configs = true
+ignore_missing_imports = true
+# TODO(P7): enable strict = true once all modules have type annotations.
+
+[tool.coverage.run]
+source = ["mediaman"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/web/templates/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+# TODO(P7): raise floor once coverage is measured and plugged.
+fail_under = 30

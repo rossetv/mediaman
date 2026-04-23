@@ -236,6 +236,7 @@ def create_app() -> FastAPI:
     return app
 
 
+
 def _resolve_bind_host() -> str:
     """Return the host address uvicorn should bind to.
 
@@ -256,13 +257,12 @@ def cli_main() -> None:
         create_user_cli()
         return
 
-    import os
-
     import uvicorn
     config = load_config()
     app = create_app()
 
-    bind_host = _resolve_bind_host()
+    bind_host = config.bind_host
+    trusted_proxies = config.trusted_proxies
 
     # Uvicorn's ``proxy_headers`` machinery rewrites BOTH
     # ``request.url.scheme`` (from X-Forwarded-Proto) AND
@@ -282,7 +282,6 @@ def cli_main() -> None:
     # ``server_header=False`` and ``date_header=False`` suppress the
     # ``Server: uvicorn`` and ``Date: ...`` response headers, which
     # leak implementation and version details.
-    trusted_proxies = os.environ.get("MEDIAMAN_TRUSTED_PROXIES", "").strip()
     if trusted_proxies:
         uvicorn.run(
             app,
