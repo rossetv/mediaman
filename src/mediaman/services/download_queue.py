@@ -198,20 +198,33 @@ def _build_arr_link(arr: dict, base_urls: dict[str, str]) -> str:
 def _maybe_record_completions(conn: sqlite3.Connection, current_map: dict[str, dict]) -> None:
     """Detect items that vanished since the last poll and record verified completions.
 
-    Mutates the module-level ``_previous_queue`` / ``_previous_initialised``
-    snapshot under ``_state_lock``.  Separated from :func:`build_downloads_response`
-    so that function only builds and returns data — it no longer has a DB-write
-    side effect hidden inside a query function.
+    Lock discipline (C20): the lock is held only for the tiny critical
+    section that snapshots the previous-queue state into local vars and
+    then swaps in the new one. All HTTP I/O to Radarr/Sonarr (which
+    ``record_verified_completions`` performs to verify an item has files
+    before recording it) happens outside the lock — a slow/hung Arr
+    must not stall every other thread waiting on ``_state_lock`` (and
+    therefore every inbound ``/downloads`` request).
+
+    The ordering here — swap the snapshot first, then do I/O — means a
+    concurrent poll that arrives while we're still verifying will see
+    the new state and not re-report the same completion. That's the
+    right trade-off: the alternative (do I/O first, then swap) keeps
+    the snapshot stale for the I/O window, which is worse.
     """
     global _previous_queue, _previous_initialised
 
+    # Critical section: snapshot previous, install current, mark init.
     with _state_lock:
-        if _previous_initialised:
-            completed = detect_completed(_previous_queue, current_map)
-            record_verified_completions(conn, completed, _build_arr_client)
-
+        previous_snapshot = _previous_queue
+        previously_initialised = _previous_initialised
         _previous_queue = current_map
         _previous_initialised = True
+
+    # HTTP I/O happens here, with no locks held.
+    if previously_initialised:
+        completed = detect_completed(previous_snapshot, current_map)
+        record_verified_completions(conn, completed, _build_arr_client)
 
 
 def _build_matched_item(

@@ -172,8 +172,30 @@ def api_send_newsletter(
         f"SELECT email FROM subscribers WHERE active=1 AND lower(email) IN ({placeholders})",
         tuple(requested),
     ).fetchall()
-    recipients = [r["email"] for r in allowed_rows]
+
+    # Re-validate every recipient pulled from the DB before it hits the
+    # Mailgun SMTP headers. A malicious subscriber row containing CR/LF
+    # would let an attacker inject ``Bcc:`` or similar headers through
+    # the templated ``To:`` field. The add-subscriber path already runs
+    # ``_validate_email``, but a DB compromise or a historic row written
+    # before this check existed could still carry a CRLF payload.
+    recipients: list[str] = []
+    rejected = 0
+    for r in allowed_rows:
+        candidate = r["email"] or ""
+        if "\r" in candidate or "\n" in candidate:
+            rejected += 1
+            continue
+        if not _validate_email(candidate):
+            rejected += 1
+            continue
+        recipients.append(candidate)
+
     if not recipients:
+        logger.warning(
+            "newsletter.send_no_valid_recipients user=%s rejected=%d",
+            admin, rejected,
+        )
         return JSONResponse(
             {"ok": False, "error": "No matching active subscribers"},
             status_code=400,
@@ -186,7 +208,10 @@ def api_send_newsletter(
             recipients=recipients,
             mark_notified=False,
         )
-        logger.info("Manual newsletter sent to %s by %s", recipients, admin)
+        logger.info(
+            "Manual newsletter sent to %d recipients by %s (rejected=%d)",
+            len(recipients), admin, rejected,
+        )
         return JSONResponse({"ok": True, "sent_to": len(recipients)})
     except Exception as exc:
         logger.warning("Manual newsletter send failed: %s", exc)

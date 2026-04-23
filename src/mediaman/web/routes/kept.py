@@ -21,6 +21,42 @@ from mediaman.auth.middleware import (
 from mediaman.auth.audit import log_audit
 from mediaman.db import get_db
 from mediaman.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
+
+
+def _resolve_show_rating_key(conn, supplied_key: str) -> tuple[str | None, str | None]:
+    """Return ``(resolved_key, error)`` for a keep-show request.
+
+    IDOR risk closed by this helper: the previous implementation fell
+    back to matching seasons by ``show_title`` whenever the supplied
+    rating key was missing on the stored rows. Two distinct shows
+    sharing a title (a common case — remakes, international versions,
+    generic one-word titles) collided in that branch so user A keeping
+    ``Kingdom`` would also match user B's ``Kingdom`` rows.
+
+    Resolution rules:
+      (a) ``supplied_key`` is present and at least one media_items row
+          carries that exact ``show_rating_key`` → use the supplied key.
+      (b) ``supplied_key`` is missing (empty) but one, and only one,
+          show exists matching by ``show_title`` across the whole
+          library → use the rating key from that single row. The unique
+          match guarantee is what keeps the IDOR shut.
+      (c) anything else (no supplied key + zero or >1 title matches,
+          or supplied key that doesn't map to any stored row) → return
+          ``(None, error_message)`` so the caller can 409.
+
+    ``supplied_key`` is the raw path parameter. Callers pass it through
+    unchanged — never synthesised from ``show_title``.
+    """
+    key = (supplied_key or "").strip()
+    if key:
+        row = conn.execute(
+            "SELECT 1 FROM media_items WHERE show_rating_key = ? LIMIT 1",
+            (key,),
+        ).fetchone()
+        if row is not None:
+            return key, None
+        return None, "Unknown show_rating_key"
+    return None, "show_rating_key required"
 from mediaman.services.format import format_bytes as _format_bytes
 
 
@@ -282,16 +318,44 @@ def api_keep_show(
     if duration not in VALID_KEEP_DURATIONS:
         return JSONResponse({"ok": False, "error": "Invalid duration"}, status_code=400)
 
-    # Guard against IDOR — every season_id must actually belong to this show.
+    # Guard against IDOR — every season_id must actually belong to this
+    # show. We used to fall back to matching by ``show_title`` when the
+    # stored ``show_rating_key`` was NULL. That opened a collision path
+    # for two distinct shows sharing a title. Now we strictly match on
+    # ``show_rating_key`` and log any attempt that would have needed
+    # the old fallback, so operators can spot unscanned rows in the
+    # wild and backfill them.
+    resolved_key, err = _resolve_show_rating_key(conn, show_rating_key)
+    if err or not resolved_key:
+        logger.warning(
+            "keep_show.rating_key_unresolved supplied=%r user=%s err=%s",
+            show_rating_key, admin, err,
+        )
+        return JSONResponse({"ok": False, "error": err or "Unknown show"}, status_code=409)
+
     placeholders = ",".join("?" * len(season_ids))
     owned = conn.execute(
         f"SELECT id FROM media_items WHERE id IN ({placeholders}) "  # noqa: S608 — placeholders are '?' only, not user input
-        f"AND (show_rating_key = ? OR show_title = (SELECT show_title FROM media_items "
-        f"WHERE show_rating_key = ? LIMIT 1))",
-        tuple(season_ids) + (show_rating_key, show_rating_key),
+        f"AND show_rating_key = ?",
+        tuple(season_ids) + (resolved_key,),
     ).fetchall()
     owned_ids = {r["id"] for r in owned}
     if owned_ids != set(season_ids):
+        # Note any season whose show_rating_key is unpopulated — if
+        # that's the cause, a scan backfill is the correct remedy.
+        missing = set(season_ids) - owned_ids
+        if missing:
+            unkeyed = conn.execute(
+                f"SELECT id FROM media_items WHERE id IN ({','.join('?' * len(missing))}) "
+                f"AND (show_rating_key IS NULL OR show_rating_key = '')",
+                tuple(missing),
+            ).fetchall()
+            if unkeyed:
+                logger.warning(
+                    "keep_show.fallback_would_have_triggered user=%s "
+                    "show_rating_key=%s unkeyed_ids=%s",
+                    admin, resolved_key, [r["id"] for r in unkeyed],
+                )
         return JSONResponse({"ok": False, "error": "Seasons do not belong to this show"}, status_code=400)
 
     days = VALID_KEEP_DURATIONS.get(duration)

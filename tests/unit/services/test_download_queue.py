@@ -27,6 +27,48 @@ class TestNzbMatchesArr:
         assert _nzb_matches_arr("batman", ["dune", "batman"]) is True
 
 
+class TestMaybeRecordCompletionsLockDiscipline:
+    """C20 — _maybe_record_completions must release the state lock
+    BEFORE doing Radarr/Sonarr HTTP I/O. A hung Arr previously stalled
+    every other /downloads request site-wide because the lock was held
+    across the network call."""
+
+    def test_lock_not_held_during_http(self):
+        from unittest.mock import MagicMock, patch
+        import mediaman.services.download_queue as dq
+
+        dq._reset_previous_queue()
+
+        # Seed a prior snapshot so detect_completed has something to
+        # report and record_verified_completions will be invoked.
+        with dq._state_lock:
+            dq._previous_queue = {"radarr:Dune": {"id": "radarr:Dune", "title": "Dune", "kind": "movie", "poster_url": ""}}
+            dq._previous_initialised = True
+
+        lock_held_during_io: dict[str, bool] = {"value": True}
+
+        def fake_record(conn, completed, build_client):
+            # Attempt to acquire the lock non-blocking. If the lock is
+            # currently held, this returns False. If not, it returns
+            # True and we immediately release it.
+            got = dq._state_lock.acquire(blocking=False)
+            if got:
+                dq._state_lock.release()
+                lock_held_during_io["value"] = False
+            else:
+                lock_held_during_io["value"] = True
+
+        with patch.object(dq, "record_verified_completions", side_effect=fake_record):
+            dq._maybe_record_completions(MagicMock(), current_map={})
+
+        assert lock_held_during_io["value"] is False, (
+            "state lock was held across record_verified_completions — C20 regression"
+        )
+
+        # Cleanup
+        dq._reset_previous_queue()
+
+
 class TestBuildEpisodeDicts:
     def test_maps_fields_correctly(self):
         eps = [{"label": "S01E01", "title": "Pilot", "progress": 50, "is_pack_episode": False}]

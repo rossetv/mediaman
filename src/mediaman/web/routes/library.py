@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 
+import difflib
 import requests as _requests
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote as _url_quote
@@ -446,76 +447,117 @@ def api_media_delete(
         )
     conn = get_db()
 
-    row = conn.execute(
-        "SELECT id, title, media_type, file_path, file_size_bytes, radarr_id, sonarr_id, season_number, plex_rating_key "
-        "FROM media_items WHERE id = ?",
-        (media_id,),
-    ).fetchone()
-    if row is None:
-        return JSONResponse({"error": "Not found"}, status_code=404)
-
-    title = row["title"]
-    now = datetime.now(timezone.utc).isoformat()
-    config = request.app.state.config
-    is_movie = row["media_type"] == "movie"
-
-    # Delete via Radarr (movies) — deletes files + adds import exclusion
-    if is_movie:
+    # Phase 1 — read the row under a BEGIN IMMEDIATE so a concurrent
+    # delete can't race us to the Arr call. Row data is copied into
+    # locals so we can release the lock before doing HTTP: Arr I/O
+    # must NEVER happen while a write transaction is open (C22).
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT id, title, media_type, file_path, file_size_bytes, radarr_id, sonarr_id, season_number, plex_rating_key "
+            "FROM media_items WHERE id = ?",
+            (media_id,),
+        ).fetchone()
+        if row is None:
+            conn.execute("ROLLBACK")
+            return JSONResponse({"error": "Not found"}, status_code=404)
+        snapshot = {
+            "title": row["title"],
+            "media_type": row["media_type"],
+            "file_path": row["file_path"],
+            "file_size_bytes": row["file_size_bytes"],
+            "radarr_id": row["radarr_id"],
+            "sonarr_id": row["sonarr_id"],
+            "season_number": row["season_number"],
+            "plex_rating_key": row["plex_rating_key"],
+        }
+        conn.execute("COMMIT")
+    except Exception:
         try:
-            client = build_radarr_from_db(conn, config.secret_key)
-            if client:
-                # Require the radarr_id recorded at scan time. Title
-                # matching is dangerous — multiple items may share a
-                # title across libraries (remake/reboot/alternate cut)
-                # and a compromised or misconfigured Plex library could
-                # poison the stored title, causing the wrong Radarr
-                # movie to be deleted with its files.
-                radarr_id = row["radarr_id"]
-                if radarr_id:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+
+    title = snapshot["title"]
+    config = request.app.state.config
+    is_movie = snapshot["media_type"] == "movie"
+
+    # Phase 2 — outside the DB transaction, ask Arr to delete. Any HTTP
+    # error (except 404, which we treat as "already gone") becomes a
+    # 502 and the DB row is left intact so the caller can retry
+    # idempotently once Arr is reachable again.
+    def _is_already_gone(exc: Exception) -> bool:
+        resp = getattr(exc, "response", None)
+        status = getattr(resp, "status_code", None) if resp is not None else None
+        return status == 404
+
+    if is_movie:
+        client = build_radarr_from_db(conn, config.secret_key)
+        if client:
+            radarr_id = snapshot["radarr_id"]
+            if radarr_id:
+                try:
                     client.delete_movie(radarr_id)
                     logger.info("Deleted '%s' via Radarr (id %s, with files + exclusion)", title, radarr_id)
-                else:
-                    logger.info(
-                        "No stored radarr_id for '%s' — skipping Radarr-level delete. "
-                        "Run a full scan to populate radarr_id if you need file deletion.",
-                        title,
-                    )
-        except Exception as exc:
-            logger.warning("Radarr delete failed for '%s': %s", title, exc, exc_info=True)
-
-    # Delete via Sonarr (TV) — delete episode files + unmonitor season
+                except Exception as exc:
+                    if _is_already_gone(exc):
+                        logger.info("Radarr reports id %s already gone for '%s' — idempotent delete", radarr_id, title)
+                    else:
+                        logger.warning("Radarr delete failed for '%s': %s", title, exc, exc_info=True)
+                        return JSONResponse(
+                            {"ok": False, "error": "Upstream Radarr delete failed — DB row preserved"},
+                            status_code=502,
+                        )
+            else:
+                logger.info(
+                    "No stored radarr_id for '%s' — skipping Radarr-level delete. "
+                    "Run a full scan to populate radarr_id if you need file deletion.",
+                    title,
+                )
     else:
-        try:
-            client = build_sonarr_from_db(conn, config.secret_key)
-            if client:
-                # Same rule as Radarr — require stored sonarr_id; no
-                # title-based lookup fallback.
-                sid = row["sonarr_id"]
-                season_num = row["season_number"]
-                if sid and season_num is not None:
+        client = build_sonarr_from_db(conn, config.secret_key)
+        if client:
+            sid = snapshot["sonarr_id"]
+            season_num = snapshot["season_number"]
+            if sid and season_num is not None:
+                try:
                     client.delete_episode_files(sid, season_num)
                     client.unmonitor_season(sid, season_num)
                     logger.info("Deleted season files for '%s' S%s via Sonarr", title, season_num)
-                    # If no files remain for the series, remove it entirely + add exclusion
                     if not client.has_remaining_files(sid):
                         client.delete_series(sid)
                         logger.info("No files remain for '%s' — deleted series from Sonarr with exclusion", title)
-        except Exception as exc:
-            logger.warning("Sonarr delete failed for '%s': %s", title, exc, exc_info=True)
+                except Exception as exc:
+                    if _is_already_gone(exc):
+                        logger.info("Sonarr reports id %s already gone for '%s' — idempotent delete", sid, title)
+                    else:
+                        logger.warning("Sonarr delete failed for '%s': %s", title, exc, exc_info=True)
+                        return JSONResponse(
+                            {"ok": False, "error": "Upstream Sonarr delete failed — DB row preserved"},
+                            status_code=502,
+                        )
 
-    # Audit log — include title and poster key so they survive media_items deletion
-    rk = row["plex_rating_key"] or ""
+    # Phase 3 — Arr confirmed (or not configured). Reopen a transaction
+    # and prune the DB rows.
+    rk = snapshot["plex_rating_key"] or ""
     detail = f"Deleted '{title}' by {username}"
     if rk:
         detail += f" [rk:{rk}]"
-    log_audit(conn, media_id, "deleted", detail, space_bytes=row["file_size_bytes"])
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        log_audit(conn, media_id, "deleted", detail, space_bytes=snapshot["file_size_bytes"])
+        conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_id,))
+        conn.execute("DELETE FROM media_items WHERE id = ?", (media_id,))
+        conn.execute("COMMIT")
+    except Exception:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
 
-    # Remove scheduled actions and the media item itself
-    conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_id,))
-    conn.execute("DELETE FROM media_items WHERE id = ?", (media_id,))
-    conn.commit()
-
-    logger.info("Deleted %s (%s) — %s by %s", media_id, row["title"], row["file_path"], username)
+    logger.info("Deleted %s (%s) — %s by %s", media_id, title, snapshot["file_path"], username)
     return JSONResponse({"ok": True, "id": media_id})
 
 
@@ -586,35 +628,186 @@ def api_media_keep(
     return JSONResponse({"ok": True, "id": media_id, "duration": snooze_label})
 
 
+# Minimum title similarity accepted for a title+year fuzzy match.
+# Pairs well below this (e.g. "Inception 2010" vs "Inception 2020") will
+# not clear the bar, so the picker will refuse rather than add the
+# wrong entry.
+_REDOWNLOAD_TITLE_SIMILARITY = 0.9
+
+
+def _pick_lookup_match(
+    lookup: list[dict],
+    *,
+    title: str,
+    year: int | None,
+    tmdb_id: int | None,
+    tvdb_id: int | None,
+    imdb_id: str | None,
+    id_keys: tuple[str, ...],
+) -> tuple[dict | None, str | None]:
+    """Return ``(entry, error)`` for a Radarr/Sonarr lookup response.
+
+    IDs win — if any provided ID matches exactly one row, that row is
+    used. Otherwise fall back to a fuzzy title+year match with a tight
+    similarity threshold and a hard year equality requirement. Returns
+    ``(None, reason)`` if no acceptable match is found or the result
+    is ambiguous.
+
+    ``id_keys`` is the list of ID field names to check on lookup rows
+    (e.g. ``("tmdbId",)`` for Radarr movies, ``("tvdbId", "tmdbId",
+    "imdbId")`` for Sonarr series).
+    """
+    if not lookup:
+        return None, "No lookup results"
+
+    # ID path — strongest signal, zero ambiguity tolerated.
+    wanted_ids: dict[str, object] = {}
+    if tmdb_id is not None:
+        wanted_ids["tmdbId"] = tmdb_id
+    if tvdb_id is not None:
+        wanted_ids["tvdbId"] = tvdb_id
+    if imdb_id:
+        wanted_ids["imdbId"] = imdb_id
+
+    if wanted_ids:
+        hits = []
+        for entry in lookup:
+            for key, wanted in wanted_ids.items():
+                got = entry.get(key)
+                if got is None or wanted is None:
+                    continue
+                # Normalise both sides to strings — TMDB ids are ints,
+                # IMDB ids are strings like "tt1234567".
+                if str(got).strip().lower() == str(wanted).strip().lower():
+                    hits.append(entry)
+                    break
+        if len(hits) == 1:
+            return hits[0], None
+        if len(hits) > 1:
+            return None, "Ambiguous ID match"
+        return None, "Supplied ID did not match any lookup result"
+
+    # Title+year path — refuse unless the top pair is similar enough
+    # and the years match exactly.
+    if not title:
+        return None, "No title for fuzzy match"
+
+    def _norm(s: str) -> str:
+        return s.strip().lower()
+
+    target = _norm(title)
+    scored: list[tuple[float, dict]] = []
+    for entry in lookup:
+        cand_title = _norm(entry.get("title") or "")
+        if not cand_title:
+            continue
+        ratio = difflib.SequenceMatcher(None, target, cand_title).ratio()
+        scored.append((ratio, entry))
+    if not scored:
+        return None, "No titled lookup results"
+    scored.sort(key=lambda t: t[0], reverse=True)
+    best_score, best = scored[0]
+    if best_score < _REDOWNLOAD_TITLE_SIMILARITY:
+        return None, "No confident title match"
+    if year is None or best.get("year") != year:
+        return None, "Year mismatch or missing"
+    # Refuse if more than one candidate is equally close — an ambiguous
+    # title+year pair must not be silently resolved.
+    close = [entry for score, entry in scored if score >= _REDOWNLOAD_TITLE_SIMILARITY
+             and entry.get("year") == year]
+    if len(close) > 1:
+        return None, "Ambiguous title+year match"
+    return best, None
+
+
 @router.post("/api/media/redownload")
 def api_media_redownload(
     request: Request,
-    title: str = Body(..., embed=True),
+    body: dict = Body(...),
     username: str = Depends(get_current_admin),
 ) -> JSONResponse:
-    """Re-download a deleted media item by searching Radarr/Sonarr by title."""
-    title = title.strip()
+    """Re-download a deleted media item.
+
+    Contract: the caller MUST supply at least one of ``tmdb_id``,
+    ``tvdb_id``, or ``imdb_id``. ``title`` and ``year`` are accepted as
+    soft hints but are never sufficient on their own — the old
+    title-only branch was a delete-wrong-media vector (see C15).
+
+    If only a title+year pair is supplied, the endpoint accepts it only
+    when the Radarr/Sonarr lookup returns exactly one entry with
+    ``SequenceMatcher`` ratio >= 0.9 AND an exactly-matching year.
+    """
+    title = str(body.get("title") or "").strip()
+    year_raw = body.get("year")
+    try:
+        year = int(year_raw) if year_raw not in (None, "") else None
+    except (TypeError, ValueError):
+        year = None
+    tmdb_id = body.get("tmdb_id")
+    tvdb_id = body.get("tvdb_id")
+    imdb_id = body.get("imdb_id")
+    try:
+        tmdb_id = int(tmdb_id) if tmdb_id not in (None, "") else None
+    except (TypeError, ValueError):
+        tmdb_id = None
+    try:
+        tvdb_id = int(tvdb_id) if tvdb_id not in (None, "") else None
+    except (TypeError, ValueError):
+        tvdb_id = None
+    if imdb_id is not None:
+        imdb_id = str(imdb_id).strip() or None
+
+    # Contract check — an ID is required unless the caller opts into a
+    # tightly-constrained title+year fuzzy match. Pure title submissions
+    # used to accept ``lookup[0]`` blindly which is how the wrong movie
+    # could land in Radarr.
+    if tmdb_id is None and tvdb_id is None and not imdb_id:
+        if not title or year is None:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        "Provide at least one of tmdb_id, tvdb_id, imdb_id; "
+                        "title+year alone is only accepted with an exact "
+                        "year and a confident title match"
+                    ),
+                },
+                status_code=400,
+            )
+
     if not title:
         return JSONResponse({"ok": False, "error": "No title provided"}, status_code=400)
 
     conn = get_db()
     config = request.app.state.config
-    now = datetime.now(timezone.utc).isoformat()
 
     # Try Radarr first (movies)
     try:
         client = build_radarr_from_db(conn, config.secret_key)
         if client:
             lookup = client._get(f"/api/v3/movie/lookup?term={_url_quote(title)}")
-            if lookup:
-                tmdb_id = lookup[0].get("tmdbId")
-                if tmdb_id:
-                    client.add_movie(tmdb_id, title)
-                    log_audit(conn, title, "re_downloaded", f"Re-downloaded by {username}")
-                    record_download_notification(conn, email=username, title=title, media_type="movie", tmdb_id=tmdb_id, service="radarr")
+            entry, _err = _pick_lookup_match(
+                lookup or [],
+                title=title,
+                year=year,
+                tmdb_id=tmdb_id,
+                tvdb_id=None,
+                imdb_id=imdb_id,
+                id_keys=("tmdbId", "imdbId"),
+            )
+            if entry is not None:
+                resolved_tmdb = entry.get("tmdbId")
+                if resolved_tmdb:
+                    resolved_title = entry.get("title") or title
+                    client.add_movie(resolved_tmdb, resolved_title)
+                    log_audit(conn, resolved_title, "re_downloaded", f"Re-downloaded by {username}")
+                    record_download_notification(
+                        conn, email=username, title=resolved_title,
+                        media_type="movie", tmdb_id=resolved_tmdb, service="radarr",
+                    )
                     conn.commit()
-                    logger.info("Re-downloaded '%s' via Radarr by %s", title, username)
-                    return JSONResponse({"ok": True, "message": f"Added '{title}' to Radarr"})
+                    logger.info("Re-downloaded '%s' (tmdb=%s) via Radarr by %s", resolved_title, resolved_tmdb, username)
+                    return JSONResponse({"ok": True, "message": f"Added '{resolved_title}' to Radarr"})
     except _requests.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else 0
         if status in (409, 422):
@@ -626,19 +819,37 @@ def api_media_redownload(
         client = build_sonarr_from_db(conn, config.secret_key)
         if client:
             results = client._get(f"/api/v3/series/lookup?term={_url_quote(title)}")
-            if results:
-                tvdb_id = results[0].get("tvdbId")
-                if tvdb_id:
-                    client.add_series(tvdb_id, title)
-                    tmdb_id_sonarr = results[0].get("tmdbId")
-                    log_audit(conn, title, "re_downloaded", f"Re-downloaded by {username}")
-                    # Sonarr matches series by TVDB id — keep both IDs so
-                    # the completion checker can fire even when tmdbId
-                    # isn't populated on the series record.
-                    record_download_notification(conn, email=username, title=title, media_type="tv", tmdb_id=tmdb_id_sonarr, tvdb_id=tvdb_id, service="sonarr")
+            entry, err = _pick_lookup_match(
+                results or [],
+                title=title,
+                year=year,
+                tmdb_id=tmdb_id,
+                tvdb_id=tvdb_id,
+                imdb_id=imdb_id,
+                id_keys=("tvdbId", "tmdbId", "imdbId"),
+            )
+            if entry is not None:
+                resolved_tvdb = entry.get("tvdbId")
+                if resolved_tvdb:
+                    resolved_title = entry.get("title") or title
+                    client.add_series(resolved_tvdb, resolved_title)
+                    resolved_tmdb_sonarr = entry.get("tmdbId")
+                    log_audit(conn, resolved_title, "re_downloaded", f"Re-downloaded by {username}")
+                    record_download_notification(
+                        conn, email=username, title=resolved_title,
+                        media_type="tv", tmdb_id=resolved_tmdb_sonarr,
+                        tvdb_id=resolved_tvdb, service="sonarr",
+                    )
                     conn.commit()
-                    logger.info("Re-downloaded '%s' via Sonarr by %s", title, username)
-                    return JSONResponse({"ok": True, "message": f"Added '{title}' to Sonarr"})
+                    logger.info("Re-downloaded '%s' (tvdb=%s) via Sonarr by %s", resolved_title, resolved_tvdb, username)
+                    return JSONResponse({"ok": True, "message": f"Added '{resolved_title}' to Sonarr"})
+            # Ambiguous result — refuse with 409 so the caller surfaces
+            # the conflict to the user rather than silently adding nothing.
+            if err in ("Ambiguous ID match", "Ambiguous title+year match"):
+                return JSONResponse(
+                    {"ok": False, "error": f"Ambiguous match for '{title}' — supply tmdb_id/tvdb_id/imdb_id"},
+                    status_code=409,
+                )
     except _requests.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else 0
         if status in (409, 422):

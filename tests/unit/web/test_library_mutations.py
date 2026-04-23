@@ -173,6 +173,73 @@ class TestMediaDelete:
         assert sa_row is None
 
 
+class TestMediaDeleteTransactional:
+    """C22 — transactional delete with Arr failure propagation."""
+
+    def setup_method(self):
+        _DELETE_LIMITER._attempts.clear()
+        _DELETE_LIMITER._day_counts.clear()
+
+    def test_arr_failure_returns_502_and_preserves_row(self, db_path, secret_key):
+        """If Radarr delete raises, the endpoint returns 502 and keeps the DB row."""
+        conn = init_db(str(db_path))
+        _insert_movie(conn, radarr_id=101)
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        mock_radarr = MagicMock()
+        mock_radarr.delete_movie.side_effect = RuntimeError("Radarr exploded")
+
+        with patch("mediaman.web.routes.library.build_radarr_from_db", return_value=mock_radarr):
+            resp = client.post("/api/media/m1/delete")
+
+        assert resp.status_code == 502
+        # Row must still be present
+        row = conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone()
+        assert row is not None
+
+    def test_arr_404_treated_as_already_gone(self, db_path, secret_key):
+        """Arr returning 404 means already-deleted upstream — DB row must still be pruned."""
+        conn = init_db(str(db_path))
+        _insert_movie(conn, radarr_id=101)
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        import requests as _requests
+        fake_resp = MagicMock()
+        fake_resp.status_code = 404
+        http_err = _requests.HTTPError(response=fake_resp)
+
+        mock_radarr = MagicMock()
+        mock_radarr.delete_movie.side_effect = http_err
+
+        with patch("mediaman.web.routes.library.build_radarr_from_db", return_value=mock_radarr):
+            resp = client.post("/api/media/m1/delete")
+
+        assert resp.status_code == 200
+        row = conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone()
+        assert row is None
+
+    def test_retry_after_failure_succeeds(self, db_path, secret_key):
+        """After a transient Arr failure, a retry must succeed (idempotency)."""
+        conn = init_db(str(db_path))
+        _insert_movie(conn, radarr_id=101)
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        mock_radarr = MagicMock()
+        mock_radarr.delete_movie.side_effect = [RuntimeError("first fails"), None]
+
+        with patch("mediaman.web.routes.library.build_radarr_from_db", return_value=mock_radarr):
+            first = client.post("/api/media/m1/delete")
+            assert first.status_code == 502
+            second = client.post("/api/media/m1/delete")
+            assert second.status_code == 200
+
+        row = conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone()
+        assert row is None
+
+
 class TestMediaKeep:
     def test_keep_requires_auth(self, db_path, secret_key):
         """Keep endpoint returns 401 without a session cookie."""
@@ -282,17 +349,20 @@ class TestMediaRedownload:
         assert resp.status_code == 400
 
     def test_redownload_submits_to_radarr(self, db_path, secret_key):
-        """Redownload calls Radarr add_movie and returns ok=True."""
+        """Redownload with tmdb_id calls Radarr add_movie and returns ok=True."""
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key)
         client = _auth_client(app, conn)
 
         mock_radarr = MagicMock()
-        mock_radarr._get.return_value = [{"tmdbId": 42}]
+        mock_radarr._get.return_value = [{"tmdbId": 42, "title": "Dune", "year": 2021}]
         mock_radarr.add_movie.return_value = None
 
         with patch("mediaman.web.routes.library.build_radarr_from_db", return_value=mock_radarr):
-            resp = client.post("/api/media/redownload", json={"title": "Dune"})
+            resp = client.post(
+                "/api/media/redownload",
+                json={"title": "Dune", "tmdb_id": 42},
+            )
 
         assert resp.status_code == 200
         data = resp.json()
@@ -309,14 +379,92 @@ class TestMediaRedownload:
         mock_radarr._get.return_value = []  # Radarr finds nothing
 
         mock_sonarr = MagicMock()
-        mock_sonarr._get.return_value = [{"tvdbId": 999, "tmdbId": None}]
+        mock_sonarr._get.return_value = [{"tvdbId": 999, "tmdbId": None, "title": "Severance", "year": 2022}]
         mock_sonarr.add_series.return_value = None
 
         with patch("mediaman.web.routes.library.build_radarr_from_db", return_value=mock_radarr), \
              patch("mediaman.web.routes.library.build_sonarr_from_db", return_value=mock_sonarr):
-            resp = client.post("/api/media/redownload", json={"title": "Severance"})
+            resp = client.post(
+                "/api/media/redownload",
+                json={"title": "Severance", "tvdb_id": 999},
+            )
 
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is True
         mock_sonarr.add_series.assert_called_once()
+
+    def test_redownload_title_only_refused(self, db_path, secret_key):
+        """Title-only submissions without year are refused (C15)."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        resp = client.post("/api/media/redownload", json={"title": "Dune"})
+        assert resp.status_code == 400
+
+    def test_redownload_title_year_accepted_when_unambiguous(self, db_path, secret_key):
+        """Title + exact year + confident title match is accepted."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        mock_radarr = MagicMock()
+        mock_radarr._get.return_value = [
+            {"tmdbId": 99, "title": "Dune", "year": 2021},
+            {"tmdbId": 7, "title": "Completely Different", "year": 1999},
+        ]
+        with patch("mediaman.web.routes.library.build_radarr_from_db", return_value=mock_radarr):
+            resp = client.post(
+                "/api/media/redownload",
+                json={"title": "Dune", "year": 2021},
+            )
+        assert resp.status_code == 200
+        mock_radarr.add_movie.assert_called_once_with(99, "Dune")
+
+    def test_redownload_title_year_ambiguous_refused(self, db_path, secret_key):
+        """Two equally-confident matches with the same year fall through (no add)."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        mock_radarr = MagicMock()
+        # Two identical titles, same year — ambiguous.
+        mock_radarr._get.return_value = [
+            {"tmdbId": 1, "title": "Inception", "year": 2010},
+            {"tmdbId": 2, "title": "Inception", "year": 2010},
+        ]
+        mock_sonarr = MagicMock()
+        mock_sonarr._get.return_value = []
+        with patch("mediaman.web.routes.library.build_radarr_from_db", return_value=mock_radarr), \
+             patch("mediaman.web.routes.library.build_sonarr_from_db", return_value=mock_sonarr):
+            resp = client.post(
+                "/api/media/redownload",
+                json={"title": "Inception", "year": 2010},
+            )
+        # add_movie must not be called in an ambiguous case.
+        mock_radarr.add_movie.assert_not_called()
+        # Either a 409 (if Sonarr branch returns ambiguous) or fall-through
+        # "not found" response — both leave the user safe.
+        assert resp.status_code in (200, 400, 404, 409)
+        assert resp.json().get("ok") is False
+
+    def test_redownload_wrong_year_refused(self, db_path, secret_key):
+        """A title-only request whose year does not match any lookup entry is refused."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        mock_radarr = MagicMock()
+        mock_radarr._get.return_value = [
+            {"tmdbId": 10, "title": "Inception", "year": 2010},
+        ]
+        mock_sonarr = MagicMock()
+        mock_sonarr._get.return_value = []
+        with patch("mediaman.web.routes.library.build_radarr_from_db", return_value=mock_radarr), \
+             patch("mediaman.web.routes.library.build_sonarr_from_db", return_value=mock_sonarr):
+            resp = client.post(
+                "/api/media/redownload",
+                json={"title": "Inception", "year": 2020},  # wrong year
+            )
+        mock_radarr.add_movie.assert_not_called()

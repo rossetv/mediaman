@@ -136,3 +136,104 @@ class TestApiShowSeasons:
         body = resp.json()
         assert body["seasons"] == []
         assert body["show_title"] == ""
+
+
+def _insert_season(conn, media_id: str, show_rating_key: str | None, show_title: str, season: int = 1) -> None:
+    """Insert a TV season with a specific show_rating_key / show_title."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        """INSERT INTO media_items
+           (id, title, media_type, plex_library_id, plex_rating_key, added_at,
+            file_path, file_size_bytes, show_rating_key, show_title, season_number)
+           VALUES (?, ?, 'tv_season', 1, ?, ?, '/p', 1, ?, ?, ?)""",
+        (media_id, f"{show_title} S{season}", f"rk-{media_id}", now, show_rating_key, show_title, season),
+    )
+    conn.commit()
+
+
+class TestKeepShowIdorDefence:
+    """C13 — /api/show/{key}/keep must not collide two shows sharing a title."""
+
+    def test_seasons_owned_by_different_show_rejected(self, db_path, secret_key):
+        """A season_id from a different show with the same title is refused."""
+        conn = init_db(str(db_path))
+        # Two distinct shows, both titled "Kingdom", different rating keys.
+        _insert_season(conn, "m-A", "rk-show-A", "Kingdom", season=1)
+        _insert_season(conn, "m-B", "rk-show-B", "Kingdom", season=1)
+
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        # Try to keep show A but pass show B's season id — must be rejected.
+        resp = client.post(
+            "/api/show/rk-show-A/keep",
+            json={"duration": "forever", "season_ids": ["m-B"]},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["ok"] is False
+        # No protection row was created for m-B
+        row = conn.execute(
+            "SELECT 1 FROM scheduled_actions WHERE media_item_id='m-B'"
+        ).fetchone()
+        assert row is None
+
+    def test_unknown_rating_key_returns_409(self, db_path, secret_key):
+        """A rating_key with no matching media_items row is refused with 409."""
+        conn = init_db(str(db_path))
+        _insert_season(conn, "m-A", "rk-show-A", "Kingdom", season=1)
+
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        resp = client.post(
+            "/api/show/rk-does-not-exist/keep",
+            json={"duration": "forever", "season_ids": ["m-A"]},
+        )
+        assert resp.status_code == 409
+        assert resp.json()["ok"] is False
+
+    def test_correct_ownership_still_allowed(self, db_path, secret_key):
+        """Happy path — seasons with matching show_rating_key are accepted."""
+        conn = init_db(str(db_path))
+        _insert_season(conn, "m-A1", "rk-show-A", "Kingdom", season=1)
+        _insert_season(conn, "m-A2", "rk-show-A", "Kingdom", season=2)
+
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        resp = client.post(
+            "/api/show/rk-show-A/keep",
+            json={"duration": "forever", "season_ids": ["m-A1", "m-A2"]},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        rows = conn.execute(
+            "SELECT COUNT(*) AS n FROM scheduled_actions WHERE media_item_id IN ('m-A1','m-A2')"
+        ).fetchone()
+        assert rows["n"] == 2
+
+
+class TestResolveShowRatingKey:
+    """C13 helper unit tests."""
+
+    def test_empty_supplied_key_is_refused(self, db_path, secret_key):
+        from mediaman.web.routes.kept import _resolve_show_rating_key
+        conn = init_db(str(db_path))
+        resolved, err = _resolve_show_rating_key(conn, "")
+        assert resolved is None
+        assert err is not None
+
+    def test_known_key_resolves(self, db_path, secret_key):
+        from mediaman.web.routes.kept import _resolve_show_rating_key
+        conn = init_db(str(db_path))
+        _insert_season(conn, "m-A", "rk-known", "Show", season=1)
+        resolved, err = _resolve_show_rating_key(conn, "rk-known")
+        assert resolved == "rk-known"
+        assert err is None
+
+    def test_unknown_key_returns_error(self, db_path, secret_key):
+        from mediaman.web.routes.kept import _resolve_show_rating_key
+        conn = init_db(str(db_path))
+        resolved, err = _resolve_show_rating_key(conn, "rk-unknown")
+        assert resolved is None
+        assert err is not None

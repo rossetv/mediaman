@@ -137,15 +137,25 @@ def _safe_mime(remote_type: str | None) -> str:
 def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple[bytes | None, str | None]:
     """Try to fetch a poster from Radarr/Sonarr TMDB data for a media item.
 
-    Looks up the title from media_items by rating_key, then searches
-    Radarr (movies) and Sonarr (series) for a TMDB poster URL.
+    Looks up the stored ``radarr_id`` / ``sonarr_id`` on the
+    ``media_items`` row for this Plex rating key and fetches the
+    poster for that exact Arr record. The old implementation matched
+    by *title* (case-insensitive substring variants), which let a
+    request for a freshly-added "Inception" pull the poster of a
+    different Arr row that happened to share the title — a poster
+    cache-poisoning primitive (C16).
 
-    Returns (content_bytes, content_type) or (None, None).
+    Returns (content_bytes, content_type) or (None, None). If no
+    ``radarr_id`` / ``sonarr_id`` is populated yet on the stored row
+    (common right after an add, before the next scan has backfilled
+    IDs), returns (None, None) and the caller will 404 rather than
+    guess a replacement.
     """
     from mediaman.config import load_config
 
     row = conn.execute(
-        "SELECT title, media_type FROM media_items WHERE id = ?",
+        "SELECT title, media_type, radarr_id, sonarr_id "
+        "FROM media_items WHERE id = ?",
         (rating_key,),
     ).fetchone()
     if not row:
@@ -153,30 +163,44 @@ def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple[bytes | No
 
     title = row["title"]
     media_type = row["media_type"] or "movie"
+    radarr_id = row["radarr_id"]
+    sonarr_id = row["sonarr_id"]
 
     poster_url = None
     config = load_config()
 
     if media_type == "movie":
+        if not radarr_id:
+            logger.info(
+                "Poster fallback skipped — no radarr_id stored for media id=%s title=%r",
+                rating_key, title,
+            )
+            return None, None
         radarr_client = build_radarr_from_db(conn, config.secret_key)
         if radarr_client:
             try:
                 for movie in radarr_client.get_movies():
-                    if movie.get("title", "").lower() == title.lower():
+                    if movie.get("id") == radarr_id:
                         poster_url = extract_poster_url(movie.get("images")) or ""
                         break
             except Exception:
-                logger.warning("Failed to fetch Radarr poster for title=%r", title, exc_info=True)
+                logger.warning("Failed to fetch Radarr poster for id=%s", radarr_id, exc_info=True)
     else:
+        if not sonarr_id:
+            logger.info(
+                "Poster fallback skipped — no sonarr_id stored for media id=%s title=%r",
+                rating_key, title,
+            )
+            return None, None
         sonarr_client = build_sonarr_from_db(conn, config.secret_key)
         if sonarr_client:
             try:
                 for series in sonarr_client.get_series():
-                    if series.get("title", "").lower() == title.lower():
+                    if series.get("id") == sonarr_id:
                         poster_url = extract_poster_url(series.get("images")) or ""
                         break
             except Exception:
-                logger.warning("Failed to fetch Sonarr poster for title=%r", title, exc_info=True)
+                logger.warning("Failed to fetch Sonarr poster for id=%s", sonarr_id, exc_info=True)
 
     if not poster_url:
         return None, None

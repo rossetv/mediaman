@@ -218,3 +218,85 @@ class TestPosterEndpointAuth:
         client.cookies.set("session_token", token)
         r = client.get("/api/poster/abc")
         assert r.status_code == 404
+
+
+class TestArrPosterByStoredId:
+    """C16 — Radarr/Sonarr poster lookup must use the stored radarr_id /
+    sonarr_id rather than a title match, otherwise a request for an
+    unrelated row with the same title poisons the cache."""
+
+    _KEY = "0123456789abcdef" * 4
+
+    def test_no_radarr_id_returns_none(self, tmp_path):
+        """If the media_items row has a NULL radarr_id, the fallback returns None."""
+        from datetime import datetime, timezone
+        from mediaman.db import init_db, set_connection
+        from mediaman.web.routes.poster import _fetch_arr_poster
+
+        conn = init_db(str(tmp_path / "mediaman.db"))
+        set_connection(conn)
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO media_items (id, title, media_type, plex_library_id, "
+            "plex_rating_key, added_at, file_path, file_size_bytes) "
+            "VALUES ('r1','Inception','movie',1,'r1',?,'/p',1)",
+            (now,),
+        )
+        conn.commit()
+
+        import os
+        os.environ["MEDIAMAN_SECRET_KEY"] = self._KEY
+        os.environ["MEDIAMAN_DATA_DIR"] = str(tmp_path)
+
+        bytes_, ctype = _fetch_arr_poster(conn, "r1", None)
+        assert bytes_ is None
+        assert ctype is None
+
+    def test_radarr_id_match_uses_id_not_title(self, tmp_path):
+        """When radarr_id is stored, the Arr lookup matches by id, not title."""
+        from datetime import datetime, timezone
+        from unittest.mock import MagicMock, patch
+
+        from mediaman.db import init_db, set_connection
+        from mediaman.web.routes.poster import _fetch_arr_poster
+
+        conn = init_db(str(tmp_path / "mediaman.db"))
+        set_connection(conn)
+        now = datetime.now(timezone.utc).isoformat()
+        # Stored row: title "Inception", radarr_id 2020.
+        conn.execute(
+            "INSERT INTO media_items (id, title, media_type, plex_library_id, "
+            "plex_rating_key, added_at, file_path, file_size_bytes, radarr_id) "
+            "VALUES ('r1','Inception','movie',1,'r1',?,'/p',1,2020)",
+            (now,),
+        )
+        conn.commit()
+
+        import os
+        os.environ["MEDIAMAN_SECRET_KEY"] = self._KEY
+        os.environ["MEDIAMAN_DATA_DIR"] = str(tmp_path)
+
+        # Radarr returns two movies sharing the title — the matcher must
+        # pick the one with id 2020, not the other.
+        mock_radarr = MagicMock()
+        mock_radarr.get_movies.return_value = [
+            {"id": 2010, "title": "Inception", "images": [
+                {"coverType": "poster", "remoteUrl": "https://image.tmdb.org/WRONG.jpg"}
+            ]},
+            {"id": 2020, "title": "Inception", "images": [
+                {"coverType": "poster", "remoteUrl": "https://image.tmdb.org/RIGHT.jpg"}
+            ]},
+        ]
+        with patch("mediaman.web.routes.poster.build_radarr_from_db", return_value=mock_radarr), \
+             patch("mediaman.web.routes.poster._POSTER_HTTP") as mock_http:
+            mock_resp = MagicMock()
+            mock_resp.content = b"right"
+            mock_resp.headers = {"Content-Type": "image/jpeg"}
+            mock_http.get.return_value = mock_resp
+
+            bytes_, ctype = _fetch_arr_poster(conn, "r1", None)
+
+            # The fetched URL must be the RIGHT one (matching stored id 2020).
+            assert mock_http.get.call_args[0][0].endswith("RIGHT.jpg")
+            assert bytes_ == b"right"
+            assert ctype == "image/jpeg"

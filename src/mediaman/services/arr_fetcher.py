@@ -268,33 +268,62 @@ def _fetch_sonarr_queue(client) -> list[ArrCard]:
     # each episode individually so the template can suppress
     # useless mini-bars on pack rows while keeping them on
     # individual rows.
-    for card in series_map.values():
+    for card_series_id, card in series_map.items():
         eps = card["episodes"]
 
-        # Per-episode: pack if its downloadId is shared with
-        # another episode in the same card.
-        dl_id_counts: dict[str, int] = {}
-        for e in eps:
-            dl = e.get("download_id", "")
+        # Per-episode cluster key. We used to cluster by ``downloadId``
+        # alone — but Sonarr occasionally emits queue rows with an empty
+        # ``downloadId`` (during handoff, or for manually-added grabs),
+        # and those rows all collapsed to the empty string key. If two
+        # such rows happened to carry the same pack totals, the pack
+        # aggregate double-counted them (C19).
+        #
+        # New rule: when ``downloadId`` is populated, cluster by it.
+        # When it's empty, synthesise a stable key from the series +
+        # title + season/episode coordinates so two distinct rows
+        # can't collapse into one. If even that metadata is missing
+        # (no title, no season, no episode), refuse to aggregate that
+        # episode and log a warning — it contributes nothing to pack
+        # totals rather than risk a double count.
+        def _cluster_key(e: dict) -> str | None:
+            dl = e.get("download_id", "") or ""
             if dl:
-                dl_id_counts[dl] = dl_id_counts.get(dl, 0) + 1
-        for e in eps:
-            dl = e.get("download_id", "")
-            e["is_pack_episode"] = bool(dl) and dl_id_counts.get(dl, 0) > 1
+                return dl
+            title = e.get("title", "") or ""
+            label = e.get("label", "") or ""
+            if not title and not label:
+                logger.warning(
+                    "arr_fetcher.refused_empty_dl series_id=%s — row missing "
+                    "downloadId and identifying metadata; skipping aggregation",
+                    card_series_id,
+                )
+                return None
+            return f"seriesId:{card_series_id}:{title}:{label}"
 
-        # Aggregate by unique downloadId so pack totals aren't
-        # counted once per episode. Episodes with no downloadId
-        # (shouldn't normally happen in the queue) contribute
-        # their individual size/sizeleft.
-        seen_ids: set[str] = set()
+        # Per-episode: pack if its cluster key is shared with another
+        # episode in the same card.
+        cluster_counts: dict[str, int] = {}
+        cluster_keys: list[str | None] = []
+        for e in eps:
+            k = _cluster_key(e)
+            cluster_keys.append(k)
+            if k is not None:
+                cluster_counts[k] = cluster_counts.get(k, 0) + 1
+        for e, k in zip(eps, cluster_keys):
+            e["is_pack_episode"] = k is not None and cluster_counts.get(k, 0) > 1
+
+        # Aggregate by unique cluster key so pack totals aren't counted
+        # once per episode.
+        seen_keys: set[str] = set()
         total_size = 0
         total_left = 0
-        for e in eps:
-            dl = e.get("download_id", "")
-            if dl:
-                if dl in seen_ids:
-                    continue
-                seen_ids.add(dl)
+        for e, k in zip(eps, cluster_keys):
+            if k is None:
+                # Refused — don't contribute to aggregates.
+                continue
+            if k in seen_keys:
+                continue
+            seen_keys.add(k)
             total_size += e["size"]
             total_left += e["sizeleft"]
 

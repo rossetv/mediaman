@@ -306,6 +306,90 @@ def test_sonarr_episodes_grouped_by_series(mock_sonarr_cls, conn):
 
 
 @patch("mediaman.services.sonarr.SonarrClient")
+def test_sonarr_empty_downloadids_do_not_double_count(mock_sonarr_cls, conn):
+    """C19 — two queue rows with empty downloadId must not collapse into one pack total."""
+    _configure_sonarr(conn)
+
+    series_payload = {"id": 7, "title": "Orphan Black", "year": 2013, "images": []}
+    mock_client = MagicMock()
+    mock_client.get_queue.return_value = [
+        {
+            "title": "Orphan.Black.S01E01",
+            "size": 400_000_000,
+            "sizeleft": 0,
+            "status": "completed",
+            "series": series_payload,
+            "episode": {"seasonNumber": 1, "episodeNumber": 1, "title": "Natural Selection"},
+            "downloadId": "",  # empty — dangerous pre-fix
+        },
+        {
+            "title": "Orphan.Black.S01E02",
+            "size": 500_000_000,
+            "sizeleft": 0,
+            "status": "completed",
+            "series": series_payload,
+            "episode": {"seasonNumber": 1, "episodeNumber": 2, "title": "Instinct"},
+            "downloadId": "",  # empty — dangerous pre-fix
+        },
+    ]
+    mock_client.get_series.return_value = []
+    mock_sonarr_cls.return_value = mock_client
+
+    result = fetch_arr_queue(conn)
+
+    assert len(result) == 1
+    card = result[0]
+    assert card["episode_count"] == 2
+    # With the fix, both episodes' sizes contribute (distinct cluster
+    # keys because title/label differ). Pre-fix, they would have shared
+    # the "" dl key and one would have been skipped OR flagged as a pack
+    # with duplicated aggregate. Either way the check is: both episode
+    # sizes add up correctly.
+    assert card["size"] == 900_000_000
+    # Neither episode should be flagged is_pack_episode because their
+    # cluster keys differ (label/title disambiguates).
+    assert all(e["is_pack_episode"] is False for e in card["episodes"])
+
+
+@patch("mediaman.services.sonarr.SonarrClient")
+def test_sonarr_pack_with_shared_download_id_still_clusters(mock_sonarr_cls, conn):
+    """When a real pack downloadId is shared, we still dedupe correctly."""
+    _configure_sonarr(conn)
+
+    series_payload = {"id": 8, "title": "Silo", "year": 2023, "images": []}
+    mock_client = MagicMock()
+    mock_client.get_queue.return_value = [
+        {
+            "title": "Silo.S01E01",
+            "size": 2_000_000_000,
+            "sizeleft": 0,
+            "status": "completed",
+            "series": series_payload,
+            "episode": {"seasonNumber": 1, "episodeNumber": 1, "title": "Freedom Day"},
+            "downloadId": "pack-123",
+        },
+        {
+            "title": "Silo.S01E02",
+            "size": 2_000_000_000,
+            "sizeleft": 0,
+            "status": "completed",
+            "series": series_payload,
+            "episode": {"seasonNumber": 1, "episodeNumber": 2, "title": "Holston's Pick"},
+            "downloadId": "pack-123",  # same pack
+        },
+    ]
+    mock_client.get_series.return_value = []
+    mock_sonarr_cls.return_value = mock_client
+
+    result = fetch_arr_queue(conn)
+    assert len(result) == 1
+    card = result[0]
+    # Pack should dedupe: size counted once.
+    assert card["size"] == 2_000_000_000
+    assert all(e["is_pack_episode"] is True for e in card["episodes"])
+
+
+@patch("mediaman.services.sonarr.SonarrClient")
 def test_sonarr_searching_series_appears(mock_sonarr_cls, conn):
     """Monitored series with zero episode files but not in the queue show up."""
     _configure_sonarr(conn)
