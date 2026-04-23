@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import urlparse as _urlparse
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -17,17 +20,17 @@ from starlette.responses import Response
 
 from mediaman.auth.audit import security_event
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
-from mediaman.models import SettingsUpdate
 from mediaman.auth.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.crypto import decrypt_value, encrypt_value
 from mediaman.db import get_db
+from mediaman.models import SettingsUpdate, _API_KEY_RE
 from mediaman.services.arr_build import build_plex_from_db
+from mediaman.services.http_client import SafeHTTPClient, SafeHTTPError
 from mediaman.services.storage import get_disk_usage
+from mediaman.services.url_safety import is_safe_outbound_url
 
-# Per-admin rate limits for destructive or high-cost operations.
-# Values chosen to be generous for legitimate ops but to cap the
-# damage a compromised session can inflict in a short window.
-_DELETE_LIMITER = ActionRateLimiter(max_in_window=20, window_seconds=60, max_per_day=500)
+# Per-admin rate limit for settings writes — generous for legitimate ops
+# but caps the damage a compromised session can inflict.
 _SETTINGS_WRITE_LIMITER = ActionRateLimiter(max_in_window=20, window_seconds=60, max_per_day=200)
 
 # Newsletter limiter lives in services.rate_limits — imported here so any
@@ -193,8 +196,6 @@ def api_update_settings(
     # ``href`` attributes of links in outbound newsletters — a
     # ``javascript:`` or ``data:`` scheme would turn every newsletter
     # into a phishing vector.
-    from urllib.parse import urlparse as _urlparse
-
     _URL_FIELDS = {
         "base_url",
         "plex_url", "plex_public_url",
@@ -202,8 +203,6 @@ def api_update_settings(
         "radarr_url", "radarr_public_url",
         "nzbget_url", "nzbget_public_url",
     }
-
-    from mediaman.services.url_safety import is_safe_outbound_url
 
     for _url_key in _URL_FIELDS:
         if _url_key in body and body[_url_key]:
@@ -335,8 +334,6 @@ def api_test_service(service: str, request: Request, admin: str = Depends(get_cu
             return JSONResponse({"ok": ok} if ok else {"ok": False, "error": "Connection failed"})
 
         elif service == "openai":
-            from mediaman.models import _API_KEY_RE
-            from mediaman.services.http_client import SafeHTTPClient, SafeHTTPError
             api_key = str(settings.get("openai_api_key") or "")
             if not api_key:
                 return JSONResponse({"ok": False, "error": "OpenAI API key is required"})
@@ -362,8 +359,6 @@ def api_test_service(service: str, request: Request, admin: str = Depends(get_cu
                 return JSONResponse({"ok": False, "error": f"other: HTTP {exc.status_code}"})
 
         elif service == "tmdb":
-            from mediaman.models import _API_KEY_RE
-            from mediaman.services.http_client import SafeHTTPClient, SafeHTTPError
             read_token = str(settings.get("tmdb_read_token") or "")
             if not read_token:
                 return JSONResponse({"ok": False, "error": "TMDB Read Token is required"})
@@ -389,8 +384,6 @@ def api_test_service(service: str, request: Request, admin: str = Depends(get_cu
                 return JSONResponse({"ok": False, "error": f"other: HTTP {exc.status_code}"})
 
         elif service == "omdb":
-            from mediaman.models import _API_KEY_RE
-            from mediaman.services.http_client import SafeHTTPClient, SafeHTTPError
             api_key = str(settings.get("omdb_api_key") or "")
             if not api_key:
                 return JSONResponse({"ok": False, "error": "OMDB API key is required"})
@@ -454,27 +447,24 @@ def _disk_usage_allowed_roots() -> list["Path"]:
     and the conventional ``/media`` / ``/data`` mounts. Only real
     (non-symlink) resolved roots are included.
     """
-    import os as _os
-    from pathlib import Path as _Path
-
-    roots: list[_Path] = []
+    roots: list[Path] = []
 
     def _try_add(raw: str) -> None:
         raw = raw.strip()
         if not raw:
             return
         try:
-            p = _Path(raw).resolve()
+            p = Path(raw).resolve()
         except (OSError, ValueError):
             return
         roots.append(p)
 
-    for token in (_os.environ.get("MEDIAMAN_DELETE_ROOTS") or "").split(","):
+    for token in (os.environ.get("MEDIAMAN_DELETE_ROOTS") or "").split(","):
         _try_add(token)
 
-    _try_add(_os.environ.get("MEDIAMAN_DATA_DIR", ""))
-    roots.append(_Path("/media"))
-    roots.append(_Path("/data"))
+    _try_add(os.environ.get("MEDIAMAN_DATA_DIR", ""))
+    roots.append(Path("/media"))
+    roots.append(Path("/data"))
     return roots
 
 
@@ -496,19 +486,16 @@ def _resolve_safe_path(raw: str, roots: "list[Path]") -> "Path | None":
     resolving because after :meth:`~pathlib.Path.resolve` the symlink
     components no longer appear in the resulting path.
     """
-    import os as _os
-    from pathlib import Path as _Path
-
     try:
-        candidate = _Path(raw)
+        candidate = Path(raw)
         # Make the path absolute without following symlinks.
-        abs_candidate = _Path(_os.path.abspath(str(candidate)))
+        abs_candidate = Path(os.path.abspath(str(candidate)))
     except (OSError, ValueError):
         return None
 
     # Walk every prefix of the absolute path and reject if any is a symlink.
     # This must happen BEFORE resolve() so we see the original components.
-    built = _Path(abs_candidate.anchor)
+    built = Path(abs_candidate.anchor)
     for part in abs_candidate.parts[1:]:
         built = built / part
         try:

@@ -373,7 +373,7 @@ class TestDownloadEndpoint:
         resp = authed_client.post("/api/search/download", json={
             "media_type": "movie", "tmdb_id": 438631, "title": "Dune",
         })
-        assert resp.status_code == 200
+        assert resp.status_code == 409
         assert resp.json()["ok"] is False
         assert "already" in resp.json()["error"].lower()
         radarr.add_movie.assert_not_called()
@@ -419,7 +419,7 @@ class TestDownloadEndpoint:
             "media_type": "tv", "tmdb_id": 12345, "title": "BB",
             "monitored_seasons": [1], "search_seasons": [],
         })
-        assert resp.status_code == 200
+        assert resp.status_code == 400
         assert resp.json()["ok"] is False
         assert "season" in resp.json()["error"].lower()
 

@@ -26,6 +26,7 @@ from mediaman.auth.session import (
     validate_session,
 )
 from mediaman.db import get_db
+from mediaman.web.routes._helpers import SESSION_COOKIE_MAX_AGE
 
 logger = logging.getLogger("mediaman")
 
@@ -161,7 +162,7 @@ def login_submit(
     response = RedirectResponse("/", status_code=302)
     response.set_cookie(
         "session_token", token,
-        httponly=True, samesite="strict", max_age=86400,
+        httponly=True, samesite="strict", max_age=SESSION_COOKIE_MAX_AGE,
         secure=is_request_secure(request),
     )
     return response

@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from mediaman.auth.session import authenticate, create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
-from mediaman.web.routes.users import router as users_router, _USER_MGMT_LIMITER
+from mediaman.web.routes.users import router as users_router, _USER_MGMT_LIMITER, _USER_CREATE_LIMITER
 
 
 def _make_app(conn, secret_key: str) -> FastAPI:
@@ -37,11 +37,13 @@ def _make_second_user(conn, username: str = "other") -> int:
 
 @pytest.fixture(autouse=True)
 def _clear_rate_limiter():
-    _USER_MGMT_LIMITER._attempts.clear()
-    _USER_MGMT_LIMITER._day_counts.clear()
+    for lim in (_USER_MGMT_LIMITER, _USER_CREATE_LIMITER):
+        lim._attempts.clear()
+        lim._day_counts.clear()
     yield
-    _USER_MGMT_LIMITER._attempts.clear()
-    _USER_MGMT_LIMITER._day_counts.clear()
+    for lim in (_USER_MGMT_LIMITER, _USER_CREATE_LIMITER):
+        lim._attempts.clear()
+        lim._day_counts.clear()
 
 
 class TestListUsers:

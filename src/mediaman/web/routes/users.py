@@ -35,12 +35,18 @@ from mediaman.auth.session import (
     list_users,
 )
 from mediaman.db import get_db
+from mediaman.web.routes._helpers import SESSION_COOKIE_MAX_AGE
 
 logger = logging.getLogger("mediaman")
 
 router = APIRouter()
 
 _USER_MGMT_LIMITER = ActionRateLimiter(max_in_window=5, window_seconds=60, max_per_day=20)
+# Separate tighter limiter for user creation — an attacker who compromises
+# an admin session should not be able to mass-create accounts before being
+# spotted. 3 per hour / 5 per day is enough for any legitimate operator
+# workflow without letting automation run unchecked.
+_USER_CREATE_LIMITER = ActionRateLimiter(max_in_window=3, window_seconds=3600, max_per_day=5)
 
 
 class _CreateUserBody(BaseModel):
@@ -66,10 +72,18 @@ def api_list_users(admin: str = Depends(get_current_admin)) -> dict:
 
 @router.post("/api/users")
 def api_create_user(
+    request: Request,
     body: _CreateUserBody,
     admin: str = Depends(get_current_admin),
 ) -> Response:
     """Create a new admin user."""
+    if not _USER_CREATE_LIMITER.check(admin):
+        logger.warning("user.create_throttled actor=%s", admin)
+        return JSONResponse(
+            {"ok": False, "error": "Too many user-creation attempts — slow down"},
+            status_code=429,
+        )
+
     username = body.username.strip()
     password = body.password
 
@@ -94,6 +108,12 @@ def api_create_user(
     conn = get_db()
     try:
         create_user(conn, username, password)
+        logger.info("user.created actor=%s new_user=%s", admin, username)
+        security_event(
+            conn, event="user.created", actor=admin,
+            ip=get_client_ip(request),
+            detail={"new_username": username},
+        )
         return {"ok": True, "username": username}
     except ValueError as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=409)
@@ -189,7 +209,7 @@ def api_change_password(
         response = JSONResponse({"ok": True, "message": "Password changed. You will be re-authenticated."})
         response.set_cookie(
             "session_token", new_token,
-            httponly=True, samesite="strict", max_age=86400,
+            httponly=True, samesite="strict", max_age=SESSION_COOKIE_MAX_AGE,
             secure=is_request_secure(request),
         )
         return response
@@ -238,7 +258,7 @@ def api_revoke_other_sessions(
     })
     response.set_cookie(
         "session_token", new_token,
-        httponly=True, samesite="strict", max_age=86400,
+        httponly=True, samesite="strict", max_age=SESSION_COOKIE_MAX_AGE,
         secure=is_request_secure(request),
     )
     logger.info("session.revoke_all user=%s revoked=%d", admin, destroyed)

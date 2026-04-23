@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 from datetime import datetime, timezone
 
@@ -24,7 +25,10 @@ router = APIRouter()
 # Helpers
 # ---------------------------------------------------------------------------
 
-_MEDIA_PATH = "/media"
+# Prefer an explicit env var; fall back to /media which is the standard
+# Docker mount point.  Operators with a non-standard media root set
+# MEDIAMAN_MEDIA_PATH — no code change required.
+_MEDIA_PATH: str = os.environ.get("MEDIAMAN_MEDIA_PATH", "/media").strip() or "/media"
 
 
 def _days_until(dt_str: str | None) -> str:
@@ -86,7 +90,7 @@ def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
     return items
 
 
-def _fetch_recently_deleted(conn: sqlite3.Connection) -> list[dict[str, object]]:
+def _fetch_recently_deleted(conn: sqlite3.Connection, secret_key: str = "") -> list[dict[str, object]]:
     """Return recent deleted audit_log entries joined with media_items."""
     rows = conn.execute("""
         SELECT
@@ -146,26 +150,32 @@ def _fetch_recently_deleted(conn: sqlite3.Connection) -> list[dict[str, object]]
 
     # Fall back to TMDB poster for items without a Plex rating key
     if titles_needing_poster:
-        _fill_tmdb_posters(conn, items, titles_needing_poster)
+        _fill_tmdb_posters(conn, items, titles_needing_poster, secret_key)
 
     return items
 
 
-def _fill_tmdb_posters(conn: sqlite3.Connection, items: list[dict[str, object]], needed: list[tuple[int, str]]) -> None:
+def _fill_tmdb_posters(
+    conn: sqlite3.Connection,
+    items: list[dict[str, object]],
+    needed: list[tuple[int, str]],
+    secret_key: str,
+) -> None:
     """Look up TMDB poster URLs for deleted items missing a Plex poster.
 
     Reuses the shared :class:`TmdbClient`. Deduplicates by title so
     repeated entries (e.g. multiple "Barbie" deletions) only trigger one
     API call. Poster URLs use the w200 thumbnail size for the dashboard
     tiles (callers elsewhere use w300 — kept deliberately distinct).
+
+    ``secret_key`` is threaded in from the request handler to avoid
+    redundant ``load_config()`` calls per request (H25).
     """
-    from mediaman.config import load_config
     from mediaman.services.tmdb import TmdbClient
 
-    config = load_config()
     # Deleted-poster lookups run on the dashboard page load; keep the
     # original 5s timeout so a flaky TMDB doesn't slow the page down.
-    client = TmdbClient.from_db(conn, config.secret_key, timeout=5.0)
+    client = TmdbClient.from_db(conn, secret_key, timeout=5.0)
     if client is None:
         return
 
@@ -247,18 +257,20 @@ def dashboard_page(request: Request) -> Response:
         return resolved
     username, conn = resolved
 
+    config = request.app.state.config
     scheduled_items = _fetch_scheduled(conn)
-    recently_deleted = _fetch_recently_deleted(conn)
+    recently_deleted = _fetch_recently_deleted(conn, config.secret_key)
     storage = _fetch_storage_stats(conn)
 
     # Aggregate totals for section subtitles
     scheduled_count = len(scheduled_items)
     scheduled_size = format_bytes(sum(i["file_size_bytes"] for i in scheduled_items))
 
+    # SUM always returns a row; value is NULL when audit_log is empty.
     reclaimed_total_row = conn.execute(
         "SELECT SUM(space_reclaimed_bytes) AS total FROM audit_log WHERE action='deleted'"
     ).fetchone()
-    reclaimed_total = format_bytes(reclaimed_total_row["total"] or 0 if reclaimed_total_row else 0)
+    reclaimed_total = format_bytes(reclaimed_total_row["total"] or 0)
 
     templates = request.app.state.templates
     return templates.TemplateResponse(request, "dashboard.html", {
@@ -286,7 +298,7 @@ def api_dashboard_stats(username: str = Depends(get_current_admin)) -> JSONRespo
     row = conn.execute(
         "SELECT SUM(space_reclaimed_bytes) AS total FROM audit_log WHERE action='deleted'"
     ).fetchone()
-    reclaimed_bytes = row["total"] or 0 if row else 0
+    reclaimed_bytes = row["total"] or 0
 
     return JSONResponse({
         "storage": storage,
@@ -303,10 +315,11 @@ def api_dashboard_scheduled(username: str = Depends(get_current_admin)) -> JSONR
 
 
 @router.get("/api/dashboard/deleted")
-def api_dashboard_deleted(username: str = Depends(get_current_admin)) -> JSONResponse:
+def api_dashboard_deleted(request: Request, username: str = Depends(get_current_admin)) -> JSONResponse:
     """Return recently deleted items from audit_log as JSON."""
     conn = get_db()
-    return JSONResponse({"items": _fetch_recently_deleted(conn)})
+    secret_key = request.app.state.config.secret_key
+    return JSONResponse({"items": _fetch_recently_deleted(conn, secret_key)})
 
 
 @router.get("/api/dashboard/reclaimed-chart")

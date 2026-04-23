@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-import logging
-import sqlite3
-
 import difflib
-import requests as _requests
+import logging
+import secrets
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote as _url_quote
 
-from fastapi import APIRouter, Body, Depends, Form, Request
+import requests as _requests
+
+from fastapi import APIRouter, Body, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.responses import Response
 
@@ -209,17 +210,57 @@ def _fetch_library(
     kept_where = " WHERE is_kept = 1" if kept_filter else ""
 
     # ── Count ────────────────────────────────────────────────────────────
+    # SQLite COUNT(*) always returns exactly one row so the `if count_row`
+    # guard is dead code — simplify to a direct index access.
     count_row = conn.execute(
         cte_sql + f"SELECT COUNT(*) AS n FROM display_items{kept_where}", params,
     ).fetchone()
-    total = count_row["n"] if count_row else 0
+    total = count_row["n"]
 
     # ── Fetch page ───────────────────────────────────────────────────────
     offset = (page - 1) * per_page
+    # Cap offset so a pathological page= parameter cannot trigger a full
+    # table scan inside SQLite. 50 000 rows is a generous upper bound for
+    # any real library and keeps query time bounded.
+    offset = min(offset, 50_000)
     rows = conn.execute(
         cte_sql + f"SELECT * FROM display_items{kept_where} ORDER BY {order} LIMIT ? OFFSET ?",
         params + [per_page, offset],
     ).fetchall()
+
+    # ── Batch-fetch protection status — eliminates N+1 ───────────────────
+    # Collect IDs and show keys from the page, then do two queries that
+    # cover all items at once instead of two queries per row.
+    item_ids    = [r["id"] for r in rows]
+    show_rkeys  = {r["show_rating_key"] for r in rows if r["show_rating_key"]}
+
+    # Map media_item_id → (action, execute_at) for scheduled protections
+    sa_map: dict[str, tuple[str, str | None]] = {}
+    if item_ids:
+        ph = ",".join("?" * len(item_ids))
+        for sa in conn.execute(
+            f"SELECT media_item_id, action, execute_at "
+            f"FROM scheduled_actions "
+            f"WHERE media_item_id IN ({ph}) AND token_used = 0 "
+            f"AND action IN ('protected_forever', 'snoozed')",
+            item_ids,
+        ).fetchall():
+            # Keep only the most protective entry per item; the query
+            # doesn't guarantee ordering so we prefer protected_forever.
+            prev = sa_map.get(sa["media_item_id"])
+            if prev is None or prev[0] != ACTION_PROTECTED_FOREVER:
+                sa_map[sa["media_item_id"]] = (sa["action"], sa["execute_at"])
+
+    # Map show_rating_key → (action, execute_at) for show-level keeps
+    ks_map: dict[str, tuple[str, str | None]] = {}
+    if show_rkeys:
+        ph = ",".join("?" * len(show_rkeys))
+        for ks in conn.execute(
+            f"SELECT show_rating_key, action, execute_at "
+            f"FROM kept_shows WHERE show_rating_key IN ({ph})",
+            list(show_rkeys),
+        ).fetchall():
+            ks_map[ks["show_rating_key"]] = (ks["action"], ks["execute_at"])
 
     # ── Build items list ─────────────────────────────────────────────────
     items = []
@@ -229,26 +270,20 @@ def _fetch_library(
         show_rk = r["show_rating_key"] or ""
         show_title = r["show_title"] or r["title"]
 
-        # Protection: check kept_shows for TV, scheduled_actions for movies
+        # Protection: TV rows check kept_shows first; movie rows go
+        # straight to scheduled_actions. All lookups now use the
+        # pre-fetched maps above (no per-row queries).
         protected = False
         protection_label = None
         if is_tv and show_rk:
-            ks_row = conn.execute(
-                "SELECT action, execute_at FROM kept_shows WHERE show_rating_key = ?",
-                (show_rk,),
-            ).fetchone()
-            if ks_row:
-                protection_label = _protection_label(ks_row["action"], ks_row["execute_at"])
+            ks_entry = ks_map.get(show_rk)
+            if ks_entry:
+                protection_label = _protection_label(ks_entry[0], ks_entry[1])
                 protected = protection_label is not None
         if not protected:
-            sa_row = conn.execute(
-                "SELECT action, execute_at FROM scheduled_actions "
-                "WHERE media_item_id = ? AND token_used = 0 "
-                "AND action IN ('protected_forever', 'snoozed') LIMIT 1",
-                (r["id"],),
-            ).fetchone()
-            if sa_row:
-                protection_label = _protection_label(sa_row["action"], sa_row["execute_at"])
+            sa_entry = sa_map.get(str(r["id"]))
+            if sa_entry:
+                protection_label = _protection_label(sa_entry[0], sa_entry[1])
                 protected = protection_label is not None
 
         season_count = r["season_count"]
@@ -295,22 +330,20 @@ def _fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
     Stale = added longer ago than min_age_days AND no watch activity
     within inactivity_days. Both thresholds read from the settings table.
     """
-    movies_row = conn.execute(
+    # SQLite COUNT(*) always returns a row — `if count_row else 0` is dead.
+    movies = conn.execute(
         "SELECT COUNT(*) AS n FROM media_items WHERE media_type = 'movie'"
-    ).fetchone()
-    movies = movies_row["n"] if movies_row else 0
+    ).fetchone()["n"]
 
-    tv_row = conn.execute(
+    tv = conn.execute(
         "SELECT COUNT(DISTINCT COALESCE(show_rating_key, show_title)) AS n "
         "FROM media_items WHERE media_type IN ('tv_season', 'tv', 'season')"
-    ).fetchone()
-    tv = tv_row["n"] if tv_row else 0
+    ).fetchone()["n"]
 
-    anime_row = conn.execute(
+    anime = conn.execute(
         "SELECT COUNT(DISTINCT COALESCE(show_rating_key, show_title)) AS n "
         "FROM media_items WHERE media_type IN ('anime_season', 'anime')"
-    ).fetchone()
-    anime = anime_row["n"] if anime_row else 0
+    ).fetchone()["n"]
 
     # Read thresholds from settings, falling back to sensible defaults
     min_age = get_int_setting(conn, "min_age_days", default=30)
@@ -320,17 +353,17 @@ def _fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
     age_cutoff = (now - timedelta(days=min_age)).isoformat()
     watch_cutoff = (now - timedelta(days=inactivity)).isoformat()
 
-    stale_row = conn.execute("""
+    stale = conn.execute("""
         SELECT COUNT(*) AS n
         FROM media_items
         WHERE added_at < ?
           AND (last_watched_at IS NULL OR last_watched_at < ?)
-    """, (age_cutoff, watch_cutoff)).fetchone()
-    stale = stale_row["n"] if stale_row else 0
+    """, (age_cutoff, watch_cutoff)).fetchone()["n"]
 
     total = movies + tv + anime
+    # SUM may return NULL when media_items is empty; guard with `or 0`.
     total_size_row = conn.execute("SELECT SUM(file_size_bytes) AS n FROM media_items").fetchone()
-    total_size = format_bytes(total_size_row["n"] or 0 if total_size_row else 0)
+    total_size = format_bytes(total_size_row["n"] or 0)
 
     return {
         "movies": movies,
@@ -402,8 +435,8 @@ def api_library(
     q: str = "",
     type: str = "",
     sort: str = "added_desc",
-    page: int = 1,
-    per_page: int = 20,
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=20, ge=1, le=100),
     username: str = Depends(get_current_admin),
 ) -> JSONResponse:
     """Return paginated library items as JSON.
@@ -413,8 +446,6 @@ def api_library(
     conn = get_db()
     sort = sort if sort in _VALID_SORTS else "added_desc"
     media_type = type if type in _VALID_TYPES else ""
-    page = max(1, page)
-    per_page = max(1, min(100, per_page))
 
     items, total = _fetch_library(conn, q=q, media_type=media_type, sort=sort, page=page, per_page=per_page)
     total_pages = max(1, (total + per_page - 1) // per_page)
@@ -610,30 +641,37 @@ def api_media_keep(
         execute_at = (now + timedelta(days=int(days))).isoformat()
         snooze_label = duration
 
-    # Check for an existing active scheduled action for this item
-    existing = conn.execute(
-        "SELECT id FROM scheduled_actions WHERE media_item_id = ? AND token_used = 0",
-        (media_id,),
-    ).fetchone()
+    # Use BEGIN IMMEDIATE so a concurrent keep-request for the same
+    # media_item_id can't race between the SELECT and the INSERT/UPDATE.
+    # scheduled_actions has no UNIQUE constraint on media_item_id (multiple
+    # rows per item are valid in the general schema), so ON CONFLICT is not
+    # available — we guard the critical section with a write lock instead.
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        existing = conn.execute(
+            "SELECT id FROM scheduled_actions WHERE media_item_id = ? AND token_used = 0",
+            (media_id,),
+        ).fetchone()
 
-    import secrets
-
-    if existing:
-        conn.execute(
-            """UPDATE scheduled_actions
-               SET action=?, execute_at=?, snoozed_at=?, snooze_duration=?, token_used=0
-               WHERE media_item_id = ? AND token_used = 0""",
-            (action, execute_at, now.isoformat(), snooze_label, media_id),
-        )
-    else:
-        conn.execute(
-            """INSERT INTO scheduled_actions
-               (media_item_id, action, scheduled_at, execute_at, token, token_used,
-                snoozed_at, snooze_duration)
-               VALUES (?, ?, ?, ?, ?, 0, ?, ?)""",
-            (media_id, action, now.isoformat(), execute_at,
-             secrets.token_urlsafe(32), now.isoformat(), snooze_label),
-        )
+        if existing:
+            conn.execute(
+                """UPDATE scheduled_actions
+                   SET action=?, execute_at=?, snoozed_at=?, snooze_duration=?, token_used=0
+                   WHERE id=?""",
+                (action, execute_at, now.isoformat(), snooze_label, existing["id"]),
+            )
+        else:
+            conn.execute(
+                """INSERT INTO scheduled_actions
+                   (media_item_id, action, scheduled_at, execute_at, token, token_used,
+                    snoozed_at, snooze_duration)
+                   VALUES (?, ?, ?, ?, ?, 0, ?, ?)""",
+                (media_id, action, now.isoformat(), execute_at,
+                 secrets.token_urlsafe(32), now.isoformat(), snooze_label),
+            )
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
 
     # Audit
     log_audit(conn, media_id, "snoozed", f"Kept for {snooze_label} by admin ({username})")

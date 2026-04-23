@@ -20,10 +20,15 @@ from pydantic import BaseModel
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.db import get_db
 from mediaman.services.arr_build import build_radarr_from_db, build_sonarr_from_db
-from mediaman.services.http_client import SafeHTTPError
-from mediaman.services.tmdb import TmdbClient
+from mediaman.services.arr_state import (
+    build_radarr_cache,
+    build_sonarr_cache,
+    compute_download_state,
+)
 from mediaman.services.download_notifications import record_download_notification as _record_dn
+from mediaman.services.http_client import SafeHTTPError
 from mediaman.services.omdb import fetch_ratings
+from mediaman.services.tmdb import TmdbClient
 
 _RATINGS_TTL_DAYS = 30
 _DISCOVER_TMDB_TTL_SECONDS = 3600
@@ -92,11 +97,6 @@ def _annotate_states(results: list[dict], request: Request) -> None:
     but unreachable, the affected half of the cache stays empty and
     items from that media type simply report no download_state.
     """
-    from mediaman.services.arr_state import (
-        build_radarr_cache,
-        build_sonarr_cache,
-        compute_download_state,
-    )
     conn = get_db()
     secret_key = request.app.state.config.secret_key
 
@@ -335,14 +335,24 @@ def api_discover(request: Request, admin: str = Depends(get_current_admin)) -> J
 
 
 def _pick_trailer(videos: list[dict]) -> str | None:
-    """Return the YouTube key for the first Trailer, then any YouTube video."""
+    """Return the YouTube key for the first Trailer, then any YouTube video.
+
+    Single-pass implementation: tracks the first YouTube-site hit as a
+    fallback while still returning a Trailer-typed entry as soon as one
+    is encountered.
+    """
+    fallback: str | None = None
     for v in videos:
-        if v.get("site") == "YouTube" and v.get("type") == "Trailer":
-            return v.get("key")
-    for v in videos:
-        if v.get("site") == "YouTube":
-            return v.get("key")
-    return None
+        if v.get("site") != "YouTube":
+            continue
+        key = v.get("key")
+        if not key:
+            continue
+        if v.get("type") == "Trailer":
+            return key
+        if fallback is None:
+            fallback = key
+    return fallback
 
 
 class _SonarrDetail(TypedDict):
@@ -377,43 +387,15 @@ def _fetch_sonarr_series_detail(tmdb_id: int, sonarr_cache: dict, client) -> _So
     return {"tracked": True, "seasons_in_library": in_library}
 
 
-@router.get("/api/search/detail/{media_type}/{tmdb_id}")
-def api_detail(
-    media_type: str,
-    tmdb_id: int,
-    request: Request,
-    admin: str = Depends(get_current_admin),
-) -> JSONResponse:
-    """Return rich detail for a single movie or TV show from TMDB.
+def _extract_credits(data: dict, media_type: str) -> tuple[int | None, str | None, list[dict]]:
+    """Extract runtime, director, and top-6 cast from a TMDB details response.
 
-    Appends videos and credits in a single TMDB call, then enriches the
-    response with IMDb/RT/Metascore ratings, download state, and — for TV —
-    per-season library status from Sonarr.
+    Returns ``(runtime, director, cast)`` where each may be ``None``/empty.
     """
-    if media_type not in ("movie", "tv"):
-        raise HTTPException(status_code=400, detail="media_type must be 'movie' or 'tv'")
-
-    from mediaman.services.tmdb import TmdbClient
-
-    conn = get_db()
-    secret_key = request.app.state.config.secret_key
-    client = TmdbClient.from_db(conn, secret_key)
-    if client is None:
-        return JSONResponse({"error": "TMDB not configured"}, status_code=502)
-
-    data = client.details(media_type, tmdb_id)
-    if data is None:
-        return JSONResponse({"error": "TMDB request failed"}, status_code=502)
-
-    title = data.get("title") or data.get("name") or ""
-    date = data.get("release_date") or data.get("first_air_date") or ""
-    year = int(date[:4]) if date[:4].isdigit() else None
-
     if media_type == "movie":
         runtime = data.get("runtime")
-        credits = data.get("credits") or {}
-        director = None
-        for crew in credits.get("crew", []):
+        director: str | None = None
+        for crew in (data.get("credits") or {}).get("crew", []):
             if crew.get("job") == "Director":
                 director = crew.get("name")
                 break
@@ -432,33 +414,72 @@ def api_detail(
         }
         for c in cast_raw[:6]
     ]
+    return runtime, director, cast
 
-    trailer_key = _pick_trailer((data.get("videos") or {}).get("results") or [])
-    ratings = fetch_ratings(title, year, media_type, conn=conn, secret_key=secret_key)
 
-    from mediaman.services.arr_state import (
-        build_radarr_cache,
-        build_sonarr_cache,
-        compute_download_state,
-    )
+def _build_arr_caches(
+    conn, secret_key: str, media_type: str,
+) -> tuple[dict, dict, object]:
+    """Build Radarr and Sonarr item caches for the download-state check.
 
-    sonarr_client = None
+    Returns ``(radarr_cache, sonarr_cache, sonarr_client)`` where
+    ``sonarr_client`` is ``None`` for movies.
+    """
     if media_type == "movie":
         try:
             radarr_cache = build_radarr_cache(build_radarr_from_db(conn, secret_key))
         except (_requests.RequestException, SafeHTTPError, sqlite3.Error):
             logger.warning("Radarr cache build failed during detail fetch", exc_info=True)
             radarr_cache = build_radarr_cache(None)
-        sonarr_cache = build_sonarr_cache(None)
-    else:
-        radarr_cache = build_radarr_cache(None)
-        try:
-            sonarr_client = build_sonarr_from_db(conn, secret_key)
-            sonarr_cache = build_sonarr_cache(sonarr_client)
-        except (_requests.RequestException, SafeHTTPError, sqlite3.Error):
-            logger.warning("Sonarr cache build failed during detail fetch", exc_info=True)
-            sonarr_cache = build_sonarr_cache(None)
+        return radarr_cache, build_sonarr_cache(None), None
 
+    # TV
+    radarr_cache = build_radarr_cache(None)
+    try:
+        sonarr_client = build_sonarr_from_db(conn, secret_key)
+        sonarr_cache = build_sonarr_cache(sonarr_client)
+    except (_requests.RequestException, SafeHTTPError, sqlite3.Error):
+        logger.warning("Sonarr cache build failed during detail fetch", exc_info=True)
+        sonarr_client = None
+        sonarr_cache = build_sonarr_cache(None)
+    return radarr_cache, sonarr_cache, sonarr_client
+
+
+@router.get("/api/search/detail/{media_type}/{tmdb_id}")
+def api_detail(
+    media_type: str,
+    tmdb_id: int,
+    request: Request,
+    admin: str = Depends(get_current_admin),
+) -> JSONResponse:
+    """Return rich detail for a single movie or TV show from TMDB.
+
+    Appends videos and credits in a single TMDB call, then enriches the
+    response with IMDb/RT/Metascore ratings, download state, and — for TV —
+    per-season library status from Sonarr.
+    """
+    if media_type not in ("movie", "tv"):
+        raise HTTPException(status_code=400, detail="media_type must be 'movie' or 'tv'")
+
+    conn = get_db()
+    secret_key = request.app.state.config.secret_key
+    client = TmdbClient.from_db(conn, secret_key)
+    if client is None:
+        return JSONResponse({"error": "TMDB not configured"}, status_code=502)
+
+    data = client.details(media_type, tmdb_id)
+    if data is None:
+        return JSONResponse({"error": "TMDB request failed"}, status_code=502)
+
+    title = data.get("title") or data.get("name") or ""
+    date = data.get("release_date") or data.get("first_air_date") or ""
+    year = int(date[:4]) if date[:4].isdigit() else None
+
+    runtime, director, cast = _extract_credits(data, media_type)
+    trailer_key = _pick_trailer((data.get("videos") or {}).get("results") or [])
+    ratings = fetch_ratings(title, year, media_type, conn=conn, secret_key=secret_key)
+
+    radarr_cache, sonarr_cache, sonarr_client = _build_arr_caches(conn, secret_key, media_type)
     caches = {**radarr_cache, **sonarr_cache}
     state = compute_download_state(media_type, tmdb_id, caches)
 
@@ -535,14 +556,14 @@ def api_download(body: _DownloadRequest, request: Request, admin: str = Depends(
     if body.media_type == "movie":
         radarr = build_radarr_from_db(conn, secret_key)
         if not radarr:
-            return JSONResponse({"ok": False, "error": "Radarr not configured"})
+            return JSONResponse({"ok": False, "error": "Radarr not configured"}, status_code=503)
         try:
             if radarr.get_movie_by_tmdb(body.tmdb_id):
-                return JSONResponse({"ok": False, "error": f"'{body.title}' is already in your library"})
+                return JSONResponse({"ok": False, "error": f"'{body.title}' is already in your library"}, status_code=409)
             radarr.add_movie(body.tmdb_id, body.title)
         except Exception:
             logger.exception("Failed to add movie")
-            return JSONResponse({"ok": False, "error": "Failed to add to Radarr"})
+            return JSONResponse({"ok": False, "error": "Failed to add to Radarr"}, status_code=502)
         _record_dn(conn, email=notify_email, title=body.title, media_type="movie", tmdb_id=body.tmdb_id, service="radarr")
         conn.commit()
         return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Radarr"})
@@ -550,17 +571,17 @@ def api_download(body: _DownloadRequest, request: Request, admin: str = Depends(
     # TV
     sonarr = build_sonarr_from_db(conn, secret_key)
     if not sonarr:
-        return JSONResponse({"ok": False, "error": "Sonarr not configured"})
+        return JSONResponse({"ok": False, "error": "Sonarr not configured"}, status_code=503)
     try:
         lookup = sonarr.lookup_series_by_tmdb(body.tmdb_id)
     except Exception:
         logger.exception("Sonarr lookup failed")
-        return JSONResponse({"ok": False, "error": "Sonarr lookup failed"})
+        return JSONResponse({"ok": False, "error": "Sonarr lookup failed"}, status_code=502)
     if not lookup:
-        return JSONResponse({"ok": False, "error": "Series not found in Sonarr lookup"})
+        return JSONResponse({"ok": False, "error": "Series not found in Sonarr lookup"}, status_code=404)
     tvdb_id = lookup.get("tvdbId")
     if not tvdb_id:
-        return JSONResponse({"ok": False, "error": "No TVDB ID for this series"})
+        return JSONResponse({"ok": False, "error": "No TVDB ID for this series"}, status_code=422)
 
     try:
         existing = sonarr.get_series()
@@ -570,10 +591,10 @@ def api_download(body: _DownloadRequest, request: Request, admin: str = Depends(
         return JSONResponse({
             "ok": False,
             "error": f"'{body.title}' is already tracked by Sonarr — manage it from the Library page or Sonarr directly",
-        })
+        }, status_code=409)
 
     if body.search_seasons is not None and len(body.search_seasons) == 0:
-        return JSONResponse({"ok": False, "error": "Pick at least one season"})
+        return JSONResponse({"ok": False, "error": "Pick at least one season"}, status_code=400)
 
     try:
         if body.monitored_seasons is None:
@@ -584,7 +605,7 @@ def api_download(body: _DownloadRequest, request: Request, admin: str = Depends(
             )
     except Exception:
         logger.exception("Failed to add series")
-        return JSONResponse({"ok": False, "error": "Failed to add to Sonarr"})
+        return JSONResponse({"ok": False, "error": "Failed to add to Sonarr"}, status_code=502)
     _record_dn(conn, email=notify_email, title=body.title, media_type="tv", tmdb_id=body.tmdb_id, tvdb_id=tvdb_id, service="sonarr")
     conn.commit()
     return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Sonarr"})

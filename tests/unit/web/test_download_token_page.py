@@ -357,7 +357,7 @@ class TestTwoPhaseConsumption:
         with patch("mediaman.web.routes.download.build_radarr_from_db", return_value=mock_radarr):
             resp1 = client.post(f"/download/{token}")
 
-        assert resp1.status_code == 200  # our handler returns 200 for 409 from Arr
+        assert resp1.status_code == 409  # handler returns 409 when arr reports conflict
         assert resp1.json()["ok"] is False
         assert "already exists" in resp1.json()["error"]
 

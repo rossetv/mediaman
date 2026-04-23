@@ -33,16 +33,20 @@ from mediaman.auth.password_policy import password_issues, policy_summary
 from mediaman.auth.rate_limit import get_client_ip
 from mediaman.auth.session import change_password
 from mediaman.db import get_db
+from mediaman.web.routes._helpers import SESSION_COOKIE_MAX_AGE
 
 logger = logging.getLogger("mediaman")
 
 router = APIRouter()
 
 
-def _require_flagged_admin(request: Request) -> tuple[str, None] | tuple[None, RedirectResponse]:
-    """Resolve the current session. Returns ``(username, None)`` when
-    the session is valid, or ``(None, RedirectResponse)`` when the
-    caller must be sent elsewhere (no session, or not flagged)."""
+def _resolve_session(request: Request) -> tuple[str, None] | tuple[None, RedirectResponse]:
+    """Resolve the current session.
+
+    Returns ``(username, None)`` when the session is valid, or
+    ``(None, RedirectResponse)`` when the caller must be redirected
+    (no session, or session invalid).
+    """
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return None, resolved
@@ -50,10 +54,15 @@ def _require_flagged_admin(request: Request) -> tuple[str, None] | tuple[None, R
     return username, None
 
 
+# One-line shim preserving the old name for any out-of-scope caller that
+# may reference it directly. Scheduled for removal in the next refactor.
+_require_flagged_admin = _resolve_session
+
+
 @router.get("/force-password-change", response_class=HTMLResponse)
 def force_change_page(request: Request) -> Response:
     """Render the force-change form."""
-    username, redirect = _require_flagged_admin(request)
+    username, redirect = _resolve_session(request)
     if redirect is not None:
         return redirect
 
@@ -78,7 +87,7 @@ def force_change_submit(
     confirm_password: str = Form(default=""),
 ) -> Response:
     """Accept the password change."""
-    username, redirect = _require_flagged_admin(request)
+    username, redirect = _resolve_session(request)
     if redirect is not None:
         return redirect
 
@@ -142,7 +151,7 @@ def force_change_submit(
     response = RedirectResponse("/", status_code=302)
     response.set_cookie(
         "session_token", new_token,
-        httponly=True, samesite="strict", max_age=86400,
+        httponly=True, samesite="strict", max_age=SESSION_COOKIE_MAX_AGE,
         secure=is_request_secure(request),
     )
     logger.info("force_password_change.ok user=%s ip=%s", username, client_ip)

@@ -8,19 +8,21 @@ and unprotect action.
 from __future__ import annotations
 
 import logging
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
+from mediaman.auth.audit import log_audit
 from mediaman.auth.middleware import (
     get_current_admin,
     get_optional_admin_from_token,
 )
-from mediaman.auth.audit import log_audit
 from mediaman.db import get_db
 from mediaman.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
+from mediaman.services.format import format_bytes as _format_bytes
 
 
 def _resolve_show_rating_key(conn, supplied_key: str) -> tuple[str | None, str | None]:
@@ -57,7 +59,6 @@ def _resolve_show_rating_key(conn, supplied_key: str) -> tuple[str | None, str |
             return key, None
         return None, "Unknown show_rating_key"
     return None, "show_rating_key required"
-from mediaman.services.format import format_bytes as _format_bytes
 
 
 class _KeepShowBody(BaseModel):
@@ -306,8 +307,6 @@ def api_keep_show(
     admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
     """Keep an entire show (all listed seasons + future seasons via kept_shows rule)."""
-    import secrets
-
     conn = get_db()
     duration = body.duration
     season_ids = body.season_ids

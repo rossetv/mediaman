@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -124,7 +125,6 @@ def _fetch_history(conn, action: str | None, page: int, per_page: int) -> tuple[
         title = r["mi_title"] or r["ks_title"]
         if not title and r["detail"]:
             # Try to extract from detail like "Show 'Breaking Bad' kept ..."
-            import re
             m = re.search(r"'([^']+)'", r["detail"])
             if m:
                 title = m.group(1)

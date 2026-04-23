@@ -277,21 +277,24 @@ def api_refresh_recommendations(request: Request, admin: str = Depends(get_curre
     # second POST is also rejected even if the first hasn't finished.
     _record_manual_refresh(conn, datetime.now(timezone.utc))
 
-    _secret_key = config.secret_key
     _db_path = request.app.state.db_path
 
     def run():
         global _refresh_result
         import sqlite3
+        from mediaman.config import load_config
         from mediaman.db import _configure_connection
 
         thread_conn = sqlite3.connect(_db_path)
         _configure_connection(thread_conn)
+        # Re-read config inside the thread so a key rotation is picked up
+        # rather than using the stale key captured at thread-launch time.
+        thread_secret_key = load_config().secret_key
         result: dict
         try:
             from mediaman.services.openai_recommendations import refresh_recommendations
 
-            plex_client = build_plex_from_db(thread_conn, _secret_key)
+            plex_client = build_plex_from_db(thread_conn, thread_secret_key)
             if plex_client:
                 count = refresh_recommendations(thread_conn, plex_client, manual=True)
                 result = {"ok": True, "count": count}
