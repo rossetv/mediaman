@@ -134,17 +134,17 @@ def record_verified_completions(
             )
 
 
-def load_recent_downloads(
+def fetch_and_sync_recent_downloads(
     conn: sqlite3.Connection,
     active_ids: set[str],
     active_titles: set[str],
     build_client: Callable[[sqlite3.Connection, str], Any],
 ) -> list[dict]:
-    """Load recent downloads (last 7 days), excluding anything active.
+    """Return recent downloads (last 7 days), excluding anything active.
 
-    Also deletes recent rows whose item has reappeared in the active queue
-    (e.g. Radarr re-grabbed after a bad release) and backfills missing
-    poster URLs via Radarr/Sonarr.
+    Side effects: deletes rows whose item has reappeared in the active queue
+    (e.g. Radarr re-grabbed after a bad release) and backfills missing poster
+    URLs via Radarr/Sonarr.
     """
     recent_rows = conn.execute(
         "SELECT id, dl_id, title, media_type, poster_url, completed_at"

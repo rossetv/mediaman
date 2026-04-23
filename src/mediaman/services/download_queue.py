@@ -30,7 +30,7 @@ from typing import TypedDict
 
 from mediaman.services.arr_completion import (
     detect_completed,
-    load_recent_downloads,
+    fetch_and_sync_recent_downloads,
     record_verified_completions,
 )
 from mediaman.services.arr_build import build_arr_client as _build_arr_client, build_nzbget_from_db
@@ -214,6 +214,107 @@ def _maybe_record_completions(conn: sqlite3.Connection, current_map: dict[str, d
         _previous_initialised = True
 
 
+def _build_matched_item(
+    arr: dict,
+    matched_nzb: dict,
+    state: str,
+    eta: str,
+    download_rate: int,
+) -> dict:
+    """Build a download-card item for an *arr entry that matched an NZBGet item."""
+    if arr.get("kind") == "series":
+        episodes = build_episode_dicts(arr.get("episodes", []))
+        return build_item(
+            dl_id=arr.get("dl_id", matched_nzb["dl_id"]),
+            title=arr.get("title") or matched_nzb["title"],
+            media_type="series",
+            poster_url=arr.get("poster_url") or "",
+            state=state,
+            progress=arr.get("progress", matched_nzb["progress"]),
+            eta=eta,
+            size_done=arr.get("done_str", ""),
+            size_total=arr.get("size_str", ""),
+            episodes=episodes,
+            episode_summary=build_episode_summary(episodes),
+            has_pack=arr.get("has_pack", False),
+        )
+    return build_item(
+        dl_id=arr.get("dl_id", matched_nzb["dl_id"]),
+        title=arr.get("title") or matched_nzb["title"],
+        media_type="movie",
+        poster_url=arr.get("poster_url") or "",
+        state=state,
+        progress=matched_nzb["progress"],
+        eta=eta,
+        size_done=format_bytes(matched_nzb["done_mb"] * 1024 * 1024),
+        size_total=format_bytes(matched_nzb["file_mb"] * 1024 * 1024),
+    )
+
+
+def _build_unmatched_arr_item(arr: dict, arr_base_urls: dict[str, str]) -> dict:
+    """Build a download-card item for an *arr entry with no NZBGet match.
+
+    Derives the card state from episode progress (series) or reported
+    percentage (movie) so callers don't need kind-specific logic.
+    """
+    search_count, last_search_ts = get_search_info(arr.get("dl_id", ""))
+    added_at = arr.get("added_at", 0.0)
+    if arr.get("kind") == "series":
+        episodes = build_episode_dicts(arr.get("episodes", []))
+        if episodes and all(e["state"] == "ready" for e in episodes):
+            state = "almost_ready"
+        elif any(e["state"] in ("downloading", "queued") for e in episodes):
+            state = "downloading"
+        else:
+            state = map_state(None, has_nzbget_match=False)
+        search_hint = (
+            _build_search_hint(search_count, last_search_ts, added_at, time.time())
+            if state == "searching" else ""
+        )
+        return build_item(
+            dl_id=arr.get("dl_id", ""),
+            title=arr.get("title", "Unknown"),
+            media_type="series",
+            poster_url=arr.get("poster_url", ""),
+            state=state,
+            progress=arr.get("progress", 0),
+            eta="Post-processing…" if state == "almost_ready" else "",
+            size_done=arr.get("done_str", ""),
+            size_total=arr.get("size_str", ""),
+            episodes=episodes,
+            episode_summary=build_episode_summary(episodes),
+            has_pack=arr.get("has_pack", False),
+            search_count=search_count,
+            last_search_ts=last_search_ts,
+            added_at=added_at,
+            search_hint=search_hint,
+            arr_link=_build_arr_link(arr, arr_base_urls),
+            arr_source=arr.get("source", ""),
+        )
+    state = "almost_ready" if (arr.get("progress") or 0) >= 100 else map_state(None, has_nzbget_match=False)
+    search_hint = (
+        _build_search_hint(search_count, last_search_ts, added_at, time.time())
+        if state == "searching" else ""
+    )
+    return build_item(
+        dl_id=arr.get("dl_id", ""),
+        title=arr.get("title", "Unknown"),
+        media_type="movie",
+        poster_url=arr.get("poster_url", ""),
+        state=state,
+        progress=arr.get("progress", 0),
+        eta="Post-processing…" if state == "almost_ready" else "",
+        size_done=arr.get("done_str", "0 B"),
+        size_total=arr.get("size_str", "0 B"),
+        search_count=search_count,
+        last_search_ts=last_search_ts,
+        added_at=added_at,
+        search_hint=search_hint,
+        arr_link=_build_arr_link(arr, arr_base_urls),
+        arr_source=arr.get("source", ""),
+    )
+
+
 def build_downloads_response(conn: sqlite3.Connection) -> DownloadsResponse:
     """Build the simplified download queue with hero selection.
 
@@ -351,111 +452,10 @@ def build_downloads_response(conn: sqlite3.Connection) -> DownloadsResponse:
             if state == "almost_ready":
                 eta = "Post-processing\u2026"
 
-            if arr.get("kind") == "series":
-                episodes = build_episode_dicts(arr.get("episodes", []))
-                episode_summary = build_episode_summary(episodes)
-                items.append(build_item(
-                    dl_id=arr.get("dl_id", matched_nzb["dl_id"]),
-                    title=arr.get("title") or matched_nzb["title"],
-                    media_type="series",
-                    poster_url=arr.get("poster_url") or "",
-                    state=state,
-                    progress=arr.get("progress", matched_nzb["progress"]),
-                    eta=eta,
-                    size_done=arr.get("done_str", ""),
-                    size_total=arr.get("size_str", ""),
-                    episodes=episodes,
-                    episode_summary=episode_summary,
-                    has_pack=arr.get("has_pack", False),
-                ))
-            else:
-                items.append(build_item(
-                    dl_id=arr.get("dl_id", matched_nzb["dl_id"]),
-                    title=arr.get("title") or matched_nzb["title"],
-                    media_type="movie",
-                    poster_url=arr.get("poster_url") or "",
-                    state=state,
-                    progress=matched_nzb["progress"],
-                    eta=eta,
-                    size_done=format_bytes(matched_nzb["done_mb"] * 1024 * 1024),
-                    size_total=format_bytes(matched_nzb["file_mb"] * 1024 * 1024),
-                ))
+            items.append(_build_matched_item(arr, matched_nzb, state, eta, download_rate))
             maybe_trigger_search(conn, arr, matched_nzb=True)
         else:
-            # *arr item with no NZBGet match. Default is "searching", but
-            # episode-level progress often tells the real story: during
-            # import Sonarr keeps the queue entry after NZBGet has cleared
-            # the NZB, and with large queues the NZB-to-arr-title matcher
-            # can miss a live download that Sonarr is genuinely tracking.
-            # Derive the card state from the episodes when they exist so
-            # users don't see "Looking for the best version" while a
-            # progress bar is visibly advancing below it.
-            if arr.get("kind") == "series":
-                episodes = build_episode_dicts(arr.get("episodes", []))
-                episode_summary = build_episode_summary(episodes)
-                if episodes and all(e["state"] == "ready" for e in episodes):
-                    state = "almost_ready"
-                elif any(
-                    e["state"] in ("downloading", "queued") for e in episodes
-                ):
-                    # Something is actively or imminently downloading —
-                    # user sees the series as in progress even if only one
-                    # NZB is transferring right now.
-                    state = "downloading"
-                else:
-                    state = map_state(None, has_nzbget_match=False)
-                search_count, last_search_ts = get_search_info(arr.get("dl_id", ""))
-                added_at = arr.get("added_at", 0.0)
-                items.append(build_item(
-                    dl_id=arr.get("dl_id", ""),
-                    title=arr.get("title", "Unknown"),
-                    media_type="series",
-                    poster_url=arr.get("poster_url", ""),
-                    state=state,
-                    progress=arr.get("progress", 0),
-                    eta="Post-processing\u2026" if state == "almost_ready" else "",
-                    size_done=arr.get("done_str", ""),
-                    size_total=arr.get("size_str", ""),
-                    episodes=episodes,
-                    episode_summary=episode_summary,
-                    has_pack=arr.get("has_pack", False),
-                    search_count=search_count,
-                    last_search_ts=last_search_ts,
-                    added_at=added_at,
-                    search_hint=_build_search_hint(
-                        search_count, last_search_ts, added_at, time.time()
-                    ) if state == "searching" else "",
-                    arr_link=_build_arr_link(arr, arr_base_urls),
-                    arr_source=arr.get("source", ""),
-                ))
-            else:
-                # Movie: same "arr done, NZB gone" transient — if Radarr
-                # reports 100% we've almost_ready, not still searching.
-                if (arr.get("progress") or 0) >= 100:
-                    state = "almost_ready"
-                else:
-                    state = map_state(None, has_nzbget_match=False)
-                search_count, last_search_ts = get_search_info(arr.get("dl_id", ""))
-                added_at = arr.get("added_at", 0.0)
-                items.append(build_item(
-                    dl_id=arr.get("dl_id", ""),
-                    title=arr.get("title", "Unknown"),
-                    media_type="movie",
-                    poster_url=arr.get("poster_url", ""),
-                    state=state,
-                    progress=arr.get("progress", 0),
-                    eta="Post-processing\u2026" if state == "almost_ready" else "",
-                    size_done=arr.get("done_str", "0 B"),
-                    size_total=arr.get("size_str", "0 B"),
-                    search_count=search_count,
-                    last_search_ts=last_search_ts,
-                    added_at=added_at,
-                    search_hint=_build_search_hint(
-                        search_count, last_search_ts, added_at, time.time()
-                    ) if state == "searching" else "",
-                    arr_link=_build_arr_link(arr, arr_base_urls),
-                    arr_source=arr.get("source", ""),
-                ))
+            items.append(_build_unmatched_arr_item(arr, arr_base_urls))
             maybe_trigger_search(conn, arr, matched_nzb=False)
 
     # 5. Add unmatched NZBGet items (manual additions with no Arr match).
@@ -492,7 +492,7 @@ def build_downloads_response(conn: sqlite3.Connection) -> DownloadsResponse:
     # 8. Recent downloads (last 7 days), excluding anything actively in queue.
     active_ids = {item["id"] for item in items}
     active_titles = {item["title"] for item in items}
-    recent = load_recent_downloads(
+    recent = fetch_and_sync_recent_downloads(
         conn, active_ids, active_titles, _build_arr_client,
     )
 
