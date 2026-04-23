@@ -72,27 +72,6 @@ def get_optional_admin_from_token(
     )
 
 
-def require_admin_or_redirect(request: Request) -> str | RedirectResponse:
-    """Validate the session cookie for page routes.
-
-    Returns the authenticated username (str) when the session is valid.
-    Returns a ``RedirectResponse`` to ``/login`` (302) when the session
-    cookie is absent or the token fails validation — never raises 401.
-    """
-    session_token = request.cookies.get("session_token")
-    if not session_token:
-        return RedirectResponse("/login", status_code=302)
-    conn = get_db()
-    user_agent = request.headers.get("user-agent", "")
-    client_ip = get_client_ip(request)
-    username = validate_session(
-        conn, session_token, user_agent=user_agent, client_ip=client_ip,
-    )
-    if username is None:
-        return RedirectResponse("/login", status_code=302)
-    return username
-
-
 def resolve_page_session(
     request: Request,
 ) -> tuple[str, sqlite3.Connection] | RedirectResponse:
