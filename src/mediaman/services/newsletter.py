@@ -389,9 +389,8 @@ def send_newsletter(
 
         # Generate per-recipient download tokens for deleted items
         for item in deleted_items:
-            item["redownload_url"] = "{}/download/{}".format(
-                base_url,
-                generate_download_token(
+            if base_url:
+                token = generate_download_token(
                     email=email,
                     action="redownload",
                     title=item["title"],
@@ -399,14 +398,15 @@ def send_newsletter(
                     tmdb_id=None,
                     recommendation_id=None,
                     secret_key=secret_key,
-                ),
-            ) if base_url else ""
+                )
+                item["redownload_url"] = f"{base_url}/download/{token}"
+            else:
+                item["redownload_url"] = ""
 
         # Generate per-recipient download tokens for this week's recommendations
         for item in this_week_items:
-            item["download_url"] = "{}/download/{}".format(
-                base_url,
-                generate_download_token(
+            if base_url:
+                token = generate_download_token(
                     email=email,
                     action="download",
                     title=item["title"],
@@ -414,8 +414,10 @@ def send_newsletter(
                     tmdb_id=item.get("tmdb_id"),
                     recommendation_id=item.get("id"),
                     secret_key=secret_key,
-                ),
-            ) if base_url else ""
+                )
+                item["download_url"] = f"{base_url}/download/{token}"
+            else:
+                item["download_url"] = ""
 
         html = template.render(
             report_date=report_date,

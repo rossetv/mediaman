@@ -32,7 +32,7 @@ from mediaman.services.arr_state import (
     compute_download_state,
 )
 from mediaman.services.download_notifications import record_download_notification
-from mediaman.services.settings_reader import get_bool_setting
+from mediaman.services.settings_reader import get_bool_setting, get_string_setting
 
 logger = logging.getLogger("mediaman")
 
@@ -177,14 +177,12 @@ def recommended_page(request: Request) -> Response:
         for item in batch["trending"] + batch["personal"]:
             # Share URL (unchanged).
             if base_url:
-                item["share_url"] = "{}/download/{}".format(
-                    base_url,
-                    generate_download_token(
-                        email=username, action="download", title=item["title"],
-                        media_type=item["media_type"], tmdb_id=item.get("tmdb_id"),
-                        recommendation_id=item.get("id"), secret_key=config.secret_key,
-                    ),
+                token = generate_download_token(
+                    email=username, action="download", title=item["title"],
+                    media_type=item["media_type"], tmdb_id=item.get("tmdb_id"),
+                    recommendation_id=item.get("id"), secret_key=config.secret_key,
                 )
+                item["share_url"] = f"{base_url}/download/{token}"
             else:
                 item["share_url"] = ""
 

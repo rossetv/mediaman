@@ -9,7 +9,7 @@ from pathlib import Path
 
 def get_disk_usage(path: str) -> dict[str, int]:
     """Return disk usage for *path*. Raises :exc:`FileNotFoundError` if the path does not exist."""
-    if not os.path.exists(path):
+    if not Path(path).exists():
         raise FileNotFoundError(f"Path does not exist: {path}")
     usage = shutil.disk_usage(path)
     return {"total_bytes": usage.total, "used_bytes": usage.used, "free_bytes": usage.free}
@@ -22,7 +22,7 @@ def get_aggregate_disk_usage(base_path: str) -> dict[str, int]:
     at ``/media/movies`` under ``/media``) and sums their usage so the total
     reflects all physical disks, not just the root mount.
     """
-    if not os.path.exists(base_path):
+    if not Path(base_path).exists():
         raise FileNotFoundError(f"Path does not exist: {base_path}")
 
     seen_devices: set[int] = set()

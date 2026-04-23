@@ -231,7 +231,7 @@ def get_client_ip(request) -> str:
             ipaddress.ip_address(cf_ip)
             return cf_ip
         except ValueError:
-            pass
+            pass  # Invalid CF-Connecting-IP header — fall through to X-Forwarded-For
 
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:

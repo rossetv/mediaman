@@ -435,11 +435,13 @@ class ScanEngine:
             # the Radarr/Sonarr unmonitor HTTP calls. The unmonitor is
             # best-effort housekeeping — a failure (or slow response)
             # must not keep the SQLite write lock open.
+            rk = row["plex_rating_key"]
+            detail = f"Deleted: {row['title']}" + (f" [rk:{rk}]" if rk else "")
             log_audit(
                 self._conn,
                 row["media_item_id"],
                 "deleted",
-                "Deleted: {}{}".format(row["title"], f" [rk:{row['plex_rating_key']}]" if row["plex_rating_key"] else ""),
+                detail,
                 space_bytes=row["file_size_bytes"],
             )
             self._conn.execute(

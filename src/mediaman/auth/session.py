@@ -212,6 +212,10 @@ def authenticate(conn: sqlite3.Connection, username: str, password: str) -> bool
     leaked to the caller — we return False the same as a wrong password,
     so an attacker cannot enumerate valid usernames by watching for a
     different response shape.
+
+    Side effects: writes to the ``login_failures`` table on every call —
+    incrementing the failure counter on bad credentials, or clearing it on
+    success.
     """
     from mediaman.auth.login_lockout import (
         check_lockout,
@@ -371,7 +375,7 @@ def validate_session(
                 conn.commit()
                 return None
         except ValueError:
-            pass
+            pass  # Malformed expiry timestamp — treat as expired and continue
 
     # Fingerprint check — only when caller supplied current client info
     stored_fp = row["fingerprint"]
@@ -400,7 +404,7 @@ def validate_session(
             if now_dt - last_dt < _SESSION_REFRESH_MIN_INTERVAL:
                 should_refresh = False
         except ValueError:
-            pass
+            pass  # Unparseable timestamp — allow refresh to proceed
 
     if should_refresh:
         conn.execute(
