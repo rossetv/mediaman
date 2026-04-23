@@ -428,18 +428,41 @@ function openModal(id) {
     actionsEl.appendChild(dlBtn2);
   }
 
-  if (s.share_url) {
-    var shareBtn = document.createElement('button');
-    shareBtn.className = 'btn-share';
-    shareBtn.textContent = 'Share';
-    shareBtn.onclick = function () {
-      navigator.clipboard.writeText(s.share_url).then(function () {
-        shareBtn.textContent = 'Copied!';
-        setTimeout(function () { shareBtn.textContent = 'Share'; }, 1500);
+  // Share button — token is minted on demand (not pre-embedded) so page
+  // viewers don't walk away with a warehouse of pre-authorised download links.
+  var shareBtn = document.createElement('button');
+  shareBtn.className = 'btn-share';
+  shareBtn.textContent = 'Share';
+  shareBtn.onclick = function () {
+    shareBtn.disabled = true;
+    shareBtn.textContent = 'Generating…';
+    fetch('/api/recommended/' + s.id + '/share-token', { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.ok && data.share_url) {
+          navigator.clipboard.writeText(data.share_url).then(function () {
+            shareBtn.textContent = 'Copied!';
+            shareBtn.disabled = false;
+            setTimeout(function () { shareBtn.textContent = 'Share'; }, 1500);
+          }).catch(function () {
+            // Clipboard denied — fall back to prompt
+            window.prompt('Copy the share link:', data.share_url);
+            shareBtn.textContent = 'Share';
+            shareBtn.disabled = false;
+          });
+        } else {
+          shareBtn.textContent = 'Failed';
+          shareBtn.disabled = false;
+          setTimeout(function () { shareBtn.textContent = 'Share'; }, 2000);
+        }
+      })
+      .catch(function () {
+        shareBtn.textContent = 'Error';
+        shareBtn.disabled = false;
+        setTimeout(function () { shareBtn.textContent = 'Share'; }, 2000);
       });
-    };
-    actionsEl.appendChild(shareBtn);
-  }
+  };
+  actionsEl.appendChild(shareBtn);
 
   var dm = document.getElementById('detail-modal');
   dm.style.display = 'flex';

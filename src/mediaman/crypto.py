@@ -492,6 +492,7 @@ _TOKEN_PURPOSE_KEEP = b"mediaman-token-keep-v1"
 _TOKEN_PURPOSE_DOWNLOAD = b"mediaman-token-download-v1"
 _TOKEN_PURPOSE_UNSUBSCRIBE = b"mediaman-token-unsubscribe-v1"
 _TOKEN_PURPOSE_POSTER = b"mediaman-token-poster-v1"
+_TOKEN_PURPOSE_POLL = b"mediaman-token-poll-v1"
 
 
 def _sign(secret_key: str, purpose: bytes, payload: bytes) -> bytes:
@@ -681,6 +682,56 @@ def sign_poster_url(rating_key: str, secret_key: str) -> str:
     """
     token = generate_poster_token(rating_key, secret_key)
     return f"/api/poster/{rating_key}?sig={token}"
+
+
+def generate_poll_token(
+    *,
+    media_item_id: str,
+    service: str,
+    tmdb_id: int,
+    secret_key: str,
+    ttl_seconds: int = 600,
+) -> str:
+    """Generate a short-lived HMAC-signed polling-capability token.
+
+    Issued when a download is confirmed; allows the browser to poll
+    ``/api/download/status`` for up to *ttl_seconds* (default 10 min)
+    without presenting the original download token.
+
+    The token binds ``service`` and ``tmdb_id`` so it can only query the
+    specific item that was downloaded. A ``nonce`` prevents pre-computed
+    tokens from being reused across installs.
+
+    Uses a dedicated ``poll`` purpose sub-key so it cannot be confused
+    with download, keep, or unsubscribe tokens.
+    """
+    exp = int(time.time()) + ttl_seconds
+    payload = {
+        "mid": media_item_id,
+        "svc": service,
+        "tmdb": tmdb_id,
+        "nonce": secrets.token_hex(8),
+        "exp": exp,
+    }
+    return _encode_signed(payload, secret_key, _TOKEN_PURPOSE_POLL)
+
+
+def validate_poll_token(
+    token: str,
+    secret_key: str,
+    *,
+    service: str,
+    tmdb_id: int,
+) -> bool:
+    """Return True when *token* is a valid, unexpired poll token for *service*/*tmdb_id*.
+
+    Returns False on any validation failure — expired token, wrong
+    service, wrong tmdb_id, or tampered signature.
+    """
+    payload = _validate_signed(token, secret_key, _TOKEN_PURPOSE_POLL)
+    if payload is None:
+        return False
+    return payload.get("svc") == service and payload.get("tmdb") == tmdb_id
 
 
 def generate_session_token() -> str:

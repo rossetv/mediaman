@@ -19,6 +19,7 @@ from mediaman.auth.middleware import (
     get_optional_admin_from_token,
     resolve_page_session,
 )
+from mediaman.auth.rate_limit import ActionRateLimiter
 from mediaman.crypto import generate_download_token
 from mediaman.db import get_db
 from mediaman.services.arr_build import (
@@ -41,6 +42,14 @@ router = APIRouter()
 _refresh_lock = threading.Lock()
 _refresh_running = False
 _refresh_result: dict | None = None
+
+# Rate-limit authenticated admin actions on the recommended endpoints.
+# Both the download trigger and the share-token mint are limited to
+# 30 per minute / 500 per day per admin username so a compromised
+# credential or a scripted loop cannot hammer Radarr/Sonarr or pre-mint
+# a warehouse of share tokens.
+_DOWNLOAD_ACTION_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=500)
+_SHARE_TOKEN_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=500)
 
 
 def _fetch_recommendations(conn) -> list[dict]:
@@ -165,9 +174,11 @@ def recommended_page(request: Request) -> Response:
             "personal": groups["personal"],
         })
 
-    # Generate share URLs and check library state for downloaded items
+    # Check library state for downloaded items.
+    # Share URLs are no longer embedded in the page — they are minted on
+    # demand when the user clicks the share button, via
+    # POST /api/recommended/{id}/share-token.
     config = request.app.state.config
-    base_url = (get_string_setting(conn, "base_url") or "").rstrip("/")
 
     radarr_cache: dict | None = None
     sonarr_cache: dict | None = None
@@ -175,17 +186,6 @@ def recommended_page(request: Request) -> Response:
     all_recs = {}
     for batch in formatted_batches:
         for item in batch["trending"] + batch["personal"]:
-            # Share URL (unchanged).
-            if base_url:
-                token = generate_download_token(
-                    email=username, action="download", title=item["title"],
-                    media_type=item["media_type"], tmdb_id=item.get("tmdb_id"),
-                    recommendation_id=item.get("id"), secret_key=config.secret_key,
-                )
-                item["share_url"] = f"{base_url}/download/{token}"
-            else:
-                item["share_url"] = ""
-
             if item.get("tmdb_id"):
                 if item["media_type"] == "movie":
                     if radarr_cache is None:
@@ -330,9 +330,74 @@ def api_refresh_status(admin: str = Depends(get_current_admin)) -> JSONResponse:
     return JSONResponse({"status": "idle", **cooldown_payload})
 
 
+@router.post("/api/recommended/{recommendation_id}/share-token")
+def api_share_token(
+    recommendation_id: int,
+    request: Request,
+    admin: str = Depends(get_current_admin),
+) -> JSONResponse:
+    """Mint a single-use download share token for one recommendation, on demand.
+
+    Returns ``{"token": "...", "share_url": "...", "expires_at": "..."}``.
+    Rate-limited to 30/min, 500/day per admin.
+
+    Tokens are not pre-embedded in the page (that approach leaked a stack
+    of tokens to any page viewer). Instead the browser calls this endpoint
+    when the user explicitly clicks the share button, and the returned
+    URL is used once for copy-to-clipboard or immediate navigation.
+    """
+    if not _SHARE_TOKEN_LIMITER.check(admin):
+        return JSONResponse({"ok": False, "error": "Too many requests"}, status_code=429)
+
+    conn = get_db()
+    config = request.app.state.config
+
+    row = conn.execute(
+        "SELECT id, title, media_type, tmdb_id FROM suggestions WHERE id = ?",
+        (recommendation_id,),
+    ).fetchone()
+    if not row:
+        return JSONResponse({"ok": False, "error": "Recommendation not found"}, status_code=404)
+
+    base_url = (get_string_setting(conn, "base_url") or "").rstrip("/")
+    if not base_url:
+        return JSONResponse({"ok": False, "error": "Base URL not configured — cannot generate share link"})
+
+    import time as _time
+    ttl_days = 14
+    expires_at_ts = int(_time.time()) + ttl_days * 86400
+    from datetime import datetime, timezone as _tz
+    expires_at = datetime.fromtimestamp(expires_at_ts, tz=_tz.utc).isoformat()
+
+    share_token = generate_download_token(
+        email=admin,
+        action="download",
+        title=row["title"],
+        media_type=row["media_type"],
+        tmdb_id=row["tmdb_id"],
+        recommendation_id=row["id"],
+        secret_key=config.secret_key,
+        ttl_days=ttl_days,
+    )
+    share_url = f"{base_url}/download/{share_token}"
+
+    logger.info(
+        "Share token minted by admin '%s' for recommendation_id=%d title='%s'",
+        admin, recommendation_id, row["title"],
+    )
+    return JSONResponse({"ok": True, "token": share_token, "share_url": share_url, "expires_at": expires_at})
+
+
 @router.post("/api/recommended/{recommendation_id}/download")
 def api_download_recommendation(recommendation_id: int, request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
-    """Add a recommended movie/show to Radarr or Sonarr and trigger download."""
+    """Add a recommended movie/show to Radarr or Sonarr and trigger download.
+
+    Rate-limited to 30/min, 500/day per admin username to prevent a
+    compromised credential from hammering Radarr/Sonarr with burst requests.
+    """
+    if not _DOWNLOAD_ACTION_LIMITER.check(admin):
+        return JSONResponse({"ok": False, "error": "Too many requests"}, status_code=429)
+
     conn = get_db()
     config = request.app.state.config
 

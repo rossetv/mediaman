@@ -24,7 +24,7 @@ from mediaman.auth.audit import log_audit
 from mediaman.auth.middleware import get_optional_admin
 from mediaman.services.download_notifications import record_download_notification
 from mediaman.auth.rate_limit import RateLimiter, get_client_ip
-from mediaman.crypto import validate_download_token
+from mediaman.crypto import generate_poll_token, validate_download_token, validate_poll_token
 from mediaman.db import get_db
 from mediaman.services.download_format import (
     build_episode_summary,
@@ -80,6 +80,19 @@ def _mark_token_used(token: str, exp: int) -> bool:
             return False
         _USED_TOKENS[digest] = float(exp)
         return True
+
+
+def _unmark_token_used(token: str) -> None:
+    """Release a previously claimed token so the user can retry.
+
+    Called on transient upstream failures (e.g. a Radarr 502) so the
+    download link remains usable. Only removes the entry if it is still
+    present — a concurrent caller that somehow slipped through cannot be
+    un-revoked from a different goroutine.
+    """
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    with _USED_TOKENS_LOCK:
+        _USED_TOKENS.pop(digest, None)
 
 
 def _base_download_item(payload: dict) -> dict:
@@ -310,12 +323,14 @@ def download_submit(request: Request, token: str) -> JSONResponse:
         if media_type == "movie":
             client = build_radarr_from_db(conn, config.secret_key)
             if not client:
+                _unmark_token_used(token)
                 return JSONResponse({"ok": False, "error": "Radarr not configured"})
 
             if not tmdb_id:
                 # Re-download: look up by title
                 lookup = client._get(f"/api/v3/movie/lookup?term={_url_quote(title)}")
                 if not lookup:
+                    _unmark_token_used(token)
                     return JSONResponse({"ok": False, "error": f"'{title}' not found in Radarr"})
                 tmdb_id = lookup[0].get("tmdbId")
 
@@ -326,17 +341,25 @@ def download_submit(request: Request, token: str) -> JSONResponse:
             record_download_notification(conn, email=email, title=title, media_type="movie", tmdb_id=tmdb_id, service="radarr")
             conn.commit()
 
+            poll_token = generate_poll_token(
+                media_item_id=f"radarr:{title}",
+                service="radarr",
+                tmdb_id=tmdb_id,
+                secret_key=config.secret_key,
+            )
             return JSONResponse({
-                "ok":      True,
-                "message": f"Added '{title}' to Radarr — download starting shortly",
-                "service": "radarr",
-                "tmdb_id": tmdb_id,
+                "ok":          True,
+                "message":     f"Added '{title}' to Radarr — download starting shortly",
+                "service":     "radarr",
+                "tmdb_id":     tmdb_id,
+                "poll_token":  poll_token,
             })
 
         else:
             # TV series — need TVDB ID via Sonarr lookup
             client = build_sonarr_from_db(conn, config.secret_key)
             if not client:
+                _unmark_token_used(token)
                 return JSONResponse({"ok": False, "error": "Sonarr not configured"})
 
             if tmdb_id:
@@ -344,9 +367,11 @@ def download_submit(request: Request, token: str) -> JSONResponse:
             else:
                 results = client._get(f"/api/v3/series/lookup?term={_url_quote(title)}")
             if not results:
+                _unmark_token_used(token)
                 return JSONResponse({"ok": False, "error": "Series not found in Sonarr lookup"})
             tvdb_id = results[0].get("tvdbId")
             if not tvdb_id:
+                _unmark_token_used(token)
                 return JSONResponse({"ok": False, "error": "No TVDB ID found for this series"})
 
             client.add_series(tvdb_id, title)
@@ -361,24 +386,51 @@ def download_submit(request: Request, token: str) -> JSONResponse:
             )
             conn.commit()
 
+            poll_token = generate_poll_token(
+                media_item_id=f"sonarr:{title}",
+                service="sonarr",
+                tmdb_id=tmdb_id,
+                secret_key=config.secret_key,
+            )
             return JSONResponse({
-                "ok":      True,
-                "message": f"Added '{title}' to Sonarr — download starting shortly",
-                "service": "sonarr",
-                "tmdb_id": tmdb_id,
+                "ok":          True,
+                "message":     f"Added '{title}' to Sonarr — download starting shortly",
+                "service":     "sonarr",
+                "tmdb_id":     tmdb_id,
+                "poll_token":  poll_token,
             })
 
     except requests.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else 0
         if status in (409, 422):
-            service = "Radarr" if media_type == "movie" else "Sonarr"
-            return JSONResponse({
+            # Item already exists — the download effectively succeeded (or
+            # was triggered before). Do NOT unmark: a 409 means it's there,
+            # so the link is consumed correctly. Do issue a poll token so the
+            # page can still show progress.
+            service_name = "radarr" if media_type == "movie" else "sonarr"
+            svc_label = "Radarr" if media_type == "movie" else "Sonarr"
+            poll_token = None
+            if tmdb_id:
+                poll_token = generate_poll_token(
+                    media_item_id=f"{service_name}:{title}",
+                    service=service_name,
+                    tmdb_id=tmdb_id,
+                    secret_key=config.secret_key,
+                )
+            response: dict = {
                 "ok":    False,
-                "error": f"'{title}' already exists in your {service} library",
-            })
+                "error": f"'{title}' already exists in your {svc_label} library",
+            }
+            if poll_token:
+                response["poll_token"] = poll_token
+            return JSONResponse(response)
+        # Transient upstream error — release the token so the user can retry.
+        _unmark_token_used(token)
         logger.warning("Download token submit failed for '%s': %s", title, exc, exc_info=True)
         return JSONResponse({"ok": False, "error": "Download request failed — check service connectivity"})
     except Exception as exc:
+        # Transient error — release the token so the user can retry.
+        _unmark_token_used(token)
         logger.warning("Download token submit failed for '%s': %s", title, exc, exc_info=True)
         return JSONResponse({"ok": False, "error": "Download request failed — check service connectivity"})
 
@@ -399,13 +451,19 @@ def download_status(
     service: str,
     tmdb_id: int,
     token: str | None = None,
+    poll_token: str | None = None,
     admin: str | None = Depends(get_optional_admin),
 ) -> JSONResponse:
     """Poll the download progress for a recently-requested item.
 
     Query parameters:
-    - ``service``  — ``"radarr"`` or ``"sonarr"``
-    - ``tmdb_id``  — integer TMDB ID
+    - ``service``     — ``"radarr"`` or ``"sonarr"``
+    - ``tmdb_id``     — integer TMDB ID
+    - ``poll_token``  — short-lived capability token issued at download
+                        confirmation time (preferred for guest access)
+    - ``token``       — original download token (legacy; still accepted for
+                        backwards compatibility but may not work after the
+                        token has been consumed)
 
     Returns JSON using the simplified item shape: ``state``, ``progress``,
     ``eta``, ``size_done``, ``size_total``, ``episodes``, etc.
@@ -413,7 +471,11 @@ def download_status(
     ``"searching"``, or ``"unknown"``.
 
     Authentication: accepts either a valid admin session cookie or a valid
-    download ``token`` query parameter (for guest access from the download page).
+    poll capability token (preferred) or a valid download token (legacy).
+    The poll token is a short-lived (10-minute) HMAC-signed capability issued
+    by POST /download/{token} on success, bound to the specific item. This
+    prevents the original long-lived download token from acting as a
+    persistent queue oracle.
     """
     config = request.app.state.config
 
@@ -426,20 +488,39 @@ def download_status(
     if not _DOWNLOAD_STATUS_LIMITER.check(get_client_ip(request)):
         return JSONResponse({"error": "Too many requests"}, status_code=429)
 
-    # Require either an admin session or a valid download token bound to
-    # the item being queried. Without the binding check a user with any
-    # valid download token could poll the queue state of arbitrary items.
+    # Require either an admin session or a valid capability token bound to
+    # the exact item being polled.
+    #
+    # Preferred: poll_token — short-lived (10 min), issued at POST
+    # /download/{token} success, cryptographically bound to service+tmdb_id.
+    # This prevents the original long-lived download token from serving as a
+    # permanent queue-state oracle.
+    #
+    # Legacy: original download token — still accepted so existing share
+    # pages that haven't received a poll_token yet continue working, but it
+    # must be unexpired and bound to this item.
     if not admin:
-        if token is not None and len(token) > 4096:
+        authenticated = False
+
+        if poll_token is not None:
+            if len(poll_token) <= 4096 and validate_poll_token(
+                poll_token, config.secret_key, service=service, tmdb_id=tmdb_id
+            ):
+                authenticated = True
+
+        if not authenticated and token is not None:
+            if len(token) > 4096:
+                return JSONResponse({"error": "Not authenticated"}, status_code=401)
+            payload = validate_download_token(token, config.secret_key)
+            if payload is not None:
+                payload_tmdb = payload.get("tmdb")
+                payload_mt = payload.get("mt")
+                want_service = "sonarr" if payload_mt in ("tv", "anime") else "radarr"
+                if payload_tmdb == tmdb_id and service == want_service:
+                    authenticated = True
+
+        if not authenticated:
             return JSONResponse({"error": "Not authenticated"}, status_code=401)
-        payload = validate_download_token(token, config.secret_key) if token else None
-        if payload is None:
-            return JSONResponse({"error": "Not authenticated"}, status_code=401)
-        payload_tmdb = payload.get("tmdb")
-        payload_mt = payload.get("mt")
-        want_service = "sonarr" if payload_mt in ("tv", "anime") else "radarr"
-        if payload_tmdb != tmdb_id or service != want_service:
-            return JSONResponse({"error": "Token not valid for this item"}, status_code=403)
 
     conn = get_db()
 
