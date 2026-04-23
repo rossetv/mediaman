@@ -82,6 +82,59 @@ def _mark_token_used(token: str, exp: int) -> bool:
         return True
 
 
+def _base_download_item(payload: dict) -> dict:
+    """Build the skeleton download item from a validated token payload.
+
+    Rich metadata fields (poster, year, description, etc.) default to None
+    and are filled in by the suggestion or re-download enrichment branches.
+    """
+    return {
+        "title":       payload.get("title", ""),
+        "media_type":  payload.get("mt", ""),
+        "tmdb_id":     payload.get("tmdb"),
+        "email":       payload.get("email", ""),
+        "action":      payload.get("act", "download"),
+        "poster_url":  None,
+        "year":        None,
+        "description": None,
+        "reason":      None,
+        "rating":      None,
+        "rt_rating":   None,
+        "tagline":     None,
+        "runtime":     None,
+        "genres":      None,
+        "cast_json":   None,
+        "director":    None,
+        "trailer_key": None,
+        "imdb_rating": None,
+        "metascore":   None,
+        "genres_list": [],
+        "cast_list":   [],
+    }
+
+
+def _build_item_from_suggestion(payload: dict, row) -> dict:
+    """Build a fully-populated download item from a suggestions DB row."""
+    item = _base_download_item(payload)
+    item.update({
+        "poster_url":  row["poster_url"],
+        "year":        row["year"],
+        "description": row["description"],
+        "reason":      row["reason"],
+        "rating":      row["rating"],
+        "rt_rating":   row["rt_rating"],
+        "tagline":     row["tagline"],
+        "runtime":     row["runtime"],
+        "genres":      row["genres"],
+        "cast_json":   row["cast_json"],
+        "director":    row["director"],
+        "trailer_key": row["trailer_key"],
+        "imdb_rating": row["imdb_rating"],
+        "metascore":   row["metascore"],
+    })
+    return item
+
+
 def _format_timeleft(timeleft: str) -> str:
     """Convert HH:MM:SS timeleft string to a human-readable eta string.
 
@@ -131,59 +184,22 @@ def download_page(request: Request, token: str) -> HTMLResponse:
             "item": None,
         })
 
-    item: dict = {
-        "title":       payload.get("title", ""),
-        "media_type":  payload.get("mt", ""),
-        "tmdb_id":     payload.get("tmdb"),
-        "email":       payload.get("email", ""),
-        "action":      payload.get("act", "download"),
-        "poster_url":  None,
-        "year":        None,
-        "description": None,
-        "reason":      None,
-        "rating":      None,
-        "rt_rating":   None,
-        "tagline":     None,
-        "runtime":     None,
-        "genres":      None,
-        "cast_json":   None,
-        "director":    None,
-        "trailer_key": None,
-        "imdb_rating": None,
-        "metascore":   None,
-        "genres_list": [],
-        "cast_list":   [],
-    }
-
     sid = payload.get("sid")
     if sid:
-        # Recommendation download — enrich from recommendations cache
+        # Recommendation download — enrich from the suggestions cache
         row = conn.execute(
             "SELECT poster_url, year, description, reason, rating, rt_rating, "
             "tagline, runtime, genres, cast_json, director, trailer_key, imdb_rating, metascore "
             "FROM suggestions WHERE id = ?",
             (sid,),
         ).fetchone()
-        if row:
-            item.update({
-                "poster_url":  row["poster_url"],
-                "year":        row["year"],
-                "description": row["description"],
-                "reason":      row["reason"],
-                "rating":      row["rating"],
-                "rt_rating":   row["rt_rating"],
-                "tagline":     row["tagline"],
-                "runtime":     row["runtime"],
-                "genres":      row["genres"],
-                "cast_json":   row["cast_json"],
-                "director":    row["director"],
-                "trailer_key": row["trailer_key"],
-                "imdb_rating": row["imdb_rating"],
-                "metascore":   row["metascore"],
-            })
+        item = _build_item_from_suggestion(payload, row) if row else _base_download_item(payload)
     elif payload.get("act") == "redownload":
         # Re-download — enrich with recommendation data or TMDB lookup
+        item = _base_download_item(payload)
         enrich_redownload_item(item, conn, config.secret_key)
+    else:
+        item = _base_download_item(payload)
 
     # Parse JSON fields into lists for the template
     if item.get("genres"):
