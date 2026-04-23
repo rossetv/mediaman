@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
-from datetime import datetime, timedelta, timezone
+from collections import OrderedDict
+from datetime import date as _date, datetime, datetime as _dt, timedelta, timezone
 
 import requests as _requests
 
@@ -17,10 +19,17 @@ from mediaman.auth.middleware import (
     get_optional_admin_from_token,
     resolve_page_session,
 )
+from mediaman.crypto import generate_download_token
 from mediaman.db import get_db
 from mediaman.services.arr_build import (
+    build_plex_from_db,
     build_radarr_from_db,
     build_sonarr_from_db,
+)
+from mediaman.services.arr_state import (
+    build_radarr_cache,
+    build_sonarr_cache,
+    compute_download_state,
 )
 from mediaman.services.download_notifications import record_download_notification
 from mediaman.services.settings_reader import get_bool_setting
@@ -109,9 +118,6 @@ def recommended_page(request: Request) -> Response:
     recommendations = _fetch_recommendations(conn) if enabled else []
 
     # Group by batch_id, preserving DESC order from the query
-    from collections import OrderedDict
-    from datetime import date as _date, datetime as dt
-
     batches_map: OrderedDict = OrderedDict()
     for s in recommendations:
         bid = s.get("batch_id") or s.get("created_at", "")[:10]
@@ -147,7 +153,7 @@ def recommended_page(request: Request) -> Response:
     formatted_batches = []
     for index, (bid, groups) in enumerate(list(batches_map.items())[:4]):
         try:
-            batch_date: _date | None = dt.strptime(bid, "%Y-%m-%d").date()
+            batch_date: _date | None = _dt.strptime(bid, "%Y-%m-%d").date()
             date_label = batch_date.strftime("%-d %B %Y")
         except (ValueError, TypeError):
             batch_date = None
@@ -162,17 +168,9 @@ def recommended_page(request: Request) -> Response:
         })
 
     # Generate share URLs and check library state for downloaded items
-    import json
-    from mediaman.crypto import generate_download_token
-
     config = request.app.state.config
     base_url_row = conn.execute("SELECT value FROM settings WHERE key='base_url'").fetchone()
     base_url = (base_url_row["value"] if base_url_row else "").rstrip("/")
-
-    # Compute library state via the shared helper.
-    from mediaman.services.arr_state import (
-        build_radarr_cache, build_sonarr_cache, compute_download_state,
-    )
 
     radarr_cache: dict | None = None
     sonarr_cache: dict | None = None
@@ -272,8 +270,6 @@ def api_refresh_recommendations(request: Request, admin: str = Depends(get_curre
             return JSONResponse({"status": "already_running"})
         _refresh_running = True
 
-    from mediaman.services.arr_build import build_plex_from_db
-
     config = request.app.state.config
     plex = build_plex_from_db(conn, config.secret_key)
     if not plex:
@@ -291,11 +287,9 @@ def api_refresh_recommendations(request: Request, admin: str = Depends(get_curre
         global _refresh_running, _refresh_result
         result: dict
         try:
-            from mediaman.db import get_db as get_db_
-            from mediaman.services.arr_build import build_plex_from_db
             from mediaman.services.openai_recommendations import refresh_recommendations
 
-            db = get_db_()
+            db = get_db()
             plex_client = build_plex_from_db(db, _secret_key)
             if plex_client:
                 count = refresh_recommendations(db, plex_client, manual=True)
