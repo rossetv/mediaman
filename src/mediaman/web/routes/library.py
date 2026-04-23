@@ -11,18 +11,18 @@ from fastapi import APIRouter, Body, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.responses import Response
 
-from mediaman.auth.audit import log_audit as _log_audit
+from mediaman.auth.audit import log_audit
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
-from mediaman.auth.rate_limit import ActionRateLimiter as _ActionRateLimiter
+from mediaman.auth.rate_limit import ActionRateLimiter
 from mediaman.db import get_db
 from mediaman.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
 from mediaman.services.arr_build import (
-    build_radarr_from_db as _build_radarr,
-    build_sonarr_from_db as _build_sonarr,
+    build_radarr_from_db,
+    build_sonarr_from_db,
 )
-from mediaman.services.download_notifications import record_download_notification as _record_dn
-from mediaman.services.format import days_ago as _days_ago_fmt, format_bytes as _format_bytes, parse_iso_utc as _parse_iso_utc
-from mediaman.services.settings_reader import get_int_setting as _get_int_setting
+from mediaman.services.download_notifications import record_download_notification
+from mediaman.services.format import days_ago, format_bytes, parse_iso_utc
+from mediaman.services.settings_reader import get_int_setting
 
 logger = logging.getLogger("mediaman")
 
@@ -48,13 +48,13 @@ def _days_ago(dt_str: str | None) -> str:
     guards against suspiciously large deltas (> 10 years) from misinterpreted
     Plex timestamps.
     """
-    dt = _parse_iso_utc(dt_str)
+    dt = parse_iso_utc(dt_str)
     if dt is None:
         return ""
     delta = (datetime.now(timezone.utc) - dt).days
     if delta > 3650:
         return ""
-    return _days_ago_fmt(dt_str)
+    return days_ago(dt_str)
 
 
 def _type_css(media_type: str) -> str:
@@ -115,8 +115,8 @@ def _fetch_library(
     elif media_type == "stale":
         stale_filter = True
         # Read thresholds for stale calculation
-        _min_age = _get_int_setting(conn, "min_age_days", default=30)
-        _inactivity = _get_int_setting(conn, "inactivity_days", default=30)
+        _min_age = get_int_setting(conn, "min_age_days", default=30)
+        _inactivity = get_int_setting(conn, "inactivity_days", default=30)
         _now = datetime.now(timezone.utc)
         age_cutoff = (_now - timedelta(days=_min_age)).isoformat()
         watch_cutoff = (_now - timedelta(days=_inactivity)).isoformat()
@@ -270,7 +270,7 @@ def _fetch_library(
             "plex_rating_key": r["plex_rating_key"],
             "added_at": r["added_at"],
             "added_ago": added_ago,
-            "file_size": _format_bytes(r["file_size_bytes"] or 0),
+            "file_size": format_bytes(r["file_size_bytes"] or 0),
             "file_size_bytes": r["file_size_bytes"] or 0,
             "last_watched": _days_ago(r["last_watched_at"]),
             "show_rating_key": show_rk,
@@ -307,8 +307,8 @@ def _fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
     anime = anime_row["n"] if anime_row else 0
 
     # Read thresholds from settings, falling back to sensible defaults
-    min_age = _get_int_setting(conn, "min_age_days", default=30)
-    inactivity = _get_int_setting(conn, "inactivity_days", default=30)
+    min_age = get_int_setting(conn, "min_age_days", default=30)
+    inactivity = get_int_setting(conn, "inactivity_days", default=30)
 
     now = datetime.now(timezone.utc)
     age_cutoff = (now - timedelta(days=min_age)).isoformat()
@@ -324,7 +324,7 @@ def _fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
 
     total = movies + tv + anime
     total_size_row = conn.execute("SELECT SUM(file_size_bytes) AS n FROM media_items").fetchone()
-    total_size = _format_bytes(total_size_row["n"] or 0 if total_size_row else 0)
+    total_size = format_bytes(total_size_row["n"] or 0 if total_size_row else 0)
 
     return {
         "movies": movies,
@@ -424,7 +424,7 @@ def api_library(
 
 # Per-admin cap on media deletes — ample for legitimate cleanup,
 # stops a compromised session nuking a library in an afternoon.
-_DELETE_LIMITER = _ActionRateLimiter(
+_DELETE_LIMITER = ActionRateLimiter(
     max_in_window=20, window_seconds=60, max_per_day=300,
 )
 
@@ -460,7 +460,7 @@ def api_media_delete(
     # Delete via Radarr (movies) — deletes files + adds import exclusion
     if is_movie:
         try:
-            client = _build_radarr(conn, config.secret_key)
+            client = build_radarr_from_db(conn, config.secret_key)
             if client:
                 # Require the radarr_id recorded at scan time. Title
                 # matching is dangerous — multiple items may share a
@@ -484,7 +484,7 @@ def api_media_delete(
     # Delete via Sonarr (TV) — delete episode files + unmonitor season
     else:
         try:
-            client = _build_sonarr(conn, config.secret_key)
+            client = build_sonarr_from_db(conn, config.secret_key)
             if client:
                 # Same rule as Radarr — require stored sonarr_id; no
                 # title-based lookup fallback.
@@ -506,7 +506,7 @@ def api_media_delete(
     detail = f"Deleted '{title}' by {username}"
     if rk:
         detail += f" [rk:{rk}]"
-    _log_audit(conn, media_id, "deleted", detail, space_bytes=row["file_size_bytes"])
+    log_audit(conn, media_id, "deleted", detail, space_bytes=row["file_size_bytes"])
 
     # Remove scheduled actions and the media item itself
     conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_id,))
@@ -576,7 +576,7 @@ def api_media_keep(
         )
 
     # Audit
-    _log_audit(conn, media_id, "snoozed", f"Kept for {snooze_label} by admin ({username})")
+    log_audit(conn, media_id, "snoozed", f"Kept for {snooze_label} by admin ({username})")
 
     conn.commit()
     logger.info("Media item %s protected for %s by %s", media_id, snooze_label, username)
@@ -601,15 +601,15 @@ def api_media_redownload(
 
     # Try Radarr first (movies)
     try:
-        client = _build_radarr(conn, config.secret_key)
+        client = build_radarr_from_db(conn, config.secret_key)
         if client:
             lookup = client._get(f"/api/v3/movie/lookup?term={_url_quote(title)}")
             if lookup:
                 tmdb_id = lookup[0].get("tmdbId")
                 if tmdb_id:
                     client.add_movie(tmdb_id, title)
-                    _log_audit(conn, title, "re_downloaded", f"Re-downloaded by {username}")
-                    _record_dn(conn, email=username, title=title, media_type="movie", tmdb_id=tmdb_id, service="radarr")
+                    log_audit(conn, title, "re_downloaded", f"Re-downloaded by {username}")
+                    record_download_notification(conn, email=username, title=title, media_type="movie", tmdb_id=tmdb_id, service="radarr")
                     conn.commit()
                     logger.info("Re-downloaded '%s' via Radarr by %s", title, username)
                     return JSONResponse({"ok": True, "message": f"Added '{title}' to Radarr"})
@@ -621,7 +621,7 @@ def api_media_redownload(
 
     # Try Sonarr (TV)
     try:
-        client = _build_sonarr(conn, config.secret_key)
+        client = build_sonarr_from_db(conn, config.secret_key)
         if client:
             results = client._get(f"/api/v3/series/lookup?term={_url_quote(title)}")
             if results:
@@ -629,11 +629,11 @@ def api_media_redownload(
                 if tvdb_id:
                     client.add_series(tvdb_id, title)
                     tmdb_id_sonarr = results[0].get("tmdbId")
-                    _log_audit(conn, title, "re_downloaded", f"Re-downloaded by {username}")
+                    log_audit(conn, title, "re_downloaded", f"Re-downloaded by {username}")
                     # Sonarr matches series by TVDB id — keep both IDs so
                     # the completion checker can fire even when tmdbId
                     # isn't populated on the series record.
-                    _record_dn(conn, email=username, title=title, media_type="tv", tmdb_id=tmdb_id_sonarr, tvdb_id=tvdb_id, service="sonarr")
+                    record_download_notification(conn, email=username, title=title, media_type="tv", tmdb_id=tmdb_id_sonarr, tvdb_id=tvdb_id, service="sonarr")
                     conn.commit()
                     logger.info("Re-downloaded '%s' via Sonarr by %s", title, username)
                     return JSONResponse({"ok": True, "message": f"Added '{title}' to Sonarr"})

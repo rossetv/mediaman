@@ -13,11 +13,11 @@ from starlette.responses import Response
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.db import get_db
 from mediaman.models import ACTION_SCHEDULED_DELETION
-from mediaman.services.format import days_ago as _days_ago
-from mediaman.services.format import format_bytes as _format_bytes
+from mediaman.services.format import days_ago
+from mediaman.services.format import format_bytes
 from mediaman.services.format import parse_iso_utc
-from mediaman.services.format import rk_from_audit_detail as _rk_from_detail
-from mediaman.services.format import title_from_audit_detail as _title_from_detail
+from mediaman.services.format import rk_from_audit_detail
+from mediaman.services.format import title_from_audit_detail
 from mediaman.services.storage import get_aggregate_disk_usage
 
 logger = logging.getLogger("mediaman")
@@ -83,8 +83,8 @@ def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
             "badge_class": badge_class,
             "type_label": type_label,
             "countdown": _days_until(r["execute_at"]),
-            "added_ago": _days_ago(r["added_at"]),
-            "file_size": _format_bytes(r["file_size_bytes"] or 0),
+            "added_ago": days_ago(r["added_at"]),
+            "file_size": format_bytes(r["file_size_bytes"] or 0),
             "file_size_bytes": r["file_size_bytes"] or 0,
         })
     return items
@@ -127,12 +127,12 @@ def _fetch_recently_deleted(conn: sqlite3.Connection) -> list[dict[str, object]]
     for r in rows:
         title = r["title"]
         if not title:
-            title = _title_from_detail(r["detail"])
+            title = title_from_audit_detail(r["detail"])
         # Skip only if there's a re-download AFTER this specific deletion
         last_redownload = redownload_times.get(title.lower())
         if last_redownload and last_redownload > r["created_at"]:
             continue
-        rk = r["plex_rating_key"] or _rk_from_detail(r["detail"])
+        rk = r["plex_rating_key"] or rk_from_audit_detail(r["detail"])
         poster_url = f"/api/poster/{rk}" if rk else ""
         idx = len(items)
         items.append({
@@ -140,8 +140,8 @@ def _fetch_recently_deleted(conn: sqlite3.Connection) -> list[dict[str, object]]
             "media_item_id": r["media_item_id"],
             "title": title,
             "poster_url": poster_url,
-            "deleted_ago": _days_ago(r["created_at"]),
-            "reclaimed": _format_bytes(r["space_reclaimed_bytes"] or 0),
+            "deleted_ago": days_ago(r["created_at"]),
+            "reclaimed": format_bytes(r["space_reclaimed_bytes"] or 0),
         })
         if not poster_url:
             titles_needing_poster.append((idx, title))
@@ -221,17 +221,17 @@ def _fetch_storage_stats(conn: sqlite3.Connection) -> dict[str, object]:
         return round(val / total * 100, 1) if total else 0.0
 
     return {
-        "used": _format_bytes(used),
-        "total": _format_bytes(total),
-        "free": _format_bytes(free),
+        "used": format_bytes(used),
+        "total": format_bytes(total),
+        "free": format_bytes(free),
         "movies_bytes": movies_bytes,
         "tv_bytes": tv_bytes,
         "anime_bytes": anime_bytes,
         "other_bytes": other_bytes,
-        "movies_label": _format_bytes(movies_bytes),
-        "tv_label": _format_bytes(tv_bytes),
-        "anime_label": _format_bytes(anime_bytes),
-        "other_label": _format_bytes(other_bytes),
+        "movies_label": format_bytes(movies_bytes),
+        "tv_label": format_bytes(tv_bytes),
+        "anime_label": format_bytes(anime_bytes),
+        "other_label": format_bytes(other_bytes),
         "movies_pct": pct(movies_bytes),
         "tv_pct": pct(tv_bytes),
         "anime_pct": pct(anime_bytes),
@@ -257,12 +257,12 @@ def dashboard_page(request: Request) -> Response:
 
     # Aggregate totals for section subtitles
     scheduled_count = len(scheduled_items)
-    scheduled_size = _format_bytes(sum(i["file_size_bytes"] for i in scheduled_items))
+    scheduled_size = format_bytes(sum(i["file_size_bytes"] for i in scheduled_items))
 
     reclaimed_total_row = conn.execute(
         "SELECT SUM(space_reclaimed_bytes) AS total FROM audit_log WHERE action='deleted'"
     ).fetchone()
-    reclaimed_total = _format_bytes(reclaimed_total_row["total"] or 0 if reclaimed_total_row else 0)
+    reclaimed_total = format_bytes(reclaimed_total_row["total"] or 0 if reclaimed_total_row else 0)
 
     templates = request.app.state.templates
     return templates.TemplateResponse(request, "dashboard.html", {
@@ -295,7 +295,7 @@ def api_dashboard_stats(username: str = Depends(get_current_admin)) -> JSONRespo
     return JSONResponse({
         "storage": storage,
         "reclaimed_total_bytes": reclaimed_bytes,
-        "reclaimed_total": _format_bytes(reclaimed_bytes),
+        "reclaimed_total": format_bytes(reclaimed_bytes),
     })
 
 
@@ -336,7 +336,7 @@ def api_dashboard_reclaimed_chart(username: str = Depends(get_current_admin)) ->
         {
             "week": r["week"],
             "reclaimed_bytes": r["reclaimed_bytes"] or 0,
-            "reclaimed": _format_bytes(r["reclaimed_bytes"] or 0),
+            "reclaimed": format_bytes(r["reclaimed_bytes"] or 0),
         }
         for r in rows
     ]

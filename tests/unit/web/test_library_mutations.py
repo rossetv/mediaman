@@ -94,7 +94,7 @@ class TestMediaDelete:
 
         mock_radarr = MagicMock()
 
-        with patch("mediaman.web.routes.library._build_radarr", return_value=mock_radarr):
+        with patch("mediaman.web.routes.library.build_radarr_from_db", return_value=mock_radarr):
             resp = client.post("/api/media/m1/delete")
 
         assert resp.status_code == 200
@@ -117,7 +117,7 @@ class TestMediaDelete:
 
         mock_radarr = MagicMock()
 
-        with patch("mediaman.web.routes.library._build_radarr", return_value=mock_radarr):
+        with patch("mediaman.web.routes.library.build_radarr_from_db", return_value=mock_radarr):
             resp = client.post("/api/media/m1/delete")
 
         assert resp.status_code == 200
@@ -136,7 +136,7 @@ class TestMediaDelete:
         mock_sonarr = MagicMock()
         mock_sonarr.has_remaining_files.return_value = True  # series still has other seasons
 
-        with patch("mediaman.web.routes.library._build_sonarr", return_value=mock_sonarr):
+        with patch("mediaman.web.routes.library.build_sonarr_from_db", return_value=mock_sonarr):
             resp = client.post("/api/media/s1/delete")
 
         assert resp.status_code == 200
@@ -163,7 +163,7 @@ class TestMediaDelete:
         client = _auth_client(app, conn)
 
         mock_radarr = MagicMock()
-        with patch("mediaman.web.routes.library._build_radarr", return_value=mock_radarr):
+        with patch("mediaman.web.routes.library.build_radarr_from_db", return_value=mock_radarr):
             resp = client.post("/api/media/m1/delete")
 
         assert resp.status_code == 200
@@ -291,7 +291,7 @@ class TestMediaRedownload:
         mock_radarr._get.return_value = [{"tmdbId": 42}]
         mock_radarr.add_movie.return_value = None
 
-        with patch("mediaman.web.routes.library._build_radarr", return_value=mock_radarr):
+        with patch("mediaman.web.routes.library.build_radarr_from_db", return_value=mock_radarr):
             resp = client.post("/api/media/redownload", json={"title": "Dune"})
 
         assert resp.status_code == 200
@@ -312,8 +312,8 @@ class TestMediaRedownload:
         mock_sonarr._get.return_value = [{"tvdbId": 999, "tmdbId": None}]
         mock_sonarr.add_series.return_value = None
 
-        with patch("mediaman.web.routes.library._build_radarr", return_value=mock_radarr), \
-             patch("mediaman.web.routes.library._build_sonarr", return_value=mock_sonarr):
+        with patch("mediaman.web.routes.library.build_radarr_from_db", return_value=mock_radarr), \
+             patch("mediaman.web.routes.library.build_sonarr_from_db", return_value=mock_sonarr):
             resp = client.post("/api/media/redownload", json={"title": "Severance"})
 
         assert resp.status_code == 200
