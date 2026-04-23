@@ -284,3 +284,54 @@ class TestRecordVerifiedCompletions:
             "SELECT dl_id FROM recent_downloads WHERE dl_id = 'sonarr:Severance'"
         ).fetchall()
         assert len(rows) == 1
+
+    def test_arr_network_error_skips_item_without_false_positive_log(self, conn):
+        """When the arr client raises, the item is skipped — not logged as 'no files confirmed'."""
+        mock_radarr = MagicMock()
+        mock_radarr.get_movies.side_effect = ConnectionError("network error")
+
+        def build_client(c, svc):
+            return mock_radarr if svc == "radarr" else None
+
+        completed = [
+            {
+                "dl_id": "radarr:Dune",
+                "title": "Dune",
+                "media_type": "movie",
+                "poster_url": "",
+            }
+        ]
+        record_verified_completions(conn, completed, build_client)
+
+        rows = conn.execute(
+            "SELECT dl_id FROM recent_downloads WHERE dl_id = 'radarr:Dune'"
+        ).fetchall()
+        # Network failure → skipped, not inserted
+        assert len(rows) == 0
+
+    def test_multiple_items_partial_network_failure(self, conn):
+        """A network error on one item does not prevent other items from being processed."""
+        call_count = {"n": 0}
+
+        def mock_get_movies():
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                raise ConnectionError("transient error")
+            return [{"title": "Dune", "hasFile": True}]
+
+        mock_radarr = MagicMock()
+        mock_radarr.get_movies.side_effect = mock_get_movies
+
+        def build_client(c, svc):
+            return mock_radarr if svc == "radarr" else None
+
+        completed = [
+            {"dl_id": "radarr:Dune1", "title": "Dune1", "media_type": "movie", "poster_url": ""},
+            {"dl_id": "radarr:Dune", "title": "Dune", "media_type": "movie", "poster_url": ""},
+        ]
+        record_verified_completions(conn, completed, build_client)
+
+        rows = conn.execute("SELECT dl_id FROM recent_downloads").fetchall()
+        dl_ids = {r["dl_id"] for r in rows}
+        assert "radarr:Dune1" not in dl_ids  # failed — skipped
+        assert "radarr:Dune" in dl_ids  # succeeded
