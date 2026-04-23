@@ -32,7 +32,17 @@ import logging
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
-from mediaman.services.format import parse_iso_utc as _parse_iso
+def _parse_iso(value: str | None) -> datetime | None:
+    """Parse an ISO-8601 timestamp from the lockout table (stored by this module)."""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (TypeError, ValueError):
+        return None
 
 logger = logging.getLogger("mediaman")
 
