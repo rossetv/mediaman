@@ -9,38 +9,44 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from mediaman.auth.middleware import get_current_admin
-from mediaman.db import get_db
+from mediaman.db import get_db, finish_scan_run, is_scan_running, start_scan_run
 
 logger = logging.getLogger("mediaman")
 
 router = APIRouter()
 
-_scan_lock = threading.Lock()
-_scan_running = False
-
 
 @router.post("/api/scan/trigger")
-def trigger_scan(admin: str = Depends(get_current_admin)) -> dict:
+def trigger_scan(request: Request, admin: str = Depends(get_current_admin)) -> dict:
     """Trigger a manual scan. Returns immediately; scan runs in background thread."""
-    global _scan_running
-    with _scan_lock:
-        if _scan_running:
-            return {"status": "already_running"}
-        _scan_running = True
+    conn = get_db()
+    run_id = start_scan_run(conn)
+    if run_id is None:
+        return {"status": "already_running"}
+
+    db_path = request.app.state.db_path
 
     def run():
-        global _scan_running
+        import sqlite3
+        from mediaman.db import _configure_connection
+
+        thread_conn = sqlite3.connect(db_path)
+        _configure_connection(thread_conn)
         try:
             from mediaman.config import load_config
-            from mediaman.db import get_db
             from mediaman.scanner.runner import run_scan_from_db
 
-            conn = get_db()
             config = load_config()
-            run_scan_from_db(conn, config.secret_key, skip_disk_check=True)
+            run_scan_from_db(thread_conn, config.secret_key, skip_disk_check=True)
+            finish_scan_run(thread_conn, run_id, "done")
+        except Exception as exc:
+            try:
+                finish_scan_run(thread_conn, run_id, "error", str(exc))
+            except Exception:
+                pass
+            logger.exception("Background scan failed")
         finally:
-            with _scan_lock:
-                _scan_running = False
+            thread_conn.close()
 
     thread = threading.Thread(target=run, daemon=True)
     thread.start()
@@ -50,7 +56,8 @@ def trigger_scan(admin: str = Depends(get_current_admin)) -> dict:
 @router.get("/api/scan/status")
 def scan_status(admin: str = Depends(get_current_admin)) -> dict:
     """Return whether a scan is currently running."""
-    return {"running": _scan_running}
+    conn = get_db()
+    return {"running": is_scan_running(conn)}
 
 
 @router.post("/api/scan/clear-scheduled")

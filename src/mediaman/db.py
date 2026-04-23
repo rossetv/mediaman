@@ -28,7 +28,7 @@ from pathlib import Path
 
 logger = logging.getLogger("mediaman")
 
-DB_SCHEMA_VERSION = 14
+DB_SCHEMA_VERSION = 15
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (
@@ -167,6 +167,22 @@ CREATE TABLE IF NOT EXISTS login_failures (
     failure_count INTEGER NOT NULL DEFAULT 0,
     first_failure_at TEXT,
     locked_until TEXT
+);
+
+CREATE TABLE IF NOT EXISTS scan_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    status TEXT NOT NULL DEFAULT 'running',
+    error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS refresh_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    status TEXT NOT NULL DEFAULT 'running',
+    error TEXT
 );
 """
 
@@ -479,6 +495,30 @@ def init_db(db_path: str) -> sqlite3.Connection:
                     "ALTER TABLE scheduled_actions ADD COLUMN "
                     "delete_status TEXT NOT NULL DEFAULT 'pending'"
                 )
+    if current_version < 15:
+        # DB-backed job state tables (C17/C32). Replaces the module-level
+        # ``_scan_running`` / ``_refresh_running`` flags so that a crashed
+        # run eventually releases the lock (via the 2-hour sanity timeout)
+        # rather than locking admins out until the process restarts.
+        # Idempotent: CREATE TABLE IF NOT EXISTS is safe to re-run.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS scan_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                status TEXT NOT NULL DEFAULT 'running',
+                error TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS refresh_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                status TEXT NOT NULL DEFAULT 'running',
+                error TEXT
+            )
+        """)
     conn.execute(f"PRAGMA user_version={DB_SCHEMA_VERSION}")
     conn.commit()
 
@@ -568,3 +608,123 @@ def close_db() -> None:
             conn.close()
         finally:
             _thread_local.conn = None
+
+
+# ---------------------------------------------------------------------------
+# Job-run state helpers (C17/C32)
+#
+# These replace the module-level ``_scan_running`` / ``_refresh_running``
+# boolean flags. The DB row acts as a distributed lock that is visible
+# across all workers and survives process crashes (via the sanity timeout).
+# ---------------------------------------------------------------------------
+
+#: Runs older than this are considered stale and automatically released.
+#: This prevents a crashed run from locking admins out indefinitely.
+_JOB_SANITY_TIMEOUT_HOURS = 2
+
+
+def _is_job_running(conn: sqlite3.Connection, table: str) -> bool:
+    """Return True if a run row for *table* is still active.
+
+    A run is considered active when it has no ``finished_at`` AND its
+    ``started_at`` is within the sanity timeout window.  Rows older than
+    ``_JOB_SANITY_TIMEOUT_HOURS`` are treated as crashed and ignored.
+    """
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(hours=_JOB_SANITY_TIMEOUT_HOURS)
+    ).isoformat()
+    row = conn.execute(
+        f"SELECT id FROM {table} "
+        "WHERE finished_at IS NULL AND started_at > ? "
+        "LIMIT 1",
+        (cutoff,),
+    ).fetchone()
+    return row is not None
+
+
+def _start_job_run(conn: sqlite3.Connection, table: str) -> int | None:
+    """Insert a new 'running' row in *table* and return its id.
+
+    Uses ``BEGIN IMMEDIATE`` to serialise concurrent writers. Returns
+    ``None`` if a run is already active (caller should treat this as
+    "already running").
+    """
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if _is_job_running(conn, table):
+            conn.execute("ROLLBACK")
+            return None
+        now = datetime.now(timezone.utc).isoformat()
+        cursor = conn.execute(
+            f"INSERT INTO {table} (started_at, status) VALUES (?, 'running')",
+            (now,),
+        )
+        run_id = cursor.lastrowid
+        conn.execute("COMMIT")
+        return run_id
+    except Exception:
+        try:
+            conn.execute("ROLLBACK")
+        except Exception:
+            pass
+        raise
+
+
+def _finish_job_run(
+    conn: sqlite3.Connection,
+    table: str,
+    run_id: int,
+    status: str,
+    error: str | None = None,
+) -> None:
+    """Mark *run_id* in *table* as finished with the given *status*."""
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        f"UPDATE {table} SET finished_at=?, status=?, error=? WHERE id=?",
+        (now, status, error, run_id),
+    )
+    conn.commit()
+
+
+# Public wrappers for scan_runs ─────────────────────────────────────────────
+
+def is_scan_running(conn: sqlite3.Connection) -> bool:
+    """Return True if a scan job is currently active."""
+    return _is_job_running(conn, "scan_runs")
+
+
+def start_scan_run(conn: sqlite3.Connection) -> int | None:
+    """Begin a scan run. Returns the run id or None if one is already active."""
+    return _start_job_run(conn, "scan_runs")
+
+
+def finish_scan_run(
+    conn: sqlite3.Connection,
+    run_id: int,
+    status: str,
+    error: str | None = None,
+) -> None:
+    """Complete a scan run row."""
+    _finish_job_run(conn, "scan_runs", run_id, status, error)
+
+
+# Public wrappers for refresh_runs ──────────────────────────────────────────
+
+def is_refresh_running(conn: sqlite3.Connection) -> bool:
+    """Return True if a recommendation-refresh job is currently active."""
+    return _is_job_running(conn, "refresh_runs")
+
+
+def start_refresh_run(conn: sqlite3.Connection) -> int | None:
+    """Begin a refresh run. Returns the run id or None if one is already active."""
+    return _start_job_run(conn, "refresh_runs")
+
+
+def finish_refresh_run(
+    conn: sqlite3.Connection,
+    run_id: int,
+    status: str,
+    error: str | None = None,
+) -> None:
+    """Complete a refresh run row."""
+    _finish_job_run(conn, "refresh_runs", run_id, status, error)

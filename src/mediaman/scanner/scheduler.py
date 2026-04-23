@@ -1,6 +1,7 @@
 """APScheduler setup for periodic scanning and library sync."""
 from __future__ import annotations
 
+import logging
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -9,6 +10,8 @@ from apscheduler.triggers.interval import IntervalTrigger
 from mediaman.db import get_db
 from mediaman.services.arr_completion import cleanup_recent_downloads
 from mediaman.services.arr_search_trigger import trigger_pending_searches
+
+logger = logging.getLogger("mediaman")
 
 _scheduler: BackgroundScheduler | None = None
 
@@ -38,6 +41,9 @@ def start_scheduler(
         The running :class:`BackgroundScheduler` instance.
     """
     global _scheduler
+    if _scheduler is not None:
+        logger.debug("start_scheduler: scheduler already running, skipping duplicate start")
+        return _scheduler
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(
         scan_fn,

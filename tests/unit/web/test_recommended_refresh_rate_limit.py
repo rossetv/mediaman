@@ -30,6 +30,7 @@ def app(db_path, secret_key):
         data_dir=str(db_path.parent),
     )
     application.state.db = conn
+    application.state.db_path = str(db_path)
     yield application
     conn.close()
 
@@ -47,12 +48,11 @@ def authed_client(app):
 
 @pytest.fixture(autouse=True)
 def _reset_refresh_state():
-    """Each test starts with a clean global lock + result so that
-    background-state from a prior test can't leak into this one."""
-    rec._refresh_running = False
+    """Each test starts with a clean result cache so that background-state
+    from a prior test can't leak into this one. The running flag is now
+    DB-backed so no module-level reset is needed."""
     rec._refresh_result = None
     yield
-    rec._refresh_running = False
     rec._refresh_result = None
 
 

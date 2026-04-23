@@ -21,7 +21,12 @@ from mediaman.auth.middleware import (
 )
 from mediaman.auth.rate_limit import ActionRateLimiter
 from mediaman.crypto import generate_download_token
-from mediaman.db import get_db
+from mediaman.db import (
+    finish_refresh_run,
+    get_db,
+    is_refresh_running,
+    start_refresh_run,
+)
 from mediaman.services.arr_build import (
     build_plex_from_db,
     build_radarr_from_db,
@@ -39,8 +44,6 @@ logger = logging.getLogger("mediaman")
 
 router = APIRouter()
 
-_refresh_lock = threading.Lock()
-_refresh_running = False
 _refresh_result: dict | None = None
 
 # Rate-limit authenticated admin actions on the recommended endpoints.
@@ -259,17 +262,15 @@ def api_refresh_recommendations(request: Request, admin: str = Depends(get_curre
             status_code=429,
         )
 
-    global _refresh_running, _refresh_result
-    with _refresh_lock:
-        if _refresh_running:
-            return JSONResponse({"status": "already_running"})
-        _refresh_running = True
+    global _refresh_result
+    run_id = start_refresh_run(conn)
+    if run_id is None:
+        return JSONResponse({"status": "already_running"})
 
     config = request.app.state.config
     plex = build_plex_from_db(conn, config.secret_key)
     if not plex:
-        with _refresh_lock:
-            _refresh_running = False
+        finish_refresh_run(conn, run_id, "error", "Plex not configured")
         return JSONResponse({"ok": False, "error": "Plex not configured"})
 
     # Record the start time *before* the work begins so a concurrent
@@ -277,26 +278,36 @@ def api_refresh_recommendations(request: Request, admin: str = Depends(get_curre
     _record_manual_refresh(conn, datetime.now(timezone.utc))
 
     _secret_key = config.secret_key
+    _db_path = request.app.state.db_path
 
     def run():
-        global _refresh_running, _refresh_result
+        global _refresh_result
+        import sqlite3
+        from mediaman.db import _configure_connection
+
+        thread_conn = sqlite3.connect(_db_path)
+        _configure_connection(thread_conn)
         result: dict
         try:
             from mediaman.services.openai_recommendations import refresh_recommendations
 
-            db = get_db()
-            plex_client = build_plex_from_db(db, _secret_key)
+            plex_client = build_plex_from_db(thread_conn, _secret_key)
             if plex_client:
-                count = refresh_recommendations(db, plex_client, manual=True)
+                count = refresh_recommendations(thread_conn, plex_client, manual=True)
                 result = {"ok": True, "count": count}
             else:
                 result = {"ok": False, "error": "Plex not configured"}
-        except Exception:
+            finish_refresh_run(thread_conn, run_id, "done")
+        except Exception as exc:
             logger.exception("Background recommendation refresh failed")
             result = {"ok": False, "error": "Recommendation refresh failed"}
-        with _refresh_lock:
+            try:
+                finish_refresh_run(thread_conn, run_id, "error", str(exc))
+            except Exception:
+                pass
+        finally:
             _refresh_result = result
-            _refresh_running = False
+            thread_conn.close()
 
     thread = threading.Thread(target=run, daemon=True)
     thread.start()
@@ -310,11 +321,9 @@ def api_refresh_status(admin: str = Depends(get_current_admin)) -> JSONResponse:
     Also returns cooldown info so the page can keep the button hidden
     after a successful refresh without needing a full reload.
     """
-    with _refresh_lock:
-        running = _refresh_running
-        result = _refresh_result
-
     conn = get_db()
+    running = is_refresh_running(conn)
+    result = _refresh_result
     cooldown = _refresh_cooldown_remaining(conn)
     cooldown_payload: dict = {"manual_refresh_available": cooldown is None}
     if cooldown is not None:

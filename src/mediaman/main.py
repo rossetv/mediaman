@@ -29,6 +29,7 @@ async def lifespan(app: FastAPI):
     set_connection(conn)
     app.state.config = config
     app.state.db = conn
+    app.state.db_path = db_path
 
     # ── Ensure poster cache directory exists at startup ───────────────────────
     # Doing this here means the per-request _get_cache_dir() path is never

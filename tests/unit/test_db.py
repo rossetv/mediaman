@@ -272,9 +272,9 @@ class TestSchemaV13LegacySessionPurge:
         init_db(str(db_path)).close()  # must not raise
 
     def test_schema_version_is_current(self, db_path):
-        assert DB_SCHEMA_VERSION == 14
+        assert DB_SCHEMA_VERSION == 15
         conn = init_db(str(db_path))
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 14
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 15
 
 
 class TestSchemaV14DeleteStatus:
@@ -343,9 +343,140 @@ class TestSchemaV14DeleteStatus:
             ).fetchall()
         }
         assert "delete_status" in cols
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 14
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == DB_SCHEMA_VERSION
 
     def test_migration_idempotent(self, db_path):
         """Running init_db twice must not raise on the v14 step."""
         init_db(str(db_path)).close()
         init_db(str(db_path)).close()
+
+
+class TestSchemaV15JobRunTables:
+    """v15 adds ``scan_runs`` and ``refresh_runs`` for DB-backed job state."""
+
+    def test_tables_present_on_fresh_db(self, db_path):
+        conn = init_db(str(db_path))
+        tables = {
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        assert "scan_runs" in tables
+        assert "refresh_runs" in tables
+
+    def test_scan_runs_columns(self, db_path):
+        conn = init_db(str(db_path))
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(scan_runs)").fetchall()}
+        assert cols >= {"id", "started_at", "finished_at", "status", "error"}
+
+    def test_refresh_runs_columns(self, db_path):
+        conn = init_db(str(db_path))
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(refresh_runs)").fetchall()}
+        assert cols >= {"id", "started_at", "finished_at", "status", "error"}
+
+    def test_migration_from_v14_adds_tables(self, tmp_path):
+        import sqlite3 as _sq
+        db_path = tmp_path / "legacy.db"
+        init_db(str(db_path)).close()
+        # Reset to v14.
+        conn = _sq.connect(str(db_path))
+        conn.execute("DROP TABLE IF EXISTS scan_runs")
+        conn.execute("DROP TABLE IF EXISTS refresh_runs")
+        conn.execute("PRAGMA user_version=14")
+        conn.commit()
+        conn.close()
+
+        conn = init_db(str(db_path))
+        tables = {
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        assert "scan_runs" in tables
+        assert "refresh_runs" in tables
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 15
+
+    def test_migration_idempotent(self, db_path):
+        init_db(str(db_path)).close()
+        init_db(str(db_path)).close()
+
+
+class TestJobRunHelpers:
+    """Tests for the scan_runs / refresh_runs DB helper functions."""
+
+    def test_is_scan_running_false_when_empty(self, db_path):
+        from mediaman.db import is_scan_running
+        conn = init_db(str(db_path))
+        assert is_scan_running(conn) is False
+
+    def test_start_scan_run_returns_id(self, db_path):
+        from mediaman.db import start_scan_run
+        conn = init_db(str(db_path))
+        run_id = start_scan_run(conn)
+        assert run_id is not None
+        assert isinstance(run_id, int)
+
+    def test_is_scan_running_true_after_start(self, db_path):
+        from mediaman.db import is_scan_running, start_scan_run
+        conn = init_db(str(db_path))
+        start_scan_run(conn)
+        assert is_scan_running(conn) is True
+
+    def test_start_scan_run_returns_none_when_already_running(self, db_path):
+        from mediaman.db import start_scan_run
+        conn = init_db(str(db_path))
+        run_id_1 = start_scan_run(conn)
+        assert run_id_1 is not None
+        run_id_2 = start_scan_run(conn)
+        assert run_id_2 is None
+
+    def test_finish_scan_run_releases_lock(self, db_path):
+        from mediaman.db import finish_scan_run, is_scan_running, start_scan_run
+        conn = init_db(str(db_path))
+        run_id = start_scan_run(conn)
+        assert is_scan_running(conn) is True
+        finish_scan_run(conn, run_id, "done")
+        assert is_scan_running(conn) is False
+
+    def test_finish_scan_run_on_error_still_releases_lock(self, db_path):
+        """A crashed run (finished with 'error') must release the lock."""
+        from mediaman.db import finish_scan_run, is_scan_running, start_scan_run
+        conn = init_db(str(db_path))
+        run_id = start_scan_run(conn)
+        finish_scan_run(conn, run_id, "error", "something went wrong")
+        assert is_scan_running(conn) is False
+
+    def test_stale_scan_run_does_not_block(self, db_path):
+        """A row older than the 2-hour sanity timeout must not be counted as running."""
+        from datetime import datetime, timedelta, timezone
+        from mediaman.db import is_scan_running
+        conn = init_db(str(db_path))
+        stale = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat()
+        conn.execute(
+            "INSERT INTO scan_runs (started_at, status) VALUES (?, 'running')",
+            (stale,),
+        )
+        conn.commit()
+        assert is_scan_running(conn) is False
+
+    def test_is_refresh_running_false_when_empty(self, db_path):
+        from mediaman.db import is_refresh_running
+        conn = init_db(str(db_path))
+        assert is_refresh_running(conn) is False
+
+    def test_start_and_finish_refresh_run(self, db_path):
+        from mediaman.db import finish_refresh_run, is_refresh_running, start_refresh_run
+        conn = init_db(str(db_path))
+        run_id = start_refresh_run(conn)
+        assert run_id is not None
+        assert is_refresh_running(conn) is True
+        finish_refresh_run(conn, run_id, "done")
+        assert is_refresh_running(conn) is False
+
+    def test_second_refresh_run_blocked(self, db_path):
+        from mediaman.db import start_refresh_run
+        conn = init_db(str(db_path))
+        assert start_refresh_run(conn) is not None
+        assert start_refresh_run(conn) is None

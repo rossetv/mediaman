@@ -108,3 +108,20 @@ def test_start_scheduler_sets_module_level_ref(mock_cls):
     start_scheduler(scan_fn=lambda: None)
 
     assert _sched_module._scheduler is mock_instance
+
+
+@patch("mediaman.scanner.scheduler.BackgroundScheduler")
+def test_start_scheduler_called_twice_does_not_create_two_schedulers(mock_cls):
+    """Calling start_scheduler a second time must return the existing instance
+    and must not instantiate a second BackgroundScheduler (C17: idempotent start)."""
+    mock_instance = MagicMock()
+    mock_cls.return_value = mock_instance
+
+    first = start_scheduler(scan_fn=lambda: None)
+    second = start_scheduler(scan_fn=lambda: None)
+
+    assert first is second
+    # BackgroundScheduler() must have been called exactly once.
+    assert mock_cls.call_count == 1
+    # start() must also have been called exactly once.
+    mock_instance.start.assert_called_once()
