@@ -6,7 +6,7 @@ import json
 import logging
 import threading
 from collections import OrderedDict
-from datetime import date as _date, datetime, datetime as _dt, timedelta, timezone
+from datetime import date as _date, datetime, timedelta, timezone
 
 import requests as _requests
 
@@ -151,7 +151,7 @@ def recommended_page(request: Request) -> Response:
     formatted_batches = []
     for index, (bid, groups) in enumerate(list(batches_map.items())[:4]):
         try:
-            batch_date: _date | None = _dt.strptime(bid, "%Y-%m-%d").date()
+            batch_date: _date | None = datetime.strptime(bid, "%Y-%m-%d").date()
             date_label = batch_date.strftime("%-d %B %Y")
         except (ValueError, TypeError):
             batch_date = None
@@ -351,7 +351,6 @@ def api_download_recommendation(recommendation_id: int, request: Request, admin:
                 return JSONResponse({"ok": False, "error": "Radarr not configured"})
             client.add_movie(tmdb_id, row["title"])
             logger.info("Added movie '%s' (tmdb:%d) to Radarr", row["title"], tmdb_id)
-            from datetime import datetime, timezone
             now = datetime.now(timezone.utc).isoformat()
             conn.execute(
                 "UPDATE suggestions SET downloaded_at = ? WHERE id = ?",
@@ -380,7 +379,6 @@ def api_download_recommendation(recommendation_id: int, request: Request, admin:
 
             client.add_series(tvdb_id, row["title"])
             logger.info("Added series '%s' (tvdb:%d) to Sonarr", row["title"], tvdb_id)
-            from datetime import datetime, timezone
             now = datetime.now(timezone.utc).isoformat()
             conn.execute(
                 "UPDATE suggestions SET downloaded_at = ? WHERE id = ?",

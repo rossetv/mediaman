@@ -155,7 +155,7 @@ def _stream_capped(response) -> bytes | None:
     return b"".join(chunks)
 
 
-def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple:
+def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple[bytes | None, str | None]:
     """Try to fetch a poster from Radarr/Sonarr TMDB data for a media item.
 
     Looks up the title from media_items by rating_key, then searches
