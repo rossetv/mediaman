@@ -299,6 +299,29 @@ class TestOpenAIKeySource:
         assert result is None
 
 
+class TestOpenAIClientTimeout:
+    """H58: the OpenAI HTTP client must have a short, explicit read timeout."""
+
+    def test_read_timeout_is_30s_or_less(self):
+        """The module-level client must not use the original 90 s read timeout.
+
+        A 90 s synchronous block on a scan path is unacceptable. The read
+        timeout must be 30 s or less so a stalled OpenAI endpoint does not
+        freeze the application for a minute and a half.
+        """
+        from mediaman.services.openai_recommendations import _OPENAI_CLIENT
+        _, read_timeout = _OPENAI_CLIENT._default_timeout
+        assert read_timeout <= 30.0, (
+            f"OpenAI read timeout is {read_timeout}s — must be ≤30 s to avoid blocking the scan path"
+        )
+
+    def test_connect_timeout_is_reasonable(self):
+        """Connect timeout should be at most 10 s."""
+        from mediaman.services.openai_recommendations import _OPENAI_CLIENT
+        connect_timeout, _ = _OPENAI_CLIENT._default_timeout
+        assert connect_timeout <= 10.0
+
+
 class TestJsonObjectFormat:
     """H50: ``_call_openai`` must request json_object format and handle markdown fallback."""
 

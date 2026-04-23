@@ -3,8 +3,9 @@ import pytest
 from mediaman.services.http_client import SafeHTTPError
 from mediaman.services.mailgun import (
     MailgunClient,
-    _validate_recipient,
+    _retry_with_jitter,
     _validate_header_value,
+    _validate_recipient,
 )
 
 
@@ -64,6 +65,106 @@ class TestMailgunSend:
         fake_http.queue("POST", fake_response(status=200, content=b""))
         client.send(to="user@example.com", subject="Test", html="<p>Hi</p>")
         assert len([c for c in fake_http.calls if c[0] == "POST"]) == 2
+
+
+class TestRetryWithJitter:
+    """H57: jittered backoff helper for transient POST failures."""
+
+    def test_succeeds_immediately_on_first_try(self):
+        calls = []
+
+        def fn():
+            calls.append(1)
+            return "ok"
+
+        result = _retry_with_jitter(fn, attempts=3)
+        assert result == "ok"
+        assert len(calls) == 1
+
+    def test_retries_on_429(self, monkeypatch):
+        """A 429 response triggers a retry."""
+        monkeypatch.setattr("mediaman.services.mailgun.time.sleep", lambda _: None)
+        calls = []
+
+        def fn():
+            calls.append(1)
+            if len(calls) < 2:
+                raise SafeHTTPError(429, "Too Many Requests", "https://api.mailgun.net")
+            return "ok"
+
+        result = _retry_with_jitter(fn, attempts=3)
+        assert result == "ok"
+        assert len(calls) == 2
+
+    def test_retries_on_503(self, monkeypatch):
+        """A 503 response triggers a retry."""
+        monkeypatch.setattr("mediaman.services.mailgun.time.sleep", lambda _: None)
+        calls = []
+
+        def fn():
+            calls.append(1)
+            if len(calls) < 2:
+                raise SafeHTTPError(503, "Service Unavailable", "https://api.mailgun.net")
+            return "ok"
+
+        result = _retry_with_jitter(fn, attempts=3)
+        assert result == "ok"
+        assert len(calls) == 2
+
+    def test_aborts_after_two_consecutive_5xx(self, monkeypatch):
+        """Two consecutive 5xx responses abort immediately — no further attempts."""
+        monkeypatch.setattr("mediaman.services.mailgun.time.sleep", lambda _: None)
+        calls = []
+
+        def fn():
+            calls.append(1)
+            raise SafeHTTPError(500, "Internal Server Error", "https://api.mailgun.net")
+
+        with pytest.raises(SafeHTTPError) as exc_info:
+            _retry_with_jitter(fn, attempts=5)
+
+        assert exc_info.value.status_code == 500
+        # Must abort after exactly 2 attempts (two consecutive 5xx)
+        assert len(calls) == 2
+
+    def test_does_not_retry_non_transient_errors(self):
+        """Errors outside the retryable set propagate immediately without retry."""
+        calls = []
+
+        def fn():
+            calls.append(1)
+            raise SafeHTTPError(401, "Unauthorised", "https://api.mailgun.net")
+
+        with pytest.raises(SafeHTTPError) as exc_info:
+            _retry_with_jitter(fn, attempts=3)
+
+        assert exc_info.value.status_code == 401
+        assert len(calls) == 1
+
+    def test_exhausts_attempts_and_raises(self, monkeypatch):
+        """After all attempts are spent, the last exception is re-raised."""
+        monkeypatch.setattr("mediaman.services.mailgun.time.sleep", lambda _: None)
+        calls = []
+
+        def fn():
+            calls.append(1)
+            raise SafeHTTPError(429, "Too Many Requests", "https://api.mailgun.net")
+
+        with pytest.raises(SafeHTTPError):
+            _retry_with_jitter(fn, attempts=3)
+
+        assert len(calls) == 3
+
+    def test_send_retries_on_429(self, monkeypatch, fake_http, fake_response):
+        """MailgunClient.send retries when it receives a 429."""
+        monkeypatch.setattr("mediaman.services.mailgun.time.sleep", lambda _: None)
+        client = MailgunClient("example.com", "key-xxx", "noreply@example.com", region="eu")
+        # First call returns 429, second succeeds.
+        fake_http.queue("POST", fake_response(status=429, text="Too Many Requests"))
+        fake_http.queue("POST", fake_response(status=200, content=b""))
+        client.send(to="user@example.com", subject="Test", html="<p>Hi</p>")
+        post_calls = [c for c in fake_http.calls if c[0] == "POST"]
+        assert len(post_calls) == 2
 
 
 class TestMailgunValidation:

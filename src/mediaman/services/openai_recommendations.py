@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 
+import asyncio
 import json
 import logging
 import os
@@ -20,9 +21,13 @@ if TYPE_CHECKING:
     from mediaman.services.plex import PlexClient
 
 # Module-level client so the connection pool is shared across calls.
+# Connect timeout: 5 s.  Read timeout: 30 s — the 90 s default was blocking
+# the scan path for too long on a slow or unreachable OpenAI endpoint.
+# Callers that are ``async def`` should wrap calls in ``asyncio.to_thread``
+# so this synchronous HTTP call does not stall the event loop.
 _OPENAI_CLIENT = SafeHTTPClient(
     "https://api.openai.com",
-    default_timeout=(5.0, 90.0),
+    default_timeout=(5.0, 30.0),
 )
 
 logger = logging.getLogger("mediaman")
@@ -253,7 +258,7 @@ def _call_openai(prompt: str, conn: sqlite3.Connection | None, use_web_search: b
             logger.exception("OpenAI API returned HTTP error: %s", exc)
         return []
     except requests.Timeout:
-        logger.warning("OpenAI API call timed out after 90 s", exc_info=True)
+        logger.warning("OpenAI API call timed out after 30 s", exc_info=True)
         return []
     except requests.RequestException as exc:
         logger.exception("OpenAI API network error: %s", exc)

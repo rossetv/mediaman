@@ -1,8 +1,10 @@
 """Mediaman application entry point."""
 
 import logging
+import re
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -17,6 +19,32 @@ logger = logging.getLogger("mediaman")
 
 _STATIC_DIR = Path(__file__).parent / "web" / "static"
 _TEMPLATE_DIR = Path(__file__).parent / "web" / "templates"
+
+_SCAN_TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+
+
+def _validate_scan_time(s: str) -> tuple[int, int]:
+    """Parse and validate a scan time string in ``HH:MM`` 24-hour format.
+
+    Returns ``(hour, minute)`` on success. Raises :class:`ValueError` with
+    a descriptive message on any invalid input so the operator sees a clear
+    startup error rather than a silent misconfiguration.
+
+    Validation is two-stage: a regex confirms the shape, then
+    :func:`datetime.strptime` confirms the value is a real time (e.g.
+    ``"25:00"`` would pass the regex but fail strptime).
+    """
+    if not _SCAN_TIME_RE.match(s):
+        raise ValueError(
+            f"scan_time {s!r} is invalid — expected HH:MM in 24-hour format (e.g. '09:00')"
+        )
+    try:
+        dt = datetime.strptime(s, "%H:%M")
+    except ValueError:
+        raise ValueError(
+            f"scan_time {s!r} is not a valid time — expected HH:MM in 24-hour format"
+        )
+    return dt.hour, dt.minute
 
 
 @asynccontextmanager
@@ -78,20 +106,35 @@ async def lifespan(app: FastAPI):
         scan_day = _get_setting(conn, "scan_day", default="mon")
         scan_time = _get_setting(conn, "scan_time", default="09:00")
         scan_tz = _get_setting(conn, "scan_timezone", default="UTC")
-        hour, minute = (int(x) for x in scan_time.split(":"))
+        hour, minute = _validate_scan_time(scan_time)
 
         # Capture the secret key now; conn is accessed at scan time via get_db()
         _secret_key = config.secret_key
 
         def run_scheduled_scan() -> None:
-            """Execute a scheduled scan, reading all settings fresh from the DB."""
-            from mediaman.db import get_db
+            """Execute a scheduled scan, reading all settings fresh from the DB.
+
+            Uses the DB-backed ``scan_runs`` lock so a concurrent manual
+            trigger and a cron firing cannot both run simultaneously — only
+            the first caller to acquire the lock proceeds; the other exits
+            immediately.
+            """
+            from mediaman.db import finish_scan_run, get_db, start_scan_run
             from mediaman.scanner.runner import run_scan_from_db
 
+            db_conn = get_db()
+            run_id = start_scan_run(db_conn)
+            if run_id is None:
+                logger.info("Scheduled scan skipped — another scan is already running")
+                return
             try:
-                db_conn = get_db()
                 run_scan_from_db(db_conn, _secret_key)
-            except Exception:
+                finish_scan_run(db_conn, run_id, "done")
+            except Exception as exc:
+                try:
+                    finish_scan_run(db_conn, run_id, "error", str(exc))
+                except Exception:
+                    pass
                 logger.exception("Scheduled scan failed")
 
         def run_library_sync_job() -> None:
@@ -193,6 +236,18 @@ def create_app() -> FastAPI:
     return app
 
 
+def _resolve_bind_host() -> str:
+    """Return the host address uvicorn should bind to.
+
+    Reads ``MEDIAMAN_BIND_HOST`` from the environment. Defaults to
+    ``127.0.0.1`` (localhost-only) so a fresh deployment is not
+    accidentally exposed to the network. Operators who want to bind
+    all interfaces must explicitly set ``MEDIAMAN_BIND_HOST=0.0.0.0``.
+    """
+    import os
+    return os.environ.get("MEDIAMAN_BIND_HOST", "127.0.0.1").strip() or "127.0.0.1"
+
+
 def cli_main() -> None:
     """CLI entry point — run the server or handle subcommands."""
     if len(sys.argv) > 1 and sys.argv[1] == "create-user":
@@ -206,6 +261,8 @@ def cli_main() -> None:
     import uvicorn
     config = load_config()
     app = create_app()
+
+    bind_host = _resolve_bind_host()
 
     # Uvicorn's ``proxy_headers`` machinery rewrites BOTH
     # ``request.url.scheme`` (from X-Forwarded-Proto) AND
@@ -221,14 +278,20 @@ def cli_main() -> None:
     # reverse-proxy CIDR they control. Default is off. The app's own
     # HSTS / Secure-cookie logic defaults to "secure" regardless so
     # the plaintext-scheme deployment still ships a Secure cookie.
+    #
+    # ``server_header=False`` and ``date_header=False`` suppress the
+    # ``Server: uvicorn`` and ``Date: ...`` response headers, which
+    # leak implementation and version details.
     trusted_proxies = os.environ.get("MEDIAMAN_TRUSTED_PROXIES", "").strip()
     if trusted_proxies:
         uvicorn.run(
             app,
-            host="0.0.0.0",  # noqa: S104 — intentional: server must bind all interfaces
+            host=bind_host,
             port=config.port,
             forwarded_allow_ips=trusted_proxies,
             proxy_headers=True,
+            server_header=False,
+            date_header=False,
         )
     else:
         # No trusted proxy → don't let uvicorn rewrite client.host at
@@ -237,9 +300,11 @@ def cli_main() -> None:
         # whose IP isn't available at config time.
         uvicorn.run(
             app,
-            host="0.0.0.0",  # noqa: S104 — intentional: server must bind all interfaces
+            host=bind_host,
             port=config.port,
             proxy_headers=False,
+            server_header=False,
+            date_header=False,
         )
 
 

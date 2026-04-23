@@ -1,6 +1,7 @@
 """Unit tests for mediaman.scanner.scheduler."""
 from __future__ import annotations
 
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -125,3 +126,63 @@ def test_start_scheduler_called_twice_does_not_create_two_schedulers(mock_cls):
     assert mock_cls.call_count == 1
     # start() must also have been called exactly once.
     mock_instance.start.assert_called_once()
+
+
+# ── H61: bind host resolution ───────────────────────────────────────────────
+
+class TestResolveBindHost:
+    """H61: MEDIAMAN_BIND_HOST controls the uvicorn bind address."""
+
+    def test_defaults_to_localhost(self, monkeypatch):
+        monkeypatch.delenv("MEDIAMAN_BIND_HOST", raising=False)
+        from mediaman.main import _resolve_bind_host
+        assert _resolve_bind_host() == "127.0.0.1"
+
+    def test_respects_env_override(self, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_BIND_HOST", "0.0.0.0")
+        from mediaman.main import _resolve_bind_host
+        assert _resolve_bind_host() == "0.0.0.0"
+
+    def test_empty_env_falls_back_to_localhost(self, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_BIND_HOST", "")
+        from mediaman.main import _resolve_bind_host
+        assert _resolve_bind_host() == "127.0.0.1"
+
+
+# ── H64: scan_time validation ────────────────────────────────────────────────
+
+class TestValidateScanTime:
+    """H64: scan_time must be validated as a proper HH:MM 24-hour time."""
+
+    def test_valid_times_parse_correctly(self):
+        from mediaman.main import _validate_scan_time
+        assert _validate_scan_time("09:00") == (9, 0)
+        assert _validate_scan_time("00:00") == (0, 0)
+        assert _validate_scan_time("23:59") == (23, 59)
+        assert _validate_scan_time("12:30") == (12, 30)
+
+    def test_rejects_invalid_hour(self):
+        from mediaman.main import _validate_scan_time
+        with pytest.raises(ValueError):
+            _validate_scan_time("25:00")
+
+    def test_rejects_invalid_minute(self):
+        from mediaman.main import _validate_scan_time
+        with pytest.raises(ValueError):
+            _validate_scan_time("09:60")
+
+    def test_rejects_wrong_format(self):
+        from mediaman.main import _validate_scan_time
+        with pytest.raises(ValueError):
+            _validate_scan_time("9:00")
+
+    def test_rejects_garbage_input(self):
+        from mediaman.main import _validate_scan_time
+        with pytest.raises(ValueError):
+            _validate_scan_time("not-a-time")
+
+    def test_rejects_24_00(self):
+        """24:00 is not a valid 24-hour clock time."""
+        from mediaman.main import _validate_scan_time
+        with pytest.raises(ValueError):
+            _validate_scan_time("24:00")

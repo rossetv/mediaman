@@ -4,12 +4,72 @@ from __future__ import annotations
 
 import email.utils
 import logging
+import random
+import time
+from typing import Callable, TypeVar
 
 import requests
 
 from mediaman.services.http_client import SafeHTTPClient, SafeHTTPError
 
 logger = logging.getLogger("mediaman")
+
+_T = TypeVar("_T")
+
+# Transient HTTP status codes that warrant a retry on POST requests.
+_RETRYABLE_POST_STATUSES = frozenset({429, 500, 502, 503, 504})
+
+
+def _retry_with_jitter(fn: Callable[[], _T], *, attempts: int = 3) -> _T:
+    """Call *fn* up to *attempts* times, retrying on transient errors.
+
+    Applies exponential backoff with full jitter between retries. Aborts
+    immediately after two consecutive 5xx responses (which suggest the
+    remote is genuinely unhealthy rather than temporarily overloaded).
+
+    Only :class:`SafeHTTPError` with a status in ``_RETRYABLE_POST_STATUSES``
+    and :class:`requests.RequestException` (network errors) trigger a retry.
+    Any other exception, including a 401 or 404, propagates immediately.
+
+    Args:
+        fn: Zero-argument callable to execute; must raise on failure.
+        attempts: Maximum number of total attempts (default 3).
+
+    Returns:
+        Whatever *fn* returns on success.
+    """
+    consecutive_5xx = 0
+    last_exc: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            result = fn()
+            return result
+        except SafeHTTPError as exc:
+            if exc.status_code not in _RETRYABLE_POST_STATUSES:
+                raise
+            last_exc = exc
+            if exc.status_code >= 500:
+                consecutive_5xx += 1
+                if consecutive_5xx >= 2:
+                    logger.warning(
+                        "Mailgun: two consecutive 5xx responses — aborting retries"
+                    )
+                    raise
+            else:
+                consecutive_5xx = 0
+        except requests.RequestException as exc:
+            last_exc = exc
+            consecutive_5xx = 0
+
+        if attempt < attempts - 1:
+            # Full-jitter exponential backoff: sleep in [0, 2^attempt) seconds.
+            delay = random.uniform(0, 2 ** attempt)
+            logger.debug("Mailgun: transient error on attempt %d, retrying in %.2fs", attempt + 1, delay)
+            time.sleep(delay)
+
+    assert last_exc is not None
+    raise last_exc
+
 
 # Characters that must never appear in RFC 2822 header values (subject,
 # from, to) — a newline would allow header injection.
@@ -75,12 +135,15 @@ class MailgunClient:
         last_error: Exception | None = None
         for base in bases:
             try:
-                self._http.post(
-                    f"{base}/v3/{self._domain}/messages",
-                    auth=("api", self._api_key),
-                    data=data,
-                    timeout=(5.0, 30.0),
-                )
+                def _do_post(b: str = base) -> None:
+                    self._http.post(
+                        f"{b}/v3/{self._domain}/messages",
+                        auth=("api", self._api_key),
+                        data=data,
+                        timeout=(5.0, 30.0),
+                    )
+
+                _retry_with_jitter(_do_post)
                 self._base = base  # remember what worked
                 return
             except SafeHTTPError as exc:

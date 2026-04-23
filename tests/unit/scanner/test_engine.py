@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mediaman.db import init_db
+from mediaman.db import init_db, is_scan_running, start_scan_run, finish_scan_run
 from mediaman.scanner.engine import ScanEngine
 
 
@@ -1103,3 +1103,45 @@ class TestOrphanGuard:
             seen_keys={"x"}, scanned_libs={10},
         )
         assert removed == 0  # nothing to remove, but not blocked either
+
+
+class TestConcurrentScanGuard:
+    """H60: manual and cron scans cannot both run simultaneously.
+
+    The DB-backed ``scan_runs`` table is the single concurrency gate.
+    ``start_scan_run`` uses ``BEGIN IMMEDIATE`` so only one caller
+    wins the lock; the second gets ``None`` back and must abort.
+    """
+
+    def test_concurrent_manual_and_cron_does_not_double_fire(self, conn):
+        """Simulates a manual scan already running when the cron fires.
+
+        Only one scan run should be active at a time. The second call to
+        ``start_scan_run`` must return ``None``, indicating the cron path
+        should skip execution.
+        """
+        # Simulate the manual scan acquiring the lock first.
+        run_id = start_scan_run(conn)
+        assert run_id is not None, "First (manual) caller must acquire the lock"
+        assert is_scan_running(conn), "Scan should be marked running after start"
+
+        # Simulate the cron path arriving while the manual scan is active.
+        cron_run_id = start_scan_run(conn)
+        assert cron_run_id is None, (
+            "Second (cron) caller must receive None — another scan is already running"
+        )
+
+        # Clean up: finish the manual scan run.
+        finish_scan_run(conn, run_id, "done")
+        assert not is_scan_running(conn), "Scan should no longer be running after finish"
+
+    def test_second_scan_can_start_after_first_finishes(self, conn):
+        """After the first scan completes, a new one can acquire the lock."""
+        run_id_1 = start_scan_run(conn)
+        assert run_id_1 is not None
+        finish_scan_run(conn, run_id_1, "done")
+
+        run_id_2 = start_scan_run(conn)
+        assert run_id_2 is not None, "New scan must be startable after the previous one finished"
+        assert run_id_2 != run_id_1
+        finish_scan_run(conn, run_id_2, "done")
