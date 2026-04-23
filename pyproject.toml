@@ -1,10 +1,10 @@
 [build-system]
-# setuptools >=61.0 is sufficient for src layout + package-data discovery.
+# setuptools >=82.0.1 is sufficient for src layout + package-data discovery.
 # PEP 639 SPDX licence fields (license = "MIT" flat string) require >=77;
 # leave the classic { text = "MIT" } form until we pin setuptools >=77.
 # TODO(P7): bump to setuptools>=77 and adopt PEP 639 + setuptools-scm for
 #           version management once CI lockfile is in place.
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=82.0.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
