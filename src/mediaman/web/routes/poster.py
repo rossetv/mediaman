@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
+import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -67,14 +69,17 @@ _CACHE_MAX_AGE = 7 * 24 * 60 * 60
 # stored-XSS-via-poster primitive.
 _ALLOWED_IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
-# SSRF allow-list for Radarr/Sonarr remote poster fetches — only trust
-# known image CDNs. Any host outside this list is refused.
-_POSTER_ALLOWED_HOST_SUFFIXES = (
-    "tmdb.org",
-    "themoviedb.org",
-    "imdb.com",
-    "media-amazon.com",
-)
+# SSRF allow-list for Radarr/Sonarr remote poster fetches.
+#
+# Exact hostname → permitted ports. Subdomain wildcards are intentionally
+# absent: a DNS-rebind attack on e.g. ``evil.image.tmdb.org`` would pass a
+# suffix check but fails an exact-match check. Only HTTPS (443) is
+# permitted; port 80 or any non-standard port is refused.
+_POSTER_ALLOWED_HOSTS: dict[str, tuple[int, ...]] = {
+    "image.tmdb.org": (443,),
+    "m.media-amazon.com": (443,),
+    "images.amazon.com": (443,),
+}
 
 
 def _get_cache_dir(data_dir: str) -> Path:
@@ -96,11 +101,12 @@ def _get_cache_dir(data_dir: str) -> Path:
 def _is_allowed_poster_host(url: str) -> bool:
     """Return True only for HTTPS URLs pointing at a trusted image CDN.
 
-    Accepts any subdomain of the allow-listed hosts (tmdb.org,
-    themoviedb.org, imdb.com, media-amazon.com). Anything else —
-    including HTTP, IP literals, or unknown hosts — is rejected to
-    prevent SSRF via attacker-controlled Radarr/Sonarr ``remoteUrl``
-    values.
+    Performs exact hostname matching against ``_POSTER_ALLOWED_HOSTS`` —
+    no subdomain wildcards — so a DNS-rebind via ``evil.image.tmdb.org``
+    cannot bypass the check. Additionally enforces that the port is in the
+    permitted set (443 only) and delegates a full DNS-resolution + public-IP
+    check to ``is_safe_outbound_url`` with strict egress enabled, catching
+    rebind attacks that return a private IP at request time.
     """
     try:
         parsed = urlparse(url)
@@ -111,10 +117,21 @@ def _is_allowed_poster_host(url: str) -> bool:
     host = (parsed.hostname or "").lower()
     if not host:
         return False
-    return any(
-        host == suffix or host.endswith("." + suffix)
-        for suffix in _POSTER_ALLOWED_HOST_SUFFIXES
-    )
+
+    # Exact hostname match — no wildcards.
+    if host not in _POSTER_ALLOWED_HOSTS:
+        return False
+
+    # Port must be in the permitted set. ``parsed.port`` is None when the
+    # URL omits the port, which for HTTPS means 443 implicitly.
+    port = parsed.port if parsed.port is not None else 443
+    if port not in _POSTER_ALLOWED_HOSTS[host]:
+        return False
+
+    # Resolve DNS and confirm every returned IP is public. This catches
+    # rebind attacks where the initial check passes but the resolver
+    # subsequently returns a private address.
+    return is_safe_outbound_url(url, strict_egress=True)
 
 
 def _safe_mime(remote_type: str | None) -> str:
@@ -134,7 +151,7 @@ def _safe_mime(remote_type: str | None) -> str:
     return "image/jpeg"
 
 
-def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple[bytes | None, str | None]:
+def _fetch_arr_poster(conn, rating_key: str, plex_token_row, config) -> tuple[bytes | None, str | None]:
     """Try to fetch a poster from Radarr/Sonarr TMDB data for a media item.
 
     Looks up the stored ``radarr_id`` / ``sonarr_id`` on the
@@ -150,9 +167,11 @@ def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple[bytes | No
     (common right after an add, before the next scan has backfilled
     IDs), returns (None, None) and the caller will 404 rather than
     guess a replacement.
-    """
-    from mediaman.config import load_config
 
+    *config* is the already-loaded app config object, passed in from the
+    request handler to avoid redundant ``load_config()`` calls per
+    request (H25).
+    """
     row = conn.execute(
         "SELECT title, media_type, radarr_id, sonarr_id "
         "FROM media_items WHERE id = ?",
@@ -167,7 +186,6 @@ def _fetch_arr_poster(conn, rating_key: str, plex_token_row) -> tuple[bytes | No
     sonarr_id = row["sonarr_id"]
 
     poster_url = None
-    config = load_config()
 
     if media_type == "movie":
         if not radarr_id:
@@ -281,9 +299,8 @@ def proxy_poster(
     # Auth FIRST — return 401 for any unauthenticated caller regardless
     # of whether the rating_key is well-formed or present on the Plex
     # server. This closes the enumeration oracle noted in the pentest.
+    config = request.app.state.config
     if admin is None:
-        from mediaman.config import load_config
-        config = load_config()
         if not sig or len(sig) > 4096:
             return Response(status_code=401)
         if not _validate_rating_key(rating_key):
@@ -325,8 +342,6 @@ def proxy_poster(
     plex_url = plex_url_row["value"]
     plex_token = plex_token_row["value"]
     if plex_token_row["encrypted"]:
-        from mediaman.config import load_config
-        config = load_config()
         plex_token = decrypt_value(
             plex_token, config.secret_key, conn=conn, aad=b"plex_token"
         )
@@ -365,15 +380,21 @@ def proxy_poster(
 
     # Fallback: fetch poster from Radarr/Sonarr via TMDB if Plex has none
     if content is None:
-        content, content_type = _fetch_arr_poster(conn, rating_key, plex_token_row)
+        content, content_type = _fetch_arr_poster(conn, rating_key, plex_token_row, config)
         if content is None:
+            logger.info("Poster unavailable for rating_key=%s — returning 404", rating_key)
             return Response(status_code=404)
 
-    # Write to cache (atomic via temp file to avoid serving partial writes)
-    tmp_path = cached_path.with_suffix(".tmp")
+    # Write to cache atomically: write to a temp file in the same directory
+    # (guaranteeing same filesystem), then os.replace() it into place.
+    # This prevents another reader from seeing a partial write.
     try:
-        tmp_path.write_bytes(content)
-        tmp_path.rename(cached_path)
+        with tempfile.NamedTemporaryFile(
+            dir=cache_dir, delete=False, suffix=".tmp"
+        ) as tmp:
+            tmp.write(content)
+            tmp_name = tmp.name
+        os.replace(tmp_name, cached_path)
     except OSError:
         logger.warning("Poster cache write failed for %s", rating_key, exc_info=True)
 

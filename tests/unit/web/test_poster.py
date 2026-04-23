@@ -92,38 +92,74 @@ class TestPosterSignature:
 
 
 class TestAllowedPosterHost:
-    def test_accepts_tmdb(self):
-        from mediaman.web.routes.poster import _is_allowed_poster_host
-        assert _is_allowed_poster_host("https://image.tmdb.org/t/p/w500/x.jpg")
+    """The allow-list uses exact hostname matching (no subdomain wildcards).
 
-    def test_accepts_themoviedb(self):
-        from mediaman.web.routes.poster import _is_allowed_poster_host
-        assert _is_allowed_poster_host("https://image.themoviedb.org/x.jpg")
+    Positive cases mock ``is_safe_outbound_url`` to avoid real DNS in unit
+    tests — the DNS-resolution behaviour is exercised by the url_safety
+    unit tests separately.
+    """
 
-    def test_accepts_imdb(self):
+    def _allow(self, url: str) -> bool:
+        """Run ``_is_allowed_poster_host`` with DNS check stubbed to True."""
+        from unittest.mock import patch
         from mediaman.web.routes.poster import _is_allowed_poster_host
-        assert _is_allowed_poster_host("https://m.media-amazon.imdb.com/x.jpg")
+
+        with patch("mediaman.web.routes.poster.is_safe_outbound_url", return_value=True):
+            return _is_allowed_poster_host(url)
+
+    def _deny(self, url: str) -> bool:
+        """Run ``_is_allowed_poster_host`` without stubbing (rejects before DNS)."""
+        from mediaman.web.routes.poster import _is_allowed_poster_host
+        return _is_allowed_poster_host(url)
+
+    def test_accepts_image_tmdb_org(self):
+        assert self._allow("https://image.tmdb.org/t/p/w500/x.jpg")
+
+    def test_accepts_m_media_amazon_com(self):
+        assert self._allow("https://m.media-amazon.com/images/M/poster.jpg")
+
+    def test_accepts_images_amazon_com(self):
+        assert self._allow("https://images.amazon.com/images/poster.jpg")
+
+    def test_rejects_subdomain_of_allowed(self):
+        """Subdomain of an allowed host must NOT pass — no wildcard matching."""
+        assert not self._deny("https://evil.image.tmdb.org/x.jpg")
+
+    def test_rejects_themoviedb_no_longer_in_list(self):
+        """image.themoviedb.org was in the old suffix list but is not in the new exact list."""
+        assert not self._deny("https://image.themoviedb.org/x.jpg")
+
+    def test_rejects_imdb_not_in_list(self):
+        """m.media-amazon.imdb.com is not in the exact allow-list."""
+        assert not self._deny("https://m.media-amazon.imdb.com/x.jpg")
 
     def test_rejects_http(self):
-        from mediaman.web.routes.poster import _is_allowed_poster_host
-        assert not _is_allowed_poster_host("http://image.tmdb.org/x.jpg")
+        assert not self._deny("http://image.tmdb.org/x.jpg")
 
     def test_rejects_unknown_host(self):
-        from mediaman.web.routes.poster import _is_allowed_poster_host
-        assert not _is_allowed_poster_host("https://evil.example.com/x.jpg")
+        assert not self._deny("https://evil.example.com/x.jpg")
 
     def test_rejects_lookalike_suffix(self):
-        from mediaman.web.routes.poster import _is_allowed_poster_host
-        assert not _is_allowed_poster_host("https://eviltmdb.org/x.jpg")
-        assert not _is_allowed_poster_host("https://tmdb.org.evil.com/x.jpg")
+        assert not self._deny("https://eviltmdb.org/x.jpg")
+        assert not self._deny("https://tmdb.org.evil.com/x.jpg")
+
+    def test_rejects_non_443_port(self):
+        """Non-443 port on an otherwise-allowed host must be rejected."""
+        assert not self._deny("https://image.tmdb.org:8080/x.jpg")
 
     def test_rejects_ip_literal(self):
-        from mediaman.web.routes.poster import _is_allowed_poster_host
-        assert not _is_allowed_poster_host("https://127.0.0.1/x.jpg")
+        assert not self._deny("https://127.0.0.1/x.jpg")
 
     def test_rejects_garbage(self):
+        assert not self._deny("not a url")
+
+    def test_dns_rebind_private_ip_rejected(self):
+        """If is_safe_outbound_url returns False (e.g. DNS resolves private IP), reject."""
+        from unittest.mock import patch
         from mediaman.web.routes.poster import _is_allowed_poster_host
-        assert not _is_allowed_poster_host("not a url")
+
+        with patch("mediaman.web.routes.poster.is_safe_outbound_url", return_value=False):
+            assert not _is_allowed_poster_host("https://image.tmdb.org/t/p/w500/x.jpg")
 
 
 class TestPosterEndpointAuth:
@@ -248,7 +284,10 @@ class TestArrPosterByStoredId:
         os.environ["MEDIAMAN_SECRET_KEY"] = self._KEY
         os.environ["MEDIAMAN_DATA_DIR"] = str(tmp_path)
 
-        bytes_, ctype = _fetch_arr_poster(conn, "r1", None)
+        from mediaman.config import load_config
+        config = load_config()
+
+        bytes_, ctype = _fetch_arr_poster(conn, "r1", None, config)
         assert bytes_ is None
         assert ctype is None
 
@@ -287,16 +326,201 @@ class TestArrPosterByStoredId:
                 {"coverType": "poster", "remoteUrl": "https://image.tmdb.org/RIGHT.jpg"}
             ]},
         ]
+        from mediaman.config import load_config
+        config = load_config()
+
         with patch("mediaman.web.routes.poster.build_radarr_from_db", return_value=mock_radarr), \
-             patch("mediaman.web.routes.poster._POSTER_HTTP") as mock_http:
+             patch("mediaman.web.routes.poster._POSTER_HTTP") as mock_http, \
+             patch("mediaman.web.routes.poster.is_safe_outbound_url", return_value=True):
             mock_resp = MagicMock()
             mock_resp.content = b"right"
             mock_resp.headers = {"Content-Type": "image/jpeg"}
             mock_http.get.return_value = mock_resp
 
-            bytes_, ctype = _fetch_arr_poster(conn, "r1", None)
+            bytes_, ctype = _fetch_arr_poster(conn, "r1", None, config)
 
             # The fetched URL must be the RIGHT one (matching stored id 2020).
             assert mock_http.get.call_args[0][0].endswith("RIGHT.jpg")
             assert bytes_ == b"right"
             assert ctype == "image/jpeg"
+
+
+class TestPosterTokenTimingSafety:
+    """H19 regression — validate_poster_token must use hmac.compare_digest.
+
+    We cannot test the C implementation's timing properties in a unit test,
+    but we can assert that the comparison path goes through
+    ``hmac.compare_digest`` and that equal/unequal tokens behave correctly,
+    catching any accidental revert to a plain ``==`` comparison.
+    """
+
+    _KEY = "0123456789abcdef" * 4
+
+    def test_valid_token_returns_true(self):
+        from mediaman.crypto import generate_poster_token, validate_poster_token
+        token = generate_poster_token("99", self._KEY)
+        assert validate_poster_token(token, self._KEY, "99") is True
+
+    def test_token_with_single_bit_flip_returns_false(self):
+        """A one-character mutation in the signature must always fail."""
+        from mediaman.crypto import generate_poster_token, validate_poster_token
+        token = generate_poster_token("99", self._KEY)
+        # Flip a character in the signature portion (after the dot).
+        payload, sig = token.rsplit(".", 1)
+        # Replace the first character of the sig with a different character.
+        bad_char = "A" if sig[0] != "A" else "B"
+        mutated = f"{payload}.{bad_char}{sig[1:]}"
+        assert validate_poster_token(mutated, self._KEY, "99") is False
+
+    def test_compare_digest_is_used_in_validate_path(self):
+        """Confirm that hmac.compare_digest is invoked during validation.
+
+        This guards against a refactor that replaces the timing-safe
+        comparison with a plain equality check.
+        """
+        import hmac
+        from unittest.mock import patch
+
+        from mediaman.crypto import generate_poster_token, validate_poster_token
+
+        token = generate_poster_token("42", self._KEY)
+        calls: list[bool] = []
+        original = hmac.compare_digest
+
+        def recording_compare_digest(a, b):
+            result = original(a, b)
+            calls.append(result)
+            return result
+
+        with patch("mediaman.crypto.hmac.compare_digest", side_effect=recording_compare_digest):
+            result = validate_poster_token(token, self._KEY, "42")
+
+        assert result is True
+        assert len(calls) >= 1, "hmac.compare_digest was not called"
+        assert calls[-1] is True
+
+
+class TestPosterCacheAtomicWrite:
+    """H18 — cache writes must be atomic (temp file + os.replace)."""
+
+    _KEY = "0123456789abcdef" * 4
+
+    def _build_test_app(self, tmp_path, secret_key, *, stub_cache=False):
+        import os as _os
+        _os.environ["MEDIAMAN_SECRET_KEY"] = secret_key
+        _os.environ["MEDIAMAN_DATA_DIR"] = str(tmp_path)
+
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from mediaman.db import init_db, set_connection
+        from mediaman.web.routes.poster import router
+        from mediaman.config import load_config
+
+        conn = init_db(str(tmp_path / "mediaman.db"))
+        set_connection(conn)
+
+        app = FastAPI()
+        app.state.config = load_config()
+        app.include_router(router)
+
+        import mediaman.web.routes.poster as poster_mod
+        poster_mod._cache_dir = None
+
+        return TestClient(app), conn
+
+    def test_no_tmp_file_left_after_successful_cache_write(self, tmp_path):
+        """After a successful poster fetch, no .tmp file should remain."""
+        import os as _os
+        from unittest.mock import MagicMock, patch
+
+        from mediaman.web.routes.poster import sign_poster_url
+
+        client, conn = self._build_test_app(tmp_path, self._KEY)
+
+        # Seed DB with Plex URL/token rows.
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES ('plex_url', 'https://localhost', 0, ?)",
+            (now,),
+        )
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES ('plex_token', 'fake-token', 0, ?)",
+            (now,),
+        )
+        conn.commit()
+
+        mock_resp = MagicMock()
+        mock_resp.content = b"\xff\xd8\xff"  # JPEG magic bytes
+        mock_resp.headers = {"Content-Type": "image/jpeg"}
+
+        with patch("mediaman.web.routes.poster._POSTER_HTTP") as mock_http, \
+             patch("mediaman.web.routes.poster.is_safe_outbound_url", return_value=True), \
+             patch("mediaman.web.routes.poster._sanitise_plex_url", return_value="https://localhost"):
+            mock_http.get.return_value = mock_resp
+            signed = sign_poster_url("12345", self._KEY)
+            r = client.get(signed)
+
+        assert r.status_code == 200
+
+        cache_dir = tmp_path / "poster_cache"
+        tmp_files = list(cache_dir.glob("*.tmp"))
+        assert tmp_files == [], f"Stale .tmp files found: {tmp_files}"
+
+
+class TestPosterTimeoutFallback:
+    """H17 — a slow or failing poster fetch returns 404, not an exception."""
+
+    _KEY = "0123456789abcdef" * 4
+
+    def _build_test_app(self, tmp_path, secret_key):
+        import os as _os
+        _os.environ["MEDIAMAN_SECRET_KEY"] = secret_key
+        _os.environ["MEDIAMAN_DATA_DIR"] = str(tmp_path)
+
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from mediaman.db import init_db, set_connection
+        from mediaman.web.routes.poster import router
+        from mediaman.config import load_config
+
+        conn = init_db(str(tmp_path / "mediaman.db"))
+        set_connection(conn)
+
+        app = FastAPI()
+        app.state.config = load_config()
+        app.include_router(router)
+
+        import mediaman.web.routes.poster as poster_mod
+        poster_mod._cache_dir = None
+
+        return TestClient(app), conn
+
+    def test_plex_timeout_returns_404_not_500(self, tmp_path):
+        """If the Plex fetch times out and there is no Arr fallback, return 404."""
+        from unittest.mock import MagicMock, patch
+        from mediaman.services.http_client import SafeHTTPError
+        from mediaman.web.routes.poster import sign_poster_url
+
+        client, conn = self._build_test_app(tmp_path, self._KEY)
+
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES ('plex_url', 'https://localhost', 0, ?)",
+            (now,),
+        )
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES ('plex_token', 'fake-token', 0, ?)",
+            (now,),
+        )
+        conn.commit()
+
+        with patch("mediaman.web.routes.poster._POSTER_HTTP") as mock_http, \
+             patch("mediaman.web.routes.poster._sanitise_plex_url", return_value="https://localhost"), \
+             patch("mediaman.web.routes.poster._fetch_arr_poster", return_value=(None, None)):
+            mock_http.get.side_effect = Exception("timed out")
+            signed = sign_poster_url("12345", self._KEY)
+            r = client.get(signed)
+
+        assert r.status_code == 404
