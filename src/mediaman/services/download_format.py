@@ -9,8 +9,33 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
+from typing import TypedDict
 
 from mediaman.services.format import format_bytes, parse_iso_utc
+
+
+class DownloadItem(TypedDict):
+    """A single item on the downloads page, as returned by build_item()."""
+
+    id: str
+    title: str
+    media_type: str
+    poster_url: str
+    state: str
+    progress: int
+    eta: str
+    size_done: str
+    size_total: str
+    episodes: list[dict] | None
+    episode_summary: str
+    release_label: str
+    has_pack: bool
+    search_count: int
+    last_search_ts: float
+    added_at: float
+    search_hint: str
+    arr_link: str
+    arr_source: str
 
 
 def extract_poster_url(images: list[dict] | None) -> str | None:
@@ -234,7 +259,7 @@ def build_item(
     search_hint: str = "",
     arr_link: str = "",
     arr_source: str = "",
-) -> dict:
+) -> DownloadItem:
     """Build a simplified download item for the API response.
 
     ``search_count`` / ``last_search_ts`` are populated only for items in
