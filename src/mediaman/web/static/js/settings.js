@@ -583,9 +583,15 @@
 
   var discardBtn = document.getElementById('btn-discard');
   if (discardBtn) discardBtn.addEventListener('click', function () {
-    if (window.confirm('Discard unsaved changes? The page will reload.')) {
-      window.location.reload();
-    }
+    /* H73: use UIFeedback.confirm instead of window.confirm for consistency. */
+    window.UIFeedback.confirm({
+      title: 'Discard unsaved changes?',
+      body: 'The page will reload and any unsaved settings will be lost.',
+      confirmLabel: 'Discard',
+      confirmVariant: 'danger',
+    }).then(function (ok) {
+      if (ok) window.location.reload();
+    });
   });
 
   // ---------------------------------------------------------------------

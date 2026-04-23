@@ -7,16 +7,21 @@
 
 {# Button — variants: primary, secondary, ghost, success, danger, accent-soft.
    sizes: sm, lg. Pass `tag="a"` for an anchor, `extra_class` for one-off
-   layout helpers, `attrs` for raw HTML attributes (already-escaped).
+   layout helpers, `data_attrs` for a dict of data-* attributes (auto-escaped),
+   `icon` for a trusted SVG string (caller must pass a literal only).
+   Note: `attrs` (raw HTML string) and `sub` (raw HTML) have been removed to
+   prevent XSS — use explicit parameters or `data_attrs` dict instead.
 #}
-{% macro btn(label, variant="secondary", size="", tag="button", href="", extra_class="", attrs="", icon="") -%}
+{% macro btn(label, variant="secondary", size="", tag="button", href="", extra_class="", data_attrs=none, icon="") -%}
   {%- set classes = ["btn", "btn--" ~ variant] -%}
   {%- if size %}{% set _ = classes.append("btn--" ~ size) %}{% endif -%}
   {%- if extra_class %}{% set _ = classes.append(extra_class) %}{% endif -%}
   {%- if tag == "a" -%}
-    <a class="{{ classes | join(' ') }}" href="{{ href }}" {{ attrs|safe }}>{% if icon %}{{ icon|safe }}{% endif %}{{ label }}</a>
+    <a class="{{ classes | join(' ') }}" href="{{ href }}"
+       {%- if data_attrs %}{% for k, v in data_attrs.items() %} data-{{ k | e }}="{{ v | e }}"{% endfor %}{% endif %}>{% if icon %}{{ icon|safe }}{% endif %}{{ label }}</a>
   {%- else -%}
-    <button type="button" class="{{ classes | join(' ') }}" {{ attrs|safe }}>{% if icon %}{{ icon|safe }}{% endif %}{{ label }}</button>
+    <button type="button" class="{{ classes | join(' ') }}"
+            {%- if data_attrs %}{% for k, v in data_attrs.items() %} data-{{ k | e }}="{{ v | e }}"{% endfor %}{% endif %}>{% if icon %}{{ icon|safe }}{% endif %}{{ label }}</button>
   {%- endif -%}
 {%- endmacro %}
 
@@ -27,15 +32,20 @@
 {%- endmacro %}
 
 
-{# Filter pill — segmented bar. `on` highlights, variant tints the active state. #}
-{% macro fpill(label, on=false, variant="", tag="button", attrs="") -%}
+{# Filter pill — segmented bar. `on` highlights, variant tints the active state.
+   `href` sets the link destination when tag="a". `data_attrs` is a dict of
+   data-* attributes that are auto-escaped; the old `attrs` raw-HTML parameter
+   has been removed to prevent XSS. #}
+{% macro fpill(label, on=false, variant="", tag="button", href="", data_attrs=none) -%}
   {%- set classes = ["fpill"] -%}
   {%- if variant %}{% set _ = classes.append("fpill--" ~ variant) %}{% endif -%}
   {%- if on %}{% set _ = classes.append("on") %}{% endif -%}
   {%- if tag == "a" -%}
-    <a class="{{ classes | join(' ') }}" {{ attrs|safe }}>{{ label }}</a>
+    <a class="{{ classes | join(' ') }}" href="{{ href }}"
+       {%- if data_attrs %}{% for k, v in data_attrs.items() %} data-{{ k | e }}="{{ v | e }}"{% endfor %}{% endif %}>{{ label }}</a>
   {%- else -%}
-    <button type="button" class="{{ classes | join(' ') }}" {{ attrs|safe }}>{{ label }}</button>
+    <button type="button" class="{{ classes | join(' ') }}"
+            {%- if data_attrs %}{% for k, v in data_attrs.items() %} data-{{ k | e }}="{{ v | e }}"{% endfor %}{% endif %}>{{ label }}</button>
   {%- endif -%}
 {%- endmacro %}
 
@@ -100,16 +110,21 @@
 {%- endmacro %}
 
 
-{# Toggle switch — checkbox with id, optional `on` for default state. #}
-{% macro tog(id, on=false, attrs="") -%}
-  <span class="tog {% if on %}on{% endif %}" data-toggle role="switch" tabindex="0" aria-checked="{{ 'true' if on else 'false' }}" data-target="{{ id }}" {{ attrs|safe }}></span>
+{# Toggle switch — checkbox with id, optional `on` for default state.
+   The old `attrs` raw-HTML parameter has been removed to prevent XSS. #}
+{% macro tog(id, on=false) -%}
+  <span class="tog {% if on %}on{% endif %}" data-toggle role="switch" tabindex="0" aria-checked="{{ 'true' if on else 'false' }}" data-target="{{ id }}"></span>
   <input type="hidden" id="{{ id }}" value="{{ 'true' if on else 'false' }}">
 {%- endmacro %}
 
 
-{# Plain input — `.inp` style. Wrap with a label externally. #}
-{% macro inp(id, value="", placeholder="", type="text", attrs="") -%}
-  <input class="inp" id="{{ id }}" name="{{ id }}" type="{{ type }}" value="{{ value }}" placeholder="{{ placeholder }}" {{ attrs|safe }}>
+{# Plain input — `.inp` style. Wrap with a label externally.
+   The old `attrs` raw-HTML parameter has been removed to prevent XSS.
+   Pass `autocomplete` or `required` explicitly if needed. #}
+{% macro inp(id, value="", placeholder="", type="text", autocomplete="", required=false) -%}
+  <input class="inp" id="{{ id }}" name="{{ id }}" type="{{ type }}" value="{{ value }}" placeholder="{{ placeholder }}"
+         {%- if autocomplete %} autocomplete="{{ autocomplete }}"{% endif %}
+         {%- if required %} required{% endif %}>
 {%- endmacro %}
 
 

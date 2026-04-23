@@ -103,6 +103,18 @@
 
   document.addEventListener('keydown', onKeydown);
 
+  /* Wire data-close-modal buttons (H74: replaces hardcoded onclick="closeModal()").
+     Delegates to the registered close function for the nearest ancestor modal. */
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-close-modal]');
+    if (!btn) return;
+    /* Walk up DOM to find the modal id */
+    var modal = btn.closest('[id][role="dialog"]');
+    if (modal && registry[modal.id] && typeof registry[modal.id].closeFn === 'function') {
+      registry[modal.id].closeFn();
+    }
+  });
+
   function register(id, closeFn) {
     registry[id] = registry[id] || {};
     registry[id].closeFn = closeFn;

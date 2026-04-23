@@ -1,0 +1,25 @@
+/* =============================================================
+   26. UTILITIES
+   ============================================================= */
+.u-flex     { display: flex; align-items: center; gap: 10px; }
+.u-gap-sm   { gap: 6px; }
+.u-mla,
+.u-ml-auto  { margin-left: auto; }
+.u-tac      { text-align: center; }
+.u-tar      { text-align: right; }
+.u-fwm,
+.u-fw-medium { font-weight: 500; }
+.u-small    { font-size: 12px; color: var(--t3); }
+.u-mt-16    { margin-top: 16px; }
+.u-mt-32    { margin-top: 32px; }
+.u-m-0      { margin: 0; }
+.u-whitespace-nowrap { white-space: nowrap; }
+.d-inline   { display: inline-block; }
+.is-visible { display: inline-flex !important; }
+/* Semantic colour utilities — preferred over inline style="color:…" */
+.text-success { color: var(--success); }
+.text-danger  { color: var(--danger); }
+.text-warning { color: var(--warning); }
+.text-accent  { color: var(--accent); }
+.text-muted   { color: var(--t3); }
+

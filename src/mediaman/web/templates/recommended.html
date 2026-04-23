@@ -14,8 +14,8 @@
       </div>
       {% if enabled %}
         {% if manual_refresh_available %}
-        <button id="refresh-btn" type="button" class="btn btn--ghost" onclick="refreshRecommendations(this)">
-          <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        <button id="refresh-btn" type="button" class="btn btn--ghost" data-action="refresh-recommendations">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
           Fetch new suggestions
         </button>
         {% else %}
@@ -209,6 +209,14 @@ function refreshRecommendations(btn) {
     .catch(function () { btn.textContent = 'Fetch new suggestions'; btn.style.opacity = '1'; btn.disabled = false; });
 }
 
+/* Wire the refresh button via data-action instead of onclick. */
+(function () {
+  var refreshBtn = document.getElementById('refresh-btn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', function () { refreshRecommendations(refreshBtn); });
+  }
+})();
+
 // On page load: if a refresh is already running, attach to it. If the
 // server reports an active cooldown but the button is somehow visible
 // (race during navigation), swap it for the countdown.
@@ -252,9 +260,40 @@ function downloadRecommendation(btn, id) {
     .catch(function () { btn.textContent = 'Error'; btn.classList.add('btn--danger'); btn.style.opacity = '1'; btn.disabled = false; });
 }
 
+/* H66: parse from application/json script tag — textContent is safe because the
+   browser never interprets the content as script. The assert below catches any
+   server-side regression where un-escaped </script would appear in the payload. */
+(function () {
+  var raw = document.getElementById('rec-data').textContent;
+  if (raw.toLowerCase().indexOf('</script') !== -1) {
+    throw new Error('rec-data: </script breakout detected — server-side escaping regression');
+  }
+})();
 var _recData = JSON.parse(document.getElementById('rec-data').textContent);
 var _modalRecId = null;
 var _modalPollInterval = null;
+
+/* ── Event delegation for tile cards and download buttons ──
+   Replaces inline onclick attributes on .tile--btn and [data-download-rec]. */
+document.addEventListener('click', function (e) {
+  /* Stop propagation for elements marked with data-stop-propagation */
+  var stopEl = e.target.closest('[data-stop-propagation]');
+  if (stopEl) { e.stopPropagation(); }
+
+  /* Download button inside a tile */
+  var dlBtn = e.target.closest('[data-download-rec]');
+  if (dlBtn) {
+    e.stopPropagation();
+    downloadRecommendation(dlBtn, parseInt(dlBtn.dataset.downloadRec, 10));
+    return;
+  }
+
+  /* Tile card itself */
+  var tile = e.target.closest('[data-rec-id]');
+  if (tile && !stopEl) {
+    openModal(parseInt(tile.dataset.recId, 10));
+  }
+});
 
 function _clear(el) { while (el.firstChild) el.removeChild(el.firstChild); }
 function _parseJSON(s) { try { return JSON.parse(s || '[]'); } catch (e) { return []; } }

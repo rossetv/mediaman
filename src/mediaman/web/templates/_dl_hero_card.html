@@ -3,7 +3,9 @@
    progress, eta, size_done, size_total, episodes, episode_summary,
    search_hint, arr_link, arr_source). #}
 <div class="dl-hero dl-card-enter" data-dl-id="{{ item.id }}">
-  <div class="dl-hero-bg" {% if item.poster_url %}style="background-image:url('{{ item.poster_url }}')"{% endif %}></div>
+  <div class="dl-hero-bg" {% if item.poster_url %}data-bg-url="{{ item.poster_url }}"{% endif %}></div>
+  {# H67: background-image is set via JS (dl-poster.js) using style.setProperty + JSON.stringify,
+     avoiding direct CSS string injection. #}
   <div class="dl-hero-scrim"></div>
 
   <div class="dl-hero-content">

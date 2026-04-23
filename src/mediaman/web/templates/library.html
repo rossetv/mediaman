@@ -36,7 +36,7 @@
   <form method="get" action="/library" id="toolbar-form">
     <div class="toolbar-row">
       <div class="search-box">
-        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input type="text" name="q" value="{{ q }}" placeholder="Search library…"
                autocomplete="off" oninput="debounceSubmit()">
       </div>
@@ -85,7 +85,7 @@
           <th class="sortable" onclick="toggleSort('watched')">
             Last watched {{ '▼' if current_sort == 'watched_desc' else ('▲' if current_sort == 'watched_asc' else '') }}
           </th>
-          <th style="text-align:right">Actions</th>
+          <th class="u-tar">Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -102,7 +102,7 @@
             {{ item.title }}
             <div class="sub">
               {{ item.subtitle }}
-              {% if item.protection_label %} · <span style="color:var(--success)">{{ item.protection_label }}</span>{% endif %}
+              {% if item.protection_label %} · <span class="text-success">{{ item.protection_label }}</span>{% endif %}
             </div>
           </td>
           <td>
@@ -110,9 +110,9 @@
           </td>
           <td>{{ item.file_size }}</td>
           <td class="u-small">
-            {% if item.last_watched %}{{ item.last_watched }}{% else %}<span style="color:var(--danger)">Never</span>{% endif %}
+            {% if item.last_watched %}{{ item.last_watched }}{% else %}<span class="text-danger">Never</span>{% endif %}
           </td>
-          <td style="text-align:right">
+          <td class="u-tar">
             <div class="u-flex" style="justify-content:flex-end;gap:6px">
               {% if item.protected %}
               <div class="keep-wrapper"

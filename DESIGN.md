@@ -228,14 +228,21 @@ Anything that doesn't already have a primitive **must** be added to this layer r
 
 ### Navigation
 
-`.nav-glass` is a **single sticky strip used at every viewport width**. It replaced the previous three-surface (top bar + bottom tab bar + more sheet) approach. One source of truth, no JS for the mobile case.
+The shipped nav uses **four surfaces** that activate based on viewport width:
 
-- Background: `rgba(0,0,0,0.7)` with `backdrop-filter: saturate(180%) blur(24px)`.
-- Height: `--nav-h` (52 px), bottom hairline `var(--hair)`.
+| Surface | Element | Visible at |
+|---------|---------|-----------|
+| `.nav-glass` | Sticky top bar + full link rail | ≥ 700 px |
+| `.nav-topbar` | Sticky top bar, brand + page title only | < 700 px |
+| `.nav-tabs` | Fixed bottom tab bar (5 primary destinations) | < 700 px |
+| `.nav-more-sheet` | Slide-up overflow drawer (Recommended, History, Settings, Logout) | < 700 px |
+
+Glass spec — both `.nav-glass` and `.nav-topbar` use:
+- Background: `rgba(0,0,0,0.8)` with `backdrop-filter: saturate(180%) blur(20px)`.
+- Height: `.nav-glass` = `--nav-h` (52 px); `.nav-topbar` = 48 px. Bottom hairline `var(--hair)`.
 - Brand left (`.brand` — `media<b>man</b>` with the bold mark in `--accent`).
-- Centre `.nav-links` is a horizontal flex row of `.nav-btn` pills (7 px × 12 px, font-size 13 px, `--r-pill`). Active link gets `.on` (`color: var(--t1)`, `background: var(--s3)`).
-- Below 700 px the link rail switches to **horizontal scroll** (`overflow-x: auto`, scrollbar hidden). No bottom tab bar, no overflow sheet — the user scrolls the same row of pills.
-- Right `.nav-end` slot for the logout form / connection indicators.
+- `.nav-glass` centre `.nav-links`: horizontal flex row of `.nav-btn` pills (7 px × 12 px, font-size 13 px, `--r-pill`). Active link gets `.on` (`color: var(--t1)`, `background: var(--s3)`).
+- Logout sits in `.nav-logout-form` inside `.nav-links` at the far right of the desktop rail.
 - The nav floats above content, maintaining its dark translucent glass regardless of section background.
 
 ### Image Treatment

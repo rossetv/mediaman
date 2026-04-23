@@ -254,11 +254,12 @@ function buildHeroCard(wrapper, item) {
   hero.className = 'dl-hero dl-card-enter';
   hero.setAttribute('data-dl-id', item.id);
 
-  /* Background */
+  /* Background — set via DLPoster.apply (H67: avoids CSS string injection). */
   var bg = document.createElement('div');
   bg.className = 'dl-hero-bg';
-  if (bgUrl) bg.style.backgroundImage = "url('" + bgUrl.replace(/'/g, '') + "')";
+  if (bgUrl) bg.setAttribute('data-bg-url', bgUrl);
   hero.appendChild(bg);
+  if (bgUrl && window.DLPoster) window.DLPoster.apply(bg);
 
   /* Overlay */
   var overlay = document.createElement('div');

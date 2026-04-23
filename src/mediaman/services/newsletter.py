@@ -101,6 +101,18 @@ def _load_mailgun_settings(
     from_address = get_string_setting(conn, "mailgun_from_address", secret_key=secret_key)
     base_url = get_string_setting(conn, "base_url", secret_key=secret_key).rstrip("/")
 
+    # H70: reject non-HTTP(S) base_url schemes so email links can never use
+    # javascript:, data:, or other dangerous schemes.
+    if base_url and not base_url.lower().startswith(("http://", "https://")):
+        logger.error(
+            "Newsletter aborted — base_url has a non-HTTP scheme: %r. "
+            "Only http:// and https:// are permitted.",
+            base_url,
+        )
+        raise NewsletterConfigError(
+            f"Newsletter cannot be sent: base_url must use http:// or https://, got: {base_url!r}"
+        )
+
     missing = [k for k, v in (
         ("mailgun_domain", domain),
         ("mailgun_api_key", api_key),

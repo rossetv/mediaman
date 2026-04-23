@@ -32,7 +32,7 @@
       <div class="hist-msg">
         <b>{{ item.title }}</b>
         {% if item.detail %}<span class="hist-type"> · {{ item.detail }}</span>{% endif %}
-        {% if item.space_impact %}<span style="color:var(--t3)"> · {{ item.space_impact }}</span>{% endif %}
+        {% if item.space_impact %}<span class="text-muted"> · {{ item.space_impact }}</span>{% endif %}
       </div>
       <div class="hist-type">
         <span class="pill {{ 'pill--stale' if 'delet' in item.action_label|lower else ('pill--kept' if 'keep' in item.action_label|lower else ('pill--tv' if 'newsletter' in item.action_label|lower else 'pill--neutral')) }}">{{ item.action_label }}</span>

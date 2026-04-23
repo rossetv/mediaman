@@ -4,7 +4,7 @@
    state. Media type lives in the subtitle under the title, not on the
    poster. #}
 {%- set _state = item.download_state if item.download_state else ('queued' if item.downloaded_at else '') -%}
-<div class="tile" onclick="openModal({{ item.id }})">
+<button type="button" class="tile tile--btn" data-rec-id="{{ item.id }}" aria-label="{{ item.title }} — open details">
   <div class="tile-poster">
     {% if item.poster_url %}
     <img src="{{ item.poster_url }}" alt="{{ item.title }}" loading="lazy" onerror="this.dataset.broken=''">
@@ -31,11 +31,13 @@
   {% if item.trailer_url or not _state %}
   <div class="tile-actions">
     {% if item.trailer_url %}
-    <a href="{{ item.trailer_url }}" target="_blank" rel="noopener" class="btn btn--ghost btn--sm" onclick="event.stopPropagation();">▶ Trailer</a>
+    <a href="{{ item.trailer_url }}" target="_blank" rel="noopener" class="btn btn--ghost btn--sm" data-stop-propagation>▶ Trailer</a>
     {% endif %}
     {% if not _state %}
-    <button class="btn btn--primary btn--sm" style="flex:1" onclick="event.stopPropagation(); downloadRecommendation(this, {{ item.id }})" title="Add to {{ 'Radarr' if item.media_type == 'movie' else 'Sonarr' }}">Download</button>
+    <button class="btn btn--primary btn--sm" style="flex:1"
+            data-download-rec="{{ item.id }}" data-stop-propagation
+            title="Add to {{ 'Radarr' if item.media_type == 'movie' else 'Sonarr' }}">Download</button>
     {% endif %}
   </div>
   {% endif %}
-</div>
+</button>

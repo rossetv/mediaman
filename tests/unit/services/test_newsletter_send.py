@@ -126,6 +126,37 @@ class TestSendNewsletterNoMailgunConfig:
 
         mock_mailgun_cls.assert_not_called()
 
+    @pytest.mark.parametrize("bad_url", [
+        "javascript:alert(1)",
+        "data:text/html,<script>alert(1)</script>",
+        "file:///etc/passwd",
+        "ftp://files.example.com",
+        "//example.com",  # protocol-relative — also rejected
+    ])
+    def test_non_http_base_url_raises_config_error(self, db_path, bad_url):
+        """H70: base_url with a non-HTTP(S) scheme must be rejected before sending.
+
+        A javascript: or data: base_url would produce XSS-grade href values in
+        the newsletter HTML, so the service must refuse to proceed.
+        """
+        conn = init_db(str(db_path))
+        _insert_setting(conn, "mailgun_domain", "mg.example.com")
+        _insert_setting(conn, "mailgun_api_key", "key-testvalue")
+        _insert_setting(conn, "mailgun_from_address", "media@example.com")
+        _insert_setting(conn, "base_url", bad_url)
+        _add_subscriber(conn, "alice@example.com")
+        _add_scheduled_item(conn)
+
+        mock_mailgun_cls = MagicMock()
+        with patch(_PATCH_MAILGUN, mock_mailgun_cls), \
+             patch(_PATCH_STORAGE, return_value=_fake_disk()), \
+             patch(_PATCH_RADARR, return_value=None), \
+             patch(_PATCH_SONARR, return_value=None), \
+             pytest.raises(NewsletterConfigError, match="base_url"):
+            send_newsletter(conn, _SECRET_KEY)
+
+        mock_mailgun_cls.assert_not_called()
+
     def test_missing_domain_only_raises_config_error(self, db_path):
         """When only domain is missing (api_key present), NewsletterConfigError is raised."""
         conn = init_db(str(db_path))

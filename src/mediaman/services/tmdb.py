@@ -28,6 +28,15 @@ logger = logging.getLogger("mediaman")
 _BASE = "https://api.themoviedb.org/3"
 _POSTER_BASE_W300 = "https://image.tmdb.org/t/p/w300"
 
+# H71: TMDB attribution notice
+# TMDB requires that all products using their API display the TMDB logo
+# and a "This product uses the TMDB API but is not endorsed or certified
+# by TMDB" attribution notice. Poster image requests to image.tmdb.org
+# are standard CDN fetches — they are not tracking pixels. No personal
+# data is embedded in the URLs generated here. See the TMDB API Terms of
+# Use at https://www.themoviedb.org/terms-of-use for the full attribution
+# requirements.
+
 
 class TmdbClient:
     """Thin wrapper around ``api.themoviedb.org/3``.

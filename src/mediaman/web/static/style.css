@@ -212,9 +212,9 @@ h1, h2, h3, h4 {
   align-items: center;
   gap: 28px;
   padding: 0 var(--pad);
-  background: rgba(0,0,0,.7);
-  backdrop-filter: saturate(180%) blur(24px);
-  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  background: rgba(0,0,0,0.8);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--hair);
 }
 .brand,
@@ -280,9 +280,9 @@ h1, h2, h3, h4 {
   align-items: center;
   gap: 14px;
   padding: 0 var(--pad);
-  background: rgba(0,0,0,.7);
-  backdrop-filter: saturate(180%) blur(24px);
-  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  background: rgba(0,0,0,0.8);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--hair);
 }
 .nav-topbar-title {
@@ -707,6 +707,17 @@ h1, h2, h3, h4 {
   transition: transform .2s;
   min-width: 0;
 }
+/* .tile--btn: resets button UA styles so a <button> can serve as a tile.
+   Replaces keyboard-inaccessible <div onclick=…> patterns (H68 / a11y). */
+button.tile--btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  width: 100%;
+}
 .tile:hover { transform: translateY(-2px); }
 .tile:hover .tile-poster { box-shadow: var(--shadow-card); }
 
@@ -715,7 +726,7 @@ h1, h2, h3, h4 {
   aspect-ratio: 2/3;
   border-radius: var(--r-md);
   overflow: hidden;
-  background: linear-gradient(135deg, var(--s3) 0%, var(--s2) 60%, #0a0a0a 100%);
+  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
   position: relative;
   transition: box-shadow .25s;
 }
@@ -858,7 +869,7 @@ h1, h2, h3, h4 {
   aspect-ratio: 2/3;
   border-radius: var(--r-md);
   overflow: hidden;
-  background: linear-gradient(135deg, var(--s3) 0%, var(--s2) 60%, #0a0a0a 100%);
+  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
   transition: box-shadow .25s;
 }
 .media-card-poster img { width: 100%; height: 100%; object-fit: cover; }
@@ -943,7 +954,7 @@ h1, h2, h3, h4 {
   width: 44px;
   height: 66px;
   border-radius: var(--r-xs);
-  background: linear-gradient(135deg, var(--s3), #0a0a0a);
+  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
   overflow: hidden;
   flex-shrink: 0;
   display: block;
@@ -965,7 +976,7 @@ img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
    ============================================================= */
 .storage,
 .storage-bar-container {
-  background: linear-gradient(135deg, var(--s2), var(--s1));
+  background: var(--s2); /* D33: was gradient, replaced per DESIGN.md §7 */
   border-radius: var(--r-lg);
   padding: 28px;
   position: relative;
@@ -1576,7 +1587,7 @@ select.inp,
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #4b6cb7, #182848);
+  background: var(--s3); /* D33: off-palette avatar gradient replaced per DESIGN.md */
   display: grid;
   place-items: center;
   font-size: 14px;
@@ -1652,7 +1663,7 @@ select.inp,
   height: 66px;
   border-radius: var(--r-xs);
   overflow: hidden;
-  background: linear-gradient(135deg, var(--s3), #0a0a0a);
+  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
 }
 .ditem-thumb img,
 img.deleted-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -1795,7 +1806,7 @@ img.deleted-thumb { width: 100%; height: 100%; object-fit: cover; display: block
   aspect-ratio: 2/3;
   border-radius: var(--r-md);
   overflow: hidden;
-  background: linear-gradient(135deg, var(--s3) 0%, var(--s2) 60%, #0a0a0a 100%);
+  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
   transition: box-shadow .25s;
 }
 .sug-poster img { width: 100%; height: 100%; object-fit: cover; }
@@ -1940,7 +1951,7 @@ img.deleted-thumb { width: 100%; height: 100%; object-fit: cover; display: block
   aspect-ratio: 2/3;
   border-radius: var(--r-md);
   overflow: hidden;
-  background: linear-gradient(135deg, var(--s3) 0%, var(--s2) 60%, #0a0a0a 100%);
+  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
   transition: box-shadow .25s;
 }
 .poster-card .poster img { width: 100%; height: 100%; object-fit: cover; }
@@ -2082,9 +2093,9 @@ section.shelf:first-of-type { margin-top: 32px; }
   aspect-ratio: 2/3;
   border-radius: var(--r-md);
   overflow: hidden;
-  box-shadow: rgba(0,0,0,.6) 0 20px 40px -12px;
+  box-shadow: var(--shadow-card); /* D33: was bespoke shadow, replaced per DESIGN.md */
   flex-shrink: 0;
-  background: linear-gradient(135deg, var(--s3), #0a0a0a);
+  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
 }
 .dl-hero-poster img { width: 100%; height: 100%; object-fit: cover; }
 .dl-hero-poster-placeholder { width: 100%; height: 100%; }
@@ -2187,7 +2198,7 @@ section.shelf:first-of-type { margin-top: 32px; }
   height: 72px;
   border-radius: var(--r-xs);
   overflow: hidden;
-  background: linear-gradient(135deg, var(--s3), #0a0a0a);
+  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
   flex-shrink: 0;
 }
 .dl-row-poster img,
@@ -2362,7 +2373,7 @@ section.shelf:first-of-type { margin-top: 32px; }
   aspect-ratio: 2/3;
   border-radius: var(--r-md);
   overflow: hidden;
-  background: linear-gradient(135deg, var(--s3), #0a0a0a);
+  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
 }
 .dl-recent-poster img { width: 100%; height: 100%; object-fit: cover; }
 .dl-recent-badge {
@@ -2701,7 +2712,7 @@ section.shelf:first-of-type { margin-top: 32px; }
 .detail-modal-hero {
   position: relative;
   height: 280px;
-  background: linear-gradient(135deg, var(--s3), #000);
+  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
   overflow: hidden;
 }
 .detail-modal-hero img {
@@ -2815,7 +2826,7 @@ section.shelf:first-of-type { margin-top: 32px; }
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--s3), #0a0a0a);
+  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
   display: grid;
   place-items: center;
   font-size: 16px;
@@ -3297,7 +3308,7 @@ section.shelf:first-of-type { margin-top: 32px; }
   margin: 0 auto 18px;
   border-radius: var(--r-md);
   overflow: hidden;
-  background: linear-gradient(135deg, var(--s3), #0a0a0a);
+  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
   aspect-ratio: 2/3;
   box-shadow: var(--shadow-card);
 }
@@ -3400,6 +3411,7 @@ section.shelf:first-of-type { margin-top: 32px; }
 .u-mla,
 .u-ml-auto  { margin-left: auto; }
 .u-tac      { text-align: center; }
+.u-tar      { text-align: right; }
 .u-fwm,
 .u-fw-medium { font-weight: 500; }
 .u-small    { font-size: 12px; color: var(--t3); }
@@ -3409,6 +3421,12 @@ section.shelf:first-of-type { margin-top: 32px; }
 .u-whitespace-nowrap { white-space: nowrap; }
 .d-inline   { display: inline-block; }
 .is-visible { display: inline-flex !important; }
+/* Semantic colour utilities — preferred over inline style="color:…" */
+.text-success { color: var(--success); }
+.text-danger  { color: var(--danger); }
+.text-warning { color: var(--warning); }
+.text-accent  { color: var(--accent); }
+.text-muted   { color: var(--t3); }
 
 /* =============================================================
    27. SETTINGS — JS-emitted bits (subscribers, recipients, users,
@@ -3565,7 +3583,7 @@ section.shelf:first-of-type { margin-top: 32px; }
   width: 100%;
   height: 320px;
   overflow: hidden;
-  background: linear-gradient(135deg, var(--s3), #000);
+  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
 }
 .dl-cinema img {
   width: 100%;
@@ -4298,7 +4316,7 @@ section.shelf:first-of-type { margin-top: 32px; }
   display: grid; place-items: center;
   font-size: 11px; font-weight: 600; color: #fff;
   flex-shrink: 0;
-  background: linear-gradient(135deg, #4b6cb7, #182848);
+  background: var(--s3); /* D33: off-palette avatar gradient replaced per DESIGN.md */
 }
 .setg-pg .sub-row .em { flex: 1; min-width: 0; font-size: 13.5px; }
 .setg-pg .sub-row .em small { display: block; color: var(--t3); font-size: 11px; margin-top: 2px; }
@@ -4380,7 +4398,7 @@ section.shelf:first-of-type { margin-top: 32px; }
   display: grid; place-items: center;
   font-size: 15px; font-weight: 600; color: #fff;
   flex-shrink: 0;
-  background: linear-gradient(135deg, #4b6cb7, #182848);
+  background: var(--s3); /* D33: off-palette avatar gradient replaced per DESIGN.md */
 }
 .setg-pg .usr-self-head .usr-meta { flex: 1; min-width: 0; }
 .setg-pg .usr-self-head .usr-name { font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
@@ -4397,7 +4415,7 @@ section.shelf:first-of-type { margin-top: 32px; }
   width: 38px; height: 38px; border-radius: 50%;
   display: grid; place-items: center;
   font-size: 14px; font-weight: 600; color: #fff; flex-shrink: 0;
-  background: linear-gradient(135deg, #4b6cb7, #182848);
+  background: var(--s3); /* D33: off-palette avatar gradient replaced per DESIGN.md */
 }
 .setg-pg .usr-row .usr-meta { flex: 1; min-width: 0; }
 .setg-pg .usr-row .usr-name { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px; }

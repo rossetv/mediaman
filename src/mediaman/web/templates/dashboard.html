@@ -18,8 +18,8 @@
         {% endif %}
       </div>
       <div class="u-flex" style="gap:10px">
-        <button id="scan-btn" type="button" class="btn btn--ghost" onclick="triggerScan(this)">
-          <svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        <button id="scan-btn" type="button" class="btn btn--ghost" data-action="trigger-scan">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
           Scan now
         </button>
         <span id="scan-status" class="scan-status"></span>
@@ -148,6 +148,12 @@
 
 <script>
   var _scanElapsed = 0;
+
+  /* Wire data-action="trigger-scan" — removes inline onclick. */
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-action="trigger-scan"]');
+    if (btn) triggerScan(btn);
+  });
 
   function triggerScan(btn) {
     btn.disabled = true;
