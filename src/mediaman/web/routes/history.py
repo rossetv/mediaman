@@ -17,6 +17,12 @@ logger = logging.getLogger("mediaman")
 
 router = APIRouter()
 
+# Shared per_page bounds used by both the page route and the JSON API so
+# they cannot silently diverge.  Default is 25 (sensible page size);
+# maximum is 100 (caps DB work per request).
+_PER_PAGE_DEFAULT = 25
+_PER_PAGE_MAX = 100
+
 # All action types that appear in audit_log.
 ACTION_TYPES = [
     "scanned",
@@ -164,7 +170,7 @@ def history_page(request: Request) -> Response:
     except (ValueError, TypeError):
         page = 1
 
-    per_page = 25
+    per_page = _PER_PAGE_DEFAULT
     items, total = _fetch_history(conn, action_filter, page, per_page)
 
     total_pages = max(1, (total + per_page - 1) // per_page)
@@ -191,7 +197,7 @@ def history_page(request: Request) -> Response:
 def api_history(
     action: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
-    per_page: int = Query(default=25, ge=1, le=100),
+    per_page: int = Query(default=_PER_PAGE_DEFAULT, ge=1, le=_PER_PAGE_MAX),
     username: str = Depends(get_current_admin),
 ) -> JSONResponse:
     """Return paginated audit log as JSON.

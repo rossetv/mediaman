@@ -272,9 +272,9 @@ class TestSchemaV13LegacySessionPurge:
         init_db(str(db_path)).close()  # must not raise
 
     def test_schema_version_is_current(self, db_path):
-        assert DB_SCHEMA_VERSION == 17
+        assert DB_SCHEMA_VERSION == 18
         conn = init_db(str(db_path))
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 17
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 18
 
 
 class TestSchemaV14DeleteStatus:
@@ -396,7 +396,7 @@ class TestSchemaV15JobRunTables:
         }
         assert "scan_runs" in tables
         assert "refresh_runs" in tables
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 17
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == DB_SCHEMA_VERSION
 
     def test_migration_idempotent(self, db_path):
         init_db(str(db_path)).close()
@@ -480,3 +480,60 @@ class TestJobRunHelpers:
         conn = init_db(str(db_path))
         assert start_refresh_run(conn) is not None
         assert start_refresh_run(conn) is None
+
+
+class TestSchemaV18KeepTokensUsed:
+    """v18 adds ``keep_tokens_used`` for HMAC token replay prevention (H27)."""
+
+    def test_table_present_on_fresh_db(self, db_path):
+        conn = init_db(str(db_path))
+        tables = {
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        assert "keep_tokens_used" in tables
+
+    def test_table_columns(self, db_path):
+        conn = init_db(str(db_path))
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(keep_tokens_used)").fetchall()}
+        assert cols >= {"token_hash", "used_at"}
+
+    def test_token_hash_is_primary_key(self, db_path):
+        """INSERT OR IGNORE on a duplicate token_hash must silently succeed (rowcount 0)."""
+        conn = init_db(str(db_path))
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO keep_tokens_used (token_hash, used_at) VALUES ('abc', ?)", (now,)
+        )
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO keep_tokens_used (token_hash, used_at) VALUES ('abc', ?)", (now,)
+        )
+        assert cursor.rowcount == 0, "Duplicate insert must be ignored"
+
+    def test_migration_from_v17_adds_table(self, tmp_path):
+        import sqlite3 as _sq
+        db_path = tmp_path / "legacy.db"
+        init_db(str(db_path)).close()
+        # Simulate a v17 DB (no keep_tokens_used yet).
+        conn = _sq.connect(str(db_path))
+        conn.execute("DROP TABLE IF EXISTS keep_tokens_used")
+        conn.execute("PRAGMA user_version=17")
+        conn.commit()
+        conn.close()
+
+        conn = init_db(str(db_path))
+        tables = {
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        assert "keep_tokens_used" in tables
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == DB_SCHEMA_VERSION
+
+    def test_migration_idempotent(self, db_path):
+        init_db(str(db_path)).close()
+        init_db(str(db_path)).close()  # must not raise

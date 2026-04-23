@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from mediaman.config import Config
 from mediaman.crypto import generate_keep_token
 from mediaman.db import init_db, set_connection
-from mediaman.web.routes.keep import _lookup_verified_action, router as keep_router
+from mediaman.web.routes.keep import _lookup_verified_action, _token_hash, router as keep_router, _KEEP_GET_LIMITER, _KEEP_POST_LIMITER
 
 
 SECRET = "a" * 64
@@ -126,6 +126,18 @@ class TestLookupVerifiedAction:
         assert row is None
 
 
+class TestKeepLimiters:
+    """H28: GET and POST must have independent rate-limit counters."""
+
+    def test_get_and_post_limiters_are_separate_objects(self):
+        assert _KEEP_GET_LIMITER is not _KEEP_POST_LIMITER
+
+    def test_get_limiter_does_not_share_state_with_post_limiter(self):
+        # Both limiters use the same IP bucket style, but their internal
+        # attempt stores must be distinct so exhausting one does not affect the other.
+        assert _KEEP_GET_LIMITER._attempts is not _KEEP_POST_LIMITER._attempts
+
+
 class TestKeepPageRoute:
     def _make_app(self, conn: sqlite3.Connection) -> FastAPI:
         app = FastAPI()
@@ -170,3 +182,94 @@ class TestKeepPageRoute:
 
         assert resp.status_code == 200
         assert "active" in resp.text
+
+
+class TestKeepSubmitTokenInvalidation:
+    """H27: keep_submit must mark the token as used and reject replays."""
+
+    def _make_app(self, conn: sqlite3.Connection) -> FastAPI:
+        app = FastAPI()
+        app.include_router(keep_router)
+        app.state.config = Config(secret_key=SECRET)
+        app.state.db = conn
+        set_connection(conn)
+        mock_templates = MagicMock()
+        mock_templates.TemplateResponse.side_effect = (
+            lambda req, tmpl, ctx: HTMLResponse(
+                json.dumps({k: str(v) for k, v in ctx.items() if k != "item"}), 200
+            )
+        )
+        app.state.templates = mock_templates
+        return app
+
+    def test_invalid_token_returns_400_invalid_or_expired(self, conn):
+        """A forged / unknown token must return 400 with error=invalid_or_expired."""
+        app = self._make_app(conn)
+        client = TestClient(app, raise_server_exceptions=True)
+
+        resp = client.post("/keep/bogustoken", data={"duration": "30 days"})
+
+        assert resp.status_code == 400
+        import json as _json
+        body = _json.loads(resp.text)
+        assert body["error"] == "invalid_or_expired"
+
+    def test_unknown_duration_returns_400(self, conn):
+        """An unrecognised duration must return 400 before touching the DB."""
+        _insert_media_item(conn)
+        action_id = _insert_action(conn)
+        token = _make_keep_token(conn, "mi1", action_id)
+
+        app = self._make_app(conn)
+        client = TestClient(app, raise_server_exceptions=True)
+
+        resp = client.post(f"/keep/{token}", data={"duration": "never"})
+
+        assert resp.status_code == 400
+
+    def test_token_used_flag_set_in_keep_tokens_used(self, conn):
+        """A successful POST must insert into keep_tokens_used."""
+        _insert_media_item(conn)
+        action_id = _insert_action(conn)
+        token = _make_keep_token(conn, "mi1", action_id)
+
+        app = self._make_app(conn)
+        client = TestClient(app, raise_server_exceptions=True)
+
+        resp = client.post(f"/keep/{token}", data={"duration": "30 days"})
+
+        # Successful POST redirects to the keep page.
+        assert resp.status_code in (200, 302, 307)
+
+        th = _token_hash(token)
+        row = conn.execute(
+            "SELECT token_hash FROM keep_tokens_used WHERE token_hash = ?", (th,)
+        ).fetchone()
+        assert row is not None, "Token hash must be persisted in keep_tokens_used"
+
+    def test_replay_returns_409_already_processed(self, conn):
+        """Submitting the same token twice must return 409 on the second attempt."""
+        _insert_media_item(conn)
+        action_id = _insert_action(conn)
+        token = _make_keep_token(conn, "mi1", action_id)
+
+        app = self._make_app(conn)
+        client = TestClient(app, raise_server_exceptions=True)
+
+        # First POST — should succeed.
+        client.post(f"/keep/{token}", data={"duration": "30 days"})
+
+        # Second POST — same token, must be rejected as already processed.
+        resp = client.post(f"/keep/{token}", data={"duration": "30 days"})
+
+        assert resp.status_code == 409
+        import json as _json
+        body = _json.loads(resp.text)
+        assert body["error"] == "already_processed"
+
+    def test_token_hash_helper(self):
+        """_token_hash must return a stable 64-char hex string."""
+        h = _token_hash("test-token")
+        assert len(h) == 64
+        assert h == _token_hash("test-token")
+        assert h != _token_hash("other-token")

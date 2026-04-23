@@ -16,10 +16,9 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from mediaman.auth.middleware import get_current_admin
-from mediaman.auth.rate_limit import ActionRateLimiter, RateLimiter, get_client_ip
-
-_NEWSLETTER_LIMITER = ActionRateLimiter(max_in_window=3, window_seconds=300, max_per_day=10)
+from mediaman.auth.rate_limit import RateLimiter, get_client_ip
 from mediaman.crypto import validate_unsubscribe_token
+from mediaman.services.rate_limits import NEWSLETTER_LIMITER as _NEWSLETTER_LIMITER
 from mediaman.db import get_db
 
 
@@ -223,11 +222,22 @@ def api_send_newsletter(
 # ---------------------------------------------------------------------------
 
 
-def _generic_invalid_response() -> HTMLResponse:
+def _render_result(request: Request, message: str, *, success: bool, status_code: int = 200) -> HTMLResponse:
+    """Render the unsubscribe result page via the Jinja template."""
+    templates = request.app.state.templates
+    return templates.TemplateResponse(
+        request,
+        "subscribers/unsubscribe_result.html",
+        {"message": message, "success": success},
+        status_code=status_code,
+    )
+
+
+def _generic_invalid_response(request: Request) -> HTMLResponse:
     """Return a uniform "invalid link" response so we don't leak
     whether an email is subscribed, whether a token was syntactically
     well-formed but wrong-signed, or whether it has expired."""
-    return HTMLResponse(_unsub_html("This unsubscribe link is no longer valid.", success=False))
+    return _render_result(request, "This unsubscribe link is no longer valid.", success=False)
 
 
 @router.get("/unsubscribe", response_class=HTMLResponse)
@@ -237,19 +247,23 @@ def unsubscribe_page(request: Request, email: str = "", token: str = "") -> HTML
     config = load_config()
 
     if not _UNSUB_LIMITER.check(get_client_ip(request)):
-        return HTMLResponse(
-            _unsub_html("Too many requests. Try again later.", success=False),
-            status_code=429,
+        return _render_result(
+            request, "Too many requests. Try again later.", success=False, status_code=429
         )
 
     if not email or not token or len(email) > 320 or len(token) > 4096:
-        return _generic_invalid_response()
+        return _generic_invalid_response(request)
 
     if not validate_unsubscribe_token(token, config.secret_key, email):
-        return _generic_invalid_response()
+        return _generic_invalid_response(request)
 
     # Show confirmation page
-    return HTMLResponse(_unsub_confirm_html(email, token))
+    templates = request.app.state.templates
+    return templates.TemplateResponse(
+        request,
+        "subscribers/unsubscribe_confirm.html",
+        {"email": email, "token": token},
+    )
 
 
 @router.post("/unsubscribe", response_class=HTMLResponse)
@@ -263,16 +277,15 @@ def unsubscribe_confirm(
     config = load_config()
 
     if not _UNSUB_LIMITER.check(get_client_ip(request)):
-        return HTMLResponse(
-            _unsub_html("Too many requests. Try again later.", success=False),
-            status_code=429,
+        return _render_result(
+            request, "Too many requests. Try again later.", success=False, status_code=429
         )
 
     if not email or not token or len(email) > 320 or len(token) > 4096:
-        return _generic_invalid_response()
+        return _generic_invalid_response(request)
 
     if not validate_unsubscribe_token(token, config.secret_key, email):
-        return _generic_invalid_response()
+        return _generic_invalid_response(request)
 
     conn = get_db()
     row = conn.execute(
@@ -285,24 +298,26 @@ def unsubscribe_confirm(
     # the true state for operator debugging.
     if row is None:
         logger.info("Unsubscribe link used for unknown email: %s", email)
-        return HTMLResponse(_unsub_html(
+        return _render_result(
+            request,
             "If that address was subscribed, it has now been removed.",
             success=True,
-        ))
+        )
 
     if row["active"]:
         conn.execute("UPDATE subscribers SET active = 0 WHERE id = ?", (row["id"],))
         conn.commit()
         logger.info("Unsubscribed via link: %s", email)
 
-    return HTMLResponse(_unsub_html(
+    return _render_result(
+        request,
         "If that address was subscribed, it has now been removed.",
         success=True,
-    ))
+    )
 
 
 def _unsub_confirm_html(email: str, token: str) -> str:
-    """Render an unsubscribe confirmation page with a button."""
+    """Render an unsubscribe confirmation page with a button (kept for tests)."""
     safe_email = escape(email)
     safe_token = escape(token)
     return f"""<!DOCTYPE html>
@@ -325,7 +340,7 @@ You will no longer receive newsletter emails at<br><strong style="color:#fff;">{
 
 
 def _unsub_html(message: str, success: bool) -> str:
-    """Render a minimal unsubscribe result page."""
+    """Render a minimal unsubscribe result page (kept for tests)."""
     safe_message = escape(message)
     colour = "#30d158" if success else "#ff453a"
     icon = "&#10003;" if success else "&#10007;"

@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
-from mediaman.web.routes.history import router as history_router
+from mediaman.web.routes.history import router as history_router, _PER_PAGE_DEFAULT, _PER_PAGE_MAX
 
 
 def _make_app(conn, secret_key: str) -> FastAPI:
@@ -114,3 +114,26 @@ class TestApiHistory:
         resp = client.get("/api/history?per_page=2&page=3")
         assert resp.status_code == 200
         assert len(resp.json()["items"]) == 1
+
+    def test_per_page_max_enforced(self, db_path, secret_key):
+        """per_page above the maximum must be clamped/rejected by the Query constraint."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        resp = client.get(f"/api/history?per_page={_PER_PAGE_MAX + 1}")
+        # FastAPI Query(le=...) returns 422 Unprocessable Entity for out-of-range values.
+        assert resp.status_code == 422
+
+    def test_per_page_zero_rejected(self, db_path, secret_key):
+        """per_page=0 must be rejected."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+        resp = client.get("/api/history?per_page=0")
+        assert resp.status_code == 422
+
+    def test_shared_per_page_constants(self):
+        """_PER_PAGE_DEFAULT and _PER_PAGE_MAX are within sensible ranges."""
+        assert 1 <= _PER_PAGE_DEFAULT <= _PER_PAGE_MAX
+        assert _PER_PAGE_MAX <= 100

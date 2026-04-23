@@ -29,7 +29,10 @@ from mediaman.services.storage import get_disk_usage
 # damage a compromised session can inflict in a short window.
 _DELETE_LIMITER = ActionRateLimiter(max_in_window=20, window_seconds=60, max_per_day=500)
 _SETTINGS_WRITE_LIMITER = ActionRateLimiter(max_in_window=20, window_seconds=60, max_per_day=200)
-_NEWSLETTER_LIMITER = ActionRateLimiter(max_in_window=3, window_seconds=300, max_per_day=10)
+
+# Newsletter limiter lives in services.rate_limits — imported here so any
+# code that references the old module-level name still works.
+from mediaman.services.rate_limits import NEWSLETTER_LIMITER as _NEWSLETTER_LIMITER  # noqa: E402
 
 logger = logging.getLogger("mediaman")
 
@@ -444,40 +447,89 @@ def api_plex_libraries(request: Request, admin: str = Depends(get_current_admin)
         return JSONResponse({"libraries": [], "error": "Failed to fetch Plex libraries"})
 
 
-def _disk_usage_allowed_paths() -> set[str]:
-    """Return the set of filesystem paths the disk-usage endpoint may stat.
+def _disk_usage_allowed_roots() -> list["Path"]:
+    """Return the list of filesystem root paths the disk-usage endpoint may stat.
 
-    The allow-list is derived from ``MEDIAMAN_DELETE_ROOTS`` (if set),
-    ``MEDIAMAN_DATA_DIR``, and the conventional ``/media`` mount. An
-    authenticated admin still shouldn't be able to probe arbitrary
-    filesystem paths — it's both an information-disclosure primitive
-    and a reconnaissance step in any later compromise — so we refuse
-    paths outside the known media/data roots even for authed callers.
+    Derived from ``MEDIAMAN_DELETE_ROOTS`` (if set), ``MEDIAMAN_DATA_DIR``,
+    and the conventional ``/media`` / ``/data`` mounts. Only real
+    (non-symlink) resolved roots are included.
     """
     import os as _os
     from pathlib import Path as _Path
 
-    allowed: set[str] = set()
-    roots = (_os.environ.get("MEDIAMAN_DELETE_ROOTS") or "").strip()
-    for token in roots.split(","):
-        token = token.strip()
-        if token:
-            try:
-                allowed.add(str(_Path(token).resolve()))
-            except (OSError, ValueError):
-                continue
-    # Default is "" not "/data" so that the guard below is meaningful —
-    # "/data" is already in the unconditional allow-list below.
-    data_dir = _os.environ.get("MEDIAMAN_DATA_DIR", "").strip()
-    if data_dir:
+    roots: list[_Path] = []
+
+    def _try_add(raw: str) -> None:
+        raw = raw.strip()
+        if not raw:
+            return
         try:
-            allowed.add(str(_Path(data_dir).resolve()))
+            p = _Path(raw).resolve()
         except (OSError, ValueError):
-            pass
-    # Conventional mount point used by the docker-compose example.
-    allowed.add("/media")
-    allowed.add("/data")
-    return allowed
+            return
+        roots.append(p)
+
+    for token in (_os.environ.get("MEDIAMAN_DELETE_ROOTS") or "").split(","):
+        _try_add(token)
+
+    _try_add(_os.environ.get("MEDIAMAN_DATA_DIR", ""))
+    roots.append(_Path("/media"))
+    roots.append(_Path("/data"))
+    return roots
+
+
+def _resolve_safe_path(raw: str, roots: "list[Path]") -> "Path | None":
+    """Resolve *raw* and verify it is safe to stat.
+
+    Returns the resolved :class:`~pathlib.Path` when ALL of the following hold:
+
+    * The string resolves without error.
+    * No component of the ORIGINAL (pre-resolution) path is a symlink —
+      symlinks are an information-disclosure primitive that can point
+      anywhere on the host, bypassing the allow-list entirely.
+    * The resolved path equals one of *roots* or is a descendant of one.
+
+    Returns ``None`` for any failure so callers can emit a generic 404
+    without leaking which condition was violated.
+
+    Note: we check the *original* path components for symlinks before
+    resolving because after :meth:`~pathlib.Path.resolve` the symlink
+    components no longer appear in the resulting path.
+    """
+    import os as _os
+    from pathlib import Path as _Path
+
+    try:
+        candidate = _Path(raw)
+        # Make the path absolute without following symlinks.
+        abs_candidate = _Path(_os.path.abspath(str(candidate)))
+    except (OSError, ValueError):
+        return None
+
+    # Walk every prefix of the absolute path and reject if any is a symlink.
+    # This must happen BEFORE resolve() so we see the original components.
+    built = _Path(abs_candidate.anchor)
+    for part in abs_candidate.parts[1:]:
+        built = built / part
+        try:
+            if built.is_symlink():
+                return None
+        except (OSError, PermissionError):
+            return None
+
+    # Now resolve (normalise `..` etc.).  At this point we know there are no
+    # symlinks in the path, so resolve() is safe and equivalent to abspath.
+    try:
+        resolved = abs_candidate.resolve()
+    except (OSError, ValueError):
+        return None
+
+    # Confirm containment within at least one allowed root.
+    for root in roots:
+        if resolved == root or root in resolved.parents:
+            return resolved
+
+    return None
 
 
 @router.get("/api/settings/disk-usage")
@@ -487,36 +539,20 @@ def api_disk_usage(request: Request, path: str = "", admin: str = Depends(get_cu
     The *path* parameter is resolved and must equal — or be a
     descendant of — one of the allowed roots (``MEDIAMAN_DELETE_ROOTS``,
     ``MEDIAMAN_DATA_DIR``, or the conventional ``/media`` / ``/data``
-    mounts). Anything else is refused with 403 to prevent the endpoint
-    being used as an arbitrary-path existence/size oracle.
+    mounts). Symlinks at any level are rejected. Any refusal returns a
+    generic 404 so the endpoint cannot be used as a path-existence oracle.
     """
     if not path:
         return JSONResponse({"error": "path parameter is required"}, status_code=400)
     if len(path) > 4096:
         return JSONResponse({"error": "path too long"}, status_code=400)
 
-    from pathlib import Path as _Path
-
-    try:
-        resolved = _Path(path).resolve()
-    except (OSError, ValueError):
-        return JSONResponse({"error": "invalid path"}, status_code=400)
-
-    allowed_roots = _disk_usage_allowed_paths()
-    ok = False
-    for root_str in allowed_roots:
-        try:
-            root_path = _Path(root_str)
-        except (OSError, ValueError):
-            continue
-        if resolved == root_path or root_path in resolved.parents:
-            ok = True
-            break
-    if not ok:
-        return JSONResponse(
-            {"error": "path not permitted"},
-            status_code=403,
-        )
+    roots = _disk_usage_allowed_roots()
+    resolved = _resolve_safe_path(path, roots)
+    if resolved is None:
+        # Generic body — do not distinguish "outside allow-list" from
+        # "path does not exist" or "symlink detected".
+        return JSONResponse({"error": "not_found"}, status_code=404)
 
     try:
         usage = get_disk_usage(str(resolved))
@@ -530,7 +566,7 @@ def api_disk_usage(request: Request, path: str = "", admin: str = Depends(get_cu
             "usage_pct": pct,
         })
     except FileNotFoundError:
-        return JSONResponse({"error": "path not found"})
+        return JSONResponse({"error": "not_found"}, status_code=404)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to read disk usage for %s: %s", resolved, exc)
         return JSONResponse({"error": "Failed to read disk usage"})

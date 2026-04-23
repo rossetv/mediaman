@@ -28,7 +28,7 @@ from pathlib import Path
 
 logger = logging.getLogger("mediaman")
 
-DB_SCHEMA_VERSION = 17
+DB_SCHEMA_VERSION = 18
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (
@@ -529,6 +529,18 @@ def init_db(db_path: str) -> sqlite3.Connection:
             CREATE TABLE IF NOT EXISTS arr_search_throttle (
                 key TEXT PRIMARY KEY,
                 last_triggered_at TEXT NOT NULL
+            )
+        """)
+    if current_version < 18:
+        # H27: track consumed keep-tokens so replay attacks are detected.
+        # ``token_hash`` is SHA-256(token) — we never store the raw token.
+        # INSERT OR IGNORE on this table lets the route detect a replay by
+        # inspecting ``cursor.rowcount`` (0 ⇒ already used).
+        # Idempotent: CREATE TABLE IF NOT EXISTS is safe to re-run.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS keep_tokens_used (
+                token_hash TEXT PRIMARY KEY,
+                used_at TEXT NOT NULL
             )
         """)
         conn.execute(f"PRAGMA user_version={DB_SCHEMA_VERSION}")

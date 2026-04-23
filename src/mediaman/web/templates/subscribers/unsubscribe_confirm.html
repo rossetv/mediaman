@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unsubscribe · Mediaman</title>
+</head>
+<body style="margin:0;padding:0;background:#000;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;">
+  <div style="text-align:center;max-width:400px;padding:40px;">
+    <div style="font-size:24px;font-weight:600;margin-bottom:16px;">media<span style="color:#2997ff;">man</span></div>
+    <div style="font-size:17px;font-weight:600;margin-bottom:8px;">Unsubscribe?</div>
+    <div style="font-size:15px;color:rgba(255,255,255,0.5);line-height:1.5;margin-bottom:24px;">
+      You will no longer receive newsletter emails at<br>
+      <strong style="color:#fff;">{{ email }}</strong>
+    </div>
+    <form method="POST" action="/unsubscribe">
+      <input type="hidden" name="email" value="{{ email }}">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit" style="padding:12px 32px;border-radius:980px;border:none;background:#ff453a;color:#fff;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;margin-right:12px;">Unsubscribe</button>
+      <a href="/" style="padding:12px 24px;border-radius:980px;border:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.6);font-size:15px;font-weight:600;text-decoration:none;">Cancel</a>
+    </form>
+  </div>
+</body>
+</html>

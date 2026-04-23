@@ -169,16 +169,17 @@ class TestDiskUsageAPI:
         assert "error" in resp.json()
 
     def test_rejects_path_outside_allowlist(self, conn, secret_key):
-        """Paths outside the MEDIAMAN_DELETE_ROOTS / /media / /data allow-list are refused."""
+        """Paths outside the allow-list are refused with a generic 404 (not 403)
+        so the endpoint cannot be used as a path-existence oracle."""
         app = _make_app(conn, secret_key)
         client = _auth_client(app, conn)
 
         resp = client.get("/api/settings/disk-usage?path=/nonexistent")
-        assert resp.status_code == 403
-        assert "error" in resp.json()
+        assert resp.status_code == 404
+        assert resp.json().get("error") == "not_found"
 
     def test_returns_error_for_nonexistent_allowlisted_path(self, conn, secret_key, monkeypatch):
-        """When the path IS in the allow-list but stat fails, response has an error key."""
+        """When the path IS in the allow-list but stat fails, response is generic 404."""
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/nonexistent-but-allowed")
         app = _make_app(conn, secret_key)
         client = _auth_client(app, conn)
@@ -189,8 +190,25 @@ class TestDiskUsageAPI:
         ):
             resp = client.get("/api/settings/disk-usage?path=/nonexistent-but-allowed")
 
-        assert resp.status_code == 200
-        assert "error" in resp.json()
+        assert resp.status_code == 404
+        assert resp.json().get("error") == "not_found"
+
+    def test_rejects_symlink_path(self, conn, secret_key, tmp_path, monkeypatch):
+        """A path that is or contains a symlink is rejected with a generic 404."""
+        # Create a real dir inside an allowed root candidate, then a symlink to it.
+        real_dir = tmp_path / "real"
+        real_dir.mkdir()
+        link = tmp_path / "link"
+        link.symlink_to(real_dir)
+
+        # Make the parent tmp_path an allowed root.
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(tmp_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        resp = client.get(f"/api/settings/disk-usage?path={link}")
+        assert resp.status_code == 404
+        assert resp.json().get("error") == "not_found"
 
     def test_requires_auth(self, conn, secret_key):
         """Unauthenticated request is rejected with 401."""

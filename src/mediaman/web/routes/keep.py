@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
@@ -18,10 +19,16 @@ from mediaman.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP
 
 router = APIRouter()
 
-# Rate limit the public keep endpoint — generous enough for a real
-# user clicking through but tight enough to neuter any brute-force or
-# mass-probing attempt. Bucketed by /24 (v4) / /64 (v6) prefix.
-_KEEP_LIMITER = RateLimiter(max_attempts=30, window_seconds=60)
+# Separate rate limiters for GET and POST so an automated prober
+# exhausting the GET budget cannot block a legitimate POST (snooze)
+# and vice-versa.  Both are bucketed by /24 (v4) / /64 (v6) prefix.
+_KEEP_GET_LIMITER = RateLimiter(max_attempts=30, window_seconds=60)
+_KEEP_POST_LIMITER = RateLimiter(max_attempts=10, window_seconds=60)
+
+
+def _token_hash(token: str) -> str:
+    """Return a hex SHA-256 digest of *token* for storage in keep_tokens_used."""
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 def _lookup_verified_action(conn: sqlite3.Connection, token: str, secret_key: str) -> sqlite3.Row | None:
@@ -67,7 +74,7 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
     templates = request.app.state.templates
     config = request.app.state.config
 
-    if not _KEEP_LIMITER.check(get_client_ip(request)):
+    if not _KEEP_GET_LIMITER.check(get_client_ip(request)):
         return HTMLResponse("Too many requests. Try again later.", status_code=429)
     if len(token) > 4096:
         return templates.TemplateResponse(request, "keep.html", {
@@ -129,36 +136,56 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
 def keep_submit(request: Request, token: str, duration: str = Form(default="")) -> Response:
     """Apply a snooze via the keep page.
 
-    The UPDATE filters on ``token_used = 0`` and inspects ``rowcount`` so
-    two concurrent POSTs for the same token cannot both succeed. The
-    SELECT before the update is only used for the audit_log join and
-    admin/duration validation.
+    Token invalidation strategy (H27):
+
+    1. HMAC-verify the token first — forged tokens never touch the DB.
+    2. Attempt to INSERT the token hash into ``keep_tokens_used``.  If
+       ``rowcount`` is 0 the token was already consumed → 409.
+    3. Update the scheduled action guarded by ``token_used=0`` — the
+       ``rowcount`` check is a second defence against a concurrent POST
+       racing step 2.
+
+    Error bodies are intentionally non-informative: "invalid_or_expired"
+    and "already_processed" reveal nothing about internal state.
     """
     conn = get_db()
     config = request.app.state.config
 
-    if not _KEEP_LIMITER.check(get_client_ip(request)):
+    if not _KEEP_POST_LIMITER.check(get_client_ip(request)):
         return HTMLResponse("Too many requests. Try again later.", status_code=429)
     if len(token) > 4096:
-        return RedirectResponse("/keep/expired", status_code=302)
+        return HTMLResponse('{"error":"invalid_or_expired"}', status_code=400)
 
     # Reject unknown durations early
     if duration not in VALID_KEEP_DURATIONS:
-        return RedirectResponse(f"/keep/{token}", status_code=302)
+        return HTMLResponse('{"error":"invalid_or_expired"}', status_code=400)
 
-    # HMAC-verify the token and confirm it maps to an existing, unused action.
+    # HMAC-verify the token and confirm it maps to an existing action.
+    # Any failure here (bad signature, expired payload, row absent) → 400.
     verified = _lookup_verified_action(conn, token, config.secret_key)
-    if verified is None or verified["token_used"]:
-        return RedirectResponse(f"/keep/{token}", status_code=302)
+    if verified is None:
+        return HTMLResponse('{"error":"invalid_or_expired"}', status_code=400)
+
+    # Mark the token as used.  INSERT OR IGNORE on the PRIMARY KEY lets us
+    # detect a replay atomically: rowcount==0 means already inserted.
+    now = datetime.now(timezone.utc)
+    th = _token_hash(token)
+    used_cursor = conn.execute(
+        "INSERT OR IGNORE INTO keep_tokens_used (token_hash, used_at) VALUES (?, ?)",
+        (th, now.isoformat()),
+    )
+    if used_cursor.rowcount == 0:
+        conn.commit()
+        return HTMLResponse('{"error":"already_processed"}', status_code=409)
 
     row = verified
 
     # Only admins can use "forever"
     is_admin = get_optional_admin_from_token(request.cookies.get("session_token"), request=request) is not None
     if duration == "forever" and not is_admin:
-        return RedirectResponse(f"/keep/{token}", status_code=302)
-
-    now = datetime.now(timezone.utc)
+        # Roll back the token-used insert so the admin can retry later.
+        conn.rollback()
+        return HTMLResponse('{"error":"invalid_or_expired"}', status_code=400)
 
     if duration == "forever":
         cursor = conn.execute(
@@ -176,9 +203,11 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
         )
 
     if cursor.rowcount == 0:
-        # Lost the race with a concurrent keep — treat as already-kept.
+        # The scheduled_actions row was already token_used=1 (race or re-use).
+        # The keep_tokens_used insert already committed above so we treat it as
+        # already processed.
         conn.commit()
-        return RedirectResponse(f"/keep/{token}", status_code=302)
+        return HTMLResponse('{"error":"already_processed"}', status_code=409)
 
     # Audit log only fires for the winning request
     log_audit(conn, row["media_item_id"], "snoozed", f"Kept for {duration}")

@@ -140,14 +140,14 @@ class TestKeepSignatureEnforcement:
         # "expired" template branch has no item card; "active" would render title.
         assert "Test" not in r.text or "expired" in r.text.lower()
 
-        # POST: forged token must redirect (treated as expired) and must NOT
+        # POST: forged token must return 400 (invalid_or_expired) and must NOT
         # flip the genuine row's token_used flag.
         r = client.post(
             f"/keep/{forged}",
             data={"duration": "30 days"},
             follow_redirects=False,
         )
-        assert r.status_code in (302, 303)
+        assert r.status_code == 400
         row = conn.execute(
             "SELECT token_used FROM scheduled_actions WHERE id = 2"
         ).fetchone()
@@ -200,7 +200,7 @@ class TestKeepSignatureEnforcement:
             data={"duration": "30 days"},
             follow_redirects=False,
         )
-        assert r.status_code in (302, 303)
+        assert r.status_code == 400
         row = conn.execute(
             "SELECT token_used FROM scheduled_actions WHERE id = 3"
         ).fetchone()

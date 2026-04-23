@@ -32,6 +32,25 @@ logger = logging.getLogger("mediaman")
 router = APIRouter()
 _limiter = RateLimiter(max_attempts=5, window_seconds=60)
 
+# Characters permitted in sanitised log fields.  Anything outside this
+# set is stripped before interpolation so CR/LF and control characters
+# cannot be used to forge additional log lines.
+import re as _re
+_LOG_FIELD_RE = _re.compile(r"[^A-Za-z0-9._@\-]")
+
+
+def _sanitise_log_field(value: str, limit: int = 64) -> str:
+    """Strip non-safe characters from *value* and truncate to *limit*.
+
+    Safe characters: ``A-Za-z0-9._@-``.  Everything else is removed.
+    If the original string was longer than *limit* (before stripping),
+    an ellipsis marker is appended to the sanitised result so log
+    readers know truncation occurred.
+    """
+    truncated = len(value) > limit
+    sanitised = _LOG_FIELD_RE.sub("", value)[:limit]
+    return sanitised + "..." if truncated else sanitised
+
 
 def is_request_secure(request: Request) -> bool:
     """Return True when the effective scheme is HTTPS.
@@ -102,7 +121,7 @@ def login_submit(
 
     conn = get_db()
     if not authenticate(conn, username, password):
-        logger.info("auth.login_failed user=%s ip=%s", username, client_ip)
+        logger.info("auth.login_failed user=%s ip=%s", _sanitise_log_field(username), client_ip)
         security_event(
             conn, event="login.failed", actor=username, ip=client_ip,
             detail={"reason": "bad_credentials"},

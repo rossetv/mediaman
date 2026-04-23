@@ -171,6 +171,21 @@ class TestDeleteUser:
         )
         assert resp.status_code == 403
 
+    def test_delete_user_rejects_password_in_query_string(self, db_path, secret_key):
+        """confirm_password passed as a query param must be rejected with 400.
+
+        Query strings appear in access logs; credentials must not leak there.
+        """
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+        other_id = _make_second_user(conn)
+        resp = client.delete(
+            f"/api/users/{other_id}?confirm_password=password1234",
+        )
+        assert resp.status_code == 400
+        assert "query string" in resp.json()["error"].lower()
+
 
 class TestChangePassword:
     def test_change_password_requires_auth(self, db_path, secret_key):

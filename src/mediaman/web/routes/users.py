@@ -104,27 +104,32 @@ def api_delete_user(
     user_id: int,
     request: Request,
     admin: str = Depends(get_current_admin),
-    confirm_password: str = "",
     x_confirm_password: str | None = Header(default=None),
 ) -> Response:
     """Delete an admin user. Cannot delete yourself.
 
-    Requires the caller's password, accepted from either:
-
-    - ``X-Confirm-Password`` request header (preferred — keeps the
-      password out of URLs and server logs).
-    - ``?confirm_password=…`` query string (legacy / curl-friendly).
+    Requires the caller's password via the ``X-Confirm-Password`` request
+    header. Passing the password in the query string is explicitly rejected
+    — query strings appear in access logs, proxies, and browser history,
+    making them unsuitable for credentials.
 
     A compromised session cookie alone cannot delete other admins.
     """
+    # Reject any attempt to pass the password via query string — it leaks
+    # into access logs and server-side request recording.
+    if "confirm_password" in request.query_params:
+        return JSONResponse(
+            {"ok": False, "error": "confirm_password must be sent via X-Confirm-Password header, not the query string"},
+            status_code=400,
+        )
+
     conn = get_db()
     if not _USER_MGMT_LIMITER.check(admin):
         return JSONResponse(
             {"ok": False, "error": "Too many user-management operations"},
             status_code=429,
         )
-    # Prefer the header if the client sent one; fall back to query.
-    pw = x_confirm_password if x_confirm_password is not None else confirm_password
+    pw = x_confirm_password or ""
     if not _require_reauth(conn, admin, pw):
         logger.warning("user.delete_rejected user=%s reason=reauth_required", admin)
         return JSONResponse(
