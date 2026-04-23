@@ -290,7 +290,26 @@ def send_newsletter(
                 "FROM suggestions WHERE batch_id = ? ORDER BY category DESC, id",
                 (batch_row["batch_id"],)
             ).fetchall()
-            this_week_items = [dict(r) for r in rows]
+            # Build explicit dicts with only the fields the template needs.
+            # Avoids leaking raw DB columns (e.g. internal ids, timestamps) into
+            # the Jinja context via **dict(row) spreading. Template variables:
+            # id, title, media_type, category, description, reason, poster_url,
+            # tmdb_id, rating, rt_rating, download_url, download_state.
+            this_week_items = [
+                {
+                    "id": r["id"],
+                    "title": r["title"],
+                    "media_type": r["media_type"],
+                    "category": r["category"],
+                    "description": r["description"],
+                    "reason": r["reason"],
+                    "poster_url": r["poster_url"],
+                    "tmdb_id": r["tmdb_id"],
+                    "rating": r["rating"],
+                    "rt_rating": r["rt_rating"],
+                }
+                for r in rows
+            ]
 
     # ── Storage stats ────────────────────────────────────────────────────────
     # Aggregate file_size_bytes per media_type from media_items, normalised
@@ -471,11 +490,14 @@ def send_newsletter(
 
     # ── Mark as notified (only for automated sends, only if anything got out) ──
     if mark_notified and successfully_sent:
-        action_ids = [item["_action_id"] for item in scheduled_items]
+        # Assert all ids are integers before building the parameterised query so
+        # a non-integer id (e.g. from a corrupt row) surfaces as a clear error
+        # rather than silently passing a string through to the SQL engine.
+        action_ids = [int(item["_action_id"]) for item in scheduled_items]
         if action_ids:
             placeholders = ",".join("?" * len(action_ids))
             conn.execute(
-                f"UPDATE scheduled_actions SET notified=1 WHERE id IN ({placeholders})",  # noqa: S608 — placeholders are '?' only, not user input
+                f"UPDATE scheduled_actions SET notified=1 WHERE id IN ({placeholders})",  # noqa: S608 — placeholders are '?' only, not user input; ids asserted int above
                 action_ids,
             )
             conn.commit()

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests as http_requests
 
-from mediaman.services.plex import PlexClient
+from mediaman.services.plex import PlexClient, _scrub_plex_token
 
 
 @pytest.fixture
@@ -292,3 +292,56 @@ class TestPlexClient:
         assert accounts[0] == {"id": 2, "name": "Alice"}
         assert accounts[1] == {"id": 3, "name": "Bob"}
         mock_server.query.assert_called_once_with("/accounts")
+
+    @patch("mediaman.services.plex.PlexServer")
+    def test_get_watch_history_uses_params_kwarg(self, mock_cls, fake_http, fake_response):
+        """H53: metadataItemID must be sent via params= not interpolated into the URL."""
+        mock_server = MagicMock()
+        mock_server._baseurl = "http://plex:32400"
+        mock_server._token = "test-token"
+        mock_cls.return_value = mock_server
+
+        body = b'<MediaContainer></MediaContainer>'
+        fake_http.queue("GET", fake_response(content=body, headers={"Content-Length": str(len(body))}))
+
+        client = PlexClient("http://plex:32400", "test-token")
+        client.get_watch_history("123")
+
+        assert len(fake_http.calls) == 1
+        _, url, kwargs = fake_http.calls[0]
+        # The rating_key must appear in params, not the raw URL.
+        assert "params" in kwargs
+        assert kwargs["params"]["metadataItemID"] == "123"
+        assert "metadataItemID" not in url
+
+
+class TestScrubPlexToken:
+    """H52: ``_scrub_plex_token`` must redact token values from strings."""
+
+    def test_scrubs_token_in_query_string(self):
+        msg = "http://plex:32400/status?X-Plex-Token=supersecret&sort=desc"
+        result = _scrub_plex_token(msg)
+        assert "supersecret" not in result
+        assert "X-Plex-Token=<redacted>" in result
+
+    def test_scrubs_token_case_insensitive(self):
+        msg = "x-plex-token=MySecret123"
+        result = _scrub_plex_token(msg)
+        assert "MySecret123" not in result
+        assert "<redacted>" in result
+
+    def test_no_token_unchanged(self):
+        msg = "http://plex:32400/status?sort=desc"
+        assert _scrub_plex_token(msg) == msg
+
+    def test_token_at_end_of_string_scrubbed(self):
+        msg = "error from X-Plex-Token=abc123"
+        result = _scrub_plex_token(msg)
+        assert "abc123" not in result
+        assert "<redacted>" in result
+
+    def test_token_before_ampersand_scrubbed(self):
+        msg = "url?X-Plex-Token=tok&other=val"
+        result = _scrub_plex_token(msg)
+        assert "tok" not in result
+        assert "other=val" in result

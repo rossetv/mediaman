@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re as _re
 from datetime import datetime, timezone
 from typing import Literal, TypedDict
 
@@ -10,6 +11,20 @@ import requests as http_requests
 from plexapi.server import PlexServer
 
 from mediaman.services.http_client import SafeHTTPClient, SafeHTTPError
+
+# Matches X-Plex-Token query parameter values so they can be redacted from
+# exception messages and log lines before they propagate.
+_PLEX_TOKEN_RE = _re.compile(r"(X-Plex-Token=)[^&\s\"'>]+", _re.IGNORECASE)
+
+
+def _scrub_plex_token(msg: str) -> str:
+    """Replace any ``X-Plex-Token=<value>`` substring in *msg* with ``<redacted>``.
+
+    Applied to exception messages and log lines before they propagate so the
+    token never appears in tracebacks, log files, or error responses.
+    """
+    return _PLEX_TOKEN_RE.sub(r"\1<redacted>", msg)
+
 
 class PlexLibrarySection(TypedDict):
     """A Plex library section as returned by :meth:`PlexClient.get_libraries`."""
@@ -241,14 +256,13 @@ class PlexClient:
         """
         base_url = self.server._baseurl
         token = self.server._token
-        url = (
-            f"{base_url}/status/sessions/history/all"
-            f"?metadataItemID={rating_key}"
-            f"&sort=viewedAt:desc"
-        )
+        # Use params= so metadataItemID is properly URL-encoded and cannot
+        # be manipulated via a crafted rating_key containing query separators.
+        url = f"{base_url}/status/sessions/history/all"
         try:
             resp = self._http.get(
                 url,
+                params={"metadataItemID": rating_key, "sort": "viewedAt:desc"},
                 headers={"X-Plex-Token": token},
                 max_bytes=_HISTORY_MAX_BYTES,
             )
@@ -256,9 +270,9 @@ class PlexClient:
             # Preserve the original ValueError shape for callers that
             # treated oversize responses as a ValueError.
             if exc.status_code == 0 or "cap" in exc.body_snippet.lower() or "too large" in exc.body_snippet.lower():
-                raise ValueError(exc.body_snippet) from exc
+                raise ValueError(_scrub_plex_token(exc.body_snippet)) from exc
             raise http_requests.HTTPError(
-                f"Plex history returned {exc.status_code}"
+                _scrub_plex_token(f"Plex history returned {exc.status_code}")
             ) from exc
         body = resp.content
         resp.close()

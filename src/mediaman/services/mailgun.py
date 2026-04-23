@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import email.utils
 import logging
 
 import requests
@@ -9,6 +10,30 @@ import requests
 from mediaman.services.http_client import SafeHTTPClient, SafeHTTPError
 
 logger = logging.getLogger("mediaman")
+
+# Characters that must never appear in RFC 2822 header values (subject,
+# from, to) — a newline would allow header injection.
+_HEADER_INJECT_CHARS = frozenset("\r\n\0")
+
+
+def _validate_recipient(address: str) -> None:
+    """Raise ValueError if *address* is not a valid, injection-safe email address.
+
+    Checks performed:
+    - ``email.utils.parseaddr`` must yield a non-empty address.
+    - The raw string must not contain CR, LF, or NUL (header injection guard).
+    """
+    if any(c in address for c in _HEADER_INJECT_CHARS):
+        raise ValueError(f"Recipient address contains illegal characters: {address!r}")
+    _, parsed = email.utils.parseaddr(address)
+    if not parsed or "@" not in parsed:
+        raise ValueError(f"Invalid recipient email address: {address!r}")
+
+
+def _validate_header_value(value: str, field: str) -> None:
+    """Raise ValueError if *value* contains CR, LF, or NUL (header injection guard)."""
+    if any(c in value for c in _HEADER_INJECT_CHARS):
+        raise ValueError(f"Header field '{field}' contains illegal characters")
 
 
 class MailgunClient:
@@ -39,6 +64,12 @@ class MailgunClient:
         return self._US_BASE if self._base == self._EU_BASE else self._EU_BASE
 
     def send(self, *, to: str, subject: str, html: str) -> None:
+        # Defensive validation: reject bad addresses and header-injectable values
+        # before making the network call. Routes may validate at ingress, but the
+        # client must not depend on that.
+        _validate_recipient(to)
+        _validate_header_value(subject, "subject")
+
         data = {"from": self._from, "to": to, "subject": subject, "html": html}
         bases = [self._base, self._other_base()]
         last_error: Exception | None = None
@@ -53,10 +84,17 @@ class MailgunClient:
                 self._base = base  # remember what worked
                 return
             except SafeHTTPError as exc:
-                if exc.status_code in (401, 404) and base != bases[-1]:
+                # 401 means the API key is wrong — retrying the other region
+                # will not help and would confuse the log.  Only fall back on
+                # 404, which Mailgun uses when the domain is registered in the
+                # other region (a genuine region-routing error).
+                if exc.status_code == 401:
+                    last_error = exc
+                    break
+                if exc.status_code == 404 and base != bases[-1]:
                     logger.info(
-                        "Mailgun %s returned %s — retrying against alternate region",
-                        base, exc.status_code,
+                        "Mailgun %s returned 404 — domain may be in alternate region, retrying",
+                        base,
                     )
                     last_error = exc
                     continue

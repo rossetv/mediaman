@@ -257,3 +257,102 @@ class TestWebSearchTitleValidation:
 
         result = openai_recommendations._call_openai("hello", conn, use_web_search=True)
         assert len(result) == 2
+
+
+class TestOpenAIKeySource:
+    """H49: debug logging of which source (DB vs env) provided the API key."""
+
+    def test_logs_db_source_when_key_in_db(self, conn, monkeypatch, caplog):
+        """When the key comes from the DB, a DEBUG message says so."""
+        import logging
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
+            ("openai_api_key", "sk-from-db", "2026-04-18T00:00:00+00:00"),
+        )
+        conn.commit()
+
+        with caplog.at_level(logging.DEBUG, logger="mediaman"):
+            openai_recommendations._get_openai_key(conn)
+
+        assert any("database" in r.message.lower() for r in caplog.records)
+
+    def test_logs_env_source_when_key_from_env(self, conn, monkeypatch, caplog):
+        """When the key comes from the environment, a DEBUG message says so."""
+        import logging
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-from-env")
+        # No key in DB — falls back to environment.
+
+        with caplog.at_level(logging.DEBUG, logger="mediaman"):
+            result = openai_recommendations._get_openai_key(conn)
+
+        assert result == "sk-from-env"
+        assert any("environment" in r.message.lower() for r in caplog.records)
+
+    def test_returns_none_when_no_key(self, conn, monkeypatch):
+        """When neither DB nor env has a key, None is returned."""
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        result = openai_recommendations._get_openai_key(conn)
+        assert result is None
+
+
+class TestJsonObjectFormat:
+    """H50: ``_call_openai`` must request json_object format and handle markdown fallback."""
+
+    def test_json_object_format_sent_in_request(self, conn, monkeypatch, fake_http, fake_response):
+        """The request body must include ``text.format.type == json_object``."""
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
+            ("openai_api_key", "sk-test", "2026-04-18T00:00:00+00:00"),
+        )
+        conn.commit()
+
+        fake_http.queue("POST", fake_response(json_data={"output": []}))
+        openai_recommendations._call_openai("hello", conn, use_web_search=False)
+
+        post_call = next(c for c in fake_http.calls if c[0] == "POST")
+        body = post_call[2]["json"]
+        assert "text" in body
+        assert body["text"]["format"]["type"] == "json_object"
+
+    def test_markdown_fenced_response_still_parsed(self, conn, monkeypatch, fake_http, fake_response):
+        """Markdown-wrapped JSON is correctly parsed via the defensive regex fallback."""
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
+            ("openai_api_key", "sk-test", "2026-04-18T00:00:00+00:00"),
+        )
+        conn.commit()
+
+        items = [{"title": "Inception", "media_type": "movie", "reason": "classic"}]
+        wrapped = "```json\n" + __import__("json").dumps(items) + "\n```"
+        fake_http.queue("POST", fake_response(json_data={
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": wrapped}]}]
+        }))
+
+        result = openai_recommendations._call_openai("hello", conn, use_web_search=False)
+        assert len(result) == 1
+        assert result[0]["title"] == "Inception"
+
+    def test_plain_fenced_response_still_parsed(self, conn, monkeypatch, fake_http, fake_response):
+        """Plain ``` fencing (no json tag) is also handled by the fallback."""
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
+            ("openai_api_key", "sk-test", "2026-04-18T00:00:00+00:00"),
+        )
+        conn.commit()
+
+        items = [{"title": "Dune", "media_type": "movie", "reason": "epic"}]
+        wrapped = "```\n" + __import__("json").dumps(items) + "\n```"
+        fake_http.queue("POST", fake_response(json_data={
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": wrapped}]}]
+        }))
+
+        result = openai_recommendations._call_openai("hello", conn, use_web_search=False)
+        assert len(result) == 1
+        assert result[0]["title"] == "Dune"

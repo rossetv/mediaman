@@ -132,12 +132,22 @@ JSON array only, no markdown, no explanation."""
 
 
 def _get_openai_key(conn: sqlite3.Connection) -> str | None:
-    """Read the OpenAI API key from settings, falling back to env var."""
+    """Read the OpenAI API key from settings, falling back to env var.
+
+    Logs (DEBUG) which source was used so administrators can diagnose
+    misconfiguration without the key itself ever appearing in logs.
+    """
     from mediaman.config import load_config
     from mediaman.services.settings_reader import get_string_setting
 
     val = get_string_setting(conn, "openai_api_key", secret_key=load_config().secret_key)
-    return val or os.environ.get("OPENAI_API_KEY")
+    if val:
+        logger.debug("OpenAI API key loaded from database settings")
+        return val
+    env_val = os.environ.get("OPENAI_API_KEY")
+    if env_val:
+        logger.debug("OpenAI API key loaded from OPENAI_API_KEY environment variable")
+    return env_val
 
 
 def _is_web_search_enabled(conn: sqlite3.Connection | None) -> bool:
@@ -177,10 +187,15 @@ def _call_openai(prompt: str, conn: sqlite3.Connection | None, use_web_search: b
 
     model = _get_openai_model(conn) if conn else _DEFAULT_MODEL
     try:
-        body = {
+        body: dict = {
             "model": model,
             "instructions": "You are a media recommendation engine. ALWAYS search the web to find current, real, accurate information. Do not rely on training data alone. Return only valid JSON.",
             "input": prompt,
+            # Ask the Responses API to return structured JSON directly.
+            # Models that honour this parameter will skip the markdown wrapper.
+            # The defensive regex strip below remains as a fallback for models
+            # that ignore the parameter or return partial markdown anyway.
+            "text": {"format": {"type": "json_object"}},
         }
         if web_search_active:
             body["tools"] = [{"type": "web_search_preview"}]
@@ -204,9 +219,11 @@ def _call_openai(prompt: str, conn: sqlite3.Connection | None, use_web_search: b
                         break
 
         content = content.strip()
+        # Defensive fallback: strip markdown code fences if the model ignored
+        # the json_object format request and wrapped the output anyway.
         if content.startswith("```"):
-            content = content.split("\n", 1)[1]
-            content = content.rsplit("```", 1)[0]
+            content = re.sub(r"^```(?:json)?\s*", "", content)
+            content = re.sub(r"\s*```\s*$", "", content)
 
         items = json.loads(content)
         if not isinstance(items, list):

@@ -301,3 +301,58 @@ class TestSendNewsletterRecipientOverride:
             "SELECT notified FROM scheduled_actions WHERE media_item_id='mi1'"
         ).fetchone()
         assert sa["notified"] == 0
+
+
+class TestNewsletterSuggestionContext:
+    """H59: suggestion rows must be passed to the template as explicit dicts, not raw DB rows."""
+
+    def test_suggestion_context_contains_only_known_fields(self, db_path):
+        """Suggestion items in the template context must only contain the declared fields."""
+        import jinja2
+
+        conn = init_db(str(db_path))
+        _configure_mailgun(conn)
+        _add_subscriber(conn, "alice@example.com")
+
+        now = datetime.now(timezone.utc).isoformat()
+        # Insert a suggestion row with extra DB columns that must NOT leak into the template.
+        conn.execute(
+            """INSERT INTO suggestions (title, year, media_type, category, tmdb_id, imdb_id,
+               description, reason, poster_url, trailer_url, rating, rt_rating,
+               tagline, runtime, genres, cast_json, director, trailer_key,
+               imdb_rating, metascore, batch_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("Test Film", 2024, "movie", "trending", 12345, "tt0000001",
+             "A test film.", "Great reason", "https://example/poster.jpg",
+             "https://youtube.com/watch?v=xyz", 8.5, 90,
+             "A tagline", 120, '["Action"]', '["Actor One"]', "Director One", "abckey",
+             7.8, 85, now[:10], now),
+        )
+        conn.commit()
+
+        captured_context: dict = {}
+
+        def capturing_render(self_or_ctx=None, **kwargs):
+            # jinja2.Template.render is called as an instance method; the first
+            # positional arg is ``self`` when used as an unbound patch.
+            captured_context.update(kwargs)
+            return "<html></html>"
+
+        with patch(_PATCH_MAILGUN, MagicMock(return_value=MagicMock())), \
+             patch(_PATCH_STORAGE, return_value=_fake_disk()), \
+             patch(_PATCH_RADARR, return_value=None), \
+             patch(_PATCH_SONARR, return_value=None), \
+             patch.object(jinja2.Template, "render", capturing_render):
+            send_newsletter(conn, _SECRET_KEY)
+
+        assert "this_week_items" in captured_context
+        items = captured_context["this_week_items"]
+        assert len(items) == 1
+        item = items[0]
+
+        # These are the only fields the template should receive.
+        allowed_keys = {"id", "title", "media_type", "category", "description",
+                        "reason", "poster_url", "tmdb_id", "rating", "rt_rating",
+                        "download_url", "download_state"}
+        extra_keys = set(item.keys()) - allowed_keys
+        assert not extra_keys, f"Unexpected keys leaked into template context: {extra_keys}"
