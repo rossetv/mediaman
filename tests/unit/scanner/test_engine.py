@@ -833,3 +833,273 @@ class TestShowLevelKeep:
         # The stored value must represent the same instant as the original
         # POSIX timestamp — not be offset by the local UTC difference.
         assert abs((stored - expected_utc).total_seconds()) < 2
+
+
+class TestDeleteRootsSeparator:
+    """C23: MEDIAMAN_DELETE_ROOTS must accept both ':' and ',' separators
+    with ':' being canonical and ',' deprecated."""
+
+    def _engine(self, conn, mock_plex):
+        return ScanEngine(
+            conn=conn, plex_client=mock_plex,
+            library_ids=[], library_types={},
+            secret_key="k",
+        )
+
+    def test_colon_separator_parses(self, conn, mock_plex, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/a:/b:/c")
+        roots = self._engine(conn, mock_plex)._load_delete_allowed_roots()
+        assert roots == ["/a", "/b", "/c"]
+
+    def test_comma_separator_parses_with_deprecation_warning(
+        self, conn, mock_plex, monkeypatch, caplog,
+    ):
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/a,/b,/c")
+        with caplog.at_level("WARNING", logger="mediaman"):
+            roots = self._engine(conn, mock_plex)._load_delete_allowed_roots()
+        assert roots == ["/a", "/b", "/c"]
+        msgs = " ".join(r.getMessage() for r in caplog.records)
+        assert "deprecated" in msgs.lower()
+
+    def test_mixed_separators_errors_but_still_parses(
+        self, conn, mock_plex, monkeypatch, caplog,
+    ):
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/a:/b,/c")
+        with caplog.at_level("ERROR", logger="mediaman"):
+            roots = self._engine(conn, mock_plex)._load_delete_allowed_roots()
+        assert roots == ["/a", "/b", "/c"]
+        assert any("both" in r.getMessage().lower() for r in caplog.records)
+
+    def test_empty_value_returns_empty_and_logs_error(
+        self, conn, mock_plex, monkeypatch, caplog,
+    ):
+        monkeypatch.delenv("MEDIAMAN_DELETE_ROOTS", raising=False)
+        with caplog.at_level("ERROR", logger="mediaman"):
+            roots = self._engine(conn, mock_plex)._load_delete_allowed_roots()
+        assert roots == []
+        assert any(
+            "not configured" in r.getMessage() for r in caplog.records
+        )
+
+
+class TestTwoPhaseDelete:
+    """C30: deletions must mark a 'deleting' status before the rm so a
+    crash mid-way can be recovered by _recover_stuck_deletions."""
+
+    def _insert_item(self, conn, item_id, file_path="/tmp/fake", size=1_000_000):
+        now = datetime.now(timezone.utc)
+        conn.execute(
+            "INSERT INTO media_items (id, title, media_type, plex_library_id, "
+            "plex_rating_key, added_at, file_path, file_size_bytes) "
+            "VALUES (?, ?, 'movie', 1, ?, ?, ?, ?)",
+            (item_id, f"t-{item_id}", item_id,
+             (now - timedelta(days=60)).isoformat(), file_path, size),
+        )
+
+    def _insert_sched(self, conn, item_id, past, *, status="pending"):
+        conn.execute(
+            "INSERT INTO scheduled_actions "
+            "(media_item_id, action, scheduled_at, execute_at, token, "
+            "token_used, delete_status) "
+            "VALUES (?, 'scheduled_deletion', ?, ?, ?, 0, ?)",
+            (item_id, datetime.now(timezone.utc).isoformat(), past,
+             f"tok-{item_id}", status),
+        )
+        conn.commit()
+
+    def test_marks_deleting_before_rm_and_deletes_row_after(
+        self, conn, mock_plex, monkeypatch,
+    ):
+        """Happy path: row flips through 'deleting' then is removed."""
+        now = datetime.now(timezone.utc)
+        past = (now - timedelta(seconds=1)).isoformat()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/tmp")
+        self._insert_item(conn, "d1")
+        self._insert_sched(conn, "d1", past)
+
+        seen: dict[str, str | None] = {}
+
+        def fake_delete(path, *, allowed_roots):
+            row = conn.execute(
+                "SELECT delete_status FROM scheduled_actions "
+                "WHERE media_item_id='d1'"
+            ).fetchone()
+            seen["status_during_rm"] = row["delete_status"]
+
+        with patch("mediaman.scanner.engine.delete_path", side_effect=fake_delete):
+            engine = ScanEngine(
+                conn=conn, plex_client=mock_plex,
+                library_ids=[], library_types={},
+                secret_key="k",
+            )
+            result = engine.execute_deletions()
+
+        assert seen["status_during_rm"] == "deleting"
+        assert result["deleted"] == 1
+        row = conn.execute(
+            "SELECT * FROM scheduled_actions WHERE media_item_id='d1'"
+        ).fetchone()
+        assert row is None
+
+    def test_rollback_on_value_error(self, conn, mock_plex, monkeypatch):
+        """When delete_path refuses, the marker must roll back to pending
+        so a later run can retry."""
+        now = datetime.now(timezone.utc)
+        past = (now - timedelta(seconds=1)).isoformat()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/tmp")
+        self._insert_item(conn, "d2", file_path="/etc/passwd")
+        self._insert_sched(conn, "d2", past)
+
+        with patch(
+            "mediaman.scanner.engine.delete_path",
+            side_effect=ValueError("outside allowed roots"),
+        ):
+            engine = ScanEngine(
+                conn=conn, plex_client=mock_plex,
+                library_ids=[], library_types={},
+                secret_key="k",
+            )
+            engine.execute_deletions()
+
+        row = conn.execute(
+            "SELECT delete_status FROM scheduled_actions "
+            "WHERE media_item_id='d2'"
+        ).fetchone()
+        assert row is not None
+        assert row["delete_status"] == "pending"
+
+    def test_recover_file_still_present_resets_to_pending(
+        self, conn, mock_plex, tmp_path,
+    ):
+        """Recovery: a 'deleting' row whose file is still on disk is
+        reset to 'pending' so the next run retries it."""
+        from mediaman.scanner.engine import _recover_stuck_deletions
+
+        live = tmp_path / "live.mkv"
+        live.write_bytes(b"x")
+        self._insert_item(conn, "r1", file_path=str(live))
+        self._insert_sched(
+            conn, "r1", "2026-01-01T00:00:00+00:00", status="deleting",
+        )
+
+        _recover_stuck_deletions(conn)
+
+        row = conn.execute(
+            "SELECT delete_status FROM scheduled_actions "
+            "WHERE media_item_id='r1'"
+        ).fetchone()
+        assert row["delete_status"] == "pending"
+
+    def test_recover_file_absent_completes_cleanup(self, conn, mock_plex):
+        """Recovery: a 'deleting' row whose file is already gone gets
+        its audit entry written and the row removed."""
+        from mediaman.scanner.engine import _recover_stuck_deletions
+
+        self._insert_item(conn, "r2", file_path="/definitely/not/here/x.mkv")
+        self._insert_sched(
+            conn, "r2", "2026-01-01T00:00:00+00:00", status="deleting",
+        )
+
+        _recover_stuck_deletions(conn)
+
+        row = conn.execute(
+            "SELECT * FROM scheduled_actions WHERE media_item_id='r2'"
+        ).fetchone()
+        assert row is None
+        audit = conn.execute(
+            "SELECT action FROM audit_log WHERE media_item_id='r2'"
+        ).fetchone()
+        assert audit is not None
+        assert audit["action"] == "deleted"
+
+
+class TestOrphanGuard:
+    """C31: a scan returning zero (or near-zero) items must not be
+    trusted as authoritative — refuse orphan removal and log why."""
+
+    def _populate_items(self, conn, lib_id, n):
+        for i in range(n):
+            conn.execute(
+                "INSERT INTO media_items (id, title, media_type, "
+                "plex_library_id, plex_rating_key, added_at, file_path, "
+                "file_size_bytes) VALUES (?, ?, 'movie', ?, ?, ?, ?, ?)",
+                (f"item-{lib_id}-{i}", f"t-{i}", lib_id, f"item-{lib_id}-{i}",
+                 "2026-01-01", f"/media/{i}", 1),
+            )
+        conn.commit()
+
+    def test_empty_scan_against_populated_lib_refuses_orphan_removal(
+        self, conn, mock_plex, caplog,
+    ):
+        self._populate_items(conn, 7, 20)
+        engine = ScanEngine(
+            conn=conn, plex_client=mock_plex,
+            library_ids=["7"], library_types={"7": "movie"},
+            secret_key="k",
+        )
+        with caplog.at_level("WARNING", logger="mediaman"):
+            removed = engine._remove_orphaned_items(
+                seen_keys=set(), scanned_libs={7},
+            )
+        assert removed == 0
+        # DB untouched — all 20 items still present.
+        assert conn.execute(
+            "SELECT COUNT(*) FROM media_items"
+        ).fetchone()[0] == 20
+        msgs = " ".join(r.getMessage() for r in caplog.records)
+        assert "below_min_items" in msgs
+
+    def test_huge_drop_triggers_ratio_guard(
+        self, conn, mock_plex, caplog,
+    ):
+        self._populate_items(conn, 8, 200)
+        # Only 5 items "found" — that's above the 5-item floor but below
+        # the 10 % ratio floor (200 * 0.10 = 20).
+        seen = {f"item-8-{i}" for i in range(5)}
+        engine = ScanEngine(
+            conn=conn, plex_client=mock_plex,
+            library_ids=["8"], library_types={"8": "movie"},
+            secret_key="k",
+        )
+        with caplog.at_level("WARNING", logger="mediaman"):
+            removed = engine._remove_orphaned_items(
+                seen_keys=seen, scanned_libs={8},
+            )
+        assert removed == 0
+        assert conn.execute(
+            "SELECT COUNT(*) FROM media_items"
+        ).fetchone()[0] == 200
+        msgs = " ".join(r.getMessage() for r in caplog.records)
+        assert "below_ratio" in msgs
+
+    def test_normal_small_drop_still_removes_orphans(self, conn, mock_plex):
+        """A modest drop (e.g. one item removed from a 30-item library)
+        must still trigger orphan cleanup — guard only catches collapse."""
+        self._populate_items(conn, 9, 30)
+        seen = {f"item-9-{i}" for i in range(30) if i != 5}
+        engine = ScanEngine(
+            conn=conn, plex_client=mock_plex,
+            library_ids=["9"], library_types={"9": "movie"},
+            secret_key="k",
+        )
+        removed = engine._remove_orphaned_items(
+            seen_keys=seen, scanned_libs={9},
+        )
+        assert removed == 1
+        assert conn.execute(
+            "SELECT COUNT(*) FROM media_items"
+        ).fetchone()[0] == 29
+
+    def test_fresh_db_with_tiny_scan_is_allowed(self, conn, mock_plex):
+        """If the previous count was zero / tiny (genuine first run), the
+        min-items floor must not block first-time orphan cleanup."""
+        # No prior items at all → previous_count == 0 → guard inactive.
+        engine = ScanEngine(
+            conn=conn, plex_client=mock_plex,
+            library_ids=["10"], library_types={"10": "movie"},
+            secret_key="k",
+        )
+        removed = engine._remove_orphaned_items(
+            seen_keys={"x"}, scanned_libs={10},
+        )
+        assert removed == 0  # nothing to remove, but not blocked either

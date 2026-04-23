@@ -103,6 +103,91 @@ class TestDeletePathValidation:
         assert target.exists()
 
 
+class TestDeletePathSymlinkSafety:
+    """Regression tests for the TOCTOU / symlink hardening in delete_path.
+
+    Each case builds a crafted layout and proves _safe_rmtree refuses to
+    escape the allowed root.
+    """
+
+    def test_refuses_symlink_target_pointing_outside_root(self, tmp_path):
+        """A symlink passed as the target (resolving inside the root) must
+        still be refused — we never want to delete *through* a symlink."""
+        root = tmp_path / "media"
+        root.mkdir()
+        real = root / "real"
+        real.mkdir()
+        (real / "f.txt").write_text("data")
+        link = root / "link"
+        link.symlink_to(real)
+
+        with pytest.raises(ValueError, match="symlink"):
+            delete_path(str(link), allowed_roots=[str(root)])
+        # Real target untouched.
+        assert real.exists()
+        assert (real / "f.txt").exists()
+
+    def test_refuses_symlink_discovered_mid_walk(self, tmp_path):
+        """A nested symlink swapped in under the target directory must
+        not cause the walker to follow it and delete outside the root."""
+        root = tmp_path / "media"
+        root.mkdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "important.txt").write_text("keep me")
+
+        target = root / "todelete"
+        target.mkdir()
+        (target / "a.txt").write_text("junk")
+        (target / "escape").symlink_to(outside)
+
+        delete_path(str(target), allowed_roots=[str(root)])
+
+        # The deletion target is gone.
+        assert not target.exists()
+        # The outside tree is untouched — only the link entry disappeared.
+        assert outside.exists()
+        assert (outside / "important.txt").exists()
+
+    def test_refuses_root_that_is_itself_a_symlink(self, tmp_path):
+        """A delete_allowed_roots entry that is a symlink is a
+        misconfiguration and must cause deletion to be refused."""
+        real_root = tmp_path / "real_root"
+        real_root.mkdir()
+        (real_root / "f.txt").write_text("data")
+        link_root = tmp_path / "link_root"
+        link_root.symlink_to(real_root)
+
+        target = real_root / "sub"
+        target.mkdir()
+        (target / "inner.txt").write_text("x")
+
+        # Root is the symlink, target is inside its resolved content.
+        with pytest.raises(ValueError, match="symlink"):
+            delete_path(str(target), allowed_roots=[str(link_root)])
+        # Target is untouched.
+        assert target.exists()
+
+    def test_allows_valid_nested_tree_inside_root(self, tmp_path):
+        """Happy path: a regular nested directory tree inside the root
+        is fully removed."""
+        root = tmp_path / "media"
+        root.mkdir()
+        target = root / "show" / "season 1"
+        target.mkdir(parents=True)
+        (target / "s01e01.mkv").write_bytes(b"x" * 100)
+        (target / "s01e02.mkv").write_bytes(b"x" * 100)
+        nested = target / "subs"
+        nested.mkdir()
+        (nested / "en.srt").write_text("subs")
+
+        delete_path(str(target), allowed_roots=[str(root)])
+
+        assert not target.exists()
+        # Parent still there — we only removed the target.
+        assert (root / "show").exists()
+
+
 class TestGetDirectorySize:
     def test_calculates_total_size(self, tmp_path):
         (tmp_path / "a.txt").write_bytes(b"x" * 100)

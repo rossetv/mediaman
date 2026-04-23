@@ -38,19 +38,42 @@ async def lifespan(app: FastAPI):
     _get_cache_dir(config.data_dir)
 
     # ── AES key canary: detect a rotated/mismatched MEDIAMAN_SECRET_KEY ──────
-    # Does NOT refuse to start on mismatch — the admin must still be able to
-    # log in and re-enter secrets. A LOUD warning is logged by canary_check.
+    # Does NOT refuse to start — the admin must still be able to log in and
+    # re-enter secrets — but a mismatch means every scheduled scan would
+    # silently fail forever (the closure below captures the wrong key). So
+    # the canary state is tracked on app.state and the scheduler refuses to
+    # start when the check failed. A LOUD warning is logged by canary_check.
+    canary_ok = True
     try:
         from mediaman.crypto import canary_check
-        canary_check(conn, config.secret_key)
+        canary_ok = canary_check(conn, config.secret_key)
     except Exception:
         logger.exception("AES canary check failed unexpectedly")
+        canary_ok = False
+    app.state.canary_ok = canary_ok
+    app.state.scheduler_healthy = False  # set True below on successful start
 
     # ── Start scheduler if scan settings are configured ──────────────────────
     from mediaman.scanner.scheduler import start_scheduler, stop_scheduler
 
     scheduler_started = False
     try:
+        if not canary_ok:
+            raise RuntimeError(
+                "Refusing to start scheduler: AES canary check failed. "
+                "Fix MEDIAMAN_SECRET_KEY (or re-enter encrypted settings) "
+                "and restart. The web UI is still accessible so an admin "
+                "can investigate."
+            )
+
+        # Reconcile any rows left in the 'deleting' state by a previous
+        # crash — safe even if no scan runs this boot.
+        try:
+            from mediaman.scanner.engine import _recover_stuck_deletions
+            _recover_stuck_deletions(conn)
+        except Exception:
+            logger.exception("Stuck-deletion recovery failed at startup")
+
         scan_day = _get_setting(conn, "scan_day", default="mon")
         scan_time = _get_setting(conn, "scan_time", default="09:00")
         scan_tz = _get_setting(conn, "scan_timezone", default="UTC")
@@ -93,12 +116,15 @@ async def lifespan(app: FastAPI):
             sync_interval_minutes=sync_interval,
         )
         scheduler_started = True
+        app.state.scheduler_healthy = True
         logger.info(
             "Scheduler started: scan every %s at %02d:%02d %s, library sync every %d min",
             scan_day, hour, minute, scan_tz, sync_interval,
         )
     except Exception as e:
-        logger.warning("Could not start scheduler: %s", e)
+        # On failure keep scheduler_healthy=False so the UI can surface
+        # a banner in a future cluster. Don't take the app down.
+        logger.error("Could not start scheduler: %s", e)
 
     logger.info("Mediaman started on port %s", config.port)
     yield
@@ -216,5 +242,14 @@ def cli_main() -> None:
         )
 
 
-# Module-level instantiation for uvicorn; importing this module triggers all route imports.
-app = create_app()
+# Module-level instantiation for uvicorn targets such as
+# ``uvicorn mediaman.main:app``. Importing this module triggers all route
+# imports AND the lifespan (DB open, scheduler setup) on server start, so
+# it is gated behind ``MEDIAMAN_EAGER_APP=1`` to avoid import-time side
+# effects for anything that just wants to introspect the module (tests,
+# ``python -m mediaman.main``, CLI subcommands). The CLI path constructs
+# its own app via ``cli_main`` so the module-level instance is only
+# needed when uvicorn is invoked with this dotted path.
+import os as _os
+if _os.environ.get("MEDIAMAN_EAGER_APP", "").strip() == "1":
+    app = create_app()

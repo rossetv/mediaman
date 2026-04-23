@@ -42,6 +42,82 @@ _DELETION_ACTION = "scheduled_deletion"
 # Default token TTL: 30 days from now
 _TOKEN_TTL_DAYS = 30
 
+# Orphan-removal safeguards (C31). A scan that finds zero items against a
+# previously-populated library is almost always a Plex auth hiccup, not a
+# genuine mass-deletion. Refuse to treat such a result as authoritative.
+_MIN_ITEMS_TO_TRUST = 5
+_MIN_ITEMS_FOR_RATIO_CHECK = 50
+_MIN_RATIO_TO_TRUST = 0.10
+
+
+def _recover_stuck_deletions(conn: sqlite3.Connection) -> None:
+    """Reconcile ``scheduled_actions`` rows left in the ``deleting`` state.
+
+    Called at the start of :meth:`ScanEngine.execute_deletions` and by
+    the scheduler on startup. For each row marked ``deleting`` we check
+    whether the on-disk file is still present:
+
+    * File absent → the rm completed but the follow-up bookkeeping was
+      never committed. Convert to a normal ``deleted`` cleanup: write
+      the audit entry and drop the row.
+    * File present → the rm never ran. Reset to ``pending`` so the next
+      normal run retries cleanly.
+
+    Idempotent; safe to call on every startup. Does not itself delete
+    any files — purely a state reconciliation.
+    """
+    import os as _os
+
+    try:
+        rows = conn.execute(
+            "SELECT sa.id, sa.media_item_id, sa.action, mi.file_path, "
+            "mi.file_size_bytes, mi.title, mi.plex_rating_key "
+            "FROM scheduled_actions sa "
+            "LEFT JOIN media_items mi ON sa.media_item_id = mi.id "
+            "WHERE sa.delete_status = 'deleting'"
+        ).fetchall()
+    except sqlite3.OperationalError:
+        # delete_status column not yet migrated — nothing to do.
+        return
+
+    for row in rows:
+        file_path = row["file_path"] or ""
+        file_present = bool(file_path) and _os.path.lexists(file_path)
+        if file_present:
+            logger.warning(
+                "engine.delete.recover id=%s path=%r — file still present, "
+                "reverting status to 'pending'",
+                row["id"], file_path,
+            )
+            conn.execute(
+                "UPDATE scheduled_actions SET delete_status = 'pending' "
+                "WHERE id = ?",
+                (row["id"],),
+            )
+        else:
+            logger.warning(
+                "engine.delete.recover id=%s path=%r — file already gone, "
+                "completing cleanup",
+                row["id"], file_path,
+            )
+            rk = row["plex_rating_key"]
+            detail = (
+                f"Deleted (recovered): {row['title']}"
+                + (f" [rk:{rk}]" if rk else "")
+            )
+            log_audit(
+                conn,
+                row["media_item_id"],
+                "deleted",
+                detail,
+                space_bytes=row["file_size_bytes"],
+            )
+            conn.execute(
+                "DELETE FROM scheduled_actions WHERE id = ?",
+                (row["id"],),
+            )
+    conn.commit()
+
 
 @dataclass
 class _PlexItemFetch:
@@ -131,7 +207,34 @@ class ScanEngine:
                 pass
         if not roots:
             env_val = os.environ.get("MEDIAMAN_DELETE_ROOTS", "")
-            roots = [r.strip() for r in env_val.split(":") if r.strip()]
+            if env_val:
+                # Canonical separator is ':' (PATH-style). Legacy ','
+                # is accepted with a deprecation warning. Do not allow
+                # mixing: if BOTH appear in the value it's almost
+                # certainly a typo, so we split on either and log.
+                has_colon = ":" in env_val
+                has_comma = "," in env_val
+                if has_comma:
+                    logger.warning(
+                        "MEDIAMAN_DELETE_ROOTS uses ',' separator — this is "
+                        "deprecated. Use ':' (PATH-style) instead; see "
+                        ".env.example."
+                    )
+                if has_comma and has_colon:
+                    logger.error(
+                        "MEDIAMAN_DELETE_ROOTS contains both ':' and ',' "
+                        "separators — this is almost certainly a mistake. "
+                        "Pick one (':' preferred) and retry."
+                    )
+                # Accept both separators for robustness.
+                import re as _re
+                roots = [r.strip() for r in _re.split(r"[:,]", env_val) if r.strip()]
+                if not roots:
+                    logger.error(
+                        "MEDIAMAN_DELETE_ROOTS is set but no valid roots "
+                        "parsed from %r — deletions will be refused.",
+                        env_val,
+                    )
         if not roots:
             logger.error(
                 "delete_allowed_roots is not configured — all deletions "
@@ -400,12 +503,18 @@ class ScanEngine:
 
         allowed_roots = self._load_delete_allowed_roots()
 
+        # Recover any rows left in the 'deleting' state by a previous
+        # crash between the on-disk rm and the DB cleanup commit.
+        _recover_stuck_deletions(self._conn)
+
         rows = self._conn.execute(
             "SELECT sa.id, sa.media_item_id, mi.file_path, mi.file_size_bytes, "
             "mi.radarr_id, mi.sonarr_id, mi.season_number, mi.title, mi.plex_rating_key "
             "FROM scheduled_actions sa "
             "JOIN media_items mi ON sa.media_item_id = mi.id "
-            "WHERE sa.action = 'scheduled_deletion' AND sa.execute_at < ?",
+            "WHERE sa.action = 'scheduled_deletion' "
+            "  AND sa.execute_at < ? "
+            "  AND (sa.delete_status IS NULL OR sa.delete_status = 'pending')",
             (now.isoformat(),),
         ).fetchall()
 
@@ -422,12 +531,43 @@ class ScanEngine:
                     "env var.", row["file_path"],
                 )
                 continue
+
+            # Two-phase delete: mark the row 'deleting' and commit BEFORE
+            # removing the file. If we crash between this commit and the
+            # rm, the next run's _recover_stuck_deletions() can inspect
+            # the row and decide whether the file is still there (reset
+            # to pending) or already gone (mark deleted).
+            logger.info(
+                "engine.delete.intent id=%s media_id=%s path=%r",
+                row["id"], row["media_item_id"], row["file_path"],
+            )
+            self._conn.execute(
+                "UPDATE scheduled_actions SET delete_status = 'deleting' "
+                "WHERE id = ?",
+                (row["id"],),
+            )
+            self._conn.commit()
+
             try:
                 delete_path(row["file_path"], allowed_roots=allowed_roots)
             except ValueError as exc:
                 logger.error(
                     "Refusing to delete '%s' — path is outside configured "
                     "delete_allowed_roots: %s", row["file_path"], exc
+                )
+                # Roll back the marker so the row is re-examined next run.
+                self._conn.execute(
+                    "UPDATE scheduled_actions SET delete_status = 'pending' "
+                    "WHERE id = ?",
+                    (row["id"],),
+                )
+                self._conn.commit()
+                continue
+            except Exception:
+                logger.exception(
+                    "engine.delete.failed id=%s path=%r — leaving row in "
+                    "'deleting' state for recovery on next run",
+                    row["id"], row["file_path"],
                 )
                 continue
 
@@ -625,6 +765,19 @@ class ScanEngine:
         Only considers items belonging to libraries that were successfully
         scanned (so we don't accidentally delete items from a library that
         was unreachable during this sync).
+
+        Fail-closed safeguards against a Plex auth hiccup returning zero
+        items and wiping every kept-state / snooze row:
+
+        * If the scan found fewer than ``_MIN_ITEMS_TO_TRUST`` items in
+          total across the scanned libraries, we refuse to treat the
+          result as authoritative and skip orphan removal.
+        * If the scan found less than ``_MIN_RATIO_TO_TRUST`` (10 %) of
+          the items we had on record for those libraries, likewise.
+
+        In both cases a warning is logged with the exact numbers so an
+        admin can investigate and, if the result really was correct,
+        reconcile manually.
         """
         if not scanned_libs:
             return 0
@@ -634,6 +787,38 @@ class ScanEngine:
             f"SELECT id FROM media_items WHERE plex_library_id IN ({placeholders})",  # noqa: S608 — placeholders are '?' only, not user input
             tuple(scanned_libs),
         ).fetchall()
+
+        previous_count = len(rows)
+        current_count = len(seen_keys)
+
+        # Hard floor: fewer than this many items makes the scan look
+        # like a failure mode (e.g. Plex auth hiccup returning empty).
+        if current_count < _MIN_ITEMS_TO_TRUST and previous_count >= _MIN_ITEMS_TO_TRUST:
+            logger.warning(
+                "engine.orphan_guard.skip reason=below_min_items "
+                "current=%d previous=%d threshold=%d scanned_libs=%s — "
+                "refusing to remove orphans; admin must verify and "
+                "reconcile manually if this is correct.",
+                current_count, previous_count, _MIN_ITEMS_TO_TRUST,
+                sorted(scanned_libs),
+            )
+            return 0
+
+        # Fractional floor: a huge drop between runs is also suspicious.
+        if (
+            previous_count > _MIN_ITEMS_FOR_RATIO_CHECK
+            and current_count < previous_count * _MIN_RATIO_TO_TRUST
+        ):
+            logger.warning(
+                "engine.orphan_guard.skip reason=below_ratio "
+                "current=%d previous=%d ratio=%.3f min_ratio=%.2f "
+                "scanned_libs=%s — refusing to remove orphans; admin must "
+                "verify and reconcile manually if this is correct.",
+                current_count, previous_count,
+                (current_count / previous_count) if previous_count else 0.0,
+                _MIN_RATIO_TO_TRUST, sorted(scanned_libs),
+            )
+            return 0
 
         orphans = [r["id"] for r in rows if r["id"] not in seen_keys]
         if not orphans:

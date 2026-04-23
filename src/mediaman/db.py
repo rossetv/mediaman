@@ -28,7 +28,7 @@ from pathlib import Path
 
 logger = logging.getLogger("mediaman")
 
-DB_SCHEMA_VERSION = 13
+DB_SCHEMA_VERSION = 14
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (
@@ -82,7 +82,8 @@ CREATE TABLE IF NOT EXISTS scheduled_actions (
     snoozed_at TEXT,
     snooze_duration TEXT,
     notified INTEGER NOT NULL DEFAULT 0,
-    is_reentry INTEGER NOT NULL DEFAULT 0
+    is_reentry INTEGER NOT NULL DEFAULT 0,
+    delete_status TEXT NOT NULL DEFAULT 'pending'
 );
 
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -452,6 +453,31 @@ def init_db(db_path: str) -> sqlite3.Connection:
                 logger.warning(
                     "db.migration_v13 purged_legacy_sessions count=%d reason=expiry_over_cap",
                     len(stale_rowids),
+                )
+    if current_version < 14:
+        # Two-phase delete marker (C30). ``delete_status`` is:
+        #   * ``pending``  — scheduled, not yet being executed.
+        #   * ``deleting`` — rm is in flight on disk; reconciled by
+        #                     ``_recover_stuck_deletions`` on startup.
+        #   * ``deleted``  — kept transiently; current flow drops the
+        #                     row once deletion completes, but recovery
+        #                     logic may set it before the row is removed.
+        # Idempotent: guarded by the column-existence check.
+        has_actions_table = conn.execute(
+            "SELECT 1 FROM sqlite_master "
+            "WHERE type='table' AND name='scheduled_actions'"
+        ).fetchone() is not None
+        if has_actions_table:
+            action_cols = {
+                row[1]
+                for row in conn.execute(
+                    "PRAGMA table_info(scheduled_actions)"
+                ).fetchall()
+            }
+            if "delete_status" not in action_cols:
+                conn.execute(
+                    "ALTER TABLE scheduled_actions ADD COLUMN "
+                    "delete_status TEXT NOT NULL DEFAULT 'pending'"
                 )
     conn.execute(f"PRAGMA user_version={DB_SCHEMA_VERSION}")
     conn.commit()

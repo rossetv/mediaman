@@ -271,7 +271,81 @@ class TestSchemaV13LegacySessionPurge:
         init_db(str(db_path)).close()
         init_db(str(db_path)).close()  # must not raise
 
-    def test_schema_version_is_13(self, db_path):
-        assert DB_SCHEMA_VERSION == 13
+    def test_schema_version_is_current(self, db_path):
+        assert DB_SCHEMA_VERSION == 14
         conn = init_db(str(db_path))
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 13
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 14
+
+
+class TestSchemaV14DeleteStatus:
+    """v14 adds ``scheduled_actions.delete_status`` for the two-phase delete."""
+
+    def test_column_present_on_fresh_db(self, db_path):
+        conn = init_db(str(db_path))
+        cols = {
+            r[1]
+            for r in conn.execute(
+                "PRAGMA table_info(scheduled_actions)"
+            ).fetchall()
+        }
+        assert "delete_status" in cols
+
+    def test_default_is_pending(self, db_path):
+        conn = init_db(str(db_path))
+        conn.execute(
+            "INSERT INTO media_items (id, title, media_type, plex_library_id, "
+            "plex_rating_key, added_at, file_path, file_size_bytes) "
+            "VALUES ('m1', 't', 'movie', 1, 'm1', '2026-01-01', '/tmp/x', 1)"
+        )
+        conn.execute(
+            "INSERT INTO scheduled_actions "
+            "(media_item_id, action, scheduled_at, token) "
+            "VALUES ('m1', 'scheduled_deletion', '2026-01-01', 'tok1')"
+        )
+        status = conn.execute(
+            "SELECT delete_status FROM scheduled_actions WHERE token='tok1'"
+        ).fetchone()[0]
+        assert status == "pending"
+
+    def test_migration_from_v13_adds_column(self, tmp_path):
+        import sqlite3 as _sq
+        db_path = tmp_path / "legacy.db"
+        # Bring up a v13 DB first.
+        init_db(str(db_path)).close()
+        # Now drop the column and reset version to simulate pre-v14.
+        # SQLite doesn't easily drop columns, so rebuild the table.
+        conn = _sq.connect(str(db_path))
+        conn.execute("DROP TABLE scheduled_actions")
+        conn.execute("""
+            CREATE TABLE scheduled_actions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                media_item_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                scheduled_at TEXT NOT NULL,
+                execute_at TEXT,
+                token TEXT UNIQUE NOT NULL,
+                token_used INTEGER NOT NULL DEFAULT 0,
+                snoozed_at TEXT,
+                snooze_duration TEXT,
+                notified INTEGER NOT NULL DEFAULT 0,
+                is_reentry INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        conn.execute("PRAGMA user_version=13")
+        conn.commit()
+        conn.close()
+
+        conn = init_db(str(db_path))
+        cols = {
+            r[1]
+            for r in conn.execute(
+                "PRAGMA table_info(scheduled_actions)"
+            ).fetchall()
+        }
+        assert "delete_status" in cols
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 14
+
+    def test_migration_idempotent(self, db_path):
+        """Running init_db twice must not raise on the v14 step."""
+        init_db(str(db_path)).close()
+        init_db(str(db_path)).close()
