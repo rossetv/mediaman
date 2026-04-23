@@ -13,11 +13,7 @@ from starlette.responses import Response
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.db import get_db
 from mediaman.models import ACTION_SCHEDULED_DELETION
-from mediaman.services.format import days_ago
-from mediaman.services.format import format_bytes
-from mediaman.services.format import parse_iso_utc
-from mediaman.services.format import rk_from_audit_detail
-from mediaman.services.format import title_from_audit_detail
+from mediaman.services.format import days_ago, format_bytes, parse_iso_utc, rk_from_audit_detail, title_from_audit_detail
 from mediaman.services.storage import get_aggregate_disk_usage
 
 logger = logging.getLogger("mediaman")
