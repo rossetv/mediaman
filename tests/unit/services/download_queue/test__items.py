@@ -135,20 +135,26 @@ class TestBuildUnmatchedArrItem:
     @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
     def test_unmatched_movie_in_searching_state(self, _mock_search):
         arr = _make_radarr_card("Dune", progress=0)
-        item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link, abandon_thresholds=(10, 50))
+        item = build_unmatched_arr_item(
+            arr, {}, _fake_search_hint, _fake_arr_link, abandon_thresholds=(10, 50)
+        )
         assert item["media_type"] == "movie"
         assert item["state"] == "searching"
 
     @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
     def test_unmatched_movie_at_100_is_almost_ready(self, _mock_search):
         arr = _make_radarr_card("Dune", progress=100)
-        item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link, abandon_thresholds=(10, 50))
+        item = build_unmatched_arr_item(
+            arr, {}, _fake_search_hint, _fake_arr_link, abandon_thresholds=(10, 50)
+        )
         assert item["state"] == "almost_ready"
 
     @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
     def test_unmatched_series_in_searching_state(self, _mock_search):
         arr = _make_sonarr_card("Breaking Bad", episodes=[])
-        item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link, abandon_thresholds=(10, 50))
+        item = build_unmatched_arr_item(
+            arr, {}, _fake_search_hint, _fake_arr_link, abandon_thresholds=(10, 50)
+        )
         assert item["media_type"] == "series"
         assert item["state"] == "searching"
 
@@ -160,13 +166,17 @@ class TestBuildUnmatchedArrItem:
             _ep_entry(label="S01E02", progress=100, sizeleft=0, size=500_000_000),
         ]
         arr = _make_sonarr_card("Silo", episodes=eps)
-        item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link, abandon_thresholds=(10, 50))
+        item = build_unmatched_arr_item(
+            arr, {}, _fake_search_hint, _fake_arr_link, abandon_thresholds=(10, 50)
+        )
         assert item["state"] == "almost_ready"
 
     @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(3, 1_000_000.0))
     def test_search_count_propagated(self, _mock_search):
         arr = _make_radarr_card("Dune", progress=0)
-        item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link, abandon_thresholds=(10, 50))
+        item = build_unmatched_arr_item(
+            arr, {}, _fake_search_hint, _fake_arr_link, abandon_thresholds=(10, 50)
+        )
         assert item["search_count"] == 3
 
 
@@ -182,7 +192,9 @@ class TestAbandonVisibleGate:
             "mediaman.services.arr.search_trigger.get_search_info",
             return_value=(search_count, 1.0),
         ):
-            return build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link, abandon_thresholds=(10, 50))
+            return build_unmatched_arr_item(
+                arr, {}, _fake_search_hint, _fake_arr_link, abandon_thresholds=(10, 50)
+            )
 
     def test_hidden_when_search_count_below_threshold(self, monkeypatch):
         item = self._make_item(monkeypatch, search_count=5)
@@ -230,7 +242,9 @@ class TestStuckSeasons:
     @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
     def test_movie_has_empty_stuck_seasons(self, _mock_search):
         arr = _make_radarr_card("Dune", progress=0)
-        item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link, abandon_thresholds=(10, 50))
+        item = build_unmatched_arr_item(
+            arr, {}, _fake_search_hint, _fake_arr_link, abandon_thresholds=(10, 50)
+        )
         assert item["stuck_seasons"] == []
 
     @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
@@ -243,7 +257,9 @@ class TestStuckSeasons:
                 _ep_with_season("S22E01", 22),
             ],
         )
-        item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link, abandon_thresholds=(10, 50))
+        item = build_unmatched_arr_item(
+            arr, {}, _fake_search_hint, _fake_arr_link, abandon_thresholds=(10, 50)
+        )
         assert item["stuck_seasons"] == [
             {"number": 21, "missing_episodes": 2},
             {"number": 22, "missing_episodes": 1},
@@ -253,11 +269,25 @@ class TestStuckSeasons:
     def test_series_stuck_seasons_empty_when_not_searching(self, _mock_search):
         """stuck_seasons should be empty when the series is not in searching state."""
         eps = [
-            {**_ep_with_season("S01E01", 1), "progress": 100, "sizeleft": 0, "size": 500_000_000, "status": "completed"},
-            {**_ep_with_season("S01E02", 1), "progress": 100, "sizeleft": 0, "size": 500_000_000, "status": "completed"},
+            {
+                **_ep_with_season("S01E01", 1),
+                "progress": 100,
+                "sizeleft": 0,
+                "size": 500_000_000,
+                "status": "completed",
+            },
+            {
+                **_ep_with_season("S01E02", 1),
+                "progress": 100,
+                "sizeleft": 0,
+                "size": 500_000_000,
+                "status": "completed",
+            },
         ]
         arr = _make_sonarr_card("Silo", episodes=eps)
-        item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link, abandon_thresholds=(10, 50))
+        item = build_unmatched_arr_item(
+            arr, {}, _fake_search_hint, _fake_arr_link, abandon_thresholds=(10, 50)
+        )
         # state will be almost_ready — stuck_seasons must be empty
         assert item["state"] == "almost_ready"
         assert item["stuck_seasons"] == []

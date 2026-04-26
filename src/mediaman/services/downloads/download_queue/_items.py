@@ -55,10 +55,7 @@ def _stuck_seasons_from_episodes(episodes: list[dict]) -> list[dict]:
     for ep in episodes:
         s = int(ep.get("season_number") or 0)
         by_season[s] = by_season.get(s, 0) + 1
-    return [
-        {"number": s, "missing_episodes": n}
-        for s, n in sorted(by_season.items())
-    ]
+    return [{"number": s, "missing_episodes": n} for s, n in sorted(by_season.items())]
 
 
 def build_episode_dicts(
@@ -156,9 +153,7 @@ def build_unmatched_arr_item(
             else ""
         )
         raw_episodes = arr.get("episodes", [])
-        stuck_seasons = (
-            _stuck_seasons_from_episodes(raw_episodes) if state == "searching" else []
-        )
+        stuck_seasons = _stuck_seasons_from_episodes(raw_episodes) if state == "searching" else []
         return build_item(
             dl_id=arr.get("dl_id", ""),
             title=arr.get("title", "Unknown"),

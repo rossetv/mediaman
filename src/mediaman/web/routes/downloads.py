@@ -27,9 +27,7 @@ class AbandonRequest(BaseModel):
     seasons: list[int] = Field(default_factory=list)
 
 
-def _lookup_dl_item(
-    conn: sqlite3.Connection, secret_key: str, dl_id: str
-) -> dict | None:
+def _lookup_dl_item(conn: sqlite3.Connection, secret_key: str, dl_id: str) -> dict | None:
     """Find the queue item with the given dl_id.
 
     Lookup happens against a freshly-built response so we don't trust

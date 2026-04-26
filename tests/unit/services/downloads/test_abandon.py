@@ -45,10 +45,9 @@ class TestAbandonMovie:
         result = abandon_movie(db_conn, "secret", arr_id=42, dl_id="radarr:Tenet")
 
         client.unmonitor_movie.assert_called_once_with(42)
-        assert result == AbandonResult(
-            kind="movie", succeeded=[0], failed=[], dl_id="radarr:Tenet"
-        )
+        assert result == AbandonResult(kind="movie", succeeded=[0], failed=[], dl_id="radarr:Tenet")
         from mediaman.services.arr.search_trigger import _load_throttle_from_db
+
         assert _load_throttle_from_db(db_conn, "radarr:Tenet") == (0.0, 0)
 
     def test_returns_partial_failure_when_unmonitor_raises(self, db_conn, monkeypatch):
@@ -66,6 +65,7 @@ class TestAbandonMovie:
         assert result.failed == [0]
         assert result.succeeded == []
         from mediaman.services.arr.search_trigger import _load_throttle_from_db
+
         _, count = _load_throttle_from_db(db_conn, "radarr:Tenet")
         assert count == 5  # preserved on failure
 
@@ -81,9 +81,7 @@ class TestAbandonMovie:
 
 
 class TestAbandonSeasons:
-    def test_loops_per_season_and_clears_throttle_on_full_success(
-        self, db_conn, monkeypatch
-    ):
+    def test_loops_per_season_and_clears_throttle_on_full_success(self, db_conn, monkeypatch):
         client = MagicMock()
         monkeypatch.setattr(
             "mediaman.services.downloads.abandon.build_arr_client",
@@ -92,8 +90,11 @@ class TestAbandonSeasons:
         _save_trigger_to_db(db_conn, "sonarr:One Piece", 999.0, 47)
 
         result = abandon_seasons(
-            db_conn, "secret", series_id=7,
-            season_numbers=[21, 22], dl_id="sonarr:One Piece",
+            db_conn,
+            "secret",
+            series_id=7,
+            season_numbers=[21, 22],
+            dl_id="sonarr:One Piece",
         )
 
         assert client.unmonitor_season.call_args_list == [
@@ -104,11 +105,10 @@ class TestAbandonSeasons:
             kind="series", succeeded=[21, 22], failed=[], dl_id="sonarr:One Piece"
         )
         from mediaman.services.arr.search_trigger import _load_throttle_from_db
+
         assert _load_throttle_from_db(db_conn, "sonarr:One Piece") == (0.0, 0)
 
-    def test_partial_failure_records_both_lists_and_keeps_throttle(
-        self, db_conn, monkeypatch
-    ):
+    def test_partial_failure_records_both_lists_and_keeps_throttle(self, db_conn, monkeypatch):
         client = MagicMock()
 
         def fail_22(series_id, season_number):
@@ -123,13 +123,17 @@ class TestAbandonSeasons:
         _save_trigger_to_db(db_conn, "sonarr:One Piece", 999.0, 47)
 
         result = abandon_seasons(
-            db_conn, "secret", series_id=7,
-            season_numbers=[21, 22], dl_id="sonarr:One Piece",
+            db_conn,
+            "secret",
+            series_id=7,
+            season_numbers=[21, 22],
+            dl_id="sonarr:One Piece",
         )
 
         assert sorted(result.succeeded) == [21]
         assert sorted(result.failed) == [22]
         from mediaman.services.arr.search_trigger import _load_throttle_from_db
+
         _, count = _load_throttle_from_db(db_conn, "sonarr:One Piece")
         assert count == 47
 
@@ -141,6 +145,9 @@ class TestAbandonSeasons:
         )
         with pytest.raises(ValueError, match="at least one season"):
             abandon_seasons(
-                db_conn, "secret", series_id=7,
-                season_numbers=[], dl_id="sonarr:X",
+                db_conn,
+                "secret",
+                series_id=7,
+                season_numbers=[],
+                dl_id="sonarr:X",
             )
