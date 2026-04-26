@@ -107,6 +107,8 @@ def build_matched_item(
             episodes=episodes,
             episode_summary=build_episode_summary(episodes),
             has_pack=arr.get("has_pack", False),
+            arr_id=arr.get("arr_id") or 0,
+            kind="series",
         )
     return build_item(
         dl_id=arr.get("dl_id", matched_nzb["dl_id"]),
@@ -118,6 +120,8 @@ def build_matched_item(
         eta=eta,
         size_done=format_bytes(matched_nzb["done_mb"] * 1024 * 1024),
         size_total=format_bytes(matched_nzb["file_mb"] * 1024 * 1024),
+        arr_id=arr.get("arr_id") or 0,
+        kind="movie",
     )
 
 
@@ -177,6 +181,8 @@ def build_unmatched_arr_item(
             abandon_visible=(state == "searching" and search_count >= threshold),
             abandon_escalated=(state == "searching" and search_count >= escalate_at),
             stuck_seasons=stuck_seasons,
+            arr_id=arr.get("arr_id") or 0,
+            kind="series",
         )
     state = (
         "almost_ready"
@@ -209,4 +215,6 @@ def build_unmatched_arr_item(
         abandon_visible=(state == "searching" and search_count >= threshold),
         abandon_escalated=(state == "searching" and search_count >= escalate_at),
         stuck_seasons=[],
+        arr_id=arr.get("arr_id") or 0,
+        kind="movie",
     )

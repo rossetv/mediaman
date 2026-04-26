@@ -1672,3 +1672,70 @@ class TestAbandonEndpoint:
             json={},
         )
         assert resp.status_code in (401, 403)
+
+    def test_lookup_uses_real_payload_id_field(self, db_path, secret_key, monkeypatch):
+        """Integration: _lookup_dl_item must find items via the canonical 'id'
+        field produced by build_item, not the missing 'dl_id' key.
+
+        Does NOT monkey-patch _lookup_dl_item — verifies the whole stack from
+        POST through lookup, payload key matching, and abandon dispatch.
+        """
+        called = {}
+
+        def fake_abandon_movie(conn, sk, *, arr_id, dl_id):
+            called["arr_id"] = arr_id
+            called["dl_id"] = dl_id
+            from mediaman.services.downloads.abandon import AbandonResult
+
+            return AbandonResult(kind="movie", succeeded=[0], dl_id=dl_id)
+
+        monkeypatch.setattr(
+            "mediaman.web.routes.downloads.abandon_movie", fake_abandon_movie
+        )
+
+        # A searching movie item — matches what fetch_arr_queue returns for a
+        # monitored Radarr title that has no NZBGet match.
+        searching_item = {
+            "kind": "movie",
+            "dl_id": "radarr:Tenet",
+            "title": "Tenet",
+            "source": "Radarr",
+            "poster_url": "",
+            "progress": 0,
+            "size": 0,
+            "sizeleft": 0,
+            "size_str": "0 B",
+            "done_str": "0 B",
+            "timeleft": "",
+            "status": "searching",
+            "arr_id": 42,
+            "added_at": 0.0,
+            "is_upcoming": False,
+            "release_label": "",
+        }
+
+        monkeypatch.setattr(
+            "mediaman.services.downloads.download_queue.fetch_arr_queue",
+            lambda c, _sk: [searching_item],
+        )
+        monkeypatch.setattr(
+            "mediaman.services.downloads.download_queue.build_nzbget_from_db",
+            lambda c, _sk: None,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.downloads.download_queue.maybe_trigger_search",
+            lambda *a, **kw: None,
+        )
+
+        client = self._make_client(db_path, secret_key)
+        resp = client.post(
+            "/api/downloads/radarr%3ATenet/abandon",
+            json={},
+        )
+
+        assert resp.status_code == 200, (
+            f"Expected 200 but got {resp.status_code} — "
+            "likely _lookup_dl_item is still comparing against 'dl_id' instead of 'id'"
+        )
+        assert called.get("arr_id") == 42
+        assert called.get("dl_id") == "radarr:Tenet"

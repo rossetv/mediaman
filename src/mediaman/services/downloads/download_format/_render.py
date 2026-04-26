@@ -29,6 +29,8 @@ def build_item(
     abandon_visible: bool = False,
     abandon_escalated: bool = False,
     stuck_seasons: list[dict] | None = None,
+    arr_id: int = 0,
+    kind: str = "",
 ) -> DownloadItem:
     """Build a simplified download item for the API response.
 
@@ -71,6 +73,8 @@ def build_item(
         "abandon_visible": abandon_visible,
         "abandon_escalated": abandon_escalated,
         "stuck_seasons": stuck_seasons,
+        "arr_id": arr_id,
+        "kind": kind,
     }
 
 

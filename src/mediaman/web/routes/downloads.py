@@ -38,10 +38,10 @@ def _lookup_dl_item(
     payload = build_downloads_response(conn, secret_key)
     for bucket in ("queue", "upcoming"):
         for item in payload.get(bucket, []):
-            if item.get("dl_id") == dl_id:
+            if item.get("id") == dl_id:
                 return item
     hero = payload.get("hero")
-    if hero and hero.get("dl_id") == dl_id:
+    if hero and hero.get("id") == dl_id:
         return hero
     return None
 
