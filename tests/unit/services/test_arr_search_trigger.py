@@ -15,13 +15,18 @@ import pytest
 
 from mediaman.db import init_db
 from mediaman.services.arr.search_trigger import (
-    _load_last_trigger_from_db,
+    _load_throttle_from_db,
     _save_trigger_to_db,
     _trigger_sonarr_partial_missing,
     get_search_info,
     maybe_trigger_search,
     reset_search_triggers,
 )
+
+
+def _load_last_trigger_epoch(conn, dl_id: str) -> float:
+    """Test helper: pull just the epoch out of the (epoch, count) tuple."""
+    return _load_throttle_from_db(conn, dl_id)[0]
 
 
 @pytest.fixture(autouse=True)
@@ -179,36 +184,38 @@ def db_conn(tmp_path):
 
 
 class TestThrottleDbPersistence:
-    """_load_last_trigger_from_db and _save_trigger_to_db round-trip correctly."""
+    """_load_throttle_from_db and _save_trigger_to_db round-trip correctly."""
 
     def test_load_returns_zero_for_unknown_key(self, db_conn):
-        assert _load_last_trigger_from_db(db_conn, "radarr:Unknown") == 0.0
+        assert _load_throttle_from_db(db_conn, "radarr:Unknown") == (0.0, 0)
 
     def test_save_then_load_round_trips(self, db_conn):
         epoch = 1_700_000_000.0
-        _save_trigger_to_db(db_conn, "radarr:Dune", epoch)
-        loaded = _load_last_trigger_from_db(db_conn, "radarr:Dune")
+        _save_trigger_to_db(db_conn, "radarr:Dune", epoch, 4)
+        loaded_epoch, loaded_count = _load_throttle_from_db(db_conn, "radarr:Dune")
         # Allow 1-second rounding from ISO-string conversion
-        assert abs(loaded - epoch) < 1.0
+        assert abs(loaded_epoch - epoch) < 1.0
+        assert loaded_count == 4
 
     def test_save_is_idempotent(self, db_conn):
         """Saving a second time replaces the first value."""
-        _save_trigger_to_db(db_conn, "radarr:Inception", 1_000_000.0)
-        _save_trigger_to_db(db_conn, "radarr:Inception", 2_000_000.0)
-        loaded = _load_last_trigger_from_db(db_conn, "radarr:Inception")
-        assert abs(loaded - 2_000_000.0) < 1.0
+        _save_trigger_to_db(db_conn, "radarr:Inception", 1_000_000.0, 1)
+        _save_trigger_to_db(db_conn, "radarr:Inception", 2_000_000.0, 7)
+        loaded_epoch, loaded_count = _load_throttle_from_db(db_conn, "radarr:Inception")
+        assert abs(loaded_epoch - 2_000_000.0) < 1.0
+        assert loaded_count == 7
 
     def test_load_returns_zero_on_broken_db(self):
-        """A broken/missing DB never raises — returns 0.0 gracefully."""
+        """A broken/missing DB never raises — returns (0.0, 0) gracefully."""
         bad_conn = MagicMock()
         bad_conn.execute.side_effect = Exception("DB locked")
-        assert _load_last_trigger_from_db(bad_conn, "radarr:X") == 0.0
+        assert _load_throttle_from_db(bad_conn, "radarr:X") == (0.0, 0)
 
     def test_save_swallows_db_error(self):
         """_save_trigger_to_db is best-effort; never raises on DB failure."""
         bad_conn = MagicMock()
         bad_conn.execute.side_effect = Exception("write failed")
-        _save_trigger_to_db(bad_conn, "radarr:X", 999.0)  # must not raise
+        _save_trigger_to_db(bad_conn, "radarr:X", 999.0, 1)  # must not raise
 
     def test_maybe_trigger_search_persists_to_db(self, db_conn, monkeypatch):
         """After maybe_trigger_search fires, the DB row is written."""
@@ -226,14 +233,14 @@ class TestThrottleDbPersistence:
         }
         maybe_trigger_search(db_conn, item, matched_nzb=False, secret_key="test-key")
 
-        loaded = _load_last_trigger_from_db(db_conn, "radarr:Tenet")
+        loaded = _load_last_trigger_epoch(db_conn, "radarr:Tenet")
         assert loaded > 0.0
 
     def test_cold_start_reads_db_and_throttles(self, db_conn, monkeypatch):
         """A freshly restarted process reads from the DB and respects the throttle."""
         # Simulate: trigger was saved 5 minutes ago (within throttle window)
         recent_epoch = time.time() - 60  # 1 minute ago — inside 15-min throttle
-        _save_trigger_to_db(db_conn, "radarr:Tenet2", recent_epoch)
+        _save_trigger_to_db(db_conn, "radarr:Tenet2", recent_epoch, 3)
 
         calls: list = []
         mock_radarr = MagicMock()
@@ -253,3 +260,39 @@ class TestThrottleDbPersistence:
         maybe_trigger_search(db_conn, item, matched_nzb=False, secret_key="test-key")
         # The DB read should have warmed the cache and blocked the search
         assert calls == []
+
+    def test_count_survives_restart(self, db_conn, monkeypatch):
+        """Search count must be restored from DB after a process restart.
+
+        Regression: prior versions only persisted the last-triggered
+        timestamp, so the in-memory count reset to 0 on every deploy and
+        the "Searched N×" UI hint stayed stuck near 1 even after weeks
+        of background searches.
+        """
+        mock_radarr = MagicMock()
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_arr_client",
+            lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
+        )
+
+        # Simulate: process previously fired 5 searches, last one was
+        # 20 minutes ago (outside the 15-min throttle, so a new search
+        # may fire and bump the count).
+        old_epoch = time.time() - (20 * 60)
+        _save_trigger_to_db(db_conn, "radarr:LongRunner", old_epoch, 5)
+
+        # Cold start — clear in-memory state as if the process just booted.
+        reset_search_triggers()
+        assert get_search_info("radarr:LongRunner") == (0, 0.0)
+
+        item = {
+            "kind": "movie",
+            "dl_id": "radarr:LongRunner",
+            "arr_id": 1234,
+            "is_upcoming": False,
+            "added_at": time.time() - 600,
+        }
+        maybe_trigger_search(db_conn, item, matched_nzb=False, secret_key="test-key")
+
+        count, _epoch = get_search_info("radarr:LongRunner")
+        assert count == 6, "expected previous 5 + 1 new trigger, not a reset to 1"
