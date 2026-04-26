@@ -184,25 +184,29 @@ class TestSettingsUpdate:
     # library_sync_interval
     # ------------------------------------------------------------------
 
-    def test_library_sync_interval_valid(self):
-        update = SettingsUpdate(library_sync_interval=300)
-        assert update.library_sync_interval == 300
+    # The field stores minutes (matching the dropdown and the bootstrap
+    # scheduler's sync_interval_minutes). Bound is 0..1440 (0 = disabled,
+    # 1440 = once a day).
 
-    def test_library_sync_interval_minimum(self):
-        update = SettingsUpdate(library_sync_interval=60)
-        assert update.library_sync_interval == 60
+    def test_library_sync_interval_valid(self):
+        update = SettingsUpdate(library_sync_interval=30)
+        assert update.library_sync_interval == 30
+
+    def test_library_sync_interval_disabled(self):
+        update = SettingsUpdate(library_sync_interval=0)
+        assert update.library_sync_interval == 0
 
     def test_library_sync_interval_maximum(self):
-        update = SettingsUpdate(library_sync_interval=86400)
-        assert update.library_sync_interval == 86400
+        update = SettingsUpdate(library_sync_interval=1440)
+        assert update.library_sync_interval == 1440
 
-    def test_library_sync_interval_too_low_rejected(self):
+    def test_library_sync_interval_negative_rejected(self):
         with pytest.raises(Exception):
-            SettingsUpdate(library_sync_interval=59)
+            SettingsUpdate(library_sync_interval=-1)
 
     def test_library_sync_interval_too_high_rejected(self):
         with pytest.raises(Exception):
-            SettingsUpdate(library_sync_interval=86401)
+            SettingsUpdate(library_sync_interval=1441)
 
     # ------------------------------------------------------------------
     # suggestions_enabled / disk_thresholds

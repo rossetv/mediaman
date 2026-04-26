@@ -547,48 +547,92 @@
   }
   var saveBtn = document.getElementById('btn-save');
   var statusEl = document.getElementById('save-status');
+  var savebarEl = document.getElementById('setg-savebar');
+
+  // Turn FastAPI's 422 body into a one-line human summary. The shape is
+  // `{detail: [{loc: ['body', 'field'], msg: '...', ...}, ...]}`. Other
+  // 4xx/5xx responses come back as `{error: '...'}` (our own routes) — keep
+  // those paths working too.
+  function summariseSaveError(data, statusCode) {
+    if (data && Array.isArray(data.detail) && data.detail.length) {
+      return data.detail.map(function (d) {
+        var loc = Array.isArray(d.loc) ? d.loc.filter(function (p) { return p !== 'body'; }) : [];
+        var field = loc.length ? loc.join('.') : 'request';
+        var msg = (d.msg || 'invalid').replace(/^Value error,\s*/, '');
+        return field + ' — ' + msg;
+      }).join(' · ');
+    }
+    if (data && typeof data.detail === 'string') return data.detail;
+    if (data && data.error) return data.error;
+    if (statusCode === 429) return 'Too many saves — slow down for a moment.';
+    return 'Save failed (HTTP ' + (statusCode || '?') + ')';
+  }
+
+  function setSaveError(msg) {
+    if (savebarEl) savebarEl.classList.add('is-error');
+    if (statusEl) statusEl.textContent = msg;
+    saveBtn.classList.remove('btn--primary');
+    saveBtn.classList.add('btn--danger');
+    saveBtn.textContent = 'Try again';
+  }
+
+  function clearSaveError() {
+    if (savebarEl) savebarEl.classList.remove('is-error');
+    saveBtn.classList.remove('btn--danger');
+    saveBtn.classList.add('btn--primary');
+  }
+
   if (saveBtn) saveBtn.addEventListener('click', function () {
     saveBtn.disabled = true;
-    var orig = saveBtn.textContent;
+    clearSaveError();
+    var orig = 'Save Settings';
     saveBtn.textContent = 'Saving…';
     if (statusEl) statusEl.textContent = '';
+
+    var statusCode = 0;
     fetch('/api/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(collectSettings()),
     })
-      .then(function (r) { return r.json(); })
+      .then(function (r) { statusCode = r.status; return r.json().catch(function () { return {}; }); })
       .then(function (data) {
-        var ok = data.status === 'saved';
+        var ok = statusCode >= 200 && statusCode < 300 && data.status === 'saved';
         var ignored = (data.ignored || []).filter(function (k) { return k !== 'status'; });
-        saveBtn.textContent = ok ? 'Saved ✓' : 'Error';
-        if (statusEl) {
-          if (ok && ignored.length) {
-            statusEl.textContent = 'Saved · ignored unknown: ' + ignored.join(', ');
-          } else if (ok) {
-            statusEl.textContent = 'Settings saved';
-          } else {
-            statusEl.textContent = data.error || 'Save failed';
-          }
-        }
+
         if (ok) {
+          saveBtn.textContent = 'Saved ✓';
+          if (statusEl) {
+            statusEl.textContent = ignored.length
+              ? 'Saved · ignored unknown: ' + ignored.join(', ')
+              : 'Settings saved';
+          }
           setTimeout(markClean, 600);
           refreshOverviewHero();
-        }
-        setTimeout(function () {
-          saveBtn.textContent = orig;
+          setTimeout(function () {
+            saveBtn.textContent = orig;
+            saveBtn.disabled = false;
+            if (statusEl && !ignored.length) {
+              statusEl.textContent = 'Edits apply to every section at once.';
+            }
+          }, 2200);
+        } else {
+          setSaveError(summariseSaveError(data, statusCode));
           saveBtn.disabled = false;
-          if (ok && statusEl && !ignored.length) {
-            statusEl.textContent = 'Edits apply to every section at once.';
-          }
-        }, 2200);
+        }
       })
       .catch(function () {
-        saveBtn.textContent = 'Error';
-        if (statusEl) statusEl.textContent = "Couldn't save settings. Try again.";
-        setTimeout(function () { saveBtn.textContent = orig; saveBtn.disabled = false; }, 2200);
+        setSaveError("Couldn't reach the server — check your connection and try again.");
+        saveBtn.disabled = false;
       });
   });
+
+  // Any subsequent edit should clear the error chrome so the bar reads
+  // "Unsaved changes" again — keeping a stale red banner around after the
+  // user has typed a fix would be a lie.
+  document.addEventListener('input', function () {
+    if (savebarEl && savebarEl.classList.contains('is-error')) clearSaveError();
+  }, true);
 
   var discardBtn = document.getElementById('btn-discard');
   if (discardBtn) discardBtn.addEventListener('click', function () {

@@ -1152,6 +1152,27 @@
 .setg-pg .savebar .sb-msg { font-size: 13px; color: var(--t1); font-weight: 500; }
 .setg-pg .savebar .sb-sub { font-size: 12px; color: var(--t3); margin-left: auto; margin-right: 8px; }
 .setg-pg .savebar #save-status:empty { display: none; }
+
+/* Error state — DESIGN.md §2 Semantic Palette: danger red on a tinted chip,
+   never as a saturated background. The dot turns red, the sub-text takes
+   the danger colour, and the message gains an "Save failed" label. */
+.setg-pg .savebar.is-error .sb-dot {
+  background: var(--danger);
+  box-shadow: 0 0 10px rgba(255, 69, 58, .6);
+}
+.setg-pg .savebar.is-error .sb-msg { color: var(--danger); }
+.setg-pg .savebar.is-error .sb-sub {
+  color: var(--danger);
+  background: rgba(255, 69, 58, .12);
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  font-weight: 500;
+  /* Keep the long validation message readable — wrap onto multiple lines
+     rather than truncating, since it's how the user finds out what to fix. */
+  white-space: normal;
+  max-width: 60ch;
+  line-height: 1.35;
+}
 @media (max-width: 700px) {
   /* Lift above the mobile bottom tab bar so the savebar stays reachable.
      Matches the .nav-tabs height expression (style.css:303) + safe-area. */
