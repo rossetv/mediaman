@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+{% import "_components.html" as c %}
+
+{% block title %}Dashboard · Mediaman{% endblock %}
+{% block nav %}{% include "_nav.html" %}{% endblock %}
+
+{% block content %}
+<div class="container">
+
+  <div class="ph">
+    <div class="ph-row">
+      <div>
+        <h1>Hello, {{ username }}</h1>
+        {% if scheduled_count or recently_deleted %}
+        <p>
+          {% if scheduled_count %}{{ scheduled_count }} item{{ 's' if scheduled_count != 1 }} scheduled for deletion{% if scheduled_size %} · {{ scheduled_size }} to reclaim{% endif %}{% endif %}
+        </p>
+        {% endif %}
+      </div>
+      <div class="u-flex">
+        <button id="scan-btn" type="button" class="btn btn--ghost" data-action="trigger-scan">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Scan now
+        </button>
+        <span id="scan-status" class="scan-status"></span>
+      </div>
+    </div>
+  </div>
+
+  {# Storage #}
+  <section class="section">
+    {{ c.sec_hd("Storage", "Across your selected libraries") }}
+    <div class="storage">
+      <div class="storage-hd">
+        <div class="storage-num">{{ storage.used }} <small>of {{ storage.total }} used</small></div>
+        <div class="storage-free">{{ storage.free }} available</div>
+      </div>
+      <div class="storage-bar">
+        {% if storage.movies_pct > 0 %}<div class="seg seg--mov" style="--seg-pct:{{ storage.movies_pct }}%"></div>{% endif %}
+        {% if storage.tv_pct > 0 %}<div class="seg seg--tv"  style="--seg-pct:{{ storage.tv_pct }}%"></div>{% endif %}
+        {% if storage.anime_pct > 0 %}<div class="seg seg--anime" style="--seg-pct:{{ storage.anime_pct }}%"></div>{% endif %}
+        {% if storage.other_pct > 0 %}<div class="seg seg--other" style="--seg-pct:{{ storage.other_pct }}%"></div>{% endif %}
+      </div>
+      <div class="storage-legend">
+        <div class="legend"><span class="legend-dot legend-dot--movies"></span>Movies <b>{{ storage.movies_label }} ({{ storage.movies_pct }}%)</b></div>
+        <div class="legend"><span class="legend-dot legend-dot--tv"></span>TV Shows <b>{{ storage.tv_label }} ({{ storage.tv_pct }}%)</b></div>
+        <div class="legend"><span class="legend-dot legend-dot--anime"></span>Anime <b>{{ storage.anime_label }} ({{ storage.anime_pct }}%)</b></div>
+        <div class="legend"><span class="legend-dot legend-dot--other"></span>Other <b>{{ storage.other_label }}</b></div>
+      </div>
+    </div>
+  </section>
+
+  {# Scheduled for deletion — tile grid using new primitives #}
+  <section class="section">
+    <div class="sec-hd">
+      <h2>Scheduled for deletion</h2>
+      <div class="u-flex u-gap-md">
+        {% if scheduled_count > 0 %}
+        <span class="sub">{{ scheduled_count }} item{{ 's' if scheduled_count != 1 }} · {{ scheduled_size }} to reclaim</span>
+        <button class="btn btn--danger btn--sm" type="button" onclick="clearScheduled(this)">Clear all</button>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if scheduled_items %}
+    <div class="grid grid-tiles">
+      {% for item in scheduled_items %}
+      <div class="tile">
+        <div class="tile-poster">
+          {% if item.plex_rating_key %}
+          <img src="/api/poster/{{ item.plex_rating_key }}" alt="{{ item.title }}" loading="lazy">
+          {% endif %}
+          <div class="tile-pills">
+            <span class="pill pill--{{ 'movie' if item.media_type == 'movie' else ('tv' if item.media_type == 'tv' else 'anime') }}">{{ item.type_label }}</span>
+            {% if item.countdown %}<span class="countdown">{{ item.countdown }}</span>{% endif %}
+          </div>
+        </div>
+        <div>
+          <div class="tile-title">{{ item.title }}</div>
+          <div class="tile-meta">{{ item.file_size }} · Added {{ item.added_ago }}</div>
+        </div>
+        <div class="keep-wrapper tile-actions"
+             data-id="{{ item.media_item_id }}" data-tv="{{ (item.media_type == 'tv') | tojson }}"
+             data-show-rk="{{ item.show_rating_key or '' }}" data-show-title="{{ item.show_title_raw or item.title | e }}">
+          <button class="btn btn--accent-soft btn--sm" type="button"
+                  onclick="dashSubmitKeep(this, '30d')">Keep</button>
+          <button type="button" class="btn btn--icon btn--secondary btn-sm-caret"
+                  aria-haspopup="menu" aria-expanded="false"
+                  aria-label="More keep options">
+            <svg viewBox="0 0 24 24" class="svg-icon-xs"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+          </button>
+          <div class="snooze-dropdown" role="menu">
+            <button class="snooze-option" role="menuitem" tabindex="-1" onclick="dashSubmitKeep(this, '7d')">7 days</button>
+            <button class="snooze-option" role="menuitem" tabindex="-1" onclick="dashSubmitKeep(this, '30d')">30 days</button>
+            <button class="snooze-option" role="menuitem" tabindex="-1" onclick="dashSubmitKeep(this, '90d')">90 days</button>
+            <button class="snooze-option forever" role="menuitem" tabindex="-1" onclick="dashSubmitKeep(this, 'forever')">Forever</button>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">
+      <h3>Nothing scheduled for deletion</h3>
+      <p>Library is healthy — next scan will look again.</p>
+    </div>
+    {% endif %}
+  </section>
+
+  <hr class="hr">
+
+  {# Recently deleted — flat list #}
+  <section class="section">
+    <div class="sec-hd">
+      <h2>Recently deleted</h2>
+      {% if reclaimed_total != '0 B' %}
+      <span class="sub">{{ reclaimed_total }} reclaimed total</span>
+      {% endif %}
+    </div>
+
+    {% if recently_deleted %}
+    <div class="dlist">
+      {% for item in recently_deleted %}
+      <div class="ditem">
+        <div class="ditem-thumb">
+          {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="{{ item.title }}" loading="lazy">{% endif %}
+        </div>
+        <div>
+          <div class="u-fwm">{{ item.title }}</div>
+          <div class="u-small">Deleted {{ item.deleted_ago }}</div>
+        </div>
+        <div class="u-small">{{ item.reclaimed }}</div>
+        <button class="btn btn--secondary btn--sm" type="button" data-title="{{ item.title }}"
+                onclick="redownload(this, this.dataset.title); return false;">Re-download</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty">
+      <h3>No deletion history yet</h3>
+      <p>When mediaman reclaims space, you'll see it here.</p>
+    </div>
+    {% endif %}
+  </section>
+
+  <div class="page-bottom-spacer"></div>
+</div>
+
+<script>
+  var _scanElapsed = 0;
+
+  /* Wire data-action="trigger-scan" — removes inline onclick. */
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-action="trigger-scan"]');
+    if (btn) triggerScan(btn);
+  });
+
+  function triggerScan(btn) {
+    btn.disabled = true;
+    btn.classList.add('scan-running');
+    btn.textContent = 'Scanning';
+    _scanElapsed = 0;
+    updateScanStatus('Starting scan…');
+    fetch('/api/scan/trigger', { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.status === 'already_running') updateScanStatus('Scan already in progress');
+        pollScanStatus(btn);
+      })
+      .catch(function () {
+        btn.textContent = 'Scan failed';
+        btn.classList.remove('scan-running');
+        btn.classList.add('is-error');
+        btn.disabled = false;
+        updateScanStatus('');
+      });
+  }
+
+  function updateScanStatus(msg) {
+    var el = document.getElementById('scan-status');
+    el.textContent = '';
+    if (!msg) return;
+    el.appendChild(document.createTextNode(msg + ' '));
+    var dots = document.createElement('span');
+    dots.className = 'scan-dots';
+    for (var i = 0; i < 3; i++) { var d = document.createElement('span'); d.textContent = '·'; dots.appendChild(d); }
+    el.appendChild(dots);
+  }
+
+  function fmtElapsed(sec) { return sec < 60 ? sec + 's' : Math.floor(sec / 60) + 'm ' + (sec % 60) + 's'; }
+
+  function pollScanStatus(btn) {
+    setTimeout(function check() {
+      _scanElapsed += 3;
+      fetch('/api/scan/status')
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.running) {
+            updateScanStatus('Scanning libraries — ' + fmtElapsed(_scanElapsed));
+            setTimeout(check, 3000);
+          } else {
+            btn.classList.remove('scan-running');
+            btn.classList.add('is-success');
+            btn.textContent = 'Scan complete ✓';
+            var statusEl = document.getElementById('scan-status');
+            statusEl.textContent = 'Finished in ' + fmtElapsed(_scanElapsed) + ' — reloading…';
+            statusEl.classList.add('scan-status--success');
+            setTimeout(function () { window.location.reload(); }, 1500);
+          }
+        });
+    }, 3000);
+  }
+
+  function redownload(btn, title) {
+    btn.disabled = true;
+    btn.textContent = 'Adding…';
+    fetch('/api/media/redownload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: title }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.ok) { btn.textContent = 'Queued ✓'; btn.classList.add('is-success'); }
+        else { btn.textContent = data.error && data.error.length < 30 ? data.error : 'Failed'; btn.classList.add('is-error'); btn.disabled = false; }
+      })
+      .catch(function () { btn.textContent = 'Error'; btn.classList.add('is-error'); btn.disabled = false; });
+  }
+
+  async function clearScheduled(btn) {
+    var proceed = await window.UIFeedback.confirm({
+      title: 'Clear all scheduled deletions?',
+      body: 'Nothing is deleted now. Items will be re-evaluated on the next scan and may be rescheduled.',
+      confirmLabel: 'Clear all',
+      confirmVariant: 'danger'
+    });
+    if (!proceed) return;
+    btn.disabled = true;
+    btn.textContent = 'Clearing…';
+    fetch('/api/scan/clear-scheduled', { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.ok) { btn.textContent = 'Cleared ' + data.cleared; btn.classList.add('is-success'); setTimeout(function () { window.location.reload(); }, 1000); }
+      });
+  }
+
+  // Submit a keep request from a dashboard tile. For TV items the existing
+  // library.html keep-dialog flow is too heavy for the dashboard scheduled
+  // view, so we just submit directly with the chosen duration.
+  function dashSubmitKeep(btn, duration) {
+    var wrapper = btn.closest('.keep-wrapper');
+    if (!wrapper) return;
+    var mediaId = wrapper.dataset.id;
+    fetch('/api/media/' + encodeURIComponent(mediaId) + '/keep', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ duration: duration }).toString(),
+    }).then(function (r) {
+      if (r.ok) window.location.reload();
+      else r.json().then(function (d) { window.UIFeedback.error("Couldn't save keep. " + (d.error || r.status)); });
+    });
+  }
+</script>
+{% endblock %}

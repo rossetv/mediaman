@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+wheels/
+*.egg
+.installed.cfg
+MANIFEST
+
+# Testing & coverage
+.pytest_cache/
+.coverage*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+nosetests.xml
+
+# Type checking & linting
+.mypy_cache/
+.dmypy.json
+.ruff_cache/
+.pyre/
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+secrets/
+credentials*
+auth.json
+
+# Data
+/data/
+*.db
+*.sqlite
+*.sqlite3
+
+# OS & editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Superpowers brainstorm artifacts & local-only docs/memory
+.superpowers/
+.remember/
+.worktrees/
+.claude/
+docs/superpowers/
+
+# Playwright MCP scratch + ad-hoc screenshots (dev only)
+.playwright-mcp/
+/*.png
+.desloppify/
+
+# Pre-OSS audit artefacts (local only)
+.review/
+FINDINGS.md

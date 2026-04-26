@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unsubscribe · Mediaman</title>
+  <link rel="stylesheet" href="/static/css/_tokens.css">
+  <link rel="stylesheet" href="/static/css/_unsubscribe.css">
+</head>
+<body class="unsub-body">
+  <div class="unsub-card">
+    <div class="unsub-brand">media<span class="unsub-brand-accent">man</span></div>
+    <div class="unsub-title">Unsubscribe?</div>
+    <div class="unsub-sub">
+      You will no longer receive newsletter emails at<br>
+      <strong class="text-t1">{{ email }}</strong>
+    </div>
+    <form method="POST" action="/unsubscribe">
+      <input type="hidden" name="email" value="{{ email }}">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit" class="unsub-btn-danger">Unsubscribe</button>
+      <a href="/" class="unsub-btn-cancel">Cancel</a>
+    </form>
+  </div>
+</body>
+</html>

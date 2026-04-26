@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unsubscribe · Mediaman</title>
+  <link rel="stylesheet" href="/static/css/_tokens.css">
+  <link rel="stylesheet" href="/static/css/_unsubscribe.css">
+</head>
+<body class="unsub-body">
+  <div class="unsub-card">
+    {% if success %}
+    <div class="unsub-icon--success">&#10003;</div>
+    {% else %}
+    <div class="unsub-icon--error">&#10007;</div>
+    {% endif %}
+    <div class="unsub-brand">media<span class="unsub-brand-accent">man</span></div>
+    <div class="unsub-msg">{{ message }}</div>
+  </div>
+</body>
+</html>

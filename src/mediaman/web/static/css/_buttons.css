@@ -1,0 +1,286 @@
+/* =============================================================
+   5. BUTTONS — one system, used everywhere
+   ============================================================= */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: var(--r-pill);
+  letter-spacing: -.01em;
+  white-space: nowrap;
+  transition: background .15s, color .15s, transform .1s, border-color .15s;
+}
+.btn:active { transform: scale(.97); }
+.btn:disabled,
+.btn[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+
+.btn--sm { padding: 5px 12px; font-size: 12px; }
+.btn--lg { padding: 12px 22px; font-size: 15px; }
+
+.btn--primary { background: var(--accent-cta); color: #fff; }
+.btn--primary:hover { background: var(--accent-hi); }
+
+.btn--secondary { background: var(--s3); color: var(--t1); }
+.btn--secondary:hover { background: var(--s4); }
+
+.btn--ghost { background: transparent; color: var(--t1); border: 1px solid var(--hair-strong); }
+.btn--ghost:hover { border-color: rgba(255,255,255,.3); background: rgba(255,255,255,.04); }
+
+.btn--success { background: rgba(48,209,88,.14); color: var(--success); }
+.btn--success:hover { background: rgba(48,209,88,.22); }
+
+.btn--danger { background: rgba(255,69,58,.12); color: var(--danger); }
+.btn--danger:hover { background: rgba(255,69,58,.2); }
+
+.btn--accent-soft { background: rgba(41,151,255,.15); color: var(--accent); }
+.btn--accent-soft:hover { background: rgba(41,151,255,.24); }
+
+.btn--icon { width: 34px; height: 34px; padding: 0; border-radius: 50%; }
+.btn svg { width: 15px; height: 15px; stroke-width: 2; stroke: currentColor; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+
+.btn.is-error { background: rgba(255,69,58,.12); color: var(--danger); }
+.btn.is-success { background: rgba(48,209,88,.14); color: var(--success); }
+
+/* Library keep/kept trigger — single pill. The whole button opens the
+ * snooze-dropdown so there is no default-duration trap door; duration is
+ * always an explicit choice from the menu. */
+.keep-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 12px;
+  background: rgba(41,151,255,.15);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -.01em;
+  border: 0;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background .15s, color .15s, transform .1s;
+}
+.keep-trigger:hover { background: rgba(41,151,255,.24); }
+.keep-trigger:active { transform: scale(.97); }
+.keep-trigger__chev {
+  width: 10px; height: 10px;
+  stroke: currentColor; fill: none; stroke-width: 2.5;
+  stroke-linecap: round; stroke-linejoin: round;
+  transition: transform .15s;
+  margin-left: 1px;
+}
+.keep-wrapper.is-open .keep-trigger__chev { transform: rotate(180deg); }
+.keep-trigger__tick {
+  width: 12px; height: 12px;
+  stroke: currentColor; fill: none; stroke-width: 2.5;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+
+/* Kept variant — success green */
+.keep-trigger--kept { background: rgba(48,209,88,.14); color: var(--success); }
+.keep-trigger--kept:hover { background: rgba(48,209,88,.22); }
+
+/* Legacy button aliases (templates / JS still emit these). */
+.btn-keep,
+.btn-sm-keep        { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 5px 12px; font-size: 12px; font-weight: 500; border-radius: var(--r-pill); background: rgba(41,151,255,.15); color: var(--accent); transition: background .15s; white-space: nowrap; letter-spacing: -.01em; }
+.btn-keep:hover,
+.btn-sm-keep:hover  { background: rgba(41,151,255,.24); }
+
+.btn-sm-kept        { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; font-size: 12px; font-weight: 500; border-radius: var(--r-pill); background: rgba(48,209,88,.14); color: var(--success); white-space: nowrap; }
+
+.btn-sm-delete,
+.btn-danger         { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; font-size: 12px; font-weight: 500; border-radius: var(--r-pill); background: rgba(255,69,58,.12); color: var(--danger); white-space: nowrap; transition: background .15s; }
+.btn-sm-delete:hover,
+.btn-danger:hover   { background: rgba(255,69,58,.2); }
+
+.btn-success        { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; font-size: 12px; font-weight: 500; border-radius: var(--r-pill); background: rgba(41,151,255,.15); color: var(--accent); transition: background .15s; }
+.btn-success:hover  { background: rgba(41,151,255,.24); }
+
+.btn-ghost,
+.btn-ghost-pill,
+.btn-cancel         { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: 13px; font-weight: 500; border-radius: var(--r-pill); background: transparent; color: var(--t1); border: 1px solid var(--hair-strong); transition: background .15s, border-color .15s; white-space: nowrap; }
+.btn-ghost:hover,
+.btn-ghost-pill:hover,
+.btn-cancel:hover   { border-color: rgba(255,255,255,.3); background: rgba(255,255,255,.04); }
+
+.btn-cancel--danger { color: var(--danger); border-color: rgba(255,69,58,.4); }
+.btn-cancel--danger:hover { background: rgba(255,69,58,.08); }
+
+.btn-danger-ghost   { display: inline-flex; padding: 5px 12px; font-size: 12px; font-weight: 500; border-radius: var(--r-pill); background: transparent; color: var(--danger); border: 1px solid rgba(255,69,58,.3); transition: background .15s; }
+.btn-danger-ghost:hover { background: rgba(255,69,58,.08); }
+
+/* Small SVG icon helper used in caret / kebab buttons */
+.svg-icon-xs {
+  width: 13px; height: 13px;
+  stroke: var(--t2); fill: none; stroke-width: 2;
+  display: block;
+}
+
+/* Caret on legacy split button */
+.btn-sm-caret {
+  padding: 5px 8px;
+  font-size: 10px;
+  border-radius: var(--r-pill);
+  background: rgba(41,151,255,.1);
+  color: var(--accent);
+  transition: background .15s;
+}
+.btn-sm-caret:hover { background: rgba(41,151,255,.2); }
+
+/* Snooze / scan animation states */
+.scan-running { background: rgba(41,151,255,.15) !important; color: var(--accent) !important; }
+.scan-status { font-size: 12px; color: var(--t3); margin-left: 8px; }
+.scan-status--success { color: var(--success); }
+.scan-dots { display: inline-flex; gap: 3px; }
+.scan-dots span { animation: pulse-dot 1.2s infinite; }
+.scan-dots span:nth-child(2) { animation-delay: .15s; }
+.scan-dots span:nth-child(3) { animation-delay: .3s; }
+@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+
+/* =============================================================
+   6. PILLS, FILTERS, BADGES
+   ============================================================= */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--r-pill);
+  letter-spacing: .02em;
+}
+.pill--movie  { background: rgba(255,159,10,.18); color: var(--orange); }
+.pill--tv     { background: rgba(41,151,255,.18); color: var(--accent); }
+.pill--anime  { background: rgba(191,90,242,.18); color: var(--purple); }
+.pill--kept   { background: rgba(48,209,88,.18); color: var(--success); }
+.pill--stale  { background: rgba(255,69,58,.18); color: var(--danger); }
+.pill--queued { background: rgba(255,214,10,.18); color: var(--warning); }
+.pill--neutral{ background: rgba(255,255,255,.08); color: var(--t2); }
+
+.pill-row { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Legacy media-badge variants — same shape as .pill */
+.media-badge,
+.lib-type-badge,
+.action-badge,
+.meta-pill,
+.protection-badge,
+.snoozed-badge,
+.kept-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--r-pill);
+  letter-spacing: .02em;
+  background: rgba(255,255,255,.08);
+  color: var(--t2);
+  white-space: nowrap;
+}
+.badge-movie, .lib-type-badge.badge-movie, .meta-pill.type-movie, .action-badge.deletion, .action-badge.delete    { background: rgba(255,159,10,.18); color: var(--orange); }
+.badge-tv,    .lib-type-badge.badge-tv,    .meta-pill.type-tv,    .action-badge.scan,                  .show-cyan { background: rgba(41,151,255,.18); color: var(--accent); }
+.badge-anime, .lib-type-badge.badge-anime, .action-badge.newsletter                                               { background: rgba(191,90,242,.18); color: var(--purple); }
+.action-badge.keep,
+.protection-badge,
+.kept-badge        { background: rgba(48,209,88,.18); color: var(--success); }
+.snoozed-badge     { background: rgba(255,214,10,.18); color: var(--warning); }
+.action-badge.error{ background: rgba(255,69,58,.18); color: var(--danger); }
+
+/* Countdown badge — pulsing red dot */
+.countdown,
+.countdown-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  background: rgba(255,69,58,.92);
+  color: #fff;
+  backdrop-filter: blur(8px);
+}
+.countdown::before,
+.countdown-badge::before {
+  content: "";
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: #fff;
+  animation: countdown-pulse 1.6s infinite;
+}
+@keyframes countdown-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+
+/* Filter pill (segmented) — used on Library, Search, History */
+.fpill,
+.filter-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--t2);
+  border-radius: var(--r-pill);
+  background: transparent;
+  border: 0;
+  font-family: var(--font-text);
+  cursor: pointer;
+  transition: background .15s, color .15s;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.fpill:hover,
+.filter-pill:hover { color: var(--t1); background: rgba(255,255,255,.04); }
+
+.fpill.on,
+.filter-pill.active { background: var(--t1); color: #000; }
+.fpill--movie.on,
+.filter-pill.active-orange { background: var(--orange); color: #1a0d00; }
+.fpill--tv.on,
+.filter-pill.active-blue   { background: var(--accent); color: #001424; }
+.fpill--anime.on,
+.filter-pill.active-purple { background: var(--purple); color: #1a0025; }
+.fpill--kept.on,
+.filter-pill.active-green  { background: var(--success); color: #002210; }
+.fpill--stale.on,
+.filter-pill.active-red    { background: var(--danger); color: #2a0706; }
+
+/* Segmented (settings tab bar) — same shape as filter-pills */
+.tab-bar {
+  position: sticky;
+  top: var(--nav-h);
+  z-index: 5;
+  background: rgba(0,0,0,.85);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--hair);
+  padding: 12px var(--pad);
+}
+.segmented {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--s2);
+  padding: 4px;
+  border-radius: var(--r-pill);
+}
+.seg-btn {
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--t2);
+  border-radius: var(--r-pill);
+  transition: background .15s, color .15s;
+}
+.seg-btn:hover { color: var(--t1); }
+.seg-btn.active { background: var(--s3); color: var(--t1); }
+
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+

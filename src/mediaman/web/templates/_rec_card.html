@@ -1,0 +1,47 @@
+{# A single recommendation tile — rendered in the grid on /recommended.
+   Context: item (a Recommendation row dict). The card is a plain <div>
+   with a stretched-button overlay (.tile-hit) acting as the keyboard-
+   accessible click target; action buttons (Trailer, Download) sit above
+   the overlay on a higher z-index. Nesting real <button>/<a> elements
+   inside an outer <button> would be invalid HTML — the parser implicitly
+   closes the outer button, which previously caused the grid layout to
+   explode on /recommended. #}
+{%- set _state = item.download_state if item.download_state else ('queued' if item.downloaded_at else '') -%}
+<div class="tile" data-rec-id="{{ item.id }}">
+  <button type="button" class="tile-hit" aria-label="{{ item.title }} — open details"></button>
+  <div class="tile-poster">
+    {% if item.poster_url %}
+    <img src="{{ item.poster_url }}" alt="{{ item.title }}" loading="lazy" onerror="this.dataset.broken=''">
+    {% endif %}
+    {% if item.rating or item.rt_rating %}
+    <div class="poster-chips">
+      {% if item.rating %}<span class="poster-chip r-imdb"><span class="chip-icon">★</span>{{ item.rating }}</span>{% endif %}
+      {% if item.rt_rating %}<span class="poster-chip r-rt"><span class="chip-icon">🍅</span>{{ item.rt_rating }}</span>{% endif %}
+    </div>
+    {% endif %}
+    {% if _state %}
+    <span class="poster-state {{ _state }}">{{ _state.replace('_', ' ') }}</span>
+    {% endif %}
+  </div>
+  <div>
+    <div class="tile-title">{{ item.title }}</div>
+    <div class="tile-sub">
+      {%- if item.year %}{{ item.year }} · {% endif -%}
+      {{ 'Movie' if item.media_type == 'movie' else 'TV' }}
+    </div>
+    <div class="tile-meta">{{ item.description | truncate(80) if item.description else '' }}</div>
+  </div>
+  {% if item.reason %}<div class="reason">{{ item.reason }}</div>{% endif %}
+  {% if item.trailer_url or not _state %}
+  <div class="tile-actions">
+    {% if item.trailer_url %}
+    <a href="{{ item.trailer_url }}" target="_blank" rel="noopener" class="btn btn--ghost btn--sm" data-stop-propagation>▶ Trailer</a>
+    {% endif %}
+    {% if not _state %}
+    <button type="button" class="btn btn--primary btn--sm"
+            data-download-rec="{{ item.id }}" data-stop-propagation
+            title="Add to {{ 'Radarr' if item.media_type == 'movie' else 'Sonarr' }}">Download</button>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>

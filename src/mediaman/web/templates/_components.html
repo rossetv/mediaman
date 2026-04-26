@@ -1,0 +1,295 @@
+{# ============================================================================
+   Mediaman component macros — single source of truth for buttons, pills,
+   tiles, tables and settings primitives. Import via:
+       {% import "_components.html" as c %}
+   ============================================================================ #}
+
+
+{# Button — variants: primary, secondary, ghost, success, danger, accent-soft.
+   sizes: sm, lg. Pass `tag="a"` for an anchor, `extra_class` for one-off
+   layout helpers, `data_attrs` for a dict of data-* attributes (auto-escaped),
+   `icon` for a trusted SVG string (caller must pass a literal only).
+   Note: `attrs` (raw HTML string) and `sub` (raw HTML) have been removed to
+   prevent XSS — use explicit parameters or `data_attrs` dict instead.
+#}
+{% macro btn(label, variant="secondary", size="", tag="button", href="", extra_class="", data_attrs=none, icon="") -%}
+  {%- set classes = ["btn", "btn--" ~ variant] -%}
+  {%- if size %}{% set _ = classes.append("btn--" ~ size) %}{% endif -%}
+  {%- if extra_class %}{% set _ = classes.append(extra_class) %}{% endif -%}
+  {%- if tag == "a" -%}
+    <a class="{{ classes | join(' ') }}" href="{{ href }}"
+       {%- if data_attrs %}{% for k, v in data_attrs.items() %} data-{{ k | e }}="{{ v | e }}"{% endfor %}{% endif %}>{% if icon %}{{ icon|safe }}{% endif %}{{ label }}</a>
+  {%- else -%}
+    <button type="button" class="{{ classes | join(' ') }}"
+            {%- if data_attrs %}{% for k, v in data_attrs.items() %} data-{{ k | e }}="{{ v | e }}"{% endfor %}{% endif %}>{% if icon %}{{ icon|safe }}{% endif %}{{ label }}</button>
+  {%- endif -%}
+{%- endmacro %}
+
+
+{# Pill — colour variants: movie, tv, anime, kept, stale, queued, neutral. #}
+{% macro pill(label, variant="neutral", extra_class="") -%}
+  <span class="pill pill--{{ variant }}{% if extra_class %} {{ extra_class }}{% endif %}">{{ label }}</span>
+{%- endmacro %}
+
+
+{# Filter pill — segmented bar. `on` highlights, variant tints the active state.
+   `href` sets the link destination when tag="a". `data_attrs` is a dict of
+   data-* attributes that are auto-escaped; the old `attrs` raw-HTML parameter
+   has been removed to prevent XSS. #}
+{% macro fpill(label, on=false, variant="", tag="button", href="", data_attrs=none) -%}
+  {%- set classes = ["fpill"] -%}
+  {%- if variant %}{% set _ = classes.append("fpill--" ~ variant) %}{% endif -%}
+  {%- if on %}{% set _ = classes.append("on") %}{% endif -%}
+  {%- if tag == "a" -%}
+    <a class="{{ classes | join(' ') }}" href="{{ href }}"
+       {%- if data_attrs %}{% for k, v in data_attrs.items() %} data-{{ k | e }}="{{ v | e }}"{% endfor %}{% endif %}>{{ label }}</a>
+  {%- else -%}
+    <button type="button" class="{{ classes | join(' ') }}"
+            {%- if data_attrs %}{% for k, v in data_attrs.items() %} data-{{ k | e }}="{{ v | e }}"{% endfor %}{% endif %}>{{ label }}</button>
+  {%- endif -%}
+{%- endmacro %}
+
+
+{# Countdown badge — used inside .tile-pills next to a media badge. #}
+{% macro countdown(label) -%}
+  <span class="countdown">{{ label }}</span>
+{%- endmacro %}
+
+
+{# Tile — poster + pills + title + meta + optional actions slot.
+   `pills_html` and `actions_html` are pre-rendered HTML chunks (use the
+   call block via Jinja, e.g. `{% call c.tile(...) %} ... {% endcall %}`). #}
+{% macro tile(title, meta="", poster_url="", media_pill_label="", media_pill_variant="neutral", countdown_label="", rating="") -%}
+<div class="tile">
+  <div class="tile-poster">
+    {% if poster_url %}<img src="{{ poster_url }}" alt="{{ title }}" loading="lazy" onerror="this.dataset.broken=''">{% endif %}
+    {% if media_pill_label or countdown_label %}
+    <div class="tile-pills">
+      {% if media_pill_label %}<span class="pill pill--{{ media_pill_variant }}">{{ media_pill_label }}</span>{% endif %}
+      {% if countdown_label %}<span class="countdown">{{ countdown_label }}</span>{% endif %}
+    </div>
+    {% endif %}
+    {% if rating %}<div class="tile-rating"><span class="star">★</span> {{ rating }}</div>{% endif %}
+  </div>
+  <div>
+    <div class="tile-title">{{ title }}</div>
+    {% if meta %}<div class="tile-meta">{{ meta }}</div>{% endif %}
+  </div>
+  {{ caller() if caller is defined else "" }}
+</div>
+{%- endmacro %}
+
+
+{# Settings card — wraps a card body, optional header with title + slot.
+   Use as: {% call c.setg_card(title="…") %} … rows … {% endcall %} #}
+{% macro setg_card(title="", subtitle="", header_extra="") -%}
+<div class="setg-card">
+  {% if title or subtitle or header_extra %}
+  <div class="setg-hd">
+    <div>
+      {% if title %}<h3>{{ title }}</h3>{% endif %}
+      {% if subtitle %}<div class="u-small">{{ subtitle }}</div>{% endif %}
+    </div>
+    {% if header_extra %}{{ header_extra|safe }}{% endif %}
+  </div>
+  {% endif %}
+  {{ caller() }}
+</div>
+{%- endmacro %}
+
+
+{# Settings row — two-column label / control layout. #}
+{% macro setg_row(label, sub="") -%}
+<div class="setg-row">
+  <div>
+    <div class="setg-row-lbl">{{ label }}</div>
+    {% if sub %}<div class="setg-row-sub">{{ sub }}</div>{% endif %}
+  </div>
+  <div>{{ caller() }}</div>
+</div>
+{%- endmacro %}
+
+
+{# Toggle switch — checkbox with id, optional `on` for default state.
+   The old `attrs` raw-HTML parameter has been removed to prevent XSS. #}
+{% macro tog(id, on=false) -%}
+  <span class="tog {% if on %}on{% endif %}" data-toggle role="switch" tabindex="0" aria-checked="{{ 'true' if on else 'false' }}" data-target="{{ id }}"></span>
+  <input type="hidden" id="{{ id }}" value="{{ 'true' if on else 'false' }}">
+{%- endmacro %}
+
+
+{# Plain input — `.inp` style. Wrap with a label externally.
+   The old `attrs` raw-HTML parameter has been removed to prevent XSS.
+   Pass `autocomplete` or `required` explicitly if needed. #}
+{% macro inp(id, value="", placeholder="", type="text", autocomplete="", required=false) -%}
+  <input class="inp" id="{{ id }}" name="{{ id }}" type="{{ type }}" value="{{ value }}" placeholder="{{ placeholder }}"
+         {%- if autocomplete %} autocomplete="{{ autocomplete }}"{% endif %}
+         {%- if required %} required{% endif %}>
+{%- endmacro %}
+
+
+{# Connection status dot — variants: ok (default), off, warn. #}
+{% macro conn(label, status="ok") -%}
+<span class="conn">
+  <span class="conn-dot{% if status != 'ok' %} {{ status }}{% endif %}"></span>{{ label }}
+</span>
+{%- endmacro %}
+
+
+{# Storage bar — segments are a list of dicts: {pct, label, color, value}.
+   `total_label`, `free_label`, `header_extra` are optional. #}
+{% macro storage(used_label, free_label, segments, header_extra="") -%}
+<div class="storage">
+  <div class="storage-hd">
+    <div class="storage-num">{{ used_label }}</div>
+    {% if free_label %}<div class="storage-free">{{ free_label }}</div>{% endif %}
+  </div>
+  <div class="storage-bar">
+    {% for s in segments %}
+    {% if s.pct > 0 %}<div class="seg seg--{{ s.key }}" style="--seg-pct:{{ s.pct }}%"></div>{% endif %}
+    {% endfor %}
+  </div>
+  <div class="storage-legend">
+    {% for s in segments %}
+    <div class="legend"><span class="legend-dot" style="background:{{ s.color }}"></span>{{ s.label }} <b>{{ s.value }}</b></div>
+    {% endfor %}
+  </div>
+</div>
+{%- endmacro %}
+
+
+{# Empty state. #}
+{% macro empty(headline, sub="", icon_svg="") -%}
+<div class="empty">
+  {% if icon_svg %}<div class="empty-ico">{{ icon_svg|safe }}</div>{% endif %}
+  <h3>{{ headline }}</h3>
+  {% if sub %}<p>{{ sub|safe }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+
+{# Eyebrow label above a page heading. #}
+{% macro eyebrow(label) -%}
+<div class="eyebrow">{{ label }}</div>
+{%- endmacro %}
+
+
+{# Section header with title + optional subtitle slot. #}
+{% macro sec_hd(title, sub="") -%}
+<div class="sec-hd">
+  <h2>{{ title }}</h2>
+  {% if sub %}<span class="sub">{{ sub|safe }}</span>{% endif %}
+</div>
+{%- endmacro %}
+
+
+{# ============================================================================
+   Settings v2 primitives — used by templates/settings/_sec_*.html.
+   All rendered markup is scoped under `.setg-pg` on the page root.
+   ============================================================================ #}
+
+{# Rail nav item — href-anchored link in the left sidebar. #}
+{% macro setg_rail_item(href, label, icon_svg, count="", count_tone="") -%}
+<a href="{{ href }}" class="setg-rail-item">
+  {{ icon_svg|safe }}
+  {{ label }}
+  {% if count %}<span class="rail-count{% if count_tone %} {{ count_tone }}{% endif %}">{{ count }}</span>{% endif %}
+</a>
+{%- endmacro %}
+
+
+{# Block (section container with scroll anchor + heading). Use via {% call %}. #}
+{% macro setg_block(id, title, sub="") -%}
+<div class="setg-block" id="{{ id }}">
+  <div class="setg-block-hd">
+    <h2>{{ title }}</h2>
+    {% if sub %}<span class="sub">{{ sub|safe }}</span>{% endif %}
+  </div>
+  {{ caller() }}
+</div>
+{%- endmacro %}
+
+
+{# Card with header (title + sub + optional actions). Use via {% call %}. #}
+{% macro setg_card_v2(title="", sub="", header_actions="", pad=false) -%}
+<div class="setg-card">
+  {% if title or sub or header_actions %}
+  <div class="setg-card-hd">
+    <div class="head-info">
+      {% if title %}<h3>{{ title }}</h3>{% endif %}
+      {% if sub %}<div class="sub">{{ sub|safe }}</div>{% endif %}
+    </div>
+    {% if header_actions %}<div class="head-actions">{{ header_actions|safe }}</div>{% endif %}
+  </div>
+  {% endif %}
+  <div class="setg-card-bd{% if pad %} setg-card-bd--pad{% endif %}">{{ caller() }}</div>
+</div>
+{%- endmacro %}
+
+
+{# Row (label + sub + control slot). Use via {% call %}. #}
+{% macro setg_row_v2(label, sub="") -%}
+<div class="setg-row">
+  <div>
+    <div class="setg-row-lbl">{{ label }}</div>
+    {% if sub %}<div class="setg-row-sub">{{ sub|safe }}</div>{% endif %}
+  </div>
+  <div>{{ caller() }}</div>
+</div>
+{%- endmacro %}
+
+
+{# Input with show/hide reveal button. Used for secrets. #}
+{% macro inp_secret(id, value="", placeholder="") -%}
+<div class="inp-wrap">
+  <input class="inp inp--lg" id="{{ id }}" name="{{ id }}" type="password"
+         value="{{ value }}" placeholder="{{ placeholder }}" autocomplete="off" spellcheck="false">
+  <button type="button" class="inp-reveal" data-reveal-target="{{ id }}">Show</button>
+</div>
+{%- endmacro %}
+
+
+{# Field (stacked label + input + helper). Use via {% call %}. #}
+{% macro fld(label, sub="", optional=false) -%}
+<div class="fld">
+  <div class="fld-lbl">
+    {{ label }}
+    {% if optional %}<span class="opt">optional</span>{% endif %}
+  </div>
+  {{ caller() }}
+  {% if sub %}<div class="fld-sub">{{ sub|safe }}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+
+{# Connection status pill with data-service attribute (JS hooks in to update). #}
+{% macro conn_pill(service) -%}
+<span class="conn untested" data-conn="{{ service }}">
+  <span class="conn-dot"></span><span data-conn-label>Untested</span>
+</span>
+{%- endmacro %}
+
+
+{# Integration card — single pattern for all 8 services.
+   Fields render inside the card body via caller(). #}
+{% macro intg_card(service, glyph, glyph_kind, title, sub="", include_test=true) -%}
+<div class="intg-card is-collapsed" id="intg-{{ service }}">
+  <div class="intg-card-hd" role="button" tabindex="0"
+       aria-expanded="false" aria-controls="intg-body-{{ service }}"
+       data-intg-toggle>
+    <div class="glyph gy-{{ glyph_kind }}">{{ glyph }}</div>
+    <div class="h-info">
+      <h3>{{ title }}</h3>
+      {% if sub %}<div class="sub">{{ sub|safe }}</div>{% endif %}
+    </div>
+    <div class="hd-actions">
+      {{ conn_pill(service) }}
+      {% if include_test %}<button type="button" class="btn-test" data-test-service="{{ service }}">Test</button>{% endif %}
+      <svg class="intg-chev" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><polyline points="6 9 12 15 18 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </div>
+  </div>
+  <div class="intg-card-bd" id="intg-body-{{ service }}" hidden>
+    {{ caller() }}
+  </div>
+</div>
+{%- endmacro %}

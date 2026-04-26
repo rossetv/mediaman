@@ -1,0 +1,10 @@
+# Bandit configuration for mediaman.
+#
+# B608 (hardcoded_sql_expressions) flags every f-string / concat that touches
+# SQL, even when the interpolated portion is a hardcoded column list or a
+# parameterised placeholder. Every dynamic value in this codebase is bound
+# via sqlite3 "?" placeholders rather than string interpolation. The CI
+# baseline has 25 B608 findings, every one of which has been reviewed and
+# confirmed false-positive; re-enable on a dedicated audit.
+skips:
+  - B608  # hardcoded_sql_expressions -- all dynamic values bound via "?"
