@@ -57,6 +57,9 @@ from mediaman.services.downloads.download_queue._items import (
 from mediaman.services.downloads.download_queue._items import (
     build_unmatched_arr_item as _build_unmatched_arr_item_impl,
 )
+from mediaman.services.downloads.download_queue._items import (
+    read_abandon_thresholds,
+)
 from mediaman.services.downloads.download_queue._nzb_match import nzb_matches_arr
 from mediaman.services.downloads.download_queue._response import DownloadsResponse
 
@@ -132,14 +135,18 @@ def _maybe_record_completions(
 
 
 def _build_unmatched_arr_item(
-    arr: "ArrCard", arr_base_urls_map: dict[str, str]
+    arr: "ArrCard",
+    arr_base_urls_map: dict[str, str],
+    abandon_thresholds: tuple[int, int],
 ) -> dict[str, object]:
-    """Wrapper that binds the deep-link helpers for :func:`_build_unmatched_arr_item_impl`."""
+    """Wrapper that binds the deep-link helpers + abandon thresholds for
+    :func:`_build_unmatched_arr_item_impl`."""
     return _build_unmatched_arr_item_impl(
         arr,
         arr_base_urls_map,
         _build_search_hint,
         _build_arr_link,
+        abandon_thresholds,
     )
 
 
@@ -186,6 +193,7 @@ def _build_arr_items(
     arr_base_urls_map: dict[str, str],
     download_rate: object,
     secret_key: str,
+    abandon_thresholds: tuple[int, int],
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     """Match arr cards to NZBGet entries and build simplified queue items.
 
@@ -217,6 +225,8 @@ def _build_arr_items(
                     size_done="",
                     size_total="",
                     release_label=arr.get("release_label", ""),
+                    arr_id=arr.get("arr_id") or 0,
+                    kind=arr.get("kind") or "",
                 )
             )
             continue
@@ -262,7 +272,7 @@ def _build_arr_items(
             items.append(_build_matched_item(arr, matched_nzb, state, eta, download_rate))
             maybe_trigger_search(conn, arr, matched_nzb=True, secret_key=secret_key)
         else:
-            items.append(_build_unmatched_arr_item(arr, arr_base_urls_map))
+            items.append(_build_unmatched_arr_item(arr, arr_base_urls_map, abandon_thresholds))
             maybe_trigger_search(conn, arr, matched_nzb=False, secret_key=secret_key)
 
     return items, upcoming_items
@@ -296,6 +306,8 @@ def _add_unmatched_nzb_items(
                 eta=eta,
                 size_done=format_bytes(nzb["done_mb"] * 1024 * 1024),
                 size_total=format_bytes(nzb["file_mb"] * 1024 * 1024),
+                arr_id=0,
+                kind=media_type,
             )
         )
 
@@ -336,22 +348,25 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     # 3. Parse NZBGet items.
     nzb_parsed = _parse_nzb_queue(nzb_queue)
 
-    # 4. Match arr cards to NZBGet entries; collect upcoming separately.
+    # 4. Read abandon thresholds once for this response cycle.
+    abandon_thresholds = read_abandon_thresholds(conn)
+
+    # 5. Match arr cards to NZBGet entries; collect upcoming separately.
     items, upcoming_items = _build_arr_items(
-        conn, arr_items, nzb_parsed, arr_base_urls_map, download_rate, secret_key
+        conn, arr_items, nzb_parsed, arr_base_urls_map, download_rate, secret_key, abandon_thresholds
     )
 
-    # 5. Add unmatched NZBGet items (manual additions with no Arr match).
+    # 6. Add unmatched NZBGet items (manual additions with no Arr match).
     _add_unmatched_nzb_items(items, nzb_parsed, download_rate)
 
-    # 6. Completion detection.
+    # 7. Completion detection.
     current_map = {item["id"]: item for item in items}
     _maybe_record_completions(conn, current_map, secret_key)
 
-    # 7. Hero selection
+    # 8. Hero selection
     hero, queue = select_hero(items)
 
-    # 8. Recent downloads (last 7 days), excluding anything actively in queue.
+    # 9. Recent downloads (last 7 days), excluding anything actively in queue.
     from mediaman.services.arr.build import build_arr_client as _build_arr_client_local
 
     active_ids = {item["id"] for item in items}
