@@ -43,7 +43,9 @@
 
   // ---------------------------------------------------------------------
   // Toggle switches — <span class="tog" data-toggle data-target="id">
-  // mirrors its state to a hidden <input id="id">.
+  // mirrors its state to a hidden <input id="id">. Optional data-on-value
+  // and data-off-value attributes control what gets written to the input
+  // (default: 'true' / 'false').
   // ---------------------------------------------------------------------
   function toggle(node) {
     var on = !node.classList.contains('on');
@@ -52,7 +54,11 @@
     var target = node.getAttribute('data-target');
     if (target) {
       var input = document.getElementById(target);
-      if (input) input.value = on ? 'true' : 'false';
+      if (input) {
+        var onVal = node.getAttribute('data-on-value') || 'true';
+        var offVal = node.getAttribute('data-off-value') || 'false';
+        input.value = on ? onVal : offVal;
+      }
     }
     markDirty();
   }
@@ -534,6 +540,9 @@
       grace_days:           n('grace_days'),
       disk_thresholds:      collectDiskThresholds(),
       suggestions_enabled:  v('suggestions_enabled'),
+      abandon_search_visible_at: n('abandon_search_visible_at'),
+      abandon_search_escalate_at: n('abandon_search_escalate_at'),
+      abandon_search_auto_multiplier: n('abandon_search_auto_multiplier'),
     };
   }
   var saveBtn = document.getElementById('btn-save');
