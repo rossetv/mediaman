@@ -13,11 +13,11 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger("mediaman")
 
-DB_SCHEMA_VERSION = 21
+DB_SCHEMA_VERSION = 22
 
-assert DB_SCHEMA_VERSION == 21, (
+assert DB_SCHEMA_VERSION == 22, (
     f"DB_SCHEMA_VERSION is {DB_SCHEMA_VERSION} but the highest migration "
-    "block is 21 — update one of them."
+    "block is 22 — update one of them."
 )
 
 _SCHEMA = """
@@ -638,3 +638,23 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
             )
 
         _run_migration(21, _v21)
+
+    if current_version < 22:
+
+        def _v22(c: sqlite3.Connection) -> None:
+            """Persist arr_search_throttle.search_count across restarts.
+
+            Without it the in-memory counter resets on every deploy, so the
+            "Searched N×" UI hint can hover at 1-2 forever even though the
+            scheduler has poked Radarr/Sonarr for weeks.
+            """
+            cols = {
+                row[1] for row in c.execute("PRAGMA table_info(arr_search_throttle)").fetchall()
+            }
+            if "search_count" not in cols:
+                c.execute(
+                    "ALTER TABLE arr_search_throttle "
+                    "ADD COLUMN search_count INTEGER NOT NULL DEFAULT 0"
+                )
+
+        _run_migration(22, _v22)

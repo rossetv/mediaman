@@ -38,29 +38,34 @@ def reset_search_triggers() -> None:
     _search_count.clear()
 
 
-def _load_last_trigger_from_db(conn: sqlite3.Connection, dl_id: str) -> float:
-    """Return the persisted last-triggered epoch for *dl_id*, or 0.0.
+def _load_throttle_from_db(conn: sqlite3.Connection, dl_id: str) -> tuple[float, int]:
+    """Return ``(last_triggered_epoch, search_count)`` for *dl_id*.
 
-    Reads from the ``arr_search_throttle`` table.  Returns 0.0 when the
-    table doesn't exist yet (pre-migration DBs during startup).
+    Reads from the ``arr_search_throttle`` table.  Returns ``(0.0, 0)``
+    when the table or row doesn't exist yet (pre-migration DBs during
+    startup, or items mediaman has never poked).
     """
     try:
         row = conn.execute(
-            "SELECT last_triggered_at FROM arr_search_throttle WHERE key=?",
+            "SELECT last_triggered_at, search_count FROM arr_search_throttle WHERE key=?",
             (dl_id,),
         ).fetchone()
         if row is None:
-            return 0.0
+            return 0.0, 0
         from mediaman.services.infra.format import parse_iso_utc
 
         dt = parse_iso_utc(row[0])
-        return dt.timestamp() if dt is not None else 0.0
+        epoch = dt.timestamp() if dt is not None else 0.0
+        count = int(row[1] or 0)
+        return epoch, count
     except Exception:
-        return 0.0
+        return 0.0, 0
 
 
-def _save_trigger_to_db(conn: sqlite3.Connection, dl_id: str, epoch: float) -> None:
-    """Persist *epoch* as the last-triggered time for *dl_id*.
+def _save_trigger_to_db(
+    conn: sqlite3.Connection, dl_id: str, epoch: float, count: int
+) -> None:
+    """Persist *epoch* and *count* for *dl_id*.
 
     Uses ``INSERT OR REPLACE`` so the upsert is idempotent.  Failures are
     logged and swallowed — the in-memory state is still correct even when
@@ -71,8 +76,9 @@ def _save_trigger_to_db(conn: sqlite3.Connection, dl_id: str, epoch: float) -> N
 
         ts = datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat()
         conn.execute(
-            "INSERT OR REPLACE INTO arr_search_throttle (key, last_triggered_at) VALUES (?, ?)",
-            (dl_id, ts),
+            "INSERT OR REPLACE INTO arr_search_throttle "
+            "(key, last_triggered_at, search_count) VALUES (?, ?, ?)",
+            (dl_id, ts, count),
         )
         conn.commit()
     except Exception:
@@ -120,9 +126,13 @@ def maybe_trigger_search(
         last = _last_search_trigger.get(dl_id, 0.0)
         if last == 0.0:
             # Not in memory — check the DB (handles restarts/deploys).
-            last = _load_last_trigger_from_db(conn, dl_id)
+            last, persisted_count = _load_throttle_from_db(conn, dl_id)
             if last > 0.0:
                 _last_search_trigger[dl_id] = last  # warm the cache
+                # Restore count too so the "Searched N×" UI hint doesn't
+                # reset every time the process restarts.
+                if persisted_count > _search_count.get(dl_id, 0):
+                    _search_count[dl_id] = persisted_count
         if now - last < _SEARCH_THROTTLE_SECONDS:
             return
 
@@ -140,9 +150,10 @@ def maybe_trigger_search(
             else:
                 return
             _last_search_trigger[dl_id] = now
-            _search_count[dl_id] = _search_count.get(dl_id, 0) + 1
+            new_count = _search_count.get(dl_id, 0) + 1
+            _search_count[dl_id] = new_count
             logger.info("Triggered search for stalled item %s", dl_id)
-            _save_trigger_to_db(conn, dl_id, now)
+            _save_trigger_to_db(conn, dl_id, now, new_count)
         except Exception:
             logger.warning("Failed to trigger search for %s", dl_id, exc_info=True)
 
