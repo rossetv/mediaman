@@ -288,7 +288,7 @@ class TestSettingsPutPersistsEveryDeclaredKey:
         "scan_day": "Monday",
         "scan_time": "03:00",
         "scan_timezone": "Europe/London",
-        "library_sync_interval": 3600,
+        "library_sync_interval": 30,
         "min_age_days": 30,
         "inactivity_days": 60,
         "grace_days": 7,
@@ -404,10 +404,10 @@ class TestSettingsPutPersistsEveryDeclaredKey:
         assert resp.status_code == 422
 
     def test_put_rejects_library_sync_interval_out_of_range(self, conn, secret_key):
-        """library_sync_interval outside 60–86400 must be rejected (HTTP 422)."""
+        """library_sync_interval outside 0–1440 minutes must be rejected (HTTP 422)."""
         app = _make_app(conn, secret_key)
         client = _auth_client(app, conn)
-        resp = client.put("/api/settings", json={"library_sync_interval": 10})
+        resp = client.put("/api/settings", json={"library_sync_interval": 1441})
         assert resp.status_code == 422
 
 

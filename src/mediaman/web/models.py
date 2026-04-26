@@ -311,15 +311,23 @@ class SettingsUpdate(BaseModel):
     @field_validator("library_sync_interval", mode="before")
     @classmethod
     def validate_library_sync_interval(cls, v: object) -> object:
-        """Bound library_sync_interval to 60–86400 seconds (1 minute to 1 day)."""
+        """Bound library_sync_interval to 0–1440 minutes (0 = disabled, max = 1 day).
+
+        The dropdown in ``_sec_general.html`` writes this value in minutes
+        (matching how ``bootstrap/scheduling.py`` consumes it as
+        ``sync_interval_minutes``). Earlier revisions of this validator
+        treated the value as seconds and rejected every legitimate
+        dropdown option — fix is to bound in the unit the rest of the
+        codebase actually uses.
+        """
         if v is None:
             return v
         try:
             iv = int(v)
         except (TypeError, ValueError) as exc:
             raise ValueError("library_sync_interval must be an integer") from exc
-        if not (60 <= iv <= 86400):
-            raise ValueError("library_sync_interval must be between 60 and 86400")
+        if not (0 <= iv <= 1440):
+            raise ValueError("library_sync_interval must be between 0 and 1440 minutes")
         return iv
 
     @field_validator("disk_thresholds", mode="before")
