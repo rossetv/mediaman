@@ -60,9 +60,12 @@ class ArrEpisodeEntry(_ArrEpisodeRequired, total=False):
 
     * ``is_pack_episode`` — set by ``_aggregate_pack_episodes`` once all
       episodes in a series are known.
+    * ``season_number`` — the raw season number from the Sonarr API payload;
+      consumers should treat absent as 0. Avoids re-parsing the SxxExx label.
     """
 
     is_pack_episode: bool
+    season_number: int
 
 
 class BaseArrCard(TypedDict):
