@@ -168,3 +168,120 @@ class TestBuildUnmatchedArrItem:
         arr = _make_radarr_card("Dune", progress=0)
         item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
         assert item["search_count"] == 3
+
+
+# ---------------------------------------------------------------------------
+# abandon_visible / abandon_escalated flags
+# ---------------------------------------------------------------------------
+
+
+class TestAbandonVisibleGate:
+    def _make_item(self, monkeypatch, search_count: int, progress: int = 0) -> dict:
+        monkeypatch.setattr(
+            "mediaman.services.downloads.download_queue._items._abandon_threshold",
+            lambda: 10,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.downloads.download_queue._items._abandon_escalate_threshold",
+            lambda: 50,
+        )
+        arr = _make_radarr_card("Dune", progress=progress)
+        with patch(
+            "mediaman.services.arr.search_trigger.get_search_info",
+            return_value=(search_count, 1.0),
+        ):
+            return build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
+
+    def test_hidden_when_search_count_below_threshold(self, monkeypatch):
+        item = self._make_item(monkeypatch, search_count=5)
+        assert item["abandon_visible"] is False
+        assert item["abandon_escalated"] is False
+
+    def test_visible_when_search_count_meets_threshold(self, monkeypatch):
+        item = self._make_item(monkeypatch, search_count=10)
+        assert item["abandon_visible"] is True
+        assert item["abandon_escalated"] is False
+
+    def test_escalated_when_count_meets_escalate_threshold(self, monkeypatch):
+        item = self._make_item(monkeypatch, search_count=50)
+        assert item["abandon_visible"] is True
+        assert item["abandon_escalated"] is True
+
+    def test_hidden_when_state_is_not_searching(self, monkeypatch):
+        """Even at huge search counts, non-searching items must not show the button."""
+        item = self._make_item(monkeypatch, search_count=999, progress=100)
+        assert item["abandon_visible"] is False
+        assert item["abandon_escalated"] is False
+
+
+# ---------------------------------------------------------------------------
+# stuck_seasons derivation
+# ---------------------------------------------------------------------------
+
+
+def _ep_with_season(label: str, season_number: int) -> dict:
+    """Episode entry in 'searching' state — size=0, no active status."""
+    return {
+        "label": label,
+        "season_number": season_number,
+        "title": "",
+        "size": 0,
+        "sizeleft": 0,
+        "size_str": "",
+        "status": "",
+        "progress": 0,
+        "download_id": "",
+    }
+
+
+class TestStuckSeasons:
+    @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
+    def test_movie_has_empty_stuck_seasons(self, _mock_search):
+        arr = _make_radarr_card("Dune", progress=0)
+        item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
+        assert item["stuck_seasons"] == []
+
+    @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
+    def test_series_groups_episodes_by_season(self, _mock_search, monkeypatch):
+        monkeypatch.setattr(
+            "mediaman.services.downloads.download_queue._items._abandon_threshold",
+            lambda: 10,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.downloads.download_queue._items._abandon_escalate_threshold",
+            lambda: 50,
+        )
+        arr = _make_sonarr_card(
+            "Breaking Bad",
+            episodes=[
+                _ep_with_season("S21E01", 21),
+                _ep_with_season("S21E02", 21),
+                _ep_with_season("S22E01", 22),
+            ],
+        )
+        item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
+        assert item["stuck_seasons"] == [
+            {"number": 21, "missing_episodes": 2},
+            {"number": 22, "missing_episodes": 1},
+        ]
+
+    @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
+    def test_series_stuck_seasons_empty_when_not_searching(self, _mock_search, monkeypatch):
+        """stuck_seasons should be empty when the series is not in searching state."""
+        monkeypatch.setattr(
+            "mediaman.services.downloads.download_queue._items._abandon_threshold",
+            lambda: 10,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.downloads.download_queue._items._abandon_escalate_threshold",
+            lambda: 50,
+        )
+        eps = [
+            {**_ep_with_season("S01E01", 1), "progress": 100, "sizeleft": 0, "size": 500_000_000, "status": "completed"},
+            {**_ep_with_season("S01E02", 1), "progress": 100, "sizeleft": 0, "size": 500_000_000, "status": "completed"},
+        ]
+        arr = _make_sonarr_card("Silo", episodes=eps)
+        item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
+        # state will be almost_ready — stuck_seasons must be empty
+        assert item["state"] == "almost_ready"
+        assert item["stuck_seasons"] == []

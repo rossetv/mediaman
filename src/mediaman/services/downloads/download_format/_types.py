@@ -27,3 +27,6 @@ class DownloadItem(TypedDict):
     search_hint: str
     arr_link: str
     arr_source: str
+    abandon_visible: bool
+    abandon_escalated: bool
+    stuck_seasons: list[dict]

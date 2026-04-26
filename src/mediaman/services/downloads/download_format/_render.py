@@ -26,6 +26,9 @@ def build_item(
     search_hint: str = "",
     arr_link: str = "",
     arr_source: str = "",
+    abandon_visible: bool = False,
+    abandon_escalated: bool = False,
+    stuck_seasons: list[dict] | None = None,
 ) -> DownloadItem:
     """Build a simplified download item for the API response.
 
@@ -37,7 +40,14 @@ def build_item(
     ``arr_link`` is the deep-link URL into Radarr/Sonarr for the item,
     and ``arr_source`` is ``"Radarr"`` or ``"Sonarr"`` — used to label
     the deep-link button.
+
+    ``abandon_visible`` / ``abandon_escalated`` are server-authoritative
+    threshold checks so the frontend renders the abandon button without
+    any client-side threshold logic. ``stuck_seasons`` is a per-season
+    missing-episode breakdown for series (empty for movies).
     """
+    if stuck_seasons is None:
+        stuck_seasons = []
     return {
         "id": dl_id,
         "title": title,
@@ -58,6 +68,9 @@ def build_item(
         "search_hint": search_hint,
         "arr_link": arr_link,
         "arr_source": arr_source,
+        "abandon_visible": abandon_visible,
+        "abandon_escalated": abandon_escalated,
+        "stuck_seasons": stuck_seasons,
     }
 
 
