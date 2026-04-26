@@ -57,9 +57,7 @@ def abandon_movie(
     try:
         client.unmonitor_movie(arr_id)
     except Exception:
-        logger.warning(
-            "abandon_movie: unmonitor_movie failed for %s", dl_id, exc_info=True
-        )
+        logger.warning("abandon_movie: unmonitor_movie failed for %s", dl_id, exc_info=True)
         return AbandonResult(kind="movie", failed=[0], dl_id=dl_id)
     clear_throttle(conn, dl_id)
     logger.info("abandon_movie: unmonitored arr_id=%s dl_id=%s", arr_id, dl_id)
@@ -91,9 +89,7 @@ def abandon_seasons(
     client = build_arr_client(conn, "sonarr", secret_key)
     if client is None:
         logger.warning("abandon_seasons: no sonarr client available for %s", dl_id)
-        return AbandonResult(
-            kind="series", failed=list(season_numbers), dl_id=dl_id
-        )
+        return AbandonResult(kind="series", failed=list(season_numbers), dl_id=dl_id)
 
     succeeded: list[int] = []
     failed: list[int] = []
@@ -118,6 +114,4 @@ def abandon_seasons(
         succeeded,
         failed,
     )
-    return AbandonResult(
-        kind="series", succeeded=succeeded, failed=failed, dl_id=dl_id
-    )
+    return AbandonResult(kind="series", succeeded=succeeded, failed=failed, dl_id=dl_id)

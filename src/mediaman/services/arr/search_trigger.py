@@ -63,9 +63,7 @@ def _load_throttle_from_db(conn: sqlite3.Connection, dl_id: str) -> tuple[float,
         return 0.0, 0
 
 
-def _save_trigger_to_db(
-    conn: sqlite3.Connection, dl_id: str, epoch: float, count: int
-) -> None:
+def _save_trigger_to_db(conn: sqlite3.Connection, dl_id: str, epoch: float, count: int) -> None:
     """Persist *epoch* and *count* for *dl_id*.
 
     Uses ``INSERT OR REPLACE`` so the upsert is idempotent.  Failures are
@@ -188,9 +186,7 @@ def clear_throttle(conn: sqlite3.Connection, dl_id: str) -> None:
         conn.execute("DELETE FROM arr_search_throttle WHERE key=?", (dl_id,))
         conn.commit()
     except Exception:
-        logger.warning(
-            "arr_search_trigger: failed to clear throttle for %s", dl_id, exc_info=True
-        )
+        logger.warning("arr_search_trigger: failed to clear throttle for %s", dl_id, exc_info=True)
 
 
 def maybe_auto_abandon(
@@ -211,14 +207,10 @@ def maybe_auto_abandon(
     skipped — there's nothing for Sonarr to unmonitor that wouldn't be a
     no-op or an error.
     """
-    multiplier = get_int_setting(
-        conn, "abandon_search_auto_multiplier", default=0, min=0, max=100
-    )
+    multiplier = get_int_setting(conn, "abandon_search_auto_multiplier", default=0, min=0, max=100)
     if multiplier <= 0:
         return
-    escalate_at = get_int_setting(
-        conn, "abandon_search_escalate_at", default=50, min=2, max=10000
-    )
+    escalate_at = get_int_setting(conn, "abandon_search_escalate_at", default=50, min=2, max=10000)
     if search_count < escalate_at * multiplier:
         return
 
@@ -239,15 +231,15 @@ def maybe_auto_abandon(
         abandon_movie(conn, secret_key, arr_id=arr_id, dl_id=dl_id)
         return
 
-    seasons = sorted({
-        int(ep.get("season_number") or 0)
-        for ep in (item.get("episodes") or [])
-    })
+    seasons = sorted({int(ep.get("season_number") or 0) for ep in (item.get("episodes") or [])})
     if not seasons:
         return
     abandon_seasons(
-        conn, secret_key,
-        series_id=arr_id, season_numbers=seasons, dl_id=dl_id,
+        conn,
+        secret_key,
+        series_id=arr_id,
+        season_numbers=seasons,
+        dl_id=dl_id,
     )
 
 

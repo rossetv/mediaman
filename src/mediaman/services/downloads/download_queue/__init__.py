@@ -351,7 +351,13 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
 
     # 5. Match arr cards to NZBGet entries; collect upcoming separately.
     items, upcoming_items = _build_arr_items(
-        conn, arr_items, nzb_parsed, arr_base_urls_map, download_rate, secret_key, abandon_thresholds
+        conn,
+        arr_items,
+        nzb_parsed,
+        arr_base_urls_map,
+        download_rate,
+        secret_key,
+        abandon_thresholds,
     )
 
     # 6. Add unmatched NZBGet items (manual additions with no Arr match).

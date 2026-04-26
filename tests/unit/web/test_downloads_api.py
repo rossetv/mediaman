@@ -1572,9 +1572,7 @@ class TestAbandonEndpoint:
 
             return AbandonResult(kind="movie", succeeded=[0], dl_id=dl_id)
 
-        monkeypatch.setattr(
-            "mediaman.web.routes.downloads.abandon_movie", fake_abandon_movie
-        )
+        monkeypatch.setattr("mediaman.web.routes.downloads.abandon_movie", fake_abandon_movie)
         monkeypatch.setattr(
             "mediaman.web.routes.downloads.build_downloads_response",
             lambda c, sk: {"queue": [], "hero": None, "upcoming": [], "recent": []},
@@ -1607,9 +1605,7 @@ class TestAbandonEndpoint:
 
             return AbandonResult(kind="series", succeeded=season_numbers, dl_id=dl_id)
 
-        monkeypatch.setattr(
-            "mediaman.web.routes.downloads.abandon_seasons", fake_abandon_seasons
-        )
+        monkeypatch.setattr("mediaman.web.routes.downloads.abandon_seasons", fake_abandon_seasons)
         monkeypatch.setattr(
             "mediaman.web.routes.downloads.build_downloads_response",
             lambda c, sk: {"queue": [], "hero": None, "upcoming": [], "recent": []},
@@ -1689,9 +1685,7 @@ class TestAbandonEndpoint:
 
             return AbandonResult(kind="movie", succeeded=[0], dl_id=dl_id)
 
-        monkeypatch.setattr(
-            "mediaman.web.routes.downloads.abandon_movie", fake_abandon_movie
-        )
+        monkeypatch.setattr("mediaman.web.routes.downloads.abandon_movie", fake_abandon_movie)
 
         # A searching movie item — matches what fetch_arr_queue returns for a
         # monitored Radarr title that has no NZBGet match.
