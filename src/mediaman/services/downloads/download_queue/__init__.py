@@ -50,15 +50,13 @@ from mediaman.services.downloads.download_queue._deep_links import (
 )
 from mediaman.services.downloads.download_queue._items import (
     build_episode_dicts,
+    read_abandon_thresholds,
 )
 from mediaman.services.downloads.download_queue._items import (
     build_matched_item as _build_matched_item,
 )
 from mediaman.services.downloads.download_queue._items import (
     build_unmatched_arr_item as _build_unmatched_arr_item_impl,
-)
-from mediaman.services.downloads.download_queue._items import (
-    read_abandon_thresholds,
 )
 from mediaman.services.downloads.download_queue._nzb_match import nzb_matches_arr
 from mediaman.services.downloads.download_queue._response import DownloadsResponse
