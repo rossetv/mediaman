@@ -234,8 +234,14 @@ def decrypt_value(
     # ---------------------------------------------------------------------------
     if len(raw) < 12 + 16:
         raise InvalidTag()
-    if raw[:1] == _V2_PREFIX:
-        raise InvalidTag()
+    # Note: we do NOT short-circuit when raw[:1] == _V2_PREFIX. A legitimate
+    # v1 ciphertext begins with a 12-byte random nonce whose first byte is
+    # 0x02 about 1 time in 256 — refusing to decrypt those would be a
+    # 0.39% flake on round-trip tests and (worse) on production reads.
+    # If the bytes were truly v2 with wrong-key/corrupt content, the
+    # legacy AESGCM.decrypt below will fail authentication and raise
+    # InvalidTag exactly as before — no silent mis-decrypt is possible
+    # because v1 and v2 use different key-derivation functions.
     key = _derive_aes_key_legacy(secret_key)
     aesgcm = AESGCM(key)
     nonce, ciphertext = raw[:12], raw[12:]
