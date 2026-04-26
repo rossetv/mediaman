@@ -1409,6 +1409,18 @@ class TestNzbSeriesMatching:
         assert card["state"] == "downloading"
 
 
+from mediaman.web.routes.downloads import router as downloads_router  # noqa: E402
+
+
+def _make_downloads_app(conn, secret_key: str) -> FastAPI:
+    app = FastAPI()
+    app.include_router(downloads_router)
+    app.state.config = Config(secret_key=secret_key)
+    app.state.db = conn
+    set_connection(conn)
+    return app
+
+
 from mediaman.services.arr.search_trigger import trigger_pending_searches  # noqa: E402
 
 
@@ -1533,3 +1545,130 @@ class TestTriggerPendingSearches:
         trigger_pending_searches(conn, secret_key="test-key")
 
         assert calls == []
+
+
+class TestAbandonEndpoint:
+    """POST /api/downloads/{dl_id}/abandon"""
+
+    def _make_client(self, db_path, secret_key):
+        from mediaman.db import init_db
+
+        conn = init_db(str(db_path))
+        app = _make_downloads_app(conn, secret_key)
+        create_user(conn, "admin", "password1234", enforce_policy=False)
+        token = create_session(conn, "admin")
+        client = TestClient(app)
+        client.cookies.set("session_token", token)
+        return client
+
+    def test_movie_happy_path(self, db_path, secret_key, monkeypatch):
+        """POST with no seasons on a movie item → 200, abandon_movie called once."""
+        called = {}
+
+        def fake_abandon_movie(conn, sk, *, arr_id, dl_id):
+            called["arr_id"] = arr_id
+            called["dl_id"] = dl_id
+            from mediaman.services.downloads.abandon import AbandonResult
+
+            return AbandonResult(kind="movie", succeeded=[0], dl_id=dl_id)
+
+        monkeypatch.setattr(
+            "mediaman.web.routes.downloads.abandon_movie", fake_abandon_movie
+        )
+        monkeypatch.setattr(
+            "mediaman.web.routes.downloads.build_downloads_response",
+            lambda c, sk: {"queue": [], "hero": None, "upcoming": [], "recent": []},
+        )
+        monkeypatch.setattr(
+            "mediaman.web.routes.downloads._lookup_dl_item",
+            lambda c, sk, dl_id: {"kind": "movie", "arr_id": 42, "dl_id": dl_id},
+        )
+
+        client = self._make_client(db_path, secret_key)
+        resp = client.post(
+            "/api/downloads/radarr%3ATenet/abandon",
+            json={},
+        )
+        assert resp.status_code == 200
+        assert called == {"arr_id": 42, "dl_id": "radarr:Tenet"}
+        body = resp.json()
+        assert body["ok"] is True
+        assert body["abandoned"]["kind"] == "movie"
+
+    def test_series_happy_path(self, db_path, secret_key, monkeypatch):
+        """POST with seasons on a series item → 200, abandon_seasons called with correct numbers."""
+        called = {}
+
+        def fake_abandon_seasons(conn, sk, *, series_id, season_numbers, dl_id):
+            called["series_id"] = series_id
+            called["season_numbers"] = season_numbers
+            called["dl_id"] = dl_id
+            from mediaman.services.downloads.abandon import AbandonResult
+
+            return AbandonResult(kind="series", succeeded=season_numbers, dl_id=dl_id)
+
+        monkeypatch.setattr(
+            "mediaman.web.routes.downloads.abandon_seasons", fake_abandon_seasons
+        )
+        monkeypatch.setattr(
+            "mediaman.web.routes.downloads.build_downloads_response",
+            lambda c, sk: {"queue": [], "hero": None, "upcoming": [], "recent": []},
+        )
+        monkeypatch.setattr(
+            "mediaman.web.routes.downloads._lookup_dl_item",
+            lambda c, sk, dl_id: {"kind": "series", "arr_id": 7, "dl_id": dl_id},
+        )
+
+        client = self._make_client(db_path, secret_key)
+        resp = client.post(
+            "/api/downloads/sonarr%3ASeverance/abandon",
+            json={"seasons": [21, 22]},
+        )
+        assert resp.status_code == 200
+        assert called["series_id"] == 7
+        assert called["season_numbers"] == [21, 22]
+        body = resp.json()
+        assert body["ok"] is True
+        assert body["abandoned"]["kind"] == "series"
+
+    def test_unknown_dl_id_returns_404(self, db_path, secret_key, monkeypatch):
+        """POST for a dl_id not in the queue → 404."""
+        monkeypatch.setattr(
+            "mediaman.web.routes.downloads._lookup_dl_item",
+            lambda c, sk, dl_id: None,
+        )
+
+        client = self._make_client(db_path, secret_key)
+        resp = client.post(
+            "/api/downloads/radarr%3ADoesNotExist/abandon",
+            json={},
+        )
+        assert resp.status_code == 404
+
+    def test_empty_seasons_on_series_returns_400(self, db_path, secret_key, monkeypatch):
+        """POST with empty seasons list on a series item → 400."""
+        monkeypatch.setattr(
+            "mediaman.web.routes.downloads._lookup_dl_item",
+            lambda c, sk, dl_id: {"kind": "series", "arr_id": 7, "dl_id": dl_id},
+        )
+
+        client = self._make_client(db_path, secret_key)
+        resp = client.post(
+            "/api/downloads/sonarr%3ASeverance/abandon",
+            json={"seasons": []},
+        )
+        assert resp.status_code == 400
+
+    def test_unauthenticated_request_is_rejected(self, db_path, secret_key):
+        """POST without a session cookie → 401 or 403."""
+        from mediaman.db import init_db
+
+        conn = init_db(str(db_path))
+        app = _make_downloads_app(conn, secret_key)
+        client = TestClient(app)  # no cookie set
+
+        resp = client.post(
+            "/api/downloads/radarr%3ATenet/abandon",
+            json={},
+        )
+        assert resp.status_code in (401, 403)
