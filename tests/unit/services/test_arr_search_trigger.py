@@ -323,3 +323,144 @@ class TestThrottleDbPersistence:
         from mediaman.services.arr.search_trigger import clear_throttle
 
         clear_throttle(db_conn, "radarr:NeverExisted")  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# TestAutoAbandon
+# ---------------------------------------------------------------------------
+
+
+class TestAutoAbandon:
+    def test_off_when_multiplier_zero(self, db_conn, monkeypatch):
+        """Default config (multiplier=0) never auto-abandons."""
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.get_int_setting",
+            lambda c, k, **kw: 0 if k == "abandon_search_auto_multiplier" else 50,
+        )
+        called = {"abandon_movie": 0}
+        # Patch the late-imported symbol via its source module so the local
+        # import inside maybe_auto_abandon picks up our fake.
+        import mediaman.services.downloads.abandon as abandon_module
+        monkeypatch.setattr(
+            abandon_module,
+            "abandon_movie",
+            lambda *a, **kw: called.__setitem__(
+                "abandon_movie", called["abandon_movie"] + 1
+            ),
+        )
+        from mediaman.services.arr.search_trigger import maybe_auto_abandon
+
+        maybe_auto_abandon(
+            db_conn, "secret",
+            item={"kind": "movie", "dl_id": "radarr:X", "arr_id": 1},
+            search_count=99999,
+        )
+        assert called["abandon_movie"] == 0
+
+    def test_fires_when_count_crosses_escalate_times_multiplier(
+        self, db_conn, monkeypatch
+    ):
+        """At escalate_at=50 and multiplier=4, fires at count >= 200."""
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.get_int_setting",
+            lambda c, k, **kw: {
+                "abandon_search_escalate_at": 50,
+                "abandon_search_auto_multiplier": 4,
+            }[k],
+        )
+        called = {}
+        def fake_abandon_movie(conn, secret, *, arr_id, dl_id):
+            called["arr_id"] = arr_id
+            called["dl_id"] = dl_id
+        import mediaman.services.downloads.abandon as abandon_module
+        monkeypatch.setattr(abandon_module, "abandon_movie", fake_abandon_movie)
+        from mediaman.services.arr.search_trigger import maybe_auto_abandon
+
+        maybe_auto_abandon(
+            db_conn, "secret",
+            item={"kind": "movie", "dl_id": "radarr:X", "arr_id": 42},
+            search_count=200,
+        )
+        assert called == {"arr_id": 42, "dl_id": "radarr:X"}
+
+    def test_does_not_fire_below_threshold(self, db_conn, monkeypatch):
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.get_int_setting",
+            lambda c, k, **kw: {
+                "abandon_search_escalate_at": 50,
+                "abandon_search_auto_multiplier": 4,
+            }[k],
+        )
+        called = {"n": 0}
+        import mediaman.services.downloads.abandon as abandon_module
+        monkeypatch.setattr(
+            abandon_module,
+            "abandon_movie",
+            lambda *a, **kw: called.__setitem__("n", called["n"] + 1),
+        )
+        from mediaman.services.arr.search_trigger import maybe_auto_abandon
+
+        maybe_auto_abandon(
+            db_conn, "secret",
+            item={"kind": "movie", "dl_id": "radarr:X", "arr_id": 1},
+            search_count=199,
+        )
+        assert called["n"] == 0
+
+    def test_series_passes_derived_seasons(self, db_conn, monkeypatch):
+        """For a series item, derives season list from episodes."""
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.get_int_setting",
+            lambda c, k, **kw: {
+                "abandon_search_escalate_at": 50,
+                "abandon_search_auto_multiplier": 4,
+            }[k],
+        )
+        called = {}
+        def fake_abandon_seasons(conn, secret, *, series_id, season_numbers, dl_id):
+            called["series_id"] = series_id
+            called["seasons"] = sorted(season_numbers)
+            called["dl_id"] = dl_id
+        import mediaman.services.downloads.abandon as abandon_module
+        monkeypatch.setattr(
+            abandon_module, "abandon_seasons", fake_abandon_seasons
+        )
+        from mediaman.services.arr.search_trigger import maybe_auto_abandon
+
+        maybe_auto_abandon(
+            db_conn, "secret",
+            item={
+                "kind": "series", "dl_id": "sonarr:X", "arr_id": 7,
+                "episodes": [
+                    {"season_number": 21}, {"season_number": 21},
+                    {"season_number": 22},
+                ],
+            },
+            search_count=200,
+        )
+        assert called == {"series_id": 7, "seasons": [21, 22], "dl_id": "sonarr:X"}
+
+    def test_series_with_no_episodes_skipped(self, db_conn, monkeypatch):
+        """Series with empty episodes list is silently skipped (no error)."""
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.get_int_setting",
+            lambda c, k, **kw: {
+                "abandon_search_escalate_at": 50,
+                "abandon_search_auto_multiplier": 4,
+            }[k],
+        )
+        called = {"n": 0}
+        import mediaman.services.downloads.abandon as abandon_module
+        monkeypatch.setattr(
+            abandon_module,
+            "abandon_seasons",
+            lambda *a, **kw: called.__setitem__("n", called["n"] + 1),
+        )
+        from mediaman.services.arr.search_trigger import maybe_auto_abandon
+
+        maybe_auto_abandon(
+            db_conn, "secret",
+            item={"kind": "series", "dl_id": "sonarr:X", "arr_id": 7, "episodes": []},
+            search_count=200,
+        )
+        assert called["n"] == 0
