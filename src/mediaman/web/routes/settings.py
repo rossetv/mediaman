@@ -83,6 +83,9 @@ _ALL_KEYS = SECRET_FIELDS | {
     "disk_thresholds",
     "suggestions_enabled",
     "openai_web_search_enabled",
+    "abandon_search_visible_at",
+    "abandon_search_escalate_at",
+    "abandon_search_auto_multiplier",
 }
 
 #: Internal crypto plumbing rows (HKDF salt, canary) — never shown in the UI.
