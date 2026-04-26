@@ -13,6 +13,7 @@ import time
 
 from mediaman.services.arr.build import build_arr_client
 from mediaman.services.arr.fetcher import fetch_arr_queue
+from mediaman.services.infra.settings_reader import get_int_setting
 
 logger = logging.getLogger("mediaman")
 
@@ -192,6 +193,64 @@ def clear_throttle(conn: sqlite3.Connection, dl_id: str) -> None:
         )
 
 
+def maybe_auto_abandon(
+    conn: sqlite3.Connection,
+    secret_key: str,
+    *,
+    item: dict,
+    search_count: int,
+) -> None:
+    """Auto-unmonitor *item* if its search count has crossed the threshold.
+
+    Multiplier of 0 (default) disables the feature; the function returns
+    immediately. Otherwise abandons via the same service entry-points the
+    manual button uses, so semantics (throttle clear, partial-failure
+    behaviour, logging) are identical.
+
+    Series with no derivable season list (no episodes in the queue) are
+    skipped — there's nothing for Sonarr to unmonitor that wouldn't be a
+    no-op or an error.
+    """
+    multiplier = get_int_setting(
+        conn, "abandon_search_auto_multiplier", default=0, min=0, max=100
+    )
+    if multiplier <= 0:
+        return
+    escalate_at = get_int_setting(
+        conn, "abandon_search_escalate_at", default=50, min=2, max=10000
+    )
+    if search_count < escalate_at * multiplier:
+        return
+
+    # Late import breaks the otherwise-circular dependency between
+    # search_trigger and the abandon service (which itself imports
+    # clear_throttle from this module).
+    from mediaman.services.downloads.abandon import (
+        abandon_movie,
+        abandon_seasons,
+    )
+
+    dl_id = item.get("dl_id") or ""
+    arr_id = item.get("arr_id") or 0
+    if not dl_id or not arr_id:
+        return
+
+    if item.get("kind") == "movie":
+        abandon_movie(conn, secret_key, arr_id=arr_id, dl_id=dl_id)
+        return
+
+    seasons = sorted({
+        int(ep.get("season_number") or 0)
+        for ep in (item.get("episodes") or [])
+    })
+    if not seasons:
+        return
+    abandon_seasons(
+        conn, secret_key,
+        series_id=arr_id, season_numbers=seasons, dl_id=dl_id,
+    )
+
+
 def trigger_pending_searches(conn: sqlite3.Connection, secret_key: str) -> None:
     """Poke Radarr/Sonarr to search for every monitored-but-missing item.
 
@@ -226,6 +285,13 @@ def trigger_pending_searches(conn: sqlite3.Connection, secret_key: str) -> None:
 
     for item in arr_items:
         maybe_trigger_search(conn, item, matched_nzb=False, secret_key=secret_key)
+        try:
+            count, _ = get_search_info(item.get("dl_id") or "")
+            maybe_auto_abandon(conn, secret_key, item=item, search_count=count)
+        except Exception:
+            logger.warning(
+                "auto-abandon: skipped %s due to error", item.get("dl_id"), exc_info=True
+            )
 
     try:
         _trigger_sonarr_partial_missing(conn, arr_items, secret_key)
