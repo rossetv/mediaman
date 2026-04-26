@@ -595,3 +595,34 @@
 
 .u-mt-24 { margin-top: 24px; }
 
+/* ─── Abandon-search button (see DESIGN.md §4 component layer) ─── */
+
+/* Hero card: top-right floating icon button. Above the scrim (z:1) and on
+   the same plane as content (z:2). Reuses .btn--icon --ghost / --danger. */
+.dl-hero-abandon {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 3;
+}
+
+/* Compact row: same idea, scoped to a modifier so existing rows are
+   completely unaffected. */
+.dl-row--has-abandon { position: relative; }
+.dl-row-abandon {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+}
+.dl-row--has-abandon .dl-compact-right { padding-right: 38px; }
+
+/* Multi-season picker inside the confirm modal — list of toggle rows. */
+.dl-abandon-list {
+  border: 1px solid var(--hair);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  margin: 4px 0 8px;
+}
+.dl-abandon-list .setg-row { padding: 12px 14px; }
+.dl-abandon-list .setg-row + .setg-row { border-top: 1px solid var(--hair); }
