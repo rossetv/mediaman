@@ -626,3 +626,27 @@
 }
 .dl-abandon-list .setg-row { padding: 12px 14px; }
 .dl-abandon-list .setg-row + .setg-row { border-top: 1px solid var(--hair); }
+
+/* Abandon-search modal body — typography matches DESIGN.md §3 hierarchy. */
+.abandon-modal-body { padding: 28px; }
+.abandon-modal-body h2 {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -.02em;
+  line-height: 1.2;
+  margin: 0 0 8px;
+}
+.abandon-modal-body p {
+  color: var(--t2);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0 0 16px;
+  max-width: 56ch;
+}
+.abandon-modal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+  justify-content: flex-end;
+}

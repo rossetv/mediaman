@@ -730,6 +730,15 @@
       poll();
     }
   });
+
+  /* Allow external code (e.g. dl-abandon.js) to request an immediate poll. */
+  document.addEventListener('mediaman:poll:now', function () {
+    if (intervalId !== null) { clearTimeout(intervalId); intervalId = null; }
+    poll();
+  });
 }());
 </script>
+
+{% include "_dl_abandon_modal.html" %}
+<script src="{{ url_for('static', path='js/dl-abandon.js') }}" defer></script>
 {% endblock %}
