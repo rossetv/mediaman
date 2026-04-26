@@ -126,6 +126,24 @@ class TestLegacyV1Fallback:
         with pytest.raises(InvalidTag):
             decrypt_value(legacy, "wrong-key")
 
+    def test_v1_with_v2_prefix_byte_in_nonce_decrypts(self, secret_key, conn):
+        """Regression: a v1 ciphertext whose random nonce starts with 0x02
+        (the v2 prefix byte) must still decrypt via the legacy path.
+
+        The prior implementation refused to try v1 whenever the raw
+        bytes began with the v2 prefix, which was a ~0.39% flake on
+        every v1 decrypt — and a deterministic data-loss bug for the
+        unlucky operator whose stored ciphertext happened to roll a
+        ``0x02`` first nonce byte.
+        """
+        key = hashlib.sha256(secret_key.encode()).digest()
+        aesgcm = AESGCM(key)
+        nonce = b"\x02" + secrets.token_bytes(11)  # forced v2-prefix collision
+        ct = aesgcm.encrypt(nonce, b"legacy-value", None)
+        legacy = base64.urlsafe_b64encode(nonce + ct).decode()
+
+        assert decrypt_value(legacy, secret_key, conn=conn) == "legacy-value"
+
 
 class TestCanary:
     def test_seeds_canary_on_first_run(self, conn, secret_key):
