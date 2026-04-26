@@ -30,3 +30,5 @@ class DownloadItem(TypedDict):
     abandon_visible: bool
     abandon_escalated: bool
     stuck_seasons: list[dict]
+    arr_id: int
+    kind: str
