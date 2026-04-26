@@ -14,10 +14,54 @@ from mediaman.services.downloads.download_format import (
     map_episode_state,
     map_state,
 )
+from mediaman.db import get_db
 from mediaman.services.downloads.download_format._types import DownloadItem
 from mediaman.services.infra.format import format_bytes
+from mediaman.services.infra.settings_reader import get_int_setting
 
 logger = logging.getLogger("mediaman")
+
+
+def _abandon_threshold() -> int:
+    """Visibility threshold for the abandon-search button.
+
+    Pulls a fresh DB connection per call rather than threading one through
+    every payload-builder. The downloads endpoint refreshes ~once a second;
+    one SELECT is cheap.
+    """
+    try:
+        return get_int_setting(
+            get_db(), "abandon_search_visible_at", default=10, min=1, max=10000
+        )
+    except Exception:
+        return 10
+
+
+def _abandon_escalate_threshold() -> int:
+    """Count at which the button switches to the danger tint."""
+    try:
+        return get_int_setting(
+            get_db(), "abandon_search_escalate_at", default=50, min=2, max=10000
+        )
+    except Exception:
+        return 50
+
+
+def _stuck_seasons_from_episodes(episodes: list[dict]) -> list[dict]:
+    """Group queue episodes by season_number and count missing episodes.
+
+    Returns a sorted list of ``{"number": int, "missing_episodes": int}``
+    dicts, ascending by season number. Episodes without a season_number
+    are grouped as season 0 — Sonarr uses 0 for specials.
+    """
+    by_season: dict[int, int] = {}
+    for ep in episodes:
+        s = int(ep.get("season_number") or 0)
+        by_season[s] = by_season.get(s, 0) + 1
+    return [
+        {"number": s, "missing_episodes": n}
+        for s, n in sorted(by_season.items())
+    ]
 
 
 def build_episode_dicts(
@@ -105,6 +149,12 @@ def build_unmatched_arr_item(
             if state == "searching"
             else ""
         )
+        threshold = _abandon_threshold()
+        escalate_at = _abandon_escalate_threshold()
+        raw_episodes = arr.get("episodes", [])
+        stuck_seasons = (
+            _stuck_seasons_from_episodes(raw_episodes) if state == "searching" else []
+        )
         return build_item(
             dl_id=arr.get("dl_id", ""),
             title=arr.get("title", "Unknown"),
@@ -124,6 +174,9 @@ def build_unmatched_arr_item(
             search_hint=search_hint,
             arr_link=build_arr_link(arr, arr_base_urls),
             arr_source=arr.get("source", ""),
+            abandon_visible=(state == "searching" and search_count >= threshold),
+            abandon_escalated=(state == "searching" and search_count >= escalate_at),
+            stuck_seasons=stuck_seasons,
         )
     state = (
         "almost_ready"
@@ -135,6 +188,8 @@ def build_unmatched_arr_item(
         if state == "searching"
         else ""
     )
+    threshold = _abandon_threshold()
+    escalate_at = _abandon_escalate_threshold()
     return build_item(
         dl_id=arr.get("dl_id", ""),
         title=arr.get("title", "Unknown"),
@@ -151,4 +206,7 @@ def build_unmatched_arr_item(
         search_hint=search_hint,
         arr_link=build_arr_link(arr, arr_base_urls),
         arr_source=arr.get("source", ""),
+        abandon_visible=(state == "searching" and search_count >= threshold),
+        abandon_escalated=(state == "searching" and search_count >= escalate_at),
+        stuck_seasons=[],
     )
