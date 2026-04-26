@@ -170,6 +170,28 @@ def get_search_info(dl_id: str) -> tuple[int, float]:
         return _search_count.get(dl_id, 0), _last_search_trigger.get(dl_id, 0.0)
 
 
+def clear_throttle(conn: sqlite3.Connection, dl_id: str) -> None:
+    """Forget every trace of *dl_id* from the search-throttle subsystem.
+
+    Removes the persisted ``arr_search_throttle`` row and drops the entry
+    from both in-memory caches.  Used by the abandon flow so a future
+    re-monitor starts a fresh search-count rather than inheriting a stale
+    "Searched 52×" hint.
+
+    Idempotent: calling on a key that was never seen is a no-op.
+    """
+    with _state_lock:
+        _last_search_trigger.pop(dl_id, None)
+        _search_count.pop(dl_id, None)
+    try:
+        conn.execute("DELETE FROM arr_search_throttle WHERE key=?", (dl_id,))
+        conn.commit()
+    except Exception:
+        logger.warning(
+            "arr_search_trigger: failed to clear throttle for %s", dl_id, exc_info=True
+        )
+
+
 def trigger_pending_searches(conn: sqlite3.Connection, secret_key: str) -> None:
     """Poke Radarr/Sonarr to search for every monitored-but-missing item.
 

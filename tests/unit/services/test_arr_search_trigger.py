@@ -296,3 +296,30 @@ class TestThrottleDbPersistence:
 
         count, _epoch = get_search_info("radarr:LongRunner")
         assert count == 6, "expected previous 5 + 1 new trigger, not a reset to 1"
+
+    def test_clear_throttle_removes_db_row_and_memory_state(self, db_conn, monkeypatch):
+        """clear_throttle wipes the DB row and the in-memory caches."""
+        from mediaman.services.arr.search_trigger import (
+            _last_search_trigger,
+            _search_count,
+            clear_throttle,
+        )
+
+        _save_trigger_to_db(db_conn, "radarr:Tenet", 999.0, 5)
+        _last_search_trigger["radarr:Tenet"] = 999.0
+        _search_count["radarr:Tenet"] = 5
+
+        clear_throttle(db_conn, "radarr:Tenet")
+
+        # DB row gone
+        epoch, count = _load_throttle_from_db(db_conn, "radarr:Tenet")
+        assert (epoch, count) == (0.0, 0)
+        # In-memory state cleared
+        assert "radarr:Tenet" not in _last_search_trigger
+        assert "radarr:Tenet" not in _search_count
+
+    def test_clear_throttle_is_idempotent(self, db_conn):
+        """Clearing a key that was never seen does not raise."""
+        from mediaman.services.arr.search_trigger import clear_throttle
+
+        clear_throttle(db_conn, "radarr:NeverExisted")  # must not raise
