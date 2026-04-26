@@ -216,21 +216,42 @@ class TestSettingsUpdate:
         update = SettingsUpdate(suggestions_enabled=True)
         assert update.suggestions_enabled is True
 
+    # Real shape consumed by scanner/runner.py:
+    # ``{lib_id: {"path": str, "threshold": int}}``.
+
     def test_disk_thresholds_valid(self):
-        update = SettingsUpdate(disk_thresholds={"/media": 85, "/data": 90})
-        assert update.disk_thresholds == {"/media": 85, "/data": 90}
+        cfg = {
+            "1": {"path": "/media/movies", "threshold": 85},
+            "2": {"path": "/media/anime", "threshold": 90},
+        }
+        update = SettingsUpdate(disk_thresholds=cfg)
+        assert update.disk_thresholds == cfg
+
+    def test_disk_thresholds_empty_threshold_allowed(self):
+        """Selected-but-not-yet-configured library: empty values are fine."""
+        cfg = {"1": {"path": "", "threshold": ""}}
+        update = SettingsUpdate(disk_thresholds=cfg)
+        assert update.disk_thresholds == cfg
 
     def test_disk_thresholds_out_of_range_rejected(self):
         with pytest.raises(Exception):
-            SettingsUpdate(disk_thresholds={"/media": 101})
+            SettingsUpdate(disk_thresholds={"1": {"path": "/media", "threshold": 101}})
 
     def test_disk_thresholds_negative_rejected(self):
         with pytest.raises(Exception):
-            SettingsUpdate(disk_thresholds={"/media": -1})
+            SettingsUpdate(disk_thresholds={"1": {"path": "/media", "threshold": -1}})
+
+    def test_disk_thresholds_non_integer_threshold_rejected(self):
+        with pytest.raises(Exception):
+            SettingsUpdate(disk_thresholds={"1": {"path": "/media", "threshold": "not-a-number"}})
 
     def test_disk_thresholds_crlf_in_path_rejected(self):
         with pytest.raises(Exception):
-            SettingsUpdate(disk_thresholds={"/media\nevil": 80})
+            SettingsUpdate(disk_thresholds={"1": {"path": "/media\nevil", "threshold": 80}})
+
+    def test_disk_thresholds_non_dict_entry_rejected(self):
+        with pytest.raises(Exception):
+            SettingsUpdate(disk_thresholds={"1": "not-an-object"})
 
     def test_disk_thresholds_non_dict_rejected(self):
         with pytest.raises(Exception):

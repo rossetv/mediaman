@@ -361,10 +361,15 @@ class TestSettingsPutPersistsEveryDeclaredKey:
         assert data.get("plex_libraries") == ["1", "2", "3"]
 
     def test_put_persists_disk_thresholds(self, conn, secret_key):
-        """disk_thresholds (a dict) round-trips correctly."""
-        payload = {"disk_thresholds": {"/media": 85, "/data": 90}}
+        """disk_thresholds (nested {lib_id: {path, threshold}}) round-trips."""
+        payload = {
+            "disk_thresholds": {
+                "1": {"path": "/media/movies", "threshold": 85},
+                "2": {"path": "/media/anime", "threshold": 90},
+            }
+        }
         data = self._put_and_get(conn, secret_key, payload)
-        assert data.get("disk_thresholds") == {"/media": 85, "/data": 90}
+        assert data.get("disk_thresholds") == payload["disk_thresholds"]
 
     def test_put_rejects_unknown_key_with_422(self, conn, secret_key):
         """Unknown key must be rejected at the Pydantic layer (HTTP 422)."""

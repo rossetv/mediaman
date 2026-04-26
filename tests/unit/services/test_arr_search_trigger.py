@@ -72,6 +72,50 @@ class TestGetSearchInfo:
         assert count > 0
         assert last > 0.0
 
+    def test_falls_back_to_db_when_cache_is_cold(self, db_conn, monkeypatch):
+        """A cold cache + populated DB returns the persisted values.
+
+        Regression: prior versions only read the in-memory dicts, so under
+        multi-worker deployments (or after a restart) the page flickered
+        between "Searched 3×" and "Added X days ago, waiting for first
+        search" as polls bounced across workers with different cached
+        state.
+        """
+        # Populate the DB as if a sibling worker had already fired three
+        # searches, then make sure our in-memory state stays empty so the
+        # DB fallback is the only path that can produce a non-zero result.
+        _save_trigger_to_db(db_conn, "radarr:Sicario", 1_700_000_000.0, 3)
+        reset_search_triggers()
+        # The in-process get_db() must hand out the same connection the
+        # test populated above.
+        monkeypatch.setattr("mediaman.db.get_db", lambda: db_conn)
+
+        count, last = get_search_info("radarr:Sicario")
+
+        assert count == 3
+        # ISO-string round-trip can lose sub-second precision; allow it.
+        assert abs(last - 1_700_000_000.0) < 1.0
+
+    def test_db_fallback_warms_the_cache(self, db_conn, monkeypatch):
+        """After a fallback read, subsequent calls don't re-hit the DB."""
+        _save_trigger_to_db(db_conn, "radarr:Tenet", 1_700_000_000.0, 7)
+        reset_search_triggers()
+
+        calls = {"n": 0}
+        real_get_db = lambda: db_conn  # noqa: E731
+
+        def counting_get_db():
+            calls["n"] += 1
+            return real_get_db()
+
+        monkeypatch.setattr("mediaman.db.get_db", counting_get_db)
+
+        get_search_info("radarr:Tenet")  # cold — hits DB once
+        get_search_info("radarr:Tenet")  # warm — must NOT hit DB
+        get_search_info("radarr:Tenet")
+
+        assert calls["n"] == 1
+
 
 # ---------------------------------------------------------------------------
 # reset_search_triggers
