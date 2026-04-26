@@ -14,37 +14,34 @@ from mediaman.services.downloads.download_format import (
     map_episode_state,
     map_state,
 )
-from mediaman.db import get_db
 from mediaman.services.downloads.download_format._types import DownloadItem
 from mediaman.services.infra.format import format_bytes
-from mediaman.services.infra.settings_reader import get_int_setting
 
 logger = logging.getLogger("mediaman")
 
 
-def _abandon_threshold() -> int:
-    """Visibility threshold for the abandon-search button.
+def read_abandon_thresholds(conn) -> tuple[int, int]:
+    """Return ``(visible_at, escalate_at)`` for the abandon-search button.
 
-    Pulls a fresh DB connection per call rather than threading one through
-    every payload-builder. The downloads endpoint refreshes ~once a second;
-    one SELECT is cheap.
+    Read once per ``build_downloads_response`` call and threaded down into
+    every item builder, so a queue of N searching items pays one pair of
+    SELECTs rather than 2N.
     """
+    from mediaman.services.infra.settings_reader import get_int_setting
+
     try:
-        return get_int_setting(
-            get_db(), "abandon_search_visible_at", default=10, min=1, max=10000
+        visible_at = get_int_setting(
+            conn, "abandon_search_visible_at", default=10, min=1, max=10000
         )
     except Exception:
-        return 10
-
-
-def _abandon_escalate_threshold() -> int:
-    """Count at which the button switches to the danger tint."""
+        visible_at = 10
     try:
-        return get_int_setting(
-            get_db(), "abandon_search_escalate_at", default=50, min=2, max=10000
+        escalate_at = get_int_setting(
+            conn, "abandon_search_escalate_at", default=50, min=2, max=10000
         )
     except Exception:
-        return 50
+        escalate_at = 50
+    return visible_at, escalate_at
 
 
 def _stuck_seasons_from_episodes(episodes: list[dict]) -> list[dict]:
@@ -130,16 +127,21 @@ def build_unmatched_arr_item(
     arr_base_urls: dict[str, str],
     build_search_hint: Callable[..., str],
     build_arr_link: Callable[[ArrCard, dict[str, str]], str],
+    abandon_thresholds: tuple[int, int],
 ) -> DownloadItem:
     """Build a download-card item for an *arr entry with no NZBGet match.
 
     Derives the card state from episode progress (series) or reported
     percentage (movie) so callers don't need kind-specific logic.
+
+    ``abandon_thresholds`` is the ``(visible_at, escalate_at)`` tuple read
+    once at response-build time by :func:`read_abandon_thresholds`.
     """
     from mediaman.services.arr.search_trigger import get_search_info
 
     search_count, last_search_ts = get_search_info(arr.get("dl_id", ""))
     added_at = arr.get("added_at", 0.0)
+    threshold, escalate_at = abandon_thresholds
     if arr.get("kind") == "series":
         episodes = build_episode_dicts(arr.get("episodes", []))
         if episodes and all(e["state"] == "ready" for e in episodes):
@@ -153,8 +155,6 @@ def build_unmatched_arr_item(
             if state == "searching"
             else ""
         )
-        threshold = _abandon_threshold()
-        escalate_at = _abandon_escalate_threshold()
         raw_episodes = arr.get("episodes", [])
         stuck_seasons = (
             _stuck_seasons_from_episodes(raw_episodes) if state == "searching" else []
@@ -194,8 +194,6 @@ def build_unmatched_arr_item(
         if state == "searching"
         else ""
     )
-    threshold = _abandon_threshold()
-    escalate_at = _abandon_escalate_threshold()
     return build_item(
         dl_id=arr.get("dl_id", ""),
         title=arr.get("title", "Unknown"),
