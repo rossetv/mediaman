@@ -160,13 +160,52 @@ def maybe_trigger_search(
 def get_search_info(dl_id: str) -> tuple[int, float]:
     """Return ``(count, last_epoch_seconds)`` for a dl_id.
 
-    ``(0, 0.0)`` means mediaman has never fired a search for this item
-    (e.g. it's still within the 5-min staleness window, or the process
-    was restarted since). Callers render this as "Added Xm ago" using
-    the item's own added_at, rather than a misleading "Never searched".
+    Reads the in-memory cache first and falls back to the persisted
+    ``arr_search_throttle`` row when the cache is empty for *dl_id*.
+    The DB read warms the cache so subsequent calls in this worker stay
+    in-memory.
+
+    Falling back to the DB is essential under multi-worker deployments:
+    only the worker that fires the search bumps its own in-memory
+    counter, but the persisted row is shared. Without the fallback, the
+    Downloads page flickers between "Searched N×" and "Added X days
+    ago, waiting for first search" as poll requests bounce across
+    workers — same flicker happens to a single worker after a restart
+    until it next fires a search.
+
+    ``(0, 0.0)`` is only returned when nothing is in memory AND nothing
+    is in the DB.
     """
     with _state_lock:
-        return _search_count.get(dl_id, 0), _last_search_trigger.get(dl_id, 0.0)
+        count = _search_count.get(dl_id, 0)
+        last = _last_search_trigger.get(dl_id, 0.0)
+        if count > 0 or last > 0:
+            return count, last
+
+    # Cache miss — consult the DB. Best-effort: any failure (locked DB,
+    # missing table on a fresh install) returns the zero pair rather
+    # than raising, so a stalled connection never breaks the page.
+    try:
+        from mediaman.db import get_db
+
+        epoch, persisted_count = _load_throttle_from_db(get_db(), dl_id)
+    except Exception:
+        return 0, 0.0
+    if epoch == 0.0 and persisted_count == 0:
+        return 0, 0.0
+
+    with _state_lock:
+        # Warm the cache, but never let a DB read clobber a higher
+        # in-memory count (which means this worker has fired a search
+        # since the row was last persisted).
+        if dl_id not in _last_search_trigger:
+            _last_search_trigger[dl_id] = epoch
+        if persisted_count > _search_count.get(dl_id, 0):
+            _search_count[dl_id] = persisted_count
+        return (
+            _search_count.get(dl_id, 0),
+            _last_search_trigger.get(dl_id, 0.0),
+        )
 
 
 def clear_throttle(conn: sqlite3.Connection, dl_id: str) -> None:

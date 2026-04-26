@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -217,10 +218,13 @@ class SettingsUpdate(BaseModel):
     dry_run: bool | None = None
     suggestions_enabled: bool | None = None
 
-    # ``disk_thresholds`` is stored as a JSON dict of path→percentage.
-    # Accepting ``dict[str, int]`` directly means the client can post
-    # ``{"disk_thresholds": {"/media": 85}}`` and Pydantic coerces it.
-    disk_thresholds: dict[str, int] | None = None
+    # ``disk_thresholds`` is stored as a JSON dict keyed by Plex library
+    # id, whose value is a ``{"path": str, "threshold": int}`` config.
+    # See ``scanner/runner.py`` for the canonical consumer.  We type the
+    # field as ``dict[str, Any]`` and validate the shape in
+    # ``validate_disk_thresholds`` below — Pydantic's structural typing
+    # would otherwise reject the nested dict at parse time.
+    disk_thresholds: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------
     # Stuck searches (abandon search feature)
@@ -333,21 +337,50 @@ class SettingsUpdate(BaseModel):
     @field_validator("disk_thresholds", mode="before")
     @classmethod
     def validate_disk_thresholds(cls, v: object) -> object:
-        """Validate disk_thresholds dict: keys are paths, values are 0–100 ints."""
+        """Validate the nested ``{lib_id: {"path": str, "threshold": int}}`` shape.
+
+        Keys are Plex library ids (string-coerced from the integer ids
+        Plex returns).  Each entry is a dict with a string ``path`` and
+        an integer ``threshold`` in 0–100 (where 0 = scan unconditionally,
+        matching the scanner's "fail open" semantics).  Empty values are
+        permitted to model "unset" — the user might have selected the
+        library but not yet typed a path.
+        """
         if v is None:
             return v
         if not isinstance(v, dict):
             raise ValueError("disk_thresholds must be a JSON object")
-        for path, pct in v.items():
-            if not isinstance(path, str):
+        for lib_id, cfg in v.items():
+            if not isinstance(lib_id, str):
                 raise ValueError("disk_thresholds keys must be strings")
-            _reject_crlf(path)
-            try:
-                pct_int = int(pct)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(f"disk_thresholds value for {path!r} must be an integer") from exc
-            if not (0 <= pct_int <= 100):
-                raise ValueError(f"disk_thresholds value for {path!r} must be 0–100")
+            _reject_crlf(lib_id)
+            if cfg is None:
+                continue
+            if not isinstance(cfg, dict):
+                raise ValueError(
+                    f"disk_thresholds entry for library {lib_id!r} must be an object "
+                    "with 'path' and 'threshold' keys"
+                )
+            path = cfg.get("path")
+            if path is not None:
+                if not isinstance(path, str):
+                    raise ValueError(
+                        f"disk_thresholds path for library {lib_id!r} must be a string"
+                    )
+                _reject_crlf(path)
+            threshold = cfg.get("threshold")
+            if threshold is not None and threshold != "":
+                try:
+                    pct_int = int(threshold)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"disk_thresholds threshold for library {lib_id!r} must be an integer"
+                    ) from exc
+                if not (0 <= pct_int <= 100):
+                    raise ValueError(
+                        f"disk_thresholds threshold for library {lib_id!r} "
+                        "must be between 0 and 100"
+                    )
         return v
 
 
