@@ -1,0 +1,21 @@
+{# _dl_abandon_modal.html — confirm sheet for the abandon-search action.
+   Hidden by default; opened by static/js/dl-abandon.js. #}
+<div class="modal-backdrop" id="abandon-modal" hidden>
+  <div class="modal-sheet" style="max-width:560px">
+    <div class="abandon-modal-body">
+      <h2 id="abandon-modal-title">Abandon search?</h2>
+      <p id="abandon-modal-copy">
+        <!-- Filled in per item kind by JS. -->
+      </p>
+
+      <div class="dl-abandon-list" id="abandon-season-list" hidden></div>
+
+      <div class="modal-actions abandon-modal-actions">
+        <button type="button" class="btn btn--ghost" data-abandon-cancel>Cancel</button>
+        <button type="button" class="btn btn--danger" data-abandon-confirm aria-disabled="false">
+          <span data-confirm-label>Abandon</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
