@@ -174,6 +174,7 @@ def fetch_sonarr_queue(client: SonarrClient) -> list[ArrCard]:
                 "size_str": format_bytes(size),
                 "status": status,
                 "download_id": q.get("downloadId", ""),
+                "season_number": int(season_num) if season_num is not None else 0,
             },
         )
 

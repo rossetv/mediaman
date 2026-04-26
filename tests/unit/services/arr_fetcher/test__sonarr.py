@@ -284,3 +284,55 @@ class TestFetchSonarrQueueSearching:
         client.get_series.side_effect = requests.RequestException("down")
         cards = fetch_sonarr_queue(client)
         assert any(c["title"] == "Breaking Bad" for c in cards)
+
+
+# ---------------------------------------------------------------------------
+# fetch_sonarr_queue — season_number on episode entries
+# ---------------------------------------------------------------------------
+
+
+class TestSeasonNumberOnEntries:
+    def test_season_number_populated_from_sonarr_payload(self):
+        """Each ArrEpisodeEntry built from the queue carries season_number."""
+        client = _client(
+            queue=[
+                {
+                    "series": {"id": 7, "title": "One Piece", "year": 1999, "images": []},
+                    "episode": {"seasonNumber": 21, "episodeNumber": 3, "title": "x"},
+                    "size": 100,
+                    "sizeleft": 50,
+                    "status": "downloading",
+                    "downloadId": "abc",
+                    "title": "release.title",
+                }
+            ]
+        )
+
+        cards = fetch_sonarr_queue(client)
+
+        assert len(cards) == 1
+        episodes = cards[0].get("episodes") or []
+        assert len(episodes) == 1
+        assert episodes[0]["season_number"] == 21
+
+    def test_season_number_defaults_to_zero_when_missing(self):
+        """Missing seasonNumber in the payload yields season_number=0."""
+        client = _client(
+            queue=[
+                {
+                    "series": {"id": 8, "title": "Mystery Show", "year": 2020, "images": []},
+                    "episode": {"episodeNumber": 1, "title": "Pilot"},
+                    "size": 200,
+                    "sizeleft": 0,
+                    "status": "completed",
+                    "downloadId": "xyz",
+                    "title": "Mystery.Show.E01",
+                }
+            ]
+        )
+
+        cards = fetch_sonarr_queue(client)
+
+        episodes = cards[0].get("episodes") or []
+        assert len(episodes) == 1
+        assert episodes[0]["season_number"] == 0
