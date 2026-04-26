@@ -1,0 +1,125 @@
+[build-system]
+# setuptools >=82.0.1 is sufficient for src layout + package-data discovery.
+# PEP 639 SPDX licence fields (license = "MIT" flat string) require >=77;
+# leave the classic { text = "MIT" } form until we pin setuptools >=77.
+# TODO(P7): bump to setuptools>=77 and adopt PEP 639 + setuptools-scm for
+#           version management once CI lockfile is in place.
+requires = ["setuptools>=82.0.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mediaman"
+# Keep a literal version for now; bump here and in src/mediaman/__init__.py
+# together. TODO(P7): switch to setuptools-scm + dynamic = ["version"].
+version = "0.1.0"
+description = "Self-hosted media lifecycle management for Plex, with scanner, newsletter, and admin web UI."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "Vilmar Rosset", email = "glowingshark6393@rosset.ie" },
+]
+keywords = ["plex", "sonarr", "radarr", "nzbget", "media-management", "self-hosted"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi~=0.136",
+    "uvicorn[standard]~=0.46",
+    "jinja2~=3.1",
+    "plexapi~=4.18",
+    "requests~=2.33",
+    "apscheduler~=3.11",
+    "bcrypt~=5.0",
+    "cryptography~=46.0",
+    "python-multipart~=0.0.26",
+    "defusedxml~=0.7",
+    "pydantic~=2.13",
+]
+
+[project.optional-dependencies]
+# Install with: pip install -e ".[dev]"
+dev = [
+    "pytest",
+    "pytest-cov",
+    "pytest-mock",
+    "pytest-asyncio",
+    "httpx",
+    "ruff",
+    "mypy",
+    "coverage[toml]",
+]
+
+[project.urls]
+Homepage = "https://github.com/rossetv/mediaman"
+Repository = "https://github.com/rossetv/mediaman"
+Issues = "https://github.com/rossetv/mediaman/issues"
+
+[project.scripts]
+mediaman = "mediaman.main:cli_main"
+mediaman-create-user = "mediaman.auth.cli:create_user_cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mediaman = ["web/templates/**/*.html", "web/static/**/*", "auth/data/*.txt", "py.typed"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = [
+    "unit: Unit tests (fast, no I/O)",
+    "integration: Integration tests (module boundaries)",
+]
+addopts = "-q --tb=short --strict-markers --strict-config"
+filterwarnings = [
+    "error",
+    # Pre-existing unclosed SQLite connections in source code (P6 fix scope).
+    # Remove this ignore once connection lifecycle is cleaned up.
+    "ignore::ResourceWarning",
+    # Third-party deprecations we cannot fix upstream:
+    "ignore::DeprecationWarning:apscheduler",
+    "ignore::DeprecationWarning:plexapi",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+# Start permissive; tighten in P7 once the existing code is clean.
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",  # line too long — enforced by formatter, not linter
+]
+
+[tool.mypy]
+# Permissive baseline; tighten incrementally in later phases.
+python_version = "3.12"
+warn_unused_configs = true
+ignore_missing_imports = true
+# TODO(P7): enable strict = true once all modules have type annotations.
+
+[tool.coverage.run]
+source = ["mediaman"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/web/templates/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+# Floor raised to 58% after health-pass improvements.
+# Raise incrementally as new tests are added.
+fail_under = 58

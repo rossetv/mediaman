@@ -1,0 +1,33 @@
+/* =============================================================
+   26. UTILITIES
+   ============================================================= */
+.u-flex     { display: flex; align-items: center; gap: 10px; }
+.u-gap-sm   { gap: 6px; }
+.u-gap-md   { gap: 12px; }
+.u-jc-end   { justify-content: flex-end; }
+.u-as-center { align-self: center; }
+.u-mb-12    { margin-bottom: 12px; }
+.u-mb-24    { margin-bottom: 24px; }
+.u-mla,
+.u-ml-auto  { margin-left: auto; }
+.u-tac      { text-align: center; }
+.u-tar      { text-align: right; }
+.u-fwm,
+.u-fw-medium { font-weight: 500; }
+.u-small    { font-size: 12px; color: var(--t3); }
+.u-mt-16    { margin-top: 16px; }
+.u-mt-32    { margin-top: 32px; }
+.u-m-0      { margin: 0; }
+.u-whitespace-nowrap { white-space: nowrap; }
+/* Visually hidden but present for password-manager autocomplete hinting (H66 / WCAG 1.3.5) */
+.u-hidden-hint { display: none; }
+.d-inline   { display: inline-block; }
+.is-visible { display: inline-flex !important; }
+/* Semantic colour utilities — preferred over inline style="color:…" */
+.text-t1      { color: var(--t1); }
+.text-success { color: var(--success); }
+.text-danger  { color: var(--danger); }
+.text-warning { color: var(--warning); }
+.text-accent  { color: var(--accent); }
+.text-muted   { color: var(--t3); }
+

@@ -1,0 +1,79 @@
+{# General & Schedule — base URL, scan cadence, library sync, AI toggle. #}
+{% import "_components.html" as c %}
+
+{% call c.setg_block("setg-general", "General & Schedule", "Server URL, scan cadence, sync, and AI recommendations") %}
+
+  {% call c.setg_card_v2(title="Application", sub="Where Mediaman is reachable from subscribers' email clients.") %}
+    {% call c.setg_row_v2("Base URL", "Used to build keep-links and dashboard links in newsletter emails. Must be reachable from outside your LAN.") %}
+      <input class="inp inp--fluid" type="text" id="base_url" size="36"
+             value="{{ settings.get('base_url', '') }}"
+             placeholder="https://mediaman.example.com">
+    {% endcall %}
+  {% endcall %}
+
+  {% call c.setg_card_v2(title="Scan schedule", sub="When the weekly deletion-review scan runs.") %}
+    {% call c.setg_row_v2("Scan day") %}
+      <select class="inp inp--sm" id="scan_day">
+        {% for day in ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] %}
+        <option value="{{ day }}"
+          {% if settings.get('scan_day', 'mon') == day %}selected{% endif %}>
+          {{ {'mon':'Monday','tue':'Tuesday','wed':'Wednesday','thu':'Thursday','fri':'Friday','sat':'Saturday','sun':'Sunday'}[day] }}
+        </option>
+        {% endfor %}
+      </select>
+    {% endcall %}
+    {% call c.setg_row_v2("Scan time", "Local time in the timezone below.") %}
+      <input class="inp inp--sm" type="time" id="scan_time"
+             value="{{ settings.get('scan_time', '09:00') }}">
+    {% endcall %}
+    {% call c.setg_row_v2("Timezone", "Used for schedule display and \"days ago\" math.") %}
+      <select class="inp inp--md" id="scan_timezone">
+        {% for tz in [
+          'UTC', 'Europe/London', 'Europe/Dublin', 'Europe/Paris',
+          'Europe/Berlin', 'Europe/Amsterdam', 'America/New_York',
+          'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+          'Australia/Sydney', 'Asia/Tokyo'
+        ] %}
+        <option value="{{ tz }}"
+          {% if settings.get('scan_timezone', 'UTC') == tz %}selected{% endif %}>
+          {{ tz }}
+        </option>
+        {% endfor %}
+      </select>
+    {% endcall %}
+  {% endcall %}
+
+  {% set sync_actions %}
+    <button type="button" class="btn-test" id="btn-sync-library">Sync now</button>
+  {% endset %}
+  {% call c.setg_card_v2(title="Library sync",
+                         sub="Keeps Mediaman's copy of your Plex library up to date between weekly scans. Never deletes anything.",
+                         header_actions=sync_actions) %}
+    {% call c.setg_row_v2("Sync interval", "Syncs media items and watch history. Lower = more current, but more load on Plex.") %}
+      <select class="inp inp--md" id="library_sync_interval">
+        {% for val, label in [
+          ('1','Every minute'), ('2','Every 2 minutes'), ('5','Every 5 minutes'),
+          ('10','Every 10 minutes'), ('15','Every 15 minutes'),
+          ('30','Every 30 minutes'), ('60','Every hour'),
+          ('120','Every 2 hours'), ('0','Disabled'),
+        ] %}
+        <option value="{{ val }}"
+          {% if settings.get('library_sync_interval', '30')|string == val %}selected{% endif %}>
+          {{ label }}
+        </option>
+        {% endfor %}
+      </select>
+    {% endcall %}
+  {% endcall %}
+
+  {% call c.setg_card_v2(title="AI features", sub="GPT-powered recommendations surfaced in newsletters and on the Recommended page.") %}
+    {% set sugg_on = settings.get('suggestions_enabled', True) not in (False, 'false', 'False', 0, '0') %}
+    {% call c.setg_row_v2("AI recommendations", "Generates a short list of \"because you watched…\" picks using your OpenAI key. Disabling hides the Recommended tab entirely.") %}
+      <span class="tog {% if sugg_on %}on{% endif %}" role="switch" tabindex="0"
+            data-toggle data-target="suggestions_enabled"
+            aria-checked="{{ 'true' if sugg_on else 'false' }}"></span>
+      <input type="hidden" id="suggestions_enabled" value="{{ 'true' if sugg_on else 'false' }}">
+    {% endcall %}
+  {% endcall %}
+
+{% endcall %}

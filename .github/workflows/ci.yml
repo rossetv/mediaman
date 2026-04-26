@@ -1,0 +1,217 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel any in-flight run for the same branch/PR when a new one is triggered.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege default: jobs opt in to the permissions they need.
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          # Single version matching the Dockerfile; Docker is the
+          # primary deployment target. Multi-version claims were
+          # removed from pyproject.toml to match.
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.lock
+          pip install -e ".[dev]"
+
+      - name: Run tests
+        run: pytest -q --cov=mediaman --cov-report=term-missing --cov-fail-under=51
+
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    # Soft gate: there are pre-existing ruff errors and formatting drift in the
+    # codebase. This step surfaces them without blocking merges. Promote to a
+    # hard gate once the baseline is clean (run `ruff check --fix . && ruff
+    # format .` to apply auto-fixes in a dedicated clean-up commit).
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: ruff check
+        run: ruff check .
+
+      - name: ruff format
+        run: ruff format --check .
+
+  typecheck:
+    name: Type check (mypy)
+    runs-on: ubuntu-latest
+    # Scoped to the security-critical packages where type-level signal is
+    # highest. The rest of the codebase has pre-existing type drift; widen
+    # this scope in a later cluster once it has had a type-annotation pass.
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.lock
+          pip install -e ".[dev]" types-requests
+
+      - name: mypy
+        run: |
+          mypy \
+            src/mediaman/auth/ \
+            src/mediaman/crypto/ \
+            src/mediaman/services/infra/http_client.py \
+            src/mediaman/services/infra/url_safety.py
+
+  security-scan:
+    name: Security scan (bandit)
+    runs-on: ubuntu-latest
+    # Soft gate: run bandit and surface findings without blocking merges.
+    # Review the output and promote to a hard gate once baseline findings
+    # are assessed and any genuine issues are remediated or skipped.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install bandit
+        run: pip install bandit[toml]
+
+      - name: bandit
+        run: bandit -r src/ -c bandit.yaml -ll -f txt
+
+  dependency-audit:
+    name: Dependency audit (pip-audit)
+    runs-on: ubuntu-latest
+    # Soft gate: advisory databases change independently of this repo.
+    # Failures here signal a new CVE in a dependency; review promptly but
+    # do not block unrelated merges. Promote to a hard gate once a fix
+    # workflow (Dependabot + required checks) is in place.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: pip-audit
+        # Audit the project's declared dependencies via pyproject.toml rather
+        # than the venv. This keeps pip itself (a CI-runner tool, not a
+        # mediaman dependency) out of scope so we don't need to chase its
+        # CVEs with --ignore-vuln entries.
+        run: pip-audit .
+
+  docker:
+    name: Docker build
+    needs: tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-qemu-action@v4
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Login to Docker Hub
+        if: github.event_name == 'push'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build (PR validation)
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v7
+        with:
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Provenance/SBOM attestation enabled by default in v6 tries to
+          # fetch the PR's git context from the public endpoint, which 500s
+          # on Dependabot PRs. PR builds only validate the Dockerfile can
+          # build; the main-branch push picks up attestation as normal.
+          provenance: false
+          sbom: false
+
+      - name: Build and push
+        if: github.event_name == 'push'
+        uses: docker/build-push-action@v7
+        with:
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/mediaman:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/mediaman:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  cloudflare-refresh:
+    name: Cloudflare cache purge
+    needs: docker
+    # Guard: only run on the canonical repository so forks do not attempt
+    # to contact the maintainer's Cloudflare zone.
+    if: github.event_name == 'push' && github.repository == 'rossetv/mediaman'
+    runs-on: ubuntu-latest
+
+    env:
+      CF_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+      CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+    steps:
+      - name: Enable Cloudflare Development Mode
+        run: |
+          curl --fail-with-body -sS -X PATCH \
+            "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/settings/development_mode" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data '{"value":"on"}'
+
+      - name: Purge Cloudflare cache
+        run: |
+          curl --fail-with-body -sS -X POST \
+            "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/purge_cache" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data '{"purge_everything":true}'

@@ -1,0 +1,85 @@
+{# Hero card — full-bleed cinematic backdrop with progress overlay.
+   Context: item (dict with id, title, media_type, poster_url, state,
+   progress, eta, size_done, size_total, episodes, episode_summary,
+   search_hint, arr_link, arr_source). #}
+<div class="dl-hero dl-card-enter" data-dl-id="{{ item.id }}">
+  <div class="dl-hero-bg" {% if item.poster_url %}data-bg-url="{{ item.poster_url }}"{% endif %}></div>
+  {# H67: background-image is set via JS (dl-poster.js) using style.setProperty + JSON.stringify,
+     avoiding direct CSS string injection. #}
+  <div class="dl-hero-scrim"></div>
+
+  <div class="dl-hero-content">
+    <div class="dl-hero-poster">
+      {% if item.poster_url %}
+      <img src="{{ item.poster_url }}" alt="">
+      {% else %}
+      <div class="dl-hero-poster-placeholder"></div>
+      {% endif %}
+    </div>
+
+    <div class="dl-hero-info">
+      <div class="pill-row u-mb-12">
+        <span class="pill pill--{{ 'movie' if item.media_type == 'movie' else 'tv' }}">{{ 'Movie' if item.media_type == 'movie' else 'TV' }}</span>
+      </div>
+
+      <div class="dl-hero-title">{{ item.title }}</div>
+
+      {% if item.episode_summary %}
+      <div class="dl-hero-ep-summary">{{ item.episode_summary }}</div>
+      {% endif %}
+
+      <div class="dl-hero-status">
+        <span class="dl-state-pill dl-state-{{ item.state }}" data-v="pill">
+          {% if item.state == 'searching' %}Looking for the best version
+          {% elif item.state == 'downloading' %}Downloading
+          {% elif item.state == 'almost_ready' %}Almost ready
+          {% elif item.state == 'ready' %}Ready to watch
+          {% endif %}
+        </span>
+      </div>
+
+      <div class="dl-search-hint" data-v="search-hint"
+           {% if item.state != 'searching' or not (item.search_hint or item.arr_link) %}style="display:none;"{% endif %}>
+        {% if item.state == 'searching' %}<span data-v="search-hint-text">{{ item.search_hint or '' }}</span>{% if item.arr_link %}{% if item.search_hint %} · {% endif %}<a class="dl-arr-link" data-v="arr-link" href="{{ item.arr_link }}" target="_blank" rel="noopener">View in {{ item.arr_source or 'Radarr/Sonarr' }} ↗</a>{% endif %}{% endif %}
+      </div>
+
+      <div class="dl-hero-progress" data-v="progress-wrap" {% if item.state == 'searching' %}style="display:none;"{% endif %}>
+        <div class="dl-hero-bar dl-bar">
+          <div class="dl-hero-fill dl-bar-fill {% if item.state == 'almost_ready' %}green{% endif %}" data-v="fill" style="--fill-pct:{{ item.progress }}%"></div>
+        </div>
+        <div class="dl-hero-details dl-stats">
+          <span><b class="dl-hero-pct" data-v="pct">{{ item.progress }}%</b> complete</span>
+          <span><b data-v="size-done">{{ item.size_done or '' }}</b> of <span data-v="size-total">{{ item.size_total or '' }}</span></span>
+          {% if item.eta %}<span>ETA <b data-v="eta">{{ item.eta }}</b></span>{% endif %}
+        </div>
+      </div>
+
+      {% if item.episodes %}
+      <button type="button" class="dl-hero-episodes-toggle" data-v="ep-toggle">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+        <span>{{ item.episodes|length }} episode{{ 's' if item.episodes|length != 1 else '' }}{% if item.has_pack %} · pack download{% endif %}</span>
+      </button>
+      <div class="dl-hero-episodes" data-v="ep-list" style="display:none;">
+        {% for ep in item.episodes %}
+        <div class="dl-ep-row{% if ep.is_pack_episode %} dl-ep-row-pack{% endif %}" data-ep="{{ ep.label }}">
+          <span class="dl-ep-number">{{ ep.label }}</span>
+          <span class="dl-ep-title">{{ ep.title }}</span>
+          {% if ep.is_pack_episode %}
+          <span class="dl-ep-status-pill downloading">In pack</span>
+          {% else %}
+          <div class="dl-ep-mini-bar"><div class="dl-ep-mini-fill {% if ep.state == 'ready' %}green{% endif %}" data-v="ep-fill" style="--fill-pct:{{ ep.progress }}%"></div></div>
+          <span class="dl-ep-status-pill {{ ep.state }}">
+            {% if ep.state == 'ready' %}Ready
+            {% elif ep.state == 'downloading' %}{{ ep.progress }}%
+            {% elif ep.state == 'queued' %}Queued
+            {% else %}Searching
+            {% endif %}
+          </span>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>

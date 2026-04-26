@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Settings · Mediaman{% endblock %}
+
+{% block nav %}{% include "_nav.html" %}{% endblock %}
+
+{% block content %}
+<div class="setg-pg">
+  <div class="container">
+
+    <div class="setg-shell">
+      {% include "settings/_rail.html" %}
+
+      <div class="setg-body">
+        <div class="ph">
+          <div class="setg-ph-small">Settings</div>
+          <h1>System &amp; integrations</h1>
+          <p>Tune the pieces of Mediaman that talk to the outside world — your libraries, your Plex, your *arrs, and the people who get the weekly digest.</p>
+        </div>
+
+        {% include "settings/_sec_overview.html" %}
+        {% include "settings/_sec_general.html" %}
+        {% include "settings/_sec_libraries.html" %}
+        {% include "settings/_sec_cleanup.html" %}
+        {% include "settings/_sec_integrations.html" %}
+        {% include "settings/_sec_newsletter.html" %}
+        {% include "settings/_sec_users.html" %}
+      </div>
+    </div>
+  </div>
+
+  {# Sticky global save bar — surfaces when any input changes. #}
+  <div class="savebar" id="setg-savebar">
+    <div class="sb-inner">
+      <span class="sb-dot"></span>
+      <span class="sb-msg">Unsaved changes</span>
+      <span class="sb-sub" id="save-status">Edits apply to every section at once.</span>
+      <button type="button" class="btn btn--ghost btn--sm" id="btn-discard">Discard</button>
+      <button type="button" class="btn btn--primary btn--sm" id="btn-save">Save Settings</button>
+    </div>
+  </div>
+</div>
+
+{# Server-rendered bootstrap payload consumed by settings.js. Keeping the
+   payload out of the JS file lets the script stay cacheable. #}
+<script id="setg-bootstrap" type="application/json">{{ {
+  "username": username,
+  "selected_libraries": plex_libraries_selected,
+  "disk_thresholds": settings.get('disk_thresholds', {}),
+  "scan_day": settings.get('scan_day', 'mon'),
+  "scan_time": settings.get('scan_time', '09:00'),
+  "scan_timezone": settings.get('scan_timezone', 'UTC')
+} | tojson | safe }}</script>
+<script src="/static/js/settings.js" defer></script>
+{% endblock %}

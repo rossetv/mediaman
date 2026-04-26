@@ -1,0 +1,91 @@
+/* =============================================================
+   UNSUBSCRIBE — standalone pages (unsubscribe_confirm.html,
+   unsubscribe_result.html). These pages do not extend base.html
+   so they carry their own minimal token-aligned styles.
+   ============================================================= */
+
+/* Page shell */
+.unsub-body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  font-family: var(--font-text);
+  color: var(--t1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+.unsub-card {
+  text-align: center;
+  max-width: 400px;
+  padding: 40px;
+}
+
+/* Wordmark */
+.unsub-brand {
+  font-size: 24px;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+.unsub-brand-accent {
+  color: var(--accent);
+}
+
+/* Headings / body */
+.unsub-title {
+  font-size: 17px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.unsub-sub {
+  font-size: 15px;
+  color: var(--t3);
+  line-height: 1.5;
+  margin-bottom: 24px;
+}
+
+/* Result icon (checkmark / cross) */
+.unsub-icon--success {
+  font-size: 48px;
+  color: var(--success);
+  margin-bottom: 16px;
+}
+.unsub-icon--error {
+  font-size: 48px;
+  color: var(--danger);
+  margin-bottom: 16px;
+}
+
+/* Result message */
+.unsub-msg {
+  font-size: 15px;
+  color: rgba(255,255,255,0.6); /* literal rgba; intentionally deviates from tokens to match pre-refactor public-facing visuals */
+  line-height: 1.5;
+}
+
+/* Buttons */
+.unsub-btn-danger {
+  padding: 12px 32px;
+  border-radius: var(--r-pill);
+  border: none;
+  background: var(--danger);
+  color: var(--t1);
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  margin-right: 12px;
+}
+/* Literal rgba values below intentionally deviate from tokens to match pre-refactor public-facing visuals exactly. */
+.unsub-btn-cancel {
+  padding: 12px 24px;
+  border-radius: var(--r-pill);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.6);
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+  display: inline-block;
+}

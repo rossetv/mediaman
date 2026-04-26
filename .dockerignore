@@ -1,0 +1,26 @@
+.git/
+.github/
+.venv/
+.env
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+__pycache__/
+*.pyc
+.coverage*
+htmlcov/
+.DS_Store
+.idea/
+.vscode/
+.superpowers/
+.claude/
+.remember/
+docs/
+data/
+# Exclude markdown files individually — keep README.md so `pip install .`
+# can read the readme field in pyproject.toml (pyproject references README.md).
+FINDINGS.md
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+SECURITY.md
+CHANGELOG.md

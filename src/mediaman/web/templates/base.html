@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<!-- TODO(H65): migrate from 'unsafe-inline' to a per-request CSP nonce.
+     Requires: emit nonce in SecurityHeadersMiddleware, thread it via
+     request.state.csp_nonce, add nonce="{{ request.state.csp_nonce }}"
+     to every remaining <script> tag. Blocked until all page-level inline
+     scripts are extracted to static files (downloads.html, download.html,
+     recommended.html, search.html, library.html, dashboard.html). -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Mediaman{% endblock %}</title>
+  <!-- CSS split — see static/css/ for source files; style.css kept as
+       a canonical single-file fallback during migration. -->
+  <link rel="stylesheet" href="/static/css/_tokens.css">
+  <link rel="stylesheet" href="/static/css/_base.css">
+  <link rel="stylesheet" href="/static/css/_nav.css">
+  <link rel="stylesheet" href="/static/css/_buttons.css">
+  <link rel="stylesheet" href="/static/css/_tiles.css">
+  <link rel="stylesheet" href="/static/css/_dl.css">
+  <link rel="stylesheet" href="/static/css/_settings.css">
+  <link rel="stylesheet" href="/static/css/_keep.css">
+  <link rel="stylesheet" href="/static/css/_utilities.css">
+  <script src="/static/js/modal-a11y.js" defer></script>
+  <script src="/static/js/ui-feedback.js" defer></script>
+  <script src="/static/js/snooze-menu.js" defer></script>
+  <script src="/static/js/nav.js" defer></script>
+  <script src="/static/js/dl-poster.js" defer></script>
+  {% block head %}{% endblock %}
+</head>
+<body data-page="{{ nav_active or '' }}">
+  {% block nav %}{% endblock %}
+  {% block content %}{% endblock %}
+</body>
+</html>

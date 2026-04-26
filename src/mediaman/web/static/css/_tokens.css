@@ -1,0 +1,56 @@
+/* ============================================================================
+   MEDIAMAN — cinematic dark theme (Apple TV / Music inspired)
+   Tokens, primitives, and one-source-of-truth components.
+   See DESIGN.md for the full visual system.
+   ============================================================================ */
+
+/* =============================================================
+   1. TOKENS
+   ============================================================= */
+:root {
+  --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-text:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+
+  /* Surfaces — elevation by lightness. */
+  --bg:           #000;
+  --s1:           #141416;       /* page panels */
+  --s2:           #1d1d1f;       /* card */
+  --s3:           #26262a;       /* hover / elevated card */
+  --s4:           #2e2e33;       /* pill on surface */
+  --hair:         rgba(255,255,255,.07);
+  --hair-strong:  rgba(255,255,255,.12);
+
+  /* Text */
+  --t1: #fff;
+  --t2: rgba(255,255,255,.72);
+  --t3: rgba(255,255,255,.5);
+  --t4: rgba(255,255,255,.32);
+
+  /* Accents — interactive only */
+  --accent:     #2997ff;
+  --accent-cta: #0071e3;
+  --accent-hi:  #54aaff;
+
+  /* Semantic (chips only) */
+  --success: #30d158;
+  --warning: #ffd60a;
+  --danger:  #ff453a;
+  --orange:  #ff9f0a;
+  --purple:  #bf5af2;
+
+  /* Radii */
+  --r-xs:   6px;
+  --r-sm:   8px;
+  --r-md:   10px;
+  --r-lg:   12px;
+  --r-pill: 980px;
+
+  /* The single allowed shadow. */
+  --shadow-card: rgba(0,0,0,.4) 0 20px 60px -15px, rgba(0,0,0,.3) 0 6px 20px -8px;
+
+  /* Spacing & nav */
+  --pad:     clamp(20px,4vw,40px);
+  --section: clamp(36px,6vw,72px);
+  --nav-h:   52px;
+}
+
