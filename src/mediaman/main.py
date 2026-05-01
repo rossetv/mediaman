@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -116,6 +117,27 @@ def create_app() -> FastAPI:
         """
         return {"status": "ok"}
 
+    @app.get("/readyz", include_in_schema=False)
+    def readyz() -> JSONResponse:
+        """Readiness probe — ``/healthz`` says "alive", this says "alive AND configured".
+
+        The scheduler is the most consequential background service; if
+        it did not come up the deletion executor and library sync will
+        never run, so the app is technically responsive but
+        operationally broken. Returning 503 here gives orchestrators a
+        signal they can switch their healthcheck to without confusing
+        liveness and readiness.
+        """
+        scheduler_healthy = bool(getattr(app.state, "scheduler_healthy", False))
+        canary_ok = bool(getattr(app.state, "canary_ok", True))
+        ready = scheduler_healthy and canary_ok
+        body = {
+            "status": "ready" if ready else "not_ready",
+            "scheduler": "ok" if scheduler_healthy else "down",
+            "crypto": "ok" if canary_ok else "down",
+        }
+        return JSONResponse(body, status_code=200 if ready else 503)
+
     return app
 
 
@@ -145,6 +167,48 @@ def _resolve_bind_host() -> str:
     return "0.0.0.0" if in_container else "127.0.0.1"  # nosec B104
 
 
+def _enforce_single_worker() -> None:
+    """Refuse to start under multi-worker uvicorn (finding 3).
+
+    Several invariants in mediaman assume a single process holds the
+    SQLite connection: the APScheduler instance, the in-memory rate
+    limits, and the search-trigger throttle would all duplicate or race
+    if a second worker booted up. Token replay (finding 2) is now backed
+    by SQLite and would survive, but the rest is not yet ready for
+    horizontal scale, so we fail loudly instead of degrading silently.
+
+    Reads ``MEDIAMAN_WORKERS`` and the legacy ``WORKERS`` env var so an
+    operator who exports either by accident sees an immediate error
+    rather than a half-broken deployment. ``UVICORN_WORKERS`` is also
+    inspected because uvicorn itself respects it.
+    """
+    import os
+
+    candidates = ("MEDIAMAN_WORKERS", "UVICORN_WORKERS", "WORKERS")
+    for name in candidates:
+        raw = (os.environ.get(name) or "").strip()
+        if not raw:
+            continue
+        try:
+            value = int(raw)
+        except ValueError:
+            continue
+        if value > 1:
+            logger.error(
+                "Refusing to start: %s=%d but mediaman requires WORKERS=1. "
+                "Several invariants (scheduler, rate-limits, in-process "
+                "throttles) assume a single process — multi-worker support "
+                "would silently corrupt them. Run multiple replicas behind "
+                "your reverse proxy instead, or unset %s.",
+                name,
+                value,
+                name,
+            )
+            raise RuntimeError(
+                f"mediaman requires a single worker; {name}={value} is not supported"
+            )
+
+
 def cli_main() -> None:
     """CLI entry point — run the server or handle subcommands."""
     if len(sys.argv) > 1 and sys.argv[1] == "create-user":
@@ -154,12 +218,17 @@ def cli_main() -> None:
         create_user_cli()
         return
 
+    _enforce_single_worker()
+
     import uvicorn
 
     config = load_config()
     app = create_app()
 
-    bind_host = config.bind_host
+    # If the operator has not set MEDIAMAN_BIND_HOST explicitly, defer to
+    # the Docker-aware resolver so a containerised deployment binds to
+    # 0.0.0.0 rather than the unreachable container loopback.
+    bind_host = config.bind_host or _resolve_bind_host()
     trusted_proxies = config.trusted_proxies
 
     # Uvicorn's ``proxy_headers`` machinery rewrites BOTH

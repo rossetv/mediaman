@@ -14,12 +14,19 @@ class Config:
 
     All values are validated at construction time so the app fails loudly
     on startup rather than silently misbehaving at runtime.
+
+    ``bind_host`` is intentionally an empty string by default — meaning
+    "no operator override." :func:`mediaman.main.cli_main` then calls
+    :func:`mediaman.main._resolve_bind_host` so the bind address can be
+    Docker-aware (``0.0.0.0`` inside a container, ``127.0.0.1`` on bare
+    metal). Operators who want a specific address must set
+    ``MEDIAMAN_BIND_HOST`` explicitly.
     """
 
     secret_key: str
     port: int = 8282
     data_dir: str = "/data"
-    bind_host: str = "127.0.0.1"
+    bind_host: str = ""
     trusted_proxies: str = ""
     delete_roots: str = ""
 
@@ -72,7 +79,12 @@ def load_config() -> Config:
         raise ConfigError("MEDIAMAN_DATA_DIR must not be empty")
 
     # ── Bind host ─────────────────────────────────────────────────────────────
-    bind_host = os.environ.get("MEDIAMAN_BIND_HOST", "127.0.0.1").strip() or "127.0.0.1"
+    # Empty string means "unset" — let cli_main fall through to
+    # _resolve_bind_host() which is Docker-aware. That way a fresh
+    # container deployment binds to 0.0.0.0 (the only address reachable
+    # via the published port) rather than wedging on 127.0.0.1 and
+    # presenting a "healthy but unreachable" service.
+    bind_host = os.environ.get("MEDIAMAN_BIND_HOST", "").strip()
 
     # ── Trusted proxies ───────────────────────────────────────────────────────
     trusted_proxies = os.environ.get("MEDIAMAN_TRUSTED_PROXIES", "").strip()
