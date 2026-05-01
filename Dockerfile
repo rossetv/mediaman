@@ -1,8 +1,7 @@
 # Stage 1: Builder — installs runtime dependencies only; no test tooling.
-# Pin to a specific minor release so builds are reproducible.
-# TODO(P7): pin to a digest (python:3.12.x-slim@sha256:...) and automate
-#           rotation via Renovate/Dependabot once CI is in place.
-FROM python:3.12.9-slim AS builder
+# Digest pinned to python:3.12.9-slim. Refresh on dependency-bump rotations:
+#   docker pull python:3.12.9-slim && docker inspect --format='{{index .RepoDigests 0}}' python:3.12.9-slim
+FROM python:3.12.9-slim@sha256:48a11b7ba705fd53bf15248d1f94d36c39549903c5d59edcfa2f3f84126e7b44 AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -21,15 +20,19 @@ COPY requirements.lock ./
 COPY src/ src/
 # Pin all transitive dependencies to the audited versions in requirements.lock,
 # then install the project itself (which re-uses the already-installed deps).
-RUN pip install --no-cache-dir -r requirements.lock && pip install --no-cache-dir --no-deps .
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock && pip install --no-cache-dir --no-deps .
 
 # Stage 2: Production — lean image; no build tools, no test deps.
-FROM python:3.12.9-slim
+# Same digest as the builder stage — both must match for reproducible builds.
+FROM python:3.12.9-slim@sha256:48a11b7ba705fd53bf15248d1f94d36c39549903c5d59edcfa2f3f84126e7b44
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-RUN groupadd -r mediaman && useradd -r -g mediaman mediaman
+# Create a fixed UID/GID 1000:1000 so the container always owns /data
+# with a predictable numeric identity. The compose file does not need to
+# override `user:` — it is documented but redundant now and has been removed.
+RUN groupadd --gid 1000 mediaman && useradd --uid 1000 --gid 1000 --no-create-home mediaman
 WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
@@ -38,8 +41,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 RUN mkdir -p /data && chown mediaman:mediaman /data
 VOLUME /data
 
-# Run as non-root. The host uid/gid can be overridden at runtime with
-# `docker run --user 1000:1000` or via the compose `user:` key.
+# Run as non-root uid/gid 1000:1000 (mediaman user created above).
 USER mediaman
 EXPOSE 8282
 
