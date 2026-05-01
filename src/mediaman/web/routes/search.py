@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from starlette.responses import Response
 
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
+from mediaman.auth.rate_limit import ActionRateLimiter, RateLimiter, get_client_ip
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
@@ -30,7 +31,7 @@ from mediaman.services.arr.state import (
 from mediaman.services.downloads.notifications import record_download_notification as _record_dn
 from mediaman.services.infra.http_client import SafeHTTPError
 from mediaman.services.infra.time import now_iso as _now_iso
-from mediaman.services.media_meta.omdb import fetch_ratings
+from mediaman.services.media_meta.omdb import fetch_ratings, get_omdb_key
 from mediaman.services.media_meta.tmdb import TmdbClient
 
 _RATINGS_TTL_DAYS = 30
@@ -54,6 +55,47 @@ _discover_cache: dict[str, tuple[float, list[dict[str, object]]]] = {}
 _discover_cache_lock = threading.Lock()
 
 logger = logging.getLogger("mediaman")
+
+# ---------------------------------------------------------------------------
+# Rate limiters for POST /api/search/download (finding 33)
+# ---------------------------------------------------------------------------
+
+# Per-admin burst limiter: 20 downloads per minute, 200 per day.
+_DOWNLOAD_ADMIN_LIMITER = ActionRateLimiter(
+    max_in_window=20,
+    window_seconds=60,
+    max_per_day=200,
+)
+
+# Per-IP limiter: 30 downloads per minute (covers unauthenticated / shared sessions).
+_DOWNLOAD_IP_LIMITER = RateLimiter(max_attempts=30, window_seconds=60)
+
+# Duplicate-request suppression: block identical (username, tmdb_id, media_type) submissions
+# within a short window to prevent accidental double-clicks from adding duplicates.
+_DOWNLOAD_DEDUP_WINDOW_SECONDS = 10.0
+_download_dedup: dict[tuple[str, int, str], float] = {}
+_download_dedup_lock = threading.Lock()
+
+
+def _is_duplicate_download(username: str, tmdb_id: int, media_type: str) -> bool:
+    """Return True if an identical request was submitted within the dedup window.
+
+    Cleans up stale entries on each call to bound memory growth.
+    """
+    key = (username, tmdb_id, media_type)
+    now = time.monotonic()
+    with _download_dedup_lock:
+        # Prune stale entries.
+        stale = [
+            k for k, ts in _download_dedup.items() if now - ts > _DOWNLOAD_DEDUP_WINDOW_SECONDS
+        ]
+        for k in stale:
+            _download_dedup.pop(k, None)
+        if key in _download_dedup:
+            return True
+        _download_dedup[key] = now
+        return False
+
 
 router = APIRouter()
 
@@ -176,6 +218,10 @@ def _enrich_ratings(results: list[dict], request: Request) -> None:
     if not misses:
         return
 
+    # Read the OMDb key in the request thread — SQLite connections must not
+    # cross thread boundaries (finding 32).
+    resolved_omdb_key = get_omdb_key(conn, secret_key)
+
     def fetch(key_group):
         key, group = key_group
         probe = group[0]
@@ -184,8 +230,7 @@ def _enrich_ratings(results: list[dict], request: Request) -> None:
                 probe["title"],
                 probe.get("year"),
                 probe["media_type"],
-                conn=conn,
-                secret_key=secret_key,
+                omdb_key=resolved_omdb_key,
             )
         except Exception:
             logger.debug("Ratings fetch failed for %r — skipping", probe["title"], exc_info=True)
@@ -483,6 +528,38 @@ def api_download(
 ) -> JSONResponse:
     if body.media_type not in ("movie", "tv"):
         raise HTTPException(status_code=400, detail="media_type must be 'movie' or 'tv'")
+
+    # Per-admin rate check.
+    if not _DOWNLOAD_ADMIN_LIMITER.check(admin):
+        logger.warning("search.download_throttled user=%s", admin)
+        return JSONResponse(
+            {"ok": False, "error": "Too many download requests — slow down"},
+            status_code=429,
+        )
+
+    # Per-IP rate check.
+    client_ip = get_client_ip(request)
+    if not _DOWNLOAD_IP_LIMITER.check(client_ip):
+        logger.warning("search.download_ip_throttled ip=%s", client_ip)
+        return JSONResponse(
+            {"ok": False, "error": "Too many download requests from this IP — slow down"},
+            status_code=429,
+        )
+
+    # Duplicate-request suppression: same (admin, tmdb_id, media_type) within
+    # the dedup window indicates a double-click or replay.
+    if _is_duplicate_download(admin, body.tmdb_id, body.media_type):
+        logger.info(
+            "search.download_duplicate_suppressed user=%s tmdb=%s type=%s",
+            admin,
+            body.tmdb_id,
+            body.media_type,
+        )
+        return JSONResponse(
+            {"ok": False, "error": "Duplicate request — wait a moment before retrying"},
+            status_code=429,
+        )
+
     conn = get_db()
     secret_key = request.app.state.config.secret_key
 
