@@ -370,6 +370,102 @@ class TestThrottleDbPersistence:
 
 
 # ---------------------------------------------------------------------------
+# Finding 25: lock is released during network I/O
+# ---------------------------------------------------------------------------
+
+
+class TestLockReleasedDuringNetwork:
+    def test_state_lock_not_held_during_network_call(self, monkeypatch):
+        """Finding 25: another thread must be able to acquire ``_state_lock``
+        while ``maybe_trigger_search`` is mid-HTTP-call.
+
+        Regression: the original implementation wrapped the entire
+        Radarr/Sonarr ``search_movie`` call in ``with _state_lock``, so
+        a slow upstream blocked every sibling worker's throttle read.
+        With the fix the lock is reserved-then-released before the
+        network call runs.
+        """
+        import threading
+
+        from mediaman.services.arr import search_trigger as _st
+
+        observed = {"lock_was_free": False}
+        network_can_finish = threading.Event()
+        about_to_call = threading.Event()
+
+        def slow_search_movie(_):
+            about_to_call.set()
+            # Block until the assertion thread has confirmed the lock
+            # is free, then return so the trigger can complete.
+            network_can_finish.wait(timeout=2)
+
+        client = MagicMock()
+        client.search_movie.side_effect = slow_search_movie
+
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_arr_client",
+            lambda c, svc, sk: client if svc == "radarr" else None,
+        )
+
+        def asserter():
+            about_to_call.wait(timeout=2)
+            # Must be able to grab the lock while the network call is
+            # in flight. ``acquire(blocking=False)`` returns True only
+            # when the lock was actually free.
+            observed["lock_was_free"] = _st._state_lock.acquire(blocking=False)
+            if observed["lock_was_free"]:
+                _st._state_lock.release()
+            network_can_finish.set()
+
+        item = {
+            "kind": "movie",
+            "dl_id": "radarr:LockTest",
+            "arr_id": 999,
+            "is_upcoming": False,
+            "added_at": time.time() - 600,
+        }
+
+        t = threading.Thread(target=asserter)
+        t.start()
+        try:
+            _st.maybe_trigger_search(MagicMock(), item, matched_nzb=False, secret_key="key")
+        finally:
+            t.join(timeout=2)
+
+        assert observed["lock_was_free"], (
+            "The throttle lock must not be held while the Arr HTTP call is in flight"
+        )
+
+    def test_failed_trigger_rolls_back_reservation(self, db_conn, monkeypatch):
+        """When the network call fails, the throttle slot is released
+        so a retry can fire on the next tick rather than waiting out
+        the full 15-minute throttle window."""
+        from mediaman.services.arr import search_trigger as _st
+
+        client = MagicMock()
+        client.search_movie.side_effect = RuntimeError("Radarr down")
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_arr_client",
+            lambda c, svc, sk: client if svc == "radarr" else None,
+        )
+
+        item = {
+            "kind": "movie",
+            "dl_id": "radarr:RollbackMe",
+            "arr_id": 1234,
+            "is_upcoming": False,
+            "added_at": time.time() - 600,
+        }
+        _st.maybe_trigger_search(db_conn, item, matched_nzb=False, secret_key="key")
+
+        # The reservation should not have stuck — _last_search_trigger
+        # has either been removed (no prior value) or restored.
+        assert _st._last_search_trigger.get("radarr:RollbackMe", 0.0) == 0.0
+        # And the count must not have been incremented.
+        assert _st._search_count.get("radarr:RollbackMe", 0) == 0
+
+
+# ---------------------------------------------------------------------------
 # TestAutoAbandon
 # ---------------------------------------------------------------------------
 

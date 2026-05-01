@@ -104,6 +104,13 @@ def maybe_trigger_search(
     - item was added less than 5 minutes ago
     - a search was triggered for the same dl_id within the last 15 minutes
     - secret_key is empty
+
+    Locking discipline (finding 25): the in-memory throttle lock is held
+    only while inspecting and reserving the per-``dl_id`` slot. The
+    Radarr/Sonarr HTTP call runs *outside* the lock so a slow upstream
+    cannot starve other workers' throttle reads. After the network call
+    we re-acquire the lock to update memory, and either persist the
+    success or roll back the reservation on failure.
     """
     if item.get("is_upcoming"):
         return
@@ -120,9 +127,17 @@ def maybe_trigger_search(
         return
 
     dl_id = item.get("dl_id") or ""
+    kind = item.get("kind")
+    if kind not in ("movie", "series"):
+        return
 
+    # Phase 1: reserve the slot under the lock, mirroring the existing
+    # cache-then-DB warm-up. Treat *now* as the speculative trigger
+    # timestamp so concurrent siblings see the slot taken; we'll roll
+    # this back if the network call ultimately fails.
     with _state_lock:
         last = _last_search_trigger.get(dl_id, 0.0)
+        previous_count = _search_count.get(dl_id, 0)
         if last == 0.0:
             # Not in memory — check the DB (handles restarts/deploys).
             last, persisted_count = _load_throttle_from_db(conn, dl_id)
@@ -132,29 +147,52 @@ def maybe_trigger_search(
                 # reset every time the process restarts.
                 if persisted_count > _search_count.get(dl_id, 0):
                     _search_count[dl_id] = persisted_count
+                    previous_count = persisted_count
         if now - last < _SEARCH_THROTTLE_SECONDS:
             return
+        # Reserve: bump the in-memory marker so a sibling worker sees
+        # this slot as recently triggered. If the network call fails
+        # we roll this back to *last* in the finally block below.
+        prev_last = last
+        _last_search_trigger[dl_id] = now
 
-        try:
-            if item.get("kind") == "movie":
-                client = build_arr_client(conn, "radarr", secret_key)
-                if client is None:
-                    return
-                client.search_movie(arr_id)
-            elif item.get("kind") == "series":
-                client = build_arr_client(conn, "sonarr", secret_key)
-                if client is None:
-                    return
-                client.search_series(arr_id)
+    # Phase 2: outside the lock, do the network call.
+    success = False
+    try:
+        service = "radarr" if kind == "movie" else "sonarr"
+        client = build_arr_client(conn, service, secret_key)
+        if client is None:
+            return
+        if kind == "movie":
+            client.search_movie(arr_id)
+        else:
+            client.search_series(arr_id)
+        success = True
+        logger.info("Triggered search for stalled item %s", dl_id)
+    except Exception:
+        logger.warning("Failed to trigger search for %s", dl_id, exc_info=True)
+    finally:
+        # Phase 3: re-acquire the lock to commit or roll back.
+        with _state_lock:
+            if success:
+                new_count = previous_count + 1
+                _search_count[dl_id] = new_count
             else:
-                return
-            _last_search_trigger[dl_id] = now
-            new_count = _search_count.get(dl_id, 0) + 1
-            _search_count[dl_id] = new_count
-            logger.info("Triggered search for stalled item %s", dl_id)
+                # Roll back the reservation so a future call can retry
+                # rather than waiting out a 15-minute throttle window
+                # against a request that never actually fired.
+                if _last_search_trigger.get(dl_id) == now:
+                    if prev_last > 0.0:
+                        _last_search_trigger[dl_id] = prev_last
+                    else:
+                        _last_search_trigger.pop(dl_id, None)
+                new_count = None  # signals: do not persist
+
+        # The DB write is also outside the throttle lock — SQLite
+        # handles its own concurrency and we don't want to block sibling
+        # workers' throttle reads on a slow disk fsync.
+        if success and new_count is not None:
             _save_trigger_to_db(conn, dl_id, now, new_count)
-        except Exception:
-            logger.warning("Failed to trigger search for %s", dl_id, exc_info=True)
 
 
 def get_search_info(dl_id: str) -> tuple[int, float]:
