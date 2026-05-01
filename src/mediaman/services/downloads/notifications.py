@@ -9,12 +9,20 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from mediaman.services.downloads.download_format import extract_poster_url
 from mediaman.services.infra.time import now_iso
 
 logger = logging.getLogger("mediaman")
+
+#: How long an in-flight claim is allowed before reconcile treats the row as
+#: stranded by a crashed worker (H-5).  Generous enough to outlast the
+#: slowest legitimate notify pipeline (Mailgun retries, slow SMTP), short
+#: enough that a stranded row is recovered on the next service restart
+#: rather than waiting for the operator to notice.
+STRANDED_CLAIM_GRACE_SECONDS = 3600
 
 
 def record_download_notification(
@@ -76,11 +84,13 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     SELECT-then-UPDATE flow inside an IMMEDIATE transaction so the
     write lock blocks any concurrent claim.
     """
+    claim_iso = now_iso()
     try:
         rows = conn.execute(
-            "UPDATE download_notifications SET notified=2 "
+            "UPDATE download_notifications SET notified=2, claimed_at=? "
             "WHERE notified=0 "
-            "RETURNING id, email, title, media_type, tmdb_id, tvdb_id, service"
+            "RETURNING id, email, title, media_type, tmdb_id, tvdb_id, service",
+            (claim_iso,),
         ).fetchall()
         conn.commit()
         return rows
@@ -96,8 +106,8 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[sqlite3.Row]:
                 ids = [r["id"] for r in rows]
                 placeholders = ",".join("?" * len(ids))
                 conn.execute(
-                    f"UPDATE download_notifications SET notified=2 WHERE id IN ({placeholders})",  # noqa: S608 — placeholders are ? only
-                    ids,
+                    f"UPDATE download_notifications SET notified=2, claimed_at=? WHERE id IN ({placeholders})",  # noqa: S608 — placeholders are ? only
+                    (claim_iso, *ids),
                 )
             conn.execute("COMMIT")
             return rows
@@ -116,15 +126,56 @@ def _release_claim(conn: sqlite3.Connection, row_id: int) -> None:
     fail (e.g. Mailgun later turns out to be unreachable for a specific
     item) — without this the row would stay stuck at ``notified=2``
     indefinitely.
+
+    Clears ``claimed_at`` along with the status so a subsequent reconcile
+    sweep does not see a phantom in-flight stamp on a row that is queued.
     """
     try:
         conn.execute(
-            "UPDATE download_notifications SET notified=0 WHERE id=?",
+            "UPDATE download_notifications SET notified=0, claimed_at=NULL WHERE id=?",
             (row_id,),
         )
         conn.commit()
     except Exception:
         logger.warning("failed to release notification claim id=%s", row_id, exc_info=True)
+
+
+def reconcile_stranded_notifications(
+    conn: sqlite3.Connection,
+    *,
+    grace_seconds: int = STRANDED_CLAIM_GRACE_SECONDS,
+) -> int:
+    """Reset rows stranded at ``notified=2`` after a crashed worker (H-5).
+
+    The atomic claim added for finding 22 prevents two workers from sending
+    the same notification, but it does so by flipping ``notified=0 → 2``
+    *before* the actual mail attempt.  An OOM, container restart, or
+    SIGKILL between the claim and the send leaves rows pinned at
+    ``notified=2`` forever — the in-process release path inside the
+    sender loop only fires on Python exceptions.
+
+    Call this once on startup (the FastAPI lifespan does so).  Rows whose
+    ``claimed_at`` is older than *grace_seconds* are reset back to
+    ``notified=0`` with ``claimed_at`` cleared so the next scheduler tick
+    picks them up.  Returns the number of rows reset.
+
+    *grace_seconds* is generous enough that a legitimate slow Mailgun
+    pipeline isn't reaped — it is only ever observed by the next process
+    after a restart, by which point the previous in-flight call is gone.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=grace_seconds)).isoformat()
+    cur = conn.execute(
+        "UPDATE download_notifications "
+        "SET notified=0, claimed_at=NULL "
+        "WHERE notified=2 "
+        "  AND (claimed_at IS NULL OR claimed_at < ?)",
+        (cutoff,),
+    )
+    conn.commit()
+    reset = cur.rowcount or 0
+    if reset:
+        logger.info("notifications.reconcile reset=%d cutoff=%s", reset, cutoff)
+    return reset
 
 
 def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> None:
