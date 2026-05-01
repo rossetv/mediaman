@@ -105,11 +105,21 @@ class TestKeepSignatureEnforcement:
         parts = real_token.split(".")
         forged = parts[0] + "." + ("AAAA" + parts[1][4:])
 
-        # Insert a row keyed on the forged token so the DB lookup would hit
-        # if the signature check weren't enforced.
+        # Insert a separate media_items row + scheduled_actions row keyed
+        # on the forged token so the DB lookup would hit if the signature
+        # check weren't enforced. Migration 25 forbids two active pending
+        # deletions for the same media_item_id, so this fixture uses a
+        # second item id to keep the constraint happy without changing the
+        # behaviour the test exercises.
+        conn.execute(
+            "INSERT INTO media_items (id, title, media_type, plex_library_id, "
+            "plex_rating_key, added_at, file_path, file_size_bytes) "
+            "VALUES ('forged-id', 'Forged', 'movie', 1, '998', "
+            "'2026-01-01T00:00:00+00:00', '/media/Forged', 1000)"
+        )
         conn.execute(
             "INSERT INTO scheduled_actions (id, media_item_id, action, scheduled_at, "
-            "execute_at, token) VALUES (2, '999', 'scheduled_deletion', "
+            "execute_at, token) VALUES (2, 'forged-id', 'scheduled_deletion', "
             "'2026-04-10T00:00:00+00:00', '2099-01-01T00:00:00+00:00', ?)",
             (forged,),
         )
@@ -168,10 +178,18 @@ class TestKeepSignatureEnforcement:
             secret_key=secret_key,
         )
         # Store it against id=3 — the HMAC is valid, but the payload's
-        # action_id (999) doesn't match the row's id (3).
+        # action_id (999) doesn't match the row's id (3). Migration 25
+        # forbids two active pending deletions for the same media_item_id,
+        # so the second row needs a different media_items entry.
+        conn.execute(
+            "INSERT INTO media_items (id, title, media_type, plex_library_id, "
+            "plex_rating_key, added_at, file_path, file_size_bytes) "
+            "VALUES ('mismatch-id', 'Mismatch', 'movie', 1, '997', "
+            "'2026-01-01T00:00:00+00:00', '/media/Mismatch', 1000)"
+        )
         conn.execute(
             "INSERT INTO scheduled_actions (id, media_item_id, action, scheduled_at, "
-            "execute_at, token) VALUES (3, '999', 'scheduled_deletion', "
+            "execute_at, token) VALUES (3, 'mismatch-id', 'scheduled_deletion', "
             "'2026-04-10T00:00:00+00:00', '2099-01-01T00:00:00+00:00', ?)",
             (wrong_payload_token,),
         )
