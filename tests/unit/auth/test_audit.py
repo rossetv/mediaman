@@ -1,9 +1,11 @@
-"""Unit tests for mediaman.audit.log_audit."""
+"""Unit tests for mediaman.audit.log_audit and security_event helpers."""
 
 import sqlite3
 from datetime import datetime, timezone
 
-from mediaman.audit import log_audit
+import pytest
+
+from mediaman.audit import log_audit, security_event, security_event_or_raise
 
 
 def _make_conn() -> sqlite3.Connection:
@@ -79,3 +81,74 @@ class TestLogAudit:
         conn.rollback()
         row_after = conn.execute("SELECT * FROM audit_log").fetchone()
         assert row_after is None
+
+
+class TestSecurityEvent:
+    def test_writes_sec_prefixed_action(self):
+        conn = _make_conn()
+        security_event(conn, event="login.success", actor="alice", ip="127.0.0.1")
+        row = conn.execute("SELECT action, detail, media_item_id FROM audit_log").fetchone()
+        assert row["action"] == "sec:login.success"
+        assert "actor=alice" in row["detail"]
+        assert "ip=127.0.0.1" in row["detail"]
+        assert row["media_item_id"] == "_security"
+
+    def test_swallows_db_failure(self):
+        """security_event must NEVER raise — best-effort writes."""
+        conn = _make_conn()
+        conn.execute("DROP TABLE audit_log")
+        # No exception even though the INSERT will blow up.
+        security_event(conn, event="login.failed", actor="alice")
+
+    def test_dict_detail_is_json_encoded(self):
+        conn = _make_conn()
+        security_event(
+            conn,
+            event="settings.write",
+            actor="alice",
+            ip="127.0.0.1",
+            detail={"keys": ["plex_url", "base_url"]},
+        )
+        row = conn.execute("SELECT detail FROM audit_log").fetchone()
+        assert "plex_url" in row["detail"]
+        assert "base_url" in row["detail"]
+
+
+class TestSecurityEventOrRaise:
+    def test_writes_to_audit_log(self):
+        conn = _make_conn()
+        conn.execute("BEGIN")
+        security_event_or_raise(
+            conn,
+            event="user.created",
+            actor="admin",
+            ip="127.0.0.1",
+            detail={"new_username": "bob"},
+        )
+        conn.execute("COMMIT")
+        row = conn.execute("SELECT action, detail FROM audit_log").fetchone()
+        assert row["action"] == "sec:user.created"
+        assert "bob" in row["detail"]
+
+    def test_does_not_commit(self):
+        """The caller commits; this helper must NOT auto-commit."""
+        conn = _make_conn()
+        conn.execute("BEGIN")
+        security_event_or_raise(
+            conn,
+            event="user.deleted",
+            actor="admin",
+            ip="127.0.0.1",
+        )
+        # Roll back — the row must vanish.
+        conn.rollback()
+        row = conn.execute("SELECT * FROM audit_log").fetchone()
+        assert row is None
+
+    def test_raises_on_db_error(self):
+        """security_event_or_raise MUST propagate so the caller's wider
+        transaction can be rolled back."""
+        conn = _make_conn()
+        conn.execute("DROP TABLE audit_log")
+        with pytest.raises(sqlite3.OperationalError):
+            security_event_or_raise(conn, event="user.created", actor="admin")
