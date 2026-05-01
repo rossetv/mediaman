@@ -11,6 +11,21 @@ from mediaman.crypto import generate_download_token, generate_unsubscribe_token
 logger = logging.getLogger("mediaman")
 
 
+def _mask_email(email: str) -> str:
+    """Return a masked representation of *email* for log output.
+
+    Exposes only the first character of the local part plus the total length,
+    e.g. ``"a...@example.com (len=17)"``.  The domain is retained so operators
+    can still triage delivery failures without exposing the full address.
+    """
+    try:
+        local, domain = email.split("@", 1)
+    except ValueError:
+        return f"(len={len(email)})"
+    first = local[0] if local else "?"
+    return f"{first}...@{domain} (len={len(email)})"
+
+
 def _load_recipients(conn: sqlite3.Connection, recipients: list[str] | None) -> list[str] | None:
     """Return the recipient list, or ``None`` to signal "skip — no recipients".
 
@@ -55,14 +70,12 @@ def _send_to_recipients(
     successfully_sent: list[str] = []
     for email in recipient_emails:
         unsub_token = generate_unsubscribe_token(email=email, secret_key=secret_key)
+        # The email is encoded inside the signed token — no need to expose it
+        # as a query parameter (finding 36).
         unsub_url = (
-            (
-                f"{base_url}/unsubscribe?email={_url_quote(email, safe='@')}"
-                f"&token={_url_quote(unsub_token, safe='')}"
-            )
-            if base_url
-            else ""
+            f"{base_url}/unsubscribe?token={_url_quote(unsub_token, safe='')}" if base_url else ""
         )
+        logger.debug("newsletter.unsub_url_minted recipient=%s", _mask_email(email))
 
         # Build per-recipient shallow copies so token URLs don't bleed between recipients.
         # Without this, recipient N's tokens overwrite recipient N-1's in the shared dicts.
