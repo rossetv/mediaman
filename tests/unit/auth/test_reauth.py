@@ -10,11 +10,13 @@ import pytest
 from mediaman.auth.password_hash import create_user
 from mediaman.auth.reauth import (
     REAUTH_LOCKOUT_PREFIX,
+    cleanup_expired_reauth,
     grant_recent_reauth,
     has_recent_reauth,
     reauth_window_seconds,
     revoke_all_reauth_for,
     revoke_reauth,
+    revoke_reauth_by_hash,
     verify_reauth_password,
 )
 from mediaman.auth.session_store import _hash_token
@@ -147,6 +149,73 @@ class TestGrantHasRevoke:
             "SELECT COUNT(*) AS n FROM reauth_tickets WHERE username = 'bob'"
         ).fetchone()["n"]
         assert bob_count == 1
+
+
+# ---------------------------------------------------------------------------
+# H-4: revoke_reauth_by_hash and cleanup_expired_reauth
+# ---------------------------------------------------------------------------
+
+
+class TestRevokeReauthByHash:
+    """H-4: session-destruction sites only have a token hash on hand."""
+
+    def test_revoke_by_hash_deletes_matching_ticket(self, conn):
+        token = "ses-tok-h4-1"
+        grant_recent_reauth(conn, token, "alice")
+        assert has_recent_reauth(conn, token, "alice") is True
+
+        revoke_reauth_by_hash(conn, _hash_token(token))
+        assert has_recent_reauth(conn, token, "alice") is False
+
+    def test_revoke_by_hash_is_idempotent(self, conn):
+        revoke_reauth_by_hash(conn, _hash_token("never-existed"))
+        revoke_reauth_by_hash(conn, _hash_token("never-existed"))
+        # Should not raise.
+
+    def test_revoke_by_hash_does_not_touch_other_tickets(self, conn):
+        grant_recent_reauth(conn, "tok-keep", "alice")
+        grant_recent_reauth(conn, "tok-drop", "alice")
+
+        revoke_reauth_by_hash(conn, _hash_token("tok-drop"))
+
+        assert has_recent_reauth(conn, "tok-keep", "alice") is True
+        assert has_recent_reauth(conn, "tok-drop", "alice") is False
+
+    def test_revoke_by_hash_with_empty_hash_is_a_noop(self, conn):
+        grant_recent_reauth(conn, "tok-keep", "alice")
+        revoke_reauth_by_hash(conn, "")
+        assert has_recent_reauth(conn, "tok-keep", "alice") is True
+
+
+class TestCleanupExpiredReauth:
+    """H-4: a periodic sweep stops dead tickets piling up."""
+
+    def test_sweeps_only_past_expiry(self, conn):
+        future = (datetime.now(timezone.utc) + timedelta(seconds=300)).isoformat()
+        past = (datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat()
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        # Two tickets, one fresh, one expired.
+        conn.execute(
+            "INSERT INTO reauth_tickets (session_token_hash, username, granted_at, expires_at) "
+            "VALUES (?, 'alice', ?, ?)",
+            ("hash-fresh", now_iso, future),
+        )
+        conn.execute(
+            "INSERT INTO reauth_tickets (session_token_hash, username, granted_at, expires_at) "
+            "VALUES (?, 'alice', ?, ?)",
+            ("hash-expired", now_iso, past),
+        )
+        conn.commit()
+
+        deleted = cleanup_expired_reauth(conn)
+        assert deleted == 1
+
+        remaining = {
+            row["session_token_hash"]
+            for row in conn.execute("SELECT session_token_hash FROM reauth_tickets")
+        }
+        assert remaining == {"hash-fresh"}
 
 
 # ---------------------------------------------------------------------------

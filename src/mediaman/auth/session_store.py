@@ -163,12 +163,24 @@ def _exec_with_commit(conn: sqlite3.Connection, sql: str, params: tuple) -> None
 
 
 def _delete_session_with_commit(conn: sqlite3.Connection, token_hash: str) -> None:
-    """Delete a session row inside its own short write transaction."""
+    """Delete a session row inside its own short write transaction.
+
+    Also revokes the matching reauth ticket so that a session killed by
+    idle-expiry or fingerprint mismatch cannot leave an attacker who
+    holds the stolen cookie + ticket pair with a working privileged
+    window for the rest of the ticket's TTL (H-4).
+    """
     _exec_with_commit(
         conn,
         "DELETE FROM admin_sessions WHERE token_hash = ?",
         (token_hash,),
     )
+    try:
+        from mediaman.auth.reauth import revoke_reauth_by_hash
+
+        revoke_reauth_by_hash(conn, token_hash)
+    except Exception:  # pragma: no cover — never let reauth cleanup block session destroy
+        logger.debug("session.delete: revoke_reauth_by_hash failed", exc_info=True)
 
 
 def _refresh_last_used_with_commit(conn: sqlite3.Connection, token_hash: str, now_iso: str) -> None:
@@ -181,12 +193,24 @@ def _refresh_last_used_with_commit(conn: sqlite3.Connection, token_hash: str, no
 
 
 def _cleanup_expired_with_commit(conn: sqlite3.Connection, now_iso: str) -> None:
-    """Sweep expired session rows inside a short write transaction."""
+    """Sweep expired session rows inside a short write transaction.
+
+    The matching reauth tickets are also swept so the table cannot grow
+    indefinitely with rows whose owning session is gone (H-4).  The
+    reauth sweep is best-effort — a failure here never aborts the
+    session sweep.
+    """
     _exec_with_commit(
         conn,
         "DELETE FROM admin_sessions WHERE expires_at < ?",
         (now_iso,),
     )
+    try:
+        from mediaman.auth.reauth import cleanup_expired_reauth
+
+        cleanup_expired_reauth(conn, now_iso)
+    except Exception:  # pragma: no cover
+        logger.debug("session.cleanup: cleanup_expired_reauth failed", exc_info=True)
 
 
 def validate_session(
@@ -296,7 +320,13 @@ def destroy_session(
     actor: str = "",
     ip: str = "",
 ) -> None:
-    """Delete the session row for the given token (logout)."""
+    """Delete the session row for the given token (logout).
+
+    Also revokes the matching reauth ticket — without that, a stolen
+    session cookie plus a freshly granted reauth ticket would remain
+    replayable for the rest of the ticket's TTL after the legitimate
+    user has logged out (H-4).
+    """
     token_hash = _hash_token(token)
     row = conn.execute(
         "SELECT username FROM admin_sessions WHERE token_hash = ?",
@@ -308,6 +338,12 @@ def destroy_session(
         (token_hash,),
     )
     conn.commit()
+    try:
+        from mediaman.auth.reauth import revoke_reauth_by_hash
+
+        revoke_reauth_by_hash(conn, token_hash)
+    except Exception:  # pragma: no cover
+        logger.debug("session.destroy: revoke_reauth_by_hash failed", exc_info=True)
     logger.info("session.destroyed user=%s ip=%s", username or "-", ip or "-")
     try:
         from mediaman.audit import security_event
@@ -318,9 +354,23 @@ def destroy_session(
 
 
 def destroy_all_sessions_for(conn: sqlite3.Connection, username: str) -> int:
-    """Delete every session belonging to *username*. Returns rows affected."""
+    """Delete every session belonging to *username*. Returns rows affected.
+
+    Also revokes every reauth ticket owned by *username* (H-4) so a bulk
+    session purge — typically driven by a forced password change or admin
+    action — does not leave stale tickets that an attacker holding a
+    related cookie could replay.
+    """
     cur = conn.execute("DELETE FROM admin_sessions WHERE username = ?", (username,))
     conn.commit()
+    try:
+        from mediaman.auth.reauth import revoke_all_reauth_for
+
+        revoke_all_reauth_for(conn, username)
+    except Exception:  # pragma: no cover
+        logger.debug(
+            "session.destroy_all: revoke_all_reauth_for failed user=%s", username, exc_info=True
+        )
     return cur.rowcount
 
 
