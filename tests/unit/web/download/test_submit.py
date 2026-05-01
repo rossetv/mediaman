@@ -302,3 +302,78 @@ class TestDownloadSubmitTV:
             resp = client.post(f"/download/{token}")
 
         assert resp.status_code == 503
+
+
+class TestDownloadSubmitRefusesMissingTmdbId:
+    """Finding 15 (H-1): public submit must refuse tokens without a stable TMDB id.
+
+    The previous behaviour fell back to ``client.lookup_by_term(title)`` and
+    enqueued the first match — an ambiguous or remade title could route the
+    download to the wrong film/show.  The fix returns 422 and releases the
+    token (so a corrected link can be issued by the admin).
+    """
+
+    def setup_method(self):
+        _clear_used_tokens()
+        _DOWNLOAD_LIMITER_POST._attempts.clear()
+
+    def test_movie_without_tmdb_returns_422_and_does_not_call_radarr(self, db_path, secret_key):
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = TestClient(app, raise_server_exceptions=True)
+        token = _make_token(secret_key, title="Ambiguous Title", media_type="movie", tmdb_id=None)
+
+        mock_radarr = MagicMock()
+
+        with patch(
+            "mediaman.web.routes.download.submit.build_radarr_from_db", return_value=mock_radarr
+        ):
+            resp = client.post(f"/download/{token}")
+
+        assert resp.status_code == 422
+        body = resp.json()
+        assert body["ok"] is False
+        assert "stable" in body["error"].lower() or "tmdb" in body["error"].lower()
+        # Critical: the title-only fallback must never be invoked.
+        mock_radarr.lookup_by_term.assert_not_called()
+        mock_radarr.add_movie.assert_not_called()
+
+    def test_tv_without_tmdb_returns_422_and_does_not_call_sonarr(self, db_path, secret_key):
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = TestClient(app, raise_server_exceptions=True)
+        token = _make_token(secret_key, title="Ambiguous Show", media_type="tv", tmdb_id=None)
+
+        mock_sonarr = MagicMock()
+
+        with patch(
+            "mediaman.web.routes.download.submit.build_sonarr_from_db", return_value=mock_sonarr
+        ):
+            resp = client.post(f"/download/{token}")
+
+        assert resp.status_code == 422
+        body = resp.json()
+        assert body["ok"] is False
+        mock_sonarr.lookup_by_term.assert_not_called()
+        mock_sonarr.add_series.assert_not_called()
+
+    def test_token_is_released_after_422_so_admin_can_re_issue(self, db_path, secret_key):
+        """After a 422 from a missing-id token, the token slot is released.
+
+        The original token cannot be reused (it had no identifier), but the
+        in-process replay set must not retain it — otherwise a re-issued link
+        with the same email/title key would also be blocked.
+        """
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = TestClient(app, raise_server_exceptions=True)
+        token = _make_token(secret_key, title="Some Title", media_type="movie", tmdb_id=None)
+
+        with patch("mediaman.web.routes.download.submit.build_radarr_from_db") as mocked:
+            resp = client.post(f"/download/{token}")
+            assert resp.status_code == 422
+            mocked.assert_not_called()
+
+        # The replay set should not contain the rejected token.
+        with _USED_TOKENS_LOCK:
+            assert token not in _USED_TOKENS
