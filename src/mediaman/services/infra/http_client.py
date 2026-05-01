@@ -9,10 +9,16 @@ metadata, an oversize body fills memory, and DNS-rebind swaps the
 resolved IP between the pre-request safety check and the actual
 connect.
 
-The class does five things:
+The class does six things:
 
-* Re-runs :func:`mediaman.services.infra.url_safety.is_safe_outbound_url` on
-  every call so DNS-rebind cannot slip past a one-off validation.
+* Re-runs the SSRF guard
+  (:func:`mediaman.services.infra.url_safety.resolve_safe_outbound_url`)
+  on every call so DNS-rebind cannot slip past a one-off validation.
+* **Pins** the validated IP for the duration of the request via
+  :func:`pin_dns_for_request`, so the eventual ``socket.getaddrinfo``
+  returns the same address we just verified — a rebinding hostname
+  that returned a public IP for the safety check and an internal IP
+  for the real connect is denied the rebind window.
 * Forces ``allow_redirects=False`` — responses must be final at the
   target host we just validated.
 * Splits the single 15-second timeout into ``(connect=5, read=30)`` so
@@ -29,16 +35,112 @@ or surface the failure without digging into a requests ``Response``.
 
 from __future__ import annotations
 
+import contextlib
 import json as _json
 import logging
+import socket
+import threading
 import time
 from typing import Any
 
 import requests
 
-from mediaman.services.infra.url_safety import is_safe_outbound_url
+from mediaman.services.infra.url_safety import resolve_safe_outbound_url
 
 logger = logging.getLogger("mediaman")
+
+# ---------------------------------------------------------------------------
+# DNS pinning
+#
+# urllib3 (and therefore ``requests``) calls ``socket.getaddrinfo`` from
+# the connecting thread when it builds a new pool entry. We monkey-patch
+# the symbol once at import time with a wrapper that consults a
+# *thread-local* pin table; if a pin exists for the requested host we
+# return that IP, otherwise we delegate to the real resolver. The pin
+# is set by :func:`pin_dns_for_request` during ``SafeHTTPClient._request``
+# and removed when the context exits, so unrelated callers see the
+# unmodified ``getaddrinfo`` behaviour. Storage is :class:`threading.local`
+# so concurrent worker threads (scan threads, FastAPI threadpool calls)
+# never see each other's pins.
+# ---------------------------------------------------------------------------
+
+_DNS_PIN_LOCAL = threading.local()
+_ORIG_GETADDRINFO = socket.getaddrinfo
+_PIN_INSTALL_LOCK = threading.Lock()
+_PIN_INSTALLED = False
+
+
+def _patched_getaddrinfo(host, port, *args, **kwargs):  # pragma: no cover - thin wrapper
+    """``socket.getaddrinfo`` wrapper that honours per-thread DNS pins.
+
+    When a pin is set for *host* we synthesise a single ``getaddrinfo``
+    record for the pinned IP, preserving the family that matches the
+    address (v4 vs v6). If no pin is set, behaviour is identical to the
+    upstream resolver.
+    """
+    pins: dict[str, str] | None = getattr(_DNS_PIN_LOCAL, "pins", None)
+    if pins:
+        ip = pins.get(host)
+        if ip is not None:
+            family = socket.AF_INET6 if ":" in ip else socket.AF_INET
+            socktype = kwargs.get("type") or (args[1] if len(args) > 1 else 0)
+            proto = kwargs.get("proto") or (args[2] if len(args) > 2 else 0)
+            sockaddr = (ip, port or 0, 0, 0) if family == socket.AF_INET6 else (ip, port or 0)
+            return [
+                (
+                    family,
+                    socktype or socket.SOCK_STREAM,
+                    proto,
+                    "",
+                    sockaddr,
+                )
+            ]
+    return _ORIG_GETADDRINFO(host, port, *args, **kwargs)
+
+
+def _install_dns_pin_hook() -> None:
+    """Install :func:`_patched_getaddrinfo` in place of ``socket.getaddrinfo``.
+
+    Idempotent and thread-safe. Called from the module import (so any
+    request that goes through this client is automatically pinned-aware),
+    and re-applied if anything in the process replaced the symbol after
+    import — a defensive measure against test fixtures that reset
+    ``socket.getaddrinfo`` between runs.
+    """
+    global _PIN_INSTALLED
+    with _PIN_INSTALL_LOCK:
+        if socket.getaddrinfo is _patched_getaddrinfo:
+            _PIN_INSTALLED = True
+            return
+        socket.getaddrinfo = _patched_getaddrinfo
+        _PIN_INSTALLED = True
+
+
+_install_dns_pin_hook()
+
+
+@contextlib.contextmanager
+def pin_dns_for_request(hostname: str, ip: str):
+    """Pin DNS for *hostname* to *ip* for the duration of the ``with`` block.
+
+    The pin is stored on a :class:`threading.local`, so other threads
+    are unaffected. On exit the pin is cleared (or restored to the
+    previous pin if the context was nested for the same hostname).
+    """
+    pins: dict[str, str] | None = getattr(_DNS_PIN_LOCAL, "pins", None)
+    if pins is None:
+        pins = {}
+        _DNS_PIN_LOCAL.pins = pins
+    previous = pins.get(hostname)
+    pins[hostname] = ip
+    try:
+        yield
+    finally:
+        if previous is None:
+            pins.pop(hostname, None)
+        else:
+            pins[hostname] = previous
+
 
 #: Default per-call timeouts. Connect is short — a TCP handshake that
 #: hasn't completed in 5 s means the target is unreachable. Read is
@@ -171,7 +273,15 @@ class SafeHTTPClient:
         — the size cap is always enforced internally regardless.
         """
         url = self._resolve_url(path_or_url)
-        if not is_safe_outbound_url(url, strict_egress=self._strict_egress):
+        # The SSRF guard validates the URL **and** returns the IP that
+        # any subsequent connect must use. Pinning that address inside
+        # the dispatch call closes the DNS-rebind window: a hostname
+        # that resolved to a public IP here cannot be re-resolved to an
+        # internal one when urllib3 actually connects.
+        safe, hostname, pinned_ip = resolve_safe_outbound_url(
+            url, strict_egress=self._strict_egress
+        )
+        if not safe:
             raise SafeHTTPError(
                 status_code=0,
                 body_snippet="refused by SSRF guard",
@@ -181,12 +291,63 @@ class SafeHTTPClient:
         timeout = timeout or self._default_timeout
         cap = max_bytes if max_bytes is not None else self._default_max_bytes
         caller = self._session or requests
-
         attempts = 1 + (len(_RETRY_BACKOFFS) if retry else 0)
+
+        # If the URL was a hostname (not a literal IP) we hold the pin
+        # for the entire dispatch + retry loop. A literal-IP URL needs
+        # no pin — there's no DNS lookup to corrupt.
+        if hostname and pinned_ip:
+            with pin_dns_for_request(hostname, pinned_ip):
+                return self._dispatch_loop(
+                    caller=caller,
+                    method=method,
+                    url=url,
+                    timeout=timeout,
+                    cap=cap,
+                    attempts=attempts,
+                    headers=headers,
+                    params=params,
+                    json=json,
+                    data=data,
+                    auth=auth,
+                )
+        return self._dispatch_loop(
+            caller=caller,
+            method=method,
+            url=url,
+            timeout=timeout,
+            cap=cap,
+            attempts=attempts,
+            headers=headers,
+            params=params,
+            json=json,
+            data=data,
+            auth=auth,
+        )
+
+    def _dispatch_loop(
+        self,
+        *,
+        caller: Any,
+        method: str,
+        url: str,
+        timeout: tuple[float, float],
+        cap: int,
+        attempts: int,
+        headers: dict[str, str] | None,
+        params: dict[str, Any] | None,
+        json: Any,
+        data: Any,
+        auth: Any,
+    ) -> requests.Response:
+        """Inner dispatch + retry loop.
+
+        Split out from :meth:`_request` so the DNS-pin context can wrap
+        the whole loop without forcing a 60-line indent change.
+        """
         last_exc: Exception | None = None
         last_status: int | None = None
         last_snippet: str = ""
-
         for attempt in range(attempts):
             try:
                 response = _dispatch(

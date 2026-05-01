@@ -218,6 +218,96 @@ def _normalise_host(hostname: str) -> str | None:
         return None
 
 
+def resolve_safe_outbound_url(
+    url: str,
+    *,
+    strict_egress: bool | None = None,
+) -> tuple[bool, str | None, str | None]:
+    """Validate *url* and return a pinned IP for the eventual connection.
+
+    Returns ``(safe, hostname, pinned_ip)``:
+
+    * ``safe`` — ``True`` only if every check in
+      :func:`is_safe_outbound_url` passes.
+    * ``hostname`` — the IDN-normalised hostname from the URL, or
+      ``None`` if the URL was malformed before host extraction. Useful
+      to the caller for installing a host-specific DNS pin.
+    * ``pinned_ip`` — the **validated** address that the eventual
+      connection must use, or ``None`` if no pin is required (URL
+      already contains a literal IP, or the URL was rejected). When
+      present, callers must connect to this exact address rather than
+      re-resolving the hostname — that's the DNS-rebinding defence.
+
+    The function is the single place in the codebase that performs
+    SSRF safety analysis; :func:`is_safe_outbound_url` simply discards
+    everything but the bool.
+    """
+    if not url or not isinstance(url, str):
+        return False, None, None
+
+    try:
+        parsed = urlparse(url.strip())
+    except ValueError:
+        return False, None, None
+
+    if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
+        return False, None, None
+
+    # Reject ``user:pass@host`` style authorities outright. The parsed
+    # .username / .password attributes are populated when '@' sits in
+    # the netloc, even if empty — treat any userinfo as hostile.
+    if "@" in (parsed.netloc or ""):
+        return False, None, None
+
+    hostname = parsed.hostname
+    if not hostname:
+        return False, None, None
+
+    strict = _strict_egress_enabled(strict_egress)
+
+    # Block hostnames whose name alone is a red flag, before any DNS.
+    if _host_is_metadata(hostname):
+        return False, hostname, None
+
+    # IDN-normalise so a Unicode variant cannot bypass the ASCII checks.
+    normalised = _normalise_host(hostname)
+    if normalised is None:
+        return False, hostname, None
+    if _host_is_metadata(normalised):
+        return False, normalised, None
+
+    # Literal IP in the URL → check directly, skip DNS.
+    try:
+        ip = ipaddress.ip_address(normalised)
+    except ValueError:
+        pass
+    else:
+        if _ip_is_blocked(ip, strict=strict):
+            return False, normalised, None
+        # Already a literal — no pin needed; the connection cannot be
+        # redirected by DNS at all.
+        return True, normalised, None
+
+    # Hostname → resolve and reject if *any* returned address is blocked,
+    # OR if the name fails to resolve at all. A non-resolving name used
+    # to be allowed through on the theory that the admin might be saving
+    # a URL that will resolve later; we can no longer afford that — a
+    # second DNS call at request time could return a metadata IP.
+    addrs = _resolve_all(normalised)
+    if not addrs:
+        return False, normalised, None
+    for ip in addrs:
+        if _ip_is_blocked(ip, strict=strict):
+            return False, normalised, None
+
+    # Pin the first safe address we got back. Every address in ``addrs``
+    # has already been confirmed safe, so the choice is irrelevant for
+    # security; we use the first one for stability across calls. The
+    # caller installs this in a thread-local DNS pin so the eventual
+    # ``socket.getaddrinfo`` returns the same address we just verified.
+    return True, normalised, str(addrs[0])
+
+
 def is_safe_outbound_url(
     url: str,
     *,
@@ -242,57 +332,5 @@ def is_safe_outbound_url(
     ``MEDIAMAN_STRICT_EGRESS=1`` in the environment (or pass
     ``strict_egress=True``) to additionally refuse them.
     """
-    if not url or not isinstance(url, str):
-        return False
-
-    try:
-        parsed = urlparse(url.strip())
-    except ValueError:
-        return False
-
-    if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
-        return False
-
-    # Reject ``user:pass@host`` style authorities outright. The parsed
-    # .username / .password attributes are populated when '@' sits in
-    # the netloc, even if empty — treat any userinfo as hostile.
-    if "@" in (parsed.netloc or ""):
-        return False
-
-    hostname = parsed.hostname
-    if not hostname:
-        return False
-
-    strict = _strict_egress_enabled(strict_egress)
-
-    # Block hostnames whose name alone is a red flag, before any DNS.
-    if _host_is_metadata(hostname):
-        return False
-
-    # IDN-normalise so a Unicode variant cannot bypass the ASCII checks.
-    normalised = _normalise_host(hostname)
-    if normalised is None:
-        return False
-    if _host_is_metadata(normalised):
-        return False
-
-    # Literal IP in the URL → check directly, skip DNS.
-    try:
-        ip = ipaddress.ip_address(normalised)
-        return not _ip_is_blocked(ip, strict=strict)
-    except ValueError:
-        pass
-
-    # Hostname → resolve and reject if *any* returned address is blocked,
-    # OR if the name fails to resolve at all. A non-resolving name used
-    # to be allowed through on the theory that the admin might be saving
-    # a URL that will resolve later; we can no longer afford that — a
-    # second DNS call at request time could return a metadata IP.
-    addrs = _resolve_all(normalised)
-    if not addrs:
-        return False
-    for ip in addrs:
-        if _ip_is_blocked(ip, strict=strict):
-            return False
-
-    return True
+    safe, _hostname, _pinned_ip = resolve_safe_outbound_url(url, strict_egress=strict_egress)
+    return safe
