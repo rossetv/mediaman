@@ -92,19 +92,54 @@ def _load_scheduled_items(
     return items
 
 
-def _mark_notified(conn: sqlite3.Connection, scheduled_items: list[dict]) -> None:
-    """Mark scheduled action rows as notified=1.
+def _mark_notified(
+    conn: sqlite3.Connection,
+    scheduled_items: list[dict],
+    *,
+    active_recipients: list[str] | None = None,
+) -> None:
+    """Mark scheduled action rows as notified=1, but only when every active
+    recipient has been delivered to (finding 23).
 
     Asserts all ids are integers before building the parameterised query so a
     non-integer id (e.g. from a corrupt row) surfaces as a clear error rather
     than silently passing a string through to the SQL engine.
+
+    The legacy callsites that pass ``active_recipients=None`` keep the
+    old "any send -> mark all" behaviour — used by the manual-resend
+    path which never set ``mark_notified``.
     """
     action_ids = [int(item["_action_id"]) for item in scheduled_items]
     if not action_ids:
         return
-    placeholders = ",".join("?" * len(action_ids))
-    conn.execute(
-        f"UPDATE scheduled_actions SET notified=1 WHERE id IN ({placeholders})",  # noqa: S608 — placeholders are '?' only; ids asserted int above
-        action_ids,
-    )
-    conn.commit()
+
+    if not active_recipients:
+        # Legacy behaviour: caller didn't supply a recipient set, so we
+        # cannot validate per-recipient state.  Mark everything.
+        placeholders = ",".join("?" * len(action_ids))
+        conn.execute(
+            f"UPDATE scheduled_actions SET notified=1 WHERE id IN ({placeholders})",  # noqa: S608 — placeholders are '?' only; ids asserted int above
+            action_ids,
+        )
+        conn.commit()
+        return
+
+    expected = set(active_recipients)
+    fully_delivered: list[int] = []
+    for action_id in action_ids:
+        rows = conn.execute(
+            "SELECT recipient FROM newsletter_deliveries "
+            "WHERE scheduled_action_id = ? AND sent_at IS NOT NULL",
+            (action_id,),
+        ).fetchall()
+        delivered = {r["recipient"] for r in rows}
+        if expected.issubset(delivered):
+            fully_delivered.append(action_id)
+
+    if fully_delivered:
+        placeholders = ",".join("?" * len(fully_delivered))
+        conn.execute(
+            f"UPDATE scheduled_actions SET notified=1 WHERE id IN ({placeholders})",  # noqa: S608 — placeholders are '?' only; ids asserted int above
+            fully_delivered,
+        )
+        conn.commit()

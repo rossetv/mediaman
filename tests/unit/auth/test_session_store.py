@@ -31,6 +31,83 @@ def conn(db_path):
 
 
 # ---------------------------------------------------------------------------
+# Finding 26: validate_session must not take the writer lock for ordinary
+# requests.
+# ---------------------------------------------------------------------------
+
+
+class TestValidateSessionReadOnlyByDefault:
+    def test_repeated_validation_skips_writer_within_throttle(self, conn):
+        """Two validations within the refresh interval must not write twice.
+
+        Regression: previously every validate_session call opened
+        ``BEGIN IMMEDIATE`` and wrote ``last_used_at`` whenever the
+        throttle had elapsed. With the read-only-by-default refactor
+        the throttle still gates the write, but a second validation in
+        the same minute must not hit the writer at all.
+        """
+        token = create_session(conn, "alice", user_agent="ua", client_ip="1.2.3.4")
+        # First call: refresh window has just passed creation, so a
+        # write happens to stamp last_used_at.
+        assert validate_session(conn, token) == "alice"
+        first_last_used = conn.execute(
+            "SELECT last_used_at FROM admin_sessions WHERE token_hash = ?",
+            (_hash_token(token),),
+        ).fetchone()["last_used_at"]
+
+        # Second call in immediate succession: the throttle blocks the
+        # refresh, so last_used_at must not change.
+        assert validate_session(conn, token) == "alice"
+        second_last_used = conn.execute(
+            "SELECT last_used_at FROM admin_sessions WHERE token_hash = ?",
+            (_hash_token(token),),
+        ).fetchone()["last_used_at"]
+        assert second_last_used == first_last_used
+
+    def test_validate_does_not_open_write_transaction_during_lookup(self, conn):
+        """A reader connection should be able to query while validate_session runs.
+
+        We can't intercept SQLite transaction state directly, but we
+        can confirm validate_session works with the ``in_transaction``
+        flag never staying set after the call returns — i.e. it never
+        leaves a write transaction open.
+        """
+        token = create_session(conn, "alice", user_agent="ua", client_ip="1.2.3.4")
+        validate_session(conn, token)
+        # After return, no transaction must be hanging.
+        assert conn.in_transaction is False
+
+    def test_invalid_token_short_circuits_without_writes(self, conn):
+        """A junk token returns None without touching the DB at all.
+
+        ``in_transaction`` must remain False. The test only covers the
+        symptom — a regression to BEGIN IMMEDIATE on every entry would
+        either flip the flag or hold the writer lock and timing-show
+        up as test slowness.
+        """
+        assert validate_session(conn, "not-a-token") is None
+        assert conn.in_transaction is False
+
+    def test_idle_expiry_still_deletes_session(self, conn):
+        """The read-only fast-path must not skip the idle-expiry write."""
+        token = create_session(conn, "alice", user_agent="ua", client_ip="1.2.3.4")
+        # Force the last_used_at far enough in the past to trigger idle expiry.
+        old = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+        conn.execute(
+            "UPDATE admin_sessions SET last_used_at = ? WHERE token_hash = ?",
+            (old, _hash_token(token)),
+        )
+        conn.commit()
+        assert validate_session(conn, token) is None
+        # Row must have been deleted.
+        row = conn.execute(
+            "SELECT 1 FROM admin_sessions WHERE token_hash = ?",
+            (_hash_token(token),),
+        ).fetchone()
+        assert row is None
+
+
+# ---------------------------------------------------------------------------
 # _hash_token
 # ---------------------------------------------------------------------------
 

@@ -3,6 +3,8 @@
 import sqlite3
 import threading
 
+import pytest
+
 from mediaman.db import (
     DB_SCHEMA_VERSION,
     close_db,
@@ -263,9 +265,9 @@ class TestSchemaV13LegacySessionPurge:
         init_db(str(db_path)).close()  # must not raise
 
     def test_schema_version_is_current(self, db_path):
-        assert DB_SCHEMA_VERSION == 22
+        assert DB_SCHEMA_VERSION == 26
         conn = init_db(str(db_path))
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 22
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 26
 
 
 class TestSchemaV14DeleteStatus:
@@ -434,7 +436,7 @@ class TestJobRunHelpers:
         assert is_scan_running(conn) is False
 
     def test_stale_scan_run_does_not_block(self, db_path):
-        """A row older than the 2-hour sanity timeout must not be counted as running."""
+        """A row whose heartbeat lapsed beyond the stale window is treated as crashed."""
         from datetime import datetime, timedelta, timezone
 
         from mediaman.db import is_scan_running
@@ -447,6 +449,66 @@ class TestJobRunHelpers:
         )
         conn.commit()
         assert is_scan_running(conn) is False
+
+    def test_heartbeat_keeps_long_run_alive(self, db_path):
+        """A long scan that renews its heartbeat must stay marked running.
+
+        Regression for finding 9: previously the fixed two-hour cutoff
+        meant a slow scan would silently appear "stale" while still
+        running, allowing a sibling worker to start an overlapping job.
+        With the heartbeat lease the live run keeps blocking new starts
+        as long as it ticks within the stale window.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        from mediaman.db import heartbeat_scan_run, is_scan_running, start_scan_run
+
+        conn = init_db(str(db_path))
+        run_id = start_scan_run(conn)
+        assert run_id is not None
+
+        # Pretend three hours have passed, but the worker is still
+        # heartbeating — the row must not be considered stale.
+        conn.execute(
+            "UPDATE scan_runs SET started_at = ? WHERE id = ?",
+            (
+                (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat(),
+                run_id,
+            ),
+        )
+        conn.commit()
+        heartbeat_scan_run(conn, run_id)
+        assert is_scan_running(conn) is True
+
+    def test_lapsed_heartbeat_unblocks_new_run(self, db_path):
+        """A run whose heartbeat is older than the stale window is ignored."""
+        from datetime import datetime, timedelta, timezone
+
+        from mediaman.db import is_scan_running, start_scan_run
+
+        conn = init_db(str(db_path))
+        run_id = start_scan_run(conn)
+        # Force the heartbeat back into the past beyond the stale window.
+        long_ago = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+        conn.execute(
+            "UPDATE scan_runs SET heartbeat_at = ?, started_at = ? WHERE id = ?",
+            (long_ago, long_ago, run_id),
+        )
+        conn.commit()
+        assert is_scan_running(conn) is False
+        # And a new run can start.
+        new_id = start_scan_run(conn)
+        assert new_id is not None
+        assert new_id != run_id
+
+    def test_owner_id_is_recorded(self, db_path):
+        """Every new run row carries a non-empty owner_id."""
+        from mediaman.db import start_scan_run
+
+        conn = init_db(str(db_path))
+        run_id = start_scan_run(conn)
+        row = conn.execute("SELECT owner_id FROM scan_runs WHERE id = ?", (run_id,)).fetchone()
+        assert row["owner_id"]
 
     def test_is_refresh_running_false_when_empty(self, db_path):
         from mediaman.db import is_refresh_running
@@ -523,6 +585,161 @@ class TestSchemaV18KeepTokensUsed:
     def test_migration_idempotent(self, db_path):
         init_db(str(db_path)).close()
         init_db(str(db_path)).close()  # must not raise
+
+
+class TestSchemaV25UniqueActiveDeletion:
+    """v25 adds a partial unique index preventing two active pending
+    deletions for the same media_item_id (finding 9)."""
+
+    def test_index_present(self, db_path):
+        conn = init_db(str(db_path))
+        rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' "
+            "AND name='idx_scheduled_actions_unique_active_deletion'"
+        ).fetchall()
+        assert len(rows) == 1
+
+    def test_duplicate_active_deletion_blocked(self, db_path):
+        """Inserting a second active pending deletion for the same item raises."""
+        import sqlite3 as _sq
+
+        conn = init_db(str(db_path))
+        conn.execute(
+            "INSERT INTO media_items (id, title, media_type, plex_library_id, "
+            "plex_rating_key, added_at, file_path, file_size_bytes) "
+            "VALUES ('m1', 't', 'movie', 1, 'm1', '2026-01-01', '/tmp/x', 1)"
+        )
+        conn.execute(
+            "INSERT INTO scheduled_actions "
+            "(media_item_id, action, scheduled_at, token, token_used, delete_status) "
+            "VALUES ('m1', 'scheduled_deletion', '2026-01-01', 'tok-a', 0, 'pending')"
+        )
+        with pytest.raises(_sq.IntegrityError):
+            conn.execute(
+                "INSERT INTO scheduled_actions "
+                "(media_item_id, action, scheduled_at, token, token_used, delete_status) "
+                "VALUES ('m1', 'scheduled_deletion', '2026-01-02', 'tok-b', 0, 'pending')"
+            )
+
+    def test_consumed_row_does_not_block_new_one(self, db_path):
+        """Once token_used=1 the slot frees up — the user might re-enter scope."""
+        conn = init_db(str(db_path))
+        conn.execute(
+            "INSERT INTO media_items (id, title, media_type, plex_library_id, "
+            "plex_rating_key, added_at, file_path, file_size_bytes) "
+            "VALUES ('m2', 't', 'movie', 1, 'm2', '2026-01-01', '/tmp/x', 1)"
+        )
+        conn.execute(
+            "INSERT INTO scheduled_actions "
+            "(media_item_id, action, scheduled_at, token, token_used, delete_status) "
+            "VALUES ('m2', 'scheduled_deletion', '2026-01-01', 'tok-c', 1, 'pending')"
+        )
+        # token_used=1 — second row must be allowed.
+        conn.execute(
+            "INSERT INTO scheduled_actions "
+            "(media_item_id, action, scheduled_at, token, token_used, delete_status) "
+            "VALUES ('m2', 'scheduled_deletion', '2026-01-02', 'tok-d', 0, 'pending')"
+        )
+        conn.commit()
+
+    def test_deleted_status_does_not_block_new_one(self, db_path):
+        """A row past the pending stage shouldn't block a fresh deletion."""
+        conn = init_db(str(db_path))
+        conn.execute(
+            "INSERT INTO media_items (id, title, media_type, plex_library_id, "
+            "plex_rating_key, added_at, file_path, file_size_bytes) "
+            "VALUES ('m3', 't', 'movie', 1, 'm3', '2026-01-01', '/tmp/x', 1)"
+        )
+        conn.execute(
+            "INSERT INTO scheduled_actions "
+            "(media_item_id, action, scheduled_at, token, token_used, delete_status) "
+            "VALUES ('m3', 'scheduled_deletion', '2026-01-01', 'tok-e', 0, 'deleting')"
+        )
+        # delete_status='deleting' — second pending row must be allowed.
+        conn.execute(
+            "INSERT INTO scheduled_actions "
+            "(media_item_id, action, scheduled_at, token, token_used, delete_status) "
+            "VALUES ('m3', 'scheduled_deletion', '2026-01-02', 'tok-f', 0, 'pending')"
+        )
+        conn.commit()
+
+
+class TestSchemaV23UsedDownloadTokens:
+    """v23 adds the persistent download-token store (finding 2)."""
+
+    def test_table_present(self, db_path):
+        conn = init_db(str(db_path))
+        tables = {
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+        assert "used_download_tokens" in tables
+
+    def test_token_hash_is_unique(self, db_path):
+        import sqlite3 as _sq
+
+        conn = init_db(str(db_path))
+        conn.execute(
+            "INSERT INTO used_download_tokens (token_hash, expires_at, used_at) "
+            "VALUES ('abc', '2026-01-01', '2026-01-01')"
+        )
+        with pytest.raises(_sq.IntegrityError):
+            conn.execute(
+                "INSERT INTO used_download_tokens (token_hash, expires_at, used_at) "
+                "VALUES ('abc', '2026-01-02', '2026-01-02')"
+            )
+
+
+class TestSchemaV24JobHeartbeatColumns:
+    """v24 adds owner_id + heartbeat_at to scan_runs and refresh_runs (finding 9)."""
+
+    def test_scan_runs_has_heartbeat_columns(self, db_path):
+        conn = init_db(str(db_path))
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(scan_runs)").fetchall()}
+        assert "owner_id" in cols
+        assert "heartbeat_at" in cols
+
+    def test_refresh_runs_has_heartbeat_columns(self, db_path):
+        conn = init_db(str(db_path))
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(refresh_runs)").fetchall()}
+        assert "owner_id" in cols
+        assert "heartbeat_at" in cols
+
+
+class TestSchemaV26NewsletterDeliveries:
+    """v26 adds per-recipient newsletter delivery tracking (finding 23)."""
+
+    def test_table_present(self, db_path):
+        conn = init_db(str(db_path))
+        tables = {
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+        assert "newsletter_deliveries" in tables
+
+    def test_columns(self, db_path):
+        conn = init_db(str(db_path))
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(newsletter_deliveries)").fetchall()}
+        assert cols >= {"scheduled_action_id", "recipient", "sent_at", "error", "attempted_at"}
+
+    def test_primary_key_prevents_duplicate_records(self, db_path):
+        conn = init_db(str(db_path))
+        conn.execute(
+            "INSERT INTO newsletter_deliveries "
+            "(scheduled_action_id, recipient, sent_at, error, attempted_at) "
+            "VALUES (1, 'a@x', '2026-01-01', NULL, '2026-01-01')"
+        )
+        # INSERT OR REPLACE must overwrite without raising.
+        conn.execute(
+            "INSERT OR REPLACE INTO newsletter_deliveries "
+            "(scheduled_action_id, recipient, sent_at, error, attempted_at) "
+            "VALUES (1, 'a@x', '2026-01-02', NULL, '2026-01-02')"
+        )
+        rows = conn.execute(
+            "SELECT sent_at FROM newsletter_deliveries WHERE scheduled_action_id=1"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["sent_at"] == "2026-01-02"
 
 
 class TestFactories:

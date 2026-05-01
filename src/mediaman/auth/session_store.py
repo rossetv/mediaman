@@ -139,52 +139,53 @@ def _parse_last_used(raw: str | None, username: str) -> datetime | None:
         return None
 
 
-def _check_idle_expiry(
-    conn: sqlite3.Connection,
-    row: sqlite3.Row,
-    last_dt: datetime | None,
-    now_dt: datetime,
-    token_hash: str,
-    now_iso: str,
-) -> bool:
-    """Return ``True`` (and delete the session) if the session has idled out.
+def _exec_with_commit(conn: sqlite3.Connection, sql: str, params: tuple) -> None:
+    """Run *sql* inside a short ``BEGIN IMMEDIATE`` write transaction.
 
-    A ``None`` ``last_dt`` (corrupt timestamp) is treated as expired — fail
-    closed so a tampered timestamp cannot bypass the idle timeout.
+    Used by the validate-session fast path so a successful read does
+    not need a writer slot, but the rare write paths (idle delete,
+    last_used refresh, expired sweep, fingerprint mismatch) still
+    serialise through SQLite cleanly. A failure inside the body is
+    rolled back and re-raised; the caller decides whether to log or
+    propagate.
     """
-    if last_dt is None and row["last_used_at"]:
-        # Corrupt timestamp — already logged by _parse_last_used; invalidate.
-        logger.info("session.idle_expired user=%s reason=corrupt_timestamp", row["username"])
-        conn.execute("DELETE FROM admin_sessions WHERE token_hash = ?", (token_hash,))
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute(sql, params)
         conn.execute("COMMIT")
-        return True
-    if last_dt is not None and now_dt - last_dt > timedelta(hours=_IDLE_TIMEOUT_HOURS):
-        logger.info("session.idle_expired user=%s", row["username"])
-        conn.execute("DELETE FROM admin_sessions WHERE token_hash = ?", (token_hash,))
-        conn.execute("COMMIT")
-        return True
-    return False
+    except Exception:
+        # ``rollback()`` (the high-level method) is a no-op when no
+        # transaction is open, so we use it instead of a raw SQL
+        # ROLLBACK + nested try/except — saves the bandit B110 noise
+        # without losing the safety net.
+        conn.rollback()
+        raise
 
 
-def _maybe_refresh_last_used(
-    conn: sqlite3.Connection,
-    last_dt: datetime | None,
-    now_dt: datetime,
-    token_hash: str,
-    now_iso: str,
-) -> None:
-    """Write an updated ``last_used_at`` timestamp unless the session was just refreshed.
+def _delete_session_with_commit(conn: sqlite3.Connection, token_hash: str) -> None:
+    """Delete a session row inside its own short write transaction."""
+    _exec_with_commit(
+        conn,
+        "DELETE FROM admin_sessions WHERE token_hash = ?",
+        (token_hash,),
+    )
 
-    Skips the write when the last refresh was within
-    :data:`_SESSION_REFRESH_MIN_INTERVAL` to avoid hammering the DB on
-    every request.  If ``last_dt`` is ``None`` (no prior timestamp or
-    corrupt value), a fresh timestamp is always written.
-    """
-    if last_dt is not None and now_dt - last_dt < _SESSION_REFRESH_MIN_INTERVAL:
-        return
-    conn.execute(
+
+def _refresh_last_used_with_commit(conn: sqlite3.Connection, token_hash: str, now_iso: str) -> None:
+    """Stamp last_used_at inside its own short write transaction."""
+    _exec_with_commit(
+        conn,
         "UPDATE admin_sessions SET last_used_at = ? WHERE token_hash = ?",
         (now_iso, token_hash),
+    )
+
+
+def _cleanup_expired_with_commit(conn: sqlite3.Connection, now_iso: str) -> None:
+    """Sweep expired session rows inside a short write transaction."""
+    _exec_with_commit(
+        conn,
+        "DELETE FROM admin_sessions WHERE expires_at < ?",
+        (now_iso,),
     )
 
 
@@ -195,7 +196,16 @@ def validate_session(
     user_agent: str | None = None,
     client_ip: str | None = None,
 ) -> str | None:
-    """Return the username for a valid, non-expired session token."""
+    """Return the username for a valid, non-expired session token.
+
+    Finding 26: ordinary requests must not take a SQLite writer lock.
+    Validation is a read-only SELECT by default; write transactions are
+    only opened when state actually changes (idle/expired delete,
+    fingerprint mismatch delete, last_used_at refresh, periodic
+    expired-row sweep).  This means a quiet stream of authenticated
+    requests no longer blocks one another or competes with the
+    scheduler for the WAL writer slot.
+    """
     if not token or not _SESSION_TOKEN_RE.fullmatch(token):
         return None
 
@@ -204,63 +214,79 @@ def validate_session(
     now_iso = now_dt.isoformat()
     token_hash = _hash_token(token)
 
-    conn.execute("BEGIN IMMEDIATE")
-    try:
-        mono = time.monotonic()
-        if mono - _last_cleanup_at >= _EXPIRED_CLEANUP_INTERVAL:
-            with _cleanup_lock:
-                if mono - _last_cleanup_at >= _EXPIRED_CLEANUP_INTERVAL:
-                    conn.execute(
-                        "DELETE FROM admin_sessions WHERE expires_at < ?",
-                        (now_iso,),
-                    )
+    # Phase 1: read-only inspection. No BEGIN IMMEDIATE here — a vanilla
+    # SELECT against a WAL-mode SQLite is concurrent with writers.
+    row = conn.execute(
+        "SELECT username, expires_at, last_used_at, fingerprint "
+        "FROM admin_sessions WHERE token_hash = ? LIMIT 1",
+        (token_hash,),
+    ).fetchone()
+    if row is None:
+        return None
+    if row["expires_at"] and row["expires_at"] < now_iso:
+        return None
+
+    last_dt: datetime | None = _parse_last_used(row["last_used_at"], row["username"])
+
+    # Phase 2: idle-expiry — short write transaction only when the
+    # session actually has to be invalidated.
+    if last_dt is None and row["last_used_at"]:
+        # Corrupt timestamp — fail closed.
+        logger.info("session.idle_expired user=%s reason=corrupt_timestamp", row["username"])
+        _delete_session_with_commit(conn, token_hash)
+        return None
+    if last_dt is not None and now_dt - last_dt > timedelta(hours=_IDLE_TIMEOUT_HOURS):
+        logger.info("session.idle_expired user=%s", row["username"])
+        _delete_session_with_commit(conn, token_hash)
+        return None
+
+    # Phase 3: fingerprint check — read-only comparison; only the
+    # mismatch branch reaches for the writer lock.
+    stored_fp = row["fingerprint"]
+    mode = _fingerprint_mode()
+    if mode != "off" and stored_fp and user_agent is not None and client_ip is not None:
+        current_fp = _client_fingerprint(user_agent, client_ip)
+        if current_fp != stored_fp:
+            logger.warning(
+                "session.fingerprint_mismatch user=%s expected=%s got=%s ip=%s mode=%s",
+                row["username"],
+                stored_fp,
+                current_fp,
+                client_ip,
+                mode,
+            )
+            _delete_session_with_commit(conn, token_hash)
+            return None
+
+    # Phase 4: last_used_at refresh — only writes when the throttle
+    # interval has actually elapsed, so a rapid burst of requests by
+    # the same session never queues up serial write transactions.
+    needs_refresh = last_dt is None or now_dt - last_dt >= _SESSION_REFRESH_MIN_INTERVAL
+    if needs_refresh:
+        try:
+            _refresh_last_used_with_commit(conn, token_hash, now_iso)
+        except Exception:
+            logger.warning(
+                "session.last_used_at_refresh_failed user=%s",
+                row["username"],
+                exc_info=True,
+            )
+
+    # Phase 5: opportunistic expired-row sweep, gated on a monotonic
+    # counter so it runs at most once per minute regardless of request
+    # rate.
+    mono = time.monotonic()
+    if mono - _last_cleanup_at >= _EXPIRED_CLEANUP_INTERVAL:
+        with _cleanup_lock:
+            if mono - _last_cleanup_at >= _EXPIRED_CLEANUP_INTERVAL:
+                try:
+                    _cleanup_expired_with_commit(conn, now_iso)
+                finally:
+                    # Always advance the counter so a perpetual lock
+                    # contention doesn't make us hammer the writer.
                     _last_cleanup_at = mono
 
-        row = conn.execute(
-            "SELECT username, expires_at, last_used_at, fingerprint "
-            "FROM admin_sessions WHERE token_hash = ? LIMIT 1",
-            (token_hash,),
-        ).fetchone()
-        if row is None:
-            conn.execute("COMMIT")
-            return None
-        if row["expires_at"] and row["expires_at"] < now_iso:
-            conn.execute("COMMIT")
-            return None
-
-        # Parse last_used_at once; reused for idle-expiry and refresh-interval checks.
-        last_dt: datetime | None = _parse_last_used(row["last_used_at"], row["username"])
-
-        if _check_idle_expiry(conn, row, last_dt, now_dt, token_hash, now_iso):
-            return None
-
-        stored_fp = row["fingerprint"]
-        mode = _fingerprint_mode()
-        if mode != "off" and stored_fp and user_agent is not None and client_ip is not None:
-            current_fp = _client_fingerprint(user_agent, client_ip)
-            if current_fp != stored_fp:
-                logger.warning(
-                    "session.fingerprint_mismatch user=%s expected=%s got=%s ip=%s mode=%s",
-                    row["username"],
-                    stored_fp,
-                    current_fp,
-                    client_ip,
-                    mode,
-                )
-                conn.execute(
-                    "DELETE FROM admin_sessions WHERE token_hash = ?",
-                    (token_hash,),
-                )
-                conn.execute("COMMIT")
-                return None
-
-        _maybe_refresh_last_used(conn, last_dt, now_dt, token_hash, now_iso)
-
-        conn.execute("COMMIT")
-        return row["username"]
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
+    return row["username"]
 
 
 def destroy_session(
