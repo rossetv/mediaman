@@ -68,6 +68,14 @@ _REAUTH_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per
 # the reauth limiter so the route sequence (reauth then change) is a
 # coherent rate budget per session.
 _PASSWORD_CHANGE_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=200)
+#: Per-IP companion to :data:`_PASSWORD_CHANGE_LIMITER` — finding 8 / M-2.
+#: A stolen session cookie can be replayed from anywhere; the per-actor bucket
+#: alone does not cover that fan-out.  A per-IP cap applied in addition keeps
+#: any single source from grinding away at the password-change endpoint even
+#: if the username changed at the request layer.
+_PASSWORD_CHANGE_IP_LIMITER = ActionRateLimiter(
+    max_in_window=30, window_seconds=60, max_per_day=200
+)
 
 
 class _CreateUserBody(BaseModel):
@@ -332,12 +340,22 @@ def api_change_password(
     """Change the current user's password.
 
     Per-actor throttling (``_PASSWORD_CHANGE_LIMITER``) caps burst
-    attempts; the reauth-namespace lockout inside
-    :func:`change_password` provides the bcrypt-grade brute-force
-    defence.
+    attempts by username; per-IP throttling
+    (``_PASSWORD_CHANGE_IP_LIMITER``) caps attempts by source so a
+    stolen cookie cannot be replayed unbounded from a single attacker
+    network even if it bounces across user buckets.  The reauth-
+    namespace lockout inside :func:`change_password` provides the
+    bcrypt-grade brute-force defence behind both limiters.
     """
+    request_ip = get_client_ip(request)
     if not _PASSWORD_CHANGE_LIMITER.check(admin):
-        logger.warning("password.change_throttled actor=%s", admin)
+        logger.warning("password.change_throttled actor=%s scope=actor", admin)
+        return JSONResponse(
+            {"ok": False, "error": "Too many password-change attempts — slow down"},
+            status_code=429,
+        )
+    if not _PASSWORD_CHANGE_IP_LIMITER.check(request_ip):
+        logger.warning("password.change_throttled actor=%s scope=ip ip=%s", admin, request_ip)
         return JSONResponse(
             {"ok": False, "error": "Too many password-change attempts — slow down"},
             status_code=429,
@@ -366,7 +384,7 @@ def api_change_password(
         )
 
     conn = get_db()
-    client_ip = get_client_ip(request)
+    client_ip = request_ip
     if change_password(
         conn,
         admin,

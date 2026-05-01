@@ -44,6 +44,10 @@ router = APIRouter()
 # a thin extra layer that slows down a stolen-session attacker enough that
 # the operator notices the audit-log noise first.
 _FORCE_CHANGE_LIMITER = ActionRateLimiter(max_in_window=5, window_seconds=60, max_per_day=20)
+#: Per-IP companion to :data:`_FORCE_CHANGE_LIMITER` (M-2). Caps source-of-
+#: traffic just like the per-user bucket so a single attacker network
+#: cannot cycle through usernames to evade the per-user cap.
+_FORCE_CHANGE_IP_LIMITER = ActionRateLimiter(max_in_window=5, window_seconds=60, max_per_day=20)
 
 
 def _resolve_session(request: Request) -> tuple[str, None] | tuple[None, RedirectResponse]:
@@ -109,7 +113,12 @@ def force_change_submit(
         )
 
     if not _FORCE_CHANGE_LIMITER.check(username):
-        logger.warning("force_password_change.throttled user=%s", username)
+        logger.warning("force_password_change.throttled user=%s scope=user", username)
+        return _render(error="Too many attempts — wait a moment and try again.")
+    if not _FORCE_CHANGE_IP_LIMITER.check(client_ip):
+        logger.warning(
+            "force_password_change.throttled user=%s scope=ip ip=%s", username, client_ip
+        )
         return _render(error="Too many attempts — wait a moment and try again.")
 
     if not old_password or not new_password:
