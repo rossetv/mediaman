@@ -40,6 +40,10 @@ def authed_client(app):
     token = create_session(app.state.db, "admin")
     client = TestClient(app)
     client.cookies.set("session_token", token)
+    # CSRF middleware (finding 11) refuses cookie-authenticated unsafe
+    # requests with no Origin/Referer; supply a same-origin Origin so
+    # the rate-limit test reaches the limiter rather than the CSRF gate.
+    client.headers.update({"Origin": "http://testserver"})
     return client
 
 

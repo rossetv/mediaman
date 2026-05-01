@@ -855,7 +855,19 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
             4. Nulls out the raw token for any rows that now have a hash.
             5. Re-creates the partial unique index added in migration 25
                (the rename-and-copy step would otherwise drop it).
+
+            Guarded against partial test fixtures that hand-craft an older
+            schema without ``scheduled_actions`` — in that case there is
+            nothing to migrate.
             """
+            has_actions_table = (
+                c.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='scheduled_actions'"
+                ).fetchone()
+                is not None
+            )
+            if not has_actions_table:
+                return
             action_cols = {
                 row[1] for row in c.execute("PRAGMA table_info(scheduled_actions)").fetchall()
             }
