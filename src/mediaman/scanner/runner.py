@@ -158,16 +158,30 @@ def _build_plex_client(conn: sqlite3.Connection, secret_key: str) -> "PlexClient
     """Build a PlexClient and resolve library metadata from DB settings.
 
     Returns a ``(plex, lib_ids, lib_types, lib_titles)`` tuple, or ``None``
-    if the required ``plex_url`` / ``plex_token`` settings are absent.
+    if the required ``plex_url`` / ``plex_token`` settings are absent
+    **or** if the configured Plex URL fails the SSRF guard at use-time.
 
     The caller is responsible for any filtering or further configuration
     (disk thresholds, *arr clients, etc.) before constructing a ScanEngine.
 
     PlexClient construction is delegated to
     :func:`mediaman.services.arr.build.build_plex_from_db` to avoid
-    duplicating the URL/token lookup and decrypt logic.
+    duplicating the URL/token lookup and decrypt logic. The
+    ``PlexClient`` constructor itself revalidates the configured URL,
+    so a stored URL that has since started resolving to an internal
+    or metadata address is refused here rather than at the first
+    network call.
     """
-    plex = _build_plex(conn, secret_key)
+    try:
+        plex = _build_plex(conn, secret_key)
+    except ValueError:
+        # PlexClient constructor refused the URL (SSRF guard). Log
+        # without surfacing the URL itself — it may carry topology
+        # information — and skip the scan rather than crash.
+        logger.exception(
+            "Plex client build refused by SSRF guard — verify plex_url in settings. Scan skipped."
+        )
+        return None
     if plex is None:
         return None
 
