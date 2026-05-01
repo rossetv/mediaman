@@ -11,7 +11,7 @@
   <button type="button" class="tile-hit" aria-label="{{ item.title }} — open details"></button>
   <div class="tile-poster">
     {% if item.poster_url %}
-    <img src="{{ item.poster_url }}" alt="{{ item.title }}" loading="lazy" onerror="this.dataset.broken=''">
+    <img src="{{ item.poster_url }}" alt="{{ item.title }}" loading="lazy" referrerpolicy="no-referrer" onerror="this.dataset.broken=''">
     {% endif %}
     {% if item.rating or item.rt_rating %}
     <div class="poster-chips">
@@ -32,10 +32,12 @@
     <div class="tile-meta">{{ item.description | truncate(80) if item.description else '' }}</div>
   </div>
   {% if item.reason %}<div class="reason">{{ item.reason }}</div>{% endif %}
-  {% if item.trailer_url or not _state %}
+  {#- Finding 18: only emit the trailer link if it is a confirmed YouTube URL. -#}
+  {%- set _safe_trailer = item.trailer_url if item.trailer_url and item.trailer_url.startswith("https://www.youtube.com/") else "" -%}
+  {% if _safe_trailer or not _state %}
   <div class="tile-actions">
-    {% if item.trailer_url %}
-    <a href="{{ item.trailer_url }}" target="_blank" rel="noopener" class="btn btn--ghost btn--sm" data-stop-propagation>▶ Trailer</a>
+    {% if _safe_trailer %}
+    <a href="{{ _safe_trailer }}" target="_blank" rel="noopener noreferrer" class="btn btn--ghost btn--sm" data-stop-propagation>▶ Trailer</a>
     {% endif %}
     {% if not _state %}
     <button type="button" class="btn btn--primary btn--sm"

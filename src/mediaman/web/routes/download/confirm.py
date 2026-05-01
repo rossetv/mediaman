@@ -11,7 +11,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
 from mediaman.auth.rate_limit import RateLimiter, get_client_ip
-from mediaman.crypto import validate_download_token
+from mediaman.crypto import generate_poll_token, validate_download_token
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
@@ -166,6 +166,7 @@ def download_page(request: Request, token: str) -> HTMLResponse:
             )
 
     hero_item = None
+    poll_token = None
     if item["download_state"] == "queued":
         service = "radarr" if item["media_type"] == "movie" else "sonarr"
         hero_item = build_item(
@@ -179,6 +180,15 @@ def download_page(request: Request, token: str) -> HTMLResponse:
             size_done="",
             size_total="",
         )
+        # Finding 14: mint a short-lived poll token so the page can start
+        # polling immediately without exposing the long-lived download token.
+        if tmdb_id:
+            poll_token = generate_poll_token(
+                media_item_id=f"{service}:{item['title']}",
+                service=service,
+                tmdb_id=tmdb_id,
+                secret_key=config.secret_key,
+            )
 
     return templates.TemplateResponse(
         request,
@@ -187,6 +197,7 @@ def download_page(request: Request, token: str) -> HTMLResponse:
             "state": "confirm",
             "item": item,
             "token": token,
+            "poll_token": poll_token,
             "hero_item": hero_item,
         },
     )

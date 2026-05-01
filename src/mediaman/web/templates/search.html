@@ -68,7 +68,7 @@
   function renderCard(item) {
     const state = item.download_state;
     const poster = item.poster_url
-      ? `<img src="${escapeAttr(item.poster_url)}" alt="${escapeAttr(item.title)}" loading="lazy">`
+      ? `<img src="${escapeAttr(item.poster_url)}" alt="${escapeAttr(item.title)}" loading="lazy" referrerpolicy="no-referrer">`
       : `<div class="poster-empty">—</div>`;
     const stateBadge = state
       ? `<span class="poster-state ${escapeAttr(state)}">${escapeHtml(state.replace("_", " "))}</span>`
@@ -309,9 +309,20 @@
     modalEl.tagline.textContent = d.tagline ? `"${d.tagline}"` : "";
     modalEl.desc.textContent = d.description || "";
 
-    if (d.trailer_key) {
+    /* Finding 19: validate key is exactly 11 URL-safe base64 chars before building iframe. */
+    if (d.trailer_key && /^[A-Za-z0-9_-]{11}$/.test(d.trailer_key)) {
       modalEl.trailerL.style.display = "";
-      modalEl.trailer.innerHTML = `<iframe src="https://www.youtube.com/embed/${escapeAttr(d.trailer_key)}" allowfullscreen></iframe>`;
+      /* Build iframe via DOM to avoid any innerHTML injection. */
+      const iframe = document.createElement('iframe');
+      iframe.src = 'https://www.youtube.com/embed/' + d.trailer_key + '?rel=0';
+      iframe.setAttribute('allowfullscreen', '');
+      iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation');
+      iframe.setAttribute('allow', 'autoplay; encrypted-media; fullscreen');
+      iframe.setAttribute('referrerpolicy', 'strict-origin');
+      iframe.setAttribute('loading', 'lazy');
+      while (modalEl.trailer.firstChild) modalEl.trailer.removeChild(modalEl.trailer.firstChild);
+      modalEl.trailer.appendChild(iframe);
+      modalEl.trailer.style.display = "";
     }
 
     if (d.cast && d.cast.length) {

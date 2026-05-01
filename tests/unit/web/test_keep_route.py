@@ -47,7 +47,7 @@ def _insert_action(
 ) -> int:
     cur = conn.execute(
         "INSERT INTO scheduled_actions (media_item_id, action, execute_at, token, scheduled_at) "
-        "VALUES (?, 'delete', datetime('now', '+7 days'), ?, datetime('now'))",
+        "VALUES (?, 'scheduled_deletion', datetime('now', '+7 days'), ?, datetime('now'))",
         (media_id, placeholder),
     )
     conn.commit()
