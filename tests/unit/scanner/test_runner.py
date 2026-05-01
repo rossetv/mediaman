@@ -234,3 +234,51 @@ class TestDiskThresholdFiltering:
         mock_disk.assert_not_called()
         call_kwargs = MockEngine.call_args.kwargs
         assert set(call_kwargs["library_ids"]) == {"1", "2"}
+
+
+class TestPlexSSRFRefusalAtScan:
+    """When PlexClient construction is refused by the SSRF guard at
+    use-time, the runner must skip the scan rather than crash, and no
+    ScanEngine must be built. This is the use-time revalidation safety
+    net for a stored URL that has since started resolving to a metadata
+    or internal endpoint."""
+
+    def test_run_scan_returns_empty_when_plex_url_refused(self, conn):
+        """A stored Plex URL whose host has been rebound to an internal
+        address must cause the scan to be skipped."""
+        _seed_plex_settings(conn, ["1"])
+
+        with (
+            patch(
+                "mediaman.scanner.runner._build_plex",
+                side_effect=ValueError("SSRF guard refused plex_url"),
+            ),
+            patch("mediaman.scanner.engine.ScanEngine") as MockEngine,
+            patch("mediaman.crypto.decrypt_value", return_value="fake-token"),
+        ):
+            from mediaman.scanner.runner import run_scan_from_db
+
+            result = run_scan_from_db(conn, "test-secret")
+
+        # No engine was built, no scan executed.
+        MockEngine.assert_not_called()
+        assert result == {}
+
+    def test_run_library_sync_returns_empty_when_plex_url_refused(self, conn):
+        """Same use-time guard for the lighter ``run_library_sync`` path."""
+        _seed_plex_settings(conn, ["1"])
+
+        with (
+            patch(
+                "mediaman.scanner.runner._build_plex",
+                side_effect=ValueError("SSRF guard refused plex_url"),
+            ),
+            patch("mediaman.scanner.engine.ScanEngine") as MockEngine,
+            patch("mediaman.crypto.decrypt_value", return_value="fake-token"),
+        ):
+            from mediaman.scanner.runner import run_library_sync
+
+            result = run_library_sync(conn, "test-secret")
+
+        MockEngine.assert_not_called()
+        assert result == {}

@@ -6,7 +6,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests as http_requests
 
-from mediaman.services.media_meta.plex import PlexClient, _scrub_plex_token
+from mediaman.services.infra.http_client import SafeHTTPError
+from mediaman.services.media_meta import plex as plex_module
+from mediaman.services.media_meta.plex import (
+    PlexClient,
+    _SafePlexSession,
+    _scrub_plex_token,
+)
 
 
 @pytest.fixture
@@ -357,3 +363,246 @@ class TestScrubPlexToken:
         result = _scrub_plex_token(msg)
         assert "tok" not in result
         assert "other=val" in result
+
+
+class TestPlexClientUrlValidation:
+    """The configured Plex URL must be validated by the SSRF guard at
+    PlexClient construction, not just when the operator first saved it.
+
+    A URL that resolved cleanly when stored could have started pointing
+    at a metadata endpoint (or had its DNS rebound) by the time the
+    next scan runs. Re-validating at use-time catches that.
+    """
+
+    @patch("mediaman.services.media_meta.plex.PlexServer")
+    def test_construction_revalidates_url(self, mock_cls, monkeypatch):
+        """A URL that fails the SSRF guard must be refused at __init__."""
+        mock_cls.return_value = MagicMock()
+        # Force the SSRF guard to refuse.
+        monkeypatch.setattr(
+            plex_module,
+            "resolve_safe_outbound_url",
+            lambda url, strict_egress=None: (False, None, None),
+        )
+        with pytest.raises(ValueError, match="SSRF guard"):
+            PlexClient("http://malicious.example/", "token")
+        # PlexServer was never called — the refusal happened before any
+        # token-bearing request could go out.
+        mock_cls.assert_not_called()
+
+    @patch("mediaman.services.media_meta.plex.PlexServer")
+    def test_construction_passes_safe_session(self, mock_cls, monkeypatch):
+        """PlexServer must be constructed with our hardened session.
+
+        Without this, plexapi falls back to a vanilla requests.Session
+        — no SSRF re-check, no redirect refusal, no body cap.
+        """
+        captured: dict = {}
+
+        def fake_plexserver(url, token, *, session=None, timeout=None):
+            captured["session"] = session
+            return MagicMock()
+
+        mock_cls.side_effect = fake_plexserver
+        monkeypatch.setattr(
+            plex_module,
+            "resolve_safe_outbound_url",
+            lambda url, strict_egress=None: (True, "host.example", "203.0.113.1"),
+        )
+        client = PlexClient("http://host.example/", "token")
+        assert isinstance(captured["session"], _SafePlexSession)
+        # PlexClient holds a reference too, for visibility from tests.
+        assert client._safe_session is captured["session"]
+
+
+class TestSafePlexSession:
+    """Direct tests of the hardened ``requests.Session`` injected into
+    plexapi. Each behaviour pin matches a hardening property of
+    SafeHTTPClient — SSRF re-check, redirect refusal, body cap, timeout
+    normalisation, DNS pinning."""
+
+    def _stub_response(self, *, status=200, body=b"", headers=None):
+        resp = MagicMock(spec=http_requests.Response)
+        resp.status_code = status
+        resp.headers = headers or {}
+        resp.iter_content = lambda chunk_size=65536: iter([body])
+        resp.close = MagicMock()
+        return resp
+
+    def test_refuses_unsafe_url(self, monkeypatch):
+        """A URL that fails the SSRF guard must raise SafeHTTPError
+        before any HTTP attempt."""
+        monkeypatch.setattr(
+            plex_module,
+            "resolve_safe_outbound_url",
+            lambda url, strict_egress=None: (False, None, None),
+        )
+        called: list = []
+
+        def fake_super_request(self, method, url, **kwargs):  # noqa: ARG001
+            called.append((method, url))
+            return self._stub_response()
+
+        monkeypatch.setattr(http_requests.Session, "request", fake_super_request, raising=True)
+        sess = _SafePlexSession()
+        with pytest.raises(SafeHTTPError) as excinfo:
+            sess.get("http://blocked.example/")
+        assert "SSRF guard" in excinfo.value.body_snippet
+        # No transport call was made.
+        assert called == []
+
+    def test_forces_no_redirects(self, monkeypatch):
+        """``allow_redirects`` must be False on every Plex call.
+
+        A 302 to ``169.254.169.254`` would otherwise leak the
+        X-Plex-Token into cloud metadata.
+        """
+        monkeypatch.setattr(
+            plex_module,
+            "resolve_safe_outbound_url",
+            lambda url, strict_egress=None: (True, "h.example", "203.0.113.1"),
+        )
+        captured: dict = {}
+
+        def fake_super_request(self_, method, url, **kwargs):
+            captured.update(kwargs)
+            resp = MagicMock(spec=http_requests.Response)
+            resp.status_code = 200
+            resp.headers = {}
+            resp.iter_content = lambda chunk_size=65536: iter([b"<x/>"])
+            resp.close = MagicMock()
+            return resp
+
+        monkeypatch.setattr(http_requests.Session, "request", fake_super_request)
+        # Pretend a caller passed allow_redirects=True — we must override.
+        sess = _SafePlexSession()
+        sess.get("http://h.example/", allow_redirects=True)
+        assert captured["allow_redirects"] is False
+
+    def test_caps_oversize_response_via_content_length(self, monkeypatch):
+        """A response with Content-Length > 16 MiB must be rejected."""
+        monkeypatch.setattr(
+            plex_module,
+            "resolve_safe_outbound_url",
+            lambda url, strict_egress=None: (True, "h.example", "203.0.113.1"),
+        )
+
+        def fake_super_request(self_, method, url, **kwargs):
+            resp = MagicMock(spec=http_requests.Response)
+            resp.status_code = 200
+            resp.headers = {"Content-Length": str(20 * 1024 * 1024)}
+            resp.iter_content = lambda chunk_size=65536: iter([b""])
+            resp.close = MagicMock()
+            return resp
+
+        monkeypatch.setattr(http_requests.Session, "request", fake_super_request)
+        with pytest.raises(SafeHTTPError):
+            _SafePlexSession().get("http://h.example/large")
+
+    def test_caps_streamed_oversize_response(self, monkeypatch):
+        """A server lying about / omitting Content-Length is still capped."""
+        monkeypatch.setattr(
+            plex_module,
+            "resolve_safe_outbound_url",
+            lambda url, strict_egress=None: (True, "h.example", "203.0.113.1"),
+        )
+        chunks = [b"A" * 1024 * 1024 for _ in range(20)]  # 20 MiB total
+
+        def fake_super_request(self_, method, url, **kwargs):
+            resp = MagicMock(spec=http_requests.Response)
+            resp.status_code = 200
+            resp.headers = {}
+            resp.iter_content = lambda chunk_size=65536: iter(chunks)
+            resp.close = MagicMock()
+            return resp
+
+        monkeypatch.setattr(http_requests.Session, "request", fake_super_request)
+        with pytest.raises(SafeHTTPError):
+            _SafePlexSession().get("http://h.example/streamed")
+
+    def test_normalises_int_timeout_to_tuple(self, monkeypatch):
+        """plexapi often passes a single int timeout — we coerce to (5, 30)."""
+        monkeypatch.setattr(
+            plex_module,
+            "resolve_safe_outbound_url",
+            lambda url, strict_egress=None: (True, "h.example", "203.0.113.1"),
+        )
+        captured: dict = {}
+
+        def fake_super_request(self_, method, url, **kwargs):
+            captured.update(kwargs)
+            resp = MagicMock(spec=http_requests.Response)
+            resp.status_code = 200
+            resp.headers = {}
+            resp.iter_content = lambda chunk_size=65536: iter([b"{}"])
+            resp.close = MagicMock()
+            return resp
+
+        monkeypatch.setattr(http_requests.Session, "request", fake_super_request)
+        # plexapi default — single int.
+        _SafePlexSession().get("http://h.example/", timeout=30)
+        assert captured["timeout"] == (5.0, 30.0)
+
+    def test_honours_caller_supplied_tuple_timeout(self, monkeypatch):
+        """If the caller already passed a (connect, read) tuple, keep it."""
+        monkeypatch.setattr(
+            plex_module,
+            "resolve_safe_outbound_url",
+            lambda url, strict_egress=None: (True, "h.example", "203.0.113.1"),
+        )
+        captured: dict = {}
+
+        def fake_super_request(self_, method, url, **kwargs):
+            captured.update(kwargs)
+            resp = MagicMock(spec=http_requests.Response)
+            resp.status_code = 200
+            resp.headers = {}
+            resp.iter_content = lambda chunk_size=65536: iter([b"{}"])
+            resp.close = MagicMock()
+            return resp
+
+        monkeypatch.setattr(http_requests.Session, "request", fake_super_request)
+        _SafePlexSession().get("http://h.example/", timeout=(2.0, 7.5))
+        assert captured["timeout"] == (2.0, 7.5)
+
+    def test_pins_dns_during_dispatch(self, monkeypatch):
+        """The validated IP must be pinned for the duration of the request."""
+        import socket as _socket
+
+        from mediaman.services.infra import http_client as _http_client
+
+        monkeypatch.setattr(
+            plex_module,
+            "resolve_safe_outbound_url",
+            lambda url, strict_egress=None: (True, "pinme.example", "203.0.113.42"),
+        )
+        # Ensure the global pin hook is active.
+        monkeypatch.setattr(_socket, "getaddrinfo", _http_client._patched_getaddrinfo)
+
+        captured: dict = {}
+
+        def fake_super_request(self_, method, url, **kwargs):
+            captured["pin_lookup"] = _socket.getaddrinfo("pinme.example", 0)
+            resp = MagicMock(spec=http_requests.Response)
+            resp.status_code = 200
+            resp.headers = {}
+            resp.iter_content = lambda chunk_size=65536: iter([b"<x/>"])
+            resp.close = MagicMock()
+            return resp
+
+        monkeypatch.setattr(http_requests.Session, "request", fake_super_request)
+        _SafePlexSession().get("http://pinme.example/")
+        assert captured["pin_lookup"][0][4][0] == "203.0.113.42"
+
+    def test_scrubs_token_from_unsafe_url_error(self, monkeypatch):
+        """When the URL contains a token, the SSRF refusal message must
+        not echo it back."""
+        monkeypatch.setattr(
+            plex_module,
+            "resolve_safe_outbound_url",
+            lambda url, strict_egress=None: (False, None, None),
+        )
+        with pytest.raises(SafeHTTPError) as excinfo:
+            _SafePlexSession().get("http://blocked.example/path?X-Plex-Token=secret-tok-123")
+        assert "secret-tok-123" not in excinfo.value.url
+        assert "<redacted>" in excinfo.value.url

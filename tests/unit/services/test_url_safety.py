@@ -6,7 +6,10 @@ import socket
 
 import pytest
 
-from mediaman.services.infra.url_safety import is_safe_outbound_url
+from mediaman.services.infra.url_safety import (
+    is_safe_outbound_url,
+    resolve_safe_outbound_url,
+)
 
 
 @pytest.fixture
@@ -244,3 +247,57 @@ class TestIdnNormalisation:
         assert _host_is_metadata(_normalise_host("metadata.google.internal"))
         # An invalid IDN returns None (rejected).
         assert _normalise_host("-invalid-.example") is None
+
+
+class TestResolveSafeOutboundUrl:
+    """``resolve_safe_outbound_url`` is the canonical SSRF guard plus the
+    pinned address that the actual connection must use. The pin is what
+    closes the DNS-rebind window — the bool answer alone is not enough.
+    """
+
+    def test_returns_validated_ip_for_hostname(self, fake_dns):
+        fake_dns(["93.184.216.34"])
+        safe, hostname, ip = resolve_safe_outbound_url("http://radarr.example.com/")
+        assert safe is True
+        assert hostname == "radarr.example.com"
+        assert ip == "93.184.216.34"
+
+    def test_returns_none_pin_for_literal_ip_url(self):
+        """A URL with a literal IP needs no pin — there's no DNS to corrupt."""
+        safe, hostname, ip = resolve_safe_outbound_url("http://192.0.2.1:7878/")
+        assert safe is True
+        assert hostname == "192.0.2.1"
+        assert ip is None
+
+    def test_unsafe_url_returns_no_pin(self, fake_dns):
+        """A blocked URL must never return a pinned IP."""
+        fake_dns(["169.254.169.254"])
+        safe, _hostname, ip = resolve_safe_outbound_url("http://rebind.example.com/")
+        assert safe is False
+        assert ip is None
+
+    def test_pin_is_first_safe_address(self, fake_dns):
+        """When DNS returns multiple addresses, the pin must be the first
+        one — every address has been validated, so any of them is safe,
+        but stability matters across calls."""
+        fake_dns(["93.184.216.34", "93.184.216.35"])
+        safe, _hostname, ip = resolve_safe_outbound_url("http://multi.example.com/")
+        assert safe is True
+        assert ip == "93.184.216.34"
+
+    def test_unresolvable_host_returns_no_pin(self, monkeypatch):
+        def fake_getaddrinfo(host, port, *args, **kwargs):
+            raise socket.gaierror("Name or service not known")
+
+        monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+        safe, _hostname, ip = resolve_safe_outbound_url("http://nope.example.com/")
+        assert safe is False
+        assert ip is None
+
+    def test_blocks_metadata_hostname(self):
+        """Hostname-name match doesn't reach the pin path."""
+        safe, _hostname, ip = resolve_safe_outbound_url(
+            "http://metadata.google.internal/computeMetadata/v1/"
+        )
+        assert safe is False
+        assert ip is None
