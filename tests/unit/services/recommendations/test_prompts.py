@@ -108,11 +108,14 @@ class TestParseRecommendations:
         result = parse_recommendations(items, "trending")
         assert result[0]["media_type"] == "movie"
 
-    def test_reason_truncated_to_200_chars(self):
-        long_reason = "x" * 300
+    def test_reason_truncated_to_max_len(self):
+        """Reasons beyond the maximum length are truncated (finding 38)."""
+        from mediaman.services.openai.recommendations.prompts import _LLM_REASON_MAX_LEN
+
+        long_reason = "x" * (_LLM_REASON_MAX_LEN + 200)
         items = [{"title": "Dune", "media_type": "movie", "reason": long_reason}]
         result = parse_recommendations(items, "trending")
-        assert len(result[0]["reason"]) <= 200
+        assert len(result[0]["reason"]) <= _LLM_REASON_MAX_LEN
 
     def test_trailer_url_built(self):
         items = [{"title": "Dune", "media_type": "movie", "reason": "Great."}]

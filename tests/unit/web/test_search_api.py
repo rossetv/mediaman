@@ -422,6 +422,18 @@ class TestSearchPage:
 
 
 class TestDownloadEndpoint:
+    def setup_method(self):
+        from mediaman.web.routes.search import (
+            _DOWNLOAD_ADMIN_LIMITER,
+            _DOWNLOAD_IP_LIMITER,
+            _download_dedup,
+        )
+
+        _DOWNLOAD_ADMIN_LIMITER._attempts.clear()
+        _DOWNLOAD_ADMIN_LIMITER._day_counts.clear()
+        _DOWNLOAD_IP_LIMITER._attempts.clear()
+        _download_dedup.clear()
+
     @patch("mediaman.web.routes.search.build_radarr_from_db")
     def test_movie_adds_to_radarr(self, mock_build_radarr, authed_client):
         radarr = MagicMock()
@@ -580,6 +592,18 @@ class TestSearchQueryCap:
 
 class TestDownloadNotifiesRequestingAdmin:
     """H24 — download notification must go to the requesting admin, not first subscriber."""
+
+    def setup_method(self):
+        from mediaman.web.routes.search import (
+            _DOWNLOAD_ADMIN_LIMITER,
+            _DOWNLOAD_IP_LIMITER,
+            _download_dedup,
+        )
+
+        _DOWNLOAD_ADMIN_LIMITER._attempts.clear()
+        _DOWNLOAD_ADMIN_LIMITER._day_counts.clear()
+        _DOWNLOAD_IP_LIMITER._attempts.clear()
+        _download_dedup.clear()
 
     @patch("mediaman.web.routes.search.build_radarr_from_db")
     @patch("mediaman.web.routes.search._record_dn")
