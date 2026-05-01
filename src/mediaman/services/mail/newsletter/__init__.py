@@ -198,10 +198,19 @@ def send_newsletter(
         template=template,
         mailgun=mailgun,
         report_date=report_date,
+        conn=conn if mark_notified else None,
     )
 
     if mark_notified and successfully_sent:
-        _mark_notified(conn, scheduled_items)
+        # Finding 23: only flip ``notified=1`` for items that every
+        # active recipient was successfully delivered to. A partial
+        # failure now leaves the row at ``notified=0`` so the next scan
+        # tick re-attempts delivery for the recipients that missed out.
+        _mark_notified(
+            conn,
+            scheduled_items,
+            active_recipients=recipient_emails,
+        )
 
     logger.info(
         "Newsletter sent to %d/%d subscriber(s) — %d scheduled, %d deleted",
