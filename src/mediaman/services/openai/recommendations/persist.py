@@ -8,7 +8,13 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from mediaman.services.openai.recommendations.enrich import enrich_recommendations
-from mediaman.services.openai.recommendations.prompts import generate_personal, generate_trending
+from mediaman.services.openai.recommendations.prompts import (
+    _LLM_REASON_MAX_LEN,
+    _LLM_TITLE_MAX_LEN,
+    _validate_llm_string,
+    generate_personal,
+    generate_trending,
+)
 
 if TYPE_CHECKING:
     from mediaman.services.media_meta.plex import PlexClient
@@ -90,7 +96,21 @@ def refresh_recommendations(
         conn.execute("DELETE FROM suggestions WHERE batch_id < ?", (cutoff_90d,))
 
     now_iso = now.isoformat()
+    inserted = 0
     for s in all_recommendations:
+        # Validate title and reason once more at write time — enrichment may have
+        # modified fields, and this is the last gate before persistence (finding 38).
+        title = _validate_llm_string(str(s.get("title") or ""), _LLM_TITLE_MAX_LEN, "title")
+        if not title:
+            logger.warning(
+                "recommendations.persist_skipped reason=invalid_title raw=%r",
+                str(s.get("title") or "")[:80],
+            )
+            continue
+        reason = (
+            _validate_llm_string(str(s.get("reason") or ""), _LLM_REASON_MAX_LEN, "reason") or ""
+        )
+
         conn.execute(
             "INSERT INTO suggestions (title, year, media_type, category, tmdb_id, imdb_id, "
             "description, reason, poster_url, trailer_url, rating, rt_rating, "
@@ -98,14 +118,14 @@ def refresh_recommendations(
             "batch_id, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                s["title"],
+                title,
                 s.get("year"),
                 s["media_type"],
                 s["category"],
                 s.get("tmdb_id"),
                 s.get("imdb_id"),
                 s.get("description"),
-                s["reason"],
+                reason,
                 s.get("poster_url"),
                 s.get("trailer_url"),
                 s.get("rating"),
@@ -122,12 +142,15 @@ def refresh_recommendations(
                 now_iso,
             ),
         )
+        inserted += 1
     conn.commit()
 
     logger.info(
-        "Generated %d recommendations (%d trending, %d personal)",
+        "Generated %d recommendations (%d trending, %d personal); inserted=%d skipped=%d",
         len(all_recommendations),
         len(trending),
         len(personal),
+        inserted,
+        len(all_recommendations) - inserted,
     )
-    return len(all_recommendations)
+    return inserted
