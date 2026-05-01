@@ -8,6 +8,8 @@ module.
 
 from __future__ import annotations
 
+import socket
+import threading
 from unittest.mock import MagicMock
 
 import pytest
@@ -17,6 +19,7 @@ from mediaman.services.infra.http_client import (
     _BODY_SNIPPET_BYTES,
     SafeHTTPClient,
     SafeHTTPError,
+    pin_dns_for_request,
 )
 
 
@@ -114,8 +117,8 @@ class TestSSRFReCheck:
         """The guard runs on every call — not just at client construction."""
         monkeypatch.setattr(
             http_client,
-            "is_safe_outbound_url",
-            lambda url, strict_egress=None: False,
+            "resolve_safe_outbound_url",
+            lambda url, strict_egress=None: (False, None, None),
         )
         dispatched: list = []
         monkeypatch.setattr(
@@ -241,3 +244,216 @@ class TestSafeHTTPErrorShape:
         with pytest.raises(SafeHTTPError) as excinfo:
             SafeHTTPClient().get("http://example.com/")
         assert len(excinfo.value.body_snippet) <= _BODY_SNIPPET_BYTES
+
+
+class TestDNSPinning:
+    """The pin closes the DNS-rebind window between SSRF validation and connect.
+
+    A naive client validates a hostname (``socket.getaddrinfo`` returns a
+    public IP), then passes the URL to ``requests``, which does its own
+    second resolution. A rebinding host returns the safe IP for the
+    first lookup and the metadata IP for the second. The pin removes
+    that gap by replaying the validated address.
+    """
+
+    def test_pin_context_replays_validated_ip(self, monkeypatch):
+        """Inside :func:`pin_dns_for_request`, ``socket.getaddrinfo`` returns
+        the pinned IP regardless of any subsequent change in DNS state."""
+        # The autouse fixture replaces socket.getaddrinfo for the test —
+        # to test the pin we restore the patched version explicitly.
+        monkeypatch.setattr(socket, "getaddrinfo", http_client._patched_getaddrinfo)
+
+        with pin_dns_for_request("rebind.example.test", "203.0.113.5"):
+            results = socket.getaddrinfo("rebind.example.test", 443)
+        assert results
+        family, _socktype, _proto, _name, sockaddr = results[0]
+        assert family == socket.AF_INET
+        assert sockaddr[0] == "203.0.113.5"
+
+    def test_pin_context_pops_after_exit(self, monkeypatch):
+        """After the context exits, an unrelated lookup falls through to
+        the real resolver — pins must NOT persist."""
+        monkeypatch.setattr(socket, "getaddrinfo", http_client._patched_getaddrinfo)
+
+        # Patch the captured original so we can detect a fall-through call.
+        called: list = []
+
+        def fake_real(*a, **kw):
+            called.append(a)
+            return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("1.2.3.4", 0))]
+
+        monkeypatch.setattr(http_client, "_ORIG_GETADDRINFO", fake_real)
+
+        with pin_dns_for_request("only-during.example.test", "203.0.113.5"):
+            # During context, no fall-through.
+            socket.getaddrinfo("only-during.example.test", 443)
+            assert called == []
+        # After context, the same hostname falls through to the real
+        # resolver because no pin remains.
+        socket.getaddrinfo("only-during.example.test", 443)
+        assert len(called) == 1
+
+    def test_pins_are_thread_local(self, monkeypatch):
+        """A pin set in one thread must NOT bleed into another thread.
+
+        Concurrent scan workers and FastAPI threadpool calls would
+        otherwise see each other's pinned addresses and either fail or,
+        worse, reach an address that was never validated for them.
+        """
+        monkeypatch.setattr(socket, "getaddrinfo", http_client._patched_getaddrinfo)
+        # No fall-through — record only pinned answers.
+        observed: dict[str, str | None] = {}
+        barrier = threading.Barrier(2)
+
+        def in_thread_a():
+            with pin_dns_for_request("shared.example.test", "203.0.113.10"):
+                barrier.wait()
+                # Thread B should NOT see this pin.
+                ans = socket.getaddrinfo("shared.example.test", 0)
+                observed["a"] = ans[0][4][0]
+                barrier.wait()  # let B finish before exiting context
+
+        def in_thread_b():
+            barrier.wait()
+            try:
+                ans = socket.getaddrinfo("shared.example.test", 0)
+                observed["b"] = ans[0][4][0]
+            except Exception:
+                observed["b"] = None
+            finally:
+                barrier.wait()
+
+        # Replace the real resolver with a sentinel so B's lookup yields
+        # something distinguishable from A's pin.
+        monkeypatch.setattr(
+            http_client,
+            "_ORIG_GETADDRINFO",
+            lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("198.51.100.99", 0))],
+        )
+
+        ta = threading.Thread(target=in_thread_a)
+        tb = threading.Thread(target=in_thread_b)
+        ta.start()
+        tb.start()
+        ta.join(timeout=5)
+        tb.join(timeout=5)
+        assert observed.get("a") == "203.0.113.10"
+        assert observed.get("b") == "198.51.100.99"
+
+    def test_pin_installed_during_request(self, monkeypatch):
+        """When ``SafeHTTPClient`` issues a request, the pin must be live
+        for the underlying transport. We capture ``socket.getaddrinfo``
+        from inside ``_dispatch`` and verify the pinned IP is what comes
+        back for the validated hostname."""
+        # Force a sane SSRF answer so the dispatch path runs.
+        monkeypatch.setattr(
+            http_client,
+            "resolve_safe_outbound_url",
+            lambda url, strict_egress=None: (True, "host.example.test", "203.0.113.7"),
+        )
+        # Make sure the global patch is active.
+        monkeypatch.setattr(socket, "getaddrinfo", http_client._patched_getaddrinfo)
+
+        captured: dict = {}
+
+        def spy_dispatch(caller, method, url, **kwargs):
+            captured["url"] = url
+            # Inside the dispatch the pin is live.
+            captured["pin_lookup"] = socket.getaddrinfo("host.example.test", 0)
+            return _response(status=200, body=b"{}")
+
+        monkeypatch.setattr(http_client, "_dispatch", spy_dispatch)
+
+        SafeHTTPClient().get("http://host.example.test/x")
+
+        # The pinned address came back inside the dispatcher.
+        family, _socktype, _proto, _name, sockaddr = captured["pin_lookup"][0]
+        assert sockaddr[0] == "203.0.113.7"
+
+    def test_pin_cleared_after_request(self, monkeypatch):
+        """The pin must be released the moment the request returns."""
+        monkeypatch.setattr(
+            http_client,
+            "resolve_safe_outbound_url",
+            lambda url, strict_egress=None: (True, "vanish.example.test", "203.0.113.8"),
+        )
+        monkeypatch.setattr(socket, "getaddrinfo", http_client._patched_getaddrinfo)
+
+        # Real resolver returns a sentinel.
+        monkeypatch.setattr(
+            http_client,
+            "_ORIG_GETADDRINFO",
+            lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("198.51.100.42", 0))],
+        )
+        monkeypatch.setattr(
+            http_client,
+            "_dispatch",
+            lambda *a, **kw: _response(status=200, body=b"{}"),
+        )
+
+        SafeHTTPClient().get("http://vanish.example.test/")
+
+        # After the request, lookups for the validated hostname fall
+        # through to the real resolver — no leftover pin.
+        ans = socket.getaddrinfo("vanish.example.test", 0)
+        assert ans[0][4][0] == "198.51.100.42"
+
+    def test_literal_ip_url_does_not_install_pin(self, monkeypatch):
+        """A URL with a literal IP needs no pin — there's no DNS to corrupt."""
+        monkeypatch.setattr(
+            http_client,
+            "resolve_safe_outbound_url",
+            # Literal IP path: hostname is the IP, no separate pin returned.
+            lambda url, strict_egress=None: (True, "192.0.2.1", None),
+        )
+        monkeypatch.setattr(socket, "getaddrinfo", http_client._patched_getaddrinfo)
+
+        captured: dict = {}
+
+        def spy_dispatch(caller, method, url, **kwargs):
+            captured["pins"] = dict(getattr(http_client._DNS_PIN_LOCAL, "pins", {}) or {})
+            return _response(status=200, body=b"{}")
+
+        monkeypatch.setattr(http_client, "_dispatch", spy_dispatch)
+        SafeHTTPClient().get("http://192.0.2.1/")
+        # No pin was installed for this hostname.
+        assert "192.0.2.1" not in captured["pins"]
+
+    def test_pin_overrides_rebind_attempt(self, monkeypatch):
+        """The full rebind scenario: validation sees a public IP, the
+        rebinder would return a metadata IP at connect time. The pin
+        forces the connect lookup back to the validated address.
+
+        We synthesise the SSRF check returning a benign IP, and a real
+        resolver that, at the connect call, would return ``169.254.169.254``.
+        Inside the dispatch we verify the pin overrides that.
+        """
+        monkeypatch.setattr(
+            http_client,
+            "resolve_safe_outbound_url",
+            lambda url, strict_egress=None: (True, "rebind.example.test", "93.184.216.34"),
+        )
+        monkeypatch.setattr(socket, "getaddrinfo", http_client._patched_getaddrinfo)
+
+        # Simulate a rebinder: post-validation DNS would return a
+        # metadata IP. The pin must defeat that.
+        monkeypatch.setattr(
+            http_client,
+            "_ORIG_GETADDRINFO",
+            lambda host, port, *a, **kw: [
+                (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("169.254.169.254", port or 0))
+            ],
+        )
+
+        seen: dict = {}
+
+        def spy_dispatch(caller, method, url, **kwargs):
+            seen["lookup"] = socket.getaddrinfo("rebind.example.test", 80)
+            return _response(status=200, body=b"{}")
+
+        monkeypatch.setattr(http_client, "_dispatch", spy_dispatch)
+
+        SafeHTTPClient().get("http://rebind.example.test/")
+
+        # The pinned safe IP came back, NOT the rebinder's metadata IP.
+        assert seen["lookup"][0][4][0] == "93.184.216.34"
