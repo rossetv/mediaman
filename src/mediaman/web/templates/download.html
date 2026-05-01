@@ -18,7 +18,7 @@
 {# Hero backdrop — poster as cinematic bg #}
 <div class="dl-cinema" id="dl-cinema"{% if item.download_state == "queued" %} hidden{% endif %}>
   {% if item.poster_url %}
-  <img src="{{ item.poster_url | replace('/w300', '/w1280') | replace('/w200', '/w1280') }}" alt="">
+  <img src="{{ item.poster_url | replace('/w300', '/w1280') | replace('/w200', '/w1280') }}" alt="" referrerpolicy="no-referrer">
   {% endif %}
   <div class="dl-cinema-gradient"></div>
   <div class="dl-cinema-info">
@@ -74,11 +74,16 @@
   </div>
   {% endif %}
 
-  {# Trailer #}
+  {# Trailer — finding 19: key must be exactly 11 URL-safe base64 chars (validated server-side
+     by confirm.py validate_youtube_id); add restrictive sandbox + referrerpolicy. #}
   {% if item.trailer_key %}
   <div class="dl-trailer">
     <div class="dl-section-label">Trailer</div>
-    <iframe src="https://www.youtube.com/embed/{{ item.trailer_key }}?rel=0" allowfullscreen loading="lazy"></iframe>
+    <iframe src="https://www.youtube.com/embed/{{ item.trailer_key }}?rel=0"
+            sandbox="allow-scripts allow-same-origin allow-presentation"
+            allow="autoplay; encrypted-media; fullscreen"
+            referrerpolicy="strict-origin"
+            allowfullscreen loading="lazy"></iframe>
   </div>
   {% endif %}
 
@@ -171,6 +176,7 @@
 {% if state == "confirm" %}
 <script>
 var _token = {{ token|default("")|tojson }};
+var _pollToken = {{ (poll_token or "")|tojson }};
 var _service = {{ ("radarr" if item.media_type == "movie" else "sonarr")|tojson }};
 var _tmdbId = {{ item.tmdb_id|default(0)|tojson }};
 var _posterUrl = {{ (item.poster_url or "")|tojson }};
@@ -208,6 +214,7 @@ function triggerDownload() {
       if (data.ok) {
         _service = data.service;
         _tmdbId = data.tmdb_id;
+        if (data.poll_token) _pollToken = data.poll_token;
 
         /* Hide cinematic metadata, show hero card wrapper */
         var cinema = document.getElementById('dl-cinema');
@@ -367,7 +374,9 @@ function stateLabel(state) {
 /* ── Poll download status ── */
 function pollStatus() {
   if (!_service || !_tmdbId) return;
-  var url = '/api/download/status?service=' + _service + '&tmdb_id=' + _tmdbId + '&token=' + encodeURIComponent(_token);
+  /* Finding 14: use the short-lived poll_token, not the long-lived download token. */
+  var url = '/api/download/status?service=' + _service + '&tmdb_id=' + _tmdbId
+    + (_pollToken ? '&poll_token=' + encodeURIComponent(_pollToken) : '');
   fetch(url)
     .then(function(r) { return r.json(); })
     .then(function(data) {

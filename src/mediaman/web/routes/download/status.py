@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 
 from mediaman.auth.middleware import get_optional_admin
 from mediaman.auth.rate_limit import RateLimiter, get_client_ip
-from mediaman.crypto import validate_download_token, validate_poll_token
+from mediaman.crypto import validate_poll_token
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.download_format import (
@@ -291,17 +291,26 @@ def download_status(
     request: Request,
     service: str,
     tmdb_id: int,
-    token: str | None = None,
     poll_token: str | None = None,
     admin: str | None = Depends(get_optional_admin),
 ) -> JSONResponse:
-    """Poll the download progress for a recently-requested item."""
+    """Poll the download progress for a recently-requested item.
+
+    Finding 14: unauthenticated callers must supply a ``poll_token``
+    (short-lived, service/tmdb-bound) returned by the submit endpoint.
+    Authenticated admins may poll without a token.
+    """
     config = request.app.state.config
 
     if not _DOWNLOAD_STATUS_LIMITER.check(get_client_ip(request)):
         return JSONResponse({"error": "Too many requests"}, status_code=429)
 
     if not admin:
+        # Finding 14: unauthenticated polling must use a short-lived
+        # poll_token.  The long-lived download token is no longer accepted
+        # for status polling — it is single-use and only valid for the
+        # /download/{token} POST.  Clients receive a poll_token in the
+        # submit response and must use it exclusively for polling.
         authenticated = False
 
         if poll_token is not None:
@@ -312,17 +321,6 @@ def download_status(
                     and poll_payload.get("svc") == service
                     and poll_payload.get("tmdb") == tmdb_id
                 ):
-                    authenticated = True
-
-        if not authenticated and token is not None:
-            if len(token) > 4096:
-                return JSONResponse({"error": "Not authenticated"}, status_code=401)
-            payload = validate_download_token(token, config.secret_key)
-            if payload is not None:
-                payload_tmdb = payload.get("tmdb")
-                payload_mt = payload.get("mt")
-                want_service = "sonarr" if payload_mt in ("tv", "anime") else "radarr"
-                if payload_tmdb == tmdb_id and service == want_service:
                     authenticated = True
 
         if not authenticated:

@@ -154,6 +154,7 @@ def _fetch_recently_deleted(
                 "id": r["id"],
                 "media_item_id": r["media_item_id"],
                 "title": title,
+                "media_type": r["media_type"] or "",
                 "poster_url": poster_url,
                 "deleted_ago": days_ago(r["created_at"]),
                 "reclaimed": format_bytes(r["space_reclaimed_bytes"] or 0),

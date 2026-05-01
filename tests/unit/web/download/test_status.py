@@ -44,6 +44,7 @@ def _auth_client(app: FastAPI, conn) -> TestClient:
     token = create_session(conn, "admin")
     client = TestClient(app, raise_server_exceptions=True)
     client.cookies.set("session_token", token)
+    client.headers.update({"Origin": "http://testserver"})
     return client
 
 
@@ -110,29 +111,22 @@ class TestDownloadStatusAuth:
         resp = client.get("/api/download/status?service=radarr&tmdb_id=42")
         assert resp.status_code == 401
 
-    def test_valid_download_token_authenticated(self, db_path, secret_key):
-        """A valid download token matching the requested tmdb_id is accepted."""
+    def test_download_token_no_longer_accepted(self, db_path, secret_key):
+        """Finding 14: download tokens are no longer accepted for status polling;
+        only poll_token (short-lived) is valid for unauthenticated callers."""
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key)
         client = TestClient(app, raise_server_exceptions=True)
         token = _download_token(secret_key, media_type="movie", tmdb_id=42)
 
-        mock_radarr = MagicMock()
-        mock_radarr.get_movie_by_tmdb.return_value = None
-        mock_radarr.get_queue.return_value = []
-
-        with patch(
-            "mediaman.web.routes.download.status.build_radarr_from_db", return_value=mock_radarr
-        ):
-            resp = client.get(
-                f"/api/download/status?service=radarr&tmdb_id=42&token={token}",
-            )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "state" in data
+        # Download token passed as `token=` query param → 401 (param no longer accepted)
+        resp = client.get(
+            f"/api/download/status?service=radarr&tmdb_id=42&token={token}",
+        )
+        assert resp.status_code == 401
 
     def test_download_token_wrong_tmdb_id_rejected(self, db_path, secret_key):
-        """A token for tmdb_id=99 cannot authenticate a status poll for tmdb_id=42."""
+        """A download token (now unsupported) still returns 401 regardless of tmdb_id match."""
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key)
         client = TestClient(app, raise_server_exceptions=True)

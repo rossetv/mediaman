@@ -130,8 +130,13 @@
           <div class="u-small">Deleted {{ item.deleted_ago }}</div>
         </div>
         <div class="u-small">{{ item.reclaimed }}</div>
-        <button class="btn btn--secondary btn--sm" type="button" data-title="{{ item.title }}"
-                onclick="redownload(this, this.dataset.title); return false;">Re-download</button>
+        {# Finding 34: pass stable identifiers; button is disabled when no identifier is available. #}
+        <button class="btn btn--secondary btn--sm" type="button"
+                data-action="redownload"
+                data-title="{{ item.title | tojson }}"
+                data-media-item-id="{{ item.media_item_id | tojson }}"
+                data-media-type="{{ item.media_type | tojson }}"
+                {% if not item.media_item_id and not item.title %}disabled aria-disabled="true"{% endif %}>Re-download</button>
       </div>
       {% endfor %}
     </div>
@@ -211,13 +216,25 @@
     }, 3000);
   }
 
-  function redownload(btn, title) {
+  /* Finding 34: redownload now submits stable identifiers from data-* attributes.
+     The inline onclick is replaced by event delegation below. */
+  function redownload(btn) {
+    var title, mediaItemId, mediaType;
+    try { title = JSON.parse(btn.dataset.title); } catch (_) { title = ''; }
+    try { mediaItemId = JSON.parse(btn.dataset.mediaItemId); } catch (_) { mediaItemId = ''; }
+    try { mediaType = JSON.parse(btn.dataset.mediaType); } catch (_) { mediaType = ''; }
+
+    if (!mediaItemId && !title) {
+      window.UIFeedback && window.UIFeedback.error('No identifier available — cannot re-download this item.');
+      return;
+    }
+
     btn.disabled = true;
     btn.textContent = 'Adding…';
     fetch('/api/media/redownload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: title }),
+      body: JSON.stringify({ title: title, media_item_id: mediaItemId, media_type: mediaType }),
     })
       .then(function (r) { return r.json(); })
       .then(function (data) {
@@ -226,6 +243,12 @@
       })
       .catch(function () { btn.textContent = 'Error'; btn.classList.add('is-error'); btn.disabled = false; });
   }
+
+  /* Delegate redownload clicks (finding 34). */
+  document.addEventListener('click', function (e) {
+    var rdBtn = e.target.closest('[data-action="redownload"]');
+    if (rdBtn) redownload(rdBtn);
+  });
 
   async function clearScheduled(btn) {
     var proceed = await window.UIFeedback.confirm({

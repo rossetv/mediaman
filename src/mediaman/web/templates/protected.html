@@ -38,7 +38,8 @@
         </div>
         <div class="tile-actions">
           <button class="btn btn--danger btn--sm" type="button"
-                  onclick="removeShowKeep('{{ item.show_rating_key }}')">Remove</button>
+                  data-action="remove-show-keep"
+                  data-show-rk="{{ item.show_rating_key | tojson }}">Remove</button>
         </div>
       </div>
       {% endfor %}
@@ -76,7 +77,8 @@
         </div>
         <div class="tile-actions">
           <button class="btn btn--danger btn--sm" type="button"
-                  onclick="removeKeep('{{ item.media_item_id }}')">Remove</button>
+                  data-action="remove-keep"
+                  data-media-id="{{ item.media_item_id | tojson }}">Remove</button>
         </div>
       </div>
       {% endfor %}
@@ -114,7 +116,8 @@
         </div>
         <div class="tile-actions">
           <button class="btn btn--danger btn--sm" type="button"
-                  onclick="removeKeep('{{ item.media_item_id }}')">Remove</button>
+                  data-action="remove-keep"
+                  data-media-id="{{ item.media_item_id | tojson }}">Remove</button>
         </div>
       </div>
       {% endfor %}
@@ -128,6 +131,9 @@
 </div>
 
 <script>
+  /* Finding 17: event delegation replaces inline onclick handlers.
+     Values are read from data-* attributes parsed via JSON to avoid
+     any string interpolation into JavaScript. */
   async function removeKeep(mediaItemId) {
     var ok = await window.UIFeedback.confirm({
       title: 'Remove keep?',
@@ -159,5 +165,21 @@
       })
       .catch(function () { window.UIFeedback.error('Network error. Try again.'); });
   }
+
+  document.addEventListener('click', function (e) {
+    var removeKeepBtn = e.target.closest('[data-action="remove-keep"]');
+    if (removeKeepBtn) {
+      var mid;
+      try { mid = JSON.parse(removeKeepBtn.dataset.mediaId); } catch (_) { return; }
+      removeKeep(mid);
+      return;
+    }
+    var removeShowBtn = e.target.closest('[data-action="remove-show-keep"]');
+    if (removeShowBtn) {
+      var rk;
+      try { rk = JSON.parse(removeShowBtn.dataset.showRk); } catch (_) { return; }
+      removeShowKeep(rk);
+    }
+  });
 </script>
 {% endblock %}

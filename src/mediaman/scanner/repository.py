@@ -272,6 +272,10 @@ def schedule_deletion(
     execute_at = now + timedelta(days=grace_days)
     expires_at = int((now + timedelta(days=_TOKEN_TTL_DAYS)).timestamp())
 
+    # Finding 16: use a placeholder for the initial insert (satisfies
+    # any remaining NOT NULL constraint on legacy schemas before migration 28).
+    # After migration 28 the token column is nullable so this placeholder
+    # is only needed as a uniqueness sentinel.
     placeholder = f"pending-{secrets.token_urlsafe(16)}"
 
     cursor = conn.execute(
@@ -297,10 +301,24 @@ def schedule_deletion(
         expires_at=expires_at,
         secret_key=secret_key,
     )
-    conn.execute(
-        "UPDATE scheduled_actions SET token = ? WHERE id = ?",
-        (token, action_id),
-    )
+    import hashlib as _hashlib
+
+    token_hash = _hashlib.sha256(token.encode()).hexdigest()
+    # Finding 16: write only the hash; null out the raw token.  On pre-
+    # migration-28 schemas the token column is NOT NULL, so we write the
+    # hash and leave the placeholder in place — migration 28 will clear it.
+    # On migration-28+ schemas (token is nullable) we clear the raw token.
+    try:
+        conn.execute(
+            "UPDATE scheduled_actions SET token_hash = ?, token = NULL WHERE id = ?",
+            (token_hash, action_id),
+        )
+    except Exception:
+        # Pre-migration-28: token column is NOT NULL; just write the hash.
+        conn.execute(
+            "UPDATE scheduled_actions SET token_hash = ? WHERE id = ?",
+            (token_hash, action_id),
+        )
 
     log_audit(
         conn,
