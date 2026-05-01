@@ -11,6 +11,7 @@ from mediaman.auth.session import authenticate, create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
 from mediaman.web.routes.users import (
+    _PASSWORD_CHANGE_IP_LIMITER,
     _PASSWORD_CHANGE_LIMITER,
     _REAUTH_LIMITER,
     _USER_CREATE_LIMITER,
@@ -58,6 +59,7 @@ def _clear_rate_limiter():
         _USER_CREATE_LIMITER,
         _REAUTH_LIMITER,
         _PASSWORD_CHANGE_LIMITER,
+        _PASSWORD_CHANGE_IP_LIMITER,
     ):
         lim._attempts.clear()
         lim._day_counts.clear()
@@ -67,6 +69,7 @@ def _clear_rate_limiter():
         _USER_CREATE_LIMITER,
         _REAUTH_LIMITER,
         _PASSWORD_CHANGE_LIMITER,
+        _PASSWORD_CHANGE_IP_LIMITER,
     ):
         lim._attempts.clear()
         lim._day_counts.clear()
@@ -273,6 +276,61 @@ class TestChangePassword:
         )
         assert resp.status_code == 400
         assert "issues" in resp.json()
+
+    def test_change_password_per_actor_throttle_independent_of_ip(self, db_path, secret_key):
+        """M-2: per-actor throttle fires on 30+ wrong attempts from one user.
+
+        The IP cap is the same shape, so this also exercises the AND
+        composition — but here we verify the actor bucket trips first."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        cap = _PASSWORD_CHANGE_LIMITER._max_in_window
+        for _ in range(cap):
+            client.post(
+                "/api/users/change-password",
+                json={"old_password": "wrong", "new_password": "NewStrongPass!99"},
+            )
+
+        # Past the cap → 429.
+        resp = client.post(
+            "/api/users/change-password",
+            json={"old_password": "wrong", "new_password": "NewStrongPass!99"},
+        )
+        assert resp.status_code == 429
+
+    def test_change_password_per_ip_throttle_independent_of_actor(self, db_path, secret_key):
+        """M-2: a single attacker IP cycling through users still hits the IP cap.
+
+        We can't easily change ``admin`` mid-test (the session is bound to
+        it), so we simulate the per-IP exhaustion by clearing the per-actor
+        bucket between attempts — leaving only the per-IP bucket as the
+        gating limiter."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        cap = _PASSWORD_CHANGE_IP_LIMITER._max_in_window
+        for _ in range(cap):
+            # Reset only the per-actor bucket — keep the per-IP bucket
+            # accumulating so the IP cap is the one that trips.
+            _PASSWORD_CHANGE_LIMITER._attempts.clear()
+            _PASSWORD_CHANGE_LIMITER._day_counts.clear()
+            client.post(
+                "/api/users/change-password",
+                json={"old_password": "wrong", "new_password": "NewStrongPass!99"},
+            )
+
+        # Per-IP bucket is now exhausted; even with a fresh per-actor
+        # bucket, the request must be 429.
+        _PASSWORD_CHANGE_LIMITER._attempts.clear()
+        _PASSWORD_CHANGE_LIMITER._day_counts.clear()
+        resp = client.post(
+            "/api/users/change-password",
+            json={"old_password": "wrong", "new_password": "NewStrongPass!99"},
+        )
+        assert resp.status_code == 429
 
 
 class TestListSessions:

@@ -10,7 +10,20 @@ from fastapi.responses import HTMLResponse
 from fastapi.testclient import TestClient
 
 from mediaman.db import init_db, set_connection
-from mediaman.web.routes.force_password_change import router
+from mediaman.web.routes.force_password_change import (
+    _FORCE_CHANGE_IP_LIMITER,
+    _FORCE_CHANGE_LIMITER,
+    router,
+)
+
+
+def _reset_limiters() -> None:
+    """Force-change limiters are module-globals — reset between tests so the
+    cross-test attempt count doesn't trip the per-IP cap."""
+    _FORCE_CHANGE_LIMITER._attempts.clear()
+    _FORCE_CHANGE_LIMITER._day_counts.clear()
+    _FORCE_CHANGE_IP_LIMITER._attempts.clear()
+    _FORCE_CHANGE_IP_LIMITER._day_counts.clear()
 
 
 @pytest.fixture
@@ -57,6 +70,9 @@ class TestForceChangeGet:
 
 
 class TestForceChangePost:
+    def setup_method(self):
+        _reset_limiters()
+
     def _post(self, app, **form):
         client = TestClient(app, raise_server_exceptions=True)
         return client.post("/force-password-change", data=form)
