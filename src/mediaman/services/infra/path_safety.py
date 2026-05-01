@@ -8,8 +8,45 @@ traversal from escaping the allowed tree.
 
 from __future__ import annotations
 
+import logging
 import os
+import re
 from pathlib import Path
+
+logger = logging.getLogger("mediaman")
+
+
+def parse_delete_roots_env(env_val: str) -> list[str]:
+    """Parse ``MEDIAMAN_DELETE_ROOTS`` using the canonical colon/comma rules.
+
+    The canonical separator is ``':'`` (PATH-style).  A legacy ``','``
+    separator is accepted with a deprecation warning.  Mixed separators are
+    accepted but logged as an error because they almost always indicate a
+    misconfiguration.
+
+    Returns the list of non-empty stripped path strings.  An empty list means
+    the env var was set but yielded no usable paths.
+
+    This function is the single source of truth for separator handling so that
+    the disk-usage path and the deletion path both behave identically (finding 31).
+    Callers in ``scanner/repository.py`` should be migrated to use this helper;
+    a follow-up commit on ``scanner/repository.py`` is needed by the orchestrator.
+    """
+    if not env_val:
+        return []
+    has_colon = ":" in env_val
+    has_comma = "," in env_val
+    if has_comma:
+        logger.warning(
+            "MEDIAMAN_DELETE_ROOTS uses ',' separator — this is deprecated. "
+            "Use ':' (PATH-style) instead; see .env.example."
+        )
+    if has_comma and has_colon:
+        logger.error(
+            "MEDIAMAN_DELETE_ROOTS contains both ':' and ',' separators — "
+            "this is almost certainly a mistake.  Pick one (':' preferred) and retry."
+        )
+    return [r.strip() for r in re.split(r"[:,]", env_val) if r.strip()]
 
 
 def disk_usage_allowed_roots() -> list[Path]:
@@ -17,8 +54,8 @@ def disk_usage_allowed_roots() -> list[Path]:
 
     Roots are sourced from:
 
-    * ``MEDIAMAN_DELETE_ROOTS`` — comma-separated list of paths (same env
-      var used by the scanner).
+    * ``MEDIAMAN_DELETE_ROOTS`` — colon-separated list of paths (same env var
+      used by the scanner; commas accepted for legacy installs with a warning).
     * ``MEDIAMAN_DATA_DIR`` — the container data directory.
     * ``/media`` and ``/data`` — conventional mount points in Docker
       deployments.
@@ -35,7 +72,7 @@ def disk_usage_allowed_roots() -> list[Path]:
             return
         roots.append(p)
 
-    for token in (os.environ.get("MEDIAMAN_DELETE_ROOTS") or "").split(","):
+    for token in parse_delete_roots_env(os.environ.get("MEDIAMAN_DELETE_ROOTS") or ""):
         _try_add(token)
 
     _try_add(os.environ.get("MEDIAMAN_DATA_DIR", ""))
