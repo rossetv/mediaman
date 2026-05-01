@@ -153,6 +153,90 @@ class TestResolveBindHost:
         assert _resolve_bind_host() == "127.0.0.1"
 
 
+# ── Finding 3: single-worker enforcement ────────────────────────────────────
+
+
+class TestEnforceSingleWorker:
+    """Finding 3: refuse to start with WORKERS > 1 in any of the env vars
+    that uvicorn (or our launchers) might respect."""
+
+    def test_no_env_var_is_a_noop(self, monkeypatch):
+        from mediaman.main import _enforce_single_worker
+
+        for var in ("MEDIAMAN_WORKERS", "UVICORN_WORKERS", "WORKERS"):
+            monkeypatch.delenv(var, raising=False)
+        # Must not raise.
+        _enforce_single_worker()
+
+    def test_workers_equals_one_is_allowed(self, monkeypatch):
+        from mediaman.main import _enforce_single_worker
+
+        for var in ("MEDIAMAN_WORKERS", "UVICORN_WORKERS", "WORKERS"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("MEDIAMAN_WORKERS", "1")
+        _enforce_single_worker()
+
+    def test_workers_greater_than_one_raises(self, monkeypatch):
+        from mediaman.main import _enforce_single_worker
+
+        for var in ("MEDIAMAN_WORKERS", "UVICORN_WORKERS", "WORKERS"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("MEDIAMAN_WORKERS", "2")
+        with pytest.raises(RuntimeError, match="single worker"):
+            _enforce_single_worker()
+
+    def test_uvicorn_workers_greater_than_one_raises(self, monkeypatch):
+        from mediaman.main import _enforce_single_worker
+
+        for var in ("MEDIAMAN_WORKERS", "UVICORN_WORKERS", "WORKERS"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("UVICORN_WORKERS", "4")
+        with pytest.raises(RuntimeError, match="single worker"):
+            _enforce_single_worker()
+
+    def test_legacy_workers_var_greater_than_one_raises(self, monkeypatch):
+        from mediaman.main import _enforce_single_worker
+
+        for var in ("MEDIAMAN_WORKERS", "UVICORN_WORKERS", "WORKERS"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("WORKERS", "8")
+        with pytest.raises(RuntimeError, match="single worker"):
+            _enforce_single_worker()
+
+    def test_invalid_workers_value_is_ignored(self, monkeypatch):
+        """A non-numeric value is treated as unset rather than crashing."""
+        from mediaman.main import _enforce_single_worker
+
+        for var in ("MEDIAMAN_WORKERS", "UVICORN_WORKERS", "WORKERS"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("MEDIAMAN_WORKERS", "not-a-number")
+        _enforce_single_worker()  # must not raise
+
+
+# ── Finding 28: cli_main bind-host fallback ─────────────────────────────────
+
+
+class TestConfigBindHostUnsetMeansResolve:
+    """Finding 28: when MEDIAMAN_BIND_HOST is unset, load_config() leaves
+    bind_host empty so cli_main can defer to _resolve_bind_host()."""
+
+    def test_unset_env_yields_empty_bind_host(self, monkeypatch):
+        from mediaman.config import load_config
+
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
+        monkeypatch.delenv("MEDIAMAN_BIND_HOST", raising=False)
+        cfg = load_config()
+        assert cfg.bind_host == ""
+
+    def test_explicit_env_is_preserved(self, monkeypatch):
+        from mediaman.config import load_config
+
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
+        monkeypatch.setenv("MEDIAMAN_BIND_HOST", "10.0.0.1")
+        cfg = load_config()
+        assert cfg.bind_host == "10.0.0.1"
+
+
 # ── H64: scan_time validation ────────────────────────────────────────────────
 
 
