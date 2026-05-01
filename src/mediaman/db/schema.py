@@ -813,32 +813,6 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
 
         _run_migration(27, _v27)
 
-    if current_version < 29:
-
-        def _v29(c: sqlite3.Connection) -> None:
-            """Add delete_intents table for recoverable manual-delete (finding 24).
-
-            A delete intent is written before the Radarr/Sonarr call so that if
-            the process crashes between the external call and the local DB cleanup,
-            the intent can be reconciled on startup via
-            :func:`mediaman.web.routes.library.api.reconcile_pending_delete_intents`.
-            """
-            c.execute("""
-                CREATE TABLE IF NOT EXISTS delete_intents (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    media_item_id TEXT NOT NULL,
-                    target_kind TEXT NOT NULL,
-                    target_id TEXT NOT NULL,
-                    started_at TEXT NOT NULL,
-                    completed_at TEXT,
-                    last_error TEXT
-                )
-            """)
-            c.execute(
-                "CREATE INDEX IF NOT EXISTS idx_delete_intents_completed "
-                "ON delete_intents(completed_at) WHERE completed_at IS NULL"
-            )
-
     if current_version < 28:
 
         def _v28(c: sqlite3.Connection) -> None:
