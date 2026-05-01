@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from mediaman.auth.reauth import grant_recent_reauth
 from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.crypto import encrypt_value
@@ -29,10 +30,18 @@ def _make_app(conn, secret_key: str) -> FastAPI:
     return app
 
 
-def _auth_client(app: FastAPI, conn) -> TestClient:
-    """Return a TestClient with a valid admin session cookie set."""
+def _auth_client(app: FastAPI, conn, *, with_reauth: bool = True) -> TestClient:
+    """Return a TestClient with a valid admin session cookie set.
+
+    When *with_reauth* is True (the default for legacy tests that don't
+    care about the gate), a recent-reauth ticket is granted for the
+    session so PUT ``/api/settings`` against sensitive keys is allowed.
+    Tests that exercise the reauth gate itself pass ``with_reauth=False``.
+    """
     create_user(conn, "admin", "password1234", enforce_policy=False)
     token = create_session(conn, "admin")
+    if with_reauth:
+        grant_recent_reauth(conn, token, "admin")
     client = TestClient(app, raise_server_exceptions=True)
     client.cookies.set("session_token", token)
     return client

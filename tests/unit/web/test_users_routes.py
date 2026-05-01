@@ -14,10 +14,16 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from mediaman.auth.reauth import grant_recent_reauth
 from mediaman.auth.session import create_session, create_user, validate_session
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
-from mediaman.web.routes.users import _USER_CREATE_LIMITER, _USER_MGMT_LIMITER
+from mediaman.web.routes.users import (
+    _PASSWORD_CHANGE_LIMITER,
+    _REAUTH_LIMITER,
+    _USER_CREATE_LIMITER,
+    _USER_MGMT_LIMITER,
+)
 from mediaman.web.routes.users import router as users_router
 
 
@@ -30,10 +36,17 @@ def _make_app(conn, secret_key: str) -> FastAPI:
     return app
 
 
-def _auth_client(app: FastAPI, conn) -> tuple[TestClient, str]:
-    """Return (client, token) for a freshly-minted admin session."""
+def _auth_client(app: FastAPI, conn, *, with_reauth: bool = True) -> tuple[TestClient, str]:
+    """Return (client, token) for a freshly-minted admin session.
+
+    When *with_reauth* is True (the default), the session is also
+    granted a fresh recent-reauth ticket so privilege-establishing
+    endpoints are allowed.
+    """
     create_user(conn, "admin", "password1234", enforce_policy=False)
     token = create_session(conn, "admin")
+    if with_reauth:
+        grant_recent_reauth(conn, token, "admin")
     client = TestClient(app, raise_server_exceptions=True)
     client.cookies.set("session_token", token)
     return client, token
@@ -43,10 +56,14 @@ class TestUserCreateRateLimit:
     """The user-creation limiter (3 per hour) fires independently of _USER_MGMT_LIMITER."""
 
     def setup_method(self):
-        _USER_CREATE_LIMITER._attempts.clear()
-        _USER_CREATE_LIMITER._day_counts.clear()
-        _USER_MGMT_LIMITER._attempts.clear()
-        _USER_MGMT_LIMITER._day_counts.clear()
+        for lim in (
+            _USER_CREATE_LIMITER,
+            _USER_MGMT_LIMITER,
+            _REAUTH_LIMITER,
+            _PASSWORD_CHANGE_LIMITER,
+        ):
+            lim._attempts.clear()
+            lim._day_counts.clear()
 
     def test_user_create_throttled_after_cap(self, db_path, secret_key):
         """After _USER_CREATE_LIMITER._max_in_window requests, 429 is returned."""

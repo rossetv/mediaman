@@ -13,11 +13,11 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger("mediaman")
 
-DB_SCHEMA_VERSION = 26
+DB_SCHEMA_VERSION = 27
 
-assert DB_SCHEMA_VERSION == 26, (
+assert DB_SCHEMA_VERSION == 27, (
     f"DB_SCHEMA_VERSION is {DB_SCHEMA_VERSION} but the highest migration "
-    "block is 26 — update one of them."
+    "block is 27 — update one of them."
 )
 
 _SCHEMA = """
@@ -157,6 +157,13 @@ CREATE TABLE IF NOT EXISTS login_failures (
     failure_count INTEGER NOT NULL DEFAULT 0,
     first_failure_at TEXT,
     locked_until TEXT
+);
+
+CREATE TABLE IF NOT EXISTS reauth_tickets (
+    session_token_hash TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    granted_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS scan_runs (
@@ -774,3 +781,34 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
             )
 
         _run_migration(26, _v26)
+
+    if current_version < 27:
+
+        def _v27(c: sqlite3.Connection) -> None:
+            """Add the reauth_tickets table backing recent-reauth gates.
+
+            Owns the "this session reauthenticated at T" marker used by
+            privilege-establishing endpoints (admin creation, sensitive
+            settings, admin unlock, password change). Keyed on the session
+            token hash so the row dies with the session via the helper-side
+            revoke calls — a separate FK is intentionally not added because
+            the admin_sessions row is already deleted-then-replaced by every
+            session-rotation flow we run, and a hard FK would force callers
+            to commit reauth state in the same transaction as the session
+            row, which the pre-existing code paths don't do.
+            """
+            c.execute(
+                """
+                CREATE TABLE IF NOT EXISTS reauth_tickets (
+                    session_token_hash TEXT PRIMARY KEY,
+                    username TEXT NOT NULL,
+                    granted_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL
+                )
+                """
+            )
+            c.execute(
+                "CREATE INDEX IF NOT EXISTS idx_reauth_tickets_username ON reauth_tickets(username)"
+            )
+
+        _run_migration(27, _v27)
