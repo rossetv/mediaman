@@ -240,3 +240,64 @@ class TestRecoverStuckDeletions:
     def test_no_stuck_rows_is_noop(self, conn):
         # Must not raise when there are no deleting rows.
         _recover_stuck_deletions(conn)
+
+
+# ---------------------------------------------------------------------------
+# Plex-derived root-path defence
+# ---------------------------------------------------------------------------
+
+
+class TestPlexCraftedRootPath:
+    """A buggy or compromised Plex response can supply a ``part.file`` that
+    happens to equal a configured delete root. The cleanup loop must refuse
+    that target, leave the row recoverable for a later run, and never wipe
+    the mount.
+    """
+
+    def test_part_file_equal_to_root_is_refused(self, conn, tmp_path, monkeypatch):
+        """A media row whose ``file_path`` equals the configured root
+        must NOT be deleted — strict-descendant rule blocks it.
+        """
+        # Configure a root and populate it with files we expect to keep.
+        root = tmp_path / "library"
+        root.mkdir()
+        (root / "movie1.mkv").write_text("keep")
+        (root / "movie2.mkv").write_text("keep")
+
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+
+        # Crafted DB row: file_path is the root itself (mimics a Plex
+        # response with part.file == "/media").
+        _insert_media(conn, file_path=str(root))
+        _insert_pending_deletion(conn)
+
+        result = DeletionExecutor(conn=conn, dry_run=False).execute()
+
+        # Nothing was deleted, nothing was lost.
+        assert result["deleted"] == 0
+        assert root.exists()
+        assert (root / "movie1.mkv").exists()
+        assert (root / "movie2.mkv").exists()
+        # Row is reset to pending so the next run can re-evaluate.
+        row = conn.execute(
+            "SELECT delete_status FROM scheduled_actions WHERE media_item_id='m1'"
+        ).fetchone()
+        assert row["delete_status"] == "pending"
+
+    def test_part_file_outside_root_is_refused(self, conn, tmp_path, monkeypatch):
+        """A media row whose ``file_path`` escapes the allowlist is refused."""
+        root = tmp_path / "library"
+        root.mkdir()
+        outside = tmp_path / "elsewhere"
+        outside.mkdir()
+        (outside / "important.txt").write_text("preserve")
+
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+
+        _insert_media(conn, file_path=str(outside / "important.txt"))
+        _insert_pending_deletion(conn)
+
+        result = DeletionExecutor(conn=conn, dry_run=False).execute()
+
+        assert result["deleted"] == 0
+        assert (outside / "important.txt").exists()
