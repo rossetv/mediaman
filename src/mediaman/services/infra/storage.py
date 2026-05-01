@@ -39,7 +39,7 @@ _FORBIDDEN_ROOTS: frozenset[str] = frozenset(
         "/sbin",
         "/srv",
         "/sys",
-        "/tmp",
+        "/tmp",  # nosec B108 — listed as a *forbidden* delete root, not a temp path used by mediaman
         "/usr",
         "/var",
     }
