@@ -13,11 +13,11 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger("mediaman")
 
-DB_SCHEMA_VERSION = 29
+DB_SCHEMA_VERSION = 30
 
-assert DB_SCHEMA_VERSION == 29, (
+assert DB_SCHEMA_VERSION == 30, (
     f"DB_SCHEMA_VERSION is {DB_SCHEMA_VERSION} but the highest migration "
-    "block is 29 — update one of them."
+    "block is 30 — update one of them."
 )
 
 _SCHEMA = """
@@ -966,3 +966,45 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
             )
 
         _run_migration(29, _v29)
+
+    if current_version < 30:
+
+        def _v30(c: sqlite3.Connection) -> None:
+            """Add claimed_at to download_notifications for crash-recovery (H-5).
+
+            The atomic claim added in migration 22 (finding 22) flips
+            ``notified=0 → notified=2`` to prevent two workers from claiming
+            the same row.  But a SIGKILL between the claim and the actual
+            send leaves rows stranded at ``notified=2`` because the
+            in-process release path only fires on Python exceptions.
+
+            This column lets a startup reconcile sweep
+            (:func:`mediaman.services.downloads.notifications.reconcile_stranded_notifications`)
+            reset rows whose claim is older than the in-flight grace window
+            back to ``notified=0`` so the next scheduler tick retries them.
+
+            Idempotent: ``ALTER TABLE`` is guarded by a column existence
+            check, and the whole block is guarded against partial test
+            fixtures that hand-craft an older schema without
+            ``download_notifications`` (matches the migration 28 pattern).
+            """
+            has_table = (
+                c.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='download_notifications'"
+                ).fetchone()
+                is not None
+            )
+            if not has_table:
+                return
+            cols = [
+                row[1] for row in c.execute("PRAGMA table_info(download_notifications)").fetchall()
+            ]
+            if "claimed_at" not in cols:
+                c.execute("ALTER TABLE download_notifications ADD COLUMN claimed_at TEXT")
+            c.execute(
+                "CREATE INDEX IF NOT EXISTS idx_download_notifications_claimed "
+                "ON download_notifications(claimed_at) WHERE notified=2"
+            )
+
+        _run_migration(30, _v30)

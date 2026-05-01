@@ -55,6 +55,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # type: ignore[return]
     except Exception:
         logger.exception("delete-intent reconciliation failed at startup; continuing")
 
+    # Reconcile download_notifications rows stranded at notified=2 by a
+    # crashed worker (H-5 — finding 22 follow-up).  The atomic claim flips
+    # the status before the actual send, so a SIGKILL between claim and
+    # send leaves the row pinned.  Idempotent and bounded by the in-flight
+    # grace window.
+    try:
+        from mediaman.services.downloads.notifications import (
+            reconcile_stranded_notifications,
+        )
+
+        reset = reconcile_stranded_notifications(app.state.db)
+        if reset:
+            logger.info("Reconciled %d stranded download notification(s) at startup", reset)
+    except Exception:
+        logger.exception("download-notification reconciliation failed at startup; continuing")
+
     logger.info("Mediaman started on port %s", config.port)
     yield
 

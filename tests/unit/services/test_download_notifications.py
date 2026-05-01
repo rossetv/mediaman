@@ -430,3 +430,157 @@ class TestSonarrSeriesMatching:
         radarr_row = next(r for r in rows if r["service"] == "radarr")
         assert radarr_row["tmdb_id"] == 12345
         assert radarr_row["tvdb_id"] is None
+
+
+class TestReconcileStrandedNotifications:
+    """H-5: a startup sweep recovers rows stranded at notified=2 after a crash.
+
+    The atomic claim added for finding 22 flips ``notified=0 → 2`` before
+    the actual mail attempt.  An OOM, container restart, or SIGKILL
+    between claim and send leaves the row pinned at ``notified=2`` because
+    the in-process release path only fires on Python-level exceptions.
+    A startup reconcile resets such rows back to ``notified=0`` based on
+    the new ``claimed_at`` timestamp.
+    """
+
+    def _make_conn(self, tmp_path):
+        from mediaman.db import init_db
+
+        return init_db(str(tmp_path / "mm.db"))
+
+    def _insert(self, conn, *, notified, claimed_at=None):
+        conn.execute(
+            "INSERT INTO download_notifications "
+            "(email, title, media_type, tmdb_id, tvdb_id, service, notified, "
+            " claimed_at, created_at) "
+            "VALUES ('u@x', 'T', 'movie', 1, NULL, 'radarr', ?, ?, '2026-01-01')",
+            (notified, claimed_at),
+        )
+        conn.commit()
+        return conn.execute(
+            "SELECT id FROM download_notifications WHERE title='T' AND notified=? "
+            "ORDER BY id DESC LIMIT 1",
+            (notified,),
+        ).fetchone()["id"]
+
+    def test_stranded_claim_is_reset(self, tmp_path):
+        """notified=2 with a stale claimed_at → reset to notified=0."""
+        from datetime import datetime, timedelta, timezone
+
+        from mediaman.services.downloads.notifications import (
+            STRANDED_CLAIM_GRACE_SECONDS,
+            reconcile_stranded_notifications,
+        )
+
+        conn = self._make_conn(tmp_path)
+        stale = (
+            datetime.now(timezone.utc) - timedelta(seconds=STRANDED_CLAIM_GRACE_SECONDS + 60)
+        ).isoformat()
+        row_id = self._insert(conn, notified=2, claimed_at=stale)
+
+        reset = reconcile_stranded_notifications(conn)
+        assert reset == 1
+
+        row = conn.execute(
+            "SELECT notified, claimed_at FROM download_notifications WHERE id=?",
+            (row_id,),
+        ).fetchone()
+        assert row["notified"] == 0
+        assert row["claimed_at"] is None
+
+    def test_fresh_claim_is_not_reset(self, tmp_path):
+        """notified=2 with a fresh claimed_at — still in flight, leave it."""
+        from datetime import datetime, timezone
+
+        from mediaman.services.downloads.notifications import (
+            reconcile_stranded_notifications,
+        )
+
+        conn = self._make_conn(tmp_path)
+        fresh = datetime.now(timezone.utc).isoformat()
+        row_id = self._insert(conn, notified=2, claimed_at=fresh)
+
+        reset = reconcile_stranded_notifications(conn)
+        assert reset == 0
+
+        row = conn.execute(
+            "SELECT notified, claimed_at FROM download_notifications WHERE id=?",
+            (row_id,),
+        ).fetchone()
+        assert row["notified"] == 2
+
+    def test_notified_zero_not_touched(self, tmp_path):
+        from mediaman.services.downloads.notifications import (
+            reconcile_stranded_notifications,
+        )
+
+        conn = self._make_conn(tmp_path)
+        row_id = self._insert(conn, notified=0, claimed_at=None)
+
+        assert reconcile_stranded_notifications(conn) == 0
+        row = conn.execute(
+            "SELECT notified FROM download_notifications WHERE id=?", (row_id,)
+        ).fetchone()
+        assert row["notified"] == 0
+
+    def test_notified_one_not_touched(self, tmp_path):
+        """Already-sent rows must never be reset."""
+        from mediaman.services.downloads.notifications import (
+            reconcile_stranded_notifications,
+        )
+
+        conn = self._make_conn(tmp_path)
+        row_id = self._insert(conn, notified=1, claimed_at=None)
+
+        assert reconcile_stranded_notifications(conn) == 0
+        row = conn.execute(
+            "SELECT notified FROM download_notifications WHERE id=?", (row_id,)
+        ).fetchone()
+        assert row["notified"] == 1
+
+    def test_legacy_null_claimed_at_is_swept(self, tmp_path):
+        """A row stranded before the claimed_at column existed has NULL.
+
+        The reconcile predicate treats NULL as 'old enough' so legacy
+        stranded rows are recovered the first time the new code runs.
+        """
+        from mediaman.services.downloads.notifications import (
+            reconcile_stranded_notifications,
+        )
+
+        conn = self._make_conn(tmp_path)
+        row_id = self._insert(conn, notified=2, claimed_at=None)
+
+        assert reconcile_stranded_notifications(conn) == 1
+        row = conn.execute(
+            "SELECT notified FROM download_notifications WHERE id=?", (row_id,)
+        ).fetchone()
+        assert row["notified"] == 0
+
+    def test_atomic_claim_populates_claimed_at(self, tmp_path):
+        """The claim path must stamp claimed_at so the reconcile predicate works."""
+        from mediaman.services.downloads.notifications import (
+            _claim_pending_notifications,
+            record_download_notification,
+        )
+
+        conn = self._make_conn(tmp_path)
+        record_download_notification(
+            conn,
+            email="u@x",
+            title="T",
+            media_type="movie",
+            tmdb_id=1,
+            service="radarr",
+        )
+        conn.commit()
+
+        rows = _claim_pending_notifications(conn)
+        assert len(rows) == 1
+
+        row = conn.execute(
+            "SELECT notified, claimed_at FROM download_notifications WHERE id=?",
+            (rows[0]["id"],),
+        ).fetchone()
+        assert row["notified"] == 2
+        assert row["claimed_at"] is not None and row["claimed_at"] != ""
