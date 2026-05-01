@@ -248,9 +248,28 @@ def _generic_invalid_response(request: Request) -> HTMLResponse:
     return _render_result(request, "This unsubscribe link is no longer valid.", success=False)
 
 
+def _mask_email_log(email: str) -> str:
+    """Return a masked email for log output (first char of local-part + domain + length).
+
+    Avoids logging PII in plaintext while still giving operators enough
+    context to triage delivery issues (finding 36).
+    """
+    try:
+        local, domain = email.split("@", 1)
+    except ValueError:
+        return f"(len={len(email)})"
+    first = local[0] if local else "?"
+    return f"{first}...@{domain} (len={len(email)})"
+
+
 @router.get("/unsubscribe", response_class=HTMLResponse)
-def unsubscribe_page(request: Request, email: str = "", token: str = "") -> HTMLResponse:
-    """Show unsubscribe confirmation page. Actual unsubscribe happens via POST."""
+def unsubscribe_page(request: Request, token: str = "", email: str = "") -> HTMLResponse:
+    """Show unsubscribe confirmation page.
+
+    Accepts ``?token=...`` only — the email address is derived from the
+    validated token payload (finding 36).  The legacy ``email=`` parameter
+    is accepted but ignored; the token is authoritative.
+    """
     config = request.app.state.config
 
     if not _UNSUB_LIMITER.check(get_client_ip(request)):
@@ -258,11 +277,16 @@ def unsubscribe_page(request: Request, email: str = "", token: str = "") -> HTML
             request, "Too many requests. Try again later.", success=False, status_code=429
         )
 
-    if not email or not token or len(email) > 320 or len(token) > 4096:
+    if not token or len(token) > 4096:
         return _generic_invalid_response(request)
 
     payload = validate_unsubscribe_token(token, config.secret_key)
-    if payload is None or payload.get("email", "").lower() != email.lower():
+    if payload is None:
+        return _generic_invalid_response(request)
+
+    # Derive the email address from the validated token — never from the URL.
+    email_from_token = payload.get("email", "").lower()
+    if not email_from_token:
         return _generic_invalid_response(request)
 
     # Show confirmation page
@@ -270,17 +294,23 @@ def unsubscribe_page(request: Request, email: str = "", token: str = "") -> HTML
     return templates.TemplateResponse(
         request,
         "subscribers/unsubscribe_confirm.html",
-        {"email": email, "token": token},
+        {"email": email_from_token, "token": token},
     )
 
 
 @router.post("/unsubscribe", response_class=HTMLResponse)
 def unsubscribe_confirm(
     request: Request,
-    email: str = Form(default=""),
     token: str = Form(default=""),
+    email: str = Form(default=""),
 ) -> HTMLResponse:
-    """Process the unsubscribe after user confirmation."""
+    """Process the unsubscribe after user confirmation.
+
+    The email is derived from the validated token, not from form input
+    (finding 36).  The ``email`` form field is accepted for backwards
+    compatibility with the confirmation template but is not used for
+    lookup or authorisation.
+    """
     config = request.app.state.config
 
     if not _UNSUB_LIMITER.check(get_client_ip(request)):
@@ -288,24 +318,31 @@ def unsubscribe_confirm(
             request, "Too many requests. Try again later.", success=False, status_code=429
         )
 
-    if not email or not token or len(email) > 320 or len(token) > 4096:
+    if not token or len(token) > 4096:
         return _generic_invalid_response(request)
 
     payload = validate_unsubscribe_token(token, config.secret_key)
-    if payload is None or payload.get("email", "").lower() != email.lower():
+    if payload is None:
+        return _generic_invalid_response(request)
+
+    # Always use the email from the token — never trust form/URL input.
+    email_from_token = payload.get("email", "").lower()
+    if not email_from_token:
         return _generic_invalid_response(request)
 
     conn = get_db()
     row = conn.execute(
-        "SELECT id, active FROM subscribers WHERE lower(email) = ?", (email.lower(),)
+        "SELECT id, active FROM subscribers WHERE lower(email) = ?", (email_from_token,)
     ).fetchone()
 
     # Return a uniform "you've been unsubscribed" response whether the
     # email is present, already inactive, or absent — otherwise the
     # endpoint becomes a subscriber-membership oracle. The logs retain
-    # the true state for operator debugging.
+    # the true state for operator debugging with masked addresses.
     if row is None:
-        logger.info("Unsubscribe link used for unknown email: %s", email)
+        logger.info(
+            "Unsubscribe link used for unknown email: %s", _mask_email_log(email_from_token)
+        )
         return _render_result(
             request,
             _UNSUB_CONFIRMATION_MSG,
@@ -315,7 +352,7 @@ def unsubscribe_confirm(
     if row["active"]:
         conn.execute("UPDATE subscribers SET active = 0 WHERE id = ?", (row["id"],))
         conn.commit()
-        logger.info("Unsubscribed via link: %s", email)
+        logger.info("Unsubscribed via link: %s", _mask_email_log(email_from_token))
 
     return _render_result(
         request,
