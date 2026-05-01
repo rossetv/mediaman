@@ -2,6 +2,14 @@
 
 Best-effort. Returns an empty dict when the key is missing, the
 request fails, or OMDb has nothing useful. Never raises.
+
+Threading note
+--------------
+SQLite connections must not be shared across threads.  ``fetch_ratings``
+reads the OMDb API key from the DB but must only be called from the thread
+that owns *conn*.  Callers that dispatch work to a thread pool must read the
+key via :func:`get_omdb_key` *before* submitting tasks and pass the resolved
+key string to worker callables directly (see ``search.py``).
 """
 
 from __future__ import annotations
@@ -21,8 +29,11 @@ _OMDB_CLIENT = SafeHTTPClient(OMDB_API_BASE_URL)
 logger = logging.getLogger("mediaman")
 
 
-def _get_key(conn: sqlite3.Connection, secret_key: str) -> str | None:
+def get_omdb_key(conn: sqlite3.Connection, secret_key: str) -> str | None:
     """Return the OMDb API key from settings, or ``None`` if not configured.
+
+    Read this in the *request thread* before dispatching to a thread pool —
+    SQLite connections must not cross thread boundaries (finding 32).
 
     Delegates to :func:`~mediaman.services.infra.settings_reader.get_string_setting`
     so the decrypt-and-unwrap logic is not duplicated here.
@@ -30,25 +41,43 @@ def _get_key(conn: sqlite3.Connection, secret_key: str) -> str | None:
     return get_string_setting(conn, "omdb_api_key", secret_key=secret_key) or None
 
 
+# Keep the old private name as an alias so existing internal callers and tests
+# continue to work without change.
+_get_key = get_omdb_key
+
+
 def fetch_ratings(
     title: str,
     year: int | None,
     media_type: str,
     *,
-    conn: sqlite3.Connection,
-    secret_key: str,
+    conn: sqlite3.Connection | None = None,
+    secret_key: str | None = None,
+    omdb_key: str | None = None,
 ) -> dict[str, str]:
     """Return ratings from OMDb.
 
     Keys in the returned dict (any subset): ``imdb``, ``rt``, ``metascore``.
     Missing values are omitted. Never raises.
+
+    Callers must supply either:
+
+    * ``omdb_key`` — the already-resolved API key string (preferred when
+      calling from a thread-pool worker, since *conn* must not be used across
+      threads), or
+    * ``conn`` + ``secret_key`` — the DB connection and master key, from which
+      the OMDb key is read in-place.  Only safe when called from the thread
+      that owns *conn*.
     """
-    key = _get_key(conn, secret_key)
-    if not key:
+    if omdb_key is None:
+        if conn is None or secret_key is None:
+            raise TypeError("fetch_ratings requires either omdb_key= or both conn= and secret_key=")
+        omdb_key = get_omdb_key(conn, secret_key)
+    if not omdb_key:
         return {}
 
-    params = {
-        "apikey": key,
+    params: dict[str, object] = {
+        "apikey": omdb_key,
         "t": title,
         "type": "movie" if media_type == "movie" else "series",
     }
