@@ -13,11 +13,11 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger("mediaman")
 
-DB_SCHEMA_VERSION = 22
+DB_SCHEMA_VERSION = 28
 
-assert DB_SCHEMA_VERSION == 22, (
+assert DB_SCHEMA_VERSION == 28, (
     f"DB_SCHEMA_VERSION is {DB_SCHEMA_VERSION} but the highest migration "
-    "block is 22 — update one of them."
+    "block is 28 — update one of them."
 )
 
 _SCHEMA = """
@@ -658,3 +658,104 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
                 )
 
         _run_migration(22, _v22)
+
+    if current_version < 28:
+
+        def _v28(c: sqlite3.Connection) -> None:
+            """Backfill token_hash for keep tokens; make raw token column nullable.
+
+            Finding 16: keep tokens are now stored only as SHA-256 hashes.
+            This migration:
+            1. Ensures the token_hash column and unique index exist.
+            2. For any row where token_hash is NULL or empty and a real
+               HMAC token is present, hashes the token and writes the hash.
+            3. Recreates scheduled_actions with token as nullable TEXT so
+               future rows inserted by keep.py and schedule_deletion() can
+               store only the hash and omit the raw token.
+            4. Nulls out the raw token for any rows that now have a hash.
+            """
+            action_cols = {
+                row[1] for row in c.execute("PRAGMA table_info(scheduled_actions)").fetchall()
+            }
+            if "token_hash" not in action_cols:
+                c.execute("ALTER TABLE scheduled_actions ADD COLUMN token_hash TEXT")
+                c.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_actions_token_hash "
+                    "ON scheduled_actions(token_hash) WHERE token_hash IS NOT NULL"
+                )
+
+            # Backfill hashes for rows that have a real HMAC token but no hash.
+            rows_to_backfill = c.execute(
+                "SELECT rowid AS rid, token FROM scheduled_actions "
+                "WHERE (token_hash IS NULL OR token_hash = '') "
+                "AND token IS NOT NULL AND token != ''"
+            ).fetchall()
+
+            for row in rows_to_backfill:
+                rid = row[0]
+                token_val = row[1]
+                # Skip placeholder tokens — they are not real HMAC tokens.
+                if token_val.startswith("pending-"):
+                    continue
+                h = hashlib.sha256(token_val.encode()).hexdigest()
+                c.execute(
+                    "UPDATE scheduled_actions SET token_hash = ? WHERE rowid = ?",
+                    (h, rid),
+                )
+
+            # Recreate scheduled_actions with token as nullable so future
+            # insertions can omit the raw token once the hash is present.
+            # Uses the standard SQLite rename-and-copy pattern.
+            try:
+                c.execute("PRAGMA foreign_keys=OFF")
+                c.execute("""
+                    CREATE TABLE IF NOT EXISTS scheduled_actions_v28 (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        media_item_id TEXT NOT NULL REFERENCES media_items(id),
+                        action TEXT NOT NULL,
+                        scheduled_at TEXT NOT NULL,
+                        execute_at TEXT,
+                        token TEXT UNIQUE,
+                        token_used INTEGER NOT NULL DEFAULT 0,
+                        snoozed_at TEXT,
+                        snooze_duration TEXT,
+                        notified INTEGER NOT NULL DEFAULT 0,
+                        is_reentry INTEGER NOT NULL DEFAULT 0,
+                        delete_status TEXT NOT NULL DEFAULT 'pending',
+                        token_hash TEXT
+                    )
+                """)
+                c.execute("""
+                    INSERT INTO scheduled_actions_v28
+                        (id, media_item_id, action, scheduled_at, execute_at,
+                         token, token_used, snoozed_at, snooze_duration,
+                         notified, is_reentry, delete_status, token_hash)
+                    SELECT id, media_item_id, action, scheduled_at, execute_at,
+                           CASE WHEN token_hash IS NOT NULL AND token_hash != '' THEN NULL
+                                ELSE token END,
+                           token_used, snoozed_at, snooze_duration,
+                           notified, is_reentry, delete_status, token_hash
+                    FROM scheduled_actions
+                """)
+                c.execute("DROP TABLE scheduled_actions")
+                c.execute("ALTER TABLE scheduled_actions_v28 RENAME TO scheduled_actions")
+                c.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_scheduled_actions_media "
+                    "ON scheduled_actions(media_item_id)"
+                )
+                c.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_scheduled_actions_execute "
+                    "ON scheduled_actions(execute_at)"
+                )
+                c.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_scheduled_actions_token "
+                    "ON scheduled_actions(token)"
+                )
+                c.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_actions_token_hash "
+                    "ON scheduled_actions(token_hash) WHERE token_hash IS NOT NULL"
+                )
+            finally:
+                c.execute("PRAGMA foreign_keys=ON")
+
+        _run_migration(28, _v28)

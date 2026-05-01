@@ -84,6 +84,18 @@ def api_share_token(
     if not row:
         return JSONResponse({"ok": False, "error": "Recommendation not found"}, status_code=404)
 
+    # Finding 15: refuse to mint a public download token unless a stable
+    # TMDB identifier is present.  Without it the token is bound only to a
+    # title string which can be duplicated, re-used, or spoofed.
+    if not row["tmdb_id"]:
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": "Cannot generate share link — no TMDB identifier for this recommendation",
+            },
+            status_code=422,
+        )
+
     base_url = (get_string_setting(conn, "base_url") or "").rstrip("/")
     if not base_url:
         return JSONResponse(
