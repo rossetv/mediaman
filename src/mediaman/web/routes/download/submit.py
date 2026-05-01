@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import sqlite3
 from typing import TypedDict
-from urllib.parse import quote as _url_quote
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -102,19 +101,27 @@ def _submit_to_radarr(payload: DownloadPayload) -> JSONResponse:
     email = payload["email"]
     secret_key = payload["secret_key"]
 
+    if not tmdb_id:
+        # Finding 15: never resolve a public download link by title alone — an
+        # ambiguous or remade title can enqueue the wrong film.  Require a
+        # stable TMDB identifier; the token is released so a corrected link
+        # (with an identifier) can be issued.
+        _unmark_token_used(token)
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": (
+                    "Missing stable media identifier — this download link cannot "
+                    "be used.  Ask the admin to re-issue it with a TMDB ID."
+                ),
+            },
+            status_code=422,
+        )
+
     client = build_radarr_from_db(conn, secret_key)
     if not client:
         _unmark_token_used(token)
         return JSONResponse({"ok": False, "error": "Radarr not configured"}, status_code=503)
-
-    if not tmdb_id:
-        lookup = client.lookup_by_term(_url_quote(title), endpoint="/api/v3/movie/lookup")
-        if not lookup:
-            _unmark_token_used(token)
-            return JSONResponse(
-                {"ok": False, "error": f"'{title}' not found in Radarr"}, status_code=404
-            )
-        tmdb_id = lookup[0].get("tmdbId")
 
     client.add_movie(tmdb_id, title)
     logger.info(
@@ -147,15 +154,27 @@ def _submit_to_sonarr(payload: DownloadPayload) -> JSONResponse:
     email = payload["email"]
     secret_key = payload["secret_key"]
 
+    if not tmdb_id:
+        # Finding 15: refuse public Sonarr submissions without a stable TMDB
+        # identifier — title-only lookup_by_term can enqueue the wrong show.
+        _unmark_token_used(token)
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": (
+                    "Missing stable media identifier — this download link cannot "
+                    "be used.  Ask the admin to re-issue it with a TMDB ID."
+                ),
+            },
+            status_code=422,
+        )
+
     client = build_sonarr_from_db(conn, secret_key)
     if not client:
         _unmark_token_used(token)
         return JSONResponse({"ok": False, "error": "Sonarr not configured"}, status_code=503)
 
-    if tmdb_id:
-        results = client.lookup_by_tmdb_id(tmdb_id, endpoint="/api/v3/series/lookup")
-    else:
-        results = client.lookup_by_term(_url_quote(title), endpoint="/api/v3/series/lookup")
+    results = client.lookup_by_tmdb_id(tmdb_id, endpoint="/api/v3/series/lookup")
     if not results:
         _unmark_token_used(token)
         return JSONResponse(

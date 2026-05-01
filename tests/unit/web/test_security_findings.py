@@ -397,6 +397,62 @@ class TestFinding15MintRequiresTmdbId:
         assert resp.status_code != 422
 
 
+class TestFinding15NewsletterSkipsMintWithoutTmdb:
+    """Finding 15 (H-1): newsletter must skip redownload mint when no tmdb_id.
+
+    The previous code hardcoded ``tmdb_id=None`` for deleted items, producing
+    a public token whose submit fell back to ``lookup_by_term(title)``.  The
+    fix is to omit the redownload URL entirely when the deleted item carries
+    no stable identifier.  The template hides the button via
+    ``{% if item.redownload_url %}``.
+    """
+
+    def test_deleted_item_without_tmdb_has_empty_redownload_url(self):
+        from unittest.mock import MagicMock
+
+        from mediaman.services.mail.newsletter.recipients import _send_to_recipients
+
+        captured: dict = {}
+
+        class _FakeTemplate:
+            def render(self, **kwargs):
+                captured.update(kwargs)
+                return "<html></html>"
+
+        mailgun_stub = MagicMock()
+        mailgun_stub.send_message.return_value = True
+
+        deleted_no_tmdb = [{"title": "Ambiguous Title", "media_type": "movie"}]
+        deleted_with_tmdb = [{"title": "Specific Film", "media_type": "movie", "tmdb_id": 12345}]
+
+        _send_to_recipients(
+            recipient_emails=["dest@example.com"],
+            scheduled_items=[],
+            deleted_items=deleted_no_tmdb + deleted_with_tmdb,
+            this_week_items=[],
+            storage={"total_bytes": 0, "used_bytes": 0, "free_bytes": 0, "by_type": {}},
+            reclaimed_week=0,
+            reclaimed_month=0,
+            reclaimed_total=0,
+            subject="x",
+            base_url="https://mm.example.com",
+            secret_key=SECRET,
+            dry_run=False,
+            grace_days=7,
+            template=_FakeTemplate(),
+            mailgun=mailgun_stub,
+            report_date="2026-05-01",
+            conn=None,
+        )
+
+        rendered_deleted = captured["deleted_items"]
+        assert len(rendered_deleted) == 2
+        # No tmdb_id → no redownload link, regardless of base_url.
+        assert rendered_deleted[0]["redownload_url"] == ""
+        # With tmdb_id → token-bearing URL.
+        assert rendered_deleted[1]["redownload_url"].startswith("https://mm.example.com/download/")
+
+
 # ---------------------------------------------------------------------------
 # Finding 16: Keep token hash storage
 # ---------------------------------------------------------------------------
