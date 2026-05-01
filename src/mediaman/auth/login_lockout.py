@@ -26,6 +26,13 @@ Semantics
 * Lock state is **not** surfaced to the client — the caller returns
   the usual generic 401. Leaking lock state would let an attacker
   enumerate valid usernames.
+* Once an account is locked, subsequent failures still bump the counter
+  (so the 5/10/15 escalation remains reachable) but do NOT slide the
+  ``locked_until`` window forwards. Otherwise an unauthenticated
+  attacker can keep an admin permanently locked out by pinging the
+  login endpoint in a loop — denial of service against the operator.
+  An admin unlock path (``POST /api/users/{id}/unlock``) lets a fellow
+  admin clear the lock once they've reauthenticated.
 
 Concurrency
 -----------
@@ -215,24 +222,58 @@ def record_failure(conn: sqlite3.Connection, username: str) -> int | None:
                 (now_iso, username),
             )
 
-        # Apply the strictest threshold hit at this count. We refresh
-        # the lock on every failure at or above the 5-threshold so the
-        # window slides forward under sustained attack rather than
-        # sitting at a fixed "expires at 14:00" that an attacker can
-        # watch tick down.
+        # Apply the strictest threshold hit at this count.
+        #
+        # Window-extension policy:
+        #
+        # * If the account is NOT currently locked, slide the window
+        #   forward to ``now + minutes``. This is the original behaviour
+        #   that makes a sustained attack burn against an ever-fresh
+        #   timer.
+        # * If the account IS currently locked AND the new threshold is
+        #   STRICTER than the previous threshold this row was last
+        #   locked at (10-failure / 15-failure escalation), promote the
+        #   window. We compare *threshold band*, not *expiry timestamp*
+        #   — otherwise every additional sub-threshold failure would
+        #   slide the window forwards by a few microseconds and re-open
+        #   the M21 DoS.
+        # * If the account IS currently locked AND we're still in the
+        #   same severity band, leave ``locked_until`` alone. Otherwise
+        #   an unauthenticated attacker can keep an admin permanently
+        #   locked out by pinging the login endpoint forever (M21).
+        #
+        # The counter still climbs (so the 10 / 15 thresholds remain
+        # reachable) — we only refuse to slide an existing window
+        # forwards on bad attempts that don't escalate the severity.
         minutes = _window_for_count(count)
         if minutes is not None:
-            new_locked_until = _iso(now + timedelta(minutes=minutes))
-            conn.execute(
-                "UPDATE login_failures SET locked_until = ? WHERE username = ?",
-                (new_locked_until, username),
+            # Derive the previous threshold band from the count BEFORE
+            # this attempt, so the very first failure that crosses a
+            # threshold (5, 10, 15) is recognised as an escalation
+            # rather than a same-band re-lock.
+            previous_minutes = _window_for_count(count - 1)
+            should_promote = (
+                not currently_locked or previous_minutes is None or minutes > previous_minutes
             )
-            logger.warning(
-                "auth.account_locked user=%s count=%d minutes=%d",
-                username,
-                count,
-                minutes,
-            )
+            if should_promote:
+                conn.execute(
+                    "UPDATE login_failures SET locked_until = ? WHERE username = ?",
+                    (_iso(now + timedelta(minutes=minutes)), username),
+                )
+                logger.warning(
+                    "auth.account_locked user=%s count=%d minutes=%d",
+                    username,
+                    count,
+                    minutes,
+                )
+            else:
+                logger.info(
+                    "auth.lock_window_unchanged user=%s count=%d minutes=%d "
+                    "reason=already_locked_no_escalation",
+                    username,
+                    count,
+                    minutes,
+                )
         conn.execute("COMMIT")
         return minutes
     except Exception:
@@ -255,3 +296,25 @@ def record_success(conn: sqlite3.Connection, username: str) -> None:
         (username,),
     )
     conn.commit()
+
+
+def admin_unlock(conn: sqlite3.Connection, username: str) -> bool:
+    """Clear the failure counter and lock for *username*.
+
+    Returns True when there was an existing record to delete, False
+    when *username* was already unlocked (or never existed). Callers
+    can use the return value to decide whether to log a "no-op" event.
+
+    Does NOT commit — the caller commits inside the wider transaction
+    that records the audit row, so the unlock and audit land
+    atomically.
+    """
+    if not username:
+        return False
+    username = username.lower()
+    _ensure_table(conn)
+    cur = conn.execute(
+        "DELETE FROM login_failures WHERE username = ?",
+        (username,),
+    )
+    return (cur.rowcount or 0) > 0

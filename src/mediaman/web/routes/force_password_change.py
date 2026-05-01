@@ -30,7 +30,7 @@ from starlette.responses import Response
 from mediaman.audit import security_event
 from mediaman.auth.middleware import resolve_page_session
 from mediaman.auth.password_policy import password_issues, policy_summary
-from mediaman.auth.rate_limit import get_client_ip
+from mediaman.auth.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.auth.session import change_password
 from mediaman.db import get_db
 from mediaman.web.routes._helpers import set_session_cookie
@@ -38,6 +38,12 @@ from mediaman.web.routes._helpers import set_session_cookie
 logger = logging.getLogger("mediaman")
 
 router = APIRouter()
+
+# Per-actor cap on force-change attempts. The reauth-namespace lockout
+# inside change_password() throttles bcrypt-grade brute force. This cap is
+# a thin extra layer that slows down a stolen-session attacker enough that
+# the operator notices the audit-log noise first.
+_FORCE_CHANGE_LIMITER = ActionRateLimiter(max_in_window=5, window_seconds=60, max_per_day=20)
 
 
 def _resolve_session(request: Request) -> tuple[str, None] | tuple[None, RedirectResponse]:
@@ -102,6 +108,10 @@ def force_change_submit(
             },
         )
 
+    if not _FORCE_CHANGE_LIMITER.check(username):
+        logger.warning("force_password_change.throttled user=%s", username)
+        return _render(error="Too many attempts — wait a moment and try again.")
+
     if not old_password or not new_password:
         return _render(error="Please fill in every field.")
 
@@ -115,7 +125,15 @@ def force_change_submit(
         return _render(issues=issues)
 
     try:
-        ok = change_password(conn, username, old_password, new_password)
+        ok = change_password(
+            conn,
+            username,
+            old_password,
+            new_password,
+            audit_actor=username,
+            audit_ip=client_ip,
+            audit_event="password.force_changed",
+        )
     except ValueError:
         # Policy-enforced inside change_password — should be caught by
         # the earlier issues check, but belt-and-braces.
@@ -153,10 +171,4 @@ def force_change_submit(
     response = RedirectResponse("/", status_code=302)
     set_session_cookie(response, new_token, secure=is_request_secure(request))
     logger.info("force_password_change.ok user=%s ip=%s", username, client_ip)
-    security_event(
-        conn,
-        event="password.force_changed",
-        actor=username,
-        ip=client_ip,
-    )
     return response

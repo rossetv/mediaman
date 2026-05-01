@@ -6,10 +6,16 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from mediaman.auth.reauth import grant_recent_reauth
 from mediaman.auth.session import authenticate, create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
-from mediaman.web.routes.users import _USER_CREATE_LIMITER, _USER_MGMT_LIMITER
+from mediaman.web.routes.users import (
+    _PASSWORD_CHANGE_LIMITER,
+    _REAUTH_LIMITER,
+    _USER_CREATE_LIMITER,
+    _USER_MGMT_LIMITER,
+)
 from mediaman.web.routes.users import router as users_router
 
 
@@ -22,9 +28,18 @@ def _make_app(conn, secret_key: str) -> FastAPI:
     return app
 
 
-def _auth_client(app: FastAPI, conn) -> TestClient:
+def _auth_client(app: FastAPI, conn, *, with_reauth: bool = True) -> TestClient:
+    """Return a TestClient with a logged-in admin session.
+
+    When *with_reauth* is True (the default), a fresh recent-reauth
+    ticket is granted on the session so privilege-establishing
+    endpoints (admin creation, unlock) are allowed. Tests that exercise
+    the reauth gate itself pass ``with_reauth=False``.
+    """
     create_user(conn, "admin", "password1234", enforce_policy=False)
     token = create_session(conn, "admin")
+    if with_reauth:
+        grant_recent_reauth(conn, token, "admin")
     client = TestClient(app, raise_server_exceptions=True)
     client.cookies.set("session_token", token)
     return client
@@ -38,11 +53,21 @@ def _make_second_user(conn, username: str = "other") -> int:
 
 @pytest.fixture(autouse=True)
 def _clear_rate_limiter():
-    for lim in (_USER_MGMT_LIMITER, _USER_CREATE_LIMITER):
+    for lim in (
+        _USER_MGMT_LIMITER,
+        _USER_CREATE_LIMITER,
+        _REAUTH_LIMITER,
+        _PASSWORD_CHANGE_LIMITER,
+    ):
         lim._attempts.clear()
         lim._day_counts.clear()
     yield
-    for lim in (_USER_MGMT_LIMITER, _USER_CREATE_LIMITER):
+    for lim in (
+        _USER_MGMT_LIMITER,
+        _USER_CREATE_LIMITER,
+        _REAUTH_LIMITER,
+        _PASSWORD_CHANGE_LIMITER,
+    ):
         lim._attempts.clear()
         lim._day_counts.clear()
 

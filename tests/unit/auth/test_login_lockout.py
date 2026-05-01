@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from mediaman.auth.login_lockout import (
+    admin_unlock,
     check_lockout,
     record_failure,
     record_success,
@@ -354,3 +355,112 @@ class TestAuthenticateRecordFailuresFlag:
             ("alice",),
         ).fetchone()
         assert row is None
+
+
+class TestNoExtendWhileLocked:
+    """M21: while an account is locked, sub-threshold failures must not
+    slide ``locked_until`` forwards.
+
+    Otherwise an unauthenticated attacker keeps the legitimate user
+    locked out indefinitely by pinging the login endpoint forever.
+    """
+
+    def test_locked_window_not_extended_by_same_threshold_failure(self, conn):
+        """Attempts 6, 7, 8, 9 (still in the 5-9 band) must not refresh
+        the 15-minute lock window."""
+        # Trip the 5-failure / 15-minute lock.
+        for _ in range(5):
+            record_failure(conn, "alice")
+        original_until = conn.execute(
+            "SELECT locked_until FROM login_failures WHERE username = ?",
+            ("alice",),
+        ).fetchone()["locked_until"]
+
+        # Pound the endpoint 4 more times — count goes 6→7→8→9 but the
+        # window remains in the same severity band, so the locked_until
+        # stamp must not move forwards.
+        for _ in range(4):
+            record_failure(conn, "alice")
+        new_until = conn.execute(
+            "SELECT locked_until, failure_count FROM login_failures WHERE username = ?",
+            ("alice",),
+        ).fetchone()
+        assert new_until["failure_count"] == 9
+        assert new_until["locked_until"] == original_until
+
+    def test_locked_account_still_blocks_correct_password(self, conn):
+        """Existing semantics preserved — a locked account refuses even
+        the correct password (M21 fix only stops the WINDOW being
+        extended, not the lock being effective)."""
+        create_user(conn, "alice", "correct-password-99", enforce_policy=False)
+        for _ in range(5):
+            authenticate(conn, "alice", "wrong")
+        assert authenticate(conn, "alice", "correct-password-99") is False
+
+    def test_escalation_still_extends_window(self, conn):
+        """When the 10th and 15th failures cross to a STRICTER window,
+        ``locked_until`` MUST be promoted — otherwise the escalation is
+        unreachable."""
+        for _ in range(5):
+            record_failure(conn, "alice")
+        fifteen_min_until = datetime.fromisoformat(
+            conn.execute(
+                "SELECT locked_until FROM login_failures WHERE username = ?",
+                ("alice",),
+            ).fetchone()["locked_until"]
+        )
+
+        # Cross the 10-failure threshold → 1 h window must replace the
+        # 15-minute one.
+        for _ in range(5):
+            record_failure(conn, "alice")
+        sixty_min_until = datetime.fromisoformat(
+            conn.execute(
+                "SELECT locked_until FROM login_failures WHERE username = ?",
+                ("alice",),
+            ).fetchone()["locked_until"]
+        )
+        assert sixty_min_until > fifteen_min_until
+
+
+class TestAdminUnlock:
+    """The admin-unlock helper clears the failure counter and the lock."""
+
+    def test_unlock_clears_an_existing_lock(self, conn):
+        for _ in range(5):
+            record_failure(conn, "alice")
+        assert check_lockout(conn, "alice") is True
+
+        cleared = admin_unlock(conn, "alice")
+        conn.commit()  # admin_unlock leaves commit to caller for tx control
+        assert cleared is True
+        assert check_lockout(conn, "alice") is False
+        row = conn.execute(
+            "SELECT * FROM login_failures WHERE username = ?",
+            ("alice",),
+        ).fetchone()
+        assert row is None
+
+    def test_unlock_returns_false_when_no_record(self, conn):
+        cleared = admin_unlock(conn, "alice")
+        conn.commit()
+        assert cleared is False
+
+    def test_unlock_normalises_case(self, conn):
+        """admin_unlock matches lockout's lowercase normalisation."""
+        for _ in range(5):
+            record_failure(conn, "Alice")  # stored as "alice"
+
+        cleared = admin_unlock(conn, "ALICE")
+        conn.commit()
+        assert cleared is True
+
+    def test_unlock_does_not_commit(self, conn):
+        """Caller owns the transaction so unlock + audit land atomically."""
+        for _ in range(5):
+            record_failure(conn, "alice")
+        admin_unlock(conn, "alice")
+        # Roll back — the unlock must not have been auto-committed.
+        conn.rollback()
+        # The lock should still be in place because admin_unlock didn't commit.
+        assert check_lockout(conn, "alice") is True
