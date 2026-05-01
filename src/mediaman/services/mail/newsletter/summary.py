@@ -26,6 +26,15 @@ def _load_deleted_items(
     Items that were re-downloaded after their deletion timestamp are silently
     excluded so the newsletter doesn't ask subscribers to re-download content
     that has already been replaced.
+
+    NB: each item dict currently does NOT include ``tmdb_id`` because the
+    ``media_items`` schema has no such column.  Combined with finding 15's
+    rule that newsletter re-download tokens require a stable identifier,
+    this means every recipient's "Re-Download" button is hidden in the
+    rendered email.  The proper fix is tombstone metadata (capture the
+    Radarr/Sonarr-resolved TMDB id at delete time and store it on the
+    audit_log row, or backfill ``media_items.tmdb_id`` via the scanner)
+    — out of scope for the security fix.
     """
     week_ago = (now - timedelta(days=7)).isoformat()
     deleted_rows = conn.execute(
