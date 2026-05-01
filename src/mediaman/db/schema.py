@@ -13,11 +13,11 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger("mediaman")
 
-DB_SCHEMA_VERSION = 22
+DB_SCHEMA_VERSION = 26
 
-assert DB_SCHEMA_VERSION == 22, (
+assert DB_SCHEMA_VERSION == 26, (
     f"DB_SCHEMA_VERSION is {DB_SCHEMA_VERSION} but the highest migration "
-    "block is 22 — update one of them."
+    "block is 26 — update one of them."
 )
 
 _SCHEMA = """
@@ -658,3 +658,119 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
                 )
 
         _run_migration(22, _v22)
+
+    if current_version < 23:
+
+        def _v23(c: sqlite3.Connection) -> None:
+            """Persist consumed download token hashes (finding 2).
+
+            The original implementation cached consumed tokens in an
+            in-process dict, so a process restart — or a sibling worker —
+            would happily accept the same one-shot link a second time.
+            Persist the hash to SQLite under a unique constraint so the
+            DB insert itself becomes the authoritative claim, mirroring
+            ``keep_tokens_used`` (migration 18).
+            """
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS used_download_tokens (
+                    token_hash TEXT PRIMARY KEY,
+                    expires_at TEXT NOT NULL,
+                    used_at TEXT NOT NULL
+                )
+            """)
+            c.execute(
+                "CREATE INDEX IF NOT EXISTS idx_used_download_tokens_expires "
+                "ON used_download_tokens(expires_at)"
+            )
+
+        _run_migration(23, _v23)
+
+    if current_version < 24:
+
+        def _v24(c: sqlite3.Connection) -> None:
+            """Replace the fixed stale-job timeout with a heartbeat/lease.
+
+            Long-running scan or refresh jobs that exceed the old fixed
+            two-hour cutoff would silently appear "stale" while still
+            running, letting a second worker start an overlapping job.
+            Add an ``owner_id`` and ``heartbeat_at`` column to
+            ``scan_runs`` and ``refresh_runs`` so the running worker can
+            renew its lease and stale detection only fires when the
+            heartbeat genuinely lapses.
+            """
+            for table in ("scan_runs", "refresh_runs"):
+                has_table = (
+                    c.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                        (table,),
+                    ).fetchone()
+                    is not None
+                )
+                if not has_table:
+                    continue
+                cols = {row[1] for row in c.execute(f"PRAGMA table_info({table})").fetchall()}  # noqa: S608 — table name from a fixed allow-list
+                if "owner_id" not in cols:
+                    c.execute(f"ALTER TABLE {table} ADD COLUMN owner_id TEXT")  # noqa: S608
+                if "heartbeat_at" not in cols:
+                    c.execute(f"ALTER TABLE {table} ADD COLUMN heartbeat_at TEXT")  # noqa: S608
+
+        _run_migration(24, _v24)
+
+    if current_version < 25:
+
+        def _v25(c: sqlite3.Connection) -> None:
+            """Prevent duplicate active scheduled deletions per item (finding 9).
+
+            A partial unique index on ``scheduled_actions`` ensures that
+            only one un-consumed pending deletion can exist for a given
+            ``media_item_id`` at a time. Two concurrent scan engines
+            racing the existing ``is_already_scheduled`` check would
+            otherwise both insert a row.
+            """
+            has_actions_table = (
+                c.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='scheduled_actions'"
+                ).fetchone()
+                is not None
+            )
+            if not has_actions_table:
+                return
+            c.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS "
+                "idx_scheduled_actions_unique_active_deletion "
+                "ON scheduled_actions(media_item_id) "
+                "WHERE action='scheduled_deletion' "
+                "  AND token_used=0 "
+                "  AND (delete_status IS NULL OR delete_status='pending')"
+            )
+
+        _run_migration(25, _v25)
+
+    if current_version < 26:
+
+        def _v26(c: sqlite3.Connection) -> None:
+            """Track newsletter delivery per recipient (finding 23).
+
+            The legacy newsletter flagged a scheduled item as notified
+            after the first successful Mailgun call, so a partial-failure
+            run silently dropped notifications for any later recipient.
+            Record one row per (scheduled_action, subscriber) and only
+            mark the action as notified once every recipient has either
+            been delivered to or recorded its error.
+            """
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS newsletter_deliveries (
+                    scheduled_action_id INTEGER NOT NULL,
+                    recipient TEXT NOT NULL,
+                    sent_at TEXT,
+                    error TEXT,
+                    attempted_at TEXT NOT NULL,
+                    PRIMARY KEY (scheduled_action_id, recipient)
+                )
+            """)
+            c.execute(
+                "CREATE INDEX IF NOT EXISTS idx_newsletter_deliveries_action "
+                "ON newsletter_deliveries(scheduled_action_id)"
+            )
+
+        _run_migration(26, _v26)

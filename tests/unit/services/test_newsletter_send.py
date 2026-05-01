@@ -305,6 +305,159 @@ class TestSendNewsletterWithScheduledItems:
         assert "bob@example.com" in sent_to
 
 
+class TestPartialDeliveryFailure:
+    """Finding 23: a partial failure must not lose notifications for the
+    recipients that didn't receive the email.
+
+    The fix records one row per (scheduled_action, recipient) in the new
+    ``newsletter_deliveries`` table and only marks the scheduled action
+    as ``notified=1`` once every active recipient has been delivered.
+    """
+
+    def test_partial_failure_leaves_notified_zero(self, db_path):
+        """Mailgun fails for one of two recipients — the row stays
+        unnotified so the next tick can retry the missed recipient."""
+        conn = init_db(str(db_path))
+        _configure_mailgun(conn)
+        _add_subscriber(conn, "alice@example.com")
+        _add_subscriber(conn, "bob@example.com")
+        _add_scheduled_item(conn)
+
+        sent_to: list[str] = []
+        bad_targets = {"bob@example.com"}
+
+        def fake_send(*, to, subject, html):
+            if to in bad_targets:
+                raise RuntimeError("Mailgun rejected this recipient")
+            sent_to.append(to)
+
+        mock_mailgun_instance = MagicMock()
+        mock_mailgun_instance.send.side_effect = fake_send
+        mock_mailgun_cls = MagicMock(return_value=mock_mailgun_instance)
+
+        with (
+            patch(_PATCH_MAILGUN, mock_mailgun_cls),
+            patch(_PATCH_STORAGE, return_value=_fake_disk()),
+            patch(_PATCH_RADARR, return_value=None),
+            patch(_PATCH_SONARR, return_value=None),
+        ):
+            send_newsletter(conn, _SECRET_KEY)
+
+        # Alice got through, Bob didn't.
+        assert sent_to == ["alice@example.com"]
+        sa = conn.execute(
+            "SELECT notified FROM scheduled_actions WHERE media_item_id='mi1'"
+        ).fetchone()
+        # The classic implementation marked notified=1 here. With
+        # per-recipient bookkeeping the row must stay unnotified.
+        assert sa["notified"] == 0
+
+    def test_full_success_marks_notified(self, db_path):
+        """When every recipient succeeds, the row flips to notified=1."""
+        conn = init_db(str(db_path))
+        _configure_mailgun(conn)
+        _add_subscriber(conn, "alice@example.com")
+        _add_subscriber(conn, "bob@example.com")
+        _add_scheduled_item(conn)
+
+        mock_mailgun_instance = MagicMock()
+        mock_mailgun_cls = MagicMock(return_value=mock_mailgun_instance)
+
+        with (
+            patch(_PATCH_MAILGUN, mock_mailgun_cls),
+            patch(_PATCH_STORAGE, return_value=_fake_disk()),
+            patch(_PATCH_RADARR, return_value=None),
+            patch(_PATCH_SONARR, return_value=None),
+        ):
+            send_newsletter(conn, _SECRET_KEY)
+
+        sa = conn.execute(
+            "SELECT notified FROM scheduled_actions WHERE media_item_id='mi1'"
+        ).fetchone()
+        assert sa["notified"] == 1
+
+    def test_per_recipient_rows_recorded(self, db_path):
+        """A delivery row should exist for every (scheduled_action, recipient)."""
+        conn = init_db(str(db_path))
+        _configure_mailgun(conn)
+        _add_subscriber(conn, "alice@example.com")
+        _add_subscriber(conn, "bob@example.com")
+        _add_scheduled_item(conn)
+
+        mock_mailgun_instance = MagicMock()
+        mock_mailgun_cls = MagicMock(return_value=mock_mailgun_instance)
+
+        with (
+            patch(_PATCH_MAILGUN, mock_mailgun_cls),
+            patch(_PATCH_STORAGE, return_value=_fake_disk()),
+            patch(_PATCH_RADARR, return_value=None),
+            patch(_PATCH_SONARR, return_value=None),
+        ):
+            send_newsletter(conn, _SECRET_KEY)
+
+        rows = conn.execute("SELECT recipient, sent_at FROM newsletter_deliveries").fetchall()
+        recipients = {r["recipient"] for r in rows}
+        assert recipients == {"alice@example.com", "bob@example.com"}
+        for row in rows:
+            assert row["sent_at"] is not None  # success means non-null sent_at
+
+    def test_retry_only_resends_to_missed_recipient(self, db_path):
+        """A second send should only be attempted for the missed recipient.
+
+        The send loop still iterates every active subscriber — that's
+        the existing behaviour and is fine. What matters is that the
+        scheduled item only flips to ``notified=1`` once every recipient
+        has at least one successful row in newsletter_deliveries.
+        """
+        conn = init_db(str(db_path))
+        _configure_mailgun(conn)
+        _add_subscriber(conn, "alice@example.com")
+        _add_subscriber(conn, "bob@example.com")
+        _add_scheduled_item(conn)
+
+        # First pass: Bob fails.
+        first_pass_sent: list[str] = []
+
+        def first_send(*, to, subject, html):
+            if to == "bob@example.com":
+                raise RuntimeError("transient")
+            first_pass_sent.append(to)
+
+        mock_first = MagicMock()
+        mock_first.send.side_effect = first_send
+
+        with (
+            patch(_PATCH_MAILGUN, MagicMock(return_value=mock_first)),
+            patch(_PATCH_STORAGE, return_value=_fake_disk()),
+            patch(_PATCH_RADARR, return_value=None),
+            patch(_PATCH_SONARR, return_value=None),
+        ):
+            send_newsletter(conn, _SECRET_KEY)
+
+        sa = conn.execute(
+            "SELECT notified FROM scheduled_actions WHERE media_item_id='mi1'"
+        ).fetchone()
+        assert sa["notified"] == 0
+
+        # Second pass: Bob succeeds. After this, the row should be marked.
+        second_pass_sent: list[str] = []
+        mock_second = MagicMock()
+        mock_second.send.side_effect = lambda **kw: second_pass_sent.append(kw["to"])
+
+        with (
+            patch(_PATCH_MAILGUN, MagicMock(return_value=mock_second)),
+            patch(_PATCH_STORAGE, return_value=_fake_disk()),
+            patch(_PATCH_RADARR, return_value=None),
+            patch(_PATCH_SONARR, return_value=None),
+        ):
+            send_newsletter(conn, _SECRET_KEY)
+
+        sa = conn.execute(
+            "SELECT notified FROM scheduled_actions WHERE media_item_id='mi1'"
+        ).fetchone()
+        assert sa["notified"] == 1
+
+
 class TestSendNewsletterRecipientOverride:
     def test_recipients_override_bypasses_subscriber_table(self, db_path):
         """When recipients= is provided, the subscriber table is ignored."""

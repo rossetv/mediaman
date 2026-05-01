@@ -113,10 +113,16 @@ def close_db() -> None:
             _thread_local.conn = None
 
 
-_JOB_SANITY_TIMEOUT_HOURS = 2
+# Heartbeat lease (finding 9): a running job renews its ``heartbeat_at``
+# column at least once per :data:`_JOB_HEARTBEAT_INTERVAL_SECONDS`. A row
+# whose heartbeat (or, for legacy rows that pre-date migration 24, whose
+# ``started_at``) is older than :data:`_JOB_HEARTBEAT_STALE_SECONDS` is
+# considered crashed and no longer blocks new runs.
+_JOB_HEARTBEAT_INTERVAL_SECONDS = 60
+_JOB_HEARTBEAT_STALE_SECONDS = 5 * 60
 
-# Allow-list of job-run table names. Used to guard the three internal
-# helpers below so a future caller cannot accidentally interpolate
+# Allow-list of job-run table names. Used to guard the internal helpers
+# below so a future caller cannot accidentally interpolate
 # attacker-controlled strings into the f-strings (B608 false positive).
 _JOB_RUN_TABLES = frozenset({"scan_runs", "refresh_runs"})
 
@@ -126,19 +132,50 @@ def _check_job_table(table: str) -> None:
         raise ValueError(f"Unknown job-run table: {table!r}")
 
 
+def _job_owner_id() -> str:
+    """Return a per-process id used to attribute job-run rows.
+
+    Uses the OS PID — strictly informational; we never compare owners
+    when deciding whether to start a new run because the heartbeat is
+    already an unforgeable liveness signal.
+    """
+    import os
+    import socket as _sock
+
+    try:
+        host = _sock.gethostname()
+    except Exception:
+        host = "unknown"
+    return f"{host}:{os.getpid()}"
+
+
 def _is_job_running(conn: sqlite3.Connection, table: str) -> bool:
-    """Return True if a run row for *table* is still active."""
+    """Return True if a run row for *table* still has a live heartbeat.
+
+    A row counts as alive when ``finished_at`` is unset and the most
+    recent of ``heartbeat_at`` / ``started_at`` is within the stale
+    window. Rows whose heartbeat (or started_at, for legacy entries)
+    has lapsed are treated as crashed so a new run can start cleanly.
+    """
     _check_job_table(table)
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=_JOB_SANITY_TIMEOUT_HOURS)).isoformat()
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(seconds=_JOB_HEARTBEAT_STALE_SECONDS)
+    ).isoformat()
     row = conn.execute(
-        f"SELECT id FROM {table} WHERE finished_at IS NULL AND started_at > ? LIMIT 1",
+        f"SELECT id FROM {table} "  # noqa: S608 — table name from a fixed allow-list
+        "WHERE finished_at IS NULL "
+        "  AND COALESCE(heartbeat_at, started_at) > ? LIMIT 1",
         (cutoff,),
     ).fetchone()
     return row is not None
 
 
 def _start_job_run(conn: sqlite3.Connection, table: str) -> int | None:
-    """Insert a new 'running' row in *table* and return its id."""
+    """Insert a new 'running' row in *table* and return its id.
+
+    Stamps ``owner_id`` and ``heartbeat_at`` so subsequent
+    :func:`heartbeat_job_run` calls keep the row visible as live.
+    """
     _check_job_table(table)
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -146,9 +183,12 @@ def _start_job_run(conn: sqlite3.Connection, table: str) -> int | None:
             conn.execute("ROLLBACK")
             return None
         now = now_iso()
+        owner = _job_owner_id()
         cursor = conn.execute(
-            f"INSERT INTO {table} (started_at, status) VALUES (?, 'running')",
-            (now,),
+            f"INSERT INTO {table} "  # noqa: S608 — table name from a fixed allow-list
+            "(started_at, status, owner_id, heartbeat_at) "
+            "VALUES (?, 'running', ?, ?)",
+            (now, owner, now),
         )
         run_id = cursor.lastrowid
         conn.execute("COMMIT")
@@ -172,10 +212,31 @@ def _finish_job_run(
     _check_job_table(table)
     now = now_iso()
     conn.execute(
-        f"UPDATE {table} SET finished_at=?, status=?, error=? WHERE id=?",
-        (now, status, error, run_id),
+        f"UPDATE {table} SET finished_at=?, status=?, error=?, heartbeat_at=? "  # noqa: S608 — table name from a fixed allow-list
+        "WHERE id=?",
+        (now, status, error, now, run_id),
     )
     conn.commit()
+
+
+def _heartbeat_job_run(conn: sqlite3.Connection, table: str, run_id: int) -> None:
+    """Stamp ``heartbeat_at`` for *run_id* with the current UTC time.
+
+    Long-running scans should call this periodically (every minute is
+    enough — see :data:`_JOB_HEARTBEAT_INTERVAL_SECONDS`) so a sibling
+    invocation does not mistake the run for crashed and start an
+    overlapping job. Best-effort: a transient lock failure is logged
+    but not propagated.
+    """
+    _check_job_table(table)
+    try:
+        conn.execute(
+            f"UPDATE {table} SET heartbeat_at=? WHERE id=? AND finished_at IS NULL",  # noqa: S608 — table name from a fixed allow-list
+            (now_iso(), run_id),
+        )
+        conn.commit()
+    except Exception:
+        logger.warning("job heartbeat failed table=%s id=%s", table, run_id, exc_info=True)
 
 
 def is_scan_running(conn: sqlite3.Connection) -> bool:
@@ -198,6 +259,11 @@ def finish_scan_run(
     _finish_job_run(conn, "scan_runs", run_id, status, error)
 
 
+def heartbeat_scan_run(conn: sqlite3.Connection, run_id: int) -> None:
+    """Renew a scan run's heartbeat so the lease stays live."""
+    _heartbeat_job_run(conn, "scan_runs", run_id)
+
+
 def is_refresh_running(conn: sqlite3.Connection) -> bool:
     """Return True if a recommendation-refresh job is currently active."""
     return _is_job_running(conn, "refresh_runs")
@@ -216,3 +282,8 @@ def finish_refresh_run(
 ) -> None:
     """Complete a refresh run row."""
     _finish_job_run(conn, "refresh_runs", run_id, status, error)
+
+
+def heartbeat_refresh_run(conn: sqlite3.Connection, run_id: int) -> None:
+    """Renew a refresh run's heartbeat so the lease stays live."""
+    _heartbeat_job_run(conn, "refresh_runs", run_id)

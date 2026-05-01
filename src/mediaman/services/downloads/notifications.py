@@ -61,12 +61,81 @@ def _sonarr_has_files(client, *, tvdb_id: int | None, tmdb_id: int | None) -> bo
     return False
 
 
+def _claim_pending_notifications(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Atomically claim every un-notified notification row.
+
+    Uses ``UPDATE ... WHERE notified=0 RETURNING`` so a sibling worker
+    (or a re-entrant scheduler tick — finding 22) cannot pick up the
+    same row a second time. SQLite has supported the RETURNING clause
+    since 3.35, which is comfortably older than the project's
+    ``sqlite3`` floor.
+
+    Returns the claimed rows in the same shape the previous SELECT
+    returned, so the caller's row-handling code stays unchanged. On a
+    SQLite build without RETURNING we fall back to the old
+    SELECT-then-UPDATE flow inside an IMMEDIATE transaction so the
+    write lock blocks any concurrent claim.
+    """
+    try:
+        rows = conn.execute(
+            "UPDATE download_notifications SET notified=2 "
+            "WHERE notified=0 "
+            "RETURNING id, email, title, media_type, tmdb_id, tvdb_id, service"
+        ).fetchall()
+        conn.commit()
+        return rows
+    except sqlite3.OperationalError:
+        # Older SQLite without RETURNING — fall back to lock-then-claim.
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            rows = conn.execute(
+                "SELECT id, email, title, media_type, tmdb_id, tvdb_id, service "
+                "FROM download_notifications WHERE notified=0"
+            ).fetchall()
+            if rows:
+                ids = [r["id"] for r in rows]
+                placeholders = ",".join("?" * len(ids))
+                conn.execute(
+                    f"UPDATE download_notifications SET notified=2 WHERE id IN ({placeholders})",  # noqa: S608 — placeholders are ? only
+                    ids,
+                )
+            conn.execute("COMMIT")
+            return rows
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            raise
+
+
+def _release_claim(conn: sqlite3.Connection, row_id: int) -> None:
+    """Roll a claimed row back to ``notified=0`` so a future tick can retry.
+
+    Used when the early-bail conditions inside :func:`check_download_notifications`
+    fail (e.g. Mailgun later turns out to be unreachable for a specific
+    item) — without this the row would stay stuck at ``notified=2``
+    indefinitely.
+    """
+    try:
+        conn.execute(
+            "UPDATE download_notifications SET notified=0 WHERE id=?",
+            (row_id,),
+        )
+        conn.commit()
+    except Exception:
+        logger.warning("failed to release notification claim id=%s", row_id, exc_info=True)
+
+
 def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> None:
     """Send completion emails for downloads that are now available in Plex.
 
-    Queries ``download_notifications`` for un-notified rows, checks whether
-    the item now has a file in Radarr/Sonarr, and sends a simple email via
-    Mailgun if so.  Marks the row as notified=1 to prevent duplicate sends.
+    Queries ``download_notifications`` for un-notified rows, claims them
+    atomically (finding 22), checks whether the item now has a file in
+    Radarr/Sonarr, and sends a simple email via Mailgun if so. Marks the
+    row as ``notified=1`` after a successful send; rolls back to 0 if
+    the item isn't actually ready yet so a future scheduler tick can
+    retry.
 
     This is designed to be called from the library sync job so it runs
     frequently enough that users get a timely notification.
@@ -77,19 +146,21 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
     from mediaman.services.infra.settings_reader import get_string_setting
     from mediaman.services.mail.mailgun import MailgunClient
 
-    pending = conn.execute(
-        "SELECT id, email, title, media_type, tmdb_id, tvdb_id, service "
-        "FROM download_notifications WHERE notified=0"
-    ).fetchall()
+    pending = _claim_pending_notifications(conn)
     if not pending:
         return
 
-    # Build Mailgun client — bail early if not configured
+    # Build Mailgun client — bail early if not configured. Release the
+    # claim on every pending row first so a future tick can retry once
+    # Mailgun is wired up. Without this every row would be stuck at
+    # ``notified=2`` until an operator notices.
     mailgun_domain = get_string_setting(conn, "mailgun_domain", secret_key=secret_key)
     mailgun_key = get_string_setting(conn, "mailgun_api_key", secret_key=secret_key)
     mailgun_from = get_string_setting(conn, "mailgun_from_address", secret_key=secret_key)
     if not mailgun_domain or not mailgun_key:
         logger.debug("Download notifications skipped — Mailgun not configured")
+        for row in pending:
+            _release_claim(conn, row["id"])
         return
     mailgun = MailgunClient(mailgun_domain, mailgun_key, mailgun_from)
 
@@ -130,6 +201,9 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
                     ready = _sonarr_has_files(client, tvdb_id=tvdb_id, tmdb_id=tmdb_id)
 
             if not ready:
+                # Item still downloading — release the claim so the next
+                # tick of the scheduler can re-evaluate it.
+                _release_claim(conn, row_id)
                 continue
 
             # Gather rich metadata for the email
@@ -210,3 +284,7 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
             logger.exception(
                 "Failed to process download notification id=%s for '%s'", row_id, title
             )
+            # Release the claim so a later scheduler tick can retry —
+            # otherwise a transient Mailgun outage strands the row at
+            # ``notified=2`` forever.
+            _release_claim(conn, row_id)

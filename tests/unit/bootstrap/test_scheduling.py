@@ -8,7 +8,12 @@ The module is mostly wiring/glue, so we test:
 
 import pytest
 
-from mediaman.bootstrap.scheduling import _validate_scan_time
+from mediaman.bootstrap.scheduling import (
+    _validate_scan_day,
+    _validate_scan_time,
+    _validate_scan_timezone,
+    _validate_sync_interval,
+)
 
 # ---------------------------------------------------------------------------
 # _validate_scan_time
@@ -152,3 +157,68 @@ class TestBootstrapScheduling:
         # Invalid scan_time must not blow up the app — bootstrap catches it and returns False.
         result = bootstrap_scheduling(app, self._make_config())
         assert result is False
+
+
+# ---------------------------------------------------------------------------
+# Finding 10: scheduler-setting validators
+# ---------------------------------------------------------------------------
+
+
+class TestValidateScanDay:
+    def test_accepts_single_day(self):
+        assert _validate_scan_day("mon") == "mon"
+
+    def test_accepts_comma_list(self):
+        assert _validate_scan_day("mon,wed,fri") == "mon,wed,fri"
+
+    def test_normalises_case_and_whitespace(self):
+        assert _validate_scan_day(" Mon , WED ") == "mon,wed"
+
+    def test_rejects_empty(self):
+        with pytest.raises(ValueError):
+            _validate_scan_day("")
+
+    def test_rejects_unknown_token(self):
+        with pytest.raises(ValueError, match="weekday token"):
+            _validate_scan_day("moonday")
+
+    def test_rejects_partial_match(self):
+        with pytest.raises(ValueError):
+            _validate_scan_day("mon,xyz,wed")
+
+
+class TestValidateScanTimezone:
+    def test_accepts_utc(self):
+        assert _validate_scan_timezone("UTC") == "UTC"
+
+    def test_accepts_iana(self):
+        assert _validate_scan_timezone("Europe/London") == "Europe/London"
+
+    def test_rejects_empty(self):
+        with pytest.raises(ValueError):
+            _validate_scan_timezone("")
+
+    def test_rejects_made_up(self):
+        with pytest.raises(ValueError):
+            _validate_scan_timezone("Mars/Olympus")
+
+
+class TestValidateSyncInterval:
+    def test_accepts_positive_int(self):
+        assert _validate_sync_interval("30") == 30
+
+    def test_rejects_zero(self):
+        with pytest.raises(ValueError):
+            _validate_sync_interval("0")
+
+    def test_rejects_negative(self):
+        with pytest.raises(ValueError):
+            _validate_sync_interval("-5")
+
+    def test_rejects_garbage(self):
+        with pytest.raises(ValueError):
+            _validate_sync_interval("nope")
+
+    def test_rejects_over_24_hours(self):
+        with pytest.raises(ValueError):
+            _validate_sync_interval("1500")

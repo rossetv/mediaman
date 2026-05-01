@@ -269,6 +269,116 @@ class TestSonarrSeriesMatching:
         assert row["notified"] == 0
         assert not sent
 
+    def test_concurrent_check_does_not_double_send(self, tmp_path, monkeypatch):
+        """Finding 22: a second pass while the first is still working
+        must not pick up the same row.
+
+        Simulates a scheduler tick that re-enters before the previous
+        tick has finished by manually claiming the row first, then
+        running ``check_download_notifications``: nothing should be
+        sent because all rows are already claimed.
+        """
+        from datetime import datetime, timezone
+        from unittest.mock import MagicMock
+
+        from mediaman.db import init_db
+        from mediaman.services.downloads.notifications import (
+            _claim_pending_notifications,
+            check_download_notifications,
+        )
+
+        conn = init_db(str(tmp_path / "mm.db"))
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) "
+            "VALUES ('mailgun_domain', 'test.example.com', 0, ?)",
+            (now,),
+        )
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) "
+            "VALUES ('mailgun_api_key', 'dummy-key', 0, ?)",
+            (now,),
+        )
+        conn.execute(
+            "INSERT INTO download_notifications "
+            "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+            ("user@example.com", "Item", "movie", 1, None, "radarr", now),
+        )
+        conn.commit()
+
+        # Worker A claims the row first.
+        claimed = _claim_pending_notifications(conn)
+        assert len(claimed) == 1
+
+        # Worker B then runs — must find nothing to do.
+        sent_calls: list[dict] = []
+        mailgun_stub = MagicMock()
+        mailgun_stub.send.side_effect = lambda to, subject, html: sent_calls.append(
+            {"to": to, "subject": subject}
+        )
+        monkeypatch.setattr(
+            "mediaman.services.mail.mailgun.MailgunClient",
+            lambda *a, **kw: mailgun_stub,
+        )
+        check_download_notifications(conn, secret_key="x" * 64)
+        assert sent_calls == []
+
+    def test_claim_then_release_allows_retry(self, tmp_path):
+        """Releasing a claim must roll the row back to notified=0."""
+        from datetime import datetime, timezone
+
+        from mediaman.db import init_db
+        from mediaman.services.downloads.notifications import (
+            _claim_pending_notifications,
+            _release_claim,
+        )
+
+        conn = init_db(str(tmp_path / "mm.db"))
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO download_notifications "
+            "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+            ("user@example.com", "Item", "movie", 1, None, "radarr", now),
+        )
+        conn.commit()
+
+        rows = _claim_pending_notifications(conn)
+        assert len(rows) == 1
+        _release_claim(conn, rows[0]["id"])
+
+        # Visible to a follow-up claim again.
+        rows2 = _claim_pending_notifications(conn)
+        assert len(rows2) == 1
+
+    def test_mailgun_failure_releases_claim(self, tmp_path, monkeypatch):
+        """A Mailgun-misconfigured run must release every claim it took."""
+        from datetime import datetime, timezone
+
+        from mediaman.db import init_db
+        from mediaman.services.downloads.notifications import (
+            check_download_notifications,
+        )
+
+        conn = init_db(str(tmp_path / "mm.db"))
+        now = datetime.now(timezone.utc).isoformat()
+        # No Mailgun config at all — settings table empty.
+        conn.execute(
+            "INSERT INTO download_notifications "
+            "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+            ("user@example.com", "Item", "movie", 1, None, "radarr", now),
+        )
+        conn.commit()
+
+        check_download_notifications(conn, secret_key="x" * 64)
+
+        row = conn.execute("SELECT notified FROM download_notifications").fetchone()
+        # Row must be returned to notified=0 so a future tick (after
+        # Mailgun is configured) can pick it up.
+        assert row["notified"] == 0
+
     def test_v11_migration_moves_sonarr_ids_to_tvdb_column(self, tmp_path):
         """Existing sonarr rows had TVDB ids mis-stored in tmdb_id.
 
