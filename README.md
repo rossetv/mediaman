@@ -41,8 +41,9 @@ All integration credentials are stored **encrypted at rest** (AES-256-GCM, key d
    python -c "import secrets; print(secrets.token_hex(32))"
    ```
 3. Set the media path in `docker-compose.yml` — find the line with `/path/to/your/media` and replace it with the actual path on your host. The default mount is **read-only** (`:ro`); only add `:rw` for roots listed in `MEDIAMAN_DELETE_ROOTS`.
-4. Start:
+4. Create the data directory owned by uid 1000 (the mediaman container user), then start:
    ```
+   mkdir -p data && chown 1000:1000 data
    docker compose up -d
    ```
 5. Create the first admin user:
@@ -104,6 +105,38 @@ See `.env.example` for a starter file.
 - The token blacklist for download links is in-process memory only; do not run multiple workers (see the Running section above).
 
 Report security issues privately via [GitHub's private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability) — please do not open a public issue.
+
+## Operations
+
+### Backups
+
+mediaman uses SQLite in WAL mode. A live database consists of up to three files:
+
+```
+/data/mediaman.db
+/data/mediaman.db-wal     # write-ahead log (may be absent if fully checkpointed)
+/data/mediaman.db-shm     # shared-memory index (accompanies -wal)
+```
+
+**Recommended approach — online backup with `sqlite3`:**
+
+```bash
+sqlite3 /data/mediaman.db ".backup /backup/mediaman-$(date +%Y%m%d%H%M%S).db"
+```
+
+The `.backup` command uses the SQLite online-backup API. It works while the application is running, produces a consistent snapshot, and automatically checkpoints the WAL first. The resulting file is a single self-contained database; no `-wal` or `-shm` companions are needed.
+
+**Alternative — file copy after checkpoint:**
+
+If you prefer `cp` or `rsync`, stop the application first (or pause writes), then copy all three files together:
+
+```bash
+docker compose stop mediaman
+cp /data/mediaman.db /data/mediaman.db-wal /data/mediaman.db-shm /backup/
+docker compose start mediaman
+```
+
+Copying only the `.db` file while the application is running and the WAL has not been checkpointed will produce an inconsistent backup.
 
 ## Development
 
