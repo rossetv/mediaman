@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -407,26 +406,12 @@ def read_delete_allowed_roots_setting(
     if not roots:
         env_val = os.environ.get("MEDIAMAN_DELETE_ROOTS", "")
         if env_val:
-            # Canonical separator is ':' (PATH-style). Legacy ',' is
-            # accepted with a deprecation warning. We don't allow mixing:
-            # if BOTH appear in the value it's almost certainly a typo,
-            # so we split on either and log.
-            has_colon = ":" in env_val
-            has_comma = "," in env_val
-            if has_comma:
-                logger.warning(
-                    "MEDIAMAN_DELETE_ROOTS uses ',' separator — this is "
-                    "deprecated. Use ':' (PATH-style) instead; see "
-                    ".env.example."
-                )
-            if has_comma and has_colon:
-                logger.error(
-                    "MEDIAMAN_DELETE_ROOTS contains both ':' and ',' "
-                    "separators — this is almost certainly a mistake. "
-                    "Pick one (':' preferred) and retry."
-                )
-            # Accept both separators for robustness.
-            roots = [r.strip() for r in re.split(r"[:,]", env_val) if r.strip()]
+            # Single source of truth lives in path_safety.parse_delete_roots_env
+            # so the deletion path and the disk-usage path always agree on
+            # separator handling (finding 31).
+            from mediaman.services.infra.path_safety import parse_delete_roots_env
+
+            roots = parse_delete_roots_env(env_val)
             if not roots:
                 logger.error(
                     "MEDIAMAN_DELETE_ROOTS is set but no valid roots "

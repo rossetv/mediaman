@@ -43,6 +43,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # type: ignore[return]
     bootstrap_crypto(app, config)
     scheduler_started = bootstrap_scheduling(app, config)
 
+    # Reconcile any in-flight manual delete operations that crashed
+    # between the external Radarr/Sonarr call and the local DB cleanup
+    # (finding 24).  Idempotent — safe to run on every cold start.
+    try:
+        from mediaman.web.routes.library.api import reconcile_pending_delete_intents
+
+        reconciled = reconcile_pending_delete_intents()
+        if reconciled:
+            logger.info("Reconciled %d pending delete intent(s) at startup", reconciled)
+    except Exception:
+        logger.exception("delete-intent reconciliation failed at startup; continuing")
+
     logger.info("Mediaman started on port %s", config.port)
     yield
 
