@@ -28,10 +28,9 @@ services:
       - "${MEDIAMAN_PORT:-8282}:${MEDIAMAN_PORT:-8282}"
     restart: unless-stopped
     # Harden the container: drop all capabilities and prevent privilege
-    # escalation. The process runs as uid/gid 1000 by default (set in the
-    # Dockerfile). Override with `user: "HOST_UID:HOST_GID"` if the media
-    # volume is owned by a different user.
-    user: "1000:1000"
+    # escalation. The image hard-codes uid/gid 1000:1000 (mediaman user).
+    # Ensure the host ./data directory is writable by uid 1000, e.g.:
+    #   mkdir -p data && chown 1000:1000 data
     cap_drop:
       - ALL
     security_opt:
