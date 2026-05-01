@@ -386,24 +386,31 @@ function openModal(id) {
   _clear(trailerEl);
   _clear(trailerFallback);
 
-  if (s.trailer_key && /^[a-zA-Z0-9_-]+$/.test(s.trailer_key)) {
+  /* Finding 19: enforce exactly-11-char pattern before building iframe.
+     Finding 18: only emit fallback link if URL is a YouTube HTTPS URL. */
+  if (s.trailer_key && /^[A-Za-z0-9_-]{11}$/.test(s.trailer_key)) {
     var iframe = document.createElement('iframe');
     iframe.src = 'https://www.youtube.com/embed/' + s.trailer_key + '?rel=0';
     iframe.setAttribute('allowfullscreen', '');
+    iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation');
+    iframe.setAttribute('allow', 'autoplay; encrypted-media; fullscreen');
+    iframe.setAttribute('referrerpolicy', 'strict-origin');
     iframe.setAttribute('loading', 'lazy');
+    _clear(trailerEl);
     trailerEl.appendChild(iframe);
     trailerEl.style.display = '';
     trailerLabel.style.display = '';
     trailerFallback.style.display = 'none';
-  } else if (s.trailer_url) {
+  } else if (s.trailer_url && s.trailer_url.startsWith('https://www.youtube.com/')) {
     trailerEl.style.display = 'none';
     trailerLabel.style.display = 'none';
     var link = document.createElement('a');
     link.href = s.trailer_url;
     link.target = '_blank';
-    link.rel = 'noopener';
+    link.rel = 'noopener noreferrer';
     link.className = 'trailer-link';
     link.textContent = '▶ Watch trailer on YouTube';
+    _clear(trailerFallback);
     trailerFallback.appendChild(link);
     trailerFallback.style.display = '';
   } else {

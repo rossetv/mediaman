@@ -12,23 +12,29 @@ from mediaman.auth.rate_limit import peer_is_trusted, trusted_proxies
 
 # Content Security Policy.
 # - ``'unsafe-inline'`` on script/style is still present because several
-#   templates ship inline ``onclick=`` / ``style=`` attributes; removing
-#   them is a separate refactor and should be done next.
-# - ``img-src`` allows any HTTPS image source. Posters in this app come
-#   from a shifting set of CDNs (TMDB, TVDB, fanart.tv, Amazon Images,
-#   Plex's own metadata server, etc.) whose exact hosts we can't predict
-#   because Radarr/Sonarr choose them at runtime. A strict allowlist
-#   caused silent broken-image icons across Downloads/Library/Recommended.
-#   Images can't execute code, so the blast radius of an overly-broad
-#   img-src is limited to pixel tracking if an integrated service ever
-#   got compromised and started serving adversary-chosen URLs — which
-#   is already outside our trust model (admins are trusted).
+#   templates ship inline ``style=`` attributes and script blocks; a full
+#   nonce/hash CSP is a larger refactor tracked separately.
+# - ``img-src`` is now an allowlist of known image CDNs (finding 20):
+#   * 'self'           — /api/poster proxy + static assets
+#   * data: blob:      — inline data URIs and object URLs used by JS
+#   * image.tmdb.org   — TMDB poster/backdrop images
+#   * i.ytimg.com      — YouTube thumbnail images
+#   * www.gravatar.com — Gravatar profile images (admin avatars, if any)
+#   * mediacover.radarr.video mediacover.sonarr.video — Radarr/Sonarr
+#     fallback for poster remoteUrls when TMDB is unreachable
+#   Previous value was ``https:`` (any HTTPS image host).  The tighter
+#   allowlist reduces the pixel-tracking surface to known services.
 # - ``object-src 'none'`` defangs plugin-based XSS.
 # - ``frame-ancestors 'none'`` + ``X-Frame-Options: DENY`` belt-and-braces
 #   clickjacking defence.
 _CSP = (
     "default-src 'self'; "
-    "img-src 'self' data: blob: https:; "
+    "img-src 'self' data: blob: "
+    "https://image.tmdb.org "
+    "https://i.ytimg.com "
+    "https://www.gravatar.com "
+    "https://mediacover.radarr.video "
+    "https://mediacover.sonarr.video; "
     "style-src 'self' 'unsafe-inline'; "
     "script-src 'self' 'unsafe-inline'; "
     "connect-src 'self'; "
@@ -177,11 +183,20 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
         referer = request.headers.get("referer")
         expected_host = _normalise_host(request.url.netloc or "")
 
-        # If neither header is present, assume a non-browser client
-        # (curl, scripts). Those callers don't have CSRF exposure —
-        # they don't ride a victim's cookie. Let them through; the
-        # authentication dependency will reject if they're unauth.
+        # If neither header is present AND no session cookie is present,
+        # assume a non-browser API client (curl, scripts). Those callers
+        # don't have CSRF exposure — they don't ride a victim's cookie.
+        # However, if a session_token cookie IS present and neither Origin
+        # nor Referer was sent, the request is ambiguous: a browser that
+        # drops both headers can still carry the session cookie and be
+        # exploited via a CSRF form. Reject those to close the gap.
         if not origin and not referer:
+            has_session = bool(request.cookies.get("session_token"))
+            if has_session:
+                return Response(
+                    status_code=403,
+                    content=b"CSRF: origin required for cookie-authenticated requests",
+                )
             return await call_next(request)
 
         def _host_of(url: str) -> str:

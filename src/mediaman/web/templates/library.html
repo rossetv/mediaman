@@ -125,11 +125,11 @@
                   <svg class="keep-trigger__chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
                 <div class="snooze-dropdown" role="menu">
-                  <button class="snooze-option" role="menuitem" tabindex="-1" onclick="submitKeep(this, '7d'); return false;">Keep 7 days</button>
-                  <button class="snooze-option" role="menuitem" tabindex="-1" onclick="submitKeep(this, '30d'); return false;">Keep 30 days</button>
-                  <button class="snooze-option" role="menuitem" tabindex="-1" onclick="submitKeep(this, '90d'); return false;">Keep 90 days</button>
-                  <button class="snooze-option" role="menuitem" tabindex="-1" onclick="submitKeep(this, 'forever'); return false;">Keep forever</button>
-                  <button class="snooze-option snooze-option--remove" role="menuitem" tabindex="-1" onclick="removeKeep('{{ item.id }}'); return false;">Remove keep</button>
+                  <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="7d">Keep 7 days</button>
+                  <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="30d">Keep 30 days</button>
+                  <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="90d">Keep 90 days</button>
+                  <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="forever">Keep forever</button>
+                  <button class="snooze-option snooze-option--remove" role="menuitem" tabindex="-1" data-remove-keep-id="{{ item.id | tojson }}">Remove keep</button>
                 </div>
               </div>
               {% else %}
@@ -142,15 +142,15 @@
                   <svg class="keep-trigger__chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
                 <div class="snooze-dropdown" role="menu">
-                  <button class="snooze-option" role="menuitem" tabindex="-1" onclick="submitKeep(this, '7d'); return false;">7 days</button>
-                  <button class="snooze-option" role="menuitem" tabindex="-1" onclick="submitKeep(this, '30d'); return false;">30 days</button>
-                  <button class="snooze-option" role="menuitem" tabindex="-1" onclick="submitKeep(this, '90d'); return false;">90 days</button>
-                  <button class="snooze-option snooze-option--forever" role="menuitem" tabindex="-1" onclick="submitKeep(this, 'forever'); return false;">Forever</button>
+                  <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="7d">7 days</button>
+                  <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="30d">30 days</button>
+                  <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="90d">90 days</button>
+                  <button class="snooze-option snooze-option--forever" role="menuitem" tabindex="-1" data-keep-dur="forever">Forever</button>
                 </div>
               </div>
               <button class="btn btn--danger btn--sm"
-                data-id="{{ item.id }}" data-title="{{ item.title }}"
-                onclick="confirmDelete(this.dataset.id, this.dataset.title); return false;">Delete</button>
+                data-id="{{ item.id }}" data-title="{{ item.title | tojson }}"
+                data-action="confirm-delete">Delete</button>
               {% endif %}
             </div>
           </td>
@@ -408,16 +408,35 @@
         else r.json().then(function (d) { window.UIFeedback.error("Couldn't save keep. " + (d.error || 'Try again.')); btn.disabled = false; btn.textContent = 'Keep'; });
       });
     } else {
+      /* Finding 35: check response.ok for each request; report failed season IDs. */
       var durMap = { '7 days': '7d', '30 days': '30d', '90 days': '90d', 'forever': 'forever' };
       var dur = durMap[_keepDialogState.duration] || '30d';
-      var promises = selectedIds.map(function (sid) {
-        return fetch('/api/media/' + encodeURIComponent(sid) + '/keep', {
+      var failed = [];
+      /* Run sequentially so we can short-circuit on first failure for user clarity. */
+      (function runNext(i) {
+        if (i >= selectedIds.length) {
+          if (failed.length) {
+            window.UIFeedback.error('Keep failed for ' + failed.length + ' season(s): ' + failed.join(', '));
+            btn.disabled = false;
+            btn.textContent = 'Keep';
+          } else {
+            window.location.reload();
+          }
+          return;
+        }
+        var sid = selectedIds[i];
+        fetch('/api/media/' + encodeURIComponent(sid) + '/keep', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({ duration: dur }).toString(),
+        }).then(function (r) {
+          if (!r.ok) failed.push(sid);
+          runNext(i + 1);
+        }).catch(function () {
+          failed.push(sid);
+          runNext(i + 1);
         });
-      });
-      Promise.all(promises).then(function () { window.location.reload(); });
+      })(0);
     }
   }
 
@@ -429,13 +448,38 @@
       confirmVariant: 'danger'
     }).then(function (ok) {
       if (!ok) return;
-      var promises = [];
+      /* Finding 35: collect season IDs to remove; check response.ok per request. */
+      var seasonIds = [];
       var rk = _keepDialogState.showRk;
-      if (rk) promises.push(fetch('/api/show/' + encodeURIComponent(rk) + '/remove', { method: 'POST' }));
       document.querySelectorAll('#keep-season-list input[data-season-id]').forEach(function (cb) {
-        promises.push(fetch('/api/media/' + encodeURIComponent(cb.dataset.seasonId) + '/unprotect', { method: 'POST' }));
+        seasonIds.push(cb.dataset.seasonId);
       });
-      Promise.all(promises).then(function () { window.location.reload(); });
+
+      var failed = [];
+      var allRequests = [];
+      if (rk) allRequests.push({ url: '/api/show/' + encodeURIComponent(rk) + '/remove', id: rk });
+      seasonIds.forEach(function (sid) {
+        allRequests.push({ url: '/api/media/' + encodeURIComponent(sid) + '/unprotect', id: sid });
+      });
+
+      (function runNext(i) {
+        if (i >= allRequests.length) {
+          if (failed.length) {
+            window.UIFeedback.error('Remove failed for: ' + failed.join(', '));
+          } else {
+            window.location.reload();
+          }
+          return;
+        }
+        var req = allRequests[i];
+        fetch(req.url, { method: 'POST' }).then(function (r) {
+          if (!r.ok) failed.push(req.id);
+          runNext(i + 1);
+        }).catch(function () {
+          failed.push(req.id);
+          runNext(i + 1);
+        });
+      })(0);
     });
   }
 
@@ -474,6 +518,35 @@
 
   document.getElementById('delete-modal').addEventListener('click', function (e) {
     if (e.target === this) closeDeleteModal();
+  });
+
+  /* Finding 17: delegate data-keep-dur and data-action="confirm-delete" clicks
+     instead of using inline onclick handlers. Values come from data-* attributes
+     so they are never interpolated into JS strings. */
+  document.addEventListener('click', function (e) {
+    var keepBtn = e.target.closest('[data-keep-dur]');
+    if (keepBtn) {
+      e.preventDefault();
+      submitKeep(keepBtn, keepBtn.dataset.keepDur);
+      return;
+    }
+    var removeBtn = e.target.closest('[data-remove-keep-id]');
+    if (removeBtn) {
+      e.preventDefault();
+      /* dataset value is JSON-encoded by the template — parse it safely. */
+      var mid;
+      try { mid = JSON.parse(removeBtn.dataset.removeKeepId); } catch (_) { return; }
+      removeKeep(mid);
+      return;
+    }
+    var deleteBtn = e.target.closest('[data-action="confirm-delete"]');
+    if (deleteBtn) {
+      e.preventDefault();
+      var id = deleteBtn.dataset.id;
+      var title;
+      try { title = JSON.parse(deleteBtn.dataset.title); } catch (_) { title = ''; }
+      confirmDelete(id, title);
+    }
   });
 
   function setSort(value) {

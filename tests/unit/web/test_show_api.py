@@ -32,6 +32,7 @@ def authed_client(app):
     token = create_session(conn, "testadmin")
     client = TestClient(app)
     client.cookies.set("session_token", token)
+    client.headers.update({"Origin": "http://testserver"})
     return client
 
 
