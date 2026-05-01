@@ -104,16 +104,16 @@ def _ensure_table(conn: sqlite3.Connection) -> None:
     spinning up a fresh connection may skip migrations on legacy paths —
     keep the check cheap and idempotent.
 
-    The table intentionally does NOT carry a FK to ``admin_sessions``:
-    ticket revocation on session destroy is handled by the route
-    callers (``revoke_reauth`` / ``revoke_all_reauth_for``). Stranded
-    rows for already-deleted sessions are harmless because:
-
-    * The token hash is the primary key — a future session would need
-      to collide on the SHA-256 of its token to inherit a stale ticket
-      (negligible probability).
-    * The ``expires_at`` field naturally retires rows on the next
-      ``has_recent_reauth`` call.
+    The table does NOT carry a SQL foreign key to ``admin_sessions``
+    because ``admin_sessions`` is keyed on the raw token while this table
+    is keyed on its SHA-256 hash, so a CASCADE relation is awkward to
+    express.  Instead, every session-destruction site explicitly calls
+    :func:`revoke_reauth` (logout, password change) or
+    :func:`revoke_reauth_by_hash` (idle-expiry, fingerprint mismatch,
+    expired-row sweep) so the ticket is removed in lockstep with the
+    session row.  The ``expires_at`` field is a backstop for any path
+    we missed; the SHA-256 primary key makes accidental reuse by a
+    future session that happens to hash-collide vanishingly unlikely.
     """
     conn.execute(
         """
@@ -219,9 +219,13 @@ def grant_recent_reauth(
 
     Keyed on ``sha256(session_token)`` so:
 
-    * The marker dies with the session (FK ON DELETE CASCADE).
     * Two sessions for the same user maintain independent reauth state.
     * The plaintext token never appears in this table.
+    * Session-destruction sites (logout, idle-expiry, fingerprint
+      mismatch, expired-row sweep, bulk revocation on password change)
+      explicitly delete the matching ticket via :func:`revoke_reauth` /
+      :func:`revoke_reauth_by_hash` / :func:`revoke_all_reauth_for`,
+      so the marker dies in lockstep with the session it was bound to.
 
     Idempotent: re-granting before the previous ticket expires extends
     the window. Callers must commit themselves so the grant lands in the
@@ -309,13 +313,44 @@ def revoke_reauth(conn: sqlite3.Connection, session_token: str) -> None:
     """
     if not session_token:
         return
+    revoke_reauth_by_hash(conn, _hash_token(session_token))
+
+
+def revoke_reauth_by_hash(conn: sqlite3.Connection, token_hash: str) -> None:
+    """Delete the reauth ticket whose key is *token_hash*.
+
+    Used by the session validator's idle-expiry, fingerprint-mismatch,
+    and expired-row sweep paths — they only have the SHA-256 hash on
+    hand (the raw token is intentionally not stored in
+    ``admin_sessions``).  Without this helper those paths could not
+    revoke the matching reauth ticket and a leaked session cookie
+    plus a freshly granted ticket could remain replayable for the
+    rest of the ticket TTL after the legitimate session was killed.
+    """
+    if not token_hash:
+        return
     _ensure_table(conn)
-    token_hash = _hash_token(session_token)
     conn.execute(
         "DELETE FROM reauth_tickets WHERE session_token_hash = ?",
         (token_hash,),
     )
     conn.commit()
+
+
+def cleanup_expired_reauth(conn: sqlite3.Connection, now_iso: str | None = None) -> int:
+    """Sweep reauth tickets whose ``expires_at`` is in the past.
+
+    Mirrors the periodic ``admin_sessions`` expired-row sweep so dead
+    tickets do not pile up.  Returns the number of rows deleted.
+    """
+    _ensure_table(conn)
+    cutoff = now_iso or _now().isoformat()
+    cur = conn.execute(
+        "DELETE FROM reauth_tickets WHERE expires_at < ?",
+        (cutoff,),
+    )
+    conn.commit()
+    return cur.rowcount or 0
 
 
 def revoke_all_reauth_for(conn: sqlite3.Connection, username: str) -> int:

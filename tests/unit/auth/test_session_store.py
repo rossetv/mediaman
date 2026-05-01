@@ -290,3 +290,76 @@ class TestListSessionsFor:
         assert len(sessions) == 2
         # Ordered DESC by created_at — newer first.
         assert sessions[0]["created_at"] >= sessions[1]["created_at"]
+
+
+# ---------------------------------------------------------------------------
+# H-4: session destruction must also revoke matching reauth tickets
+# ---------------------------------------------------------------------------
+
+
+class TestSessionDestructionRevokesReauth:
+    """H-4: every path that deletes a session row must also drop the matching
+    reauth ticket — the previous code left the ticket alive until expiry, so
+    a stolen cookie + ticket pair stayed replayable after logout / idle
+    expiry / fingerprint mismatch.
+    """
+
+    def test_destroy_session_revokes_reauth(self, conn):
+        from mediaman.auth.reauth import grant_recent_reauth, has_recent_reauth
+
+        token = create_session(conn, "alice")
+        grant_recent_reauth(conn, token, "alice")
+        assert has_recent_reauth(conn, token, "alice") is True
+
+        destroy_session(conn, token)
+
+        assert has_recent_reauth(conn, token, "alice") is False
+
+    def test_idle_expiry_revokes_reauth(self, conn):
+        from mediaman.auth.reauth import grant_recent_reauth, has_recent_reauth
+
+        token = create_session(conn, "alice", user_agent="ua", client_ip="1.2.3.4")
+        grant_recent_reauth(conn, token, "alice")
+
+        # Stale last_used_at: hours past the idle threshold.
+        stale = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        conn.execute(
+            "UPDATE admin_sessions SET last_used_at = ? WHERE token_hash = ?",
+            (stale, _hash_token(token)),
+        )
+        conn.commit()
+
+        # validate_session sees the staleness and runs the idle-expiry destroy.
+        assert validate_session(conn, token, user_agent="ua", client_ip="1.2.3.4") is None
+        assert has_recent_reauth(conn, token, "alice") is False
+
+    def test_fingerprint_mismatch_revokes_reauth(self, conn, monkeypatch):
+        """Set strict fingerprint mode and validate from a different IP."""
+        from mediaman.auth.reauth import grant_recent_reauth, has_recent_reauth
+
+        monkeypatch.setenv("MEDIAMAN_SESSION_FINGERPRINT", "strict")
+
+        token = create_session(conn, "alice", user_agent="ua", client_ip="1.2.3.4")
+        grant_recent_reauth(conn, token, "alice")
+
+        # Different IP → fingerprint mismatch → destroy + reauth revoke.
+        result = validate_session(conn, token, user_agent="ua", client_ip="9.9.9.9")
+        assert result is None
+        assert has_recent_reauth(conn, token, "alice") is False
+
+    def test_destroy_all_sessions_for_revokes_all_reauth(self, conn):
+        """Bulk session purge must drop every owned reauth ticket too."""
+        from mediaman.auth.reauth import grant_recent_reauth, has_recent_reauth
+
+        t1 = create_session(conn, "alice")
+        t2 = create_session(conn, "alice")
+        grant_recent_reauth(conn, t1, "alice")
+        grant_recent_reauth(conn, t2, "alice")
+
+        destroy_all_sessions_for(conn, "alice")
+
+        # ``destroy_all_sessions_for`` calls ``revoke_all_reauth_for`` already
+        # (added when reauth shipped); this test guards that wiring against
+        # regressions that drop it.
+        assert has_recent_reauth(conn, t1, "alice") is False
+        assert has_recent_reauth(conn, t2, "alice") is False
