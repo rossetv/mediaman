@@ -7,13 +7,14 @@ import logging
 import sqlite3
 from urllib.parse import urlparse as _urlparse
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Cookie, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.responses import Response
 
-from mediaman.audit import security_event
+from mediaman.audit import security_event_or_raise
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.auth.rate_limit import get_client_ip
+from mediaman.auth.reauth import has_recent_reauth
 from mediaman.crypto import decrypt_value, encrypt_value
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_plex_from_db
@@ -58,6 +59,10 @@ SECRET_FIELDS = {
     "omdb_api_key",
 }
 
+# Note: SENSITIVE_KEYS (declared further down) is unioned with SECRET_FIELDS
+# at the bottom of the module so we never need to remember to keep both
+# membership tests in sync.
+
 _ALL_KEYS = SECRET_FIELDS | {
     "plex_url",
     "plex_public_url",
@@ -90,6 +95,54 @@ _ALL_KEYS = SECRET_FIELDS | {
 
 #: Internal crypto plumbing rows (HKDF salt, canary) — never shown in the UI.
 _INTERNAL_KEYS = {"aes_kdf_salt", "aes_kdf_canary"}
+
+#: Settings keys that require a recent-reauth ticket before they can be
+#: written. Anything that touches outbound integrations, mail, base URL, or
+#: data exfiltration vectors lives here. Anything that's purely a UI hint
+#: (``scan_day``, ``scan_time``) does not — gating those would just train
+#: operators to reauthenticate twice a day for low-impact tweaks.
+#:
+#: Membership rule: include the key when one of the following is true:
+#:   * The value is a credential / API key / token (every key in
+#:     :data:`SECRET_FIELDS`).
+#:   * The value is a URL or hostname the server will fetch (``*_url``
+#:     — Plex, Sonarr, Radarr, Mailgun's `mailgun_domain`, etc.).
+#:   * The value influences how outbound mail is addressed
+#:     (``mailgun_from_address``).
+#:   * The value influences security headers / external link generation
+#:     (``base_url`` — used in unsubscribe and keep-link emails).
+SENSITIVE_KEYS = {
+    "plex_url",
+    "plex_public_url",
+    "sonarr_url",
+    "sonarr_public_url",
+    "radarr_url",
+    "radarr_public_url",
+    "nzbget_url",
+    "nzbget_public_url",
+    "nzbget_username",
+    "mailgun_domain",
+    "mailgun_from_address",
+    "base_url",
+} | SECRET_FIELDS
+
+
+def _touches_sensitive_keys(body: dict) -> bool:
+    """Return True when *body* attempts to write any sensitive key.
+
+    Secret fields whose value is the unchanged sentinel (``****``) or an
+    empty string are skipped because the PUT handler ignores them too —
+    a no-op write should not demand a fresh reauth.
+    """
+    for key, value in body.items():
+        if key not in SENSITIVE_KEYS:
+            continue
+        if key in SECRET_FIELDS and (value == _SECRET_PLACEHOLDER or value == ""):
+            continue
+        if value is None:
+            continue
+        return True
+    return False
 
 
 def _load_settings(conn: sqlite3.Connection, secret_key: str) -> dict[str, object]:
@@ -212,8 +265,22 @@ def api_update_settings(
     request: Request,
     body: SettingsUpdate,
     admin: str = Depends(get_current_admin),
+    session_token: str | None = Cookie(default=None),
 ) -> Response:
-    """Persist settings from the request body."""
+    """Persist settings from the request body.
+
+    Sensitive keys (every secret + every URL field + mail addresses +
+    ``base_url``) require a recent-reauth ticket — see
+    :data:`SENSITIVE_KEYS` and :func:`_touches_sensitive_keys`. Without
+    the ticket the entire PUT is rejected with 403 even when only some
+    of the body's keys are sensitive: an attacker mixing one sensitive
+    field with several harmless ones must not get a partial write.
+
+    The settings write and the audit row are flushed in the same
+    ``BEGIN IMMEDIATE`` transaction via :func:`security_event_or_raise`
+    so we never have a "settings changed but no audit trail" outcome
+    for high-impact mutations (M27).
+    """
     body: dict = body.model_dump(exclude_none=True)  # type: ignore[no-redef]
     if not _SETTINGS_WRITE_LIMITER.check(admin):
         logger.warning("settings.write_throttled user=%s", admin)
@@ -229,40 +296,78 @@ def api_update_settings(
     if url_err is not None:
         return url_err
 
-    for key, value in body.items():
-        if key not in _ALL_KEYS:
-            continue
-        if value is None:
-            continue
-        if key in SECRET_FIELDS:
-            if value == _SECRET_PLACEHOLDER or value == "":
-                continue
-            encrypted_value = encrypt_value(
-                str(value), config.secret_key, conn=conn, aad=key.encode()
-            )
-            conn.execute(
-                "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 1, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, encrypted=1, updated_at=excluded.updated_at",
-                (key, encrypted_value, now),
-            )
-        else:
-            str_value = json.dumps(value) if isinstance(value, (list, dict, bool)) else str(value)
-            conn.execute(
-                "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, encrypted=0, updated_at=excluded.updated_at",
-                (key, str_value, now),
-            )
+    sensitive_write = _touches_sensitive_keys(body)
+    if sensitive_write and not has_recent_reauth(conn, session_token, admin):
+        logger.warning("settings.write_rejected user=%s reason=reauth_required", admin)
+        return JSONResponse(
+            {
+                "error": "Recent password re-authentication required for sensitive settings",
+                "reauth_required": True,
+            },
+            status_code=403,
+        )
 
-    conn.commit()
     written = sorted(k for k in body.keys() if k in _ALL_KEYS)
     ignored = sorted(k for k in body.keys() if k not in _ALL_KEYS)
-    security_event(
-        conn,
-        event="settings.write",
-        actor=admin,
-        ip=get_client_ip(request),
-        detail={"keys": written},
-    )
+    sensitive_written = sorted(k for k in written if k in SENSITIVE_KEYS)
+
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            for key, value in body.items():
+                if key not in _ALL_KEYS:
+                    continue
+                if value is None:
+                    continue
+                if key in SECRET_FIELDS:
+                    if value == _SECRET_PLACEHOLDER or value == "":
+                        continue
+                    encrypted_value = encrypt_value(
+                        str(value), config.secret_key, conn=conn, aad=key.encode()
+                    )
+                    conn.execute(
+                        "INSERT INTO settings (key, value, encrypted, updated_at) "
+                        "VALUES (?, ?, 1, ?) "
+                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, "
+                        "encrypted=1, updated_at=excluded.updated_at",
+                        (key, encrypted_value, now),
+                    )
+                else:
+                    str_value = (
+                        json.dumps(value) if isinstance(value, (list, dict, bool)) else str(value)
+                    )
+                    conn.execute(
+                        "INSERT INTO settings (key, value, encrypted, updated_at) "
+                        "VALUES (?, ?, 0, ?) "
+                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, "
+                        "encrypted=0, updated_at=excluded.updated_at",
+                        (key, str_value, now),
+                    )
+
+            # Audit-in-transaction: if the audit insert blows up, the
+            # whole settings write rolls back. Fail closed for the keys
+            # that can leak data or punch through SSRF guards if changed
+            # silently.
+            security_event_or_raise(
+                conn,
+                event="settings.write",
+                actor=admin,
+                ip=get_client_ip(request),
+                detail={
+                    "keys": written,
+                    "sensitive_keys": sensitive_written,
+                },
+            )
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+    except Exception:
+        logger.exception("settings.write failed user=%s", admin)
+        return JSONResponse(
+            {"error": "Internal error during settings write"},
+            status_code=500,
+        )
     return {"status": "saved", "written": written, "ignored": ignored}
 
 
