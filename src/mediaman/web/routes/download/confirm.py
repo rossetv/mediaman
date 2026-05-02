@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
+import time
 
 import requests
 from fastapi import APIRouter, Request
@@ -15,6 +17,9 @@ from mediaman.crypto import generate_poll_token, validate_download_token
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
+    ArrCaches,
+    RadarrCaches,
+    SonarrCaches,
     build_radarr_cache,
     build_sonarr_cache,
     compute_download_state,
@@ -33,6 +38,78 @@ router = APIRouter()
 # Rate limiter for the public download GET endpoint.
 _DOWNLOAD_LIMITER_GET = RateLimiter(max_attempts=30, window_seconds=60)
 
+# ---------------------------------------------------------------------------
+# Per-service Arr-state cache.
+#
+# Each GET /download/{token} previously issued four outbound HTTP calls
+# (Radarr movies + queue, Sonarr series + queue) on every render. With
+# one valid public token, an attacker driving the rate limit (30 req/min)
+# would multiply that into 120 outbound requests/min/IP — effectively a
+# request amplifier against the operator's home Arr boxes. Cache the
+# per-service snapshot for a short window so a burst of confirm-page
+# loads collapses to one set of upstream calls.
+#
+# TTL is 30s: long enough to absorb a confirm-page burst, short enough
+# that a state change (admin adds a movie elsewhere) is reflected on the
+# next click without manual refresh. The cache is process-local so
+# multi-worker deploys re-fetch per worker — that is acceptable since
+# the limit is per-IP per-worker as well.
+# ---------------------------------------------------------------------------
+
+_ARR_CACHE_TTL_SECONDS = 30.0
+_ARR_CACHE_LOCK = threading.Lock()
+# (service_name, secret_key_fingerprint) -> (timestamp, cache_payload).
+# The payload is either a RadarrCaches or SonarrCaches TypedDict; the
+# caller knows which one to expect from the service tag in the key.
+_ARR_CACHE: dict[tuple[str, str], tuple[float, RadarrCaches | SonarrCaches]] = {}
+
+
+def _key_fingerprint(secret_key: str) -> str:
+    """Short fingerprint of *secret_key* for use as a cache key.
+
+    The full key never appears in the cache; only its first 8 bytes of a
+    hash. Different deployments with different secrets do not collide.
+    """
+    import hashlib
+
+    return hashlib.sha256(secret_key.encode()).hexdigest()[:16]
+
+
+def _get_radarr_cache_cached(conn, secret_key: str) -> RadarrCaches:
+    """Return the Radarr cache dict, using a process-wide TTL cache."""
+    key = ("radarr", _key_fingerprint(secret_key))
+    now = time.monotonic()
+    with _ARR_CACHE_LOCK:
+        hit = _ARR_CACHE.get(key)
+        if hit and now - hit[0] < _ARR_CACHE_TTL_SECONDS:
+            return hit[1]  # type: ignore[return-value]
+    radarr_client = build_radarr_from_db(conn, secret_key)
+    cache = build_radarr_cache(radarr_client)
+    with _ARR_CACHE_LOCK:
+        _ARR_CACHE[key] = (now, cache)
+    return cache
+
+
+def _get_sonarr_cache_cached(conn, secret_key: str) -> SonarrCaches:
+    """Return the Sonarr cache dict, using a process-wide TTL cache."""
+    key = ("sonarr", _key_fingerprint(secret_key))
+    now = time.monotonic()
+    with _ARR_CACHE_LOCK:
+        hit = _ARR_CACHE.get(key)
+        if hit and now - hit[0] < _ARR_CACHE_TTL_SECONDS:
+            return hit[1]  # type: ignore[return-value]
+    sonarr_client = build_sonarr_from_db(conn, secret_key)
+    cache = build_sonarr_cache(sonarr_client)
+    with _ARR_CACHE_LOCK:
+        _ARR_CACHE[key] = (now, cache)
+    return cache
+
+
+def _reset_arr_cache_for_tests() -> None:
+    """Clear the Arr-state cache. Test helper; never call in production."""
+    with _ARR_CACHE_LOCK:
+        _ARR_CACHE.clear()
+
 
 def validate_youtube_id(s: str | None) -> str | None:
     """Return *s* if it is a valid YouTube video ID, else None."""
@@ -43,6 +120,20 @@ def validate_youtube_id(s: str | None) -> str | None:
 
 # Backward-compat alias.
 _validate_youtube_id = validate_youtube_id
+
+
+def _coerce_string_list(value: object) -> list[str]:
+    """Return *value* coerced to a list of plain strings.
+
+    Defends against malicious or malformed JSON in DB columns: a
+    suggestion's ``genres`` / ``cast_json`` should be a list of strings,
+    but a tampered DB row could carry nested objects, ints, or arbitrary
+    JSON. The template treats the result as plain text, so anything
+    that cannot be a string is dropped.
+    """
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
 
 
 def _base_download_item(payload: dict[str, object]) -> dict[str, object]:
@@ -121,13 +212,25 @@ def download_page(request: Request, token: str) -> HTMLResponse:
 
     sid = payload.get("sid")
     if sid:
-        row = conn.execute(
-            "SELECT poster_url, year, description, reason, rating, rt_rating, "
-            "tagline, runtime, genres, cast_json, director, trailer_key, imdb_rating, metascore "
-            "FROM suggestions WHERE id = ?",
-            (sid,),
-        ).fetchone()
-        item = _build_item_from_suggestion(payload, row) if row else _base_download_item(payload)
+        # ``sid`` is typed as ``int | None`` in DownloadTokenPayload but the
+        # token producer is responsible for the type — coerce here so the
+        # SQL parameter is always an int regardless of upstream regressions.
+        try:
+            sid_int = int(sid)
+        except (TypeError, ValueError):
+            sid_int = None
+        if sid_int is not None:
+            row = conn.execute(
+                "SELECT poster_url, year, description, reason, rating, rt_rating, "
+                "tagline, runtime, genres, cast_json, director, trailer_key, imdb_rating, metascore "
+                "FROM suggestions WHERE id = ?",
+                (sid_int,),
+            ).fetchone()
+            item = (
+                _build_item_from_suggestion(payload, row) if row else _base_download_item(payload)
+            )
+        else:
+            item = _base_download_item(payload)
     elif payload.get("act") == "redownload":
         item = _base_download_item(payload)
         enrich_redownload_item(item, conn, config.secret_key)
@@ -138,12 +241,12 @@ def download_page(request: Request, token: str) -> HTMLResponse:
 
     if item.get("genres"):
         try:
-            item["genres_list"] = json.loads(item["genres"])
+            item["genres_list"] = _coerce_string_list(json.loads(item["genres"]))
         except (json.JSONDecodeError, TypeError):
             item["genres_list"] = []
     if item.get("cast_json"):
         try:
-            item["cast_list"] = json.loads(item["cast_json"])
+            item["cast_list"] = _coerce_string_list(json.loads(item["cast_json"]))
         except (json.JSONDecodeError, TypeError):
             item["cast_list"] = []
 
@@ -151,12 +254,23 @@ def download_page(request: Request, token: str) -> HTMLResponse:
     tmdb_id = payload.get("tmdb")
     if tmdb_id:
         try:
-            radarr_client = build_radarr_from_db(conn, config.secret_key)
-            sonarr_client = build_sonarr_from_db(conn, config.secret_key)
-            radarr_cache = build_radarr_cache(radarr_client)
-            sonarr_cache = build_sonarr_cache(sonarr_client)
-            caches = {**radarr_cache, **sonarr_cache}
             mt = "movie" if payload.get("mt") == "movie" else "tv"
+            # Only build the cache for the matching service — the other
+            # half is dead work and doubles the outbound load otherwise.
+            caches: ArrCaches = {
+                "radarr_movies": {},
+                "radarr_queue_tmdb_ids": set(),
+                "sonarr_series": {},
+                "sonarr_queue_tmdb_ids": set(),
+            }
+            if mt == "movie":
+                radarr_cache = _get_radarr_cache_cached(conn, config.secret_key)
+                caches["radarr_movies"] = radarr_cache["radarr_movies"]
+                caches["radarr_queue_tmdb_ids"] = radarr_cache["radarr_queue_tmdb_ids"]
+            else:
+                sonarr_cache = _get_sonarr_cache_cached(conn, config.secret_key)
+                caches["sonarr_series"] = sonarr_cache["sonarr_series"]
+                caches["sonarr_queue_tmdb_ids"] = sonarr_cache["sonarr_queue_tmdb_ids"]
             state = compute_download_state(mt, tmdb_id, caches)
             if state is not None:
                 item["download_state"] = state
