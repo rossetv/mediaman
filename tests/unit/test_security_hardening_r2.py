@@ -131,8 +131,16 @@ class TestCsrfExemptPrefix:
             c.post("/unsubscribe-admin", headers={"Origin": "https://evil.com"}).status_code == 403
         )
 
-    def test_unsubscribe_slash_exempt(self):
-        """Also verify /unsubscribe/<anything> exempt per prefix rule."""
+    def test_unsubscribe_slash_no_longer_exempt(self):
+        """Regression: /unsubscribe/<anything> is NOT silently exempt.
+
+        The original prefix-based exemption silently exempted everything
+        under ``/unsubscribe/``, so any future POST added at a path like
+        ``/unsubscribe/confirm`` would inherit the exemption with no
+        compile-time signal.  The fix replaces the prefix rule with an
+        explicit ``_CSRF_EXEMPT_ROUTES`` allowlist so non-listed paths
+        fall through to the normal CSRF check.
+        """
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
@@ -146,8 +154,14 @@ class TestCsrfExemptPrefix:
             return {"ok": True}
 
         c = TestClient(app)
+        # Cross-origin POST to a non-exempt path must be rejected.
         assert (
-            c.post("/unsubscribe/confirm", headers={"Origin": "https://mail.com"}).status_code
+            c.post("/unsubscribe/confirm", headers={"Origin": "https://evil.com"}).status_code
+            == 403
+        )
+        # Same-origin still works (normal CSRF behaviour).
+        assert (
+            c.post("/unsubscribe/confirm", headers={"Origin": "http://testserver"}).status_code
             == 200
         )
 

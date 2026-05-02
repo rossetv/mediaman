@@ -208,7 +208,15 @@ def _submit_to_sonarr(payload: DownloadPayload) -> JSONResponse:
 
 @router.post("/download/{token}")
 def download_submit(request: Request, token: str) -> JSONResponse:
-    """Trigger a download via Radarr or Sonarr."""
+    """Trigger a download via Radarr or Sonarr.
+
+    CSRF-exempt: this route is HMAC-token-authenticated and gets clicked
+    through from email clients where the browser's Origin is whichever
+    webmail host the recipient happens to use.  The exemption is opt-in
+    via the explicit ``_CSRF_EXEMPT_ROUTES`` allowlist in
+    :mod:`mediaman.web` — adding a sibling ``POST /download/...`` will
+    NOT silently inherit the exemption.
+    """
     config = request.app.state.config
     conn = get_db()
 
