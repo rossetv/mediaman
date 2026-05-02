@@ -67,7 +67,9 @@ class TestSearchDownloadRateLimit:
         """A single well-formed request is not rate-limited."""
         mock_radarr = MagicMock()
         mock_radarr.get_movie_by_tmdb.return_value = None
-        with patch("mediaman.web.routes.search.build_radarr_from_db", return_value=mock_radarr):
+        with patch(
+            "mediaman.web.routes.search.download.build_radarr_from_db", return_value=mock_radarr
+        ):
             resp = authed_client.post("/api/search/download", json=_valid_body())
         assert resp.status_code != 429
 
@@ -78,7 +80,9 @@ class TestSearchDownloadRateLimit:
         mock_radarr = MagicMock()
         mock_radarr.get_movie_by_tmdb.return_value = None
 
-        with patch("mediaman.web.routes.search.build_radarr_from_db", return_value=mock_radarr):
+        with patch(
+            "mediaman.web.routes.search.download.build_radarr_from_db", return_value=mock_radarr
+        ):
             for i in range(cap):
                 _download_dedup.clear()  # prevent dedup firing
                 resp = authed_client.post(
@@ -113,12 +117,16 @@ class TestSearchDownloadDedup:
         mock_radarr = MagicMock()
         mock_radarr.get_movie_by_tmdb.return_value = None
 
-        with patch("mediaman.web.routes.search.build_radarr_from_db", return_value=mock_radarr):
+        with patch(
+            "mediaman.web.routes.search.download.build_radarr_from_db", return_value=mock_radarr
+        ):
             first = authed_client.post("/api/search/download", json=_valid_body(tmdb_id=99))
         # First request may succeed or fail (Radarr mock) but must not be 429.
         assert first.status_code != 429
 
-        with patch("mediaman.web.routes.search.build_radarr_from_db", return_value=mock_radarr):
+        with patch(
+            "mediaman.web.routes.search.download.build_radarr_from_db", return_value=mock_radarr
+        ):
             second = authed_client.post("/api/search/download", json=_valid_body(tmdb_id=99))
         assert second.status_code == 429
         assert second.json()["ok"] is False
@@ -128,7 +136,9 @@ class TestSearchDownloadDedup:
         mock_radarr = MagicMock()
         mock_radarr.get_movie_by_tmdb.return_value = None
 
-        with patch("mediaman.web.routes.search.build_radarr_from_db", return_value=mock_radarr):
+        with patch(
+            "mediaman.web.routes.search.download.build_radarr_from_db", return_value=mock_radarr
+        ):
             first = authed_client.post("/api/search/download", json=_valid_body(tmdb_id=11))
             second = authed_client.post("/api/search/download", json=_valid_body(tmdb_id=22))
 
