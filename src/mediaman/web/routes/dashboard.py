@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from functools import lru_cache
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -102,66 +106,164 @@ def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
     return items
 
 
-def _fetch_recently_deleted(
-    conn: sqlite3.Connection, secret_key: str = ""
-) -> list[dict[str, object]]:
-    """Return recent deleted audit_log entries joined with media_items."""
-    rows = conn.execute("""
-        SELECT
-            al.id,
-            al.media_item_id,
-            al.created_at,
-            al.detail,
-            al.space_reclaimed_bytes,
-            mi.title,
-            mi.media_type,
-            mi.plex_rating_key
-        FROM audit_log al
-        LEFT JOIN media_items mi ON mi.id = al.media_item_id
-        WHERE al.action = 'deleted'
-        ORDER BY al.created_at DESC
-        LIMIT 20
-    """).fetchall()
+def _build_redownload_index(
+    conn: sqlite3.Connection,
+) -> tuple[dict[str, str], dict[int, str]]:
+    """Return ``(by_title_lower, by_tmdb_id)`` of re-download timestamps.
 
-    # Fetch re-downloads with timestamps so we can compare per-deletion
-    redownloaded = conn.execute(
+    The audit_log ``media_item_id`` column carries different content
+    depending on the action (finding 18):
+
+    * ``deleted`` rows: a stable UUID matching ``media_items.id``.
+    * ``re_downloaded`` rows written before finding 10's fix: the
+      free-text resolved title.
+    * ``re_downloaded`` rows written after finding 10's fix: a stable
+      ``tmdb:<id>`` / ``tvdb:<id>`` / ``imdb:<id>`` token.
+    * ``downloaded`` rows: usually the title (legacy behaviour
+      preserved by the recommendations pipeline).
+
+    To stay correct across the migration window we build two indexes
+    and let callers consult whichever lines up with the data they
+    have. Title matches stay lower-cased; tmdb_id keys are integers
+    parsed out of the ``tmdb:`` prefix.
+    """
+    by_title_lower: dict[str, str] = {}
+    by_tmdb_id: dict[int, str] = {}
+    rows = conn.execute(
         "SELECT media_item_id, created_at FROM audit_log "
         "WHERE action IN ('re_downloaded', 'downloaded')"
     ).fetchall()
-    # Map lowercase title → latest re-download timestamp
-    redownload_times: dict[str, str] = {}
-    for rd in redownloaded:
-        key = rd["media_item_id"].lower()
-        if key not in redownload_times or rd["created_at"] > redownload_times[key]:
-            redownload_times[key] = rd["created_at"]
-
-    items = []
-    titles_needing_poster = []  # (index, title) for items without a Plex poster
-
-    for r in rows:
-        title = r["title"]
-        if not title:
-            title = title_from_audit_detail(r["detail"])
-        # Skip only if there's a re-download AFTER this specific deletion
-        last_redownload = redownload_times.get(title.lower())
-        if last_redownload and last_redownload > r["created_at"]:
+    for rd in rows:
+        raw = rd["media_item_id"] or ""
+        ts = rd["created_at"]
+        if raw.startswith("tmdb:"):
+            try:
+                tmdb_id = int(raw.split(":", 1)[1])
+            except ValueError:
+                continue
+            prev = by_tmdb_id.get(tmdb_id)
+            if prev is None or ts > prev:
+                by_tmdb_id[tmdb_id] = ts
             continue
-        rk = r["plex_rating_key"] or rk_from_audit_detail(r["detail"])
-        poster_url = f"/api/poster/{rk}" if rk else ""
-        idx = len(items)
-        items.append(
-            {
-                "id": r["id"],
-                "media_item_id": r["media_item_id"],
-                "title": title,
-                "media_type": r["media_type"] or "",
-                "poster_url": poster_url,
-                "deleted_ago": days_ago(r["created_at"]),
-                "reclaimed": format_bytes(r["space_reclaimed_bytes"] or 0),
-            }
-        )
-        if not poster_url:
-            titles_needing_poster.append((idx, title))
+        # Legacy / non-prefixed rows — treat the whole string as a
+        # title. Lower-case so "Dune" matches "dune".
+        key = raw.lower()
+        if not key:
+            continue
+        prev_t = by_title_lower.get(key)
+        if prev_t is None or ts > prev_t:
+            by_title_lower[key] = ts
+    return by_title_lower, by_tmdb_id
+
+
+def _was_redownloaded_after(
+    deletion_created_at: str,
+    *,
+    title: str,
+    by_title_lower: dict[str, str],
+    by_tmdb_id: dict[int, str],
+) -> bool:
+    """Return True if a re-download for *title* happened after *deletion_created_at*.
+
+    Looks up the title-keyed index; the tmdb-keyed lookup is reserved
+    for a future schema addition that surfaces tmdb_id on the deletion
+    row. The two indexes are passed explicitly so callers can build
+    them once per page render rather than rebuilding them per deletion
+    row.
+    """
+    last_redownload = by_title_lower.get(title.lower())
+    if last_redownload and last_redownload > deletion_created_at:
+        return True
+    # Future: when the deletion row carries a tmdb_id, consult by_tmdb_id.
+    _ = by_tmdb_id  # currently unused; kept for the migration target.
+    return False
+
+
+# Bounded scan size so the dashboard render doesn't degenerate into a
+# long table walk on a heavy audit_log (finding 20). 5 batches × 50
+# rows = 250 candidates is enough headroom for any realistic mix of
+# re-downloaded and orphan-titled deletions.
+_RECENT_DELETED_BATCH = 50
+_RECENT_DELETED_MAX_BATCHES = 5
+
+
+def _fetch_recently_deleted(
+    conn: sqlite3.Connection, secret_key: str = ""
+) -> list[dict[str, object]]:
+    """Return up to 10 recent ``deleted`` audit_log entries.
+
+    Skips deletions that have a more-recent re-download. The earlier
+    implementation issued a single ``LIMIT 20`` query and post-filtered;
+    when most rows had a re-download the result was short of 10 with
+    no retry (finding 20). Now we page through audit_log in batches
+    until we have 10 unfiltered items or hit a hard cap.
+    """
+    by_title_lower, by_tmdb_id = _build_redownload_index(conn)
+
+    items: list[dict[str, object]] = []
+    titles_needing_poster: list[tuple[int, str]] = []
+    seen_ids: set[int] = set()
+
+    for batch in range(_RECENT_DELETED_MAX_BATCHES):
+        offset = batch * _RECENT_DELETED_BATCH
+        rows = conn.execute(
+            """
+            SELECT
+                al.id,
+                al.media_item_id,
+                al.created_at,
+                al.detail,
+                al.space_reclaimed_bytes,
+                mi.title,
+                mi.media_type,
+                mi.plex_rating_key
+            FROM audit_log al
+            LEFT JOIN media_items mi ON mi.id = al.media_item_id
+            WHERE al.action = 'deleted'
+            ORDER BY al.created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (_RECENT_DELETED_BATCH, offset),
+        ).fetchall()
+
+        if not rows:
+            break
+
+        for r in rows:
+            if r["id"] in seen_ids:
+                continue
+            seen_ids.add(r["id"])
+
+            title = r["title"]
+            if not title:
+                title = title_from_audit_detail(r["detail"])
+            if _was_redownloaded_after(
+                r["created_at"],
+                title=title,
+                by_title_lower=by_title_lower,
+                by_tmdb_id=by_tmdb_id,
+            ):
+                continue
+
+            rk = r["plex_rating_key"] or rk_from_audit_detail(r["detail"])
+            poster_url = f"/api/poster/{rk}" if rk else ""
+            idx = len(items)
+            items.append(
+                {
+                    "id": r["id"],
+                    "media_item_id": r["media_item_id"],
+                    "title": title,
+                    "media_type": r["media_type"] or "",
+                    "poster_url": poster_url,
+                    "deleted_ago": days_ago(r["created_at"]),
+                    "reclaimed": format_bytes(r["space_reclaimed_bytes"] or 0),
+                }
+            )
+            if not poster_url:
+                titles_needing_poster.append((idx, title))
+            if len(items) >= 10:
+                break
+
         if len(items) >= 10:
             break
 
@@ -172,6 +274,24 @@ def _fetch_recently_deleted(
     return items
 
 
+# Outer wall-clock budget for the parallel poster fan-out (finding 19).
+# 5s timeout × 10 misses serially produced a 50s page render in the
+# worst case. Now we fan out to a small thread pool and bound the
+# whole batch to 6s; anything slower drops to "" so the page still
+# renders promptly.
+_POSTER_FANOUT_BUDGET_SECONDS = 6.0
+_POSTER_FANOUT_WORKERS = 4
+
+
+@lru_cache(maxsize=1)
+def _get_poster_executor() -> ThreadPoolExecutor:
+    """Return the shared poster-fanout executor (lazy)."""
+    return ThreadPoolExecutor(
+        max_workers=_POSTER_FANOUT_WORKERS,
+        thread_name_prefix="dashboard_poster",
+    )
+
+
 def _fill_tmdb_posters(
     conn: sqlite3.Connection,
     items: list[dict[str, object]],
@@ -180,35 +300,87 @@ def _fill_tmdb_posters(
 ) -> None:
     """Look up TMDB poster URLs for deleted items missing a Plex poster.
 
-    Reuses the shared :class:`TmdbClient`. Deduplicates by title so
-    repeated entries (e.g. multiple "Barbie" deletions) only trigger one
-    API call. Poster URLs use the w200 thumbnail size for the dashboard
-    tiles (callers elsewhere use w300 — kept deliberately distinct).
+    Parallelised across a small worker pool with an outer wall-clock
+    budget (finding 19) — the previous sequential implementation could
+    sit on a flaky TMDB for 5s × 10 misses = 50s before the page
+    rendered. Deduplication by title is preserved so repeated entries
+    (e.g. multiple "Barbie" deletions) only trigger one API call.
 
     ``secret_key`` is threaded in from the request handler to avoid
     redundant ``load_config()`` calls per request (H25).
     """
     from mediaman.services.media_meta.tmdb import TmdbClient
 
-    # Deleted-poster lookups run on the dashboard page load; keep the
-    # original 5s timeout so a flaky TMDB doesn't slow the page down.
     client = TmdbClient.from_db(conn, secret_key, timeout=5.0)
     if client is None:
         return
 
-    cache: dict[str, str] = {}
-
+    # Collect each unique title once; preserve the (idx, title)
+    # reverse mapping so we can write the result back to the right
+    # rows after the futures resolve.
+    unique_titles: dict[str, list[int]] = {}
     for idx, title in needed:
-        if title in cache:
-            items[idx]["poster_url"] = cache[title]
-            continue
-        best = client.search_multi(title)
+        unique_titles.setdefault(title, []).append(idx)
+
+    if not unique_titles:
+        return
+
+    def _lookup(title: str) -> tuple[str, str]:
+        try:
+            best = client.search_multi(title)
+        except Exception:
+            logger.debug("dashboard.poster_lookup_failed title=%r", title, exc_info=True)
+            return title, ""
         if best and best.get("poster_path"):
-            url = f"{_TMDB_POSTER_BASE_URL}{best['poster_path']}"
-            items[idx]["poster_url"] = url
-            cache[title] = url
-            continue
-        cache[title] = ""
+            return title, f"{_TMDB_POSTER_BASE_URL}{best['poster_path']}"
+        return title, ""
+
+    pool = _get_poster_executor()
+    futures = {pool.submit(_lookup, title): title for title in unique_titles}
+    try:
+        for fut in as_completed(futures, timeout=_POSTER_FANOUT_BUDGET_SECONDS):
+            try:
+                title, url = fut.result()
+            except Exception:
+                continue
+            if not url:
+                continue
+            for idx in unique_titles.get(title, []):
+                items[idx]["poster_url"] = url
+    except TimeoutError:
+        logger.debug(
+            "dashboard.poster_fanout_timeout budget=%.1fs (%d/%d done)",
+            _POSTER_FANOUT_BUDGET_SECONDS,
+            sum(1 for f in futures if f.done()),
+            len(futures),
+        )
+
+
+# Cache window for the disk-usage stat (finding 21). statvfs() is cheap
+# but a busy dashboard on a slow filesystem could still spend tens of
+# milliseconds per render hitting it; 30s is well below the granularity
+# at which a user notices stale "free space" numbers.
+_DISK_USAGE_CACHE_TTL = 30.0
+_disk_usage_cache: dict[str, tuple[float, dict[str, int]]] = {}
+_disk_usage_cache_lock = threading.Lock()
+
+
+def _cached_disk_usage(media_path: str) -> dict[str, int]:
+    """Return ``get_aggregate_disk_usage`` results, cached for 30s.
+
+    Misses still hit the underlying call; the cache only short-circuits
+    repeats within the TTL. Keyed on ``media_path`` so a settings
+    change to the configured path invalidates the cache automatically.
+    """
+    now = time.monotonic()
+    with _disk_usage_cache_lock:
+        entry = _disk_usage_cache.get(media_path)
+        if entry is not None and now - entry[0] < _DISK_USAGE_CACHE_TTL:
+            return entry[1]
+    fresh = get_aggregate_disk_usage(media_path)
+    with _disk_usage_cache_lock:
+        _disk_usage_cache[media_path] = (now, fresh)
+    return fresh
 
 
 def _fetch_storage_stats(conn: sqlite3.Connection) -> dict[str, object]:
@@ -219,7 +391,7 @@ def _fetch_storage_stats(conn: sqlite3.Connection) -> dict[str, object]:
     """
     # Disk-level stats — aggregate across all unique mount points under the media root
     try:
-        disk = get_aggregate_disk_usage(_get_media_path())
+        disk = _cached_disk_usage(_get_media_path())
         total = disk["total_bytes"]
         used = disk["used_bytes"]
         free = disk["free_bytes"]
