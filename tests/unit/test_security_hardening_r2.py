@@ -110,10 +110,13 @@ class TestCsrfPortNormalisation:
             return {"ok": True}
 
         c = TestClient(app)
-        # Same-origin but with explicit :443 — must be accepted.
+        # Same-origin with the scheme's default port (HTTP→80) — must be
+        # accepted because the new CSRF logic correctly strips default
+        # ports per scheme. Port 443 is HTTPS's default, NOT HTTP's, so
+        # `http://testserver:443` would now (correctly) be rejected.
         resp = c.post(
             "/api/widget",
-            headers={"Origin": "http://testserver:443"},
+            headers={"Origin": "http://testserver:80"},
         )
         assert resp.status_code == 200
 
