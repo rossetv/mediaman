@@ -216,6 +216,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Hide server banner (FastAPI/uvicorn leaks nothing sensitive,
         # but there's no reason to advertise).
         response.headers["Server"] = "mediaman"
+        # Cache-Control: no-store, private on every authenticated /api
+        # response so a misconfigured reverse proxy / CDN cannot serve
+        # one user's data to another (Domain 02 cross-cutting). Static
+        # assets keep their default cacheability — they're served from
+        # ``StaticFiles`` which sets its own headers, and we only add
+        # this when the response doesn't already carry a Cache-Control.
+        path = request.url.path
+        if path.startswith("/api/") or path.startswith("/auth/"):
+            response.headers.setdefault("Cache-Control", "no-store, private")
         if _should_emit_hsts(request):
             header = (
                 _HSTS_HEADER_PRELOAD
