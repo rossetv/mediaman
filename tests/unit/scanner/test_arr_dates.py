@@ -154,3 +154,47 @@ class TestArrDateCacheSonarr:
         cache = ArrDateCache(sonarr_client=sonarr)
         cache.ensure_loaded()  # must not propagate
         assert cache._dates == {}
+
+    def test_sonarr_compares_z_and_offset_forms_correctly(self):
+        """Domain 05: comparing ISO strings as plain strings was wrong.
+
+        ``"2024-06-01T00:00:00Z"`` (UTC) and
+        ``"2024-06-01T00:00:00+00:00"`` (offset form) describe the same
+        instant but compare unequal as strings — ``"+"`` (0x2B) sorts
+        before ``"Z"`` (0x5A) in ASCII, so a later episode using the
+        offset form would silently lose to an older Z-form date and
+        the season's "latest download" would be wrong.
+        """
+        sonarr = self._make_sonarr(
+            series=[{"id": 1}],
+            episode_files_by_id={
+                1: [
+                    # The first file uses the Z form; the second is later in
+                    # absolute time but written in offset form. As plain
+                    # strings the second compares LESS than the first, so
+                    # the old code would have kept the older Z-form date.
+                    {"path": "/tv/S1/S01E01.mkv", "dateAdded": "2024-01-01T00:00:00Z"},
+                    {"path": "/tv/S1/S01E02.mkv", "dateAdded": "2024-06-01T00:00:00+00:00"},
+                ]
+            },
+        )
+        cache = ArrDateCache(sonarr_client=sonarr)
+        result = cache.get("/tv/S1")
+        # The newer date (June) must win regardless of the suffix form.
+        assert result == "2024-06-01T00:00:00+00:00"
+
+    def test_sonarr_skips_unparseable_date(self):
+        """An unparseable ``dateAdded`` must not corrupt the cached value."""
+        sonarr = self._make_sonarr(
+            series=[{"id": 1}],
+            episode_files_by_id={
+                1: [
+                    {"path": "/tv/S1/S01E01.mkv", "dateAdded": "2024-01-01T00:00:00Z"},
+                    {"path": "/tv/S1/S01E02.mkv", "dateAdded": "not a date"},
+                ]
+            },
+        )
+        cache = ArrDateCache(sonarr_client=sonarr)
+        result = cache.get("/tv/S1")
+        # The garbage date is skipped; the parseable one remains cached.
+        assert result == "2024-01-01T00:00:00Z"
