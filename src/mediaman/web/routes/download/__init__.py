@@ -12,9 +12,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from .confirm import _DOWNLOAD_LIMITER_GET
+from .confirm import _DOWNLOAD_LIMITER_GET, _reset_arr_cache_for_tests
 from .confirm import router as _confirm_router
-from .status import _DOWNLOAD_STATUS_LIMITER
+from .status import _DOWNLOAD_STATUS_LIMITER, _reset_status_cache_for_tests
 from .status import router as _status_router
 from .submit import _DOWNLOAD_LIMITER_POST
 from .submit import router as _submit_router
@@ -32,4 +32,10 @@ def reset_download_limiters() -> None:
     _DOWNLOAD_STATUS_LIMITER.reset()
 
 
-__all__ = ["router", "reset_download_limiters"]
+def reset_download_caches() -> None:
+    """Clear the per-service Arr-state and status caches. Used by tests."""
+    _reset_arr_cache_for_tests()
+    _reset_status_cache_for_tests()
+
+
+__all__ = ["router", "reset_download_limiters", "reset_download_caches"]

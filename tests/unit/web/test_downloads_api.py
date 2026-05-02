@@ -311,6 +311,13 @@ def _make_download_app(conn, secret_key: str) -> FastAPI:
 
 
 class TestDownloadStatusAPI:
+    def setup_method(self):
+        """Clear the per-(service, tmdb_id) status cache so each test sees
+        fresh upstream calls instead of replaying a previous test's payload."""
+        from mediaman.web.routes.download import reset_download_caches
+
+        reset_download_caches()
+
     def test_status_returns_new_shape_fields(self, db_path, secret_key):
         """GET /api/download/status returns the new item shape with state field."""
         conn = init_db(str(db_path))

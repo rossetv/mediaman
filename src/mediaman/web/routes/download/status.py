@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
+import time
 
 import requests
 from fastapi import APIRouter, Depends, Request
@@ -29,6 +31,42 @@ logger = logging.getLogger("mediaman")
 router = APIRouter()
 
 _DOWNLOAD_STATUS_LIMITER = RateLimiter(max_attempts=120, window_seconds=60)
+
+# ---------------------------------------------------------------------------
+# Per-service per-tmdb status cache.
+#
+# The status endpoint is polled by the confirm page every ~4 seconds while
+# the user watches a download progress bar. Each poll fans out to Radarr or
+# Sonarr (a queue lookup plus a movie / series lookup), so a single open
+# tab on a 4-second poll already keeps a sustained outbound load on the
+# operator's home Arr boxes; multiple tabs multiply it. Cache the
+# per-(service, tmdb_id) status for a short window so back-to-back polls
+# from the same client share one upstream round-trip.
+#
+# TTL is intentionally short (2.5s) so the user still sees fresh progress
+# on the 4-second poll cadence — half the poll interval ensures every
+# poll either hits a fresh fetch or a result that was at most one beat
+# stale. Anything longer is still bounded but reduces apparent
+# responsiveness; anything shorter does not meaningfully reduce load.
+# ---------------------------------------------------------------------------
+
+_STATUS_CACHE_TTL_SECONDS = 2.5
+_STATUS_CACHE_LOCK = threading.Lock()
+# (service, tmdb_id, secret_key_fingerprint) -> (timestamp, status_dict)
+_STATUS_CACHE: dict[tuple[str, int, str], tuple[float, dict[str, object]]] = {}
+
+
+def _key_fingerprint(secret_key: str) -> str:
+    """Short fingerprint of *secret_key* for use as a cache key."""
+    import hashlib
+
+    return hashlib.sha256(secret_key.encode()).hexdigest()[:16]
+
+
+def _reset_status_cache_for_tests() -> None:
+    """Clear the status cache. Test helper; never call in production."""
+    with _STATUS_CACHE_LOCK:
+        _STATUS_CACHE.clear()
 
 
 def _format_timeleft(timeleft: str) -> str:
@@ -286,6 +324,30 @@ def _sonarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> d
     )
 
 
+def _cached_status(
+    *, service: str, tmdb_id: int, conn: sqlite3.Connection, secret_key: str
+) -> dict[str, object]:
+    """Return cached or freshly-fetched status for ``(service, tmdb_id)``.
+
+    See module-level docstring for cache semantics. Cache misses fan
+    out to the underlying ``_radarr_status`` / ``_sonarr_status``
+    implementation; cache hits short-circuit the upstream call entirely.
+    """
+    key = (service, tmdb_id, _key_fingerprint(secret_key))
+    now = time.monotonic()
+    with _STATUS_CACHE_LOCK:
+        hit = _STATUS_CACHE.get(key)
+        if hit and now - hit[0] < _STATUS_CACHE_TTL_SECONDS:
+            return hit[1]
+    if service == "radarr":
+        result = _radarr_status(conn, secret_key, tmdb_id)
+    else:
+        result = _sonarr_status(conn, secret_key, tmdb_id)
+    with _STATUS_CACHE_LOCK:
+        _STATUS_CACHE[key] = (now, result)
+    return result
+
+
 @router.get("/api/download/status")
 def download_status(
     request: Request,
@@ -329,12 +391,13 @@ def download_status(
     conn = get_db()
 
     try:
-        if service == "radarr":
-            return JSONResponse(_radarr_status(conn, config.secret_key, tmdb_id))
-        elif service == "sonarr":
-            return JSONResponse(_sonarr_status(conn, config.secret_key, tmdb_id))
-        else:
-            return JSONResponse(_UNKNOWN_ITEM)
+        if service in ("radarr", "sonarr"):
+            return JSONResponse(
+                _cached_status(
+                    service=service, tmdb_id=tmdb_id, conn=conn, secret_key=config.secret_key
+                )
+            )
+        return JSONResponse(_UNKNOWN_ITEM)
 
     except requests.RequestException as exc:
         logger.warning("download_status error (service=%s tmdb_id=%s): %s", service, tmdb_id, exc)
