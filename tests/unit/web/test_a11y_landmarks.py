@@ -207,10 +207,14 @@ def test_detail_modal_labelled_by_visible_title():
 
 
 def test_search_inline_script_renders_modal_title_as_h2():
-    """Finding 11: search.html's inline modal-render must build an
-    <h2 id="detail-modal-title"> so aria-labelledby resolves."""
+    """Finding 11: search.html's modal-render must build an
+    <h2 id="detail-modal-title"> so aria-labelledby resolves. The script
+    now lives in static/js/search.js after the CSP-nonce extraction; the
+    template references it via a <script src> tag."""
     search = _tpl("search.html")
-    assert '<h2 id="detail-modal-title" class="detail-modal-hero-title">' in search
+    assert '<script src="/static/js/search.js" defer></script>' in search
+    search_js = (REPO / "src/mediaman/web/static/js/search.js").read_text(encoding="utf-8")
+    assert '<h2 id="detail-modal-title" class="detail-modal-hero-title">' in search_js
 
 
 def test_recommended_inline_script_renders_modal_title_as_h2():
