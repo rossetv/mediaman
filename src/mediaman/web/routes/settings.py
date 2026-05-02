@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 import sqlite3
+from collections.abc import Callable
 from urllib.parse import urlparse as _urlparse
 
 from fastapi import APIRouter, Cookie, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.responses import Response
 
-from mediaman.audit import security_event_or_raise
+from mediaman.audit import security_event, security_event_or_raise
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.auth.rate_limit import get_client_ip
 from mediaman.auth.reauth import has_recent_reauth
@@ -20,7 +22,13 @@ from mediaman.db import get_db
 from mediaman.services.arr.build import build_plex_from_db
 from mediaman.services.infra.http_client import SafeHTTPClient, SafeHTTPError
 from mediaman.services.infra.path_safety import disk_usage_allowed_roots, resolve_safe_path
-from mediaman.services.infra.rate_limits import SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER
+from mediaman.services.infra.rate_limits import (
+    SETTINGS_TEST_LIMITER as _SETTINGS_TEST_LIMITER,
+)
+from mediaman.services.infra.rate_limits import (
+    SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER,
+)
+from mediaman.services.infra.settings_reader import ConfigDecryptError
 from mediaman.services.infra.storage import get_disk_usage
 from mediaman.services.infra.time import now_iso
 from mediaman.services.infra.url_safety import is_safe_outbound_url
@@ -37,6 +45,18 @@ router = APIRouter()
 #: Sentinel value displayed in the UI and sent back when a secret field is
 #: unchanged — never persisted to the database.
 _SECRET_PLACEHOLDER = "****"
+
+#: Explicit "delete this row" sentinel for secret fields. The previous
+#: design conflated "" (no-op) with "clear" — once a secret was stored,
+#: the UI had no way to delete it without falling back to direct DB
+#: surgery. Sending this sentinel deletes the row.
+_SECRET_CLEAR_SENTINEL = "__CLEAR__"
+
+#: Per-tester upper bound on time spent in a single tester() call. An
+#: unreachable Plex / Sonarr / mailgun must not pin the request thread
+#: indefinitely — without this cap, a 35 s underlying timeout was
+#: observable when chained with retries and reverse-proxy buffering.
+_TESTER_TIMEOUT_SECONDS = 15.0
 
 #: OpenAI models endpoint used by the connectivity test.
 _OPENAI_MODELS_URL = "https://api.openai.com/v1/models"
@@ -132,7 +152,9 @@ def _touches_sensitive_keys(body: dict) -> bool:
 
     Secret fields whose value is the unchanged sentinel (``****``) or an
     empty string are skipped because the PUT handler ignores them too —
-    a no-op write should not demand a fresh reauth.
+    a no-op write should not demand a fresh reauth. The explicit
+    :data:`_SECRET_CLEAR_SENTINEL` is NOT skipped: deleting a stored
+    credential is a sensitive change.
     """
     for key, value in body.items():
         if key not in SENSITIVE_KEYS:
@@ -145,9 +167,40 @@ def _touches_sensitive_keys(body: dict) -> bool:
     return False
 
 
-def _load_settings(conn: sqlite3.Connection, secret_key: str) -> dict[str, object]:
-    """Return all settings from the DB with secrets decrypted."""
-    rows = conn.execute("SELECT key, value, encrypted FROM settings").fetchall()
+def _load_settings(
+    conn: sqlite3.Connection,
+    secret_key: str,
+    *,
+    keys: set[str] | None = None,
+) -> dict[str, object]:
+    """Return settings from the DB with secrets decrypted.
+
+    When *keys* is supplied, only those rows are read and decrypted. The
+    api_test_service flow uses this so a single-service test does NOT
+    decrypt every other secret — minimising the blast radius if any one
+    decryption is logged or panics. When *keys* is ``None`` (the default)
+    every non-internal row is loaded as before.
+
+    Decryption errors are distinguished from "no value set":
+
+    * If the row exists and is marked encrypted, but decryption fails,
+      we raise :class:`ConfigDecryptError` so callers can show a
+      meaningful banner instead of silently substituting ``""`` (which
+      was previously indistinguishable from a never-saved key — a
+      regression hazard once an operator rotates ``MEDIAMAN_SECRET_KEY``).
+    * If the row simply does not exist, the key is absent from the
+      returned dict (callers already use ``.get(key, "")``).
+    """
+    if keys is not None:
+        if not keys:
+            return {}
+        placeholders = ",".join("?" * len(keys))
+        rows = conn.execute(
+            f"SELECT key, value, encrypted FROM settings WHERE key IN ({placeholders})",
+            tuple(keys),
+        ).fetchall()
+    else:
+        rows = conn.execute("SELECT key, value, encrypted FROM settings").fetchall()
     settings: dict[str, object] = {}
     for row in rows:
         if row["key"] in _INTERNAL_KEYS:
@@ -158,16 +211,33 @@ def _load_settings(conn: sqlite3.Connection, secret_key: str) -> dict[str, objec
                 settings[row["key"]] = decrypt_value(
                     raw, secret_key, conn=conn, aad=row["key"].encode()
                 )
-            except Exception:
-                # decrypt_value raises ValueError/RuntimeError/InvalidTag on bad key or corrupt data.
-                logger.warning("Failed to decrypt setting %r — returning empty value", row["key"])
-                settings[row["key"]] = ""
+            except Exception as exc:
+                # Distinguish "decrypt failed" from "value never set" —
+                # see ConfigDecryptError docstring.
+                logger.warning(
+                    "Failed to decrypt setting %r — surfacing error to caller",
+                    row["key"],
+                )
+                raise ConfigDecryptError(row["key"], exc) from exc
         else:
             try:
                 settings[row["key"]] = json.loads(raw)
             except (json.JSONDecodeError, TypeError):
                 settings[row["key"]] = raw
     return settings
+
+
+def _encrypted_keys(conn: sqlite3.Connection) -> set[str]:
+    """Return the set of keys in the ``settings`` table that are stored encrypted.
+
+    Used by the masking layer of GET /api/settings so we never pay the
+    cost of decrypting a secret just to immediately mask it. The
+    distinction "is this key encrypted on disk?" is enough — we don't
+    need the plaintext.
+    """
+    return {
+        row["key"] for row in conn.execute("SELECT key FROM settings WHERE encrypted=1").fetchall()
+    }
 
 
 def _mask_secrets(settings: dict[str, object]) -> dict[str, object]:
@@ -179,6 +249,22 @@ def _mask_secrets(settings: dict[str, object]) -> dict[str, object]:
     return out
 
 
+def _mask_encrypted_keys(
+    settings: dict[str, object], encrypted_keys: set[str]
+) -> dict[str, object]:
+    """Return a copy of *settings* with every encrypted-on-disk key showing '****'.
+
+    Unlike :func:`_mask_secrets`, this does not require the plaintext to
+    have been read — the caller passes a pre-computed set of keys that
+    are encrypted in the DB. Used by GET /api/settings to avoid
+    decrypting secrets just to immediately throw the plaintext away.
+    """
+    out = dict(settings)
+    for key in encrypted_keys & SECRET_FIELDS:
+        out[key] = _SECRET_PLACEHOLDER
+    return out
+
+
 @router.get("/settings", response_class=HTMLResponse)
 def settings_page(request: Request) -> Response:
     """Render the settings page. Redirects to /login if session is invalid."""
@@ -187,8 +273,22 @@ def settings_page(request: Request) -> Response:
         return resolved
     username, conn = resolved
 
+    # Skip every encrypted secret — the page only ever shows '****' for
+    # them, so decrypting just to throw the plaintext away is wasted
+    # work and an unnecessary exposure window.
+    encrypted_keys = _encrypted_keys(conn)
     config = request.app.state.config
-    settings = _mask_secrets(_load_settings(conn, config.secret_key))
+    try:
+        plain = _load_settings(
+            conn,
+            config.secret_key,
+            keys=set(_ALL_KEYS) - encrypted_keys,
+        )
+    except ConfigDecryptError:
+        # Should not happen — we filtered out encrypted rows. Defensive
+        # only.
+        plain = {}
+    settings = _mask_encrypted_keys(plain, encrypted_keys)
 
     _libs_raw = settings.get("plex_libraries") or []
     plex_libraries_selected: list[str] = list(_libs_raw) if isinstance(_libs_raw, list) else []
@@ -208,10 +308,28 @@ def settings_page(request: Request) -> Response:
 
 @router.get("/api/settings")
 def api_get_settings(request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
-    """Return all settings as JSON with secret fields masked as '****'."""
+    """Return all settings as JSON with secret fields masked as '****'.
+
+    Skips decryption of secret fields — we read the ``encrypted=1`` flag
+    instead and emit ``****`` directly. The plaintext is never needed
+    here and decrypting it just to mask it is wasted work + an
+    unnecessary exposure window for every secret on every settings GET.
+    """
     conn = get_db()
     config = request.app.state.config
-    settings = _mask_secrets(_load_settings(conn, config.secret_key))
+    encrypted_keys = _encrypted_keys(conn)
+    try:
+        plain = _load_settings(
+            conn,
+            config.secret_key,
+            keys=set(_ALL_KEYS) - encrypted_keys,
+        )
+    except ConfigDecryptError:
+        # Defensive — we filtered encrypted keys out. If this ever
+        # fires, surface a 500 rather than silently shipping partial
+        # data to the UI.
+        return JSONResponse({"error": "Failed to load settings"}, status_code=500)
+    settings = _mask_encrypted_keys(plain, encrypted_keys)
     return JSONResponse(settings)
 
 
@@ -228,6 +346,37 @@ _URL_FIELDS = frozenset(
         "nzbget_public_url",
     }
 )
+
+
+def _scrub_url_for_log(candidate: str) -> str:
+    """Return a log-safe representation of *candidate* — host + path-prefix only.
+
+    The SSRF-blocked path used to log the candidate URL verbatim. That is
+    user-supplied content that may carry an embedded password
+    (``http://admin:pa55w0rd@host``), an API key in the query string
+    (``?api_key=sk-...``), or an attacker-tagged URL designed for the log
+    viewer. We strip:
+
+    * userinfo (anything before the ``@`` in the netloc),
+    * the query string,
+    * the fragment,
+    * the path beyond the first 32 characters,
+
+    then return ``scheme://host[:port]/<truncated path>``. If the URL
+    fails to parse, fall back to a length-only marker so the log still
+    has something useful for triage.
+    """
+    try:
+        parsed = _urlparse(candidate)
+    except (ValueError, TypeError):
+        return f"<unparseable len={len(candidate)}>"
+    scheme = (parsed.scheme or "").lower() or "?"
+    host = parsed.hostname or "?"
+    port = f":{parsed.port}" if parsed.port is not None else ""
+    path = parsed.path or ""
+    if len(path) > 32:
+        path = path[:32] + "…"
+    return f"{scheme}://{host}{port}{path}"
 
 
 def _validate_url_fields(body: dict) -> JSONResponse | None:
@@ -252,7 +401,11 @@ def _validate_url_fields(body: dict) -> JSONResponse | None:
                     status_code=400,
                 )
             if not is_safe_outbound_url(candidate):
-                logger.warning("settings.ssrf_blocked key=%s value=%s", url_key, candidate)
+                logger.warning(
+                    "settings.ssrf_blocked key=%s value=%s",
+                    url_key,
+                    _scrub_url_for_log(candidate),
+                )
                 return JSONResponse(
                     {"error": f"{url_key} points at a blocked address"},
                     status_code=400,
@@ -282,13 +435,23 @@ def api_update_settings(
     for high-impact mutations (M27).
     """
     body: dict = body.model_dump(exclude_none=True)  # type: ignore[no-redef]
+    conn = get_db()
     if not _SETTINGS_WRITE_LIMITER.check(admin):
         logger.warning("settings.write_throttled user=%s", admin)
+        # Pair the throttle log with an audit row — without it,
+        # operators reviewing a brute-force attempt see the limiter
+        # firing in app logs but no trail in the audit_log.
+        security_event(
+            conn,
+            event="settings.write.throttled",
+            actor=admin,
+            ip=get_client_ip(request),
+            detail={"keys": sorted(k for k in body.keys() if k in _ALL_KEYS)},
+        )
         return JSONResponse(
             {"error": "Too many settings changes — slow down"},
             status_code=429,
         )
-    conn = get_db()
     config = request.app.state.config
     now = now_iso()
 
@@ -321,6 +484,13 @@ def api_update_settings(
                     continue
                 if key in SECRET_FIELDS:
                     if value == _SECRET_PLACEHOLDER or value == "":
+                        continue
+                    if value == _SECRET_CLEAR_SENTINEL:
+                        # Explicit "delete this row" — clears a stored
+                        # secret entirely. Without this sentinel the UI
+                        # had no way to reverse a credential save short
+                        # of direct DB surgery.
+                        conn.execute("DELETE FROM settings WHERE key=?", (key,))
                         continue
                     encrypted_value = encrypt_value(
                         str(value), config.secret_key, conn=conn, aad=key.encode()
@@ -509,7 +679,7 @@ def _test_omdb(settings: dict[str, object]) -> JSONResponse:
 
 
 #: Dispatch table mapping service name → per-service test function.
-_SERVICE_TESTERS: dict[str, object] = {
+_SERVICE_TESTERS: dict[str, Callable[[dict[str, object]], JSONResponse]] = {
     "plex": _test_plex,
     "sonarr": _test_sonarr,
     "radarr": _test_radarr,
@@ -521,21 +691,81 @@ _SERVICE_TESTERS: dict[str, object] = {
 }
 
 
+#: Per-tester key allow-list. Each tester only needs a small subset of
+#: settings — restricting :func:`_load_settings` to that subset means
+#: triggering one tester does NOT decrypt every other secret in the DB.
+_SERVICE_TESTER_KEYS: dict[str, set[str]] = {
+    "plex": {"plex_url", "plex_token"},
+    "sonarr": {"sonarr_url", "sonarr_api_key"},
+    "radarr": {"radarr_url", "radarr_api_key"},
+    "nzbget": {"nzbget_url", "nzbget_username", "nzbget_password"},
+    "mailgun": {"mailgun_domain", "mailgun_api_key", "mailgun_from_address"},
+    "openai": {"openai_api_key"},
+    "tmdb": {"tmdb_read_token"},
+    "omdb": {"omdb_api_key"},
+}
+
+
 @router.post("/api/settings/test/{service}")
 def api_test_service(
     service: str, request: Request, admin: str = Depends(get_current_admin)
 ) -> JSONResponse:
-    """Test connectivity for a named service using current stored settings."""
+    """Test connectivity for a named service using current stored settings.
+
+    Constraints layered on top of the dispatch:
+
+    * Per-admin rate limit (10/min, 60/day) — without it a logged-in
+      attacker could chain test calls to flood Plex / Mailgun.
+    * Decryption is restricted to the keys this tester actually needs
+      (see :data:`_SERVICE_TESTER_KEYS`). The previous code decrypted
+      every secret in the DB on every test, which is a needless plain-
+      text exposure window.
+    * Each tester runs under a hard 15 s wall-clock cap. An unreachable
+      Plex used to pin the request thread for 35 s through stacked
+      timeouts; that's a self-inflicted DoS vector.
+    """
     tester = _SERVICE_TESTERS.get(service)
     if tester is None:
         return JSONResponse({"ok": False, "error": f"Unknown service: {service}"}, status_code=400)
 
+    if not _SETTINGS_TEST_LIMITER.check(admin):
+        logger.warning("settings.test_throttled user=%s service=%s", admin, service)
+        return JSONResponse(
+            {"ok": False, "error": "Too many service tests — slow down"},
+            status_code=429,
+        )
+
     conn = get_db()
     config = request.app.state.config
-    settings = _load_settings(conn, config.secret_key)
+    needed_keys = _SERVICE_TESTER_KEYS.get(service)
+    try:
+        settings = _load_settings(conn, config.secret_key, keys=needed_keys)
+    except ConfigDecryptError as exc:
+        # The decryption failure is real — the operator probably rotated
+        # MEDIAMAN_SECRET_KEY without rotating the stored ciphertexts.
+        # Surface that distinctly from "no key configured" / "auth
+        # failed at the remote service".
+        logger.warning("Service test decrypt failed for %s key=%s", service, exc.key)
+        return JSONResponse(
+            {"ok": False, "error": f"decrypt_failed: {exc.key}"},
+            status_code=200,
+        )
 
     try:
-        return tester(settings)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(tester, settings)
+            try:
+                return future.result(timeout=_TESTER_TIMEOUT_SECONDS)
+            except concurrent.futures.TimeoutError:
+                # The worker thread is still running — we can't kill it,
+                # but we MUST return promptly. The thread will finish on
+                # its own and its result will be discarded.
+                logger.warning(
+                    "Service test exceeded %.0fs cap for %s — returning timeout",
+                    _TESTER_TIMEOUT_SECONDS,
+                    service,
+                )
+                return JSONResponse({"ok": False, "error": "timeout"})
     except Exception as exc:  # noqa: BLE001
         logger.warning("Service test failed for %s: %s", service, exc)
         return JSONResponse({"ok": False, "error": "Service connection test failed"})
