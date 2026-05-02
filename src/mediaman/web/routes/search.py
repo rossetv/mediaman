@@ -9,12 +9,12 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 import requests as _requests
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.responses import Response
 
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
@@ -70,19 +70,51 @@ _DOWNLOAD_ADMIN_LIMITER = ActionRateLimiter(
 # Per-IP limiter: 30 downloads per minute (covers unauthenticated / shared sessions).
 _DOWNLOAD_IP_LIMITER = RateLimiter(max_attempts=30, window_seconds=60)
 
-# Duplicate-request suppression: block identical (username, tmdb_id, media_type) submissions
-# within a short window to prevent accidental double-clicks from adding duplicates.
+# /api/search and /api/search/discover query limiter (findings 1, 2). Both
+# endpoints fan out to TMDB and the per-result rating-enrichment threadpool.
+# Even authenticated, an admin who scripts the endpoint (or an attacker
+# holding a session cookie) can rapidly exhaust TMDB's quota or our worker
+# pool. 30 per minute / 200 per day per admin keeps the typeahead UX
+# snappy while blocking sustained abuse.
+_QUERY_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=200)
+
+# Duplicate-request suppression: block identical (username, tmdb_id, media_type, seasons)
+# submissions within a short window to prevent accidental double-clicks from adding
+# duplicates. The season set is included in the dedup key so a TV submission for
+# seasons {1,2} does not block a follow-up submission for season {3} on the same
+# series (finding 5).
 _DOWNLOAD_DEDUP_WINDOW_SECONDS = 10.0
-_download_dedup: dict[tuple[str, int, str], float] = {}
+_download_dedup: dict[tuple[str, int, str, str], float] = {}
 _download_dedup_lock = threading.Lock()
 
 
-def _is_duplicate_download(username: str, tmdb_id: int, media_type: str) -> bool:
+def _seasons_dedup_token(
+    monitored_seasons: list[int] | None,
+    search_seasons: list[int] | None,
+) -> str:
+    """Return a stable deterministic token for the season selection.
+
+    Treats ``None`` (all seasons) and an empty list distinctly so the
+    "monitor everything" submission can't collide with a "monitor only
+    season 1" request. Sorting both lists makes the token order-stable
+    regardless of how the client serialised them.
+    """
+    mon = "*" if monitored_seasons is None else ",".join(str(s) for s in sorted(monitored_seasons))
+    srch = "*" if search_seasons is None else ",".join(str(s) for s in sorted(search_seasons))
+    return f"m={mon};s={srch}"
+
+
+def _is_duplicate_download(
+    username: str,
+    tmdb_id: int,
+    media_type: str,
+    seasons_token: str = "",
+) -> bool:
     """Return True if an identical request was submitted within the dedup window.
 
     Cleans up stale entries on each call to bound memory growth.
     """
-    key = (username, tmdb_id, media_type)
+    key = (username, tmdb_id, media_type, seasons_token)
     now = time.monotonic()
     with _download_dedup_lock:
         # Prune stale entries.
@@ -174,6 +206,15 @@ def _annotate_states(results: list[dict], request: Request) -> None:
             r["download_state"] = compute_download_state(r["media_type"], r["tmdb_id"], caches)
 
 
+# Wall-clock budget for the parallel ratings-enrichment fan-out (finding 4).
+# The previous code passed ``timeout=None`` to ``as_completed`` so a single
+# stuck future blocked the whole iterator until ``fut.result(timeout=3)``
+# fired — but ``as_completed`` doesn't yield until the future is ready, so
+# that inner timeout was effectively dead code. The right place to bound
+# the wall-clock cost is on ``as_completed`` itself.
+_ENRICH_BUDGET_SECONDS = 6.0
+
+
 def _enrich_ratings(results: list[dict], request: Request) -> None:
     conn = get_db()
     secret_key = request.app.state.config.secret_key
@@ -240,16 +281,27 @@ def _enrich_ratings(results: list[dict], request: Request) -> None:
     now_iso = _now_iso()
     futures = [_get_executor().submit(fetch, kg) for kg in misses]
     pending_writes: list[tuple] = []
-    for fut in as_completed(futures, timeout=None):
-        try:
-            key, group, data = fut.result(timeout=3)
-        except Exception:
-            continue
-        rt = data.get("rt")
-        imdb = data.get("imdb")
-        meta = data.get("metascore")
-        _apply(group, rt=rt, imdb=imdb)
-        pending_writes.append((key[0], key[1], imdb, rt, meta, now_iso))
+    try:
+        for fut in as_completed(futures, timeout=_ENRICH_BUDGET_SECONDS):
+            try:
+                key, group, data = fut.result()
+            except Exception:
+                continue
+            rt = data.get("rt")
+            imdb = data.get("imdb")
+            meta = data.get("metascore")
+            _apply(group, rt=rt, imdb=imdb)
+            pending_writes.append((key[0], key[1], imdb, rt, meta, now_iso))
+    except TimeoutError:
+        # Budget exhausted — anything not done is dropped silently;
+        # cached results from the misses that did complete are still
+        # written below so they're warm for the next call.
+        logger.debug(
+            "ratings enrichment timed out after %.1fs (%d/%d futures complete)",
+            _ENRICH_BUDGET_SECONDS,
+            sum(1 for f in futures if f.done()),
+            len(futures),
+        )
     if pending_writes:
         try:
             conn.executemany(
@@ -265,6 +317,12 @@ def _enrich_ratings(results: list[dict], request: Request) -> None:
 
 @router.get("/api/search")
 def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
+    if not _QUERY_LIMITER.check(admin):
+        logger.warning("search.query_throttled user=%s", admin)
+        return JSONResponse(
+            {"error": "Too many search requests — slow down"},
+            status_code=429,
+        )
     if len(q) < 2:
         return JSONResponse({"results": []})
     q = q[:_MAX_QUERY_LEN]
@@ -291,6 +349,12 @@ def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)
 
 @router.get("/api/search/discover")
 def api_discover(request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
+    if not _QUERY_LIMITER.check(admin):
+        logger.warning("search.discover_throttled user=%s", admin)
+        return JSONResponse(
+            {"error": "Too many discover requests — slow down"},
+            status_code=429,
+        )
     conn = get_db()
     client = TmdbClient.from_db(conn, request.app.state.config.secret_key)
     if client is None:
@@ -515,20 +579,44 @@ def api_detail(
 
 
 class _DownloadRequest(BaseModel):
-    media_type: str
-    tmdb_id: int
-    title: str
-    monitored_seasons: list[int] | None = None
-    search_seasons: list[int] | None = None
+    """Body schema for ``POST /api/search/download`` (finding 3).
+
+    ``extra="forbid"`` means an unknown key from the client raises HTTP 422
+    rather than being silently ignored. ``media_type`` is constrained to
+    the two values the route actually handles, the title is bounded to
+    256 chars, and the season lists are capped at 100 entries — generous
+    for any real series but tight enough to refuse a flood payload.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    media_type: Literal["movie", "tv"]
+    tmdb_id: int = Field(ge=1)
+    title: str = Field(max_length=256)
+    monitored_seasons: list[int] | None = Field(default=None, max_length=100)
+    search_seasons: list[int] | None = Field(default=None, max_length=100)
+
+
+# ``admin_users`` has no ``email`` column — the username is the only
+# identifier for the admin account, so it is intentionally re-used as
+# the notification ``email`` field on download_notifications rows. The
+# notification subsystem treats this as an opaque identifier (it does
+# not actually attempt SMTP delivery to a non-email value), but the
+# coupling is documented here so a future schema migration to a real
+# email column does not quietly leave this call site stale (finding 7).
+def _resolve_admin_email(admin: str) -> str:
+    """Return the notification identifier for *admin*.
+
+    Currently this is just the admin username; see the module-level
+    note above for why this is intentional.
+    """
+    return admin
 
 
 @router.post("/api/search/download")
 def api_download(
     body: _DownloadRequest, request: Request, admin: str = Depends(get_current_admin)
 ) -> JSONResponse:
-    if body.media_type not in ("movie", "tv"):
-        raise HTTPException(status_code=400, detail="media_type must be 'movie' or 'tv'")
-
     # Per-admin rate check.
     if not _DOWNLOAD_ADMIN_LIMITER.check(admin):
         logger.warning("search.download_throttled user=%s", admin)
@@ -546,14 +634,16 @@ def api_download(
             status_code=429,
         )
 
-    # Duplicate-request suppression: same (admin, tmdb_id, media_type) within
-    # the dedup window indicates a double-click or replay.
-    if _is_duplicate_download(admin, body.tmdb_id, body.media_type):
+    # Duplicate-request suppression: same (admin, tmdb_id, media_type, seasons)
+    # within the dedup window indicates a double-click or replay (finding 5).
+    seasons_token = _seasons_dedup_token(body.monitored_seasons, body.search_seasons)
+    if _is_duplicate_download(admin, body.tmdb_id, body.media_type, seasons_token):
         logger.info(
-            "search.download_duplicate_suppressed user=%s tmdb=%s type=%s",
+            "search.download_duplicate_suppressed user=%s tmdb=%s type=%s seasons=%s",
             admin,
             body.tmdb_id,
             body.media_type,
+            seasons_token,
         )
         return JSONResponse(
             {"ok": False, "error": "Duplicate request — wait a moment before retrying"},
@@ -563,7 +653,9 @@ def api_download(
     conn = get_db()
     secret_key = request.app.state.config.secret_key
 
-    notify_email = admin
+    # Notification recipient: see ``_resolve_admin_email`` for the
+    # rationale on re-using the admin username (finding 7).
+    notify_email = _resolve_admin_email(admin)
 
     if body.media_type == "movie":
         radarr = build_radarr_from_db(conn, secret_key)
@@ -576,7 +668,12 @@ def api_download(
                     status_code=409,
                 )
             radarr.add_movie(body.tmdb_id, body.title)
-        except Exception:
+        except (SafeHTTPError, _requests.RequestException, ValueError):
+            # Narrow exception list (finding 6): SafeHTTPError covers
+            # Radarr's non-2xx responses, RequestException covers
+            # transport failures, ValueError covers add_movie's own
+            # ``tmdb_id <= 0`` guard. A bare ``except Exception`` would
+            # silently swallow programming bugs.
             logger.exception("Failed to add movie")
             return JSONResponse({"ok": False, "error": "Failed to add to Radarr"}, status_code=502)
         _record_dn(
@@ -595,7 +692,7 @@ def api_download(
         return JSONResponse({"ok": False, "error": "Sonarr not configured"}, status_code=503)
     try:
         lookup = sonarr.lookup_series_by_tmdb(body.tmdb_id)
-    except Exception:
+    except (SafeHTTPError, _requests.RequestException):
         logger.exception("Sonarr lookup failed")
         return JSONResponse({"ok": False, "error": "Sonarr lookup failed"}, status_code=502)
     if not lookup:
@@ -608,7 +705,7 @@ def api_download(
 
     try:
         existing = sonarr.get_series()
-    except Exception:
+    except (SafeHTTPError, _requests.RequestException):
         logger.warning(
             "Sonarr get_series failed during duplicate check — skipping check", exc_info=True
         )
@@ -635,7 +732,7 @@ def api_download(
                 body.monitored_seasons,
                 body.search_seasons or [],
             )
-    except Exception:
+    except (SafeHTTPError, _requests.RequestException, ValueError):
         logger.exception("Failed to add series")
         return JSONResponse({"ok": False, "error": "Failed to add to Sonarr"}, status_code=502)
     _record_dn(
