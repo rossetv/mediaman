@@ -145,18 +145,23 @@ def send_newsletter(
     if recipient_emails is None:
         return
 
-    # Check if there is content worth sending.
-    scheduled_items = _load_scheduled_items(
-        conn, secret_key, base_url, datetime.now(timezone.utc), mark_notified
-    )
-    rec_check = conn.execute("SELECT COUNT(*) AS n FROM suggestions").fetchone()
+    # Cheap settings/COUNT checks first — invert the previous order so a
+    # tick with no scheduled items and no suggestions does not pay for
+    # the per-item ``_load_scheduled_items`` join (which fans out to
+    # ``media_items`` and runs the same join every minute on busy
+    # servers).  We only fetch the heavier scheduled-item payload when
+    # there is at least one notification candidate to render.
     rec_enabled_check = conn.execute(
         "SELECT value FROM settings WHERE key='suggestions_enabled'"
     ).fetchone()
-    has_recommendations = (
-        (not rec_enabled_check or rec_enabled_check["value"] != "false")
-        and rec_check
-        and rec_check["n"] > 0
+    if not rec_enabled_check or rec_enabled_check["value"] != "false":
+        rec_check = conn.execute("SELECT COUNT(*) AS n FROM suggestions").fetchone()
+        has_recommendations = bool(rec_check and rec_check["n"] > 0)
+    else:
+        has_recommendations = False
+
+    scheduled_items = _load_scheduled_items(
+        conn, secret_key, base_url, datetime.now(timezone.utc), mark_notified
     )
     if not scheduled_items and not has_recommendations:
         logger.debug("Newsletter skipped — nothing to report")
