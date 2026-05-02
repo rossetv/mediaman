@@ -93,8 +93,17 @@ def get_setting(
             # row swap (moving a ciphertext from one key to another)
             # fails authentication instead of silently succeeding.
             # ``decrypt_value`` falls back to no-AAD on InvalidTag so
-            # pre-AAD ciphertexts still read.
-            val = decrypt_value(val, secret_key, conn=conn, aad=key.encode())
+            # pre-AAD ciphertexts still read; passing ``settings_key``
+            # asks ``decrypt_value`` to re-encrypt the row with AAD on
+            # the next no-AAD success so the legacy fallback gradually
+            # disappears as settings are read in production.
+            val = decrypt_value(
+                val,
+                secret_key,
+                conn=conn,
+                aad=key.encode(),
+                settings_key=key,
+            )
         except (sqlite3.OperationalError, sqlite3.DatabaseError, InvalidTag, ValueError):
             # Narrow exception list:
             # * sqlite3.* — salt lookup failed (corrupted bootstrap
@@ -214,7 +223,13 @@ def get_string_setting_strict(
         if not secret_key:
             return None
         try:
-            val = decrypt_value(val, secret_key, conn=conn, aad=key.encode())
+            val = decrypt_value(
+                val,
+                secret_key,
+                conn=conn,
+                aad=key.encode(),
+                settings_key=key,
+            )
         except (sqlite3.OperationalError, sqlite3.DatabaseError, InvalidTag, ValueError) as exc:
             # Same narrow list as :func:`get_setting`. Anything outside
             # this set is a programmer error and should surface as the
