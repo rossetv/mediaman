@@ -7,20 +7,44 @@ Split from the original monolithic ``rate_limit.py`` (R4). Holds
 
 from __future__ import annotations
 
+import collections
 import ipaddress
 import threading
 import time
 
 # Cap the per-IP rate-limit dict to prevent unbounded memory growth under
 # a distributed attack. Oldest entries are evicted when the cap is hit.
+# Tuned for a small/medium-sized self-hosted deployment: 10k unique
+# /24 buckets is roughly 10k legitimate end-user subnets, well above any
+# realistic concurrent load. Above this we aggressively evict the
+# least-recently-used bucket. Move to a setting if larger deployments
+# materialise — for now this is a safety net, not a tunable.
 _MAX_BUCKETS = 10_000
+
+# Length of the rolling window used by ActionRateLimiter's daily cap.
+# 24 hours, expressed in seconds.
+_ONE_DAY_SECONDS = 86_400.0
 
 
 class ActionRateLimiter:
     """Per-actor rate limiter for authenticated admin operations.
 
     Keyed on username. Thread-safe; enforces both a short burst window
-    and a daily cap.
+    and a rolling 24h cap.
+
+    Sliding 24h window
+    ------------------
+    The daily cap is enforced as a *sliding* 24h window (timestamps of
+    every successful check within the last 24h are retained, and
+    anything older is dropped). The previous calendar-day implementation
+    let an attacker double their daily budget across the UTC midnight
+    boundary by sending the day-N quota at 23:59:59 then the day-N+1
+    quota at 00:00:01.
+
+    Trade-off: memory is now ``O(max_per_day)`` per actor instead of a
+    single integer. With ``max_per_day`` typically in the tens to low
+    hundreds, this is a modest fixed cost (a few hundred bytes per
+    actor). Acceptable for the security gain.
     """
 
     def __init__(self, max_in_window: int, window_seconds: float, max_per_day: int = 0):
@@ -28,22 +52,31 @@ class ActionRateLimiter:
         self._window = window_seconds
         self._max_per_day = max_per_day
         self._attempts: dict[str, list[float]] = {}
-        self._day_counts: dict[str, tuple[str, int]] = {}
+        # Sliding 24h timestamp log per actor. Only populated when
+        # ``max_per_day > 0``; we use a deque so old entries can be
+        # popped from the left in O(1).
+        self._daily: dict[str, collections.deque[float]] = {}
         self._lock = threading.Lock()
         self._calls_since_prune = 0
 
-    _DAY_COUNT_PRUNE_EVERY = 512
+    _DAILY_PRUNE_EVERY = 512
 
     def check(self, actor: str) -> bool:
         """Return True if the action is allowed, False if rate-limited."""
         now = time.monotonic()
-        today = time.strftime("%Y-%m-%d", time.gmtime())
         with self._lock:
             if self._max_per_day > 0:
-                day_key, day_count = self._day_counts.get(actor, ("", 0))
-                if day_key != today:
-                    day_count = 0
-                if day_count >= self._max_per_day:
+                day_log = self._daily.get(actor)
+                if day_log is not None:
+                    cutoff = now - _ONE_DAY_SECONDS
+                    while day_log and day_log[0] < cutoff:
+                        day_log.popleft()
+                    if not day_log:
+                        # Drop empty deque so the actor doesn't linger.
+                        self._daily.pop(actor, None)
+                        day_log = None
+                count = len(day_log) if day_log is not None else 0
+                if count >= self._max_per_day:
                     return False
 
             attempts = [t for t in self._attempts.get(actor, []) if now - t < self._window]
@@ -52,20 +85,31 @@ class ActionRateLimiter:
                 return False
 
             if self._max_per_day > 0:
-                day_key, day_count = self._day_counts.get(actor, ("", 0))
-                if day_key != today:
-                    day_count = 0
-                self._day_counts[actor] = (today, day_count + 1)
+                day_log = self._daily.get(actor)
+                if day_log is None:
+                    day_log = collections.deque()
+                    self._daily[actor] = day_log
+                day_log.append(now)
                 self._calls_since_prune += 1
-                if self._calls_since_prune >= self._DAY_COUNT_PRUNE_EVERY:
+                if self._calls_since_prune >= self._DAILY_PRUNE_EVERY:
                     self._calls_since_prune = 0
-                    stale_actors = [k for k, (dk, _) in self._day_counts.items() if dk != today]
-                    for k in stale_actors:
-                        self._day_counts.pop(k, None)
+                    self._prune_daily(now)
 
             attempts.append(now)
             self._attempts[actor] = attempts
             return True
+
+    def _prune_daily(self, now: float) -> None:
+        """Drop actors whose entire 24h log has aged out."""
+        cutoff = now - _ONE_DAY_SECONDS
+        stale: list[str] = []
+        for actor, log in self._daily.items():
+            while log and log[0] < cutoff:
+                log.popleft()
+            if not log:
+                stale.append(actor)
+        for actor in stale:
+            self._daily.pop(actor, None)
 
 
 def _bucket_key(ip: str) -> str:
@@ -80,14 +124,21 @@ def _bucket_key(ip: str) -> str:
 
 
 class RateLimiter:
-    """Thread-safe in-memory sliding window rate limiter."""
+    """Thread-safe in-memory sliding window rate limiter.
+
+    Eviction is O(1) per call: buckets are stored in an
+    :class:`collections.OrderedDict` ordered by most-recent access, and
+    the least-recently-used bucket is popped when the cap is hit.
+    """
 
     _PRUNE_EVERY = 256
 
     def __init__(self, max_attempts: int = 5, window_seconds: float = 60):
         self._max_attempts = max_attempts
         self._window = window_seconds
-        self._attempts: dict[str, list[float]] = {}
+        # OrderedDict so we can move buckets to the end on access and
+        # popitem(last=False) to evict the least-recently-used in O(1).
+        self._attempts: collections.OrderedDict[str, list[float]] = collections.OrderedDict()
         self._lock = threading.Lock()
         self._calls_since_prune = 0
 
@@ -99,10 +150,12 @@ class RateLimiter:
             attempts = [t for t in self._attempts.get(key, []) if now - t < self._window]
             if len(attempts) >= self._max_attempts:
                 self._attempts[key] = attempts
+                self._attempts.move_to_end(key)
                 self._maybe_prune(now)
                 return False
             attempts.append(now)
             self._attempts[key] = attempts
+            self._attempts.move_to_end(key)
             self._maybe_prune(now)
             if len(self._attempts) > _MAX_BUCKETS:
                 self._evict_oldest()
@@ -123,11 +176,8 @@ class RateLimiter:
             self._attempts.pop(key, None)
 
     def _evict_oldest(self) -> None:
-        """Evict the bucket whose most-recent hit is oldest."""
+        """Evict the least-recently-used bucket in O(1)."""
         if not self._attempts:
             return
-        oldest_key = min(
-            self._attempts,
-            key=lambda k: max(self._attempts[k]) if self._attempts[k] else 0.0,
-        )
-        self._attempts.pop(oldest_key, None)
+        # popitem(last=False) removes the first (LRU) entry.
+        self._attempts.popitem(last=False)
