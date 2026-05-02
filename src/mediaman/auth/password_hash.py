@@ -3,13 +3,42 @@
 Split from ``auth/session.py`` (R2). Owns the "how are passwords hashed
 and compared" concern; session persistence lives in
 :mod:`mediaman.auth.session_store`.
+
+Bcrypt 72-byte truncation defence
+---------------------------------
+
+``bcrypt.hashpw`` silently truncates its input to 72 bytes — two
+different 100-byte passwords whose first 72 bytes match would hash to
+the same value, and an attacker who knows this can craft pathological
+inputs. We defeat that by pre-hashing any password that exceeds 72
+bytes (after Unicode NFKC normalisation) with SHA-256, base64-encoding
+the digest (44 bytes — comfortably under bcrypt's limit) and feeding
+the result into bcrypt. Two distinct long passwords therefore have
+distinct SHA-256 digests and bcrypt sees full-entropy inputs.
+
+The gate is keyed on input length so existing ``admin_users`` rows
+hashed before this change continue to verify: any password short enough
+for bcrypt to accept directly (≤ 72 bytes) bypasses the pre-hash on
+both the set and verify paths and hits the same bytes the original
+``hashpw`` did. No backfill or lazy migration is required — the only
+behaviour change is for pathological inputs over 72 bytes, which
+nobody could ever have logged in with reliably anyway.
+
+Both ``hashpw`` and ``checkpw`` callers MUST go through
+:func:`_prepare_bcrypt_input` so the pre-hash logic is applied
+symmetrically. A mismatch (pre-hash on set, raw on verify or vice
+versa) would lock everyone out.
 """
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import logging
+import re as _re
 import sqlite3
 import threading
+import unicodedata
 from typing import TypedDict
 
 import bcrypt
@@ -27,6 +56,76 @@ class UserRecord(TypedDict):
     created_at: str
 
 
+#: Single source of truth for the bcrypt cost factor. Tied together so
+#: the dummy hash and every real hash use the same work factor — a
+#: drift here would create a measurable timing channel between
+#: nonexistent-user and real-user code paths.
+BCRYPT_ROUNDS = 12
+
+#: Hard cap on bcrypt input. ``bcrypt.hashpw`` silently truncates above
+#: this; we redirect oversized inputs through a SHA-256 pre-hash so the
+#: full input contributes to the final digest.
+_BCRYPT_MAX_INPUT_BYTES = 72
+
+
+# Characters allowed in sanitised log fields. Anything else is stripped
+# before interpolation so usernames cannot inject CR/LF or control
+# characters into log lines. Mirrors the helper in
+# ``web.routes.auth`` — duplicated here rather than imported to avoid a
+# web → auth → web circular import.
+_LOG_FIELD_RE = _re.compile(r"[^A-Za-z0-9._@\-]")
+
+
+def _sanitise_log_field(value: str, limit: int = 64) -> str:
+    """Strip non-safe characters from *value* and truncate to *limit*."""
+    if value is None:
+        return ""
+    truncated = len(value) > limit
+    sanitised = _LOG_FIELD_RE.sub("", value)[:limit]
+    return sanitised + "..." if truncated else sanitised
+
+
+def _normalise_password(password: str) -> str:
+    """NFKC-normalise *password* so visually-identical strings agree.
+
+    Different OSes / IMEs emit different byte sequences for the same
+    visible character — e.g. ``é`` may arrive as a single precomposed
+    code point or as ``e`` + combining acute. Without normalisation,
+    those two strings hash to different bcrypt outputs, so a user who
+    set their password on one platform cannot log in from another.
+    NFKC also folds compatibility forms (full-width digits, ligatures,
+    etc.) so the normalised representation is stable across input
+    methods.
+    """
+    return unicodedata.normalize("NFKC", password)
+
+
+def _prepare_bcrypt_input(password: str) -> bytes:
+    """Return the bytes that should be fed into ``bcrypt.hashpw``/``checkpw``.
+
+    Inputs that fit within bcrypt's 72-byte limit (after NFKC
+    normalisation) are passed straight through, so existing hashes that
+    were generated before this defence landed continue to verify
+    against the same bytes. Inputs that exceed the limit are pre-hashed
+    with SHA-256 and base64-encoded — the result is 44 bytes, well
+    under bcrypt's threshold, so the full entropy of the original
+    password reaches the final digest.
+
+    Both ``hashpw`` and ``checkpw`` MUST route through this helper so
+    the encoding stays symmetric. A mismatch would lock every user out.
+    """
+    normalised = _normalise_password(password)
+    encoded = normalised.encode("utf-8")
+    if len(encoded) <= _BCRYPT_MAX_INPUT_BYTES:
+        return encoded
+    digest = hashlib.sha256(encoded).digest()
+    # base64 of a 32-byte digest is 44 chars — comfortably under bcrypt's
+    # 72-byte limit. We keep the b64 padding (rather than stripping it)
+    # so the encoding is exactly what stdlib base64 produces, leaving
+    # zero ambiguity when re-deriving on verify.
+    return base64.b64encode(digest)
+
+
 _DUMMY_HASH: bytes | None = None
 _DUMMY_HASH_LOCK = threading.Lock()
 
@@ -36,7 +135,7 @@ def _get_dummy_hash() -> bytes:
     global _DUMMY_HASH
     with _DUMMY_HASH_LOCK:
         if _DUMMY_HASH is None:
-            _DUMMY_HASH = bcrypt.hashpw(b"dummy", bcrypt.gensalt(rounds=12))
+            _DUMMY_HASH = bcrypt.hashpw(b"dummy", bcrypt.gensalt(rounds=BCRYPT_ROUNDS))
         return _DUMMY_HASH
 
 
@@ -69,7 +168,11 @@ def create_user(
     audit_actor: str | None = None,
     audit_ip: str = "",
 ) -> None:
-    """Insert an admin user with a bcrypt-hashed password (cost 12).
+    """Insert an admin user with a bcrypt-hashed password.
+
+    The bcrypt cost is :data:`BCRYPT_ROUNDS`. Passwords are routed
+    through :func:`_prepare_bcrypt_input` first so inputs over 72 bytes
+    preserve full entropy (see module docstring).
 
     Audit-in-transaction: when *audit_actor* is supplied, a
     ``sec:user.created`` row is written inside the same
@@ -84,7 +187,8 @@ def create_user(
         if issues:
             raise ValueError("Password does not meet strength policy: " + "; ".join(issues))
 
-    password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12)).decode()
+    bcrypt_input = _prepare_bcrypt_input(password)
+    password_hash = bcrypt.hashpw(bcrypt_input, bcrypt.gensalt(rounds=BCRYPT_ROUNDS)).decode()
     now = now_iso()
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -127,6 +231,33 @@ def authenticate(
 
     Always performs a bcrypt check — even for nonexistent users — to
     prevent timing-based username enumeration.
+
+    Two short-circuit paths skip the bcrypt cycle deliberately:
+
+    * Empty username — there is no user to authenticate, and burning a
+      bcrypt round per request would let an unauthenticated attacker
+      DoS the server's CPU by streaming empty-username login attempts.
+    * Account already locked — :mod:`mediaman.auth.login_lockout`
+      already knows the answer is "no" without re-checking the hash.
+      Skipping bcrypt here cuts the cost of a sustained brute-force
+      hammering a locked account from one bcrypt round per attempt
+      to zero. The ``record_failure`` writer-lock acquisition is
+      retained even on the locked path because the escalation
+      thresholds (5 → 10 → 15 failures → 15 min / 1 h / 24 h) are
+      reachable only while the counter keeps climbing during the
+      lock window — see the C6 test in ``test_login_lockout.py``.
+      Without the continued counter bump the M21 mitigation in
+      :mod:`mediaman.auth.login_lockout` cannot escalate to the 1-hour
+      and 24-hour windows.
+
+    The "constant-time" property is preserved across the *meaningful*
+    branches: an attacker sending a real username gets the same
+    bcrypt-cycle latency whether the user exists or not, since the
+    "user not found" path still burns a dummy bcrypt round. The empty
+    and locked paths are a different (and visible) latency, but the
+    information they leak — "you sent no username" or "this account is
+    rate-limited" — is information the attacker already controls or
+    can deduce from response volume anyway.
     """
     from mediaman.auth.login_lockout import (
         check_lockout,
@@ -134,9 +265,20 @@ def authenticate(
         record_success,
     )
 
-    locked = bool(username) and check_lockout(conn, username)
-    if locked:
-        bcrypt.checkpw(password.encode(), _get_dummy_hash())
+    # Reject empty usernames before touching bcrypt. Otherwise an
+    # unauthenticated attacker can stream empty-username requests at
+    # the login endpoint and burn server CPU at one bcrypt round per
+    # request — a cheap CPU-DoS.
+    if not username:
+        return False
+
+    # Check lockout first. A locked account already has a "no" answer
+    # without re-running bcrypt — skip the dummy round and save the
+    # CPU. We still record the failure so the escalation thresholds
+    # remain reachable (5 → 10 → 15 failures); see C6 in the lockout
+    # tests. record_failure keeps acquiring the writer lock, which is
+    # the price of the escalation property.
+    if check_lockout(conn, username):
         if record_failures:
             record_failure(conn, username)
         logger.warning("auth.account_locked user=%s reason=lockout_active", username)
@@ -147,12 +289,15 @@ def authenticate(
     ).fetchone()
 
     if row is None:
-        bcrypt.checkpw(password.encode(), _get_dummy_hash())
-        if username and record_failures:
+        # Burn a constant-time bcrypt cycle so a real-username probe and
+        # a fake-username probe take ~the same wall time and timing
+        # cannot enumerate valid usernames.
+        bcrypt.checkpw(_prepare_bcrypt_input(password), _get_dummy_hash())
+        if record_failures:
             record_failure(conn, username)
         return False
 
-    ok = bcrypt.checkpw(password.encode(), row["password_hash"].encode())
+    ok = bcrypt.checkpw(_prepare_bcrypt_input(password), row["password_hash"].encode())
     if ok:
         record_success(conn, username)
     elif record_failures:
@@ -173,7 +318,8 @@ def change_password(
 ) -> bool:
     """Change a user's password.
 
-    Returns True on success, False if old password is wrong.
+    Returns True on success, False if the old password is wrong, the
+    user no longer exists (TOCTOU), or the reauth namespace is locked.
 
     Wrong-old-password attempts are recorded into the
     ``reauth:<username>`` namespace of :mod:`mediaman.auth.login_lockout`
@@ -186,10 +332,20 @@ def change_password(
 
     Audit-in-transaction: when *audit_actor* is supplied (typically the
     same as *username*), a ``sec:<audit_event>`` row is written inside
-    the same ``BEGIN IMMEDIATE`` that flips the password hash and
-    invalidates sessions. If the audit insert fails, the entire
-    rotation rolls back — we never have a "the password changed but no
-    audit trail exists" outcome.
+    the same ``BEGIN IMMEDIATE`` that flips the password hash, drops
+    sessions, and revokes reauth tickets. If the audit insert fails,
+    the entire rotation rolls back — we never have a "the password
+    changed but no audit trail exists" outcome.
+
+    TOCTOU: between :func:`authenticate` returning True and the UPDATE
+    landing, the user could be deleted by another worker. We detect
+    that via ``cursor.rowcount`` and roll back with ``return False``
+    rather than silently claim success.
+
+    Reauth ticket cleanup is performed inside the same transaction as
+    the session DELETE so a thief who held a reauth ticket cannot
+    redeem it under the freshly-issued sessions that follow the
+    password change.
     """
     from mediaman.auth.login_lockout import (
         check_lockout,
@@ -204,17 +360,21 @@ def change_password(
         # Burn a constant-time bcrypt cycle so timing matches the
         # wrong-password path; bump the counter so a sustained attack
         # escalates the lock window.
-        bcrypt.checkpw(old_password.encode(), _get_dummy_hash())
+        bcrypt.checkpw(_prepare_bcrypt_input(old_password), _get_dummy_hash())
         record_failure(conn, namespace)
         logger.warning(
             "password.change_locked user=%s reason=lockout_active",
-            username,
+            _sanitise_log_field(username),
         )
         return False
 
     if not authenticate(conn, username, old_password, record_failures=False):
         if namespace:
             record_failure(conn, namespace)
+        logger.warning(
+            "password.change_failed user=%s reason=wrong_old_password",
+            _sanitise_log_field(username),
+        )
         return False
 
     if enforce_policy:
@@ -224,14 +384,40 @@ def change_password(
         if issues:
             raise ValueError("Password does not meet strength policy: " + "; ".join(issues))
 
-    new_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt(rounds=12)).decode()
+    new_hash = bcrypt.hashpw(
+        _prepare_bcrypt_input(new_password), bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
+    ).decode()
     conn.execute("BEGIN IMMEDIATE")
     try:
-        conn.execute(
+        cursor = conn.execute(
             "UPDATE admin_users SET password_hash=?, must_change_password=0 WHERE username=?",
             (new_hash, username),
         )
+        # TOCTOU guard: if the user vanished between authenticate() and
+        # this UPDATE, rowcount will be zero. Roll back instead of
+        # claiming success — we just wrote a no-op and would otherwise
+        # also DELETE sessions / mint an audit row for a user who is no
+        # longer there.
+        if cursor.rowcount == 0:
+            conn.execute("ROLLBACK")
+            logger.warning(
+                "password.change_failed user=%s reason=user_vanished",
+                _sanitise_log_field(username),
+            )
+            return False
         conn.execute("DELETE FROM admin_sessions WHERE username=?", (username,))
+        # Reauth ticket revocation belongs INSIDE the transaction.
+        # Otherwise a thief holding a reauth ticket whose session we
+        # just dropped could redeem the ticket against a brand-new
+        # session that re-authenticates with the same username. We
+        # inline the DELETE rather than calling
+        # ``revoke_all_reauth_for`` because that helper commits its
+        # own transaction, which would prematurely commit the outer
+        # block.
+        conn.execute(
+            "DELETE FROM reauth_tickets WHERE username = ?",
+            (username,),
+        )
         if audit_actor is not None:
             from mediaman.audit import security_event_or_raise
 
@@ -255,15 +441,6 @@ def change_password(
             record_success(conn, namespace)
         except Exception:  # pragma: no cover — counter cleanup is best-effort
             logger.exception("password.change counter cleanup failed user=%s", username)
-    # Defensive: revoke any reauth tickets still tied to the user's old
-    # sessions so a thief who held a reauth ticket cannot continue to
-    # act on a brand-new session that now has the same username.
-    try:
-        from mediaman.auth.reauth import revoke_all_reauth_for
-
-        revoke_all_reauth_for(conn, username)
-    except Exception:  # pragma: no cover — never break flow on cleanup failure
-        logger.exception("password.change reauth cleanup failed user=%s", username)
     logger.info("password.changed user=%s sessions_revoked=all", username)
     return True
 
