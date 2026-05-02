@@ -24,14 +24,21 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
     able to log in to re-enter secrets. The downstream
     :func:`bootstrap_scheduling` reads the flag and refuses to start the
     scheduler when the canary failed.
+
+    The canary state is initialised to ``False`` and only flipped to
+    ``True`` after :func:`canary_check` returns a positive result. An
+    import failure or any other exception leaves the flag at its
+    fail-closed default — without this, a partial import (e.g. a missing
+    ``cryptography`` extension) would slip through with the optimistic
+    ``True`` and the scheduler would gleefully fire scans against
+    settings it cannot decrypt.
     """
-    canary_ok = True
+    canary_ok = False
     try:
         from mediaman.crypto import canary_check
 
-        canary_ok = canary_check(app.state.db, config.secret_key)
+        canary_ok = bool(canary_check(app.state.db, config.secret_key))
     except Exception:
         logger.exception("AES canary check failed unexpectedly")
         canary_ok = False
     app.state.canary_ok = canary_ok
-    app.state.scheduler_healthy = False
