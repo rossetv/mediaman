@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -11,6 +12,18 @@ from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
 from mediaman.web.routes.scan import router as scan_router
+
+
+@pytest.fixture(autouse=True)
+def _reset_scan_trigger_limiter():
+    """Reset the per-admin scan-trigger limiter so suite ordering does
+    not cause the second / third test in a class to hit the daily cap.
+    """
+    from mediaman.services.infra.rate_limits import SCAN_TRIGGER_LIMITER
+
+    SCAN_TRIGGER_LIMITER.reset()
+    yield
+    SCAN_TRIGGER_LIMITER.reset()
 
 
 def _make_app(conn, secret_key: str, db_path: str) -> FastAPI:
@@ -265,3 +278,124 @@ class TestLibrarySync:
             resp = client.post("/api/library/sync")
         assert resp.status_code == 200
         assert resp.json()["ok"] is False
+
+
+# ---------------------------------------------------------------------------
+# Audit logging + rate limiting (Domain 03 findings 15-18)
+# ---------------------------------------------------------------------------
+
+
+class TestScanTriggerRateLimit:
+    """Manual scan triggers must be rate-limited per admin so a leaked
+    session cookie cannot chain scans against Plex / Sonarr / Radarr."""
+
+    def test_fourth_trigger_in_window_is_429(self, db_path, secret_key):
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key, str(db_path))
+        client = _auth_client(app, conn)
+        # Limiter is 3/min — three OK, fourth gets 429.
+        for _ in range(3):
+            with patch("mediaman.scanner.runner.run_scan_from_db"):
+                resp = client.post("/api/scan/trigger")
+            # First "started", subsequent "already_running" since the
+            # first lease is still held — but neither should be 429.
+            assert resp.status_code == 200
+        resp = client.post("/api/scan/trigger")
+        assert resp.status_code == 429
+
+
+class TestScanTriggerAuditLog:
+    """A manual scan trigger must write a sec:scan.triggered audit row
+    so a compromised admin cannot silently drive scan activity."""
+
+    def test_trigger_writes_security_event(self, db_path, secret_key):
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key, str(db_path))
+        client = _auth_client(app, conn)
+        with patch("mediaman.scanner.runner.run_scan_from_db"):
+            resp = client.post("/api/scan/trigger")
+        assert resp.status_code == 200
+
+        rows = conn.execute(
+            "SELECT detail FROM audit_log WHERE action = 'sec:scan.triggered'"
+        ).fetchall()
+        assert rows, "audit row missing for sec:scan.triggered"
+
+
+class TestClearScheduledAuditLog:
+    """The destructive clear-scheduled action must be wrapped in a
+    transaction with an audit row that lands atomically with the
+    delete — and roll back the delete if the audit insert fails."""
+
+    def test_clear_writes_security_event(self, db_path, secret_key):
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key, str(db_path))
+        client = _auth_client(app, conn)
+
+        resp = client.post("/api/scan/clear-scheduled")
+        assert resp.status_code == 200
+
+        rows = conn.execute(
+            "SELECT detail FROM audit_log WHERE action = 'sec:scan.cleared'"
+        ).fetchall()
+        assert rows, "audit row missing for sec:scan.cleared"
+        assert '"count":' in rows[0]["detail"]
+
+    def test_audit_failure_rolls_back_delete(self, db_path, secret_key, monkeypatch):
+        from datetime import datetime, timedelta, timezone
+
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key, str(db_path))
+        client = _auth_client(app, conn)
+
+        # Insert a media item + scheduled deletion row.
+        conn.execute(
+            "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key, "
+            "added_at, file_path, file_size_bytes) VALUES "
+            "('mx', 'Item mx', 'movie', 1, 'rk-mx', ?, '/f', 0)",
+            (datetime.now(timezone.utc).isoformat(),),
+        )
+        conn.execute(
+            "INSERT INTO scheduled_actions "
+            "(media_item_id, action, scheduled_at, execute_at, token, token_used) "
+            "VALUES (?, 'scheduled_deletion', ?, ?, 'tok-mx', 0)",
+            (
+                "mx",
+                datetime.now(timezone.utc).isoformat(),
+                (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+            ),
+        )
+        conn.commit()
+
+        from mediaman.web.routes import scan as scan_module
+
+        def boom(*_a, **_k):
+            raise RuntimeError("simulated audit failure")
+
+        monkeypatch.setattr(scan_module, "security_event_or_raise", boom)
+
+        resp = client.post("/api/scan/clear-scheduled")
+        assert resp.status_code == 500
+        # The scheduled row must still be present — the transaction
+        # rolled back when the audit insert blew up.
+        row = conn.execute(
+            "SELECT id FROM scheduled_actions WHERE media_item_id = 'mx'"
+        ).fetchone()
+        assert row is not None
+
+
+class TestLibrarySyncAuditLog:
+    """Manual library sync writes a sec:library.sync row on success."""
+
+    def test_sync_writes_security_event(self, db_path, secret_key):
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key, str(db_path))
+        client = _auth_client(app, conn)
+        with patch("mediaman.scanner.runner.run_library_sync", return_value={"synced": 5}):
+            resp = client.post("/api/library/sync")
+        assert resp.status_code == 200
+
+        rows = conn.execute(
+            "SELECT detail FROM audit_log WHERE action = 'sec:library.sync'"
+        ).fetchall()
+        assert rows, "audit row missing for sec:library.sync"
