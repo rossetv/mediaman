@@ -80,3 +80,15 @@ class TestCheckInactivity:
         # days >= inactivity_days — boundary is inclusive.
         history = [{"viewed_at": _now() - timedelta(days=30, hours=1)}]
         assert check_inactivity(history, inactivity_days=30) is True
+
+    def test_all_none_viewed_at_does_not_raise(self):
+        """D05 finding 12: a watch_history list whose every entry has
+        ``viewed_at=None`` used to crash with ``ValueError`` from
+        ``max([])``. The function must instead return False (treat as
+        recently watched / fail safe) so we never schedule deletion off
+        an unusable history.
+        """
+        history = [{"viewed_at": None}, {"viewed_at": None}]
+        # Must not raise.
+        result = check_inactivity(history, inactivity_days=30)
+        assert result is False

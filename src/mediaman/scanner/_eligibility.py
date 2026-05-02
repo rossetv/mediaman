@@ -44,6 +44,14 @@ def check_inactivity(watch_history: list[dict[str, object]], inactivity_days: in
     inactive only when the most recent watch event is older than
     *inactivity_days*.
 
+    A watch-history entry whose ``viewed_at`` is ``None`` (some Plex
+    responses include in-progress entries with no completion timestamp)
+    is filtered out. If filtering leaves zero usable entries the item
+    is treated as having been watched recently — i.e. **not inactive**
+    — so we fail safe rather than schedule deletion off an unusable
+    history. The previous code raised ``ValueError`` from
+    ``max(empty_iter)`` in that case (D05 finding 12).
+
     Args:
         watch_history: List of watch-history dicts, each containing at
             minimum a ``"viewed_at"`` key with a :class:`datetime` value.
@@ -56,7 +64,16 @@ def check_inactivity(watch_history: list[dict[str, object]], inactivity_days: in
     if not watch_history:
         return True
     now = datetime.now(timezone.utc)
-    most_recent = max(
+    timestamps = [
         _ensure_tz(h["viewed_at"]) for h in watch_history if h.get("viewed_at") is not None
-    )
+    ]
+    if not timestamps:
+        # Watch history exists but every entry is missing a timestamp.
+        # Treat as "watched recently" (fail safe) so we never queue a
+        # deletion off a history we cannot reason about. The
+        # alternative — falling through to the "no history" branch —
+        # would queue the item for deletion, which is more dangerous
+        # than briefly skipping a possibly-stale entry.
+        return False
+    most_recent = max(timestamps)
     return (now - most_recent).days >= inactivity_days
