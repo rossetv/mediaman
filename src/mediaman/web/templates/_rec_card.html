@@ -11,7 +11,7 @@
   <button type="button" class="tile-hit" aria-label="{{ item.title }} — open details"></button>
   <div class="tile-poster">
     {% if item.poster_url %}
-    <img src="{{ item.poster_url }}" alt="{{ item.title }}" loading="lazy" referrerpolicy="no-referrer" onerror="this.dataset.broken=''">
+    <img src="{{ item.poster_url }}" alt="{{ item.title }}" loading="lazy" referrerpolicy="no-referrer" data-broken-on-error>
     {% endif %}
     {% if item.rating or item.rt_rating %}
     <div class="poster-chips">
