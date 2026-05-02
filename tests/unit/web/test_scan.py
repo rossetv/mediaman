@@ -48,6 +48,65 @@ class TestScanTrigger:
         assert resp.status_code == 200
         assert resp.json() == {"status": "started"}
 
+    def test_trigger_spawns_heartbeat_thread(self, db_path, secret_key):
+        """D05 finding 9: the manual scan must start a heartbeat thread
+        alongside the scan worker so the lease is renewed during long
+        Plex / *arr round-trips. Pre-fix the manual route only had the
+        scan worker, so a long scan would let the lease lapse and a
+        cron scan would (correctly) treat the row as stale and fire a
+        duplicate run.
+        """
+        import threading
+
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key, str(db_path))
+        client = _auth_client(app, conn)
+
+        before = {t.name for t in threading.enumerate()}
+        # Block the scan inside run_scan_from_db so the heartbeat is
+        # observable before the scan worker exits.
+        scan_running = threading.Event()
+        scan_proceed = threading.Event()
+
+        def fake_scan(*args, **kwargs):
+            scan_running.set()
+            # Wait until the test releases us.
+            scan_proceed.wait(timeout=5)
+            return {}
+
+        with patch("mediaman.scanner.runner.run_scan_from_db", side_effect=fake_scan):
+            resp = client.post("/api/scan/trigger")
+            assert resp.status_code == 200
+
+            # Wait for the scan worker to start so the heartbeat
+            # thread is guaranteed to have been started too.
+            assert scan_running.wait(timeout=5), "scan worker never started"
+
+            # The manual scan heartbeat thread must be alive while
+            # the scan is running.
+            heartbeat_threads = [
+                t for t in threading.enumerate() if t.name == "manual-scan-heartbeat"
+            ]
+            assert heartbeat_threads, (
+                "manual scan must spawn a heartbeat thread named 'manual-scan-heartbeat'"
+            )
+
+            # Release the scan worker so it can finish and stop the
+            # heartbeat (clean shutdown).
+            scan_proceed.set()
+
+        # Best-effort wait for the heartbeat thread to clean up.
+        for t in threading.enumerate():
+            if t.name in {"manual-scan-heartbeat"} and t.ident not in {
+                u.ident for u in [threading.current_thread()]
+            }:
+                t.join(timeout=5)
+        # Ensure no leftover heartbeat threads from this test pollute
+        # the rest of the suite.
+        leftover = {t.name for t in threading.enumerate()} - before
+        # The heartbeat name should NOT be in leftover (clean shutdown).
+        assert "manual-scan-heartbeat" not in leftover
+
     def test_trigger_already_running(self, db_path, secret_key):
         """A scan already in the DB blocks a second trigger."""
         from mediaman.db import start_scan_run
