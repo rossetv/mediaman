@@ -167,18 +167,35 @@ def _ensure_dns_pin_hook_installed() -> None:
     attacker has already won.
     """
     global _ORIG_GETADDRINFO
+    # Fast path: cheap pointer compare without taking the lock. Safe even
+    # mid-replacement because the worst case is an extra trip into the
+    # locked slow path — never a corrupt assignment.
     if socket.getaddrinfo is _patched_getaddrinfo:
         return
-    logger.critical(
-        "socket.getaddrinfo was replaced after http_client import — "
-        "DNS pin would not have applied. Capturing the replacement as "
-        "the new delegate and re-installing the patched resolver. The "
-        "replacement was: %r",
-        socket.getaddrinfo,
-    )
-    # Capture the replacement so non-pinned lookups still flow through it.
-    _ORIG_GETADDRINFO = socket.getaddrinfo
-    _install_dns_pin_hook()
+
+    # Slow path under lock. The previous implementation read
+    # ``socket.getaddrinfo`` once before the lock, then again INSIDE the
+    # lock for the assignment — between those two reads, a concurrent
+    # caller could re-install ``_patched_getaddrinfo`` and the second
+    # read would capture our own patched function as the delegate.
+    # Subsequent invocations would then recurse infinitely.
+    with _PIN_INSTALL_LOCK:
+        replacement = socket.getaddrinfo
+        if replacement is _patched_getaddrinfo:
+            # Another thread reinstalled while we were waiting on the
+            # lock. Nothing left to do.
+            return
+        logger.critical(
+            "socket.getaddrinfo was replaced after http_client import — "
+            "DNS pin would not have applied. Capturing the replacement as "
+            "the new delegate and re-installing the patched resolver. The "
+            "replacement was: %r",
+            replacement,
+        )
+        # Capture under the lock so a concurrent re-install can't slip
+        # ``_patched_getaddrinfo`` itself into ``_ORIG_GETADDRINFO``.
+        _ORIG_GETADDRINFO = replacement
+        socket.getaddrinfo = _patched_getaddrinfo
 
 
 _install_dns_pin_hook()
