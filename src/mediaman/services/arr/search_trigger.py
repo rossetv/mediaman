@@ -34,7 +34,16 @@ _search_count: dict[str, int] = {}
 # the meantime cannot have its work undone (Domain-06 #8).
 _reservation_tokens: dict[str, str] = {}
 
-# Lock guarding _last_search_trigger, _search_count, and _reservation_tokens.
+# Stable composite-key throttle indexed by ``f"{service}:#{arr_id}"``.
+# The ``dl_id``-based throttle in ``_last_search_trigger`` collapses
+# under a Sonarr/Radarr title rename (the title-derived dl_id changes),
+# but ``arr_id`` is stable. ``maybe_trigger_search`` mirrors every
+# successful trigger here so a renamed series can't bypass the throttle
+# by producing a fresh title-derived dl_id (Domain-06 #11).
+_last_search_trigger_by_arr: dict[str, float] = {}
+
+# Lock guarding _last_search_trigger, _search_count, _reservation_tokens,
+# and _last_search_trigger_by_arr.
 _state_lock = threading.Lock()
 
 _SEARCH_STALE_SECONDS = 5 * 60  # trigger if item has been searching > 5 min
@@ -46,6 +55,19 @@ def reset_search_triggers() -> None:
     _last_search_trigger.clear()
     _search_count.clear()
     _reservation_tokens.clear()
+    _last_search_trigger_by_arr.clear()
+
+
+def _arr_throttle_key(service: str, arr_id: int) -> str:
+    """Return the stable arr-id-based throttle key.
+
+    Used as a parallel index to ``_last_search_trigger`` (which is keyed
+    by ``dl_id``). The ``dl_id`` collapses under a title rename;
+    the arr-id key does not. ``maybe_trigger_search`` updates both, so
+    any path that has access to ``(service, arr_id)`` can dedupe even
+    if the title has changed since the last trigger (Domain-06 #11).
+    """
+    return f"{service}:#{arr_id}"
 
 
 def _load_throttle_from_db(conn: sqlite3.Connection, dl_id: str) -> tuple[float, int]:
@@ -181,6 +203,8 @@ def maybe_trigger_search(
     # detect a sibling thread having overwritten the reservation in the
     # meantime (Domain-06 #8).
     my_token = uuid.uuid4().hex
+    service = "radarr" if kind == "movie" else "sonarr"
+    arr_throttle_key = _arr_throttle_key(service, arr_id)
     with _state_lock:
         last = _last_search_trigger.get(dl_id, 0.0)
         previous_count = _search_count.get(dl_id, 0)
@@ -196,7 +220,12 @@ def maybe_trigger_search(
             # every time the process restarts.
             _search_count[dl_id] = persisted_count
             previous_count = persisted_count
-        if now - last < _SEARCH_THROTTLE_SECONDS:
+        # Domain-06 #11: also consult the arr-id-stable throttle so a
+        # title rename can't bypass us. Take the MAX of the two keys —
+        # if EITHER path has fired recently, we're throttled.
+        arr_last = _last_search_trigger_by_arr.get(arr_throttle_key, 0.0)
+        effective_last = max(last, arr_last)
+        if now - effective_last < _SEARCH_THROTTLE_SECONDS:
             return
         # Reserve: bump the in-memory marker and stamp our token so a
         # sibling worker sees this slot as recently triggered. If the
@@ -209,7 +238,6 @@ def maybe_trigger_search(
     # Phase 2: outside the lock, do the network call.
     success = False
     try:
-        service = "radarr" if kind == "movie" else "sonarr"
         client = build_arr_client(conn, service, secret_key)
         if client is None:
             return
@@ -234,6 +262,11 @@ def maybe_trigger_search(
             if success:
                 new_count = previous_count + 1
                 _search_count[dl_id] = new_count
+                # Mirror the timestamp under the arr-id-stable key so a
+                # subsequent rename of the same series can't bypass the
+                # throttle by producing a fresh title-derived dl_id
+                # (Domain-06 #11).
+                _last_search_trigger_by_arr[arr_throttle_key] = now
                 # Successful trigger keeps the reservation timestamp;
                 # the token is no longer load-bearing so drop it to
                 # avoid leaking memory.
