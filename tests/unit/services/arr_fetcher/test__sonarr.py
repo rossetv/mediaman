@@ -285,6 +285,49 @@ class TestFetchSonarrQueueSearching:
         cards = fetch_sonarr_queue(client)
         assert any(c["title"] == "Breaking Bad" for c in cards)
 
+    def test_get_series_safehttp_503_does_not_crash(self):
+        """A 503 from Sonarr (raised as ``SafeHTTPError``) is caught.
+
+        Regression for finding Domain-06 #2: ``SafeHTTPClient`` raises
+        ``SafeHTTPError`` (NOT a ``RequestException`` subclass) for
+        non-2xx responses; the previous code dropped every already-
+        collected card when get_series returned 503.
+        """
+        from mediaman.services.infra.http_client import SafeHTTPError
+
+        client = MagicMock()
+        client.get_queue.return_value = [_queue_ep()]
+        client.get_series.side_effect = SafeHTTPError(503, "down", "/api/v3/series")
+        cards = fetch_sonarr_queue(client)
+        assert any(c["title"] == "Breaking Bad" for c in cards)
+
+    def test_get_episodes_safehttp_503_recovers(self):
+        """A 503 from get_episodes is caught; the searching card still appears.
+
+        Regression for finding Domain-06 #2 (inner case): ``get_episodes``
+        sits inside the still-searching loop and previously only caught
+        ``RequestException`` — a 503 propagated to the outer handler and
+        wiped the partial result.
+        """
+        from mediaman.services.infra.http_client import SafeHTTPError
+
+        client = MagicMock()
+        client.get_queue.return_value = []
+        client.get_series.return_value = [
+            {
+                "id": 99,
+                "title": "Andor",
+                "year": 2022,
+                "monitored": True,
+                "statistics": {"episodeFileCount": 0},
+                "images": [],
+                "added": "2024-01-01T00:00:00Z",
+            }
+        ]
+        client.get_episodes.side_effect = SafeHTTPError(503, "down", "/api/v3/episode")
+        cards = fetch_sonarr_queue(client)
+        assert any(c["title"] == "Andor" for c in cards)
+
 
 # ---------------------------------------------------------------------------
 # fetch_sonarr_queue — season_number on episode entries

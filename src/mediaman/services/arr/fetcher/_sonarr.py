@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, cast
 import requests
 
 from mediaman.services.arr.fetcher._base import ArrCard, ArrEpisodeEntry, _format_size_fields
+from mediaman.services.infra.http_client import SafeHTTPError
 
 if TYPE_CHECKING:
     from mediaman.services.arr.sonarr import SonarrClient
@@ -216,7 +217,11 @@ def fetch_sonarr_queue(client: SonarrClient) -> list[ArrCard]:
             episodes_raw: list[dict] = []
             try:
                 episodes_raw = client.get_episodes(series_id)
-            except requests.RequestException:
+            except (requests.RequestException, SafeHTTPError):
+                # ``SafeHTTPError`` for non-2xx responses must be caught
+                # alongside ``RequestException``; otherwise a 503 from
+                # Sonarr's episode endpoint propagates to the outer
+                # handler and discards every already-collected card.
                 logger.warning(
                     "Failed to fetch episodes for Sonarr series %s",
                     series_id,
@@ -244,6 +249,9 @@ def fetch_sonarr_queue(client: SonarrClient) -> list[ArrCard]:
                     release_label=release_label,
                 )
             )
-    except requests.RequestException:
+    except (requests.RequestException, SafeHTTPError):
+        # See note above: ``SafeHTTPError`` is NOT a ``RequestException``
+        # subclass, so without it a 503 from ``get_series`` would discard
+        # every queue card we already collected.
         logger.warning("Failed to check Sonarr for searching series", exc_info=True)
     return items
