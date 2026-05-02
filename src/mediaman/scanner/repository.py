@@ -103,7 +103,15 @@ def upsert_media_item(
 
 
 def update_last_watched(conn: sqlite3.Connection, media_id: str, watch_history: list[dict]) -> None:
-    """Store the most recent watch timestamp for a media item."""
+    """Store the most recent watch timestamp for a media item.
+
+    Monotonic: the stored ``last_watched_at`` is only advanced, never
+    rewound. Plex's per-item watch history is paginated and does not
+    always return the full archive on every scan — a re-scan that fetches
+    only an older slice would otherwise drag the timestamp backwards
+    (Domain 05 finding) and re-qualify the item for deletion. We compare
+    in SQL via ``MAX(...)`` so the guard is atomic with the write.
+    """
     if not watch_history:
         return
     latest = max(
@@ -113,9 +121,15 @@ def update_last_watched(conn: sqlite3.Connection, media_id: str, watch_history: 
     if latest is None:
         return
     latest = _ensure_tz(latest)
+    latest_iso = latest.isoformat()
+    # Use MAX(...) so we never rewind: if the existing value is later
+    # (or equal) the column is left unchanged; NULL is treated as
+    # ``-infinity`` via COALESCE so a first write always sticks.
     conn.execute(
-        "UPDATE media_items SET last_watched_at = ? WHERE id = ?",
-        (latest.isoformat(), media_id),
+        "UPDATE media_items "
+        "SET last_watched_at = MAX(?, COALESCE(last_watched_at, '')) "
+        "WHERE id = ?",
+        (latest_iso, media_id),
     )
 
 

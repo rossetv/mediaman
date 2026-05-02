@@ -141,6 +141,29 @@ class TestUpdateLastWatched:
         row = conn.execute("SELECT last_watched_at FROM media_items WHERE id='m1'").fetchone()
         assert row["last_watched_at"] is None
 
+    def test_does_not_rewind_existing_timestamp(self, conn):
+        """Domain 05: a subsequent re-scan that fetches an older watch
+        entry must not drag ``last_watched_at`` backwards.
+        """
+        _insert_item(conn)
+        recent = datetime(2024, 6, 1, tzinfo=timezone.utc)
+        old = datetime(2023, 1, 1, tzinfo=timezone.utc)
+        repository.update_last_watched(conn, "m1", [{"viewed_at": recent}])
+        repository.update_last_watched(conn, "m1", [{"viewed_at": old}])
+        row = conn.execute("SELECT last_watched_at FROM media_items WHERE id='m1'").fetchone()
+        # Stored value must still be the recent watch — never rewound.
+        assert "2024-06-01" in row["last_watched_at"]
+
+    def test_advances_when_newer_watch_seen(self, conn):
+        """A genuinely newer watch entry must overwrite the stored value."""
+        _insert_item(conn)
+        old = datetime(2023, 1, 1, tzinfo=timezone.utc)
+        recent = datetime(2024, 6, 1, tzinfo=timezone.utc)
+        repository.update_last_watched(conn, "m1", [{"viewed_at": old}])
+        repository.update_last_watched(conn, "m1", [{"viewed_at": recent}])
+        row = conn.execute("SELECT last_watched_at FROM media_items WHERE id='m1'").fetchone()
+        assert "2024-06-01" in row["last_watched_at"]
+
 
 # ---------------------------------------------------------------------------
 # count_items_in_libraries / fetch_ids_in_libraries
