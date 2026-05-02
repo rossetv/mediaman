@@ -10,6 +10,7 @@ import logging
 import sqlite3
 import threading
 import time
+import uuid
 
 from mediaman.audit import security_event
 from mediaman.services.arr.build import build_arr_client
@@ -27,7 +28,13 @@ _last_search_trigger: dict[str, float] = {}
 # can see mediaman is actually poking Radarr/Sonarr rather than idling.
 _search_count: dict[str, int] = {}
 
-# Lock guarding _last_search_trigger and _search_count.
+# Tokens identifying the current owner of each dl_id's reservation. The
+# token is generated under the lock when a worker reserves the slot and
+# checked again on rollback so a sibling worker overwriting the slot in
+# the meantime cannot have its work undone (Domain-06 #8).
+_reservation_tokens: dict[str, str] = {}
+
+# Lock guarding _last_search_trigger, _search_count, and _reservation_tokens.
 _state_lock = threading.Lock()
 
 _SEARCH_STALE_SECONDS = 5 * 60  # trigger if item has been searching > 5 min
@@ -38,6 +45,7 @@ def reset_search_triggers() -> None:
     """Clear the in-memory search-trigger snapshot. Used by tests."""
     _last_search_trigger.clear()
     _search_count.clear()
+    _reservation_tokens.clear()
 
 
 def _load_throttle_from_db(conn: sqlite3.Connection, dl_id: str) -> tuple[float, int]:
@@ -106,7 +114,7 @@ def maybe_trigger_search(
     - a search was triggered for the same dl_id within the last 15 minutes
     - secret_key is empty
 
-    Locking discipline (findings 25 + Domain-06 #7):
+    Locking discipline (findings 25 + Domain-06 #7, #8):
 
     * The DB read is performed BEFORE acquiring the lock. A locked
       SQLite database otherwise blocks every sibling worker's throttle
@@ -117,6 +125,10 @@ def maybe_trigger_search(
       — runs under the lock.
     * The Radarr/Sonarr HTTP call runs entirely outside the lock so a
       slow upstream cannot starve other workers' throttle reads.
+    * Each attempt registers a unique reservation token; rollback on
+      failure compares against that token instead of float-equality on
+      the timestamp, so a sibling worker overwriting the slot can no
+      longer silently no-op the rollback (Domain-06 #8).
     * After the network call we re-acquire the lock to update memory,
       and either persist the success or roll back the reservation on
       failure.
@@ -148,6 +160,10 @@ def maybe_trigger_search(
     # Phase 1: reserve the slot under the lock. Treat *now* as the
     # speculative trigger timestamp so concurrent siblings see the slot
     # taken; we'll roll this back if the network call ultimately fails.
+    # ``my_token`` uniquely identifies this attempt so rollback can
+    # detect a sibling thread having overwritten the reservation in the
+    # meantime (Domain-06 #8).
+    my_token = uuid.uuid4().hex
     with _state_lock:
         last = _last_search_trigger.get(dl_id, 0.0)
         previous_count = _search_count.get(dl_id, 0)
@@ -165,11 +181,13 @@ def maybe_trigger_search(
             previous_count = persisted_count
         if now - last < _SEARCH_THROTTLE_SECONDS:
             return
-        # Reserve: bump the in-memory marker so a sibling worker sees
-        # this slot as recently triggered. If the network call fails
-        # we roll this back to *last* in the finally block below.
+        # Reserve: bump the in-memory marker and stamp our token so a
+        # sibling worker sees this slot as recently triggered. If the
+        # network call fails we roll this back to *prev_last* in the
+        # finally block below — but only if the token still matches.
         prev_last = last
         _last_search_trigger[dl_id] = now
+        _reservation_tokens[dl_id] = my_token
 
     # Phase 2: outside the lock, do the network call.
     success = False
@@ -187,20 +205,31 @@ def maybe_trigger_search(
     except Exception:
         logger.warning("Failed to trigger search for %s", dl_id, exc_info=True)
     finally:
-        # Phase 3: re-acquire the lock to commit or roll back.
+        # Phase 3: re-acquire the lock to commit or roll back. The token
+        # check (Domain-06 #8) guards against a sibling thread that
+        # overwrote our reservation between phases 1 and 3 — without it,
+        # the prior float-equality on ``now`` could either silently
+        # no-op our rollback (if the sibling stamped a newer ``now``)
+        # or drop the sibling's reservation. With the token, we either
+        # restore our prior value or quietly defer to whoever beat us
+        # to the slot.
         with _state_lock:
             if success:
                 new_count = previous_count + 1
                 _search_count[dl_id] = new_count
+                # Successful trigger keeps the reservation timestamp;
+                # the token is no longer load-bearing so drop it to
+                # avoid leaking memory.
+                if _reservation_tokens.get(dl_id) == my_token:
+                    _reservation_tokens.pop(dl_id, None)
             else:
-                # Roll back the reservation so a future call can retry
-                # rather than waiting out a 15-minute throttle window
-                # against a request that never actually fired.
-                if _last_search_trigger.get(dl_id) == now:
+                # Roll back the reservation only if it's still ours.
+                if _reservation_tokens.get(dl_id) == my_token:
                     if prev_last > 0.0:
                         _last_search_trigger[dl_id] = prev_last
                     else:
                         _last_search_trigger.pop(dl_id, None)
+                    _reservation_tokens.pop(dl_id, None)
                 new_count = None  # signals: do not persist
 
         # The DB write is also outside the throttle lock — SQLite
