@@ -1,0 +1,141 @@
+/* =============================================================
+   UI FEEDBACK — toasts and confirm dialogs
+   Styling for DOM nodes emitted by static/js/ui-feedback.js.
+   The JS controls structure and timing; this stylesheet supplies
+   the visual contract for `.ui-toast*` and `.ui-confirm-*`.
+   See DESIGN.md §2 for the semantic tint usage.
+   ============================================================= */
+
+/* -------------------------------------------------------------
+   Toast host — fixed top-right column, anchored above the nav
+   bar (z-index 50/60) and above any modal dialogs (100, 110, 200)
+   so toasts always remain visible — including when reporting the
+   outcome of a confirm dialog opened above another modal.
+   ------------------------------------------------------------- */
+.ui-toast-host {
+  position: fixed;
+  top: calc(var(--nav-h) + 16px);
+  right: 20px;
+  z-index: 210;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;        /* host is non-interactive — toasts opt back in */
+  max-width: min(360px, calc(100vw - 40px));
+}
+
+/* -------------------------------------------------------------
+   Toast — translucent card with semantic left-border accent.
+   Defaults to opacity 0 / slight off-screen translate so the
+   `.is-visible` toggle (added in requestAnimationFrame by the
+   JS) animates the toast in. Honours prefers-reduced-motion via
+   the global rule in _base.css §2.
+   ------------------------------------------------------------- */
+.ui-toast {
+  pointer-events: auto;
+  background: var(--s2);
+  border: 1px solid var(--hair-strong);
+  border-left: 3px solid var(--t3);
+  border-radius: var(--r-md);
+  padding: 12px 16px;
+  color: var(--t1);
+  font-size: 14px;
+  line-height: 1.45;
+  letter-spacing: -.01em;
+  box-shadow: var(--shadow-card);
+  opacity: 0;
+  transform: translateX(12px);
+  transition: opacity .2s ease, transform .2s ease;
+  word-wrap: break-word;
+}
+.ui-toast.is-visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* Variant accents — coloured left-border + tinted background hint,
+   reusing the semantic palette from DESIGN.md §2. */
+.ui-toast--success {
+  border-left-color: var(--success);
+  background: linear-gradient(90deg, rgba(48,209,88,.08), var(--s2) 40%);
+}
+.ui-toast--error {
+  border-left-color: var(--danger);
+  background: linear-gradient(90deg, rgba(255,69,58,.10), var(--s2) 40%);
+  color: var(--t1);
+}
+.ui-toast--info {
+  border-left-color: var(--accent);
+  background: linear-gradient(90deg, rgba(41,151,255,.08), var(--s2) 40%);
+}
+
+/* -------------------------------------------------------------
+   Confirm dialog — overlay + card. Sits above existing modals
+   (modal-backdrop = 100, delete-modal-overlay = 110) so a
+   destructive confirm raised by JS always wins focus.
+   ------------------------------------------------------------- */
+.ui-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0,0,0,.6);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  opacity: 0;
+  transition: opacity .2s ease;
+}
+.ui-confirm-overlay.is-visible { opacity: 1; }
+
+.ui-confirm-card {
+  background: var(--s2);
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--r-lg);
+  padding: 24px;
+  max-width: 440px;
+  width: 100%;
+  box-shadow: var(--shadow-card);
+  transform: translateY(8px) scale(.98);
+  transition: transform .2s ease;
+}
+.ui-confirm-overlay.is-visible .ui-confirm-card {
+  transform: translateY(0) scale(1);
+}
+
+.ui-confirm-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -.02em;
+  line-height: 1.2;
+  margin-bottom: 8px;
+  color: var(--t1);
+}
+
+.ui-confirm-body {
+  color: var(--t2);
+  font-size: 14px;
+  line-height: 1.5;
+  margin-bottom: 18px;
+}
+
+.ui-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Mobile — collapse host to a single column hugging the top edge
+   so toasts don't fight the safe-area inset on phones. */
+@media (max-width: 600px) {
+  .ui-toast-host {
+    top: calc(var(--nav-h) + 8px);
+    right: 12px;
+    left: 12px;
+    max-width: none;
+  }
+}
