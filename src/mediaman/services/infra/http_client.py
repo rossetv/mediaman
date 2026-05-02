@@ -235,6 +235,26 @@ _DEFAULT_TIMEOUT: tuple[float, float] = (5.0, 30.0)
 #: (posters, status endpoints) pass a tighter cap.
 _DEFAULT_MAX_BYTES = 8 * 1024 * 1024
 
+
+def _build_user_agent() -> str:
+    """Return ``mediaman/<version>`` for outbound HTTP attribution.
+
+    Lazy import of :mod:`mediaman` keeps this module free of an early
+    package-level import (the package's ``__init__`` resolves the
+    distribution version, which is mildly expensive at import time).
+    Falls back to a fixed string when the version cannot be resolved
+    (e.g. running uninstalled out of source).
+    """
+    try:
+        from mediaman import __version__ as version
+
+        return f"mediaman/{version}"
+    except Exception:
+        return "mediaman/dev"
+
+
+_USER_AGENT = _build_user_agent()
+
 #: HTTP status codes that we treat as transient on idempotent requests.
 _RETRYABLE_STATUSES = frozenset({429, 502, 503, 504})
 
@@ -325,6 +345,16 @@ class SafeHTTPClient:
         # full pool-setup cost on every call from module-level
         # singletons (TMDB, OMDb, etc.).
         self._session = session or requests.Session()
+        # Stamp every outbound request with our own User-Agent so server
+        # operators on the receiving end can identify mediaman in their
+        # logs and attribute traffic correctly. The previous default
+        # ``python-requests/x.y.z`` is anonymous and gets aggressive
+        # rate-limit treatment on a few of the upstreams (TMDB, OMDb).
+        # Preserve any caller-provided UA on the session.
+        if "User-Agent" not in self._session.headers or self._session.headers[
+            "User-Agent"
+        ].startswith("python-requests/"):
+            self._session.headers["User-Agent"] = _USER_AGENT
         self._default_timeout = default_timeout
         self._default_max_bytes = default_max_bytes
         self._strict_egress = strict_egress
