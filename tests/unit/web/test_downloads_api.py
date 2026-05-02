@@ -356,8 +356,14 @@ class TestDownloadStatusAPI:
         assert "eta" in data
         assert "episodes" in data
 
-    def test_status_unknown_service(self, db_path, secret_key):
-        """Missing service returns unknown state."""
+    def test_status_invalid_service_returns_422(self, db_path, secret_key):
+        """An empty / unknown ``service`` is rejected at the FastAPI layer.
+
+        Previously the route silently fell through to an "unknown" item
+        for any service string; the route now constrains ``service`` to
+        ``Literal["radarr", "sonarr"]`` and ``tmdb_id`` to ``gt=0`` so
+        malformed callers get a clear 422 rather than a placeholder
+        success response."""
         conn = init_db(str(db_path))
         app = _make_download_app(conn, secret_key)
         create_user(conn, "admin", "password1234", enforce_policy=False)
@@ -366,9 +372,7 @@ class TestDownloadStatusAPI:
         client.cookies.set("session_token", token)
 
         resp = client.get("/api/download/status?service=&tmdb_id=0")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["state"] == "unknown"
+        assert resp.status_code == 422
 
     def test_status_radarr_ready(self, db_path, secret_key):
         """Movie with hasFile=True returns state=ready with progress=100."""
@@ -494,6 +498,97 @@ class TestDownloadStatusAPI:
         data = resp.json()
         assert "1 hr" in data["eta"]
         assert "remaining" in data["eta"]
+
+    def test_status_safehttperror_returns_unknown_not_500(self, db_path, secret_key):
+        """A SafeHTTPError from an Arr 5xx must surface as the 'unknown' state,
+        not propagate as an unhandled exception → HTTP 500 to the client."""
+        from mediaman.services.infra.http_client import SafeHTTPError
+
+        conn = init_db(str(db_path))
+        app = _make_download_app(conn, secret_key)
+        create_user(conn, "admin", "password1234", enforce_policy=False)
+        token = create_session(conn, "admin")
+        client = TestClient(app)
+        client.cookies.set("session_token", token)
+
+        mock_client = MagicMock()
+        mock_client.get_movie_by_tmdb.side_effect = SafeHTTPError(
+            status_code=500, body_snippet="boom", url="http://radarr.local"
+        )
+
+        with patch(
+            "mediaman.web.routes.download.status.build_radarr_from_db", return_value=mock_client
+        ):
+            resp = client.get("/api/download/status?service=radarr&tmdb_id=88")
+
+        assert resp.status_code == 200
+        assert resp.json()["state"] == "unknown"
+
+    def test_status_progress_clamps_to_100(self, db_path, secret_key):
+        """A misreported sizeleft larger than size must not produce a negative
+        progress value or one above 100. Clamp to [0, 100]."""
+        conn = init_db(str(db_path))
+        app = _make_download_app(conn, secret_key)
+        create_user(conn, "admin", "password1234", enforce_policy=False)
+        token = create_session(conn, "admin")
+        client = TestClient(app)
+        client.cookies.set("session_token", token)
+
+        # sizeleft (10 GB) > size (5 GB) → naive math yields -100% progress.
+        # The clamp must coerce that to 0.
+        mock_queue_item = {
+            "movie": {"title": "Bad", "tmdbId": 33, "images": []},
+            "size": 5_000_000_000,
+            "sizeleft": 10_000_000_000,
+            "status": "downloading",
+            "trackedDownloadStatus": "downloading",
+            "timeleft": "00:00:30",
+        }
+        mock_client = MagicMock()
+        mock_client.get_movie_by_tmdb.return_value = {"hasFile": False, "tmdbId": 33}
+        mock_client.get_queue.return_value = [mock_queue_item]
+
+        with patch(
+            "mediaman.web.routes.download.status.build_radarr_from_db", return_value=mock_client
+        ):
+            resp = client.get("/api/download/status?service=radarr&tmdb_id=33")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert 0 <= data["progress"] <= 100
+
+    def test_status_string_size_does_not_crash(self, db_path, secret_key):
+        """An Arr response with a stringified size must not raise TypeError —
+        the safe-int coercion treats the field as zero and returns sensibly."""
+        conn = init_db(str(db_path))
+        app = _make_download_app(conn, secret_key)
+        create_user(conn, "admin", "password1234", enforce_policy=False)
+        token = create_session(conn, "admin")
+        client = TestClient(app)
+        client.cookies.set("session_token", token)
+
+        # A malformed Arr response with size as a string (which used to make
+        # ``size_total > 0`` raise TypeError) must round-trip cleanly.
+        mock_queue_item = {
+            "movie": {"title": "Test", "tmdbId": 55, "images": []},
+            "size": "not-a-number",
+            "sizeleft": "also-bad",
+            "status": "downloading",
+            "trackedDownloadStatus": "downloading",
+            "timeleft": "00:01:00",
+        }
+        mock_client = MagicMock()
+        mock_client.get_movie_by_tmdb.return_value = {"hasFile": False, "tmdbId": 55}
+        mock_client.get_queue.return_value = [mock_queue_item]
+
+        with patch(
+            "mediaman.web.routes.download.status.build_radarr_from_db", return_value=mock_client
+        ):
+            resp = client.get("/api/download/status?service=radarr&tmdb_id=55")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["progress"] == 0
 
 
 class TestRecentDownloadsCleanup:
