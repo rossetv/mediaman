@@ -464,6 +464,48 @@ class TestLockReleasedDuringNetwork:
         # And the count must not have been incremented.
         assert _st._search_count.get("radarr:RollbackMe", 0) == 0
 
+    def test_db_read_happens_outside_state_lock(self, monkeypatch):
+        """Domain-06 #7: ``_state_lock`` must NOT be held while the DB
+        read for warm-up runs.
+
+        Regression: the original implementation called
+        ``_load_throttle_from_db`` inside ``with _state_lock``, so a
+        single locked SQLite query for one dl_id serialised every
+        sibling worker's throttle check across the entire dict — one
+        slow read could starve the lot.
+        """
+        from mediaman.services.arr import search_trigger as _st
+
+        observed = {"lock_held_during_db_read": False}
+
+        def fake_load(conn, dl_id):
+            observed["lock_held_during_db_read"] = _st._state_lock.locked()
+            return 0.0, 0
+
+        monkeypatch.setattr(_st, "_load_throttle_from_db", fake_load)
+
+        # Stub the network path to return cleanly so the test only
+        # measures phase 0 + phase 1.
+        client = MagicMock()
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_arr_client",
+            lambda c, svc, sk: client if svc == "radarr" else None,
+        )
+
+        item = {
+            "kind": "movie",
+            "dl_id": "radarr:DbReadOutsideLock",
+            "arr_id": 7,
+            "is_upcoming": False,
+            "added_at": time.time() - 600,
+        }
+        _st.maybe_trigger_search(MagicMock(), item, matched_nzb=False, secret_key="key")
+
+        assert not observed["lock_held_during_db_read"], (
+            "_load_throttle_from_db must run OUTSIDE _state_lock so a slow "
+            "DB read does not block sibling workers' throttle checks."
+        )
+
 
 # ---------------------------------------------------------------------------
 # TestAutoAbandon
