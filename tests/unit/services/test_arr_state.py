@@ -209,3 +209,105 @@ def test_build_sonarr_cache_filters_null_tmdb_ids_and_handles_none_queue_series(
     cache = build_sonarr_cache(sonarr)
     assert set(cache["sonarr_series"].keys()) == {7}
     assert cache["sonarr_queue_tmdb_ids"] == {7}
+
+
+def test_build_radarr_cache_logs_warning_on_duplicate_tmdb_id(caplog):
+    """Two movies sharing a tmdbId is suspicious — the cache logs a warning."""
+    radarr = MagicMock()
+    radarr.get_movies.return_value = [
+        {"tmdbId": 99, "title": "Original"},
+        {"tmdbId": 99, "title": "Duplicate"},
+    ]
+    radarr.get_queue.return_value = []
+    with caplog.at_level("WARNING", logger="mediaman"):
+        cache = build_radarr_cache(radarr)
+    # Last write wins (matches dict-update semantics).
+    assert cache["radarr_movies"][99]["title"] == "Duplicate"
+    assert any("duplicate tmdbId=99" in r.message for r in caplog.records)
+
+
+def test_build_sonarr_cache_logs_warning_on_duplicate_tmdb_id(caplog):
+    """Two series sharing a tmdbId is suspicious — the cache logs a warning."""
+    sonarr = MagicMock()
+    sonarr.get_series.return_value = [
+        {"tmdbId": 50, "title": "Original"},
+        {"tmdbId": 50, "title": "Duplicate"},
+    ]
+    sonarr.get_queue.return_value = []
+    with caplog.at_level("WARNING", logger="mediaman"):
+        cache = build_sonarr_cache(sonarr)
+    assert cache["sonarr_series"][50]["title"] == "Duplicate"
+    assert any("duplicate tmdbId=50" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# previousAiring / previousAiringDate fallback
+# ---------------------------------------------------------------------------
+
+
+def test_tv_previous_airing_date_treated_as_aired_signal():
+    """Older Sonarr exposes ``previousAiringDate`` instead of ``previousAiring``.
+
+    The state computation now accepts either field so a freshly-upgraded
+    Sonarr (or a downgrade) doesn't silently report every season as
+    unaired and collapse to ``queued``.
+    """
+    series = {
+        "tmdbId": 700,
+        "seasons": [
+            {
+                "seasonNumber": 1,
+                "monitored": True,
+                "statistics": {
+                    "episodeCount": 10,
+                    "episodeFileCount": 10,
+                    # No previousAiring; older field present instead.
+                    "previousAiringDate": "2020-01-01",
+                },
+            }
+        ],
+    }
+    caches = {
+        "radarr_movies": {},
+        "radarr_queue_tmdb_ids": set(),
+        "sonarr_series": {700: series},
+        "sonarr_queue_tmdb_ids": set(),
+    }
+    assert compute_download_state("tv", 700, caches) == "in_library"
+
+
+def test_tv_unmonitored_aired_season_is_ignored():
+    """An unmonitored aired season the user explicitly skipped doesn't drag the show into ``partial``."""
+    series = {
+        "tmdbId": 800,
+        "seasons": [
+            {
+                "seasonNumber": 1,
+                "monitored": True,
+                "statistics": {
+                    "episodeCount": 10,
+                    "episodeFileCount": 10,
+                    "previousAiring": "2020-01-01",
+                },
+            },
+            {
+                "seasonNumber": 2,
+                # User explicitly unmonitored this season; it has aired but
+                # no files — without the monitored filter the show would
+                # report ``partial``.
+                "monitored": False,
+                "statistics": {
+                    "episodeCount": 8,
+                    "episodeFileCount": 0,
+                    "previousAiring": "2021-01-01",
+                },
+            },
+        ],
+    }
+    caches = {
+        "radarr_movies": {},
+        "radarr_queue_tmdb_ids": set(),
+        "sonarr_series": {800: series},
+        "sonarr_queue_tmdb_ids": set(),
+    }
+    assert compute_download_state("tv", 800, caches) == "in_library"
