@@ -106,7 +106,7 @@ def validate_web_search_title(title: str) -> bool:
 def call_openai(
     prompt: str,
     conn: sqlite3.Connection | None,
-    use_web_search: bool = True,
+    use_web_search: bool = False,
     *,
     secret_key: str | None = None,
 ) -> list[dict]:
@@ -118,6 +118,12 @@ def call_openai(
     GPT can look up real-time data.  The tool is gated behind the setting
     (default False) because it is an indirect-prompt-injection surface —
     the model can pull and execute instructions from arbitrary web pages.
+
+    The default for ``use_web_search`` is False so the caller has to
+    explicitly opt in alongside the operator-side setting; before this
+    fix the caller default was True and the gate alone determined
+    behaviour, which made it easy for a new code path to silently ask
+    for web search even when the operator had disabled it.
 
     When web search is active, every returned recommendation title is
     validated against a strict safe-printable-ASCII check.  If any title
@@ -135,16 +141,25 @@ def call_openai(
     try:
         body: dict = {
             "model": model,
-            "instructions": (
-                "You are a media recommendation engine. ALWAYS search the web to find "
-                "current, real, accurate information. Do not rely on training data alone. "
-                "Return only valid JSON."
-            ),
             "input": prompt,
             "text": {"format": {"type": "json_object"}},
         }
         if web_search_active:
+            # ``instructions`` only needs to push the model toward live
+            # data when the web-search tool is actually wired up. Sending
+            # the "ALWAYS search the web" line without the tool meant the
+            # model was told to do something it had no way to do, which
+            # both wastes prompt tokens and primes a higher
+            # hallucination rate. Now both the directive and the tool
+            # arrive together — or neither.
+            body["instructions"] = (
+                "You are a media recommendation engine. ALWAYS search the web to find "
+                "current, real, accurate information. Do not rely on training data alone. "
+                "Return only valid JSON."
+            )
             body["tools"] = [{"type": "web_search_preview"}]
+        else:
+            body["instructions"] = "You are a media recommendation engine. Return only valid JSON."
 
         resp = _OPENAI_CLIENT.post(
             "/v1/responses",
