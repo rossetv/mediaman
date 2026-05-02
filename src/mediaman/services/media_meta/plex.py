@@ -1,16 +1,51 @@
-"""Plex API client for library scanning and watch history."""
+"""Plex API client for library scanning and watch history.
+
+Security note — XML hardening
+-----------------------------
+``plexapi`` parses Plex responses with the standard-library
+:mod:`xml.etree.ElementTree`, which historically supports billion-laughs
+and external-entity attacks.  Since we cannot patch plexapi's internals,
+we install :func:`defusedxml.defuse_stdlib` at module import time.  The
+call is idempotent and globally replaces the stdlib parser with the
+hardened defusedxml shim, so every plexapi call inherits the protection
+even though plexapi itself never imports defusedxml.
+
+Direct ``ET.fromstring`` usage in this module already imports
+:mod:`defusedxml.ElementTree` explicitly so it is doubly hardened.
+"""
 
 from __future__ import annotations
 
 import logging as _logging
 import re as _re
+import warnings as _warnings
 from datetime import datetime, timezone
 from typing import Any, Literal, TypedDict
 
+import defusedxml
 import defusedxml.ElementTree as ET
 import requests as http_requests
 from plexapi.exceptions import PlexApiException
 from plexapi.server import PlexServer
+
+# Replace the stdlib XML modules with their defusedxml shims so any
+# in-process consumer (notably plexapi, which we cannot modify) inherits
+# the hardened parser.  ``defuse_stdlib`` is idempotent and safe to call
+# from a module import body.
+#
+# defusedxml itself emits a DeprecationWarning when ``cElementTree`` is
+# imported from inside :func:`defuse_stdlib` on Python 3.13+ (the stdlib
+# ``cElementTree`` module is gone but defusedxml still ships a shim for
+# backwards-compatibility).  The pytest config promotes warnings to
+# errors, so we suppress this single deprecation locally.  All real
+# stdlib calls still route through the hardened parser.
+with _warnings.catch_warnings():
+    _warnings.filterwarnings(
+        "ignore",
+        message=r".*cElementTree.*deprecated.*",
+        category=DeprecationWarning,
+    )
+    defusedxml.defuse_stdlib()
 
 from mediaman.services.infra.http_client import (
     SafeHTTPClient,
@@ -433,16 +468,28 @@ class PlexClient:
         body = resp.content
         resp.close()
         root = ET.fromstring(body)
-        entries = []
+        entries: list[PlexWatchEntry] = []
         for v in root.findall(".//Video"):
             viewed_at_ts = v.get("viewedAt")
-            if viewed_at_ts:
-                entries.append(
-                    {
-                        "viewed_at": datetime.fromtimestamp(int(viewed_at_ts), tz=timezone.utc),
-                        "account_id": int(v.get("accountID", 0)),
-                    }
+            if not viewed_at_ts:
+                continue
+            # A single malformed ``viewedAt`` / ``accountID`` (non-numeric,
+            # negative, garbage) used to abort the entire history fetch
+            # because both ``int(...)`` and ``datetime.fromtimestamp``
+            # raise ``ValueError``/``OSError`` on bad input.  Skip the
+            # offending row instead so a single corrupt record doesn't
+            # silently zero out everyone's watch history.
+            try:
+                viewed_at = datetime.fromtimestamp(int(viewed_at_ts), tz=timezone.utc)
+                account_id = int(v.get("accountID", 0))
+            except (ValueError, TypeError, OSError, OverflowError):
+                _logger.debug(
+                    "plex.history.skip_malformed viewedAt=%r accountID=%r",
+                    viewed_at_ts,
+                    v.get("accountID"),
                 )
+                continue
+            entries.append({"viewed_at": viewed_at, "account_id": account_id})
         return entries
 
     def get_season_watch_history(self, season_rating_key: str) -> list[PlexWatchEntry]:
@@ -463,35 +510,46 @@ class PlexClient:
     def get_user_ratings(self) -> list[PlexRatedItem]:
         """Return all user-rated items across movie and TV libraries.
 
-        Iterates every movie and show across all libraries and collects items
-        where ``userRating`` is set. Ratings are on a 0–10 scale in Plex;
-        this converts them to a 1–5 star scale (rounded to nearest half).
+        Pushes filtering to the Plex server via ``section.search`` with a
+        ``userRating>>0`` filter so we only fetch the rated items rather
+        than every movie/show in the library.  The previous full-iteration
+        path was O(library size) per recommendation refresh — for a 10k+
+        item library that meant minutes of network and response parsing
+        even when nothing was rated.
+
+        Plex stores user ratings on a 0–10 scale.  This converts them to
+        a 1–5 star scale (rounded to nearest half).
 
         Returns:
             List of ``{"title": str, "type": "movie"|"tv", "stars": float}`` dicts.
         """
-        rated = []
+        rated: list[PlexRatedItem] = []
         for section in self.server.library.sections():
-            if section.type == "movie":
-                for movie in section.all():
-                    if movie.userRating:
-                        rated.append(
-                            {
-                                "title": movie.title,
-                                "type": "movie",
-                                "stars": round(movie.userRating / 2, 1),
-                            }
-                        )
-            elif section.type == "show":
-                for show in section.all():
-                    if show.userRating:
-                        rated.append(
-                            {
-                                "title": show.title,
-                                "type": "tv",
-                                "stars": round(show.userRating / 2, 1),
-                            }
-                        )
+            if section.type not in ("movie", "show"):
+                continue
+            try:
+                items = section.search(filters={"userRating>>": 0})
+            except (PlexApiException, http_requests.RequestException) as exc:
+                # Older Plex servers may reject the filter — fall back to
+                # the slow path so the recommendation flow still works.
+                _logger.warning(
+                    "plex.user_ratings.filter_unsupported section=%s — falling back to "
+                    "full enumeration: %s",
+                    section.title,
+                    _scrub_plex_token(str(exc)),
+                )
+                items = section.all()
+            entry_type: Literal["movie", "tv"] = "movie" if section.type == "movie" else "tv"
+            for item in items:
+                if not item.userRating:
+                    continue
+                rated.append(
+                    {
+                        "title": item.title,
+                        "type": entry_type,
+                        "stars": round(item.userRating / 2, 1),
+                    }
+                )
         return rated
 
     def test_connection(self) -> bool:
