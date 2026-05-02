@@ -330,6 +330,53 @@ class TestDeletePathStrictDescendant:
         assert not target.exists()
         assert root.exists()
 
+    def test_refuses_relative_target_path(self, tmp_path):
+        """Target paths must be absolute — relative paths anchor on CWD."""
+        with pytest.raises(ValueError, match="absolute"):
+            delete_path("relative/target", allowed_roots=[str(tmp_path)])
+
+    def test_picks_longest_matching_root(self, tmp_path):
+        """When two roots share a parent, the most-specific one wins.
+
+        With ``allowed_roots = ["/media", "/media/movies"]`` and a target
+        ``/media/movies/film.mkv``, the longer ``/media/movies`` is the
+        correct anchor for the device check. Picking the shorter
+        ``/media`` would compare the target's device against the
+        umbrella mount rather than the actual content mount and refuse
+        as cross-device.
+        """
+        outer = tmp_path / "media"
+        outer.mkdir()
+        inner = outer / "movies"
+        inner.mkdir()
+        target = inner / "film.mkv"
+        target.write_text("data")
+
+        # Both orderings must work — picking the more general parent is
+        # the bug; picking the most-specific descendant is the fix.
+        delete_path(str(target), allowed_roots=[str(outer), str(inner)])
+        assert not target.exists()
+
+        # Same again with the inner mounted first.
+        target.write_text("data")
+        delete_path(str(target), allowed_roots=[str(inner), str(outer)])
+        assert not target.exists()
+
+
+class TestForbiddenRootsMacOS:
+    """macOS ``/tmp``, ``/var``, ``/etc`` resolve to ``/private/*``.
+
+    Without explicit ``/private/*`` entries in the forbidden list, an
+    operator who mis-configures their delete root to ``/tmp`` on macOS
+    would have it resolved to ``/private/tmp`` and slip past the
+    bare-name forbidden check.
+    """
+
+    @pytest.mark.parametrize("root", ["/private", "/private/tmp", "/private/var", "/private/etc"])
+    def test_private_subtrees_refused(self, root):
+        with pytest.raises(ValueError, match="system / mount-root"):
+            delete_path(f"{root}/somefile", allowed_roots=[root])
+
 
 class TestGetDirectorySize:
     def test_calculates_total_size(self, tmp_path):
