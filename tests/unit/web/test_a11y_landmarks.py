@@ -215,10 +215,14 @@ def test_search_inline_script_renders_modal_title_as_h2():
 
 def test_recommended_inline_script_renders_modal_title_as_h2():
     """Finding 11: recommended.html builds the title via DOM methods —
-    it must instantiate an h2 with the matching id."""
+    it must instantiate an h2 with the matching id. The script now lives
+    in static/js/recommended.js after the CSP-nonce extraction; the
+    template references it via a <script src> tag."""
     rec = _tpl("recommended.html")
-    assert "createElement('h2')" in rec
-    assert "heroTitle.id = 'detail-modal-title'" in rec
+    assert '<script src="/static/js/recommended.js" defer></script>' in rec
+    rec_js = (REPO / "src/mediaman/web/static/js/recommended.js").read_text(encoding="utf-8")
+    assert "createElement('h2')" in rec_js
+    assert "heroTitle.id = 'detail-modal-title'" in rec_js
 
 
 # ---------------------------------------------------------------------------
