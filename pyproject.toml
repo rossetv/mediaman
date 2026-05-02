@@ -98,8 +98,17 @@ target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
-# Start permissive; tighten in P7 once the existing code is clean.
-select = ["E", "F", "W", "I"]
+# Expanded selection — the previous E/F/W/I baseline missed common
+# bug-classes (mutable defaults, raise-without-from), modernisations
+# (datetime UTC, PEP 604 unions), and pytest anti-patterns. The new
+# categories:
+#   B   — flake8-bugbear: real bugs (mutable defaults, B017, B904)
+#   UP  — pyupgrade: modernise to current Python idioms
+#   SIM — flake8-simplify: tighten conditionals and with-blocks
+#   C4  — flake8-comprehensions: drop unnecessary list()/dict() calls
+#   PT  — flake8-pytest-style: tighten test patterns
+#   RUF — ruff's own rules (mutable class defaults, unused noqa, ...)
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "PT", "RUF"]
 ignore = [
     "E501",  # line too long — enforced by formatter, not linter
 ]
