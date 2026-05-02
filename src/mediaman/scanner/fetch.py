@@ -54,9 +54,17 @@ class PlexFetcher:
         """Fetch items + watch history for a library from Plex.
 
         Pure network-read helper; touches no DB. Returns one
-        :class:`_PlexItemFetch` per movie or per season. A failed
-        watch-history lookup yields an empty list (same semantics as the
-        pre-split code's ``except Exception: pass``).
+        :class:`_PlexItemFetch` per movie or per season.
+
+        **Fails closed on watch-history errors** (D05 finding 13). The
+        previous code swallowed a per-item watch-history failure and
+        substituted an empty list, which combined with
+        ``check_inactivity([], …) == True`` to mean a transient Plex
+        500 reclassified the item as "never watched" and made it
+        eligible for deletion the next run. Now the offending item is
+        excluded from the returned list and the failure is logged so
+        an operator can spot it. A retry on the next scan picks up the
+        item once Plex is healthy again.
         """
         lib_type = self._library_types.get(library_id, "movie")
         out: list[_PlexItemFetch] = []
@@ -72,11 +80,13 @@ class PlexFetcher:
                     watch_history = self._plex.get_season_watch_history(season["plex_rating_key"])
                 except Exception:
                     logger.warning(
-                        "Failed to fetch watch history for season %s — treating as unwatched",
+                        "Failed to fetch watch history for season %s — "
+                        "skipping season this scan to avoid misclassifying "
+                        "as 'never watched'",
                         season.get("plex_rating_key"),
                         exc_info=True,
                     )
-                    watch_history = []
+                    continue
                 out.append(
                     _PlexItemFetch(
                         item=season,
@@ -92,11 +102,13 @@ class PlexFetcher:
                     watch_history = self._plex.get_watch_history(item["plex_rating_key"])
                 except Exception:
                     logger.warning(
-                        "Failed to fetch watch history for item %s — treating as unwatched",
+                        "Failed to fetch watch history for item %s — "
+                        "skipping item this scan to avoid misclassifying "
+                        "as 'never watched'",
                         item.get("plex_rating_key"),
                         exc_info=True,
                     )
-                    watch_history = []
+                    continue
                 out.append(
                     _PlexItemFetch(
                         item=item,
