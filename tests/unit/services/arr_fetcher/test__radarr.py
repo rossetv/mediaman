@@ -220,3 +220,25 @@ class TestFetchRadarrQueueSearching:
         cards = fetch_radarr_queue(client)
         assert len(cards) == 1
         assert cards[0]["title"] == "Dune"
+
+
+# ---------------------------------------------------------------------------
+# fetch_radarr_queue — progress clamp
+# ---------------------------------------------------------------------------
+
+
+class TestProgressClamp:
+    def test_progress_clamped_to_zero_when_sizeleft_exceeds_size(self):
+        """Radarr can briefly report ``sizeleft > size`` during torrent
+        re-download. The naive formula goes negative; we clamp to 0."""
+        item = _queue_item(size=1_000, sizeleft=1_500)
+        client = _client(queue=[item])
+        cards = fetch_radarr_queue(client)
+        assert cards[0]["progress"] == 0
+
+    def test_progress_clamped_to_one_hundred_when_sizeleft_negative(self):
+        """If a quirky payload drives the formula above 100, clamp back."""
+        item = _queue_item(size=1_000, sizeleft=-500)
+        client = _client(queue=[item])
+        cards = fetch_radarr_queue(client)
+        assert cards[0]["progress"] == 100
