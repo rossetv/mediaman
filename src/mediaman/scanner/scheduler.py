@@ -9,10 +9,76 @@ at import time (M-finding: unconditional top-level imports).
 from __future__ import annotations
 
 import logging
+import sqlite3
+import threading
+from typing import Any
 
 logger = logging.getLogger("mediaman")
 
-_scheduler = None
+# Module-level scheduler reference. Mutation is guarded by ``_scheduler_lock``;
+# in practice ``start_scheduler`` and ``stop_scheduler`` are only ever called
+# from the FastAPI lifespan (single-threaded startup / shutdown), but the
+# lock makes the contract explicit and protects against a future caller
+# that drives the scheduler from a worker thread.
+#
+# Typed as ``Any`` so static-checkers don't trip on the deferred apscheduler
+# import — pulling ``BackgroundScheduler`` in just for typing would defeat
+# the lazy-import contract this module advertises in its docstring.
+_scheduler: Any = None
+_scheduler_lock = threading.Lock()
+
+# Track every DB connection opened by background scheduler jobs so they
+# can be closed deterministically on shutdown. Without this list each
+# ``get_db()`` call from inside an APScheduler worker thread allocates a
+# new thread-local SQLite connection that is never closed when the
+# scheduler stops, leaking file descriptors and write transactions on
+# every reload.
+_scheduler_connections: list[sqlite3.Connection] = []
+_scheduler_connections_lock = threading.Lock()
+
+
+# Misfire grace window for every job (in seconds). If the process is
+# paused (deploy, host reboot, long GC) for longer than this window the
+# job is *dropped* by APScheduler — we'd rather skip a stale fire than
+# stack up an hour of catch-up work. One hour matches the cadence of
+# ``trigger_pending_searches`` and is comfortably longer than any
+# routine restart, so a planned deploy never silently loses work; the
+# operator has to be down for >60 minutes before a fire is dropped.
+_DEFAULT_MISFIRE_GRACE_SECONDS = 3600
+
+
+def _track_connection(conn: sqlite3.Connection) -> sqlite3.Connection:
+    """Register *conn* for explicit close on scheduler shutdown."""
+    with _scheduler_connections_lock:
+        _scheduler_connections.append(conn)
+    return conn
+
+
+def _open_db_for_job():
+    """Open a thread-local DB connection and remember it for shutdown."""
+    from mediaman.db import get_db
+
+    return _track_connection(get_db())
+
+
+def _close_tracked_connections() -> None:
+    """Close every connection registered by background jobs.
+
+    Called from :func:`stop_scheduler`. Safe to call concurrently with
+    in-flight jobs because APScheduler waits for each job to settle
+    before signalling completion (we pass ``wait=False`` for fast
+    shutdown but the worker threads still drain their current tick).
+    Errors closing one connection don't prevent the rest from being
+    cleaned up.
+    """
+    with _scheduler_connections_lock:
+        connections = list(_scheduler_connections)
+        _scheduler_connections.clear()
+    for conn in connections:
+        try:
+            conn.close()
+        except Exception:
+            logger.warning("scheduler.shutdown.close_db_failed", exc_info=True)
 
 
 def start_scheduler(
@@ -41,65 +107,87 @@ def start_scheduler(
 
     Returns:
         The running :class:`BackgroundScheduler` instance.
+
+    Notes:
+        Every job is registered with ``misfire_grace_time``. Without it
+        APScheduler silently *drops* fires that are more than a few
+        seconds late — combined with ``coalesce=True`` a long restart
+        would erase an entire missed weekly scan. The
+        :data:`_DEFAULT_MISFIRE_GRACE_SECONDS` window means routine
+        restarts (deploys, host reboots) still get their fire after the
+        process comes back, but a multi-hour outage is treated as
+        "skip this tick" rather than letting catch-up work pile up.
     """
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
     from apscheduler.triggers.interval import IntervalTrigger
 
-    from mediaman.db import get_db
     from mediaman.services.arr.completion import cleanup_recent_downloads
     from mediaman.services.arr.search_trigger import trigger_pending_searches
 
     global _scheduler
-    if _scheduler is not None:
-        logger.debug("start_scheduler: scheduler already running, skipping duplicate start")
-        return _scheduler
-    _scheduler = BackgroundScheduler()
-    _scheduler.add_job(
-        scan_fn,
-        trigger=CronTrigger(
-            day_of_week=day_of_week,
-            hour=hour,
-            minute=minute,
-            timezone=timezone,
-        ),
-        id="weekly_scan",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
-    if sync_fn and sync_interval_minutes > 0:
+    with _scheduler_lock:
+        if _scheduler is not None:
+            logger.debug("start_scheduler: scheduler already running, skipping duplicate start")
+            return _scheduler
+        _scheduler = BackgroundScheduler()
         _scheduler.add_job(
-            sync_fn,
-            trigger=IntervalTrigger(minutes=sync_interval_minutes),
-            id="library_sync",
+            scan_fn,
+            trigger=CronTrigger(
+                day_of_week=day_of_week,
+                hour=hour,
+                minute=minute,
+                timezone=timezone,
+            ),
+            id="weekly_scan",
             replace_existing=True,
             max_instances=1,
             coalesce=True,
+            misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
         )
-    _scheduler.add_job(
-        lambda: cleanup_recent_downloads(get_db()),
-        IntervalTrigger(hours=6),
-        id="cleanup_recent_downloads",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
-    _scheduler.add_job(
-        lambda: trigger_pending_searches(get_db(), secret_key),
-        IntervalTrigger(hours=1),
-        id="trigger_pending_searches",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
-    _scheduler.start()
-    return _scheduler
+        if sync_fn and sync_interval_minutes > 0:
+            _scheduler.add_job(
+                sync_fn,
+                trigger=IntervalTrigger(minutes=sync_interval_minutes),
+                id="library_sync",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+            )
+        _scheduler.add_job(
+            lambda: cleanup_recent_downloads(_open_db_for_job()),
+            IntervalTrigger(hours=6),
+            id="cleanup_recent_downloads",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+        )
+        _scheduler.add_job(
+            lambda: trigger_pending_searches(_open_db_for_job(), secret_key),
+            IntervalTrigger(hours=1),
+            id="trigger_pending_searches",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+        )
+        _scheduler.start()
+        return _scheduler
 
 
 def stop_scheduler() -> None:
-    """Shut down the running scheduler, if any."""
+    """Shut down the running scheduler and close any tracked DB connections."""
     global _scheduler
-    if _scheduler is not None:
-        _scheduler.shutdown(wait=False)
+    with _scheduler_lock:
+        scheduler_to_stop = _scheduler
         _scheduler = None
+    if scheduler_to_stop is not None:
+        try:
+            scheduler_to_stop.shutdown(wait=False)
+        finally:
+            # Close DB connections opened by job lambdas regardless of
+            # whether shutdown raised — leaking the connections is the
+            # finding we're fixing.
+            _close_tracked_connections()

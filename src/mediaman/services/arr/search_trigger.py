@@ -220,12 +220,7 @@ def maybe_trigger_search(
             # every time the process restarts.
             _search_count[dl_id] = persisted_count
             previous_count = persisted_count
-        # Domain-06 #11: also consult the arr-id-stable throttle so a
-        # title rename can't bypass us. Take the MAX of the two keys —
-        # if EITHER path has fired recently, we're throttled.
-        arr_last = _last_search_trigger_by_arr.get(arr_throttle_key, 0.0)
-        effective_last = max(last, arr_last)
-        if now - effective_last < _SEARCH_THROTTLE_SECONDS:
+        if now - last < _SEARCH_THROTTLE_SECONDS:
             return
         # Reserve: bump the in-memory marker and stamp our token so a
         # sibling worker sees this slot as recently triggered. If the
@@ -609,9 +604,21 @@ def _trigger_sonarr_partial_missing(
         if item.get("kind") == "series" and item.get("arr_id")
     }
 
+    # Domain-06 #11: the per-``dl_id`` throttle in ``maybe_trigger_search``
+    # collapses under a Sonarr title rename — a renamed series produces a
+    # fresh ``sonarr:{title}`` key on every tick, bypassing the throttle.
+    # Pre-filter on the arr-id-stable parallel throttle so a renamed
+    # series we recently triggered cannot be re-poked here.
+    now = time.time()
     missing = client.get_missing_series()
     for series_id, title in missing.items():
         if series_id in already_poked:
+            continue
+        with _state_lock:
+            arr_last = _last_search_trigger_by_arr.get(
+                _arr_throttle_key("sonarr", series_id), 0.0
+            )
+        if now - arr_last < _SEARCH_THROTTLE_SECONDS:
             continue
         maybe_trigger_search(
             conn,

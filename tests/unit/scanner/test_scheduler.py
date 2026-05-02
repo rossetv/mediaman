@@ -128,6 +128,91 @@ def test_start_scheduler_called_twice_does_not_create_two_schedulers(mock_cls):
     mock_instance.start.assert_called_once()
 
 
+# ── Domain 05: misfire_grace_time and connection cleanup ───────────────────
+
+
+@patch("apscheduler.schedulers.background.BackgroundScheduler")
+def test_every_job_has_misfire_grace_time(mock_cls):
+    """Every registered job must specify ``misfire_grace_time``.
+
+    Without it, APScheduler silently drops fires that are more than a few
+    seconds late. Combined with ``coalesce=True`` a long restart could
+    erase a missed weekly scan entirely.
+    """
+    mock_instance = MagicMock()
+    mock_cls.return_value = mock_instance
+
+    start_scheduler(
+        scan_fn=lambda: None,
+        sync_fn=lambda: None,
+        sync_interval_minutes=15,
+        secret_key="test",
+    )
+
+    for call in mock_instance.add_job.call_args_list:
+        job_id = call.kwargs.get("id")
+        grace = call.kwargs.get("misfire_grace_time")
+        assert grace is not None, f"job {job_id!r} is missing misfire_grace_time"
+        assert grace > 0, f"job {job_id!r} has non-positive misfire_grace_time={grace}"
+
+
+@patch("apscheduler.schedulers.background.BackgroundScheduler")
+def test_stop_scheduler_closes_tracked_db_connections(mock_cls):
+    """``stop_scheduler`` must close every connection opened by job lambdas.
+
+    Regression for Domain 05: ``cleanup_recent_downloads`` and
+    ``trigger_pending_searches`` lambdas open a thread-local DB
+    connection on first fire, and previously nothing closed them at
+    shutdown — every reload leaked file descriptors and write
+    transactions.
+    """
+    from unittest.mock import MagicMock as _MM
+
+    mock_instance = MagicMock()
+    mock_cls.return_value = mock_instance
+
+    start_scheduler(scan_fn=lambda: None, secret_key="test")
+
+    # Simulate two background jobs each having opened a DB connection.
+    fake_conn_a = _MM()
+    fake_conn_b = _MM()
+    with _sched_module._scheduler_connections_lock:
+        _sched_module._scheduler_connections.append(fake_conn_a)
+        _sched_module._scheduler_connections.append(fake_conn_b)
+
+    stop_scheduler()
+
+    # Both must have been closed.
+    fake_conn_a.close.assert_called_once_with()
+    fake_conn_b.close.assert_called_once_with()
+    # And the registry should be empty so a subsequent shutdown is a no-op.
+    with _sched_module._scheduler_connections_lock:
+        assert _sched_module._scheduler_connections == []
+
+
+@patch("apscheduler.schedulers.background.BackgroundScheduler")
+def test_stop_scheduler_continues_if_one_close_raises(mock_cls):
+    """A failure closing one connection must not block the rest from closing."""
+    from unittest.mock import MagicMock as _MM
+
+    mock_instance = MagicMock()
+    mock_cls.return_value = mock_instance
+
+    start_scheduler(scan_fn=lambda: None, secret_key="test")
+
+    bad_conn = _MM()
+    bad_conn.close.side_effect = RuntimeError("nope")
+    good_conn = _MM()
+    with _sched_module._scheduler_connections_lock:
+        _sched_module._scheduler_connections.append(bad_conn)
+        _sched_module._scheduler_connections.append(good_conn)
+
+    stop_scheduler()
+
+    bad_conn.close.assert_called_once_with()
+    good_conn.close.assert_called_once_with()
+
+
 # ── H61: bind host resolution ───────────────────────────────────────────────
 
 

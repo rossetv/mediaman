@@ -196,26 +196,28 @@ class TestTriggerSonarrPartialMissing:
         assert ("sonarr:New Partial", 20) in calls
         assert not any(arr_id == 10 for _, arr_id in calls)
 
-    def test_renamed_series_does_not_bypass_throttle(self, db_conn, monkeypatch):
-        """Domain-06 #11: a series rename mid-run must NOT bypass the
-        throttle.
+    def test_renamed_series_does_not_bypass_partial_missing_pass(self, db_conn, monkeypatch):
+        """Domain-06 #11: a series rename mid-run must NOT cause the
+        partial-missing pass to fire a fresh search.
 
-        The previous implementation keyed the throttle exclusively by
-        the title-derived ``dl_id``. When Sonarr renamed a series, the
-        new title produced a fresh ``dl_id`` and the second pass fired
-        an additional search even though one had just been issued for
-        the same arr_id.
+        The previous implementation built ``dl_id = sonarr:{title}``
+        from the (current) Sonarr title. After a rename the new title
+        produced a fresh dl_id whose throttle had never been touched,
+        so this pass fired again even though the underlying arr_id had
+        just been searched on the previous tick.
 
-        With the arr-id-stable parallel throttle, the second pass sees
-        the recent trigger via ``arr_id`` and skips it.
+        ``_trigger_sonarr_partial_missing`` now pre-filters on the
+        arr-id-stable parallel throttle, which is updated by every
+        successful trigger of ``maybe_trigger_search``.
         """
         from mediaman.services.arr import search_trigger as _st
 
-        # Tick 1: trigger a search for arr_id=42 under its old title.
-        client = MagicMock()
+        # Tick 1: trigger a search for arr_id=42 under its old title via
+        # the main path so the arr-id-stable throttle gets populated.
+        sonarr_client = MagicMock()
         monkeypatch.setattr(
             "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: client if svc == "sonarr" else None,
+            lambda c, svc, sk: sonarr_client if svc == "sonarr" else None,
         )
 
         item_old = {
@@ -226,24 +228,16 @@ class TestTriggerSonarrPartialMissing:
             "added_at": time.time() - 600,
         }
         _st.maybe_trigger_search(db_conn, item_old, matched_nzb=False, secret_key="key")
-        # Confirm it actually fired so the throttle is populated.
-        assert client.search_series.call_count == 1
+        assert sonarr_client.search_series.call_count == 1
 
-        # Tick 2: same arr_id, NEW title (Sonarr renamed the series).
-        # Without the arr-id throttle this fires a second search; with
-        # it, the throttle blocks the call.
-        item_renamed = {
-            "kind": "series",
-            "dl_id": "sonarr:New Title",  # fresh dl_id from Sonarr's UI
-            "arr_id": 42,  # but stable arr_id
-            "is_upcoming": False,
-            "added_at": time.time() - 600,
-        }
-        _st.maybe_trigger_search(db_conn, item_renamed, matched_nzb=False, secret_key="key")
+        # Tick 2: the partial-missing pass sees the same series under a
+        # different title (Sonarr renamed it). Without the parallel
+        # throttle this fires a second search; with it, the pass skips.
+        sonarr_client.get_missing_series.return_value = {42: "New Title"}
+        _st._trigger_sonarr_partial_missing(db_conn, [], "key")
 
-        # Still 1 — the rename must NOT have triggered a fresh search.
-        assert client.search_series.call_count == 1, (
-            "renamed series bypassed the throttle — arr-id throttle did not fire"
+        assert sonarr_client.search_series.call_count == 1, (
+            "renamed series bypassed the partial-missing throttle"
         )
 
     def test_no_client_returns_without_error(self, monkeypatch):
