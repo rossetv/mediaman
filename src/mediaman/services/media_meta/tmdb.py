@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import threading
 from typing import Any, TypedDict
 
 import requests
@@ -27,6 +28,18 @@ logger = logging.getLogger("mediaman")
 
 _BASE = "https://api.themoviedb.org/3"
 _POSTER_BASE_W300 = "https://image.tmdb.org/t/p/w300"
+
+# ---------------------------------------------------------------------------
+# Module-level client cache.
+#
+# ``TmdbClient.from_db`` was previously called per request, which built a
+# brand-new ``requests.Session`` every time.  That meant every call paid
+# DNS + TLS handshake costs against ``api.themoviedb.org`` instead of
+# reusing the connection pool.  We cache one client per (token, timeout)
+# pair so multiple callers share the same session.
+# ---------------------------------------------------------------------------
+_CLIENT_CACHE: dict[tuple[str, float], "TmdbClient"] = {}
+_CLIENT_CACHE_LOCK = threading.Lock()
 
 
 class TmdbCard(TypedDict):
@@ -110,6 +123,12 @@ class TmdbClient:
         Returns ``None`` if the token is missing or cannot be decrypted —
         callers must handle the absence gracefully, not raise.
 
+        Subsequent calls with the same (token, timeout) pair return the
+        same cached :class:`TmdbClient` so the underlying
+        :class:`requests.Session` (and its TLS connection pool) is shared
+        across requests.  When the operator rotates the token a fresh
+        client is built automatically because the cache key changes.
+
         ``timeout`` is the default request timeout in seconds — the
         default (10.0) is the upper bound of the previous inline
         timeouts; call sites that historically used 5s can still pass a
@@ -118,7 +137,14 @@ class TmdbClient:
         token = get_string_setting(conn, "tmdb_read_token", secret_key=secret_key, default="")
         if not token:
             return None
-        return cls(token, timeout=timeout)
+        cache_key = (token, float(timeout))
+        with _CLIENT_CACHE_LOCK:
+            cached = _CLIENT_CACHE.get(cache_key)
+            if cached is not None:
+                return cached
+            client = cls(token, timeout=timeout)
+            _CLIENT_CACHE[cache_key] = client
+            return client
 
     # ------------------------------------------------------------------
     # Network calls
@@ -131,15 +157,45 @@ class TmdbClient:
         repetition shared by every public network method.  Propagates all
         exceptions to the caller — each public method has its own ``except``
         clause that decides whether to return ``None`` or ``[]``.
+
+        Raises :class:`ValueError` when the response body is not valid
+        JSON (e.g. TMDB returned an HTML error page during an outage).
+        ``requests.Response.json`` raises ``ValueError`` (a subclass of
+        ``json.JSONDecodeError``) — neither subclass of
+        :class:`requests.RequestException` — so the per-method ``except``
+        clauses must cover it explicitly via :class:`ValueError`.
         """
         return self._http.get(path, headers=self._headers, params=params or {}).json()
+
+    @staticmethod
+    def _log_request_failure(label: str, exc: Exception) -> None:
+        """Log a TMDB request failure at the right level.
+
+        * 401/403 → WARNING — operator-actionable (token wrong/expired).
+        * 5xx     → ERROR — TMDB-side outage worth paging on.
+        * Other   → DEBUG — transient network error or 4xx that we can
+          safely swallow.
+
+        Callers still return None/[] regardless of severity; the only
+        difference is what the operator sees.
+        """
+        if isinstance(exc, SafeHTTPError):
+            if exc.status_code in (401, 403):
+                logger.warning(
+                    "TMDB auth failure (%d) — check tmdb_read_token: %s", exc.status_code, label
+                )
+                return
+            if 500 <= exc.status_code < 600:
+                logger.error("TMDB %s server error (%d): %s", label, exc.status_code, exc)
+                return
+        logger.debug("TMDB %s failed: %s", label, exc)
 
     def test_connection(self) -> bool:
         """Return True if the TMDB API is reachable and the token is valid."""
         try:
             self._get("/configuration")
             return True
-        except (SafeHTTPError, requests.RequestException) as exc:
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
             logger.debug("TMDB connection test failed: %s", exc)
             return False
 
@@ -163,8 +219,8 @@ class TmdbClient:
             params["year" if endpoint == "movie" else "first_air_date_year"] = year
         try:
             results = self._get(f"/search/{endpoint}", params).get("results") or []
-        except (SafeHTTPError, requests.RequestException) as exc:
-            logger.debug("TMDB search/%s failed for %r: %s", endpoint, title, exc)
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            self._log_request_failure(f"search/{endpoint}({title!r})", exc)
             return None
         return results[0] if results else None
 
@@ -179,8 +235,8 @@ class TmdbClient:
         """
         try:
             results = self._get("/search/multi", {"query": title}).get("results") or []
-        except (SafeHTTPError, requests.RequestException) as exc:
-            logger.debug("TMDB search/multi failed for %r: %s", title, exc)
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            self._log_request_failure(f"search/multi({title!r})", exc)
             return None
         return results[0] if results else None
 
@@ -200,8 +256,8 @@ class TmdbClient:
                 ).get("results")
                 or []
             )
-        except (SafeHTTPError, requests.RequestException) as exc:
-            logger.debug("TMDB search/multi paged failed for %r page=%d: %s", query, page, exc)
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            self._log_request_failure(f"search/multi paged({query!r}, page={page})", exc)
             return []
 
     def trending(self, page: int = 1) -> list[dict[str, object]]:
@@ -212,8 +268,8 @@ class TmdbClient:
         """
         try:
             return self._get("/trending/all/week", {"page": page}).get("results") or []
-        except (SafeHTTPError, requests.RequestException) as exc:
-            logger.debug("TMDB trending failed page=%d: %s", page, exc)
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            self._log_request_failure(f"trending(page={page})", exc)
             return []
 
     def popular_movies(self, page: int = 1) -> list[dict[str, object]]:
@@ -225,8 +281,8 @@ class TmdbClient:
         """
         try:
             return self._get("/movie/popular", {"page": page}).get("results") or []
-        except (SafeHTTPError, requests.RequestException) as exc:
-            logger.debug("TMDB movie/popular failed page=%d: %s", page, exc)
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            self._log_request_failure(f"movie/popular(page={page})", exc)
             return []
 
     def popular_tv(self, page: int = 1) -> list[dict[str, object]]:
@@ -238,8 +294,8 @@ class TmdbClient:
         """
         try:
             return self._get("/tv/popular", {"page": page}).get("results") or []
-        except (SafeHTTPError, requests.RequestException) as exc:
-            logger.debug("TMDB tv/popular failed page=%d: %s", page, exc)
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            self._log_request_failure(f"tv/popular(page={page})", exc)
             return []
 
     def details(self, media_type: str, tmdb_id: int) -> dict[str, object] | None:
@@ -254,8 +310,8 @@ class TmdbClient:
                 f"/{endpoint}/{tmdb_id}",
                 {"append_to_response": "videos,credits"},
             )
-        except (SafeHTTPError, requests.RequestException) as exc:
-            logger.debug("TMDB %s/%s details failed: %s", endpoint, tmdb_id, exc)
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            self._log_request_failure(f"{endpoint}/{tmdb_id} details", exc)
             return None
 
     # ------------------------------------------------------------------

@@ -69,8 +69,19 @@ class TestFetchRatings:
         assert fetch_ratings("Dune", 2021, "movie", conn=conn, secret_key=secret_key) == {}
 
     def test_returns_empty_on_exception(self, conn, secret_key, fake_http):
+        """A network failure (RequestException family) returns empty rather than raising.
+
+        ``fetch_ratings`` deliberately narrows to the realistic failure
+        modes ``(SafeHTTPError, requests.RequestException, ValueError,
+        KeyError)`` so a generic programming bug propagates instead of
+        being silently masked. ``requests.Timeout`` is a subclass of
+        ``RequestException`` so a real OMDb timeout still hits the empty
+        return path.
+        """
+        import requests
+
         _set_key(conn, "plain-key")
-        fake_http.raise_on("GET", Exception("timeout"))
+        fake_http.raise_on("GET", requests.Timeout("timeout"))
         assert fetch_ratings("Dune", 2021, "movie", conn=conn, secret_key=secret_key) == {}
 
     def test_sends_series_type_for_tv(self, conn, secret_key, fake_http, fake_response):
