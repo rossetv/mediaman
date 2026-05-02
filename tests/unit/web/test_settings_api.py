@@ -819,9 +819,7 @@ class TestSsrfBlockedLogScrubs:
             with caplog.at_level("WARNING"):
                 resp = client.put(
                     "/api/settings",
-                    json={
-                        "radarr_url": "http://admin:s3cr3t@evil.example.com/path?api_key=leaked"
-                    },
+                    json={"radarr_url": "http://admin:s3cr3t@evil.example.com/path?api_key=leaked"},
                 )
         assert resp.status_code == 400
 

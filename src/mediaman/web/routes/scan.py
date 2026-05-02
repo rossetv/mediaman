@@ -153,8 +153,7 @@ def clear_scheduled(
                 "WHERE action='scheduled_deletion' AND token_used=0"
             ).fetchone()[0]
             conn.execute(
-                "DELETE FROM scheduled_actions "
-                "WHERE action='scheduled_deletion' AND token_used=0"
+                "DELETE FROM scheduled_actions WHERE action='scheduled_deletion' AND token_used=0"
             )
             security_event_or_raise(
                 conn,

@@ -378,9 +378,7 @@ class TestClearScheduledAuditLog:
         assert resp.status_code == 500
         # The scheduled row must still be present — the transaction
         # rolled back when the audit insert blew up.
-        row = conn.execute(
-            "SELECT id FROM scheduled_actions WHERE media_item_id = 'mx'"
-        ).fetchone()
+        row = conn.execute("SELECT id FROM scheduled_actions WHERE media_item_id = 'mx'").fetchone()
         assert row is not None
 
 
