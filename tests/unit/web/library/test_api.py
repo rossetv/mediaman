@@ -161,10 +161,8 @@ class TestApiLibraryList:
     """GET /api/library endpoint tests."""
 
     def setup_method(self):
-        _DELETE_LIMITER._attempts.clear()
-        _DELETE_LIMITER._day_counts.clear()
-        _KEEP_LIMITER._attempts.clear()
-        _KEEP_LIMITER._day_counts.clear()
+        _DELETE_LIMITER.reset()
+        _KEEP_LIMITER.reset()
 
     def test_requires_auth(self, db_path, secret_key):
         conn = init_db(str(db_path))

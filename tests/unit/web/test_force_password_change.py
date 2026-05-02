@@ -20,10 +20,8 @@ from mediaman.web.routes.force_password_change import (
 def _reset_limiters() -> None:
     """Force-change limiters are module-globals — reset between tests so the
     cross-test attempt count doesn't trip the per-IP cap."""
-    _FORCE_CHANGE_LIMITER._attempts.clear()
-    _FORCE_CHANGE_LIMITER._day_counts.clear()
-    _FORCE_CHANGE_IP_LIMITER._attempts.clear()
-    _FORCE_CHANGE_IP_LIMITER._day_counts.clear()
+    _FORCE_CHANGE_LIMITER.reset()
+    _FORCE_CHANGE_IP_LIMITER.reset()
 
 
 @pytest.fixture

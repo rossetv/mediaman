@@ -73,8 +73,7 @@ class TestNewsletterRecipientHeaderInjection:
     def setup_method(self):
         from mediaman.web.routes.subscribers import _NEWSLETTER_LIMITER
 
-        _NEWSLETTER_LIMITER._attempts.clear()
-        _NEWSLETTER_LIMITER._day_counts.clear()
+        _NEWSLETTER_LIMITER.reset()
 
     def test_crlf_recipient_rejected_but_valid_still_sent(self, db_path):
         """A subscriber row with embedded \\r\\n is skipped; clean rows still send."""
