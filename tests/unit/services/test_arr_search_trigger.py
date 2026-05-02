@@ -838,6 +838,89 @@ class TestAutoAbandon:
         )
         assert called == {"series_id": 7, "seasons": [21, 22], "dl_id": "sonarr:X"}
 
+    def test_series_with_only_season_zero_episodes_skipped(self, db_conn, monkeypatch):
+        """Domain-06 #12: a series whose queue rows are ALL specials
+        (season 0) must NOT be auto-abandoned.
+
+        Regression: prior versions filtered no seasons. A specials-only
+        queue produced ``seasons=[0]`` and then called
+        ``abandon_seasons(season_numbers=[0])``, which would unmonitor
+        every special on the series. Specials are typically opt-in
+        monitored separately; auto-unmonitoring them would be
+        catastrophic.
+        """
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.get_int_setting",
+            lambda c, k, **kw: {
+                "abandon_search_escalate_at": 50,
+                "abandon_search_auto_multiplier": 4,
+            }[k],
+        )
+        called = {"n": 0}
+        import mediaman.services.downloads.abandon as abandon_module
+
+        monkeypatch.setattr(
+            abandon_module,
+            "abandon_seasons",
+            lambda *a, **kw: called.__setitem__("n", called["n"] + 1),
+        )
+        from mediaman.services.arr.search_trigger import maybe_auto_abandon
+
+        maybe_auto_abandon(
+            db_conn,
+            "secret",
+            item={
+                "kind": "series",
+                "dl_id": "sonarr:Specials",
+                "arr_id": 7,
+                "episodes": [
+                    {"season_number": 0},
+                    {"season_number": 0},
+                ],
+            },
+            search_count=200,
+        )
+
+        # The function should be a no-op — no abandon call AT ALL.
+        assert called["n"] == 0
+
+    def test_series_with_mixed_specials_filters_season_zero(self, db_conn, monkeypatch):
+        """Mixed specials + real seasons → only the real seasons are abandoned."""
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.get_int_setting",
+            lambda c, k, **kw: {
+                "abandon_search_escalate_at": 50,
+                "abandon_search_auto_multiplier": 4,
+            }[k],
+        )
+        called = {}
+
+        def fake_abandon_seasons(conn, secret, *, series_id, season_numbers, dl_id):
+            called["seasons"] = sorted(season_numbers)
+
+        import mediaman.services.downloads.abandon as abandon_module
+
+        monkeypatch.setattr(abandon_module, "abandon_seasons", fake_abandon_seasons)
+        from mediaman.services.arr.search_trigger import maybe_auto_abandon
+
+        maybe_auto_abandon(
+            db_conn,
+            "secret",
+            item={
+                "kind": "series",
+                "dl_id": "sonarr:Mixed",
+                "arr_id": 7,
+                "episodes": [
+                    {"season_number": 0},  # special — must be excluded
+                    {"season_number": 1},
+                    {"season_number": 2},
+                ],
+            },
+            search_count=200,
+        )
+
+        assert called["seasons"] == [1, 2]
+
     def test_series_with_no_episodes_skipped(self, db_conn, monkeypatch):
         """Series with empty episodes list is silently skipped (no error)."""
         monkeypatch.setattr(
