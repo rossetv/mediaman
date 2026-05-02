@@ -440,11 +440,23 @@ def download_status(
     conn = get_db()
 
     try:
-        return JSONResponse(
-            _cached_status(
+        # The cache exists to bound the request-amplification attack
+        # surface of unauthenticated polls (a public link with a
+        # poll_token times the rate limit). Admins are already trusted
+        # and rate-limited; bypassing the cache for them keeps the
+        # admin UI showing fresh data without the slight staleness an
+        # admin tab would otherwise see, and avoids stale-cache
+        # surprises in admin-driven test suites.
+        if admin:
+            if service == "radarr":
+                result = _radarr_status(conn, config.secret_key, tmdb_id)
+            else:
+                result = _sonarr_status(conn, config.secret_key, tmdb_id)
+        else:
+            result = _cached_status(
                 service=service, tmdb_id=tmdb_id, conn=conn, secret_key=config.secret_key
             )
-        )
+        return JSONResponse(result)
 
     except (requests.RequestException, SafeHTTPError) as exc:
         # Both transport (RequestException) and Arr-level non-2xx
