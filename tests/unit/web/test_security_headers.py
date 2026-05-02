@@ -625,3 +625,152 @@ class TestBodySizeLimitMiddleware:
         big = b"x" * (9 * 1024 * 1024)
         resp = client.post("/echo", content=big)
         assert resp.status_code == 413
+
+
+class TestNormaliseOrigin:
+    """``_normalise_origin`` parses Origin/Referer/netloc strings into
+    ``(scheme, host[:port])`` tuples for direct equality comparison.
+
+    Two correctness fixes vs. the old prefix-strip logic:
+
+    1. IPv6 hosts must round-trip cleanly — ``[2001:db8::1]:443`` →
+       ``("https", "2001:db8::1")``, not ``"[2001:db8"``.
+    2. Non-default ports must survive — ``example.com:8443`` stays
+       ``"example.com:8443"`` so an Origin on a different port is
+       not silently treated as same-origin.
+    """
+
+    def test_ipv6_origin_with_default_port(self):
+        from mediaman.web import _normalise_origin
+
+        scheme, host = _normalise_origin("https://[2001:db8::1]:443")
+        assert scheme == "https"
+        assert host == "2001:db8::1"
+
+    def test_ipv6_origin_with_custom_port(self):
+        from mediaman.web import _normalise_origin
+
+        scheme, host = _normalise_origin("http://[::1]:8080")
+        assert scheme == "http"
+        # Bracketed re-stitch keeps host:port unambiguous.
+        assert host == "[::1]:8080"
+
+    def test_https_default_port_stripped(self):
+        from mediaman.web import _normalise_origin
+
+        scheme, host = _normalise_origin("https://example.com:443")
+        assert (scheme, host) == ("https", "example.com")
+
+    def test_http_default_port_stripped(self):
+        from mediaman.web import _normalise_origin
+
+        scheme, host = _normalise_origin("http://example.com:80")
+        assert (scheme, host) == ("http", "example.com")
+
+    def test_non_default_port_preserved(self):
+        from mediaman.web import _normalise_origin
+
+        # Previously ``endswith(":443")`` failed and the host survived
+        # as ``"example.com:8443"`` — that's correct here, AND it must
+        # be different from ``"example.com"`` so a request on :8443
+        # rejects an Origin on the bare host.
+        scheme, host = _normalise_origin("https://example.com:8443")
+        assert (scheme, host) == ("https", "example.com:8443")
+
+    def test_lowercases_scheme_and_host(self):
+        from mediaman.web import _normalise_origin
+
+        scheme, host = _normalise_origin("HTTPS://EXAMPLE.COM")
+        assert (scheme, host) == ("https", "example.com")
+
+    def test_bare_netloc_uses_default_scheme(self):
+        from mediaman.web import _normalise_origin
+
+        scheme, host = _normalise_origin("example.com:443", default_scheme="https")
+        assert (scheme, host) == ("https", "example.com")
+
+    def test_normalise_host_drops_default_port(self):
+        """Backward-compat shim: ``_normalise_host`` returns just the
+        host portion (still used by tests / older code paths)."""
+        from mediaman.web import _normalise_host
+
+        assert _normalise_host("example.com:443") == "example.com"
+        assert _normalise_host("example.com") == "example.com"
+        # IPv6 round-trip: previously this returned ``"[2001:db8"``.
+        assert _normalise_host("[2001:db8::1]:443") == "2001:db8::1"
+
+
+class TestCSRFSchemeChecked:
+    """CSRF compares both scheme and host (finding 11)."""
+
+    def test_cross_scheme_post_rejected(self):
+        """A request whose Origin uses ``http`` while the request URL
+        is ``https`` must be rejected even when the host matches —
+        an attacker page on ``http://example.com`` should not be able
+        to submit to ``https://example.com``."""
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.post("/api/thing")
+        def _endpoint():
+            return {"ok": True}
+
+        client = TestClient(app, base_url="https://example.com")
+        resp = client.post(
+            "/api/thing",
+            headers={"Origin": "http://example.com"},
+        )
+        assert resp.status_code == 403
+
+    def test_same_scheme_post_accepted(self):
+        """Both scheme and host match — request is accepted."""
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.post("/api/thing")
+        def _endpoint():
+            return {"ok": True}
+
+        client = TestClient(app, base_url="https://example.com")
+        resp = client.post(
+            "/api/thing",
+            headers={"Origin": "https://example.com"},
+        )
+        assert resp.status_code == 200
+
+
+class TestForcePasswordChangeHealthExempt:
+    """``/healthz`` and ``/readyz`` are exempt from the
+    ForcePasswordChangeMiddleware.  Probes never carry sessions, but
+    a stale browser cookie sharing the same origin used to redirect
+    the probe away from a 200 response.  Adding the probe paths to
+    the allowlist closes that gap."""
+
+    def test_healthz_skipped_with_session(self):
+        """Even with a flagged session_token cookie present, /healthz
+        passes straight through to the handler."""
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.get("/healthz")
+        def _healthz():
+            return {"status": "ok"}
+
+        client = TestClient(app)
+        client.cookies.set("session_token", "any-stale-cookie")
+        resp = client.get("/healthz")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
+
+    def test_readyz_skipped_with_session(self):
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.get("/readyz")
+        def _readyz():
+            return {"status": "ready"}
+
+        client = TestClient(app)
+        client.cookies.set("session_token", "any-stale-cookie")
+        resp = client.get("/readyz")
+        assert resp.status_code == 200
