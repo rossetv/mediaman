@@ -51,27 +51,50 @@ class TestSecurityHeadersMiddleware:
         # posters from shifting CDNs we can't enumerate).
         assert "img-src 'self' data: blob: https:" in csp
 
-    def test_hsts_emitted_by_default(self, monkeypatch):
-        """Public-facing mediaman must emit HSTS unless the operator opts out."""
+    def test_hsts_off_by_default(self, monkeypatch):
+        """HSTS is now opt-in.  Without ``MEDIAMAN_HSTS_ENABLED=true`` the
+        header MUST NOT be emitted, even on a plain HTTP request — a
+        misconfigured plaintext deploy that ships HSTS would lock real
+        users out of the origin for two years."""
         monkeypatch.delenv("MEDIAMAN_FORCE_SECURE_COOKIES", raising=False)
-        client = TestClient(_build_app())
-        resp = client.get("/ping")
-        assert "Strict-Transport-Security" in resp.headers
-        assert "max-age=63072000" in resp.headers["Strict-Transport-Security"]
-
-    def test_hsts_can_be_disabled_for_dev(self, monkeypatch):
-        """MEDIAMAN_FORCE_SECURE_COOKIES=false disables HSTS for local dev."""
-        monkeypatch.setenv("MEDIAMAN_FORCE_SECURE_COOKIES", "false")
+        monkeypatch.delenv("MEDIAMAN_HSTS_ENABLED", raising=False)
         client = TestClient(_build_app())
         resp = client.get("/ping")
         assert "Strict-Transport-Security" not in resp.headers
 
-    def test_hsts_present_on_https(self, monkeypatch):
-        """When served over HTTPS, HSTS is attached."""
+    def test_hsts_off_on_https_when_not_enabled(self, monkeypatch):
+        """Even on HTTPS, HSTS stays off until the operator opts in."""
         monkeypatch.delenv("MEDIAMAN_FORCE_SECURE_COOKIES", raising=False)
+        monkeypatch.delenv("MEDIAMAN_HSTS_ENABLED", raising=False)
+        client = TestClient(_build_app(), base_url="https://testserver")
+        resp = client.get("/ping")
+        assert "Strict-Transport-Security" not in resp.headers
+
+    def test_hsts_off_on_http_even_when_enabled(self, monkeypatch):
+        """``MEDIAMAN_HSTS_ENABLED=true`` is necessary but not sufficient.
+        The request must also be HTTPS — emitting HSTS over plaintext is
+        the misconfiguration that the gate exists to prevent."""
+        monkeypatch.setenv("MEDIAMAN_HSTS_ENABLED", "true")
+        client = TestClient(_build_app())
+        resp = client.get("/ping")
+        assert "Strict-Transport-Security" not in resp.headers
+
+    def test_hsts_emitted_when_enabled_and_https(self, monkeypatch):
+        """Both conditions met: env var on AND request is HTTPS."""
+        monkeypatch.setenv("MEDIAMAN_HSTS_ENABLED", "true")
         client = TestClient(_build_app(), base_url="https://testserver")
         resp = client.get("/ping")
         assert "max-age=63072000" in resp.headers["Strict-Transport-Security"]
+
+    def test_hsts_force_secure_cookies_false_still_disables(self, monkeypatch):
+        """Legacy ``MEDIAMAN_FORCE_SECURE_COOKIES=false`` continues to
+        suppress HSTS so an operator with the old toggle doesn't get a
+        surprise upgrade."""
+        monkeypatch.setenv("MEDIAMAN_HSTS_ENABLED", "true")
+        monkeypatch.setenv("MEDIAMAN_FORCE_SECURE_COOKIES", "false")
+        client = TestClient(_build_app(), base_url="https://testserver")
+        resp = client.get("/ping")
+        assert "Strict-Transport-Security" not in resp.headers
 
     def test_server_header_hidden(self):
         """Server banner is replaced with an opaque label."""
