@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.responses import Response
 
@@ -19,8 +19,12 @@ def library_page(
     q: str = "",
     type: str = "",
     sort: str = "added_desc",
-    page: int = 1,
-    per_page: int = 20,
+    # Pagination bounds enforced at the input layer (finding 17).
+    # Pydantic ``ge=1`` / ``le=100`` rejects malformed values with HTTP
+    # 422 instead of silently rewriting them, so the user sees the bad
+    # request rather than getting an unexpected page.
+    page: int = Query(default=1, ge=1, le=100_000),
+    per_page: int = Query(default=20, ge=1, le=100),
 ) -> Response:
     """Render the library page. Redirects to /login if session is invalid."""
     resolved = resolve_page_session(request)
@@ -28,11 +32,11 @@ def library_page(
         return resolved
     username, conn = resolved
 
-    # Clamp + sanitise
+    # Sort/type still tolerated as silent reset to defaults — these are
+    # vocabulary fields and an unknown value is treated as "no filter"
+    # rather than an outright error.
     sort = sort if sort in _VALID_SORTS else "added_desc"
     media_type = type if type in _VALID_TYPES else ""
-    page = max(1, page)
-    per_page = max(1, min(100, per_page))
 
     items, total = fetch_library(
         conn, q=q, media_type=media_type, sort=sort, page=page, per_page=per_page
