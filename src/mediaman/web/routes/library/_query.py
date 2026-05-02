@@ -206,7 +206,7 @@ def fetch_library(
     offset = min(offset, 50_000)
     rows = conn.execute(
         cte_sql + f"SELECT * FROM display_items{kept_where} ORDER BY {order} LIMIT ? OFFSET ?",
-        params + [per_page, offset],
+        [*params, per_page, offset],
     ).fetchall()
 
     item_ids = [r["id"] for r in rows]

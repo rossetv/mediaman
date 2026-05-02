@@ -116,7 +116,8 @@ def test_full_render(env: Environment) -> None:
 
     assert html.startswith("<!DOCTYPE html>")
     assert "</html>" in html
-    assert "{{" not in html and "{%" not in html
+    assert "{{" not in html
+    assert "{%" not in html
 
     assert "scheduled for deletion" in html
     assert "14 days left" in html

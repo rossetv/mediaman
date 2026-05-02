@@ -98,9 +98,7 @@ def validate_web_search_title(title: str) -> bool:
         return False
     if _MARKDOWN_LINK_RE.search(title):
         return False
-    if re.search(r"https?://", title, re.IGNORECASE):
-        return False
-    return True
+    return not re.search(r"https?://", title, re.IGNORECASE)
 
 
 def call_openai(

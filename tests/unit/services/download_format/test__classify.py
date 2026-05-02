@@ -65,11 +65,11 @@ class TestClassifyMovieUpcoming:
         assert label == ""
 
     def test_unmonitored_movie_not_upcoming(self):
-        is_up, label = classify_movie_upcoming(self._movie(monitored=False))
+        is_up, _label = classify_movie_upcoming(self._movie(monitored=False))
         assert is_up is False
 
     def test_movie_with_file_not_upcoming(self):
-        is_up, label = classify_movie_upcoming(self._movie(has_file=True))
+        is_up, _label = classify_movie_upcoming(self._movie(has_file=True))
         assert is_up is False
 
     def test_upcoming_with_digital_release(self):
@@ -106,11 +106,11 @@ class TestClassifySeriesUpcoming:
         }
 
     def test_unmonitored_series_not_upcoming(self):
-        is_up, label = classify_series_upcoming(self._series(monitored=False), [])
+        is_up, _label = classify_series_upcoming(self._series(monitored=False), [])
         assert is_up is False
 
     def test_series_with_files_not_upcoming(self):
-        is_up, label = classify_series_upcoming(self._series(episode_file_count=3), [])
+        is_up, _label = classify_series_upcoming(self._series(episode_file_count=3), [])
         assert is_up is False
 
     def test_upcoming_series_no_episodes_returns_not_yet_aired(self):
@@ -127,7 +127,7 @@ class TestClassifySeriesUpcoming:
     def test_series_with_aired_episodes_not_upcoming(self):
         """If episodes have already aired, the series is not upcoming."""
         eps = [{"airDateUtc": "2000-01-01T00:00:00Z"}]
-        is_up, label = classify_series_upcoming(self._series(status="continuing"), eps)
+        is_up, _label = classify_series_upcoming(self._series(status="continuing"), eps)
         assert is_up is False
 
     def test_episodes_with_bad_dates_counted_in_unknown_bucket(self, caplog):
@@ -136,7 +136,7 @@ class TestClassifySeriesUpcoming:
         import logging
 
         with caplog.at_level(logging.DEBUG):
-            is_up, label = classify_series_upcoming(self._series(status="upcoming"), eps)
+            is_up, _label = classify_series_upcoming(self._series(status="upcoming"), eps)
         # Classification should still work
         assert isinstance(is_up, bool)
 

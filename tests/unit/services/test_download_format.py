@@ -121,7 +121,7 @@ class TestClassifySeriesUpcomingAirDateHandling:
             {},  # no airDateUtc key
             {"airDateUtc": "2099-01-01T00:00:00Z"},
         ]
-        is_upcoming, label = classify_series_upcoming(series, episodes)
+        is_upcoming, _label = classify_series_upcoming(series, episodes)
         assert is_upcoming is True
 
     def test_not_upcoming_when_has_aired_episodes(self):
@@ -131,5 +131,5 @@ class TestClassifySeriesUpcomingAirDateHandling:
             {"airDateUtc": "2020-01-01T00:00:00Z"},  # past
             {"airDateUtc": "not-a-date"},  # unknown
         ]
-        is_upcoming, label = classify_series_upcoming(series, episodes)
+        is_upcoming, _label = classify_series_upcoming(series, episodes)
         assert is_upcoming is False

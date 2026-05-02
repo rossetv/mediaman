@@ -306,9 +306,7 @@ def _is_show_kept_pure(
         return False
     if row["action"] == "protected_forever":
         return True
-    if row["execute_at"] and row["execute_at"] > now:
-        return True
-    return False
+    return bool(row["execute_at"] and row["execute_at"] > now)
 
 
 def cleanup_expired_show_snoozes(conn: sqlite3.Connection, now_iso: str) -> int:

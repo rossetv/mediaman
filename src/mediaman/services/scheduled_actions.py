@@ -205,9 +205,7 @@ def is_pending_unexpired(verified: sqlite3.Row, now: datetime) -> bool:
     delete_status_val = verified["delete_status"] if "delete_status" in keys else "pending"
     if action_val != ACTION_SCHEDULED_DELETION:
         return False
-    if delete_status_val is not None and delete_status_val != "pending":
-        return False
-    return True
+    return not (delete_status_val is not None and delete_status_val != "pending")
 
 
 # ---------------------------------------------------------------------------

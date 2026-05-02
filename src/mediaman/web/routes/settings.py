@@ -446,7 +446,7 @@ def api_update_settings(
             event="settings.write.throttled",
             actor=admin,
             ip=get_client_ip(request),
-            detail={"keys": sorted(k for k in body.keys() if k in _ALL_KEYS)},
+            detail={"keys": sorted(k for k in body if k in _ALL_KEYS)},
         )
         return JSONResponse(
             {"error": "Too many settings changes — slow down"},
@@ -470,8 +470,8 @@ def api_update_settings(
             status_code=403,
         )
 
-    written = sorted(k for k in body.keys() if k in _ALL_KEYS)
-    ignored = sorted(k for k in body.keys() if k not in _ALL_KEYS)
+    written = sorted(k for k in body if k in _ALL_KEYS)
+    ignored = sorted(k for k in body if k not in _ALL_KEYS)
     sensitive_written = sorted(k for k in written if k in SENSITIVE_KEYS)
 
     try:

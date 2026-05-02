@@ -524,7 +524,7 @@ class TestDNSPinning:
         SafeHTTPClient().get("http://host.example.test/x")
 
         # The pinned address came back inside the dispatcher.
-        family, _socktype, _proto, _name, sockaddr = captured["pin_lookup"][0]
+        _family, _socktype, _proto, _name, sockaddr = captured["pin_lookup"][0]
         assert sockaddr[0] == "203.0.113.7"
 
     def test_pin_cleared_after_request(self, monkeypatch):
@@ -598,10 +598,12 @@ class TestDNSPinning:
             assert ans == []
             # Same hostname with the matching family still works.
             ans4 = socket.getaddrinfo("v4only.example.test", 80, socket.AF_INET)
-            assert ans4 and ans4[0][4][0] == "203.0.113.5"
+            assert ans4
+            assert ans4[0][4][0] == "203.0.113.5"
             # AF_UNSPEC is "either is fine" and must still match.
             ans_any = socket.getaddrinfo("v4only.example.test", 80, socket.AF_UNSPEC)
-            assert ans_any and ans_any[0][4][0] == "203.0.113.5"
+            assert ans_any
+            assert ans_any[0][4][0] == "203.0.113.5"
 
     def test_dns_pin_hook_reinstalled_when_tampered(self, monkeypatch, caplog):
         """If something replaces ``socket.getaddrinfo`` after our import,

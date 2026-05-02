@@ -514,7 +514,8 @@ class TestFinding16KeepTokenHash:
             "SELECT token_hash, token FROM scheduled_actions WHERE media_item_id = 'mi1'"
         ).fetchone()
         assert row is not None
-        assert row["token_hash"] is not None and len(row["token_hash"]) == 64
+        assert row["token_hash"] is not None
+        assert len(row["token_hash"]) == 64
 
     def test_raw_token_fallback_lookup(self, conn):
         """Lookup should fall back to raw token column for un-migrated rows."""

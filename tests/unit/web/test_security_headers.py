@@ -370,7 +370,8 @@ class TestCSPNonce:
         body = resp.json()
         assert resp.status_code == 200, f"handler errored: {body!r}"
         body_nonce = body["nonce"]
-        assert isinstance(body_nonce, str) and len(body_nonce) >= 16
+        assert isinstance(body_nonce, str)
+        assert len(body_nonce) >= 16
         # The nonce surfaced to the handler must match the nonce in the
         # outbound CSP header — otherwise templates couldn't reliably
         # mark inline blocks for the browser to accept them.

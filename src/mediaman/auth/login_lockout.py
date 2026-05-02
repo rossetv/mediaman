@@ -137,9 +137,7 @@ def check_lockout(conn: sqlite3.Connection, username: str) -> bool:
     locked_until = _parse_iso(row["locked_until"])
     if locked_until is None:
         return False
-    if locked_until <= _now():
-        return False
-    return True
+    return not locked_until <= _now()
 
 
 def record_failure(conn: sqlite3.Connection, username: str) -> int | None:
