@@ -32,7 +32,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Create a fixed UID/GID 1000:1000 so the container always owns /data
 # with a predictable numeric identity. The compose file does not need to
 # override `user:` — it is documented but redundant now and has been removed.
-RUN groupadd --gid 1000 mediaman && useradd --uid 1000 --gid 1000 --no-create-home mediaman
+RUN groupadd --gid 1000 mediaman \
+    && useradd --uid 1000 --gid 1000 --no-create-home --shell /usr/sbin/nologin mediaman
 WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
