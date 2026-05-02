@@ -10,12 +10,20 @@ import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
-CSS = REPO / "src/mediaman/web/static/style.css"
+CSS_DIR = REPO / "src/mediaman/web/static/css"
 TEMPLATES = REPO / "src/mediaman/web/templates"
 
 
 def _css() -> str:
-    return CSS.read_text(encoding="utf-8")
+    """Concatenate the modular CSS files into a single string.
+
+    The cinematic-dark redesign ships its styles as `static/css/_*.css`
+    fragments loaded individually from `base.html`. These tests treat the
+    union of those fragments as the contract surface — the same surface
+    the browser sees once every link tag has loaded.
+    """
+    parts = [path.read_text(encoding="utf-8") for path in sorted(CSS_DIR.glob("_*.css"))]
+    return "\n".join(parts)
 
 
 def _tpl(name: str) -> str:

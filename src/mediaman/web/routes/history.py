@@ -43,7 +43,7 @@ ACTION_TYPES = [
     "security",
 ]
 
-# Colour-coded badge classes per action type (mapped to CSS vars in style.css).
+# Colour-coded badge classes per action type, rendered into history rows.
 ACTION_BADGE_CLASS = {
     "scanned": "badge-action-scanned",
     "scheduled": "badge-action-scheduled",
