@@ -84,7 +84,13 @@ class PollTokenPayload(TypedDict):
     tmdb: int
     """TMDB ID of the item being polled."""
     nonce: str
-    """Random nonce preventing token replay."""
+    """Random nonce — included to make every issued token unique even when
+    every other field is identical. Note: this is **not** a replay defence
+    on its own. Without a server-side ``poll_tokens_used`` table no consumed
+    token is ever invalidated, so any holder can replay it until ``exp``.
+    Replay protection during the short TTL is provided solely by the
+    expiry check; if stronger semantics are needed later, add a
+    used-tokens table and check it in :func:`validate_poll_token`."""
     exp: int | float
     """UNIX timestamp at which the token expires."""
 
@@ -122,7 +128,20 @@ class TokenPayload(TypedDict, total=False):
     nonce: str
 
 
+# Outer cap on the dotted ``payload.signature`` token string. Tokens
+# never legitimately approach this size — every issued token is
+# bounded by a small JSON payload (a few hundred bytes, base64-encoded)
+# plus a 44-char base64 signature. The 4 KiB cap exists to fast-fail
+# obviously-malformed inputs at the very top of :func:`_validate_signed`.
 _MAX_TOKEN_LEN = 4096
+
+# Cap on the *decoded* payload bytes inside the dotted token. Cuts the
+# HMAC computation short on attacker-controlled oversize payloads — an
+# attacker who supplies (say) a 100 KB payload would otherwise force
+# HMAC-SHA256 over 100 KB before constant-time signature comparison
+# rejects the request. Real payloads are JSON dicts of <500 bytes; 8 KiB
+# leaves comfortable headroom while neutralising the amplification.
+_MAX_PAYLOAD_BYTES = 8192
 
 _TOKEN_PURPOSE_KEEP = b"mediaman-token-keep-v1"
 _TOKEN_PURPOSE_DOWNLOAD = b"mediaman-token-download-v1"
@@ -154,14 +173,37 @@ def _sign(secret_key: str, purpose: bytes, payload: bytes) -> bytes:
 
 
 def _validate_signed(token: str, secret_key: str, purpose: bytes) -> TokenPayload | None:
-    """Shared validator for payload.signature tokens."""
+    """Shared validator for ``payload.signature`` tokens.
+
+    Order of checks:
+
+    1. Outer string-length cap (:data:`_MAX_TOKEN_LEN`) and dotted shape.
+    2. Decoded-payload length cap (:data:`_MAX_PAYLOAD_BYTES`) — applied
+       BEFORE :func:`_sign` is called. An attacker who supplies an
+       oversize payload should not force the server to compute
+       HMAC-SHA256 over megabytes of attacker-controlled bytes before
+       the constant-time signature comparison rejects the token.
+    3. Constant-time signature comparison.
+    4. JSON parse + dict-shape check.
+    5. ``exp`` field — must be a non-bool int/float in the future.
+       (``bool`` is a subclass of ``int`` in Python, so the explicit
+       bool-rejection is required to stop ``"exp": True`` slipping
+       through as ``int(True) == 1``.)
+    """
     if not token or len(token) > _MAX_TOKEN_LEN:
         return None
     try:
         parts = token.split(".")
         if len(parts) != 2:
             return None
+        # Cap the b64 input so the eventual decoded payload is bounded
+        # too; with a generous +4 fudge for padding this is the cheap
+        # pre-HMAC short-circuit.
+        if len(parts[0]) > _MAX_PAYLOAD_BYTES * 2:
+            return None
         payload_bytes = base64.urlsafe_b64decode(parts[0] + "=" * (-len(parts[0]) % 4))
+        if len(payload_bytes) > _MAX_PAYLOAD_BYTES:
+            return None
         sig = base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4))
         expected_sig = _sign(secret_key, purpose, payload_bytes)
         if not hmac.compare_digest(sig, expected_sig):
@@ -170,7 +212,10 @@ def _validate_signed(token: str, secret_key: str, purpose: bytes) -> TokenPayloa
         if not isinstance(payload, dict):
             return None
         exp = payload.get("exp", 0)
-        if not isinstance(exp, (int, float)) or exp < time.time():
+        # bool is a subclass of int — exclude it explicitly so
+        # ``"exp": True`` (which would coerce to 1, far in the past)
+        # cannot slide through. Same for ``"exp": False``.
+        if isinstance(exp, bool) or not isinstance(exp, (int, float)) or exp < time.time():
             return None
         return cast(TokenPayload, payload)
     except (
@@ -226,7 +271,25 @@ def generate_download_token(
     secret_key: str,
     ttl_days: int = 14,
 ) -> str:
-    """Generate an HMAC-SHA256-signed download token for email download CTAs."""
+    """Generate an HMAC-SHA256-signed download token for email download CTAs.
+
+    .. warning::
+
+       The generated token's payload includes the recipient's *email*
+       in plain JSON, base64-encoded into the URL. Anyone with a copy
+       of the token (e.g. a forwarded email, a server log, a referer
+       header leak) can read the email address back out — base64 is
+       a reversible encoding, not a confidentiality boundary.
+
+       This is acceptable for the current threat model because the
+       email is already known to the holder of the URL (they received
+       it). It is **not** suitable for cases where leaking the email
+       to a third party that observes the URL is unacceptable — for
+       those, switch to a server-side opaque ID that maps to the email
+       in a DB-side lookup. Changing the token shape now would
+       invalidate every issued in-flight email link, so this stays as
+       documented behaviour rather than a silent fix.
+    """
     exp = int(time.time()) + ttl_days * 86400
     payload = {
         "email": email,
@@ -301,7 +364,16 @@ def generate_poll_token(
     secret_key: str,
     ttl_seconds: int = 600,
 ) -> str:
-    """Generate a short-lived HMAC-signed polling-capability token."""
+    """Generate a short-lived HMAC-signed polling-capability token.
+
+    The payload includes a random ``nonce`` purely to keep distinct
+    issued tokens distinct on the wire — it is **not** a replay
+    defence. There is no server-side used-tokens table, so any holder
+    of a valid (unexpired) token can replay it freely. Replay
+    resistance during the short TTL window comes entirely from the
+    expiry; tighten this by introducing a ``poll_tokens_used`` table
+    if/when the threat model demands it.
+    """
     exp = int(time.time()) + ttl_seconds
     payload = {
         "mid": media_item_id,
