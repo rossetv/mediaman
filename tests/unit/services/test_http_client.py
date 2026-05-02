@@ -200,6 +200,163 @@ class TestRetryBehaviour:
         assert calls[0] == 1
 
 
+class TestRetryAfterHeader:
+    """``Retry-After`` on 429/503 must be honoured (capped to 60s)."""
+
+    def test_retry_after_seconds_value_used(self, monkeypatch):
+        sleeps: list = []
+        monkeypatch.setattr(http_client.time, "sleep", lambda s: sleeps.append(s))
+
+        calls = [0]
+
+        def fake_dispatch(caller, method, url, **kwargs):
+            calls[0] += 1
+            if calls[0] == 1:
+                return _response(
+                    status=429,
+                    body=b"slow",
+                    headers={"Retry-After": "5"},
+                )
+            return _response(status=200, body=b"{}")
+
+        monkeypatch.setattr(http_client, "_dispatch", fake_dispatch)
+        SafeHTTPClient().get("http://example.com/")
+        # First sleep is the retry-after value, not the fixed backoff.
+        assert sleeps[0] == 5.0
+
+    def test_retry_after_capped_at_60(self, monkeypatch):
+        sleeps: list = []
+        monkeypatch.setattr(http_client.time, "sleep", lambda s: sleeps.append(s))
+
+        calls = [0]
+
+        def fake_dispatch(caller, method, url, **kwargs):
+            calls[0] += 1
+            if calls[0] == 1:
+                return _response(
+                    status=503,
+                    body=b"down",
+                    headers={"Retry-After": "3600"},  # 1 hour — must be capped
+                )
+            return _response(status=200, body=b"{}")
+
+        monkeypatch.setattr(http_client, "_dispatch", fake_dispatch)
+        SafeHTTPClient().get("http://example.com/")
+        assert sleeps[0] == 60.0
+
+    def test_retry_after_falls_back_to_backoff_on_malformed(self, monkeypatch):
+        sleeps: list = []
+        monkeypatch.setattr(http_client.time, "sleep", lambda s: sleeps.append(s))
+
+        calls = [0]
+
+        def fake_dispatch(caller, method, url, **kwargs):
+            calls[0] += 1
+            if calls[0] == 1:
+                return _response(
+                    status=429,
+                    body=b"slow",
+                    headers={"Retry-After": "what"},
+                )
+            return _response(status=200, body=b"{}")
+
+        monkeypatch.setattr(http_client, "_dispatch", fake_dispatch)
+        SafeHTTPClient().get("http://example.com/")
+        # Falls back to the fixed schedule (0.5).
+        assert sleeps[0] == 0.5
+
+
+class TestBroaderRetryExceptionList:
+    """Transient TLS / chunked / decode / redirect errors are retried."""
+
+    @pytest.mark.parametrize(
+        "exc_factory",
+        [
+            lambda: __import__("requests").exceptions.SSLError("tls reset"),
+            lambda: __import__("requests").exceptions.ChunkedEncodingError("bad chunk"),
+            lambda: __import__("requests").exceptions.ContentDecodingError("bad gzip"),
+            lambda: __import__("requests").exceptions.TooManyRedirects("loop"),
+        ],
+    )
+    def test_retries_for_each_transient_exception(self, monkeypatch, exc_factory):
+        """Each entry in the broadened retry list must trigger a retry."""
+        calls = [0]
+
+        def fake_dispatch(caller, method, url, **kwargs):
+            calls[0] += 1
+            if calls[0] < 2:
+                raise exc_factory()
+            return _response(status=200, body=b"{}")
+
+        monkeypatch.setattr(http_client, "_dispatch", fake_dispatch)
+        monkeypatch.setattr(http_client.time, "sleep", lambda *_a: None)
+        SafeHTTPClient().get("http://example.com/")
+        assert calls[0] == 2
+
+
+class TestExpectedContentType:
+    """``expected_content_type`` rejects mismatched / encoded responses."""
+
+    def test_match_passes(self, monkeypatch):
+        monkeypatch.setattr(
+            http_client,
+            "_dispatch",
+            lambda *a, **kw: _response(
+                status=200,
+                body=b'{"ok": true}',
+                headers={"Content-Type": "application/json; charset=utf-8"},
+            ),
+        )
+        SafeHTTPClient().get(
+            "http://example.com/",
+            expected_content_type="application/json",
+        )
+
+    def test_mismatch_raises(self, monkeypatch):
+        monkeypatch.setattr(
+            http_client,
+            "_dispatch",
+            lambda *a, **kw: _response(
+                status=200,
+                body=b"<html>oops</html>",
+                headers={"Content-Type": "text/html"},
+            ),
+        )
+        with pytest.raises(SafeHTTPError) as excinfo:
+            SafeHTTPClient().get(
+                "http://example.com/",
+                expected_content_type="application/json",
+            )
+        assert "Content-Type" in excinfo.value.body_snippet
+
+    def test_unexpected_encoding_rejected(self, monkeypatch):
+        """A pinned content-type must reject non-identity Content-Encoding.
+
+        urllib3 may already be decoding the body — a server that lies
+        about its encoding could push past the size cap before we see
+        the bytes. When the caller has pinned the type, refuse anything
+        non-identity.
+        """
+        monkeypatch.setattr(
+            http_client,
+            "_dispatch",
+            lambda *a, **kw: _response(
+                status=200,
+                body=b"{}",
+                headers={
+                    "Content-Type": "application/json",
+                    "Content-Encoding": "br",
+                },
+            ),
+        )
+        with pytest.raises(SafeHTTPError) as excinfo:
+            SafeHTTPClient().get(
+                "http://example.com/",
+                expected_content_type="application/json",
+            )
+        assert "Content-Encoding" in excinfo.value.body_snippet
+
+
 class TestSafeHTTPErrorShape:
     def test_carries_status_body_url(self, monkeypatch):
         monkeypatch.setattr(
@@ -425,6 +582,57 @@ class TestDNSPinning:
         SafeHTTPClient().get("http://192.0.2.1/")
         # The literal-IP URL pinned itself for the duration of the request.
         assert captured["pins"].get("192.0.2.1") == "192.0.2.1"
+
+    def test_pin_family_mismatch_returns_empty_list(self, monkeypatch):
+        """When the caller asks for AF_INET6 but the pin holds a v4 IP,
+        the patched resolver returns an empty list — the same signal
+        urllib3 uses for "no matching addresses, try the next strategy".
+        Synthesising a record with the wrong family hands the connection
+        layer a tuple it cannot actually use.
+        """
+        monkeypatch.setattr(socket, "getaddrinfo", http_client._patched_getaddrinfo)
+
+        with pin_dns_for_request("v4only.example.test", "203.0.113.5"):
+            ans = socket.getaddrinfo("v4only.example.test", 80, socket.AF_INET6)
+            # Family mismatch — empty list, not a synthesised v4 record.
+            assert ans == []
+            # Same hostname with the matching family still works.
+            ans4 = socket.getaddrinfo("v4only.example.test", 80, socket.AF_INET)
+            assert ans4 and ans4[0][4][0] == "203.0.113.5"
+            # AF_UNSPEC is "either is fine" and must still match.
+            ans_any = socket.getaddrinfo("v4only.example.test", 80, socket.AF_UNSPEC)
+            assert ans_any and ans_any[0][4][0] == "203.0.113.5"
+
+    def test_dns_pin_hook_reinstalled_when_tampered(self, monkeypatch, caplog):
+        """If something replaces ``socket.getaddrinfo`` after our import,
+        the next request must detect the tamper, log CRITICAL, and
+        re-install the patched resolver. Without this, a misbehaving
+        plugin or test fixture could silently disable the pin and
+        reopen the SSRF rebind window.
+        """
+        # Force the SSRF guard to a benign answer.
+        monkeypatch.setattr(
+            http_client,
+            "resolve_safe_outbound_url",
+            lambda url, strict_egress=None: (True, "tamper.example.test", "203.0.113.7"),
+        )
+        monkeypatch.setattr(http_client, "_dispatch", lambda *a, **kw: _response(body=b"{}"))
+
+        # Tamper with the resolver — replace it with a no-op stub.
+        original_patched = http_client._patched_getaddrinfo
+        rogue = lambda *a, **kw: []  # noqa: E731
+        socket.getaddrinfo = rogue
+        try:
+            assert socket.getaddrinfo is rogue  # tamper succeeded
+            import logging
+
+            with caplog.at_level(logging.CRITICAL, logger="mediaman"):
+                SafeHTTPClient().get("http://tamper.example.test/")
+            # The hook is back in place.
+            assert socket.getaddrinfo is original_patched
+            assert any("getaddrinfo was replaced" in r.getMessage() for r in caplog.records)
+        finally:
+            socket.getaddrinfo = original_patched
 
     def test_pin_overrides_rebind_attempt(self, monkeypatch):
         """The full rebind scenario: validation sees a public IP, the
