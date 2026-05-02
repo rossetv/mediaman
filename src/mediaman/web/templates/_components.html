@@ -85,7 +85,7 @@
 {% macro tile(title, meta="", poster_url="", media_pill_label="", media_pill_variant="neutral", countdown_label="", rating="") -%}
 <div class="tile">
   <div class="tile-poster">
-    {% if poster_url %}<img src="{{ poster_url }}" alt="{{ title }}" loading="lazy" onerror="this.dataset.broken=''">{% endif %}
+    {% if poster_url %}<img src="{{ poster_url }}" alt="{{ title }}" loading="lazy" data-broken-on-error>{% endif %}
     {% if media_pill_label or countdown_label %}
     <div class="tile-pills">
       {% if media_pill_label %}<span class="pill pill--{{ media_pill_variant }}">{{ media_pill_label }}</span>{% endif %}
