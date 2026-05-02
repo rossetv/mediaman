@@ -91,6 +91,20 @@ class DeletionExecutor:
     Encapsulates the previously in-engine ``execute_deletions`` loop:
     allowlist read, stuck-state recovery, two-phase on-disk rm, audit
     logging, and best-effort Radarr/Sonarr unmonitor calls.
+
+    Args:
+        conn: Open SQLite connection.
+        dry_run: When True, skip the on-disk rm (and the row deletion +
+            audit-log entry that would normally follow). A
+            ``dry_run_skip`` audit row is written instead so an operator
+            can see what *would* have been deleted. Snooze cleanup is
+            controlled separately via ``cleanup_snoozes``.
+        cleanup_snoozes: When True (default), expired snoozes are
+            removed so the items re-enter the scan pipeline. Set to
+            False when the caller is performing a true dry-run preview
+            and must not mutate ``scheduled_actions``.
+        sonarr_client: Optional Sonarr API client for unmonitor calls.
+        radarr_client: Optional Radarr API client for unmonitor calls.
     """
 
     def __init__(
@@ -98,11 +112,13 @@ class DeletionExecutor:
         *,
         conn: sqlite3.Connection,
         dry_run: bool = False,
+        cleanup_snoozes: bool = True,
         sonarr_client: Any = None,
         radarr_client: Any = None,
     ) -> None:
         self._conn = conn
         self._dry_run = dry_run
+        self._cleanup_snoozes = cleanup_snoozes
         self._sonarr = sonarr_client
         self._radarr = radarr_client
 
@@ -110,8 +126,10 @@ class DeletionExecutor:
         """Run the deletion pass.
 
         Returns a dict with ``deleted`` count and ``reclaimed_bytes``
-        total. Always cleans up expired snoozes before returning so
-        those items re-enter the scan pipeline on the next run.
+        total. Cleans up expired snoozes before returning unless
+        ``cleanup_snoozes`` was set to ``False`` at construction (D05
+        finding 10) so a real dry-run preview never mutates
+        ``scheduled_actions``.
         """
         now = datetime.now(timezone.utc)
         deleted_count = 0
@@ -162,22 +180,76 @@ class DeletionExecutor:
             try:
                 delete_path(row["file_path"], allowed_roots=allowed_roots)
             except ValueError as exc:
+                # Allowlist refusal: the path is wrong, but the action
+                # row is still valid — reset to pending so a later run
+                # (e.g. once the operator fixes the path) can retry.
                 logger.error(
                     "Refusing to delete '%s' — path is outside configured delete_allowed_roots: %s",
                     row["file_path"],
                     exc,
                 )
-                # Roll back the marker so the row is re-examined next run.
                 repository.mark_delete_status(self._conn, row["id"], "pending")
                 self._conn.commit()
                 continue
-            except Exception:
+            except FileNotFoundError as exc:
+                # The file vanished between fetch and rm — likely
+                # deleted out-of-band. The standard recovery path
+                # (_recover_stuck_deletions sees file absent → marks
+                # deleted) handles this cleanly on the next run, so
+                # leave the row in 'deleting' state. Treated as
+                # transient because the action row itself is still
+                # valid and a future run will reconcile it.
+                logger.info(
+                    "engine.delete.file_missing id=%s path=%r — "
+                    "leaving row in 'deleting' state; next run will "
+                    "complete cleanup via _recover_stuck_deletions: %s",
+                    row["id"],
+                    row["file_path"],
+                    exc,
+                )
+                continue
+            except (PermissionError, OSError) as exc:
+                # Likely permanent without operator intervention
+                # (read-only filesystem, ACL refusal, low-level I/O
+                # error, IsADirectoryError, etc.). Leave the row in
+                # 'deleting' state so a subsequent run can inspect via
+                # _recover_stuck_deletions (file present → reset to
+                # pending; file gone → mark deleted), and emit an
+                # explicit audit entry now so the failure is visible
+                # to the operator without waiting for the next scan.
                 logger.exception(
-                    "engine.delete.failed id=%s path=%r — leaving row in "
-                    "'deleting' state for recovery on next run",
+                    "engine.delete.permanent_failure id=%s path=%r — "
+                    "leaving row in 'deleting' state for next run "
+                    "to inspect (file may need manual intervention)",
                     row["id"],
                     row["file_path"],
                 )
+                log_audit(
+                    self._conn,
+                    row["media_item_id"],
+                    "delete_failed_permanent",
+                    f"Permanent delete error: {row['title']} — {exc.__class__.__name__}: {exc}",
+                )
+                self._conn.commit()
+                continue
+            except Exception as exc:
+                # Unexpected exception type. Log + audit and treat as
+                # permanent so the operator can investigate; leave the
+                # row in 'deleting' for recovery to reconcile.
+                logger.exception(
+                    "engine.delete.unexpected_failure id=%s path=%r — "
+                    "leaving row in 'deleting' state for next run to "
+                    "inspect (programming error or unhandled exception)",
+                    row["id"],
+                    row["file_path"],
+                )
+                log_audit(
+                    self._conn,
+                    row["media_item_id"],
+                    "delete_failed_permanent",
+                    f"Unexpected delete error: {row['title']} — {exc.__class__.__name__}: {exc}",
+                )
+                self._conn.commit()
                 continue
 
             # Record the deletion and close the transaction *before* the
@@ -223,7 +295,11 @@ class DeletionExecutor:
             reclaimed_bytes += row["file_size_bytes"] or 0
 
         # Remove expired snoozes so items re-enter the scan pipeline.
-        repository.cleanup_expired_snoozes(self._conn, now.isoformat())
+        # A real dry-run preview must NOT mutate scheduled_actions, so
+        # the engine passes ``cleanup_snoozes=False`` when running in
+        # dry_run mode (D05 finding 10).
+        if self._cleanup_snoozes:
+            repository.cleanup_expired_snoozes(self._conn, now.isoformat())
 
         self._conn.commit()
         return {"deleted": deleted_count, "reclaimed_bytes": reclaimed_bytes}
