@@ -120,7 +120,9 @@ jobs:
         run: pip install bandit[toml]
 
       - name: bandit
-        run: bandit -r src/ -c bandit.yaml -ll -f txt
+        # Surface MEDIUM severity and above (-l). Previous -ll filtered out
+        # everything below HIGH severity which hid genuine findings.
+        run: bandit -r src/ -c bandit.yaml -l -f txt
 
   dependency-audit:
     name: Dependency audit (pip-audit)
