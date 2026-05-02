@@ -27,14 +27,18 @@ def _load_deleted_items(
     excluded so the newsletter doesn't ask subscribers to re-download content
     that has already been replaced.
 
-    NB: each item dict currently does NOT include ``tmdb_id`` because the
-    ``media_items`` schema has no such column.  Combined with finding 15's
-    rule that newsletter re-download tokens require a stable identifier,
-    this means every recipient's "Re-Download" button is hidden in the
-    rendered email.  The proper fix is tombstone metadata (capture the
-    Radarr/Sonarr-resolved TMDB id at delete time and store it on the
-    audit_log row, or backfill ``media_items.tmdb_id`` via the scanner)
-    — out of scope for the security fix.
+    Each item carries a ``tmdb_id`` when one can be resolved from the
+    ``suggestions`` table (most deleted items were originally downloaded
+    from a recommendation).  The recipient loop only mints a re-download
+    URL when ``tmdb_id`` is present, so items with no resolvable id keep
+    their button hidden — the public ``/download/<token>`` submit
+    endpoint cannot reliably enqueue the right film/show via title-only
+    lookup (finding 15).
+
+    The ``media_items`` schema does not carry a ``tmdb_id`` column itself,
+    so the tombstone-metadata path is not available for items downloaded
+    outside the recommendation flow; those keep the legacy "no button"
+    behaviour.
     """
     week_ago = (now - timedelta(days=7)).isoformat()
     deleted_rows = conn.execute(
@@ -81,6 +85,21 @@ def _load_deleted_items(
             if rating_key and base_url
             else ""
         )
+        media_type = row["media_type"] or "movie"
+
+        # Cross-reference the recommendations cache so the recipient loop
+        # has a stable identifier for items that originated as a
+        # suggestion. Most deleted media flowed through the recommendation
+        # pipeline, so this covers the common case without a schema
+        # change. Items that did not (legacy uploads, manual downloads)
+        # fall through with no tmdb_id and the template hides the button.
+        sugg = conn.execute(
+            "SELECT tmdb_id FROM suggestions "
+            "WHERE title = ? AND media_type = ? AND tmdb_id IS NOT NULL "
+            "ORDER BY created_at DESC LIMIT 1",
+            (title, media_type),
+        ).fetchone()
+        tmdb_id = sugg["tmdb_id"] if sugg else None
 
         items.append(
             {
@@ -88,7 +107,8 @@ def _load_deleted_items(
                 "poster_url": poster_url,
                 "deleted_date": deleted_date,
                 "file_size_bytes": row["space_reclaimed_bytes"] or 0,
-                "media_type": row["media_type"] or "movie",
+                "media_type": media_type,
+                "tmdb_id": tmdb_id,
             }
         )
 
@@ -100,6 +120,7 @@ def _load_storage_stats(conn: sqlite3.Connection, now: datetime) -> tuple[dict, 
 
     Returns ``(storage_dict, reclaimed_week, reclaimed_month, reclaimed_total)``.
     """
+    from mediaman.services.infra.settings_reader import get_media_path
     from mediaman.services.infra.storage import get_aggregate_disk_usage
 
     type_rows = conn.execute(
@@ -117,7 +138,11 @@ def _load_storage_stats(conn: sqlite3.Connection, now: datetime) -> tuple[dict, 
     total_bytes = used_bytes
     free_bytes = 0
     try:
-        disk = get_aggregate_disk_usage("/media")
+        # Honour ``MEDIAMAN_MEDIA_PATH`` so an operator who runs the
+        # container with a custom mount point still sees accurate disk
+        # stats in the newsletter, instead of a hard-coded ``/media``
+        # which would silently fall through to the file-size fallback.
+        disk = get_aggregate_disk_usage(get_media_path())
         total_bytes = disk["total_bytes"]
         used_bytes = disk["used_bytes"]
         free_bytes = disk["free_bytes"]
