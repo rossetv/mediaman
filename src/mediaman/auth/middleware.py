@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Union
 
 from fastapi import Cookie, HTTPException, Request
 from starlette.responses import RedirectResponse
@@ -13,7 +12,7 @@ from mediaman.auth.session import validate_session
 from mediaman.db import get_db
 
 # Alias for the resolve_page_session return union, used for type annotations at call sites.
-PageSession = Union[tuple[str, sqlite3.Connection], RedirectResponse]
+PageSession = tuple[str, sqlite3.Connection] | RedirectResponse
 
 
 def get_current_admin(

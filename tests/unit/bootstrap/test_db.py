@@ -55,9 +55,11 @@ def test_errno_aware_remediation(tmp_path, err_no, expected_substring):
     def _raise(*_args, **_kwargs):
         raise OSError(err_no, os.strerror(err_no))
 
-    with patch.object(bootstrap_db_mod.tempfile, "NamedTemporaryFile", _raise):
-        with pytest.raises(DataDirNotWritableError) as excinfo:
-            _assert_data_dir_writable(tmp_path)
+    with (
+        patch.object(bootstrap_db_mod.tempfile, "NamedTemporaryFile", _raise),
+        pytest.raises(DataDirNotWritableError) as excinfo,
+    ):
+        _assert_data_dir_writable(tmp_path)
     assert expected_substring in str(excinfo.value)
 
 

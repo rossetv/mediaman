@@ -35,9 +35,10 @@ def pytest_collection_modifyitems(config, items):
         if unit_root in item_path.parents:
             if "unit" not in {m.name for m in item.iter_markers()}:
                 item.add_marker(pytest.mark.unit)
-        elif integration_root in item_path.parents:
-            if "integration" not in {m.name for m in item.iter_markers()}:
-                item.add_marker(pytest.mark.integration)
+        elif integration_root in item_path.parents and "integration" not in {
+            m.name for m in item.iter_markers()
+        }:
+            item.add_marker(pytest.mark.integration)
 
 
 @pytest.fixture(autouse=True)
