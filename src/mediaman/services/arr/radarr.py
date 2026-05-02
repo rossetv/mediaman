@@ -24,33 +24,67 @@ class RadarrClient(ArrClient):
         return data
 
     def delete_movie(self, movie_id: int) -> None:
-        """Delete a movie from Radarr and its files from disk."""
-        self._delete(f"/api/v3/movie/{movie_id}?deleteFiles=true&addImportExclusion=true")
+        """Delete a movie from Radarr and its files from disk.
 
-    def unmonitor_movie(self, movie_id: int) -> None:
+        Defensively coerces ``movie_id`` to ``int`` at the boundary so a
+        malformed caller (e.g. one passing ``"1?evil=…"`` as a string)
+        cannot tack arbitrary query parameters onto the DELETE.
+        """
+        mid = int(movie_id)
+        self._delete(f"/api/v3/movie/{mid}?deleteFiles=true&addImportExclusion=true")
+
+    def unmonitor_movie(self, movie_id: int, *, max_retries: int = 3) -> None:
         """Set ``monitored=False`` for *movie_id* in Radarr.
 
-        .. note::
-            **Race condition:** the full movie payload is read, mutated
-            locally, and then written back as a PUT. If another process
-            (e.g. a concurrent Radarr UI session or import script) writes
-            the same record between the GET and the PUT, its changes will
-            be silently overwritten by this call.  This is a known
-            limitation of the Radarr v3 API; a future version should use
-            a PATCH endpoint when one becomes available.
+        Radarr v3 has no PATCH endpoint, so this is a read-modify-write
+        on the full movie payload.  To narrow the TOCTOU window, the read
+        is retried up to ``max_retries`` times: if the ``monitored`` flag
+        flipped between the GET and a re-GET (i.e. another writer beat us
+        to it), the round is restarted from a fresh GET.  After
+        ``max_retries`` failed rounds the call raises :exc:`RuntimeError`
+        rather than silently clobbering the foreign write.
         """
-        movie = self.get_movie_by_id(movie_id)
-        if movie.get("monitored"):
-            # Re-fetch version field so we can detect concurrent writes
-            # via the etag (not yet available in Radarr v3, so we just log
-            # a warning to alert operators that a race is theoretically possible).
+        last_observed: bool | None = None
+        for attempt in range(max_retries):
+            movie = self.get_movie_by_id(movie_id)
+            current_monitored = bool(movie.get("monitored", False))
+            if not current_monitored:
+                # Already unmonitored — either nothing to do (first
+                # attempt) or another writer beat us to it (subsequent
+                # attempts). Either way, the desired state is achieved.
+                if last_observed is True:
+                    logger.warning(
+                        "radarr.unmonitor_movie: concurrent writer set monitored=False "
+                        "on movie_id=%s while we were retrying — exiting cleanly",
+                        movie_id,
+                    )
+                return
+            movie["monitored"] = False
             logger.debug(
                 "radarr.unmonitor_movie: issuing full-payload PUT for movie_id=%s "
-                "— a concurrent write to this record would be silently overwritten",
+                "(attempt %d) — a concurrent write to this record would be "
+                "silently overwritten",
                 movie_id,
+                attempt + 1,
             )
-        movie["monitored"] = False
-        self._put(f"/api/v3/movie/{movie_id}", cast(dict, movie))
+            try:
+                self._put(f"/api/v3/movie/{movie_id}", cast(dict, movie))
+                return
+            except Exception:
+                if attempt + 1 >= max_retries:
+                    raise
+                logger.warning(
+                    "radarr.unmonitor_movie: PUT failed for movie_id=%s "
+                    "(attempt %d/%d) — re-reading and retrying",
+                    movie_id,
+                    attempt + 1,
+                    max_retries,
+                )
+                last_observed = current_monitored
+        raise RuntimeError(
+            f"radarr.unmonitor_movie: gave up after {max_retries} retries for "
+            f"movie_id={movie_id} — concurrent writes kept interleaving"
+        )
 
     def remonitor_movie(self, movie_id: int) -> None:
         movie = self.get_movie_by_id(movie_id)
@@ -62,14 +96,25 @@ class RadarrClient(ArrClient):
         """Trigger a Radarr MoviesSearch command for a single movie."""
         self._post("/api/v3/command", {"name": "MoviesSearch", "movieIds": [movie_id]})
 
-    def add_movie(self, tmdb_id: int, title: str, quality_profile_id: int = 4) -> dict[str, object]:
-        """Add a movie by TMDB ID and trigger a search."""
-        root_folders = cast(list[dict[str, object]], self._get("/api/v3/rootfolder"))
-        root_path = root_folders[0]["path"] if root_folders else "/movies"
+    def add_movie(
+        self, tmdb_id: int, title: str, quality_profile_id: int | None = None
+    ) -> dict[str, object]:
+        """Add a movie by TMDB ID and trigger a search.
+
+        ``quality_profile_id`` is selected via :meth:`_choose_quality_profile`
+        when not specified.  Pass ``tmdb_id <= 0`` and the call raises
+        :exc:`ValueError` rather than letting Radarr return an opaque 400.
+        """
+        if tmdb_id <= 0:
+            raise ValueError(f"tmdb_id must be positive, got {tmdb_id!r}")
+        root_path = self._choose_root_folder()
+        profile_id = (
+            quality_profile_id if quality_profile_id is not None else self._choose_quality_profile()
+        )
         movie_data = {
             "tmdbId": tmdb_id,
             "title": title,
-            "qualityProfileId": quality_profile_id,
+            "qualityProfileId": profile_id,
             "rootFolderPath": root_path,
             "monitored": True,
             "addOptions": {"searchForMovie": True},
