@@ -19,6 +19,12 @@ jobs:
   tests:
     name: Tests
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Single-version matrix today; expansion (e.g. add 3.13) is a one-line
+        # change once we drop the requires-python upper bound in pyproject.
+        python-version: ["3.12"]
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
@@ -29,10 +35,7 @@ jobs:
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
         with:
-          # Single version matching the Dockerfile; Docker is the
-          # primary deployment target. Multi-version claims were
-          # removed from pyproject.toml to match.
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           cache: pip
 
       - name: Install dependencies
@@ -41,7 +44,10 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Run tests
-        run: pytest -q --cov=mediaman --cov-report=term-missing --cov-fail-under=51
+        # Coverage threshold lives in pyproject.toml ([tool.coverage.report]
+        # fail_under). Don't override it here — one source of truth.
+        # --maxfail bounds runtime when a refactor breaks many tests at once.
+        run: pytest -q --cov=mediaman --cov-report=term-missing --maxfail=10
 
   lint:
     name: Lint (ruff)
