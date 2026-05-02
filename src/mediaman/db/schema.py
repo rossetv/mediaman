@@ -13,11 +13,11 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger("mediaman")
 
-DB_SCHEMA_VERSION = 32
+DB_SCHEMA_VERSION = 33
 
-assert DB_SCHEMA_VERSION == 32, (
+assert DB_SCHEMA_VERSION == 33, (
     f"DB_SCHEMA_VERSION is {DB_SCHEMA_VERSION} but the highest migration "
-    "block is 32 — update one of them."
+    "block is 33 — update one of them."
 )
 
 _SCHEMA = """
@@ -156,6 +156,23 @@ CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires
     ON admin_sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_media_items_plex_library_id
     ON media_items(plex_library_id);
+
+-- Tamper-evidence on the audit log (v33). The triggers refuse UPDATE
+-- and DELETE on existing rows so the only way to silently mutate the
+-- log is to drop the trigger first — which itself shows up in
+-- ``sqlite_master`` and is visible to any operator running ``.schema``.
+-- INSERT remains unrestricted so the application code keeps writing
+-- new rows normally.
+CREATE TRIGGER IF NOT EXISTS audit_log_no_update
+BEFORE UPDATE ON audit_log
+BEGIN
+    SELECT RAISE(ABORT, 'audit_log rows are append-only');
+END;
+CREATE TRIGGER IF NOT EXISTS audit_log_no_delete
+BEFORE DELETE ON audit_log
+BEGIN
+    SELECT RAISE(ABORT, 'audit_log rows are append-only');
+END;
 
 CREATE TABLE IF NOT EXISTS login_failures (
     username TEXT PRIMARY KEY,
@@ -1099,3 +1116,46 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
                 c.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action)")
 
         _run_migration(32, _v32)
+
+    if current_version < 33:
+
+        def _v33(c: sqlite3.Connection) -> None:
+            """Add tamper-evidence triggers to ``audit_log`` (Domain 05).
+
+            The audit log is the operator's primary forensic surface — if
+            an attacker with DB write access can silently UPDATE or DELETE
+            rows, the trail is unreliable. Two triggers raise an SQLite
+            error on any attempt to mutate or remove an existing row.
+            INSERT remains free, so the application code that owns the
+            log keeps writing new rows normally.
+
+            The triggers are not a security boundary on their own —
+            anyone with DB-file write access can drop the trigger first.
+            They are a tamper-EVIDENCE measure: an audit row that has
+            been silently mutated would otherwise look authentic; with
+            the trigger in place the only way to mutate is to first drop
+            the trigger, which itself shows up in ``sqlite_master`` and
+            is visible to any operator who runs ``.schema``.
+            """
+            has_audit_log = (
+                c.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='audit_log'"
+                ).fetchone()
+                is not None
+            )
+            if not has_audit_log:
+                return
+            c.execute("DROP TRIGGER IF EXISTS audit_log_no_update")
+            c.execute("DROP TRIGGER IF EXISTS audit_log_no_delete")
+            c.execute(
+                "CREATE TRIGGER audit_log_no_update "
+                "BEFORE UPDATE ON audit_log "
+                "BEGIN SELECT RAISE(ABORT, 'audit_log rows are append-only'); END"
+            )
+            c.execute(
+                "CREATE TRIGGER audit_log_no_delete "
+                "BEFORE DELETE ON audit_log "
+                "BEGIN SELECT RAISE(ABORT, 'audit_log rows are append-only'); END"
+            )
+
+        _run_migration(33, _v33)
