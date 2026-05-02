@@ -359,6 +359,46 @@ class TestProgressClamp:
         assert card["progress"] == 0
 
 
+class TestClusterKeyTitleColon:
+    def test_titles_with_colons_do_not_collide(self):
+        """A title literally containing ``:`` must not collapse two
+        distinct rows into one cluster.
+
+        Regression for finding Domain-06 #4. Old separator was ``:`` —
+        a title like ``"Star Trek: Picard"`` could produce identical
+        synthesised keys for two different rows, double-counting their
+        pack totals. NUL (``\\x00``) cannot appear in Sonarr payload
+        strings, so collisions become impossible.
+        """
+        # Both rows have empty download_id and the same series_id +
+        # episode title; only their labels differ. Under the old
+        # separator a title with ``:`` could mask the boundary and
+        # collapse them to the same cluster key.
+        eps = [
+            {
+                "label": "S01E01",
+                "title": "Star Trek: Picard",
+                "progress": 100,
+                "size": 1_000_000,
+                "sizeleft": 0,
+                "download_id": "",
+            },
+            {
+                "label": "S01E02",
+                "title": "Star Trek: Picard",
+                "progress": 100,
+                "size": 1_000_000,
+                "sizeleft": 0,
+                "download_id": "",
+            },
+        ]
+        card = _make_sonarr_card("Star Trek: Picard", episodes=eps)
+        _aggregate_pack_episodes(card, card_series_id=42)
+        # Distinct labels → distinct keys → not a pack, sizes summed.
+        assert all(e["is_pack_episode"] is False for e in card["episodes"])
+        assert card["size"] == 2_000_000
+
+
 # ---------------------------------------------------------------------------
 # fetch_sonarr_queue — season_number on episode entries
 # ---------------------------------------------------------------------------

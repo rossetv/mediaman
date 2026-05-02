@@ -19,6 +19,13 @@ from mediaman.services.downloads.download_format import (
 )
 from mediaman.services.infra.format import format_bytes, parse_iso_utc
 
+# Cluster-key separator. Chosen as NUL (``\x00``) because it cannot
+# legally appear in a downloadId, series title, or episode label coming
+# back from Sonarr — the previous separator (``:``) collided when titles
+# such as ``"Star Trek: Picard"`` appeared in the queue, silently merging
+# two distinct rows into one cluster and double-counting pack totals.
+_CLUSTER_SEP = "\x00"
+
 logger = logging.getLogger("mediaman")
 
 
@@ -89,6 +96,11 @@ def _aggregate_pack_episodes(card: ArrCard, card_series_id: int) -> None:
     # coordinates so two distinct rows can't collapse into one. If even that
     # metadata is missing (no title, no season, no episode), refuse to
     # aggregate that episode and log a warning.
+    #
+    # The synthesised key uses ``\x00`` (NUL) as its separator: it cannot
+    # appear in any of the joined values, so a title literally containing
+    # the previous separator (``:``, e.g. ``"Star Trek: Picard"``) can no
+    # longer collide with another row of the same series.
     def _cluster_key(e: ArrEpisodeEntry) -> str | None:
         dl = e["download_id"] or ""
         if dl:
@@ -102,7 +114,7 @@ def _aggregate_pack_episodes(card: ArrCard, card_series_id: int) -> None:
                 card_series_id,
             )
             return None
-        return f"seriesId:{card_series_id}:{title}:{label}"
+        return f"seriesId{_CLUSTER_SEP}{card_series_id}{_CLUSTER_SEP}{title}{_CLUSTER_SEP}{label}"
 
     cluster_counts: dict[str, int] = {}
     cluster_keys: list[str | None] = []
