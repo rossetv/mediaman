@@ -46,10 +46,10 @@ USER mediaman
 EXPOSE 8282
 
 # Simple liveness check. /healthz returns 200 when the app is up.
-# TODO(P3): add /healthz route; replace `curl` with a native Python probe
-#           if curl is not available in the slim image.
+# Reads MEDIAMAN_PORT at probe time so a custom port flows through; falls
+# back to 8282 when unset (matches the EXPOSE / config defaults).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8282/healthz')" \
+    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://localhost:' + os.environ.get('MEDIAMAN_PORT', '8282') + '/healthz')" \
         || exit 1
 
 CMD ["mediaman"]

@@ -35,10 +35,24 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
-    # TODO(P3): enable `read_only: true` once the tmp/cache paths are
-    #           reworked to use an explicit tmpfs mount.
+    # `read_only: true` is intentionally NOT set. A scan run writes ad-hoc
+    # temp files via Python's `tempfile` (default: /tmp), the cryptography
+    # library may write a small amount of state to /tmp, and uvicorn
+    # logging buffers can spill there too. The /data volume already
+    # carries every persistent write, so read_only would buy little
+    # additional hardening while breaking the moving parts above. If a
+    # future audit insists on a read-only rootfs, the right approach is
+    # adding `tmpfs: /tmp` plus any cache dirs the runtime touches —
+    # tracked separately rather than blocked on this rollout.
+    #
+    # Resource caps so a runaway scan or a memory leak in a third-party
+    # client (Plex/Sonarr/Radarr) cannot starve the host. 1 GiB / 1 CPU
+    # is comfortably above the steady-state footprint of a single
+    # mediaman process under heavy scan load. Operators with very large
+    # libraries (>500k items) can override.
+    mem_limit: 1g
+    cpus: 1.0
     healthcheck:
-      # TODO(P3): add /healthz route; until then this is a TCP-level check.
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:${MEDIAMAN_PORT:-8282}/healthz')\" || exit 1"]
       interval: 30s
       timeout: 5s

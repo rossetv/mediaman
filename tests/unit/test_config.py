@@ -64,3 +64,24 @@ class TestLoadConfig:
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", key)
         cfg = load_config()
         assert cfg.secret_key == key
+
+    def test_config_has_no_delete_roots_field(self, monkeypatch):
+        """Config no longer carries delete_roots — finding 8.
+
+        ``MEDIAMAN_DELETE_ROOTS`` is read at the deletion call site
+        (scanner.repository) so the env var is the single source of
+        truth. A stale Config field would imply two sources and risk
+        them drifting apart.
+        """
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", _GOOD_KEY)
+        cfg = load_config()
+        assert not hasattr(cfg, "delete_roots")
+
+    def test_port_value_error_chained_with_from_exc(self, monkeypatch):
+        """ConfigError raised on bad port is chained — finding 10."""
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", _GOOD_KEY)
+        monkeypatch.setenv("MEDIAMAN_PORT", "not-a-port")
+        with pytest.raises(ConfigError) as excinfo:
+            load_config()
+        assert excinfo.value.__cause__ is not None
+        assert isinstance(excinfo.value.__cause__, ValueError)

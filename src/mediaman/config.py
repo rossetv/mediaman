@@ -21,6 +21,19 @@ class Config:
     Docker-aware (``0.0.0.0`` inside a container, ``127.0.0.1`` on bare
     metal). Operators who want a specific address must set
     ``MEDIAMAN_BIND_HOST`` explicitly.
+
+    ``data_dir`` defaults to ``/data`` because the canonical deployment
+    target is the container image (the Dockerfile owns ``/data`` and
+    ``VOLUME``-declares it). On bare-metal installs the default will fail
+    on most distros — operators must set ``MEDIAMAN_DATA_DIR`` to a
+    directory the runtime user can write.
+
+    ``MEDIAMAN_DELETE_ROOTS`` is read directly by the deletion-time call
+    site in :mod:`mediaman.scanner.repository` (it is not threaded
+    through this dataclass). Adding a stale ``delete_roots`` field here
+    would imply a single source of truth that does not exist in practice
+    and risks divergence between this snapshot and the live env var on
+    each deletion.
     """
 
     secret_key: str
@@ -28,7 +41,6 @@ class Config:
     data_dir: str = "/data"
     bind_host: str = ""
     trusted_proxies: str = ""
-    delete_roots: str = ""
 
 
 def load_config() -> Config:
@@ -68,8 +80,8 @@ def load_config() -> Config:
     raw_port = os.environ.get("MEDIAMAN_PORT", "8282").strip()
     try:
         port = int(raw_port)
-    except ValueError:
-        raise ConfigError(f"MEDIAMAN_PORT must be an integer, got {raw_port!r}")
+    except ValueError as exc:
+        raise ConfigError(f"MEDIAMAN_PORT must be an integer, got {raw_port!r}") from exc
     if not (1 <= port <= 65535):
         raise ConfigError(f"MEDIAMAN_PORT must be between 1 and 65535, got {port}")
 
@@ -89,8 +101,9 @@ def load_config() -> Config:
     # ── Trusted proxies ───────────────────────────────────────────────────────
     trusted_proxies = os.environ.get("MEDIAMAN_TRUSTED_PROXIES", "").strip()
 
-    # ── Delete roots ──────────────────────────────────────────────────────────
-    delete_roots = os.environ.get("MEDIAMAN_DELETE_ROOTS", "").strip()
+    # ``MEDIAMAN_DELETE_ROOTS`` is intentionally not snapshotted here —
+    # it is read on demand at deletion time in
+    # :mod:`mediaman.scanner.repository`. See the Config docstring.
 
     return Config(
         secret_key=secret_key,
@@ -98,5 +111,4 @@ def load_config() -> Config:
         data_dir=data_dir,
         bind_host=bind_host,
         trusted_proxies=trusted_proxies,
-        delete_roots=delete_roots,
     )

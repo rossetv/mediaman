@@ -158,6 +158,109 @@ class TestBootstrapScheduling:
         result = bootstrap_scheduling(app, self._make_config())
         assert result is False
 
+    def test_failure_records_scheduler_error_for_readyz(self, db_path):
+        """The /readyz body needs the *why* — finding 7."""
+        app = self._make_app(db_path)
+        app.state.canary_ok = False
+
+        from mediaman.bootstrap.scheduling import bootstrap_scheduling
+
+        result = bootstrap_scheduling(app, self._make_config())
+        assert result is False
+        assert app.state.scheduler_error is not None
+        assert "AES canary" in app.state.scheduler_error
+
+    def test_logger_exception_used_on_failure(self, db_path, monkeypatch, caplog):
+        """Failures must include the traceback — finding 16.
+
+        The logger has to be ``exception``-level so the traceback is
+        attached to the record; without it operators get the message
+        only and have to reproduce the boot to debug.
+        """
+        import logging
+
+        app = self._make_app(db_path)
+        app.state.canary_ok = False
+
+        from mediaman.bootstrap.scheduling import bootstrap_scheduling
+
+        with caplog.at_level(logging.ERROR, logger="mediaman"):
+            bootstrap_scheduling(app, self._make_config())
+
+        # ``logger.exception`` logs at ERROR level and attaches exc_info;
+        # the latter is the property the audit cares about.
+        record = next(
+            (r for r in caplog.records if "scheduler" in r.getMessage().lower()),
+            None,
+        )
+        assert record is not None
+        assert record.exc_info is not None
+
+
+class TestShutdownScheduling:
+    """Finding 3 / shutdown_scheduling: bounded wait so SIGTERM unblocks."""
+
+    def test_shutdown_returns_within_bounded_time(self, monkeypatch):
+        """Even if ``stop_scheduler`` hangs, shutdown_scheduling returns."""
+        import time
+
+        # A fake stop_scheduler that ignores the wait. shutdown_scheduling
+        # should still return — abandoning the worker — within the bounded
+        # timeout, not block forever.
+        def slow_stop():
+            time.sleep(60)
+
+        import mediaman.scanner.scheduler as _sched
+
+        monkeypatch.setattr(_sched, "stop_scheduler", slow_stop)
+
+        # Squash the timeout for the test so we don't actually wait 30s.
+        import mediaman.bootstrap.scheduling as _boot
+
+        monkeypatch.setattr(_boot, "_SHUTDOWN_TIMEOUT_SECONDS", 0.2)
+
+        from mediaman.bootstrap.scheduling import shutdown_scheduling
+
+        start = time.monotonic()
+        shutdown_scheduling()
+        elapsed = time.monotonic() - start
+        # 0.2s timeout + thread overhead — must be << the 60s slow_stop.
+        assert elapsed < 5.0
+
+
+class TestBootstrapCryptoFailClosed:
+    """Finding 14: canary state must default to False, not True."""
+
+    def test_canary_ok_starts_false_on_import_failure(self, db_path, monkeypatch):
+        """An import-time exception must leave canary_ok=False."""
+        from mediaman.bootstrap import crypto as crypto_mod
+
+        class _State:
+            pass
+
+        class _App:
+            state = _State()
+
+        from mediaman.db import init_db
+
+        app = _App()
+        app.state.db = init_db(str(db_path))
+
+        # Force the canary call to raise so we exercise the except path.
+        def boom(*_a, **_kw):
+            raise RuntimeError("synthetic failure")
+
+        monkeypatch.setattr("mediaman.crypto.canary_check", boom)
+
+        class _Cfg:
+            secret_key = "0123456789abcdef" * 4
+
+        crypto_mod.bootstrap_crypto(app, _Cfg())
+        assert app.state.canary_ok is False
+        # And — finding 15 — bootstrap_crypto must NOT touch
+        # scheduler_healthy; that's bootstrap_scheduling's job.
+        assert not hasattr(app.state, "scheduler_healthy")
+
 
 # ---------------------------------------------------------------------------
 # Finding 10: scheduler-setting validators
