@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import requests
 
 from mediaman.services.arr.fetcher._base import ArrCard, _format_size_fields
+from mediaman.services.infra.http_client import SafeHTTPError
 
 if TYPE_CHECKING:
     from mediaman.services.arr.radarr import RadarrClient
@@ -123,6 +124,10 @@ def fetch_radarr_queue(client: RadarrClient) -> list[ArrCard]:
                     release_label=release_label,
                 )
             )
-    except requests.RequestException:
+    except (requests.RequestException, SafeHTTPError):
+        # SafeHTTPClient raises ``SafeHTTPError`` for non-2xx responses
+        # (e.g. a 503 from Radarr) — that's NOT a ``RequestException``
+        # subclass, so without this catch a transient upstream failure
+        # would discard every queue card we already collected.
         logger.warning("Failed to check Radarr for searching movies", exc_info=True)
     return items

@@ -202,3 +202,21 @@ class TestFetchRadarrQueueSearching:
         cards = fetch_radarr_queue(client)
         assert len(cards) >= 1
         assert cards[0]["title"] == "Dune"
+
+    def test_get_movies_safehttp_503_does_not_crash(self):
+        """A 503 from Radarr (raised as ``SafeHTTPError``) is caught.
+
+        Regression for finding Domain-06 #1: prior code only caught
+        ``requests.RequestException`` — but ``SafeHTTPClient`` raises
+        ``SafeHTTPError`` (a plain ``Exception`` subclass) for non-2xx
+        responses, which propagated past the ``except`` and discarded
+        every already-collected queue card.
+        """
+        from mediaman.services.infra.http_client import SafeHTTPError
+
+        client = MagicMock()
+        client.get_queue.return_value = [_queue_item("Dune")]
+        client.get_movies.side_effect = SafeHTTPError(503, "Service Unavailable", "/api/v3/movie")
+        cards = fetch_radarr_queue(client)
+        assert len(cards) == 1
+        assert cards[0]["title"] == "Dune"
