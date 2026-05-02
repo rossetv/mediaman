@@ -42,11 +42,12 @@ used hours later for privilege-establishing actions.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
+
+from mediaman.auth._token_hashing import hash_token as _hash_token
 
 logger = logging.getLogger("mediaman")
 
@@ -86,11 +87,6 @@ def reauth_window_seconds() -> int:
     if value > 3600:
         return 3600
     return value
-
-
-def _hash_token(token: str) -> str:
-    """SHA-256 of *token* as a hex string. Matches session_store._hash_token."""
-    return hashlib.sha256(token.encode()).hexdigest()
 
 
 def _now() -> datetime:
@@ -326,6 +322,11 @@ def revoke_reauth_by_hash(conn: sqlite3.Connection, token_hash: str) -> None:
     revoke the matching reauth ticket and a leaked session cookie
     plus a freshly granted ticket could remain replayable for the
     rest of the ticket TTL after the legitimate session was killed.
+
+    Owns its own commit — used by callers that are NOT already inside
+    an open transaction (logout, password-change, etc).  Callers that
+    are in a transaction (the session-store atomic-delete path) must
+    use :func:`revoke_reauth_by_hash_in_tx` instead.
     """
     if not token_hash:
         return
@@ -335,6 +336,33 @@ def revoke_reauth_by_hash(conn: sqlite3.Connection, token_hash: str) -> None:
         (token_hash,),
     )
     conn.commit()
+
+
+def revoke_reauth_by_hash_in_tx(conn: sqlite3.Connection, token_hash: str) -> None:
+    """In-transaction variant of :func:`revoke_reauth_by_hash`.
+
+    Identical body but does NOT call ``commit()`` — the caller is
+    expected to have already opened a ``BEGIN IMMEDIATE`` and will
+    issue the COMMIT itself.  Lets the session-store delete the
+    session row and revoke the matching reauth ticket inside a single
+    atomic transaction so a failure on either side rolls both back
+    (audit finding: the previous split-transaction layout could leave
+    the session deleted but the ticket alive if the reauth side
+    failed).
+
+    A no-op when *token_hash* is empty so callers do not have to
+    pre-validate input.
+    """
+    if not token_hash:
+        return
+    # ``CREATE TABLE IF NOT EXISTS`` is safe to issue inside an open
+    # transaction in SQLite — it becomes part of the transaction and
+    # is committed by the caller.
+    _ensure_table(conn)
+    conn.execute(
+        "DELETE FROM reauth_tickets WHERE session_token_hash = ?",
+        (token_hash,),
+    )
 
 
 def cleanup_expired_reauth(conn: sqlite3.Connection, now_iso: str | None = None) -> int:
