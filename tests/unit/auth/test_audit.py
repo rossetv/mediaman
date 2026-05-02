@@ -18,7 +18,8 @@ def _make_conn() -> sqlite3.Connection:
             action TEXT,
             detail TEXT,
             space_reclaimed_bytes INTEGER,
-            created_at TEXT
+            created_at TEXT,
+            actor TEXT
         )
     """)
     return conn
@@ -152,3 +153,76 @@ class TestSecurityEventOrRaise:
         conn.execute("DROP TABLE audit_log")
         with pytest.raises(sqlite3.OperationalError):
             security_event_or_raise(conn, event="user.created", actor="admin")
+
+
+class TestActorColumn:
+    """Domain 05 HIGH: ``actor`` is a first-class queryable column.
+
+    Previously the actor was only embedded in the security-event
+    ``detail`` body via ``actor=alice`` and ``log_audit`` rows had no
+    actor at all — every scanner-driven row read "scheduled by scan
+    engine" with no link back to the session that triggered it.
+    """
+
+    def test_log_audit_writes_actor_column(self):
+        conn = _make_conn()
+        log_audit(conn, "item-1", "deleted", "Manually deleted", actor="alice")
+        conn.commit()
+        row = conn.execute("SELECT actor FROM audit_log").fetchone()
+        assert row["actor"] == "alice"
+
+    def test_log_audit_actor_defaults_to_null(self):
+        """No actor → autonomous (scanner) action → NULL in the column."""
+        conn = _make_conn()
+        log_audit(conn, "item-1", "scheduled_deletion", "Auto-scheduled by scanner")
+        conn.commit()
+        row = conn.execute("SELECT actor FROM audit_log").fetchone()
+        assert row["actor"] is None
+
+    def test_log_audit_actor_with_space_bytes(self):
+        """Both kwargs together must land in the same row."""
+        conn = _make_conn()
+        log_audit(
+            conn,
+            "item-7",
+            "deleted",
+            "Manual delete with size",
+            space_bytes=999,
+            actor="bob",
+        )
+        conn.commit()
+        row = conn.execute("SELECT actor, space_reclaimed_bytes FROM audit_log").fetchone()
+        assert row["actor"] == "bob"
+        assert row["space_reclaimed_bytes"] == 999
+
+    def test_security_event_writes_actor_column(self):
+        """``actor=alice`` lives in ``detail`` AND in the ``actor`` column."""
+        conn = _make_conn()
+        security_event(conn, event="login.success", actor="alice", ip="1.2.3.4")
+        row = conn.execute("SELECT actor, detail FROM audit_log").fetchone()
+        assert row["actor"] == "alice"
+        # Existing convention preserved: still grep-able in detail.
+        assert "actor=alice" in row["detail"]
+
+    def test_security_event_empty_actor_stored_as_empty_string(self):
+        """Empty-string default is preserved — distinct from NULL."""
+        conn = _make_conn()
+        security_event(conn, event="login.failed", ip="1.2.3.4")
+        row = conn.execute("SELECT actor FROM audit_log").fetchone()
+        # The column gets the literal default value passed in: "".
+        assert row["actor"] == ""
+
+    def test_security_event_or_raise_writes_actor_column(self):
+        conn = _make_conn()
+        conn.execute("BEGIN")
+        security_event_or_raise(
+            conn,
+            event="user.created",
+            actor="admin",
+            ip="127.0.0.1",
+            detail={"new_username": "bob"},
+        )
+        conn.execute("COMMIT")
+        row = conn.execute("SELECT actor, detail FROM audit_log").fetchone()
+        assert row["actor"] == "admin"
+        assert "actor=admin" in row["detail"]

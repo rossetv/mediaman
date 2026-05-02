@@ -39,16 +39,23 @@ def log_audit(
     detail: str,
     *,
     space_bytes: int | None = None,
+    actor: str | None = None,
 ) -> None:
     """Insert a row into ``audit_log`` for a media action.
 
     Args:
         conn: Open SQLite connection.
         media_item_id: The media item ID (or a surrogate like a title string).
+            By convention, ``"_security"`` is used for security events
+            written via :func:`security_event` / :func:`security_event_or_raise`.
         action: Short action label, e.g. ``"deleted"``, ``"snoozed"``.
         detail: Human-readable detail string.
         space_bytes: Optional value for the ``space_reclaimed_bytes`` column;
             omit (or pass ``None``) for events where no space was reclaimed.
+        actor: Username of the admin who triggered the action, or ``None``
+            for scanner-driven (autonomous) events. Stored in the
+            dedicated ``actor`` column so operators can run
+            ``WHERE actor = 'alice'`` instead of grepping ``detail``.
 
     Does **not** call ``conn.commit()`` — callers are responsible for
     committing in their own transaction so the audit row and the business
@@ -58,14 +65,16 @@ def log_audit(
     if space_bytes is not None:
         conn.execute(
             "INSERT INTO audit_log "
-            "(media_item_id, action, detail, space_reclaimed_bytes, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (media_item_id, action, detail, space_bytes, now),
+            "(media_item_id, action, detail, space_reclaimed_bytes, created_at, actor) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (media_item_id, action, detail, space_bytes, now, actor),
         )
     else:
         conn.execute(
-            "INSERT INTO audit_log (media_item_id, action, detail, created_at) VALUES (?, ?, ?, ?)",
-            (media_item_id, action, detail, now),
+            "INSERT INTO audit_log "
+            "(media_item_id, action, detail, created_at, actor) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (media_item_id, action, detail, now, actor),
         )
 
 
@@ -113,8 +122,10 @@ def security_event(
     try:
         body = _format_security_body(actor, ip, detail)
         conn.execute(
-            "INSERT INTO audit_log (media_item_id, action, detail, created_at) VALUES (?, ?, ?, ?)",
-            ("_security", f"sec:{event}", body, now_iso()),
+            "INSERT INTO audit_log "
+            "(media_item_id, action, detail, created_at, actor) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("_security", f"sec:{event}", body, now_iso(), actor),
         )
         conn.commit()
     except Exception:  # pragma: no cover — never break flow on log failure
@@ -146,6 +157,8 @@ def security_event_or_raise(
     """
     body = _format_security_body(actor, ip, detail)
     conn.execute(
-        "INSERT INTO audit_log (media_item_id, action, detail, created_at) VALUES (?, ?, ?, ?)",
-        ("_security", f"sec:{event}", body, now_iso()),
+        "INSERT INTO audit_log "
+        "(media_item_id, action, detail, created_at, actor) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("_security", f"sec:{event}", body, now_iso(), actor),
     )

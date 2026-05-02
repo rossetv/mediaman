@@ -13,11 +13,11 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger("mediaman")
 
-DB_SCHEMA_VERSION = 30
+DB_SCHEMA_VERSION = 31
 
-assert DB_SCHEMA_VERSION == 30, (
+assert DB_SCHEMA_VERSION == 31, (
     f"DB_SCHEMA_VERSION is {DB_SCHEMA_VERSION} but the highest migration "
-    "block is 30 — update one of them."
+    "block is 31 — update one of them."
 )
 
 _SCHEMA = """
@@ -82,7 +82,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
     action TEXT NOT NULL,
     detail TEXT,
     space_reclaimed_bytes INTEGER,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    actor TEXT
 );
 
 CREATE TABLE IF NOT EXISTS subscribers (
@@ -1008,3 +1009,45 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
             )
 
         _run_migration(30, _v30)
+
+    if current_version < 31:
+
+        def _v31(c: sqlite3.Connection) -> None:
+            """Add ``actor`` column to ``audit_log`` (Domain 05 HIGH).
+
+            Every existing audit row is anonymous: scanner-driven events
+            and admin-triggered events both land in the same ``audit_log``
+            with no first-class link to the session that initiated them.
+            Security events embed ``actor=<user>`` into the ``detail``
+            text via :func:`_format_security_body`, but it's a substring
+            grep target, not a queryable column — and ``log_audit`` rows
+            don't carry the field at all.
+
+            Add a dedicated nullable ``actor`` column so admin-triggered
+            events can attribute themselves to the responsible username,
+            and so an operator can answer "what did user X do?" with a
+            real WHERE clause. Scanner-driven events leave the column
+            NULL (it's the autonomous-action signal).
+
+            Idempotent: ``ALTER TABLE`` is guarded by a column existence
+            check, and the whole block is guarded against partial test
+            fixtures that hand-craft an older schema without
+            ``audit_log``.
+            """
+            has_table = (
+                c.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='audit_log'"
+                ).fetchone()
+                is not None
+            )
+            if not has_table:
+                return
+            cols = [row[1] for row in c.execute("PRAGMA table_info(audit_log)").fetchall()]
+            if "actor" not in cols:
+                c.execute("ALTER TABLE audit_log ADD COLUMN actor TEXT")
+            c.execute(
+                "CREATE INDEX IF NOT EXISTS idx_audit_log_actor "
+                "ON audit_log(actor) WHERE actor IS NOT NULL"
+            )
+
+        _run_migration(31, _v31)

@@ -265,9 +265,9 @@ class TestSchemaV13LegacySessionPurge:
         init_db(str(db_path)).close()  # must not raise
 
     def test_schema_version_is_current(self, db_path):
-        assert DB_SCHEMA_VERSION == 30
+        assert DB_SCHEMA_VERSION == 31
         conn = init_db(str(db_path))
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 30
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 31
 
 
 class TestSchemaV14DeleteStatus:
@@ -740,6 +740,96 @@ class TestSchemaV26NewsletterDeliveries:
         ).fetchall()
         assert len(rows) == 1
         assert rows[0]["sent_at"] == "2026-01-02"
+
+
+class TestSchemaV31AuditActor:
+    """v31 adds an ``actor`` column to ``audit_log`` (Domain 05 HIGH).
+
+    Previously the only place the actor lived was inside the security
+    event ``detail`` text via ``actor=<user>``, which means an operator
+    cannot run a real ``WHERE actor = 'alice'`` query and ``log_audit``
+    rows had no actor field at all.
+    """
+
+    def test_audit_log_has_actor_column_on_fresh_db(self, db_path):
+        conn = init_db(str(db_path))
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(audit_log)").fetchall()}
+        assert "actor" in cols
+        conn.close()
+
+    def test_actor_column_is_nullable(self, db_path):
+        """Existing call sites (which do not yet pass actor) must still work."""
+        conn = init_db(str(db_path))
+        conn.execute(
+            "INSERT INTO audit_log (media_item_id, action, detail, created_at) "
+            "VALUES ('m1', 'scheduled', 'auto', '2026-01-01T00:00:00+00:00')"
+        )
+        conn.commit()
+        row = conn.execute("SELECT actor FROM audit_log").fetchone()
+        assert row["actor"] is None
+        conn.close()
+
+    def test_actor_index_present(self, db_path):
+        conn = init_db(str(db_path))
+        rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name=?",
+            ("idx_audit_log_actor",),
+        ).fetchall()
+        assert len(rows) == 1
+        conn.close()
+
+    def test_migration_from_v30_adds_actor_column(self, tmp_path):
+        """Simulate a v30 DB and confirm v31 adds the column."""
+        import sqlite3 as _sq
+
+        db_path = tmp_path / "legacy.db"
+        # Bring the DB up to current then knock the audit_log column off
+        # and rewind user_version so the v31 migration must replay.
+        init_db(str(db_path)).close()
+        conn = _sq.connect(str(db_path))
+        # SQLite's ALTER TABLE DROP COLUMN landed in 3.35; emulate the
+        # v30 layout by rebuilding the table without ``actor``.
+        conn.execute("PRAGMA foreign_keys=OFF")
+        conn.execute("DROP INDEX IF EXISTS idx_audit_log_actor")
+        conn.execute("""
+            CREATE TABLE audit_log_v30 (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                media_item_id TEXT NOT NULL,
+                action TEXT NOT NULL,
+                detail TEXT,
+                space_reclaimed_bytes INTEGER,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute(
+            "INSERT INTO audit_log_v30 "
+            "(id, media_item_id, action, detail, space_reclaimed_bytes, created_at) "
+            "SELECT id, media_item_id, action, detail, space_reclaimed_bytes, "
+            "created_at FROM audit_log"
+        )
+        conn.execute("DROP TABLE audit_log")
+        conn.execute("ALTER TABLE audit_log_v30 RENAME TO audit_log")
+        conn.execute("PRAGMA user_version=30")
+        conn.commit()
+        conn.close()
+
+        # Sanity: the legacy table genuinely lacks the column.
+        conn = _sq.connect(str(db_path))
+        cols_before = {r[1] for r in conn.execute("PRAGMA table_info(audit_log)").fetchall()}
+        assert "actor" not in cols_before
+        conn.close()
+
+        # Re-open via init_db → migration v31 runs.
+        conn = init_db(str(db_path))
+        cols_after = {r[1] for r in conn.execute("PRAGMA table_info(audit_log)").fetchall()}
+        assert "actor" in cols_after
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == DB_SCHEMA_VERSION
+        conn.close()
+
+    def test_migration_idempotent(self, db_path):
+        """Running init_db twice must not raise on the v31 step."""
+        init_db(str(db_path)).close()
+        init_db(str(db_path)).close()
 
 
 class TestFactories:
