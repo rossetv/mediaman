@@ -9,7 +9,7 @@ html, body {
   background: var(--bg);
   color: var(--t1);
   font-family: var(--font-text);
-  font-size: 15px;
+  font-size: 17px;
   line-height: 1.47;
   letter-spacing: -.01em;
   -webkit-font-smoothing: antialiased;
