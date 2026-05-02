@@ -14,9 +14,32 @@ has a single clear home.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
 logger = logging.getLogger("mediaman")
+
+
+def _parse_arr_iso(value: str) -> datetime | None:
+    """Best-effort ISO-8601 parse of a Radarr/Sonarr date string.
+
+    Both APIs sometimes return ``...Z`` (UTC indicator) and sometimes
+    ``+00:00`` (offset form). ``datetime.fromisoformat`` accepts the
+    offset form natively in Python 3.11+; the trailing ``Z`` is rewritten
+    to ``+00:00`` to keep older interpreters happy too. Returns ``None``
+    if the value is unparseable so the caller can fall back to a "keep
+    whatever's already cached" path rather than substituting the wrong
+    most-recent date.
+    """
+    if not value:
+        return None
+    text = value
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(text)
+    except (TypeError, ValueError):
+        return None
 
 
 def normalise_path(path: str) -> str:
@@ -105,8 +128,20 @@ class ArrDateCache:
                             if path and date_added:
                                 season_dir = path.rsplit("/", 1)[0]
                                 key = normalise_path(season_dir)
-                                existing = self._dates.get(key, "")
-                                if date_added > existing:
+                                existing = self._dates.get(key)
+                                # Compare as datetimes, not strings — the
+                                # two ISO forms ("...Z" and "...+00:00")
+                                # are equivalent in time but compare
+                                # incorrectly as plain strings, which
+                                # silently dropped the more-recent date
+                                # whenever a season had a mix of forms.
+                                new_dt = _parse_arr_iso(date_added)
+                                if new_dt is None:
+                                    # Skip unparseable dates — leave any
+                                    # cached value for the season alone.
+                                    continue
+                                existing_dt = _parse_arr_iso(existing) if existing else None
+                                if existing_dt is None or new_dt > existing_dt:
                                     self._dates[key] = date_added
                     except Exception:
                         logger.warning(
