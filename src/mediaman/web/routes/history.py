@@ -74,45 +74,128 @@ ACTION_LABELS = {
 }
 
 
-def _fetch_history(conn, action: str | None, page: int, per_page: int) -> tuple[list[dict], int]:
-    """Return (rows, total_count) from audit_log joined with media_items.
+# Audit-log actions that target a *show* (and so should JOIN against
+# kept_shows on al.media_item_id, NOT against media_items).  Plex rating-
+# keys are typed by content kind in our DB but the audit row only carries
+# the rating-key value — without a content-kind tag the JOIN cannot tell
+# a movie/episode rating-key apart from a show rating-key.  Pinning the
+# JOIN to the action keeps a hypothetical clash from surfacing a movie's
+# title against a "kept show" audit row.
+_SHOW_ACTIONS = ("kept_show", "removed_show_keep")
 
-    Filters by action when provided. Applies LIMIT/OFFSET for pagination.
+# Control-byte stripper for the audit ``detail`` blob.  Audit rows are
+# rendered into the history page UI verbatim, and a future security
+# event whose detail carried a CR/LF or terminal escape would wreck a
+# ``tail -f`` view of an exported log dump.  Strip everything below
+# 0x20 except ``\n`` and ``\t`` (which are visible whitespace in HTML).
+_CONTROL_BYTES_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
-    The synthetic ``security`` filter expands to ``action LIKE 'sec:%'`` so
-    every security-event row is selected at once — useful when an operator
-    is reconstructing what a stolen session did.
+
+def _scrub_detail(detail: str | None) -> str:
+    """Return *detail* with terminal-corrupting control bytes removed."""
+    if not detail:
+        return ""
+    return _CONTROL_BYTES_RE.sub("", detail)
+
+
+def _build_item(r) -> dict:
+    """Render an audit_log row into the dict the template/JSON expects.
+
+    Title resolution priority:
+
+    1. Security row — title is the event name (``login.success`` etc.).
+    2. JOINed ``mi.title`` (media_items hit) or ``ks.show_title`` (kept_shows hit).
+    3. Last-resort regex over ``detail`` for ``'Quoted Title'``.
+
+    The security branch is checked **first** so that if a future
+    security-event detail happens to contain a quoted JSON key
+    (``"plex_token"``) the regex doesn't pull it into the page as the
+    visible title.
     """
-    # Map filter names to actual DB action values (handles renamed actions)
-    _FILTER_MAP = {
-        "kept": ("protected", ACTION_PROTECTED_FOREVER, "kept", "kept_show"),
-        "unkept": ("unprotected", "removed_show_keep"),
-    }
-    if action == "security":
-        # Match every sec:* event without listing them all.
-        base_where = "WHERE al.action LIKE ?"
-        params_count = ("sec:%",)
-    elif action and action in _FILTER_MAP:
-        db_actions = _FILTER_MAP[action]
-        placeholders = ",".join("?" * len(db_actions))
-        base_where = f"WHERE al.action IN ({placeholders})"
-        params_count = db_actions
-    elif action:
-        base_where = "WHERE al.action = ?"
-        params_count = (action,)
-    else:
-        base_where = ""
-        params_count = ()
+    action = r["action"]
+    is_security = isinstance(action, str) and action.startswith("sec:")
 
-    total_row = conn.execute(
-        f"SELECT COUNT(*) AS n FROM audit_log al {base_where}",
-        params_count,
-    ).fetchone()
-    total = total_row["n"] if total_row else 0
+    if is_security:
+        # All sec:* events share a single badge slot; the title slot
+        # gets the event name without the "sec:" prefix.
+        title = action[4:]
+        action_label = action[4:]
+        badge = "badge-action-security"
+    else:
+        title = r["mi_title"] or r["ks_title"]
+        if not title and r["detail"]:
+            # Try to extract from detail like "Show 'Breaking Bad' kept ..."
+            m = re.search(r"'([^']+)'", r["detail"])
+            if m:
+                title = m.group(1)
+        title = title or "Unknown"
+        action_label = ACTION_LABELS.get(action, action)
+        badge = ACTION_BADGE_CLASS.get(action, "badge-action-scanned")
+
+    return {
+        "id": r["id"],
+        "media_item_id": r["media_item_id"],
+        "action": action,
+        "action_label": action_label,
+        "badge_class": badge,
+        "detail": _scrub_detail(r["detail"]),
+        "space_impact": format_bytes(r["space_reclaimed_bytes"])
+        if r["space_reclaimed_bytes"]
+        else "",
+        "created_at": r["created_at"],
+        "title": title,
+        "plex_rating_key": r["plex_rating_key"],
+        "is_security": is_security,
+    }
+
+
+def _fetch_security_rows(conn, *, page: int, per_page: int) -> list[dict]:
+    """Fetch ``sec:*`` audit rows without joining any media tables.
+
+    Security rows have ``media_item_id='_security'`` which never matches
+    a media_items.id or kept_shows.show_rating_key, so the JOIN was a
+    pure overhead before.  ``idx_audit_log_action`` covers the prefix
+    LIKE so the count and the page query are both fast.
+    """
+    offset = (page - 1) * per_page
+    rows = conn.execute(
+        """
+        SELECT
+            al.id,
+            al.media_item_id,
+            al.action,
+            al.detail,
+            al.space_reclaimed_bytes,
+            al.created_at,
+            NULL AS mi_title,
+            NULL AS plex_rating_key,
+            NULL AS ks_title
+        FROM audit_log al
+        WHERE al.action LIKE ?
+        ORDER BY al.created_at DESC
+        LIMIT ? OFFSET ?
+        """,
+        ("sec:%", per_page, offset),
+    ).fetchall()
+    return [_build_item(r) for r in rows]
+
+
+def _fetch_media_rows(conn, *, action: str | None, page: int, per_page: int) -> list[dict]:
+    """Fetch media-action rows.  Security rows are NOT excluded by default
+    so the unfiltered history view still surfaces them — the JOIN
+    conditions skip ``_security`` rows so the JOINs are not wasted, and
+    only the right table joins for show-vs-movie audit rows."""
+    where_sql, where_params = _media_where_clause(action)
 
     offset = (page - 1) * per_page
-    params = (*params_count, per_page, offset)
-
+    show_action_placeholders = ",".join("?" * len(_SHOW_ACTIONS))
+    params = (
+        *_SHOW_ACTIONS,  # for media_items NOT-IN
+        *_SHOW_ACTIONS,  # for kept_shows IN
+        *where_params,
+        per_page,
+        offset,
+    )
     rows = conn.execute(
         f"""
         SELECT
@@ -126,59 +209,89 @@ def _fetch_history(conn, action: str | None, page: int, per_page: int) -> tuple[
             mi.plex_rating_key,
             ks.show_title AS ks_title
         FROM audit_log al
-        LEFT JOIN media_items mi ON mi.id = al.media_item_id
-        LEFT JOIN kept_shows ks ON ks.show_rating_key = al.media_item_id
-        {base_where}
+        LEFT JOIN media_items mi
+          ON mi.id = al.media_item_id
+            AND al.action NOT IN ({show_action_placeholders})
+            AND al.media_item_id != '_security'
+        LEFT JOIN kept_shows ks
+          ON ks.show_rating_key = al.media_item_id
+            AND al.action IN ({show_action_placeholders})
+        {where_sql}
         ORDER BY al.created_at DESC
         LIMIT ? OFFSET ?
-    """,
+        """,
         params,
     ).fetchall()
+    return [_build_item(r) for r in rows]
 
-    items = []
-    for r in rows:
-        action = r["action"]
-        is_security = isinstance(action, str) and action.startswith("sec:")
-        # Resolve title: media_items first, then kept_shows, then extract from detail
-        title = r["mi_title"] or r["ks_title"]
-        if not title and r["detail"]:
-            # Try to extract from detail like "Show 'Breaking Bad' kept ..."
-            m = re.search(r"'([^']+)'", r["detail"])
-            if m:
-                title = m.group(1)
-        if is_security:
-            # For security rows the "title" slot in the UI is the event
-            # name (login.success, settings.write, …) — much more useful
-            # than "Unknown" or a parsed snippet of the detail string.
-            title = action[4:]
-        title = title or "Unknown"
 
-        action_label = ACTION_LABELS.get(action, action)
-        badge = ACTION_BADGE_CLASS.get(action, "badge-action-scanned")
-        if is_security:
-            # All sec:* events share a single badge slot; shrink the
-            # action_label to the event name without the "sec:" prefix
-            # so the existing badge layout doesn't blow up.
-            action_label = action[4:]
-            badge = "badge-action-security"
+def _media_where_clause(action: str | None) -> tuple[str, tuple]:
+    """Translate a filter name to a (WHERE SQL, params) pair.
 
-        items.append(
-            {
-                "id": r["id"],
-                "media_item_id": r["media_item_id"],
-                "action": action,
-                "action_label": action_label,
-                "badge_class": badge,
-                "detail": r["detail"] or "",
-                "space_impact": format_bytes(r["space_reclaimed_bytes"])
-                if r["space_reclaimed_bytes"]
-                else "",
-                "created_at": r["created_at"],
-                "title": title,
-                "plex_rating_key": r["plex_rating_key"],
-                "is_security": is_security,
-            }
-        )
+    The ``kept`` and ``unkept`` filters expand to multi-action IN
+    clauses so the synthetic UI label matches both the legacy and the
+    current DB action names.
+    """
+    _FILTER_MAP = {
+        "kept": ("protected", ACTION_PROTECTED_FOREVER, "kept", "kept_show"),
+        "unkept": ("unprotected", "removed_show_keep"),
+    }
+    if action and action in _FILTER_MAP:
+        db_actions = _FILTER_MAP[action]
+        placeholders = ",".join("?" * len(db_actions))
+        return f"WHERE al.action IN ({placeholders})", db_actions
+    if action:
+        return "WHERE al.action = ?", (action,)
+    return "", ()
+
+
+def _count_total(conn, action: str | None) -> int:
+    """Return the unpaged row count for a given filter.
+
+    Pulled out of the row-fetching helpers so the page route can count
+    once, clamp ``page`` to ``total_pages``, and only then run the
+    OFFSET query — avoiding a wasteful sweep when a stale URL submits
+    ``?page=10000`` against a 30-row filter.
+    """
+    if action == "security":
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM audit_log al WHERE al.action LIKE ?",
+            ("sec:%",),
+        ).fetchone()
+        return row["n"] if row else 0
+    where_sql, where_params = _media_where_clause(action)
+    row = conn.execute(
+        f"SELECT COUNT(*) AS n FROM audit_log al {where_sql}",
+        where_params,
+    ).fetchone()
+    return row["n"] if row else 0
+
+
+def _fetch_rows(conn, *, action: str | None, page: int, per_page: int) -> list[dict]:
+    """Dispatch to the security-only or media-events row fetcher."""
+    if action == "security":
+        return _fetch_security_rows(conn, page=page, per_page=per_page)
+    return _fetch_media_rows(conn, action=action, page=page, per_page=per_page)
+
+
+def _fetch_history(conn, action: str | None, page: int, per_page: int) -> tuple[list[dict], int]:
+    """Return (items, total_count) for the audit log.
+
+    Filters by action when provided.  Applies LIMIT/OFFSET for pagination.
+
+    The synthetic ``security`` filter selects every ``sec:*`` event in a
+    dedicated path (no media-table JOINs).  Every other filter — and the
+    no-filter case — runs the media-events query whose JOINs are
+    confined to the right kind of audit row (``kept_show`` joins
+    kept_shows, every other action joins media_items, security rows
+    don't join either).
+
+    The two-query split (one COUNT, one SELECT) is deliberate so the
+    page route can clamp an out-of-range ``page`` against ``total_pages``
+    before running the SELECT.
+    """
+    total = _count_total(conn, action)
+    items = _fetch_rows(conn, action=action, page=page, per_page=per_page)
     return items, total
 
 
@@ -207,9 +320,13 @@ def history_page(request: Request) -> Response:
         page = 1
 
     per_page = _PER_PAGE_DEFAULT
-    items, total = _fetch_history(conn, action_filter, page, per_page)
-
+    # Clamp ``page`` to ``total_pages`` so a hostile / stale URL like
+    # ``?page=10000`` doesn't trigger a wasteful OFFSET sweep and a
+    # blank page with a wrong "Page 10000 of 3" footer.
+    total = _count_total(conn, action_filter)
     total_pages = max(1, (total + per_page - 1) // per_page)
+    page = min(page, total_pages)
+    items = _fetch_rows(conn, action=action_filter, page=page, per_page=per_page)
 
     templates = request.app.state.templates
     return templates.TemplateResponse(
