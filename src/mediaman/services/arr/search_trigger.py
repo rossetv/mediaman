@@ -307,6 +307,68 @@ def get_search_info(dl_id: str) -> tuple[int, float]:
         )
 
 
+_STRANDED_THROTTLE_TTL_SECONDS = 90 * 24 * 60 * 60  # 90 days
+
+
+def reconcile_stranded_throttle(
+    conn: sqlite3.Connection,
+    *,
+    ttl_seconds: int = _STRANDED_THROTTLE_TTL_SECONDS,
+) -> int:
+    """Delete ``arr_search_throttle`` rows older than *ttl_seconds*.
+
+    Domain-06 #10. Rows in ``arr_search_throttle`` accumulate forever
+    when an item is deleted from Radarr/Sonarr — nothing else
+    references the row, but ``clear_throttle`` is only called by the
+    abandon flow. Operators who delete items directly via the
+    Radarr/Sonarr UI never trip that path, so the table grows
+    monotonically.
+
+    The reconciliation rule is age-based: if a row hasn't been touched
+    in ``ttl_seconds`` (default 90 days), the item is either deleted
+    or so deeply forgotten that resetting its search-count is the
+    desired behaviour.  Active items are re-triggered well inside the
+    15-minute throttle window, so their ``last_triggered_at`` updates
+    constantly and they're never reaped.
+
+    Designed to be called once on startup; a stalled DB returns 0
+    rather than raising so a slow disk doesn't break boot.
+
+    Args:
+        conn: Open SQLite connection.
+        ttl_seconds: Cutoff age in seconds. Rows whose
+            ``last_triggered_at`` is older than ``now - ttl_seconds``
+            are deleted.
+
+    Returns:
+        Number of rows deleted.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=ttl_seconds)).isoformat()
+    try:
+        cur = conn.execute(
+            "DELETE FROM arr_search_throttle WHERE last_triggered_at < ?",
+            (cutoff,),
+        )
+        conn.commit()
+    except (sqlite3.OperationalError, sqlite3.DatabaseError):
+        logger.warning(
+            "arr_search_trigger: failed to reconcile stranded throttle rows",
+            exc_info=True,
+        )
+        return 0
+
+    deleted = cur.rowcount or 0
+    if deleted:
+        logger.info(
+            "arr_search_trigger.reconcile deleted=%d cutoff=%s",
+            deleted,
+            cutoff,
+        )
+    return deleted
+
+
 def clear_throttle(conn: sqlite3.Connection, dl_id: str) -> None:
     """Forget every trace of *dl_id* from the search-throttle subsystem.
 
