@@ -119,25 +119,26 @@ class TestLibraryPage:
         ctx = resp.json()
         assert ctx["current_type"] == ""
 
-    def test_page_clamped_to_minimum_1(self, db_path, secret_key):
-        """A page value of 0 is clamped to 1."""
+    def test_page_below_minimum_rejected(self, db_path, secret_key):
+        """A page value of 0 is rejected with 422 (finding 17).
+
+        Pagination bounds are now enforced at the input layer — invalid
+        values surface as a Pydantic validation error rather than being
+        silently rewritten to 1.
+        """
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key)
         client = _auth_client(app, conn)
         resp = client.get("/library?page=0")
-        assert resp.status_code == 200
-        ctx = resp.json()
-        assert ctx["page"] == 1
+        assert resp.status_code == 422
 
-    def test_per_page_clamped_to_100(self, db_path, secret_key):
-        """A per_page value above 100 is clamped to 100."""
+    def test_per_page_above_maximum_rejected(self, db_path, secret_key):
+        """A per_page value above 100 is rejected with 422 (finding 17)."""
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key)
         client = _auth_client(app, conn)
         resp = client.get("/library?per_page=9999")
-        assert resp.status_code == 200
-        ctx = resp.json()
-        assert ctx["per_page"] == 100
+        assert resp.status_code == 422
 
     def test_pagination_metadata_correct(self, db_path, secret_key):
         """page_start, page_end, and total_pages are computed correctly."""
