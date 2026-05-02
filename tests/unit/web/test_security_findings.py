@@ -654,21 +654,26 @@ class TestFinding35BulkKeepResponseOk:
     """
 
     def test_library_template_does_not_use_unchecked_promise_all(self):
-        """The library.html template must not have the old unchecked Promise.all pattern."""
+        """The library.html template (and its extracted JS) must not have the
+        old unchecked Promise.all pattern. The script body lives in
+        static/js/library.js since the inline-script extraction (CSP nonce)."""
         import pathlib
 
         tmpl = pathlib.Path("src/mediaman/web/templates/library.html").read_text()
+        js = pathlib.Path("src/mediaman/web/static/js/library.js").read_text()
         # Old pattern was: Promise.all(promises).then(function () { window.location.reload(); })
         # New pattern checks response.ok. The old verbatim one-liner should be gone.
-        assert (
-            "Promise.all(promises).then(function () { window.location.reload(); })" not in tmpl
-        ), "Old unchecked Promise.all found — failed requests were silently ignored"
+        bad = "Promise.all(promises).then(function () { window.location.reload(); })"
+        assert bad not in tmpl and bad not in js, (
+            "Old unchecked Promise.all found — failed requests were silently ignored"
+        )
 
     def test_library_template_has_response_ok_check(self):
-        """The new bulk-keep code must check response.ok."""
+        """The new bulk-keep code must check response.ok. The JS now lives in
+        static/js/library.js (Finding 65 inline-script extraction)."""
         import pathlib
 
-        tmpl = pathlib.Path("src/mediaman/web/templates/library.html").read_text()
-        assert "if (!r.ok)" in tmpl or "response.ok" in tmpl, (
-            "No response.ok check found in library.html bulk-keep JS"
+        js = pathlib.Path("src/mediaman/web/static/js/library.js").read_text()
+        assert "if (!r.ok)" in js or "response.ok" in js, (
+            "No response.ok check found in library.js bulk-keep JS"
         )
