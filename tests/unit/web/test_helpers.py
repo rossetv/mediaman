@@ -15,7 +15,6 @@ from fastapi.responses import JSONResponse
 
 from mediaman.web.routes._helpers import (
     SESSION_COOKIE_MAX_AGE,
-    fail,
     is_admin,
     set_session_cookie,
 )
@@ -149,42 +148,9 @@ class TestIsAdmin:
 # ---------------------------------------------------------------------------
 
 
-class TestFail:
-    def test_default_status_is_400(self):
-        """fail() defaults to HTTP 400."""
-        resp = fail("some_error", "Something went wrong")
-        assert resp.status_code == 400
-
-    def test_custom_status_code(self):
-        """fail() honours a custom status code."""
-        resp = fail("not_found", "Not found", status=404)
-        assert resp.status_code == 404
-
-    def test_response_contains_error_code(self):
-        """The JSON body must include the machine-readable error code."""
-        import json
-
-        resp = fail("my_code", "human message")
-        body = json.loads(resp.body)
-        assert body["error"] == "my_code"
-
-    def test_response_contains_message(self):
-        """The JSON body must include the human-readable message."""
-        import json
-
-        resp = fail("code", "user-facing text")
-        body = json.loads(resp.body)
-        assert body["message"] == "user-facing text"
-
-    def test_extra_kwargs_are_merged(self):
-        """Extra keyword arguments are merged into the response body."""
-        import json
-
-        resp = fail("rate_limited", "Slow down", status=429, retry_after=60)
-        body = json.loads(resp.body)
-        assert body["retry_after"] == 60
-
-    def test_response_is_json_response_instance(self):
-        """fail() must return a JSONResponse."""
-        resp = fail("err", "msg")
-        assert isinstance(resp, JSONResponse)
+# `fail()` was an attempt at a unified error envelope helper (Domain 12)
+# that was never adopted by any route. Routes hand-roll their own
+# JSONResponse shapes; tightening that to a single envelope would
+# touch ~27 call sites plus the tests that assert their existing
+# shapes. Deleted in 2026-05 along with this test class — see commit
+# message for the rationale.

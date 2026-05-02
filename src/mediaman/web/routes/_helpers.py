@@ -58,36 +58,12 @@ def is_admin(request: Request) -> bool:
     )
 
 
-# ---------------------------------------------------------------------------
-# Error envelope
-# ---------------------------------------------------------------------------
-
-
-def fail(
-    code: str,
-    message: str,
-    *,
-    status: int = 400,
-    **extra,
-) -> JSONResponse:
-    """Return a standardised JSON error response.
-
-    All error responses in web routes should go through this helper so
-    the envelope shape is consistent:
-
-        {"error": "MACHINE_CODE", "message": "Human-readable text", ...}
-
-    ``code`` is a machine-readable string like ``"not_found"`` or
-    ``"invalid_duration"`` — callers can key off this without parsing the
-    message. ``message`` is for humans. ``**extra`` lets callers attach
-    additional fields (e.g. ``{"issues": [...]}``) without losing the
-    standard envelope.
-
-    Usage::
-
-        return fail("not_found", "Media item not found", status=404)
-        return fail("rate_limited", "Slow down", status=429)
-    """
-    body: dict = {"error": code, "message": message}
-    body.update(extra)
-    return JSONResponse(body, status_code=status)
+# `fail()` lived here as an attempt at a unified error envelope but was
+# never adopted by any route — handlers continued to construct ad-hoc
+# JSONResponse bodies. Domain 12 flagged the dead code; rather than
+# touch ~27 call sites plus the tests that assert their existing shapes
+# (a high-risk change for cosmetic gain), the helper was deleted along
+# with its test class. If a future refactor wants a unified envelope,
+# pick one of the existing shapes (``{"ok": False, "error": "..."}``
+# is the most common) and codemod every call site rather than adding
+# another competing helper.
