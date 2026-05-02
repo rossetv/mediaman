@@ -189,16 +189,20 @@ class TestDownloadStatusAuth:
         )
         assert resp.status_code == 401
 
-    def test_unknown_service_returns_unknown_item(self, db_path, secret_key):
-        """An unrecognised service name returns an 'unknown' state item."""
+    def test_unknown_service_returns_422(self, db_path, secret_key):
+        """An unrecognised service name is rejected at the type layer.
+
+        Wave 5-4 tightened the route signature to ``service: Literal["radarr",
+        "sonarr"]``, so FastAPI's request-validation now returns 422 for any
+        other value rather than reaching the handler and falling through to
+        an 'unknown' state.
+        """
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key)
         client = _auth_client(app, conn)
 
         resp = client.get("/api/download/status?service=bogus&tmdb_id=42")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["state"] == "unknown"
+        assert resp.status_code == 422
 
 
 class TestDownloadStatusRadarr:
