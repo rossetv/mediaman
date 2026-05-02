@@ -27,8 +27,14 @@ _KEY = "0123456789abcdef" * 4
 
 class TestCfConnectingIp:
     def test_cf_connecting_ip_preferred(self, monkeypatch):
+        # cf-connecting-ip is honoured ONLY when the peer is in the dedicated
+        # MEDIAMAN_CLOUDFLARE_PROXIES list (not the broader TRUSTED_PROXIES).
         monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
+        monkeypatch.setenv("MEDIAMAN_CLOUDFLARE_PROXIES", "10.0.0.0/8")
         from mediaman.auth.rate_limit import get_client_ip
+        from mediaman.auth.rate_limit.ip_resolver import clear_cache
+
+        clear_cache()
 
         class FakeRequest:
             headers = {
@@ -37,12 +43,36 @@ class TestCfConnectingIp:
             }
             client = type("C", (), {"host": "10.0.0.1"})()
 
-        # CF-Connecting-IP beats XFF when peer is trusted.
+        # CF-Connecting-IP beats XFF when peer is in the Cloudflare allowlist.
         assert get_client_ip(FakeRequest()) == "198.51.100.7"
+
+    def test_cf_connecting_ip_ignored_if_peer_not_cloudflare(self, monkeypatch):
+        # Peer is in TRUSTED_PROXIES but NOT in CLOUDFLARE_PROXIES — XFF wins,
+        # cf-connecting-ip is ignored. This guards against a non-Cloudflare
+        # reverse proxy spoofing client IPs via the CF header.
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
+        monkeypatch.delenv("MEDIAMAN_CLOUDFLARE_PROXIES", raising=False)
+        from mediaman.auth.rate_limit import get_client_ip
+        from mediaman.auth.rate_limit.ip_resolver import clear_cache
+
+        clear_cache()
+
+        class FakeRequest:
+            headers = {
+                "cf-connecting-ip": "198.51.100.7",
+                "x-forwarded-for": "1.2.3.4, 10.0.0.1",
+            }
+            client = type("C", (), {"host": "10.0.0.1"})()
+
+        assert get_client_ip(FakeRequest()) == "1.2.3.4"
 
     def test_cf_connecting_ip_ignored_if_peer_untrusted(self, monkeypatch):
         monkeypatch.delenv("MEDIAMAN_TRUSTED_PROXIES", raising=False)
+        monkeypatch.delenv("MEDIAMAN_CLOUDFLARE_PROXIES", raising=False)
         from mediaman.auth.rate_limit import get_client_ip
+        from mediaman.auth.rate_limit.ip_resolver import clear_cache
+
+        clear_cache()
 
         class FakeRequest:
             headers = {"cf-connecting-ip": "1.1.1.1"}
