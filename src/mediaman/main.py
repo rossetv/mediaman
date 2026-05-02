@@ -17,6 +17,7 @@ from mediaman.bootstrap import (
     bootstrap_scheduling,
     shutdown_scheduling,
 )
+from mediaman.bootstrap.db import DataDirNotWritableError
 from mediaman.config import load_config
 
 logger = logging.getLogger("mediaman")
@@ -39,7 +40,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # type: ignore[return]
        the web UI down.
     """
     config = load_config()
-    bootstrap_db(app, config)
+    try:
+        bootstrap_db(app, config)
+    except DataDirNotWritableError as exc:
+        # Surface as a single clean line; suppress the ASGI traceback that
+        # would otherwise bury the actionable message in a stack of
+        # FastAPI/uvicorn frames.
+        logger.critical("%s", exc)
+        sys.exit(1)
     bootstrap_crypto(app, config)
     scheduler_started = bootstrap_scheduling(app, config)
 
