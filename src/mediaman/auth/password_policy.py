@@ -4,6 +4,11 @@ change, and login-time re-evaluation.
 Rules (NIST SP 800-63B-ish):
 
 - Minimum length: 12 characters.
+- Maximum length: :data:`MAX_BYTES` UTF-8 bytes (1024). Caps DB /
+  session-storage size and prevents pathological CPU time on Unicode
+  normalisation. Bcrypt's 72-byte truncation is handled separately by
+  the SHA-256 pre-hash in :mod:`mediaman.auth.password_hash`, so the
+  byte cap is purely a resource limit, not an entropy one.
 - Not a substring of or equal to the username (case-insensitive).
 - Not in the top common-passwords list.
 - At least three of four character classes: lowercase, uppercase,
@@ -15,6 +20,18 @@ Rules (NIST SP 800-63B-ish):
 - Must not be trivial repetition (``len(set(pw)) >= 6`` minimum even
   with the passphrase exemption).
 
+Unicode normalisation
+---------------------
+
+Inputs are NFKC-normalised before any check runs. Different OSes /
+IMEs emit different byte sequences for the same visible character —
+``é`` may arrive as a single precomposed code point or as ``e`` plus a
+combining acute. The bcrypt path normalises identically (see
+:func:`mediaman.auth.password_hash._normalise_password`) so the
+two encodings round-trip to the same hash. NFKC also folds
+compatibility forms (full-width digits, ligatures) so a user who set
+their password on macOS can sign in from Windows.
+
 The public entry point is :func:`password_issues`, which returns an
 ordered list of human-readable issues — an empty list means the
 password is acceptable. UI layers render the list; server-side
@@ -23,6 +40,7 @@ validation just checks whether the list is empty.
 
 from __future__ import annotations
 
+import unicodedata
 from functools import lru_cache
 from pathlib import Path
 
@@ -65,6 +83,14 @@ MIN_UNIQUE = 6
 PASSPHRASE_MIN_LENGTH = 20
 PASSPHRASE_MIN_UNIQUE = 12
 
+#: Hard cap on password length, measured in UTF-8 bytes after NFKC
+#: normalisation. Bounds DB / session-storage size and prevents an
+#: attacker from posting megabyte-scale passwords that would force the
+#: server into pathological CPU time on normalisation, hashing, or
+#: storage. The bcrypt 72-byte concern is handled separately by the
+#: SHA-256 pre-hash, so this limit is purely a resource cap.
+MAX_BYTES = 1024
+
 
 def _char_classes(password: str) -> set[str]:
     """Return the set of character classes present in *password*."""
@@ -102,11 +128,31 @@ def password_issues(password: str, username: str = "") -> list[str]:
 
     Deterministic order: issues are returned in the order checked
     so the UI can display them consistently.
+
+    The input is NFKC-normalised before any further checks so visually
+    identical strings produced by different IMEs / OSes are treated as
+    equal — this matches the normalisation applied at the bcrypt
+    boundary (see :mod:`mediaman.auth.password_hash`).
     """
     issues: list[str] = []
 
     if not password:
         return ["Password is required."]
+
+    # Normalise once, up front. Every subsequent check (length, unique
+    # chars, character classes, common-password lookup) operates on the
+    # normalised form so the policy cannot be bypassed by submitting
+    # an unusual encoding of an otherwise-rejected password.
+    password = unicodedata.normalize("NFKC", password)
+
+    # Hard byte cap. Applied first — before length-in-codepoints,
+    # before set() and lowercasing — so an attacker cannot force the
+    # server into pathological CPU on a multi-megabyte input. Returning
+    # only this issue keeps the response payload small for the same
+    # reason.
+    encoded_len = len(password.encode("utf-8"))
+    if encoded_len > MAX_BYTES:
+        return [f"Password is too long (max {MAX_BYTES} bytes; yours is {encoded_len})."]
 
     if len(password) < MIN_LENGTH:
         issues.append(f"Must be at least {MIN_LENGTH} characters (yours is {len(password)}).")
