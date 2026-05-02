@@ -656,9 +656,7 @@ def api_media_redownload(
                 resolved_tmdb = entry.get("tmdbId")
                 if resolved_tmdb:
                     resolved_title = entry.get("title") or title
-                    resolved_tmdb_int = (
-                        int(resolved_tmdb) if resolved_tmdb is not None else None
-                    )
+                    resolved_tmdb_int = int(resolved_tmdb) if resolved_tmdb is not None else None
                     client.add_movie(resolved_tmdb_int, resolved_title)
                     audit_id = _redownload_audit_id(
                         media_type="movie",
@@ -714,15 +712,11 @@ def api_media_redownload(
                 resolved_tvdb = entry.get("tvdbId")
                 if resolved_tvdb:
                     resolved_title = entry.get("title") or title
-                    resolved_tvdb_int = (
-                        int(resolved_tvdb) if resolved_tvdb is not None else None
-                    )
+                    resolved_tvdb_int = int(resolved_tvdb) if resolved_tvdb is not None else None
                     client.add_series(resolved_tvdb_int, resolved_title)
                     resolved_tmdb_sonarr = entry.get("tmdbId")
                     resolved_tmdb_sonarr_int = (
-                        int(resolved_tmdb_sonarr)
-                        if resolved_tmdb_sonarr is not None
-                        else None
+                        int(resolved_tmdb_sonarr) if resolved_tmdb_sonarr is not None else None
                     )
                     audit_id = _redownload_audit_id(
                         media_type="tv",

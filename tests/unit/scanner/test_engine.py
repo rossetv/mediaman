@@ -885,24 +885,27 @@ class TestShowLevelKeep:
         row = conn.execute("SELECT * FROM kept_shows WHERE show_rating_key='599'").fetchone()
         assert row is None
 
-    def test_naive_plex_datetime_stored_as_correct_utc(self, conn, mock_plex):
-        """Plex returns naive datetimes in local time; they must be converted
-        to UTC properly, not mislabelled with .replace(tzinfo=UTC).
+    def test_plex_datetime_stored_as_correct_utc(self, conn, mock_plex):
+        """Plex datetimes must round-trip to UTC without offset drift.
 
-        Regression test: when the server's local timezone is ahead of UTC,
-        .replace(tzinfo=UTC) shifts the stored date into the future, causing
-        _days_ago to return '' and hiding the 'Added today' subtitle.
+        The Plex client (`media_meta/plex.py:_to_utc`) now promotes
+        plexapi's naive local-time datetimes to tz-aware UTC at the
+        boundary, so by the time `engine._resolve_added_at` sees them
+        they are already aware. This test verifies the engine stores
+        the aware UTC value unchanged (no `.replace(tzinfo=UTC)`
+        mislabelling, no double-conversion).
         """
-        # Simulate a naive datetime in local time (as PlexAPI returns).
-        # Use a fixed POSIX timestamp so the expected UTC value is unambiguous.
+        # Use a fixed POSIX timestamp so the expected UTC value is
+        # unambiguous. Pass it through as a tz-aware UTC datetime —
+        # which is what the production Plex client now produces.
         posix_ts = 1744400000  # 2025-04-11 ~19:33 UTC
-        naive_local = datetime.fromtimestamp(posix_ts)  # naive, local tz
+        aware_utc = datetime.fromtimestamp(posix_ts, tz=timezone.utc)
 
         mock_plex.get_movie_items.return_value = [
             {
                 "plex_rating_key": "9999",
                 "title": "Timezone Test",
-                "added_at": naive_local,
+                "added_at": aware_utc,
                 "file_path": "/media/movies/Timezone Test (2025)",
                 "file_size_bytes": 1_500_000_000,
                 "poster_path": None,
