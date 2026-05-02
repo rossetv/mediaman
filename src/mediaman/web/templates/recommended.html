@@ -328,7 +328,10 @@ function openModal(id) {
   heroEl.appendChild(gradient);
   var heroInfo = document.createElement('div');
   heroInfo.className = 'detail-modal-hero-info';
-  var heroTitle = document.createElement('div');
+  // Finding 11 (a11y): the visible title is the modal's h2; #detail-modal-title
+  // matches aria-labelledby on the dialog wrapper so AT announces the real title.
+  var heroTitle = document.createElement('h2');
+  heroTitle.id = 'detail-modal-title';
   heroTitle.className = 'detail-modal-hero-title';
   heroTitle.textContent = s.title || '';
   if (s.year) {
