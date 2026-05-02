@@ -425,7 +425,9 @@ def _safe_rmtree(
     finally:
         # ``close()`` on a generator runs its finally blocks (which
         # close the open fds) immediately rather than waiting for GC.
-        walker.close()
+        # mypy types ``os.fwalk`` as ``Iterator``, but the concrete
+        # return value is a generator which always has ``close()``.
+        walker.close()  # type: ignore[attr-defined]
 
     # Finally remove the top-level directory itself.
     os.rmdir(str(resolved))

@@ -244,7 +244,7 @@ _RETRY_AFTER_MAX_SECONDS = 60.0
 #: remainder cover transient TLS resets, broken chunked transfer, gzip
 #: decode races during a server restart, and redirect storms (a
 #: redirect loop is harmless to retry once the upstream stabilises).
-_RETRYABLE_EXCEPTIONS: tuple[type[BaseException], ...] = (
+_RETRYABLE_EXCEPTIONS: tuple[type[Exception], ...] = (
     requests.Timeout,
     requests.ConnectionError,
     requests.exceptions.SSLError,
@@ -719,12 +719,11 @@ def _retry_after_seconds(value: str | None) -> float | None:
     # parsedate_to_datetime overhead.
     try:
         seconds = float(raw)
-    except (TypeError, ValueError):
-        seconds = None  # type: ignore[assignment]
-    else:
         if seconds < 0:
             return 0.0
         return min(seconds, _RETRY_AFTER_MAX_SECONDS)
+    except (TypeError, ValueError):
+        pass
     # HTTP-date form.
     try:
         target = email.utils.parsedate_to_datetime(raw)
