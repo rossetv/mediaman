@@ -13,11 +13,11 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger("mediaman")
 
-DB_SCHEMA_VERSION = 31
+DB_SCHEMA_VERSION = 32
 
-assert DB_SCHEMA_VERSION == 31, (
+assert DB_SCHEMA_VERSION == 32, (
     f"DB_SCHEMA_VERSION is {DB_SCHEMA_VERSION} but the highest migration "
-    "block is 31 — update one of them."
+    "block is 32 — update one of them."
 )
 
 _SCHEMA = """
@@ -150,8 +150,12 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_media
     ON audit_log(media_item_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created
     ON audit_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_action
+    ON audit_log(action);
 CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires
     ON admin_sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_media_items_plex_library_id
+    ON media_items(plex_library_id);
 
 CREATE TABLE IF NOT EXISTS login_failures (
     username TEXT PRIMARY KEY,
@@ -1051,3 +1055,47 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
             )
 
         _run_migration(31, _v31)
+
+    if current_version < 32:
+
+        def _v32(c: sqlite3.Connection) -> None:
+            """Add hot-path indexes for media library + audit filtering (Domain 05).
+
+            Two complementary indexes for queries that previously fell
+            back to a full table scan:
+
+            * ``idx_media_items_plex_library_id`` — every scanner pass
+              fans out a ``WHERE plex_library_id IN (...)`` against
+              ``media_items``. With no index the count grows linearly
+              with library size on every call.
+            * ``idx_audit_log_action`` — the history view filters audit
+              rows by ``action`` heavily (notably the security-events
+              query in ``web/routes/history.py``). Existing indexes
+              cover ``media_item_id`` and ``created_at`` only.
+
+            ``CREATE INDEX IF NOT EXISTS`` is idempotent so running the
+            migration on a DB that already has either index is a
+            no-op. Guarded against partial test fixtures that hand-craft
+            an older schema without the underlying tables.
+            """
+            has_media_items = (
+                c.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='media_items'"
+                ).fetchone()
+                is not None
+            )
+            if has_media_items:
+                c.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_media_items_plex_library_id "
+                    "ON media_items(plex_library_id)"
+                )
+            has_audit_log = (
+                c.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='audit_log'"
+                ).fetchone()
+                is not None
+            )
+            if has_audit_log:
+                c.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action)")
+
+        _run_migration(32, _v32)
