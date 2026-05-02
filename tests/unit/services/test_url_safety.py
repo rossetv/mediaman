@@ -245,6 +245,17 @@ class TestIdnNormalisation:
         # Even if expressed as a valid IDN, the .internal suffix triggers rejection.
         assert not is_safe_outbound_url("http://service.internal/")
 
+    def test_fqdn_trailing_dot_metadata_blocked(self):
+        """A trailing dot must not bypass the suffix block.
+
+        ``metadata.google.internal.`` is the absolute DNS form of
+        ``metadata.google.internal``; the suffix check is a literal
+        ``endswith(".internal")`` and would miss the FQDN form unless
+        ``_normalise_host`` strips the trailing dot.
+        """
+        assert not is_safe_outbound_url("http://metadata.google.internal./")
+        assert not is_safe_outbound_url("http://service.internal./")
+
     def test_punycode_round_trip_applied_before_blocklist(self, monkeypatch):
         """``_normalise_host`` is called and its result checked against the metadata list.
 
@@ -274,12 +285,19 @@ class TestResolveSafeOutboundUrl:
         assert hostname == "radarr.example.com"
         assert ip == "93.184.216.34"
 
-    def test_returns_none_pin_for_literal_ip_url(self):
-        """A URL with a literal IP needs no pin — there's no DNS to corrupt."""
+    def test_returns_self_pin_for_literal_ip_url(self):
+        """A URL with a literal IP is pinned to itself.
+
+        Modern urllib3 still calls ``getaddrinfo("192.0.2.1", port)`` to
+        build the connection tuple, and a process-wide monkeypatch on
+        ``socket.getaddrinfo`` could redirect that lookup. Pinning the
+        literal address to itself short-circuits the resolver and makes
+        the connect deterministic with the validated answer.
+        """
         safe, hostname, ip = resolve_safe_outbound_url("http://192.0.2.1:7878/")
         assert safe is True
         assert hostname == "192.0.2.1"
-        assert ip is None
+        assert ip == "192.0.2.1"
 
     def test_unsafe_url_returns_no_pin(self, fake_dns):
         """A blocked URL must never return a pinned IP."""
