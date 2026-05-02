@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import secrets
@@ -10,7 +11,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from mediaman.auth.rate_limit import peer_is_trusted, trusted_proxies
+logger = logging.getLogger("mediaman.web")
 
 # Content Security Policy — per-request nonce strategy.
 #
@@ -98,30 +99,40 @@ _HSTS_HEADER_PRELOAD = "max-age=63072000; includeSubDomains; preload"
 
 
 def _should_emit_hsts(request: Request) -> bool:
-    """Return True when the browser-visible protocol is HTTPS.
+    """Return True only when the operator has explicitly enabled HSTS
+    AND the current request is genuinely HTTPS.
 
-    Mirrors the logic in :func:`auth_routes._is_request_secure` but
-    without importing from it (to avoid a circular import). HSTS on a
-    plaintext response is harmless — browsers ignore it — but emitting
-    it unconditionally in the normal case protects against downgrade
-    when a reverse proxy misroutes.
+    HSTS is a *one-way door*: once a browser caches the
+    ``Strict-Transport-Security`` header for ``max-age=63072000`` (2
+    years), it will refuse plaintext access to that origin for the full
+    window even after operators take the header back down.  A
+    misconfigured initial deploy that briefly serves HTTP can therefore
+    lock real users out of the host for two years.
+
+    Because of that one-way blast radius this function is now
+    deliberately *fail-closed*:
+
+    - Emission requires ``MEDIAMAN_HSTS_ENABLED=true`` to be set
+      explicitly.  There is no implicit "default on" — operators must
+      opt in once they have confirmed the deployment is end-to-end
+      HTTPS.
+    - Even with the env flag on, the header is only attached when the
+      request itself is HTTPS.  Uvicorn rewrites ``request.url.scheme``
+      from ``X-Forwarded-Proto`` when ``proxy_headers=True`` (only set
+      when the operator has supplied ``MEDIAMAN_TRUSTED_PROXIES``), so
+      this single check covers both direct-TLS and reverse-proxy
+      deployments.
+
+    The legacy ``MEDIAMAN_FORCE_SECURE_COOKIES`` env var is still
+    honoured as a hard ``false`` override (i.e. it can disable HSTS
+    even when ``MEDIAMAN_HSTS_ENABLED=true``) so an operator with the
+    old toggle in place doesn't get a surprise upgrade.
     """
-    override = os.environ.get("MEDIAMAN_FORCE_SECURE_COOKIES", "").strip().lower()
-    if override == "true":
-        return True
-    if override == "false":
+    if os.environ.get("MEDIAMAN_FORCE_SECURE_COOKIES", "").strip().lower() == "false":
         return False
-    if request.url.scheme == "https":
-        return True
-    peer = request.client.host if request.client else None
-    trusted = trusted_proxies()
-    if peer_is_trusted(peer, trusted):
-        forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
-        if forwarded_proto == "https":
-            return True
-    # Default to True for the public-facing app; operators can opt out
-    # via MEDIAMAN_FORCE_SECURE_COOKIES=false for genuine dev loopback.
-    return True
+    if os.environ.get("MEDIAMAN_HSTS_ENABLED", "").strip().lower() != "true":
+        return False
+    return request.url.scheme == "https"
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
