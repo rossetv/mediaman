@@ -442,7 +442,12 @@ class TestDownloadRecommendationSuccess:
         assert "Sonarr" in body["error"]
 
     def test_radarr_http_409_treated_as_already_exists(self, authed_client, app):
-        """A 409 SafeHTTPError from Radarr is surfaced as an 'already exists' error."""
+        """A 409 SafeHTTPError from Radarr is surfaced as an 'already exists' error.
+
+        Finding 25: returns HTTP 409 (not 200) so downstream clients
+        treat the conflict properly instead of silently logging a
+        success.
+        """
         from mediaman.services.infra.http_client import SafeHTTPError
 
         conn = app.state.db
@@ -458,13 +463,18 @@ class TestDownloadRecommendationSuccess:
         ):
             resp = authed_client.post(f"/api/recommended/{rec_id}/download")
 
-        assert resp.status_code == 200
+        assert resp.status_code == 409
         body = resp.json()
         assert body["ok"] is False
         assert "already" in body["error"].lower()
 
     def test_sonarr_409_safe_http_error_treated_as_already_exists(self, authed_client, app):
-        """A 409 SafeHTTPError from Sonarr is surfaced as an 'already exists' error."""
+        """A 409 SafeHTTPError from Sonarr is surfaced as an 'already exists' error.
+
+        Finding 25: returns HTTP 409 (not 200) so downstream clients
+        treat the conflict properly instead of silently logging a
+        success.
+        """
         from mediaman.services.infra.http_client import SafeHTTPError
 
         conn = app.state.db
@@ -481,7 +491,7 @@ class TestDownloadRecommendationSuccess:
         ):
             resp = authed_client.post(f"/api/recommended/{rec_id}/download")
 
-        assert resp.status_code == 200
+        assert resp.status_code == 409
         body = resp.json()
         assert body["ok"] is False
         assert "already" in body["error"].lower()

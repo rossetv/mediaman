@@ -34,8 +34,26 @@ logger = logging.getLogger("mediaman")
 
 router = APIRouter()
 
-# Shared state for the background worker — see module docstring.
+# Shared state for the background worker (finding 28). The
+# ``_refresh_result`` dict is mutated by the background thread and read
+# by the polling endpoint; without a lock the read could observe a
+# half-built dict mid-assignment. The lock is fine-grained — held only
+# for the swap, not for the work itself.
 _refresh_result: dict[str, object] | None = None
+_refresh_result_lock = threading.Lock()
+
+
+def _set_refresh_result(value: dict[str, object] | None) -> None:
+    """Atomically replace the shared refresh result."""
+    global _refresh_result
+    with _refresh_result_lock:
+        _refresh_result = value
+
+
+def _get_refresh_result() -> dict[str, object] | None:
+    """Atomically read the shared refresh result."""
+    with _refresh_result_lock:
+        return _refresh_result
 
 
 @router.post("/api/recommended/refresh")
@@ -67,7 +85,6 @@ def api_refresh_recommendations(
             status_code=429,
         )
 
-    global _refresh_result
     run_id = start_refresh_run(conn)
     if run_id is None:
         return JSONResponse({"status": "already_running"})
@@ -78,18 +95,14 @@ def api_refresh_recommendations(
         finish_refresh_run(conn, run_id, "error", "Plex not configured")
         return JSONResponse({"ok": False, "error": "Plex not configured"})
 
-    # Record the start time *before* the work begins so a concurrent
-    # second POST is also rejected even if the first hasn't finished.
-    record_manual_refresh(conn, datetime.now(timezone.utc))
-
     _db_path = request.app.state.db_path
     _secret_key = config.secret_key
 
     def run():
-        global _refresh_result
         thread_conn = open_thread_connection(_db_path)
         thread_secret_key = _secret_key
         result: dict[str, object]
+        manual_refresh_recorded = False
         try:
             plex_client = build_plex_from_db(thread_conn, thread_secret_key)
             if plex_client:
@@ -97,6 +110,12 @@ def api_refresh_recommendations(
                     thread_conn, plex_client, manual=True, secret_key=thread_secret_key
                 )
                 result = {"ok": True, "count": count}
+                # Finding 29: cooldown only counts on success — a
+                # failure must not lock the user out for 24h. Record
+                # the timestamp here, after the work returned without
+                # raising.
+                record_manual_refresh(thread_conn, datetime.now(timezone.utc))
+                manual_refresh_recorded = True
             else:
                 result = {"ok": False, "error": "Plex not configured"}
             finish_refresh_run(thread_conn, run_id, "done")
@@ -108,7 +127,12 @@ def api_refresh_recommendations(
             except Exception:
                 pass
         finally:
-            _refresh_result = result
+            _set_refresh_result(result)
+            if not manual_refresh_recorded:
+                logger.info(
+                    "Manual refresh did not complete successfully; "
+                    "cooldown timestamp NOT recorded so the user can retry."
+                )
             thread_conn.close()
 
     thread = threading.Thread(target=run, daemon=True)
@@ -125,7 +149,7 @@ def api_refresh_status(admin: str = Depends(get_current_admin)) -> JSONResponse:
     """
     conn = get_db()
     running = is_refresh_running(conn)
-    result = _refresh_result
+    result = _get_refresh_result()
     cooldown = refresh_cooldown_remaining(conn)
     cooldown_payload: dict[str, object] = {"manual_refresh_available": cooldown is None}
     if cooldown is not None:

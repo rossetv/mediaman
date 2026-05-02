@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 import time as _time
 from datetime import datetime
 from datetime import timezone as _tz
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
 from mediaman.auth.middleware import get_current_admin
@@ -46,11 +47,40 @@ def reset_share_token_limiter() -> None:
     _SHARE_TOKEN_LIMITER.reset()
 
 
+# Default and maximum slice for /api/recommended pagination (finding 22).
+# A heavy backlog (months of refreshes × 4 batches × ~24 items) can balloon
+# to several hundred suggestions; serialising that into one JSON payload
+# blocks the page until the whole table is ready. The defaults here keep
+# the page fast and let an admin paginate explicitly via ?limit&?offset.
+_RECOMMENDED_LIMIT_DEFAULT = 50
+_RECOMMENDED_LIMIT_MAX = 200
+
+
 @router.get("/api/recommended")
-def api_recommended(admin: str = Depends(get_current_admin)) -> JSONResponse:
-    """Return cached recommendations as JSON."""
+def api_recommended(
+    admin: str = Depends(get_current_admin),
+    limit: int = Query(default=_RECOMMENDED_LIMIT_DEFAULT, ge=1, le=_RECOMMENDED_LIMIT_MAX),
+    offset: int = Query(default=0, ge=0, le=10_000),
+) -> JSONResponse:
+    """Return cached recommendations as JSON, paginated.
+
+    ``limit`` defaults to 50, capped at 200; ``offset`` is bounded at
+    10,000 to prevent cheap O(n) skips through a corrupted client. The
+    response includes the full ordered slice plus the total so the UI
+    can show "showing X of Y" without a second round-trip.
+    """
     conn = get_db()
-    return JSONResponse({"recommendations": fetch_recommendations(conn)})
+    all_recs = fetch_recommendations(conn)
+    total = len(all_recs)
+    sliced = all_recs[offset : offset + limit]
+    return JSONResponse(
+        {
+            "recommendations": sliced,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
 
 
 @router.post("/api/recommended/{recommendation_id}/share-token")
@@ -96,8 +126,13 @@ def api_share_token(
 
     base_url = (get_string_setting(conn, "base_url") or "").rstrip("/")
     if not base_url:
+        # Finding 24: a missing base_url is a *server-side* config
+        # problem, not a client-side error — return 503 so monitoring
+        # alerts on it instead of treating the empty body as a normal
+        # response.
         return JSONResponse(
-            {"ok": False, "error": "Base URL not configured — cannot generate share link"}
+            {"ok": False, "error": "Base URL not configured — cannot generate share link"},
+            status_code=503,
         )
 
     ttl_days = 14
@@ -127,6 +162,30 @@ def api_share_token(
     )
 
 
+# Defence-in-depth title sanitiser (finding 23). The canonical place to
+# strip control characters is on persist (in
+# ``services/openai/recommendations/persist.py`` — out of this wave's
+# scope), but persisted rows from earlier OpenAI runs may still contain
+# them. Sanitising at use-time means we never pass a name with embedded
+# CR/LF/NUL into Arr's add_movie / add_series — those characters could
+# bleed into the eventual Radarr filename or queue label.
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _sanitise_title(title: str | None) -> str:
+    """Strip control characters and trim whitespace from *title*.
+
+    Returns an empty string if *title* is ``None``. Truncates to 256
+    chars to keep the eventual Arr request under any reasonable length
+    cap — the canonical title was already validated on the search /
+    redownload paths; this is the recommendations-side belt-and-braces.
+    """
+    if not title:
+        return ""
+    cleaned = _CONTROL_CHARS_RE.sub("", title).strip()
+    return cleaned[:256]
+
+
 def _add_rec_to_radarr(
     conn: sqlite3.Connection,
     *,
@@ -140,8 +199,9 @@ def _add_rec_to_radarr(
     if not client:
         return JSONResponse({"ok": False, "error": "Radarr not configured"})
     tmdb_id = row["tmdb_id"]
-    client.add_movie(tmdb_id, row["title"])
-    logger.info("Added movie '%s' (tmdb:%d) to Radarr", row["title"], tmdb_id)
+    safe_title = _sanitise_title(row["title"])
+    client.add_movie(tmdb_id, safe_title)
+    logger.info("Added movie '%s' (tmdb:%d) to Radarr", safe_title, tmdb_id)
     conn.execute(
         "UPDATE suggestions SET downloaded_at = ? WHERE id = ?",
         (now_iso(), recommendation_id),
@@ -150,13 +210,13 @@ def _add_rec_to_radarr(
     record_download_notification(
         conn,
         email=admin,
-        title=row["title"],
+        title=safe_title,
         media_type="movie",
         tmdb_id=tmdb_id,
         service="radarr",
     )
     conn.commit()
-    return JSONResponse({"ok": True, "message": f"Added '{row['title']}' to Radarr"})
+    return JSONResponse({"ok": True, "message": f"Added '{safe_title}' to Radarr"})
 
 
 def _add_rec_to_sonarr(
@@ -172,6 +232,7 @@ def _add_rec_to_sonarr(
     if not client:
         return JSONResponse({"ok": False, "error": "Sonarr not configured"})
     tmdb_id = row["tmdb_id"]
+    safe_title = _sanitise_title(row["title"])
     # Sonarr lookup by TMDB ID to get the authoritative TVDB ID
     results = client.lookup_by_tmdb_id(tmdb_id, endpoint="/api/v3/series/lookup")
     if not results:
@@ -179,8 +240,8 @@ def _add_rec_to_sonarr(
     tvdb_id = results[0].get("tvdbId")
     if not tvdb_id:
         return JSONResponse({"ok": False, "error": "No TVDB ID found for this show"})
-    client.add_series(tvdb_id, row["title"])
-    logger.info("Added series '%s' (tvdb:%d) to Sonarr", row["title"], tvdb_id)
+    client.add_series(tvdb_id, safe_title)
+    logger.info("Added series '%s' (tvdb:%d) to Sonarr", safe_title, tvdb_id)
     conn.execute(
         "UPDATE suggestions SET downloaded_at = ? WHERE id = ?",
         (now_iso(), recommendation_id),
@@ -191,14 +252,14 @@ def _add_rec_to_sonarr(
     record_download_notification(
         conn,
         email=admin,
-        title=row["title"],
+        title=safe_title,
         media_type="tv",
         tmdb_id=tmdb_id,
         tvdb_id=tvdb_id,
         service="sonarr",
     )
     conn.commit()
-    return JSONResponse({"ok": True, "message": f"Added '{row['title']}' to Sonarr"})
+    return JSONResponse({"ok": True, "message": f"Added '{safe_title}' to Sonarr"})
 
 
 @router.post("/api/recommended/{recommendation_id}/download")
@@ -242,8 +303,13 @@ def api_download_recommendation(
 
     except SafeHTTPError as exc:
         if exc.status_code in (409, 422):
+            # Finding 25: surface the conflict properly — returning 200
+            # made downstream clients treat "already exists" as a
+            # success path, masking the real state. 409 is the standard
+            # response for "the resource already exists".
             return JSONResponse(
-                {"ok": False, "error": f"'{row['title']}' already exists in your library"}
+                {"ok": False, "error": f"'{row['title']}' already exists in your library"},
+                status_code=409,
             )
         logger.warning(
             "Failed to add recommendation '%s': HTTP %s",
@@ -251,7 +317,13 @@ def api_download_recommendation(
             exc.status_code,
             exc_info=True,
         )
-        return JSONResponse({"ok": False, "error": "Failed to add to download queue"})
+        return JSONResponse(
+            {"ok": False, "error": "Failed to add to download queue"},
+            status_code=502,
+        )
     except Exception as exc:
         logger.warning("Failed to add recommendation '%s': %s", row["title"], exc, exc_info=True)
-        return JSONResponse({"ok": False, "error": "Failed to add to download queue"})
+        return JSONResponse(
+            {"ok": False, "error": "Failed to add to download queue"},
+            status_code=502,
+        )
