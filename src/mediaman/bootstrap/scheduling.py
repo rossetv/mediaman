@@ -58,8 +58,10 @@ def _validate_scan_time(s: str) -> tuple[int, int]:
         )
     try:
         dt = datetime.strptime(s, "%H:%M")
-    except ValueError:
-        raise ValueError(f"scan_time {s!r} is not a valid time — expected HH:MM in 24-hour format")
+    except ValueError as exc:
+        raise ValueError(
+            f"scan_time {s!r} is not a valid time — expected HH:MM in 24-hour format"
+        ) from exc
     return dt.hour, dt.minute
 
 
@@ -103,10 +105,10 @@ def _validate_scan_timezone(s: str) -> str:
         return raw
     try:
         ZoneInfo(raw)
-    except ZoneInfoNotFoundError:
-        raise ValueError(f"scan_timezone {raw!r} is not a known IANA timezone")
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError(f"scan_timezone {raw!r} is not a known IANA timezone") from exc
     except Exception as exc:
-        raise ValueError(f"scan_timezone {raw!r} is invalid: {exc}")
+        raise ValueError(f"scan_timezone {raw!r} is invalid: {exc}") from exc
     return raw
 
 
@@ -118,10 +120,10 @@ def _validate_sync_interval(s: str) -> int:
     """
     try:
         value = int(s)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as exc:
         raise ValueError(
             f"library_sync_interval {s!r} is invalid — expected a positive integer (minutes)"
-        )
+        ) from exc
     if value <= 0:
         raise ValueError(f"library_sync_interval must be a positive integer (got {value})")
     if value > 24 * 60:

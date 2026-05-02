@@ -111,6 +111,29 @@ line-length = 100
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "PT", "RUF"]
 ignore = [
     "E501",  # line too long — enforced by formatter, not linter
+    # The new selection turned up ~300 violations that need batch cleanup.
+    # Silence the noisiest noise classes for now and tighten in later
+    # passes (tracked in FINDINGS.md follow-ups). We KEEP B904 (raise from),
+    # SIM110/118, C4, UP, and the genuinely-bug B0xx rules turned on.
+    "B017",     # bare `Exception` in pytest.raises — test style, batched fix
+    "RUF001",   # ambiguous unicode in strings — copywriting choice
+    "RUF002",   # ambiguous unicode in docstrings — copywriting choice
+    "RUF003",   # ambiguous unicode in comments — copywriting choice
+    "RUF012",   # mutable class attribute — needs field(default_factory=...)
+    "RUF043",   # match= regex contains metacharacter — judgement call per test
+    "RUF059",   # unused unpacked variable — usually `_var, _ = (...)` style
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests are deliberately permissive: broad pytest.raises is fine when the
+# point of the test is "any failure path"; compound assertions inside one
+# test method are fine when each piece is part of the same scenario;
+# fixture-injection idioms vary across test styles. These rules surface
+# real value in src/ but generate noise in tests/.
+"tests/**/*.py" = [
+    "PT011",   # pytest.raises(Exception/ValueError) too broad
+    "PT018",   # compound assertion — readable per test
+    "PT019",   # fixture-without-value-as-mark — historical idiom
 ]
 
 [tool.mypy]

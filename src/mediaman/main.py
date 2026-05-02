@@ -233,8 +233,12 @@ def _resolve_bind_host() -> str:
     if explicit:
         return explicit
 
-    # /.dockerenv is the canonical Docker marker file.
-    in_container = Path("/.dockerenv").exists() or os.environ.get("container") == "docker"
+    # /.dockerenv is the canonical Docker marker file. systemd/podman/lxc set
+    # the lowercase `container` env var by convention; SIM112's "use uppercase"
+    # advice doesn't apply since the variable name is dictated by the runtime.
+    in_container = (
+        Path("/.dockerenv").exists() or os.environ.get("container") == "docker"  # noqa: SIM112
+    )
     # Inside a container the only route into the process is the published
     # port — binding to 0.0.0.0 is required, not an exposure bug.
     return "0.0.0.0" if in_container else "127.0.0.1"  # nosec B104
