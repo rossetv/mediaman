@@ -43,6 +43,55 @@ class TestRadarrClient:
         put_call = _find_call(fake_http, "PUT")
         assert put_call[2]["json"]["monitored"] is False
 
+    def test_unmonitor_movie_noop_when_already_unmonitored(self, client, fake_http, fake_response):
+        """Already-unmonitored movies short-circuit before issuing a PUT."""
+        fake_http.queue(
+            "GET", fake_response(json_data={"id": 1, "title": "Test", "monitored": False})
+        )
+        client.unmonitor_movie(movie_id=1)
+        assert _find_call(fake_http, "PUT") is None
+
+    def test_unmonitor_movie_retries_on_failed_put(self, client, fake_http, fake_response):
+        """If the PUT fails, a fresh GET + retry succeeds."""
+        fake_http.queue(
+            "GET", fake_response(json_data={"id": 1, "title": "Test", "monitored": True})
+        )
+        fake_http.queue("PUT", fake_response(status=409, text="conflict"))
+        fake_http.queue(
+            "GET", fake_response(json_data={"id": 1, "title": "Test", "monitored": True})
+        )
+        fake_http.queue("PUT", fake_response(status=202, content=b""))
+        client.unmonitor_movie(movie_id=1, max_retries=3)
+        puts = [c for c in fake_http.calls if c[0] == "PUT"]
+        assert len(puts) == 2
+        assert puts[-1][2]["json"]["monitored"] is False
+
+    def test_unmonitor_movie_aborts_when_concurrent_writer_changes_flag(
+        self, client, fake_http, fake_response
+    ):
+        """If a concurrent writer sets monitored=False between attempts, exit cleanly."""
+        fake_http.queue(
+            "GET", fake_response(json_data={"id": 1, "title": "Test", "monitored": True})
+        )
+        fake_http.queue("PUT", fake_response(status=409, text="conflict"))
+        fake_http.queue(
+            "GET", fake_response(json_data={"id": 1, "title": "Test", "monitored": False})
+        )
+        client.unmonitor_movie(movie_id=1, max_retries=3)
+        puts = [c for c in fake_http.calls if c[0] == "PUT"]
+        # Only the failed first PUT — no clobbering retry.
+        assert len(puts) == 1
+
+    def test_delete_movie_coerces_movie_id_to_int(self, client, fake_http, fake_response):
+        """Defensive int() prevents URL-extension via a string id."""
+        fake_http.queue("DELETE", fake_response(content=b""))
+        client.delete_movie(movie_id=42)
+        delete_call = _find_call(fake_http, "DELETE")
+        assert "/api/v3/movie/42?" in delete_call[1]
+        # Non-int strings raise rather than slipping through.
+        with pytest.raises(ValueError):
+            client.delete_movie(movie_id="42?evil=1")  # type: ignore[arg-type]
+
     def test_remonitor_movie(self, client, fake_http, fake_response):
         fake_http.queue(
             "GET", fake_response(json_data={"id": 1, "title": "Test", "monitored": False})
@@ -67,7 +116,12 @@ class TestRadarrClient:
         assert "radarr:7878/api/v3/command" in post_call[1]
 
     def test_add_movie_sends_correct_payload(self, client, fake_http, fake_response):
+        # GET /rootfolder + GET /qualityprofile (in that order) — both must be present.
         fake_http.queue("GET", fake_response(json_data=[{"path": "/movies"}]))
+        fake_http.queue(
+            "GET",
+            fake_response(json_data=[{"id": 6, "name": "Any"}, {"id": 8, "name": "HD"}]),
+        )
         fake_http.queue("POST", fake_response(status=201, json_data={"id": 42}))
         result = client.add_movie(tmdb_id=12345, title="Dune")
         post_call = _find_call(fake_http, "POST")
@@ -76,16 +130,44 @@ class TestRadarrClient:
         assert payload["monitored"] is True
         assert payload["addOptions"]["searchForMovie"] is True
         assert payload["rootFolderPath"] == "/movies"
+        # Picks the lowest-numbered profile id rather than a hardcoded default.
+        assert payload["qualityProfileId"] == 6
         assert result["id"] == 42
 
-    def test_add_movie_falls_back_to_default_root_when_rootfolder_empty(
+    def test_add_movie_raises_when_no_root_folder(self, client, fake_http, fake_response):
+        """Empty rootfolder list now fails loudly instead of inventing /movies."""
+        fake_http.queue("GET", fake_response(json_data=[]))
+        with pytest.raises(RuntimeError, match="no root folders configured"):
+            client.add_movie(tmdb_id=1, title="Test")
+
+    def test_add_movie_raises_when_no_quality_profile(self, client, fake_http, fake_response):
+        """Empty qualityprofile list now fails loudly rather than picking id=4."""
+        fake_http.queue("GET", fake_response(json_data=[{"path": "/movies"}]))
+        fake_http.queue("GET", fake_response(json_data=[]))
+        with pytest.raises(RuntimeError, match="no quality profiles configured"):
+            client.add_movie(tmdb_id=1, title="Test")
+
+    def test_add_movie_rejects_non_positive_tmdb_id(self, client, fake_http):
+        with pytest.raises(ValueError, match="tmdb_id must be positive"):
+            client.add_movie(tmdb_id=0, title="Test")
+        with pytest.raises(ValueError, match="tmdb_id must be positive"):
+            client.add_movie(tmdb_id=-7, title="Test")
+        # No HTTP calls should have been made — validation happens first.
+        assert fake_http.calls == []
+
+    def test_add_movie_caches_root_folder_and_quality_profile(
         self, client, fake_http, fake_response
     ):
-        fake_http.queue("GET", fake_response(json_data=[]))
-        fake_http.queue("POST", fake_response(status=201, json_data={"id": 99}))
-        client.add_movie(tmdb_id=1, title="Test")
-        post_call = _find_call(fake_http, "POST")
-        assert post_call[2]["json"]["rootFolderPath"] == "/movies"
+        """Two adds in a row issue one GET each, not two."""
+        fake_http.queue("GET", fake_response(json_data=[{"path": "/movies"}]))
+        fake_http.queue("GET", fake_response(json_data=[{"id": 5}]))
+        fake_http.queue("POST", fake_response(status=201, json_data={"id": 1}))
+        fake_http.queue("POST", fake_response(status=201, json_data={"id": 2}))
+        client.add_movie(tmdb_id=11, title="A")
+        client.add_movie(tmdb_id=12, title="B")
+        gets = [c for c in fake_http.calls if c[0] == "GET"]
+        assert sum("/rootfolder" in g[1] for g in gets) == 1
+        assert sum("/qualityprofile" in g[1] for g in gets) == 1
 
     def test_get_queue_single_page_returns_all_records(self, client, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data={"records": [{"id": 1}], "totalRecords": 1}))

@@ -53,6 +53,109 @@ class TestSonarrClient:
         season_2 = next(s for s in put_call[2]["json"]["seasons"] if s["seasonNumber"] == 2)
         assert season_2["monitored"] is False
 
+    def test_unmonitor_season_noop_when_already_unmonitored(self, client, fake_http, fake_response):
+        """Already-unmonitored seasons short-circuit before issuing a PUT."""
+        fake_http.queue(
+            "GET",
+            fake_response(
+                json_data={
+                    "id": 1,
+                    "title": "X",
+                    "seasons": [{"seasonNumber": 2, "monitored": False}],
+                }
+            ),
+        )
+        client.unmonitor_season(series_id=1, season_number=2)
+        assert _calls(fake_http, "PUT") == []
+
+    def test_unmonitor_season_raises_when_season_missing(self, client, fake_http, fake_response):
+        """Missing season number now fails loudly rather than silently no-oping."""
+        fake_http.queue(
+            "GET",
+            fake_response(
+                json_data={
+                    "id": 1,
+                    "title": "X",
+                    "seasons": [{"seasonNumber": 1, "monitored": True}],
+                }
+            ),
+        )
+        with pytest.raises(ValueError, match="no season 99"):
+            client.unmonitor_season(series_id=1, season_number=99)
+
+    def test_unmonitor_season_retries_on_concurrent_modification(
+        self, client, fake_http, fake_response
+    ):
+        """If the PUT fails (e.g. 409), a fresh GET + retry succeeds."""
+        # Round 1: GET says monitored=True, PUT fails (server-side concurrent edit).
+        fake_http.queue(
+            "GET",
+            fake_response(
+                json_data={
+                    "id": 1,
+                    "title": "X",
+                    "seasons": [{"seasonNumber": 2, "monitored": True}],
+                }
+            ),
+        )
+        fake_http.queue("PUT", fake_response(status=409, text="conflict"))
+        # Round 2: GET still says monitored=True (PUT will now succeed).
+        fake_http.queue(
+            "GET",
+            fake_response(
+                json_data={
+                    "id": 1,
+                    "title": "X",
+                    "seasons": [{"seasonNumber": 2, "monitored": True}],
+                }
+            ),
+        )
+        fake_http.queue("PUT", fake_response(status=202, content=b""))
+
+        client.unmonitor_season(series_id=1, season_number=2, max_retries=3)
+        # Two PUT attempts and the final one wrote monitored=False.
+        puts = _calls(fake_http, "PUT")
+        assert len(puts) == 2
+        season = next(s for s in puts[-1][2]["json"]["seasons"] if s["seasonNumber"] == 2)
+        assert season["monitored"] is False
+
+    def test_unmonitor_season_aborts_when_concurrent_writer_changes_flag(
+        self, client, fake_http, fake_response
+    ):
+        """Another writer flips ``monitored`` between GET and re-GET — exit cleanly.
+
+        First attempt: monitored=True, PUT fails. On retry the GET now
+        reports monitored=False — i.e. another writer beat us to it. The
+        client should detect the change and exit cleanly without issuing
+        a stale PUT.
+        """
+        fake_http.queue(
+            "GET",
+            fake_response(
+                json_data={
+                    "id": 1,
+                    "title": "X",
+                    "seasons": [{"seasonNumber": 2, "monitored": True}],
+                }
+            ),
+        )
+        fake_http.queue("PUT", fake_response(status=409, text="conflict"))
+        # Re-GET: another writer set it to False.
+        fake_http.queue(
+            "GET",
+            fake_response(
+                json_data={
+                    "id": 1,
+                    "title": "X",
+                    "seasons": [{"seasonNumber": 2, "monitored": False}],
+                }
+            ),
+        )
+
+        client.unmonitor_season(series_id=1, season_number=2, max_retries=3)
+        # Only the original (failed) PUT — no clobbering retry.
+        assert len(_calls(fake_http, "PUT")) == 1
+
     def test_remonitor_season(self, client, fake_http, fake_response):
         fake_http.queue(
             "GET",
@@ -104,7 +207,12 @@ class TestSonarrClient:
         assert client.get_episodes(1) == []
 
     def test_add_series_sends_correct_payload(self, client, fake_http, fake_response):
+        # GET /rootfolder + GET /qualityprofile (in that order) — both must be present.
         fake_http.queue("GET", fake_response(json_data=[{"path": "/tv"}]))
+        fake_http.queue(
+            "GET",
+            fake_response(json_data=[{"id": 6, "name": "Any"}, {"id": 8, "name": "HD"}]),
+        )
         fake_http.queue("POST", fake_response(status=201, json_data={"id": 10}))
         result = client.add_series(tvdb_id=999, title="Severance")
         post = _calls(fake_http, "POST")[0]
@@ -113,14 +221,45 @@ class TestSonarrClient:
         assert payload["monitored"] is True
         assert payload["addOptions"]["searchForMissingEpisodes"] is True
         assert payload["rootFolderPath"] == "/tv"
+        # Picks the lowest-numbered profile id rather than a hardcoded default.
+        assert payload["qualityProfileId"] == 6
         assert result["id"] == 10
 
-    def test_add_series_falls_back_to_default_root(self, client, fake_http, fake_response):
+    def test_add_series_raises_when_no_root_folder(self, client, fake_http, fake_response):
+        """Empty rootfolder list now fails loudly instead of inventing /tv."""
         fake_http.queue("GET", fake_response(json_data=[]))
-        fake_http.queue("POST", fake_response(status=201, json_data={"id": 5}))
-        client.add_series(tvdb_id=1, title="Test")
-        post = _calls(fake_http, "POST")[0]
-        assert post[2]["json"]["rootFolderPath"] == "/tv"
+        with pytest.raises(RuntimeError, match="no root folders configured"):
+            client.add_series(tvdb_id=1, title="Test")
+
+    def test_add_series_raises_when_no_quality_profile(self, client, fake_http, fake_response):
+        """Empty qualityprofile list now fails loudly rather than picking id=4."""
+        fake_http.queue("GET", fake_response(json_data=[{"path": "/tv"}]))
+        fake_http.queue("GET", fake_response(json_data=[]))
+        with pytest.raises(RuntimeError, match="no quality profiles configured"):
+            client.add_series(tvdb_id=1, title="Test")
+
+    def test_add_series_rejects_non_positive_tvdb_id(self, client, fake_http):
+        with pytest.raises(ValueError, match="tvdb_id must be positive"):
+            client.add_series(tvdb_id=0, title="Test")
+        with pytest.raises(ValueError, match="tvdb_id must be positive"):
+            client.add_series(tvdb_id=-1, title="Test")
+        # No HTTP calls should have been made — validation happens first.
+        assert fake_http.calls == []
+
+    def test_add_series_caches_root_folder_and_quality_profile(
+        self, client, fake_http, fake_response
+    ):
+        """Two adds in a row issue one GET each, not two."""
+        fake_http.queue("GET", fake_response(json_data=[{"path": "/tv"}]))
+        fake_http.queue("GET", fake_response(json_data=[{"id": 5}]))
+        fake_http.queue("POST", fake_response(status=201, json_data={"id": 1}))
+        fake_http.queue("POST", fake_response(status=201, json_data={"id": 2}))
+        client.add_series(tvdb_id=11, title="A")
+        client.add_series(tvdb_id=12, title="B")
+        gets = _calls(fake_http, "GET")
+        # Only one /rootfolder and one /qualityprofile across both calls.
+        assert sum("/rootfolder" in g[1] for g in gets) == 1
+        assert sum("/qualityprofile" in g[1] for g in gets) == 1
 
     def test_get_queue_single_page(self, client, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data={"records": [{"id": 1}], "totalRecords": 1}))
@@ -139,6 +278,16 @@ class TestSonarrClient:
     def test_get_queue_empty(self, client, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data={"records": [], "totalRecords": 0}))
         assert client.get_queue() == []
+
+    def test_delete_series_coerces_id_to_int(self, client, fake_http, fake_response):
+        """Defensive int() prevents URL-extension via a string id."""
+        fake_http.queue("DELETE", fake_response(content=b""))
+        client.delete_series(series_id=42)
+        delete_call = _calls(fake_http, "DELETE")[0]
+        assert "/api/v3/series/42?" in delete_call[1]
+        # Non-int strings raise rather than slipping through.
+        with pytest.raises(ValueError):
+            client.delete_series(series_id="42?evil=1")  # type: ignore[arg-type]
 
 
 class TestLookupSeriesByTmdb:
@@ -188,7 +337,9 @@ class TestAddSeriesWithSeasons:
                 ],
             }
         ]
+        # rootfolder, qualityprofile, lookup
         fake_http.queue("GET", fake_response(json_data=[{"path": "/tv"}]))
+        fake_http.queue("GET", fake_response(json_data=[{"id": 3}]))
         fake_http.queue("GET", fake_response(json_data=lookup_result))
         fake_http.queue("POST", fake_response(status=201, json_data={"id": 42}))
         fake_http.queue("POST", fake_response(status=201, json_data={}))
@@ -205,6 +356,7 @@ class TestAddSeriesWithSeasons:
         assert add_body["addOptions"]["searchForMissingEpisodes"] is False
         by_num = {s["seasonNumber"]: s["monitored"] for s in add_body["seasons"]}
         assert by_num == {0: False, 1: True, 2: True, 3: False, 4: False, 5: False}
+        assert add_body["qualityProfileId"] == 3
 
         search_calls = [c for c in posts if "/api/v3/command" in c[1]]
         assert len(search_calls) == 1
@@ -216,6 +368,7 @@ class TestAddSeriesWithSeasons:
 
     def test_no_search_when_search_seasons_empty(self, client, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data=[{"path": "/tv"}]))
+        fake_http.queue("GET", fake_response(json_data=[{"id": 9}]))
         fake_http.queue(
             "GET",
             fake_response(
@@ -239,6 +392,15 @@ class TestAddSeriesWithSeasons:
 
         command_calls = [c for c in _calls(fake_http, "POST") if "/api/v3/command" in c[1]]
         assert command_calls == []
+
+    def test_rejects_non_positive_tvdb_id(self, client, fake_http):
+        with pytest.raises(ValueError, match="tvdb_id must be positive"):
+            client.add_series_with_seasons(
+                tvdb_id=0,
+                title="X",
+                monitored_seasons=[],
+                search_seasons=[],
+            )
 
 
 class TestDeleteEpisodeFiles:
