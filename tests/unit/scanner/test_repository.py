@@ -2,8 +2,8 @@
 
 Covers: upsert_media_item, update_last_watched, count_items_in_libraries,
 fetch_ids_in_libraries, delete_media_items, is_protected, is_already_scheduled,
-has_expired_snooze, is_show_kept, read_delete_allowed_roots_setting,
-cleanup_expired_snoozes.
+has_expired_snooze, is_show_kept, cleanup_expired_show_snoozes,
+read_delete_allowed_roots_setting, cleanup_expired_snoozes, schedule_deletion.
 """
 
 import json
@@ -423,6 +423,15 @@ class TestIsShowKept:
         assert repository.is_show_kept(conn, "rk2") is True
 
     def test_expired_snooze_returns_false_and_cleans_up(self, conn):
+        """``is_show_kept`` reports ``False`` for an expired snoozed keep
+        and sweeps the row away as part of the same call.
+
+        Domain 05: the read and the cleanup are now expressed as two
+        separate helpers (``_is_show_kept_pure`` and
+        ``cleanup_expired_show_snoozes``); this top-level function
+        composes them so the legacy "ask + clean" contract observed by
+        the scan engine still holds.
+        """
         past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
         conn.execute(
             "INSERT INTO kept_shows (show_rating_key, show_title, action, execute_at, created_at) "
@@ -437,8 +446,88 @@ class TestIsShowKept:
             conn.execute("SELECT id FROM kept_shows WHERE show_rating_key='rk3'").fetchone() is None
         )
 
+    def test_pure_read_helper_does_not_mutate(self, conn):
+        """Domain 05: the underlying ``_is_show_kept_pure`` helper is
+        side-effect-free — it never touches the DB even when the row is
+        an expired snooze.
+        """
+        past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        conn.execute(
+            "INSERT INTO kept_shows (show_rating_key, show_title, action, execute_at, created_at) "
+            "VALUES ('rk-pure', 'Show', 'snoozed', ?, '2026-01-01')",
+            (past,),
+        )
+        conn.commit()
+        result = repository._is_show_kept_pure(conn, "rk-pure")
+        assert result is False
+        assert (
+            conn.execute(
+                "SELECT id FROM kept_shows WHERE show_rating_key='rk-pure'"
+            ).fetchone()
+            is not None
+        )
+
     def test_unknown_show_returns_false(self, conn):
         assert repository.is_show_kept(conn, "unknown-rk") is False
+
+
+# ---------------------------------------------------------------------------
+# cleanup_expired_show_snoozes  (Domain 05 — split from is_show_kept)
+# ---------------------------------------------------------------------------
+
+
+class TestCleanupExpiredShowSnoozes:
+    def test_removes_expired_snoozed_kept_show(self, conn):
+        past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        conn.execute(
+            "INSERT INTO kept_shows (show_rating_key, show_title, action, execute_at, created_at) "
+            "VALUES ('rk-exp', 'Show', 'snoozed', ?, '2026-01-01')",
+            (past,),
+        )
+        conn.commit()
+        removed = repository.cleanup_expired_show_snoozes(
+            conn, datetime.now(timezone.utc).isoformat()
+        )
+        conn.commit()
+        assert removed == 1
+        assert (
+            conn.execute("SELECT id FROM kept_shows WHERE show_rating_key='rk-exp'").fetchone()
+            is None
+        )
+
+    def test_keeps_active_snoozed_kept_show(self, conn):
+        future = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        conn.execute(
+            "INSERT INTO kept_shows (show_rating_key, show_title, action, execute_at, created_at) "
+            "VALUES ('rk-fut', 'Show', 'snoozed', ?, '2026-01-01')",
+            (future,),
+        )
+        conn.commit()
+        removed = repository.cleanup_expired_show_snoozes(
+            conn, datetime.now(timezone.utc).isoformat()
+        )
+        assert removed == 0
+        assert (
+            conn.execute("SELECT id FROM kept_shows WHERE show_rating_key='rk-fut'").fetchone()
+            is not None
+        )
+
+    def test_does_not_touch_protected_forever(self, conn):
+        """``protected_forever`` rows have ``execute_at IS NULL``; they must
+        survive the cleanup unconditionally."""
+        conn.execute(
+            "INSERT INTO kept_shows (show_rating_key, show_title, action, created_at) "
+            "VALUES ('rk-pf', 'Show', 'protected_forever', '2026-01-01')"
+        )
+        conn.commit()
+        removed = repository.cleanup_expired_show_snoozes(
+            conn, datetime.now(timezone.utc).isoformat()
+        )
+        assert removed == 0
+        assert (
+            conn.execute("SELECT id FROM kept_shows WHERE show_rating_key='rk-pf'").fetchone()
+            is not None
+        )
 
 
 # ---------------------------------------------------------------------------
