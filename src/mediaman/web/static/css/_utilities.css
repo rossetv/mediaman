@@ -23,6 +23,11 @@
 .u-hidden-hint { display: none; }
 .d-inline   { display: inline-block; }
 .is-visible { display: inline-flex !important; }
+/* Drop-in replacement for inline style="display:none" attributes —
+   dropping those is what lets the CSP style-src lose 'unsafe-inline'.
+   Page-level JS toggles with classList.add/remove('is-hidden'); CSS
+   wins the cascade because the rule is specificity 0,1,0. */
+.is-hidden { display: none !important; }
 /* Semantic colour utilities — preferred over inline style="color:…" */
 .text-t1      { color: var(--t1); }
 .text-success { color: var(--success); }
