@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
@@ -17,14 +19,41 @@ _NZBGET_MAX_BYTES = 1 * 1024 * 1024
 
 
 def _is_lan_host(url: str) -> bool:
-    """Return True when *url*'s host looks like a LAN/loopback address."""
-    from urllib.parse import urlparse
+    """Return True when *url*'s host looks like a LAN/loopback address.
 
+    Uses :mod:`ipaddress` to evaluate every RFC1918 / loopback / link-local /
+    ULA range correctly, including the previously-missed:
+
+    * ``172.16.0.0/12`` — the third RFC1918 v4 block.
+    * ``::1/128`` — IPv6 loopback.
+    * ``fc00::/7`` — unique local addresses (RFC4193).
+    * ``fe80::/10`` — IPv6 link-local.
+
+    The plain string-prefix check this replaced (``"127."``, ``"10."``,
+    ``"192.168."``) silently misclassified any of the above as
+    "internet-side" and therefore noisily warned about plain-HTTP
+    credentials on a perfectly LAN-local NZBGet.
+    """
     try:
         host = urlparse(url).hostname or ""
     except Exception:
         return False
-    return host == "localhost" or any(host.startswith(p) for p in ("127.", "10.", "192.168."))
+    if not host:
+        return False
+    if host == "localhost":
+        return True
+    # Strip IPv6 brackets if present — urlparse leaves them off, but a
+    # literal IPv6 host could still arrive here from a misconfigured URL.
+    candidate = host.strip("[]")
+    try:
+        addr = ipaddress.ip_address(candidate)
+    except ValueError:
+        # Hostname rather than literal IP — we cannot resolve it here
+        # without DNS (and doing so would defeat the purpose of the
+        # warning).  Be conservative: assume non-LAN so the operator
+        # still sees the plain-HTTP advisory.
+        return False
+    return addr.is_loopback or addr.is_private or addr.is_link_local
 
 
 class NzbgetClient:

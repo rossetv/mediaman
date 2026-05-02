@@ -67,3 +67,65 @@ def test_unknown_errno_falls_back_to_chown_hint():
     advice = _remediation_for(exc)
     assert "chown -R" in advice
     assert "errno=" in advice
+
+
+def test_bootstrap_db_uses_pathlib_join_for_db_path(tmp_path, monkeypatch):
+    """``Path / 'mediaman.db'`` joining — finding 13.
+
+    A trailing slash on ``MEDIAMAN_DATA_DIR`` previously produced
+    ``//mediaman.db`` because of the f-string concatenation. Path
+    division squashes that.
+    """
+    from dataclasses import dataclass
+
+    from mediaman.bootstrap.db import bootstrap_db
+
+    @dataclass
+    class _Config:
+        data_dir: str = ""
+        secret_key: str = "x"
+
+    class _State:
+        pass
+
+    class _App:
+        state = _State()
+
+    cfg = _Config(data_dir=str(tmp_path) + "/")  # trailing slash
+    app = _App()
+    bootstrap_db(app, cfg)
+
+    expected = str(tmp_path / "mediaman.db")
+    assert app.state.db_path == expected
+    assert "//" not in app.state.db_path
+    app.state.db.close()
+
+
+def test_bootstrap_db_mkdir_failure_raises_data_dir_not_writable(monkeypatch, tmp_path):
+    """Finding 12: a mkdir error surfaces as DataDirNotWritableError, not OSError."""
+    from dataclasses import dataclass
+    from pathlib import Path
+
+    from mediaman.bootstrap.db import DataDirNotWritableError, bootstrap_db
+
+    @dataclass
+    class _Config:
+        data_dir: str = str(tmp_path / "child")
+        secret_key: str = "x"
+
+    class _State:
+        pass
+
+    class _App:
+        state = _State()
+
+    def boom(self, *_a, **_kw):
+        raise PermissionError(13, "permission denied")
+
+    monkeypatch.setattr(Path, "mkdir", boom)
+
+    with pytest.raises(DataDirNotWritableError) as excinfo:
+        bootstrap_db(_App(), _Config())
+    msg = str(excinfo.value)
+    assert "could not be created" in msg
+    assert "chown" in msg

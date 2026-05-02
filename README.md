@@ -46,9 +46,13 @@ All integration credentials are stored **encrypted at rest** (AES-256-GCM, key d
    mkdir -p data && chown 1000:1000 data
    docker compose up -d
    ```
-5. Create the first admin user:
+5. Create the first admin user. The command prompts for both username and password interactively (use `-it` so the prompt is wired up):
    ```
-   docker compose exec mediaman mediaman-create-user
+   docker compose exec -it mediaman mediaman-create-user
+   ```
+   For non-interactive provisioning, pipe the password via stdin (avoids leaking it through shell history or the process table):
+   ```
+   printf '%s' "$ADMIN_PW" | docker compose exec -T mediaman mediaman-create-user --username admin --password-stdin
    ```
 6. Open the web UI (default port 8282) and complete setup in Settings.
 
@@ -81,8 +85,8 @@ All service credentials (Plex, Sonarr, Radarr, NZBGet, Mailgun, TMDB, OMDb, Open
 | `MEDIAMAN_SECRET_KEY` | **Yes** | — | Master key for encrypting stored credentials and signing tokens. Must be strong (>=64 hex chars). |
 | `MEDIAMAN_PORT` | No | `8282` | Web server port. |
 | `MEDIAMAN_DATA_DIR` | No | `/data` | Directory for the SQLite database. |
-| `MEDIAMAN_BIND_HOST` | No | `127.0.0.1` | Host address uvicorn binds to. Set to `0.0.0.0` inside Docker. |
-| `MEDIAMAN_TRUSTED_PROXIES` | No | (empty) | Comma-separated list of trusted reverse-proxy IPs; required if you sit behind a reverse proxy and rely on `X-Forwarded-For` / `X-Forwarded-Proto`. |
+| `MEDIAMAN_BIND_HOST` | No | auto | Host address uvicorn binds to. Defaults to `0.0.0.0` inside Docker (the published port is the only inbound route) and `127.0.0.1` on bare metal. Set explicitly to override either default. |
+| `MEDIAMAN_TRUSTED_PROXIES` | No | (empty) | Comma-separated list of trusted reverse-proxy IPs or CIDRs; required if you sit behind a reverse proxy and rely on `X-Forwarded-For` / `X-Forwarded-Proto`. Wildcard values (`*`, `0.0.0.0/0`, `::/0`) are rejected with a CRITICAL log line — they would let any peer set `X-Forwarded-For` and bypass per-IP rate limits. |
 | `MEDIAMAN_DELETE_ROOTS` | No | (empty) | Colon-separated list of allowed filesystem roots for deletion (e.g. `/media:/media2`). **Required for deletion to work** — mediaman fails closed if unset. |
 | `TZ` | No | `UTC` | Timezone used by the scheduler. |
 

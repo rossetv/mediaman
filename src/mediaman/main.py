@@ -1,6 +1,8 @@
 """Mediaman application entry point."""
 
+import ipaddress
 import logging
+import os
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -18,12 +20,19 @@ from mediaman.bootstrap import (
     shutdown_scheduling,
 )
 from mediaman.bootstrap.db import DataDirNotWritableError
-from mediaman.config import load_config
+from mediaman.config import ConfigError, load_config
 
 logger = logging.getLogger("mediaman")
 
 _STATIC_DIR = Path(__file__).parent / "web" / "static"
 _TEMPLATE_DIR = Path(__file__).parent / "web" / "templates"
+
+# Wildcard tokens uvicorn happily accepts but mediaman refuses: both
+# expand "trust this proxy" to "trust every peer", and uvicorn's
+# proxy_headers handler rewrites ``request.client.host`` from the
+# X-Forwarded-For header before our rate-limiter sees it. With either
+# value set, an attacker controls the IP the rate-limiter buckets on.
+_FORBIDDEN_TRUSTED_PROXY_TOKENS = frozenset({"*", "0.0.0.0/0", "::/0"})
 
 
 @asynccontextmanager
@@ -38,17 +47,38 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # type: ignore[return]
        refuses to spawn background jobs that would silently fail.
     3. Scheduling — opt-in; failures here are logged but do NOT take
        the web UI down.
+
+    Fatal startup errors are converted into a single clean log line
+    followed by ``sys.exit(1)`` rather than allowed to surface as an
+    ASGI traceback. The traceback path buries the actionable line under
+    fifteen frames of uvicorn/FastAPI internals; the single-line path
+    fits in an orchestrator's restart-loop log without truncation.
     """
-    config = load_config()
+    try:
+        config = load_config()
+    except ConfigError as exc:
+        logger.critical("Configuration error at startup: %s", exc)
+        sys.exit(1)
+
     try:
         bootstrap_db(app, config)
     except DataDirNotWritableError as exc:
-        # Surface as a single clean line; suppress the ASGI traceback that
-        # would otherwise bury the actionable message in a stack of
-        # FastAPI/uvicorn frames.
         logger.critical("%s", exc)
         sys.exit(1)
-    bootstrap_crypto(app, config)
+    except Exception as exc:
+        # Anything else from the DB layer is fatal — a corrupt schema,
+        # a broken migration, an exhausted file descriptor. Logging the
+        # exception preserves the traceback for debugging while the
+        # process exits cleanly so the orchestrator restarts us.
+        logger.critical("Database bootstrap failed at startup: %s", exc, exc_info=True)
+        sys.exit(1)
+
+    try:
+        bootstrap_crypto(app, config)
+    except Exception as exc:  # pragma: no cover — bootstrap_crypto already swallows
+        logger.critical("Crypto bootstrap failed at startup: %s", exc, exc_info=True)
+        sys.exit(1)
+
     scheduler_started = bootstrap_scheduling(app, config)
 
     # Reconcile any in-flight manual delete operations that crashed
@@ -163,15 +193,25 @@ def create_app() -> FastAPI:
         operationally broken. Returning 503 here gives orchestrators a
         signal they can switch their healthcheck to without confusing
         liveness and readiness.
+
+        When the probe is failing the body now carries the *reason* —
+        the last scheduler bootstrap error stashed on
+        ``app.state.scheduler_error`` — so an operator looking at the
+        orchestrator status doesn't have to ssh into the container and
+        tail the python logs to discover *why*.
         """
         scheduler_healthy = bool(getattr(app.state, "scheduler_healthy", False))
         canary_ok = bool(getattr(app.state, "canary_ok", True))
         ready = scheduler_healthy and canary_ok
-        body = {
+        body: dict[str, str] = {
             "status": "ready" if ready else "not_ready",
             "scheduler": "ok" if scheduler_healthy else "down",
             "crypto": "ok" if canary_ok else "down",
         }
+        if not ready:
+            scheduler_error = getattr(app.state, "scheduler_error", None)
+            if scheduler_error:
+                body["scheduler_error"] = str(scheduler_error)
         return JSONResponse(body, status_code=200 if ready else 503)
 
     return app
@@ -189,9 +229,6 @@ def _resolve_bind_host() -> str:
     Operators can override either default by setting ``MEDIAMAN_BIND_HOST``
     explicitly.
     """
-    import os
-    from pathlib import Path
-
     explicit = os.environ.get("MEDIAMAN_BIND_HOST", "").strip()
     if explicit:
         return explicit
@@ -217,9 +254,11 @@ def _enforce_single_worker() -> None:
     operator who exports either by accident sees an immediate error
     rather than a half-broken deployment. ``UVICORN_WORKERS`` is also
     inspected because uvicorn itself respects it.
-    """
-    import os
 
+    Unparseable values (``WORKERS=auto``, ``WORKERS=$()``, a stray
+    comment) used to be silently treated as "unset"; they now log a
+    WARNING so a typo never reaches a half-broken deployment unannounced.
+    """
     candidates = ("MEDIAMAN_WORKERS", "UVICORN_WORKERS", "WORKERS")
     for name in candidates:
         raw = (os.environ.get(name) or "").strip()
@@ -228,6 +267,14 @@ def _enforce_single_worker() -> None:
         try:
             value = int(raw)
         except ValueError:
+            logger.warning(
+                "Ignoring %s=%r — value is not an integer. Set %s to 1 (or "
+                "unset it) to silence this warning; mediaman requires a "
+                "single worker.",
+                name,
+                raw,
+                name,
+            )
             continue
         if value > 1:
             logger.error(
@@ -245,6 +292,61 @@ def _enforce_single_worker() -> None:
             )
 
 
+def _sanitise_trusted_proxies(raw: str) -> str:
+    """Return a sanitised ``forwarded_allow_ips`` value or empty string.
+
+    Uvicorn accepts ``"*"`` and ``"0.0.0.0/0"`` as "trust every peer".
+    The internal IP-resolver tries to parse ``"*"``, fails, and returns
+    an empty list — but uvicorn has ALREADY mutated
+    ``request.client.host`` from the ``X-Forwarded-For`` header by then.
+    The result is a per-IP rate-limit that buckets every request on an
+    attacker-supplied address.
+
+    Sanitisation rules:
+
+    * Reject the literal wildcards in :data:`_FORBIDDEN_TRUSTED_PROXY_TOKENS`
+      with a ``CRITICAL`` log line; return the empty string so
+      :func:`cli_main` falls through to the proxy-headers-OFF branch.
+    * Drop any entry that fails :class:`ipaddress.ip_network` parsing
+      (single IPs are accepted because ``ip_network('10.0.0.1')`` is a
+      valid /32 network); log a WARNING per dropped entry so a typo is
+      visible.
+    * Return the surviving entries comma-joined; uvicorn accepts that
+      shape unchanged.
+
+    Empty/whitespace input returns the empty string — caller treats that
+    as "no proxy trust configured".
+    """
+    if not raw or not raw.strip():
+        return ""
+
+    cleaned: list[str] = []
+    for entry in raw.split(","):
+        token = entry.strip()
+        if not token:
+            continue
+        if token in _FORBIDDEN_TRUSTED_PROXY_TOKENS:
+            logger.critical(
+                "Refusing wildcard MEDIAMAN_TRUSTED_PROXIES entry %r — "
+                "this would let any peer set X-Forwarded-For and bypass "
+                "per-IP rate limits. Drop it from the env var; only "
+                "specific reverse-proxy IPs/CIDRs are accepted.",
+                token,
+            )
+            continue
+        try:
+            ipaddress.ip_network(token, strict=False)
+        except ValueError:
+            logger.warning(
+                "Ignoring invalid MEDIAMAN_TRUSTED_PROXIES entry %r — "
+                "not a valid IP address or CIDR.",
+                token,
+            )
+            continue
+        cleaned.append(token)
+    return ",".join(cleaned)
+
+
 def cli_main() -> None:
     """CLI entry point — run the server or handle subcommands."""
     if len(sys.argv) > 1 and sys.argv[1] == "create-user":
@@ -258,20 +360,31 @@ def cli_main() -> None:
 
     import uvicorn
 
-    config = load_config()
+    try:
+        config = load_config()
+    except ConfigError as exc:
+        # ``load_config`` is also called inside the lifespan, so the
+        # error would surface there too — but if we wait, the operator
+        # sees uvicorn's ASGI startup failure traceback rather than the
+        # one-line config error. Catch here so the CLI exits cleanly
+        # with the actionable message before uvicorn is even imported.
+        print(f"Error: configuration is invalid: {exc}", file=sys.stderr)
+        sys.exit(1)
+
     app = create_app()
 
     # If the operator has not set MEDIAMAN_BIND_HOST explicitly, defer to
     # the Docker-aware resolver so a containerised deployment binds to
     # 0.0.0.0 rather than the unreachable container loopback.
     bind_host = config.bind_host or _resolve_bind_host()
-    trusted_proxies = config.trusted_proxies
+    trusted_proxies = _sanitise_trusted_proxies(config.trusted_proxies)
 
     # Uvicorn's ``proxy_headers`` machinery rewrites BOTH
     # ``request.url.scheme`` and ``request.client.host`` whenever the
     # direct peer is in ``forwarded_allow_ips``. The second rewrite is a
     # rate-limit-bypass footgun, so only enable proxy_headers when the
-    # operator has EXPLICITLY set ``MEDIAMAN_TRUSTED_PROXIES``.
+    # operator has EXPLICITLY set ``MEDIAMAN_TRUSTED_PROXIES`` to a
+    # non-wildcard value (see :func:`_sanitise_trusted_proxies`).
     if trusted_proxies:
         uvicorn.run(
             app,
@@ -296,7 +409,5 @@ def cli_main() -> None:
 # Module-level instantiation for uvicorn targets such as
 # ``uvicorn mediaman.main:app``. Gated behind ``MEDIAMAN_EAGER_APP=1`` to
 # avoid import-time side effects for tests and CLI subcommands.
-import os as _os  # noqa: E402 — gated import to avoid side-effects on module load
-
-if _os.environ.get("MEDIAMAN_EAGER_APP", "").strip() == "1":
+if os.environ.get("MEDIAMAN_EAGER_APP", "").strip() == "1":
     app = create_app()
