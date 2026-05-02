@@ -47,6 +47,8 @@ import os
 import sqlite3
 from datetime import UTC, datetime, timedelta
 
+import bcrypt
+
 from mediaman.auth._token_hashing import hash_token as _hash_token
 
 logger = logging.getLogger("mediaman")
@@ -183,11 +185,24 @@ def verify_reauth_password(
     namespace = f"{REAUTH_LOCKOUT_PREFIX}{admin}"
 
     # Short-circuit if the reauth namespace is locked. We still burn a
-    # constant-time bcrypt cycle in authenticate() to avoid a timing
-    # signal that distinguishes "locked" from "wrong password".
+    # bcrypt cycle so the timing of "locked" matches the wrong-password
+    # path — otherwise an attacker with a stolen session cookie can
+    # detect the lock state by latency alone (the locked-and-returns-
+    # immediately path is ~0 ms, the unlocked-but-wrong-password path
+    # is ~150 ms+ on cost-12 bcrypt).
     if check_lockout(conn, namespace):
-        # Burn a bcrypt cycle so timing matches the wrong-password path.
-        authenticate(conn, "", password, record_failures=False)
+        # The previous implementation called ``authenticate(conn, "",
+        # password, ...)`` here intending to burn a bcrypt cycle, but
+        # ``authenticate`` short-circuits on empty username before
+        # reaching bcrypt — so the cycle was NOT actually burned. Mirror
+        # the constant-time pattern used by ``change_password`` instead:
+        # call ``bcrypt.checkpw`` directly against the dummy hash.
+        from mediaman.auth.password_hash import (
+            _get_dummy_hash,
+            _prepare_bcrypt_input,
+        )
+
+        bcrypt.checkpw(_prepare_bcrypt_input(password), _get_dummy_hash())
         # Bump the counter so a sustained attack escalates the lock window.
         record_failure(conn, namespace)
         logger.warning(
