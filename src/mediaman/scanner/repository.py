@@ -290,8 +290,16 @@ def schedule_deletion(
     is_reentry: bool,
     grace_days: int,
     secret_key: str,
-) -> None:
+) -> str:
     """Insert a scheduled_deletion row and write an audit entry.
+
+    Returns the literal ``"scheduled"`` on success, or ``"skipped"`` when
+    a concurrent scanner has already inserted an active deletion for the
+    same ``media_id`` (the migration-25 partial unique index raises
+    ``IntegrityError``). The skipped path is the desired outcome — the
+    other run already lined the deletion up — so we swallow the error
+    and report it as a clean skip rather than letting it bubble up as a
+    500.
 
     Uses a unique random placeholder token for the initial insert so
     the ``token`` unique index can't collide between concurrent scheduler
@@ -308,21 +316,33 @@ def schedule_deletion(
     # is only needed as a uniqueness sentinel.
     placeholder = f"pending-{secrets.token_urlsafe(16)}"
 
-    cursor = conn.execute(
-        """
-        INSERT INTO scheduled_actions
-            (media_item_id, action, scheduled_at, execute_at, token, token_used, is_reentry)
-        VALUES (?, ?, ?, ?, ?, 0, ?)
-        """,
-        (
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO scheduled_actions
+                (media_item_id, action, scheduled_at, execute_at, token, token_used, is_reentry)
+            VALUES (?, ?, ?, ?, ?, 0, ?)
+            """,
+            (
+                media_id,
+                DELETION_ACTION,
+                now.isoformat(),
+                execute_at.isoformat(),
+                placeholder,
+                1 if is_reentry else 0,
+            ),
+        )
+    except sqlite3.IntegrityError:
+        # Either the partial unique index ``idx_scheduled_actions_unique_active_deletion``
+        # (migration 25) already has an active pending deletion for this
+        # item, or the rare ``token``/``token_hash`` placeholder collision
+        # tripped a unique index. Both cases mean "another concurrent run
+        # already covered this item" — there's nothing more to do.
+        logger.info(
+            "repository.schedule_deletion.skip media_id=%s reason=integrity_error",
             media_id,
-            DELETION_ACTION,
-            now.isoformat(),
-            execute_at.isoformat(),
-            placeholder,
-            1 if is_reentry else 0,
-        ),
-    )
+        )
+        return "skipped"
     action_id = cursor.lastrowid
 
     token = generate_keep_token(
@@ -356,6 +376,7 @@ def schedule_deletion(
         DELETION_ACTION,
         "scheduled by scan engine" + (" (re-entry)" if is_reentry else ""),
     )
+    return "scheduled"
 
 
 def fetch_stuck_deletions(conn: sqlite3.Connection) -> list[sqlite3.Row]:
