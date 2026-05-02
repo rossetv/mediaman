@@ -163,18 +163,46 @@ def fetch_ids_in_libraries(conn: sqlite3.Connection, library_ids: list[int]) -> 
 
 
 def delete_media_items(conn: sqlite3.Connection, ids: list[str]) -> None:
-    """Delete ``media_items`` rows and their ``scheduled_actions`` in chunks."""
+    """Delete ``media_items`` rows and their ``scheduled_actions`` in chunks.
+
+    Each chunk's two DELETEs run inside a ``BEGIN IMMEDIATE`` so that a
+    process crash, foreign-key violation, or concurrent writer cannot
+    leave the DB with ``scheduled_actions`` rows pointing at a deleted
+    ``media_items`` row (or vice versa). Without the explicit
+    transaction the two ``conn.execute`` calls would be split across
+    SQLite's autocommit boundary, opening a window where a crash
+    between them yields exactly the orphan we're trying to avoid.
+    """
+    if not ids:
+        return
     for start in range(0, len(ids), 500):
         chunk = ids[start : start + 500]
         placeholders = ",".join("?" * len(chunk))
-        conn.execute(
-            f"DELETE FROM scheduled_actions WHERE media_item_id IN ({placeholders})",  # noqa: S608 — placeholders are '?' only, not user input
-            tuple(chunk),
-        )
-        conn.execute(
-            f"DELETE FROM media_items WHERE id IN ({placeholders})",  # noqa: S608 — placeholders are '?' only, not user input
-            tuple(chunk),
-        )
+        # If the caller already opened a transaction (the scanner
+        # frequently does for the wider scan), BEGIN IMMEDIATE will
+        # raise OperationalError — fall back to the existing in-flight
+        # transaction in that case so we still run as one atomic
+        # block, just under the caller's transaction scope.
+        in_outer_txn = False
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+        except sqlite3.OperationalError:
+            in_outer_txn = True
+        try:
+            conn.execute(
+                f"DELETE FROM scheduled_actions WHERE media_item_id IN ({placeholders})",  # noqa: S608 — placeholders are '?' only, not user input
+                tuple(chunk),
+            )
+            conn.execute(
+                f"DELETE FROM media_items WHERE id IN ({placeholders})",  # noqa: S608 — placeholders are '?' only, not user input
+                tuple(chunk),
+            )
+            if not in_outer_txn:
+                conn.execute("COMMIT")
+        except Exception:
+            if not in_outer_txn:
+                conn.execute("ROLLBACK")
+            raise
 
 
 # ---------------------------------------------------------------------------
@@ -501,8 +529,27 @@ def read_delete_allowed_roots_setting(
 ) -> list[str]:
     """Read ``delete_allowed_roots`` from settings / env.
 
-    Returns an empty list if nothing is configured; the caller must
-    treat an empty list as fail-closed.
+    Precedence (intentionally inverse of the more common "env wins"
+    convention):
+
+    1. The ``delete_allowed_roots`` row in the ``settings`` table — a
+       JSON array of absolute path strings — wins when present and
+       non-empty. The settings table is the operator's UI-managed
+       source of truth, and we want a value set in the admin UI to
+       beat any leftover value in the container environment.
+    2. The ``MEDIAMAN_DELETE_ROOTS`` environment variable — colon /
+       semicolon separated paths — is consulted only when the DB row
+       is missing or empty. This lets a fresh container start with a
+       sensible bootstrap set before the operator has logged in to
+       configure them in the UI.
+    3. If both are empty we return ``[]`` and log a loud error: the
+       caller must treat an empty list as fail-closed and refuse every
+       deletion (path safety contract). Letting an unconfigured
+       installation silently accept ``/`` would be catastrophic.
+
+    Documenting the precedence inline so anyone reading the deletion
+    path can confirm at a glance that the unusual order — DB beats env
+    — is deliberate (Domain 05 finding).
     """
     row = conn.execute("SELECT value FROM settings WHERE key='delete_allowed_roots'").fetchone()
     roots: list[str] = []
