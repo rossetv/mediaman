@@ -142,7 +142,9 @@ jobs:
 
   docker:
     name: Docker build
-    needs: tests
+    # Gate the image push on every check-job, not just tests. A lint or
+    # bandit regression is not an excuse to ship.
+    needs: [tests, lint, typecheck, security-scan, dependency-audit]
     runs-on: ubuntu-latest
 
     steps:
