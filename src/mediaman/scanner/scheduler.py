@@ -123,7 +123,10 @@ def start_scheduler(
     from apscheduler.triggers.interval import IntervalTrigger
 
     from mediaman.services.arr.completion import cleanup_recent_downloads
-    from mediaman.services.arr.search_trigger import trigger_pending_searches
+    from mediaman.services.arr.search_trigger import (
+        reconcile_stranded_throttle,
+        trigger_pending_searches,
+    )
 
     global _scheduler
     with _scheduler_lock:
@@ -168,6 +171,18 @@ def start_scheduler(
             lambda: trigger_pending_searches(_open_db_for_job(), secret_key),
             IntervalTrigger(hours=1),
             id="trigger_pending_searches",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+        )
+        # Daily reaper for arr_search_throttle rows whose item has been
+        # deleted (Domain 06 #10): without this the table grows monotonically
+        # because individual deletions don't propagate to the throttle DB.
+        _scheduler.add_job(
+            lambda: reconcile_stranded_throttle(_open_db_for_job()),
+            IntervalTrigger(hours=24),
+            id="reconcile_stranded_throttle",
             replace_existing=True,
             max_instances=1,
             coalesce=True,
