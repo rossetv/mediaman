@@ -11,6 +11,7 @@ import sqlite3
 import threading
 import time
 
+from mediaman.audit import security_event
 from mediaman.services.arr.build import build_arr_client
 from mediaman.services.arr.fetcher import fetch_arr_queue
 from mediaman.services.infra.settings_reader import get_int_setting
@@ -304,13 +305,51 @@ def maybe_auto_abandon(
     if not dl_id or not arr_id:
         return
 
-    if item.get("kind") == "movie":
+    kind = item.get("kind")
+    if kind == "movie":
+        # Audit BEFORE the abandon call so the trail records the policy
+        # firing even if Radarr is down. A settings-write attacker who
+        # sets multiplier=1 to mass-unmonitor every item leaves one
+        # ``sec:auto_abandon.fired`` row per affected item — discoverable
+        # by an operator scanning the audit log. Pass ``actor=""`` to
+        # mark this as a system-driven (not admin-triggered) event.
+        security_event(
+            conn,
+            event="auto_abandon.fired",
+            actor="",
+            ip="",
+            detail={
+                "dl_id": dl_id,
+                "arr_id": arr_id,
+                "service": "radarr",
+                "kind": "movie",
+                "multiplier": multiplier,
+                "escalate_at": escalate_at,
+                "search_count": search_count,
+            },
+        )
         abandon_movie(conn, secret_key, arr_id=arr_id, dl_id=dl_id)
         return
 
     seasons = sorted({int(ep.get("season_number") or 0) for ep in (item.get("episodes") or [])})
     if not seasons:
         return
+    security_event(
+        conn,
+        event="auto_abandon.fired",
+        actor="",
+        ip="",
+        detail={
+            "dl_id": dl_id,
+            "arr_id": arr_id,
+            "service": "sonarr",
+            "kind": "series",
+            "seasons": seasons,
+            "multiplier": multiplier,
+            "escalate_at": escalate_at,
+            "search_count": search_count,
+        },
+    )
     abandon_seasons(
         conn,
         secret_key,

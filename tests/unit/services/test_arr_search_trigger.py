@@ -615,3 +615,206 @@ class TestAutoAbandon:
             search_count=200,
         )
         assert called["n"] == 0
+
+
+# ---------------------------------------------------------------------------
+# TestAutoAbandonAuditLog
+# ---------------------------------------------------------------------------
+
+
+def _read_auto_abandon_rows(conn) -> list[tuple[str, str | None, str]]:
+    """Return ``(action, actor, detail)`` for every auto-abandon audit row."""
+    return list(
+        conn.execute(
+            "SELECT action, actor, detail FROM audit_log "
+            "WHERE action = 'sec:auto_abandon.fired' ORDER BY id"
+        ).fetchall()
+    )
+
+
+class TestAutoAbandonAuditLog:
+    """Finding 06 — every auto-abandon firing must leave an audit trail.
+
+    Settings writes are admin-gated, but if those creds are compromised an
+    attacker can set ``multiplier=1, escalate_at=2`` to mass-unmonitor the
+    library. A per-fire ``sec:auto_abandon.fired`` row makes that attack
+    detectable after the fact.
+    """
+
+    def test_movie_fire_emits_audit_row(self, db_conn, monkeypatch):
+        """Firing on a movie writes one ``sec:auto_abandon.fired`` row."""
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.get_int_setting",
+            lambda c, k, **kw: {
+                "abandon_search_escalate_at": 50,
+                "abandon_search_auto_multiplier": 4,
+            }[k],
+        )
+        import mediaman.services.downloads.abandon as abandon_module
+
+        monkeypatch.setattr(abandon_module, "abandon_movie", lambda *a, **kw: None)
+        from mediaman.services.arr.search_trigger import maybe_auto_abandon
+
+        maybe_auto_abandon(
+            db_conn,
+            "secret",
+            item={"kind": "movie", "dl_id": "radarr:Dune", "arr_id": 42},
+            search_count=200,
+        )
+
+        rows = _read_auto_abandon_rows(db_conn)
+        assert len(rows) == 1
+        action, actor, detail = rows[0]
+        assert action == "sec:auto_abandon.fired"
+        # System-driven event — actor is the empty-string convention used
+        # by login.failed et al. for unauthenticated/system events.
+        assert actor == ""
+        # Detail is JSON-encoded after the actor= ip= prefix.
+        assert "actor=- ip=-" in detail
+        assert '"dl_id":"radarr:Dune"' in detail
+        assert '"arr_id":42' in detail
+        assert '"service":"radarr"' in detail
+        assert '"multiplier":4' in detail
+        assert '"escalate_at":50' in detail
+        assert '"search_count":200' in detail
+
+    def test_series_fire_emits_audit_row_with_seasons(self, db_conn, monkeypatch):
+        """Series firings record the derived season list in the detail."""
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.get_int_setting",
+            lambda c, k, **kw: {
+                "abandon_search_escalate_at": 50,
+                "abandon_search_auto_multiplier": 4,
+            }[k],
+        )
+        import mediaman.services.downloads.abandon as abandon_module
+
+        monkeypatch.setattr(abandon_module, "abandon_seasons", lambda *a, **kw: None)
+        from mediaman.services.arr.search_trigger import maybe_auto_abandon
+
+        maybe_auto_abandon(
+            db_conn,
+            "secret",
+            item={
+                "kind": "series",
+                "dl_id": "sonarr:Foundation",
+                "arr_id": 7,
+                "episodes": [
+                    {"season_number": 1},
+                    {"season_number": 2},
+                    {"season_number": 2},
+                ],
+            },
+            search_count=200,
+        )
+
+        rows = _read_auto_abandon_rows(db_conn)
+        assert len(rows) == 1
+        action, actor, detail = rows[0]
+        assert action == "sec:auto_abandon.fired"
+        assert actor == ""
+        assert '"dl_id":"sonarr:Foundation"' in detail
+        assert '"service":"sonarr"' in detail
+        assert '"seasons":[1,2]' in detail
+
+    def test_no_audit_row_when_multiplier_zero(self, db_conn, monkeypatch):
+        """Default-off (multiplier=0) writes no audit row, no matter the count."""
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.get_int_setting",
+            lambda c, k, **kw: 0 if k == "abandon_search_auto_multiplier" else 50,
+        )
+        import mediaman.services.downloads.abandon as abandon_module
+
+        monkeypatch.setattr(abandon_module, "abandon_movie", lambda *a, **kw: None)
+        from mediaman.services.arr.search_trigger import maybe_auto_abandon
+
+        maybe_auto_abandon(
+            db_conn,
+            "secret",
+            item={"kind": "movie", "dl_id": "radarr:X", "arr_id": 1},
+            search_count=99999,
+        )
+
+        assert _read_auto_abandon_rows(db_conn) == []
+
+    def test_no_audit_row_below_threshold(self, db_conn, monkeypatch):
+        """Below escalate_at × multiplier — gated, no row written."""
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.get_int_setting",
+            lambda c, k, **kw: {
+                "abandon_search_escalate_at": 50,
+                "abandon_search_auto_multiplier": 4,
+            }[k],
+        )
+        import mediaman.services.downloads.abandon as abandon_module
+
+        monkeypatch.setattr(abandon_module, "abandon_movie", lambda *a, **kw: None)
+        from mediaman.services.arr.search_trigger import maybe_auto_abandon
+
+        maybe_auto_abandon(
+            db_conn,
+            "secret",
+            item={"kind": "movie", "dl_id": "radarr:X", "arr_id": 1},
+            search_count=199,  # 1 below threshold
+        )
+
+        assert _read_auto_abandon_rows(db_conn) == []
+
+    def test_no_audit_row_for_series_with_no_episodes(self, db_conn, monkeypatch):
+        """Series skipped pre-firing (no episodes) writes no audit row."""
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.get_int_setting",
+            lambda c, k, **kw: {
+                "abandon_search_escalate_at": 50,
+                "abandon_search_auto_multiplier": 4,
+            }[k],
+        )
+        import mediaman.services.downloads.abandon as abandon_module
+
+        monkeypatch.setattr(abandon_module, "abandon_seasons", lambda *a, **kw: None)
+        from mediaman.services.arr.search_trigger import maybe_auto_abandon
+
+        maybe_auto_abandon(
+            db_conn,
+            "secret",
+            item={"kind": "series", "dl_id": "sonarr:X", "arr_id": 7, "episodes": []},
+            search_count=200,
+        )
+
+        assert _read_auto_abandon_rows(db_conn) == []
+
+    def test_audit_row_persists_when_abandon_call_fails(self, db_conn, monkeypatch):
+        """Abandon raising must NOT prevent the audit row from landing.
+
+        ``security_event`` writes (and commits) before the abandon call,
+        so a Radarr/Sonarr outage still leaves a discoverable trail of
+        what the policy decided to do.
+        """
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.get_int_setting",
+            lambda c, k, **kw: {
+                "abandon_search_escalate_at": 50,
+                "abandon_search_auto_multiplier": 4,
+            }[k],
+        )
+        import mediaman.services.downloads.abandon as abandon_module
+
+        def boom(*a, **kw):
+            raise RuntimeError("radarr offline")
+
+        monkeypatch.setattr(abandon_module, "abandon_movie", boom)
+        from mediaman.services.arr.search_trigger import maybe_auto_abandon
+
+        with pytest.raises(RuntimeError):
+            maybe_auto_abandon(
+                db_conn,
+                "secret",
+                item={"kind": "movie", "dl_id": "radarr:Y", "arr_id": 42},
+                search_count=200,
+            )
+
+        rows = _read_auto_abandon_rows(db_conn)
+        assert len(rows) == 1
+        action, actor, detail = rows[0]
+        assert action == "sec:auto_abandon.fired"
+        assert '"dl_id":"radarr:Y"' in detail
