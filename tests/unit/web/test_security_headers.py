@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from mediaman.web import (
+    BodySizeLimitMiddleware,
     SecurityHeadersMiddleware,
     register_security_middleware,
 )
@@ -477,3 +478,150 @@ class TestTrustedHostMiddleware:
         # ``register_security_middleware`` should have logged a warning.
         warned = [r for r in caplog.records if "MEDIAMAN_ALLOWED_HOSTS" in r.getMessage()]
         assert warned, "expected an MEDIAMAN_ALLOWED_HOSTS startup warning"
+
+
+class TestBodySizeLimitMiddleware:
+    """Cap total request body bytes to prevent OOM on a giant POST.
+
+    The middleware is wired in by ``register_security_middleware`` and
+    enforces a default of 8 MiB; operators can override the cap with
+    ``MEDIAMAN_MAX_REQUEST_BYTES``.
+    """
+
+    def test_small_body_accepted(self):
+        app = FastAPI()
+        app.add_middleware(BodySizeLimitMiddleware, max_bytes=1024)
+
+        # Use a Starlette route directly to avoid FastAPI's parameter
+        # introspection from intercepting the ``request`` argument.
+        async def handler(req):
+            from starlette.responses import JSONResponse
+
+            data = await req.body()
+            return JSONResponse({"len": len(data)})
+
+        app.router.add_route("/echo", handler, methods=["POST"])
+
+        client = TestClient(app)
+        resp = client.post("/echo", content=b"x" * 100)
+        assert resp.status_code == 200
+        assert resp.json() == {"len": 100}
+
+    def test_oversize_body_returns_413(self):
+        app = FastAPI()
+        app.add_middleware(BodySizeLimitMiddleware, max_bytes=128)
+
+        async def handler(req):
+            from starlette.responses import JSONResponse
+
+            data = await req.body()
+            return JSONResponse({"len": len(data)})
+
+        app.router.add_route("/echo", handler, methods=["POST"])
+
+        client = TestClient(app)
+        resp = client.post("/echo", content=b"x" * 1024)
+        assert resp.status_code == 413
+        assert b"Payload too large" in resp.content
+
+    def test_content_length_over_cap_short_circuits(self):
+        """An oversize Content-Length header is rejected before any
+        body bytes are read.  We don't have an easy way to assert the
+        handler was never called from the test client, but we can at
+        least confirm the response is 413."""
+        app = FastAPI()
+        app.add_middleware(BodySizeLimitMiddleware, max_bytes=64)
+
+        async def handler(req):  # pragma: no cover — should not run
+            from starlette.responses import JSONResponse
+
+            data = await req.body()
+            return JSONResponse({"len": len(data)})
+
+        app.router.add_route("/echo", handler, methods=["POST"])
+
+        client = TestClient(app)
+        resp = client.post(
+            "/echo",
+            content=b"x" * 256,
+            headers={"Content-Length": "256"},
+        )
+        assert resp.status_code == 413
+
+    def test_env_var_override(self, monkeypatch):
+        """``MEDIAMAN_MAX_REQUEST_BYTES`` overrides the default."""
+        monkeypatch.setenv("MEDIAMAN_MAX_REQUEST_BYTES", "32")
+        app = FastAPI()
+        # ``max_bytes=None`` means "read env on first request".
+        app.add_middleware(BodySizeLimitMiddleware)
+
+        async def handler(req):
+            from starlette.responses import JSONResponse
+
+            data = await req.body()
+            return JSONResponse({"len": len(data)})
+
+        app.router.add_route("/echo", handler, methods=["POST"])
+
+        client = TestClient(app)
+        resp = client.post("/echo", content=b"x" * 64)
+        assert resp.status_code == 413
+
+    def test_default_via_register_security_middleware(self):
+        """The helper wires the body-size middleware in with the default
+        cap (8 MiB), so a 9 MiB POST is rejected against a freshly built
+        app."""
+        app = FastAPI()
+        register_security_middleware(app)
+
+        async def handler(req):  # pragma: no cover — should not run
+            from starlette.responses import JSONResponse
+
+            data = await req.body()
+            return JSONResponse({"len": len(data)})
+
+        app.router.add_route("/echo", handler, methods=["POST"])
+
+        client = TestClient(app)
+        big = b"x" * (9 * 1024 * 1024)
+        resp = client.post("/echo", content=big)
+        assert resp.status_code == 413
+
+    def test_zero_or_negative_cap_disables_limit(self, monkeypatch):
+        """``MEDIAMAN_MAX_REQUEST_BYTES=0`` is treated as 'unlimited'.
+        A negative value falls back to the default (with a warning)."""
+        monkeypatch.setenv("MEDIAMAN_MAX_REQUEST_BYTES", "0")
+        app = FastAPI()
+        app.add_middleware(BodySizeLimitMiddleware)
+
+        async def handler(req):
+            from starlette.responses import JSONResponse
+
+            data = await req.body()
+            return JSONResponse({"len": len(data)})
+
+        app.router.add_route("/echo", handler, methods=["POST"])
+
+        client = TestClient(app)
+        resp = client.post("/echo", content=b"x" * 65536)
+        assert resp.status_code == 200
+
+    def test_unparseable_env_falls_back_to_default(self, monkeypatch):
+        """An unparseable ``MEDIAMAN_MAX_REQUEST_BYTES`` reverts to the
+        8 MiB default — it must NOT silently disable the cap."""
+        monkeypatch.setenv("MEDIAMAN_MAX_REQUEST_BYTES", "not-a-number")
+        app = FastAPI()
+        app.add_middleware(BodySizeLimitMiddleware)
+
+        async def handler(req):  # pragma: no cover — should not run
+            from starlette.responses import JSONResponse
+
+            data = await req.body()
+            return JSONResponse({"len": len(data)})
+
+        app.router.add_route("/echo", handler, methods=["POST"])
+
+        client = TestClient(app)
+        big = b"x" * (9 * 1024 * 1024)
+        resp = client.post("/echo", content=big)
+        assert resp.status_code == 413
