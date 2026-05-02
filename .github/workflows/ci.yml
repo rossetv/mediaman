@@ -142,11 +142,12 @@ jobs:
         run: pip install pip-audit
 
       - name: pip-audit
-        # Audit the project's declared dependencies via pyproject.toml rather
-        # than the venv. This keeps pip itself (a CI-runner tool, not a
-        # mediaman dependency) out of scope so we don't need to chase its
-        # CVEs with --ignore-vuln entries.
-        run: pip-audit .
+        # Audit the concrete locked, hashed requirements file — that is the
+        # set of versions we ship in the Docker image. Auditing pyproject
+        # constraints would describe the loosest possible install rather
+        # than the actual install, and pip itself (a CI-runner tool, not a
+        # mediaman dependency) stays out of scope.
+        run: pip-audit -r requirements.lock --require-hashes
 
   docker:
     name: Docker build
