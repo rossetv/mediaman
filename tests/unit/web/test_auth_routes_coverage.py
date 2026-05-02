@@ -235,3 +235,179 @@ class TestLogout:
         resp = client.post("/api/auth/logout", follow_redirects=False)
         set_cookie = resp.headers.get("set-cookie", "")
         assert "session_token" in set_cookie
+
+    def test_logout_clears_cookie_with_explicit_path_and_samesite(self, db_path, secret_key):
+        """Deletion ``Set-Cookie`` must carry explicit ``Path=/`` and ``SameSite=strict``.
+
+        RFC 6265bis matches a deletion against existing cookies by
+        (name, domain, path).  If a future change altered the set path
+        without updating the delete, the clear would silently fail.
+        """
+        conn = init_db(str(db_path))
+        _create_admin(conn)
+        token = create_session(conn, "admin")
+        app = _make_app(conn, secret_key)
+        client = TestClient(app, raise_server_exceptions=True)
+        client.cookies.set("session_token", token)
+
+        resp = client.post("/api/auth/logout", follow_redirects=False)
+        set_cookie = resp.headers.get("set-cookie", "")
+        assert "Path=/" in set_cookie
+        # Starlette normalises samesite to lowercase in the Set-Cookie header.
+        assert "samesite=strict" in set_cookie.lower()
+        assert "httponly" in set_cookie.lower()
+
+    def test_logout_with_invalid_token_clears_cookie(self, db_path, secret_key):
+        """Stale-token logout must clear the cookie so the browser stops sending it."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = TestClient(app, raise_server_exceptions=True)
+        client.cookies.set("session_token", "stale-fake-token")
+
+        resp = client.post("/api/auth/logout")
+        assert resp.status_code == 401
+        set_cookie = resp.headers.get("set-cookie", "")
+        # Either an explicit Max-Age=0 / expires-in-the-past or just
+        # a Set-Cookie that names session_token with an expired timestamp
+        # — either way the header must mention the cookie.
+        assert "session_token" in set_cookie
+
+
+class TestLoginRateLimitHeaders:
+    """The rate-limit response must give clients a Retry-After hint."""
+
+    def setup_method(self):
+        _limiter._attempts.clear()
+
+    def test_rate_limit_returns_retry_after(self, db_path, secret_key):
+        conn = init_db(str(db_path))
+        _create_admin(conn)
+        app = _make_app(conn, secret_key)
+        client = TestClient(app, raise_server_exceptions=True)
+
+        for _ in range(_limiter._max_attempts):
+            client.post("/login", data={"username": "admin", "password": "wrong"})
+
+        resp = client.post("/login", data={"username": "admin", "password": "wrong"})
+        # The response is rendered through the template stub so status is 200,
+        # but the rate-limit branch must still set Retry-After.
+        assert "retry-after" in {h.lower() for h in resp.headers}
+        assert int(resp.headers["retry-after"]) > 0
+
+    def test_rate_limit_window_is_300_seconds(self):
+        """The login limiter window is the long, CGNAT-aware value."""
+        # The exact value matters less than the order of magnitude — any
+        # window <60s is too small for /24 IP buckets behind CGNAT.
+        assert _limiter._window >= 60 * 5
+
+
+class TestAuditUsernameSanitisation:
+    """Failed-login audit entries must not stash an attacker-controlled
+    multi-kilobyte / control-byte username verbatim into ``actor`` or
+    the ``detail`` blob (which is rendered into the history page)."""
+
+    def setup_method(self):
+        _limiter._attempts.clear()
+
+    def test_long_username_truncated_in_audit_row(self, db_path, secret_key):
+        conn = init_db(str(db_path))
+        _create_admin(conn)
+        app = _make_app(conn, secret_key)
+        client = TestClient(app, raise_server_exceptions=True)
+
+        attacker_user = "A" * 5000
+        client.post("/login", data={"username": attacker_user, "password": "wrong"})
+
+        row = conn.execute(
+            "SELECT actor, detail FROM audit_log WHERE action='sec:login.failed'"
+        ).fetchone()
+        assert row is not None
+        # Neither column is allowed to carry the full 5000-char attacker
+        # string.  ``actor`` and the ``actor=`` prefix in detail share
+        # the same source.
+        assert "A" * 5000 not in row["detail"]
+        assert "A" * 5000 not in (row["actor"] or "")
+        # Truncation marker proves the sanitiser ran on the actor.
+        assert "..." in row["actor"]
+
+    def test_control_chars_stripped_in_audit_row(self, db_path, secret_key):
+        conn = init_db(str(db_path))
+        _create_admin(conn)
+        app = _make_app(conn, secret_key)
+        client = TestClient(app, raise_server_exceptions=True)
+
+        client.post(
+            "/login",
+            data={"username": "admin\x00\x1b[31m", "password": "wrong"},
+        )
+
+        row = conn.execute(
+            "SELECT actor, detail FROM audit_log WHERE action='sec:login.failed'"
+        ).fetchone()
+        assert row is not None
+        assert "\x00" not in row["detail"]
+        assert "\x1b" not in row["detail"]
+        assert "\x00" not in (row["actor"] or "")
+        assert "\x1b" not in (row["actor"] or "")
+
+
+class TestWeakPasswordCoalescing:
+    """``password.weak_detected`` must be logged ONCE per flag-flip, not
+    once per login of a flagged account."""
+
+    def setup_method(self):
+        _limiter._attempts.clear()
+
+    def test_event_emitted_only_on_first_weak_login(self, db_path, secret_key):
+        conn = init_db(str(db_path))
+        _create_admin(conn, password="weak1234567a")  # passes minlength but weak overall
+        app = _make_app(conn, secret_key)
+        client = TestClient(app, raise_server_exceptions=True)
+
+        with patch("mediaman.web.routes.auth.is_request_secure", return_value=False):
+            # First login flips the flag.
+            client.post("/login", data={"username": "admin", "password": "weak1234567a"})
+            # Second login — flag is already set; no new audit row.
+            client.post("/login", data={"username": "admin", "password": "weak1234567a"})
+            # Third login — same.
+            client.post("/login", data={"username": "admin", "password": "weak1234567a"})
+
+        rows = conn.execute(
+            "SELECT id FROM audit_log WHERE action='sec:password.weak_detected'"
+        ).fetchall()
+        assert len(rows) == 1
+
+
+class TestUaHashInAuditLog:
+    """``login.success`` audit detail must store a real hash, not the
+    leading 80 chars of the raw user-agent."""
+
+    def setup_method(self):
+        _limiter._attempts.clear()
+
+    def test_long_ua_stored_as_short_hash(self, db_path, secret_key):
+        conn = init_db(str(db_path))
+        _create_admin(conn)
+        app = _make_app(conn, secret_key)
+        client = TestClient(app, raise_server_exceptions=True)
+
+        attacker_ua = "Mozilla/" + "X" * 5000
+        with patch("mediaman.web.routes.auth.is_request_secure", return_value=False):
+            client.post(
+                "/login",
+                data={"username": "admin", "password": "password1234"},
+                headers={"User-Agent": attacker_ua},
+            )
+
+        row = conn.execute(
+            "SELECT detail FROM audit_log WHERE action='sec:login.success'"
+        ).fetchone()
+        assert row is not None
+        # No huge UA prefix should leak through.
+        assert "X" * 80 not in row["detail"]
+        # The hash field must look like 16 hex chars surrounded by quotes.
+        import re
+
+        match = re.search(r'"ua_hash":"([0-9a-f]+)"', row["detail"])
+        assert match is not None
+        assert len(match.group(1)) == 16
