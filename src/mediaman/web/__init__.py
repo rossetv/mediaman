@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import secrets
+from urllib.parse import urlsplit
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -158,6 +159,24 @@ def _should_emit_hsts(request: Request) -> bool:
     return request.url.scheme == "https"
 
 
+# NOTE on ``BaseHTTPMiddleware`` (Starlette):
+#
+# Starlette's docs explicitly recommend pure-ASGI middleware over
+# :class:`BaseHTTPMiddleware` for production use.  ``BaseHTTPMiddleware``
+# buffers request/response bodies in memory and runs the inner app on a
+# detached task, which complicates streaming, timeouts, and cancellation
+# semantics.  Three of the four middleware below
+# (:class:`SecurityHeadersMiddleware`, :class:`CSRFOriginMiddleware`,
+# :class:`Obscure405Middleware`, :class:`ForcePasswordChangeMiddleware`)
+# still use it because their behaviour is well-tested against the
+# request/response object model and the migration risk outweighs the
+# theoretical streaming benefit for these short, header-centric paths
+# (no body inspection, no streaming responses).
+#
+# The new :class:`BodySizeLimitMiddleware` is pure ASGI by necessity —
+# it must enforce a cap as bytes stream in.  Future migrations of the
+# others should preserve every existing behaviour and test before
+# flipping over.
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Attach security response headers to every HTTP response.
 
@@ -438,20 +457,87 @@ def _csrf_route_is_exempt(method: str, path: str) -> bool:
     return False
 
 
-def _normalise_host(netloc: str) -> str:
-    """Return host without default port (80 for http, 443 for https).
+_DEFAULT_PORTS: dict[str, int] = {"http": 80, "https": 443}
 
-    Without this, an ``Origin: https://mediaman.example:443`` header
-    (which some legacy webviews emit) fails the same-origin check
-    against ``request.url.netloc == "mediaman.example"``. Scheme is
-    ignored because the middleware already runs behind HTTPS in
-    production and the Origin header's scheme should match the
-    request URL regardless.
+
+def _normalise_origin(value: str, default_scheme: str | None = None) -> tuple[str, str]:
+    """Return ``(scheme, host_without_default_port)`` for *value*.
+
+    *value* may be a full URL (``Origin``/``Referer`` header values, or
+    ``str(request.url)``) or a bare ``host[:port]`` netloc.  The result
+    is suitable for direct equality comparison so the CSRF middleware
+    can require both the scheme AND host of the origin/referer to match
+    the request URL — finding 11.
+
+    Two correctness fixes over the previous prefix-stripping logic:
+
+    1. **IPv6** — ``urlsplit("https://[2001:db8::1]:443").hostname``
+       returns ``"2001:db8::1"`` cleanly.  The previous
+       ``rsplit(":", 1)[0]`` chopped the trailing ``::1`` off and
+       produced ``"[2001:db8"`` (corrupted host that couldn't match
+       anything).
+    2. **Non-default ports** — ``https://example.com:8443`` previously
+       failed the ``endswith(":443")`` check and survived as
+       ``"example.com:8443"``, never matching ``"example.com"``.  The
+       new logic only strips the port when it equals the *default* for
+       the scheme; non-default ports are preserved so a request on
+       ``:8443`` requires an Origin on ``:8443`` (correct).
+
+    *default_scheme* lets a caller normalise a bare netloc (no
+    ``scheme://`` prefix) by supplying the scheme to assume.  When the
+    value already includes a scheme, *default_scheme* is ignored.
     """
-    host = netloc.lower().strip()
-    if host.endswith(":443") or host.endswith(":80"):
-        host = host.rsplit(":", 1)[0]
-    return host
+    raw = value.strip()
+    if not raw:
+        return ("", "")
+
+    # If the value has no scheme, urlsplit will treat the whole thing
+    # as the path; we want netloc semantics, so prefix a placeholder
+    # scheme to make urlsplit cooperate, then carry the caller-supplied
+    # default_scheme back into the result.
+    if "://" in raw:
+        parts = urlsplit(raw)
+        scheme = parts.scheme.lower()
+    else:
+        parts = urlsplit("http://" + raw)
+        scheme = (default_scheme or "").lower()
+
+    host = (parts.hostname or "").lower()
+    port = parts.port
+    if port is not None and _DEFAULT_PORTS.get(scheme) == port:
+        host_with_port = host
+    elif port is not None:
+        # IPv6 hosts must keep their bracketing when re-stitched with a
+        # port, so something like "::1" gets serialised as "[::1]:8080"
+        # rather than the ambiguous "::1:8080".
+        if ":" in host:
+            host_with_port = f"[{host}]:{port}"
+        else:
+            host_with_port = f"{host}:{port}"
+    else:
+        host_with_port = host
+    return (scheme, host_with_port)
+
+
+def _normalise_host(netloc: str) -> str:
+    """Return host (with non-default port) for a bare ``netloc`` string.
+
+    Kept for backward compatibility with callers and tests that only
+    care about the host portion.  New code should prefer
+    :func:`_normalise_origin` so the scheme can be compared too.
+
+    Without a scheme to anchor to, a bare ``"example.com:443"`` is
+    ambiguous — port 443 is the default for ``https`` but not for
+    ``http``.  Tests for this shim assume the historical "production
+    is HTTPS" assumption; fold the netloc through both default schemes
+    and strip the port when it equals either default.
+    """
+    # Try both common defaults; if either yields a stripped host, use
+    # that.  Otherwise return the host[:port] as-is.
+    https_host = _normalise_origin(netloc, default_scheme="https")[1]
+    http_host = _normalise_origin(netloc, default_scheme="http")[1]
+    # The shorter result is the one that successfully stripped the port.
+    return min((https_host, http_host), key=len)
 
 
 class CSRFOriginMiddleware(BaseHTTPMiddleware):
@@ -461,6 +547,11 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
     cookies. SameSite covers modern browsers; Origin checks cover
     legacy browsers, in-app webviews, and anything that might ship
     cookies without honouring the SameSite attribute.
+
+    Both **scheme** and **host** must match — finding 11.  An attacker
+    page on ``http://example.com`` must not be able to submit to
+    ``https://example.com``; the previous host-only check accepted
+    those cross-scheme requests.
 
     The check is intentionally narrow: only POST/PUT/PATCH/DELETE
     from non-same-origin origins are refused, and only for routes
@@ -478,7 +569,8 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
 
         origin = request.headers.get("origin")
         referer = request.headers.get("referer")
-        expected_host = _normalise_host(request.url.netloc or "")
+        request_scheme = (request.url.scheme or "").lower()
+        expected = _normalise_origin(request.url.netloc or "", default_scheme=request_scheme)
 
         # If neither header is present AND no session cookie is present,
         # assume a non-browser API client (curl, scripts). Those callers
@@ -496,17 +588,15 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
                 )
             return await call_next(request)
 
-        def _host_of(url: str) -> str:
+        def _origin_of(url: str) -> tuple[str, str]:
             try:
-                from urllib.parse import urlparse
-
-                return _normalise_host(urlparse(url).netloc or "")
+                return _normalise_origin(url, default_scheme=request_scheme)
             except Exception:
-                return ""
+                return ("", "")
 
-        if origin and _host_of(origin) != expected_host:
+        if origin and _origin_of(origin) != expected:
             return Response(status_code=403, content=b"CSRF: origin mismatch")
-        if not origin and referer and _host_of(referer) != expected_host:
+        if not origin and referer and _origin_of(referer) != expected:
             return Response(status_code=403, content=b"CSRF: referer mismatch")
         return await call_next(request)
 
@@ -531,13 +621,18 @@ class ForcePasswordChangeMiddleware(BaseHTTPMiddleware):
 
     # Paths that are always allowed even when a user is flagged —
     # the force-change page itself, its POST, static assets, logout,
-    # and the login page (so the user can switch accounts if they
-    # don't remember their own password).
+    # the login page (so the user can switch accounts if they don't
+    # remember their own password), and the kubelet/Docker probes
+    # (which carry no session cookie of their own but might collide
+    # with one from a stale browser tab on the same origin and would
+    # otherwise be redirected away from a 200 healthcheck reply).
     _ALLOWED_PREFIXES = (
         "/force-password-change",
         "/static/",
         "/login",
         "/api/auth/logout",
+        "/healthz",
+        "/readyz",
     )
 
     async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]  # same as SecurityHeadersMiddleware — call_next has no stable public type in Starlette
@@ -612,8 +707,18 @@ class Obscure405Middleware(BaseHTTPMiddleware):
     becomes a generic 401 with no ``Allow`` header so the method
     surface is no longer readable pre-auth.
 
-    We only do this for ``/api/*`` — HTML pages at ``/login`` can
-    legitimately return 405 and callers expect that shape.
+    We deliberately scope this to ``/api/*`` only.  HTML pages at
+    ``/login``, ``/dashboard``, ``/force-password-change`` etc. can
+    legitimately return 405 (form misposted with the wrong verb) and
+    UX callers / browsers expect that shape — converting to 401 there
+    would either trigger a credential prompt or hide a genuine
+    misconfiguration.  The HTML surface is also visible to anyone who
+    can hit ``/login``, so the enumeration concern only really applies
+    to the JSON API.
+
+    If a future endpoint outside ``/api/*`` becomes auth-gated (e.g. a
+    new ``/admin/...`` HTML console), update the prefix list here at
+    that time.
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]  # same as SecurityHeadersMiddleware — call_next has no stable public type in Starlette
