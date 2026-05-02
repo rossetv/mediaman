@@ -6,9 +6,10 @@ import logging
 import sqlite3
 import threading
 import time
+from typing import Literal
 
 import requests
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
 from mediaman.auth.middleware import get_optional_admin
@@ -25,6 +26,7 @@ from mediaman.services.downloads.download_format import (
 )
 from mediaman.services.downloads.download_queue import build_episode_dicts
 from mediaman.services.infra.format import format_bytes
+from mediaman.services.infra.http_client import SafeHTTPError
 
 logger = logging.getLogger("mediaman")
 
@@ -87,6 +89,47 @@ def _format_timeleft(timeleft: str) -> str:
     return f"~{max(1, secs)} sec remaining"
 
 
+def _safe_int(value: object) -> int:
+    """Coerce *value* to a non-negative int, defaulting to 0.
+
+    Defends against Arr responses that return ``size`` / ``sizeleft`` as
+    strings or null. Previously ``size_total > 0`` raised ``TypeError``
+    on a string operand and crashed the handler.
+
+    Accepts ``int``/``float`` directly and parses ``str`` numerals;
+    everything else (including ``None`` and ``bool``) resolves to 0.
+    """
+    if isinstance(value, bool):
+        # ``bool`` is a subclass of ``int`` so ``int(True)`` is valid,
+        # but treating ``True`` as a 1-byte size makes no sense.
+        return 0
+    if isinstance(value, int):
+        return value if value > 0 else 0
+    if isinstance(value, float):
+        return int(value) if value > 0 else 0
+    if isinstance(value, str):
+        try:
+            n = int(value)
+        except ValueError:
+            return 0
+        return n if n > 0 else 0
+    return 0
+
+
+def _safe_progress(size_total: int, size_left: int) -> int:
+    """Return a download progress percentage clamped to ``[0, 100]``.
+
+    Without the clamp a misreported ``sizeleft`` larger than ``size``
+    (or a negative ``sizeleft``) would yield an out-of-range progress
+    value that breaks the progress-bar template — a UI hazard rather
+    than a data corruption issue, but still worth defending against.
+    """
+    if size_total <= 0:
+        return 0
+    raw = round((1 - size_left / size_total) * 100)
+    return max(0, min(100, raw))
+
+
 _UNKNOWN_ITEM: dict[str, object] = build_item(
     dl_id="",
     title="",
@@ -126,9 +169,9 @@ def _radarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> d
     for item in queue:
         item_movie = item.get("movie") or {}
         if item_movie.get("tmdbId") == tmdb_id:
-            size_left = item.get("sizeleft", 0)
-            size_total = item.get("size", 0)
-            progress = round((1 - size_left / size_total) * 100) if size_total > 0 else 0
+            size_left = _safe_int(item.get("sizeleft"))
+            size_total = _safe_int(item.get("size"))
+            progress = _safe_progress(size_total, size_left)
             state = map_arr_status(
                 item.get("status") or "",
                 item.get("trackedDownloadState") or "",
@@ -204,9 +247,9 @@ def _sonarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> d
             series_poster = extract_poster_url(item_series.get("images"))
 
         episode = item.get("episode") or {}
-        size = item.get("size") or 0
-        sizeleft = item.get("sizeleft") or 0
-        ep_progress = round((1 - sizeleft / max(size, 1)) * 100) if size else 0
+        size = _safe_int(item.get("size"))
+        sizeleft = _safe_int(item.get("sizeleft"))
+        ep_progress = _safe_progress(size, sizeleft) if size else 0
         season_num = episode.get("seasonNumber")
         ep_num = episode.get("episodeNumber")
         ep_label = format_episode_label(season_num, ep_num)
@@ -229,7 +272,7 @@ def _sonarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> d
         episodes = build_episode_dicts(ep_entries)
         total_size = sum(e["size"] for e in ep_entries)
         total_left = sum(e["sizeleft"] for e in ep_entries)
-        overall_progress = round((1 - total_left / max(total_size, 1)) * 100) if total_size else 0
+        overall_progress = _safe_progress(total_size, total_left) if total_size else 0
         raw_statuses = [e["status"] for e in ep_entries]
         raw_tracked = [e["tracked_state"] for e in ep_entries]
         combined_status = next(
@@ -351,8 +394,8 @@ def _cached_status(
 @router.get("/api/download/status")
 def download_status(
     request: Request,
-    service: str,
-    tmdb_id: int,
+    service: Literal["radarr", "sonarr"],
+    tmdb_id: int = Query(..., gt=0),
     poll_token: str | None = None,
     admin: str | None = Depends(get_optional_admin),
 ) -> JSONResponse:
@@ -361,6 +404,12 @@ def download_status(
     Finding 14: unauthenticated callers must supply a ``poll_token``
     (short-lived, service/tmdb-bound) returned by the submit endpoint.
     Authenticated admins may poll without a token.
+
+    ``service`` is constrained to the literal set ``{"radarr", "sonarr"}``
+    and ``tmdb_id`` must be a positive integer (TMDB IDs are 1-indexed),
+    so malformed callers receive a 422 from FastAPI rather than reaching
+    the handler with garbage values that would silently fall through to
+    a placeholder response.
     """
     config = request.app.state.config
 
@@ -391,14 +440,17 @@ def download_status(
     conn = get_db()
 
     try:
-        if service in ("radarr", "sonarr"):
-            return JSONResponse(
-                _cached_status(
-                    service=service, tmdb_id=tmdb_id, conn=conn, secret_key=config.secret_key
-                )
+        return JSONResponse(
+            _cached_status(
+                service=service, tmdb_id=tmdb_id, conn=conn, secret_key=config.secret_key
             )
-        return JSONResponse(_UNKNOWN_ITEM)
+        )
 
-    except requests.RequestException as exc:
+    except (requests.RequestException, SafeHTTPError) as exc:
+        # Both transport (RequestException) and Arr-level non-2xx
+        # (SafeHTTPError) failures are bounded behaviours we report as
+        # "unknown" rather than 500. Without SafeHTTPError in this clause
+        # a Radarr/Sonarr 500 would propagate as an unhandled exception
+        # and surface as a 500 to the polling client.
         logger.warning("download_status error (service=%s tmdb_id=%s): %s", service, tmdb_id, exc)
         return JSONResponse(_UNKNOWN_ITEM)
