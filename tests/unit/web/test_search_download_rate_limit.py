@@ -52,9 +52,8 @@ def _valid_body(media_type: str = "movie", tmdb_id: int = 42):
 
 
 def _setup_limiters():
-    _DOWNLOAD_ADMIN_LIMITER._attempts.clear()
-    _DOWNLOAD_ADMIN_LIMITER._day_counts.clear()
-    _DOWNLOAD_IP_LIMITER._attempts.clear()
+    _DOWNLOAD_ADMIN_LIMITER.reset()
+    _DOWNLOAD_IP_LIMITER.reset()
     _download_dedup.clear()
 
 

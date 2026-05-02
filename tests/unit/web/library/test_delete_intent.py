@@ -79,8 +79,7 @@ class TestDeleteIntentPersistence:
     """Integration: delete endpoint must write intent before external call."""
 
     def setup_method(self):
-        _DELETE_LIMITER._attempts.clear()
-        _DELETE_LIMITER._day_counts.clear()
+        _DELETE_LIMITER.reset()
 
     def test_intent_created_before_radarr_call(self, db_path, secret_key):
         """An intent row is written before the Radarr call; verified by checking DB after delete."""
@@ -151,8 +150,7 @@ class TestReconcilePendingDeleteIntents:
     """Unit tests for the reconcile helper (finding 24)."""
 
     def setup_method(self):
-        _DELETE_LIMITER._attempts.clear()
-        _DELETE_LIMITER._day_counts.clear()
+        _DELETE_LIMITER.reset()
 
     def test_reconcile_clears_intent_when_item_already_gone(self, db_path):
         """If the media row is already gone the intent is just completed."""

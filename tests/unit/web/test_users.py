@@ -63,8 +63,7 @@ def _clear_rate_limiter():
         _PASSWORD_CHANGE_IP_LIMITER,
         _SESSIONS_LIST_LIMITER,
     ):
-        lim._attempts.clear()
-        lim._day_counts.clear()
+        lim.reset()
     yield
     for lim in (
         _USER_MGMT_LIMITER,
@@ -74,8 +73,7 @@ def _clear_rate_limiter():
         _PASSWORD_CHANGE_IP_LIMITER,
         _SESSIONS_LIST_LIMITER,
     ):
-        lim._attempts.clear()
-        lim._day_counts.clear()
+        lim.reset()
 
 
 class TestListUsers:
@@ -318,8 +316,7 @@ class TestChangePassword:
         for _ in range(cap):
             # Reset only the per-actor bucket — keep the per-IP bucket
             # accumulating so the IP cap is the one that trips.
-            _PASSWORD_CHANGE_LIMITER._attempts.clear()
-            _PASSWORD_CHANGE_LIMITER._day_counts.clear()
+            _PASSWORD_CHANGE_LIMITER.reset()
             client.post(
                 "/api/users/change-password",
                 json={"old_password": "wrong", "new_password": "NewStrongPass!99"},
@@ -327,8 +324,7 @@ class TestChangePassword:
 
         # Per-IP bucket is now exhausted; even with a fresh per-actor
         # bucket, the request must be 429.
-        _PASSWORD_CHANGE_LIMITER._attempts.clear()
-        _PASSWORD_CHANGE_LIMITER._day_counts.clear()
+        _PASSWORD_CHANGE_LIMITER.reset()
         resp = client.post(
             "/api/users/change-password",
             json={"old_password": "wrong", "new_password": "NewStrongPass!99"},
@@ -437,8 +433,7 @@ class TestDeleteUserBruteForceLockout:
             # Reset only the rate limiter — the namespace lockout is
             # what we are testing; the rate limiter would otherwise trip
             # at 5/min and obscure the lockout.
-            _USER_MGMT_LIMITER._attempts.clear()
-            _USER_MGMT_LIMITER._day_counts.clear()
+            _USER_MGMT_LIMITER.reset()
             resp = client.delete(
                 f"/api/users/{other_id}",
                 headers={"X-Confirm-Password": "wrongpassword"},
@@ -448,8 +443,7 @@ class TestDeleteUserBruteForceLockout:
         assert check_lockout(conn, f"{REAUTH_LOCKOUT_PREFIX}admin") is True
 
         # Even with the correct password the delete is now refused.
-        _USER_MGMT_LIMITER._attempts.clear()
-        _USER_MGMT_LIMITER._day_counts.clear()
+        _USER_MGMT_LIMITER.reset()
         resp = client.delete(
             f"/api/users/{other_id}",
             headers={"X-Confirm-Password": "password1234"},
@@ -469,8 +463,7 @@ class TestDeleteUserBruteForceLockout:
         other_id = _make_second_user(conn)
 
         for _ in range(3):
-            _USER_MGMT_LIMITER._attempts.clear()
-            _USER_MGMT_LIMITER._day_counts.clear()
+            _USER_MGMT_LIMITER.reset()
             client.delete(
                 f"/api/users/{other_id}",
                 headers={"X-Confirm-Password": "wrongpassword"},

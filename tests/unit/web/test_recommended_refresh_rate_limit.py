@@ -196,11 +196,9 @@ class TestDownloadActionRateLimit:
     @pytest.fixture(autouse=True)
     def _reset_limiter(self):
         """Clear the in-process rate-limiter state between tests."""
-        _rec_api._DOWNLOAD_ACTION_LIMITER._attempts.clear()
-        _rec_api._DOWNLOAD_ACTION_LIMITER._day_counts.clear()
+        _rec_api._DOWNLOAD_ACTION_LIMITER.reset()
         yield
-        _rec_api._DOWNLOAD_ACTION_LIMITER._attempts.clear()
-        _rec_api._DOWNLOAD_ACTION_LIMITER._day_counts.clear()
+        _rec_api._DOWNLOAD_ACTION_LIMITER.reset()
 
     def test_rate_limit_blocks_after_window_exceeded(self, authed_client, app):
         """Hammering the download endpoint more than 30 times/min returns 429."""
@@ -248,11 +246,9 @@ class TestOnDemandShareToken:
 
     @pytest.fixture(autouse=True)
     def _reset_limiter(self):
-        _rec_api._SHARE_TOKEN_LIMITER._attempts.clear()
-        _rec_api._SHARE_TOKEN_LIMITER._day_counts.clear()
+        _rec_api._SHARE_TOKEN_LIMITER.reset()
         yield
-        _rec_api._SHARE_TOKEN_LIMITER._attempts.clear()
-        _rec_api._SHARE_TOKEN_LIMITER._day_counts.clear()
+        _rec_api._SHARE_TOKEN_LIMITER.reset()
 
     def _insert_suggestion(self, conn) -> int:
         conn.execute(
@@ -352,11 +348,9 @@ class TestDownloadRecommendationSuccess:
 
     @pytest.fixture(autouse=True)
     def _reset_limiter(self):
-        _rec_api._DOWNLOAD_ACTION_LIMITER._attempts.clear()
-        _rec_api._DOWNLOAD_ACTION_LIMITER._day_counts.clear()
+        _rec_api._DOWNLOAD_ACTION_LIMITER.reset()
         yield
-        _rec_api._DOWNLOAD_ACTION_LIMITER._attempts.clear()
-        _rec_api._DOWNLOAD_ACTION_LIMITER._day_counts.clear()
+        _rec_api._DOWNLOAD_ACTION_LIMITER.reset()
 
     def _insert_movie_suggestion(self, conn) -> int:
         conn.execute(

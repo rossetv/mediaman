@@ -179,11 +179,9 @@ class TestSendNewsletter:
         """Reset the newsletter rate-limiter between tests."""
         from mediaman.services.infra.rate_limits import NEWSLETTER_LIMITER
 
-        NEWSLETTER_LIMITER._attempts.clear()
-        NEWSLETTER_LIMITER._day_counts.clear()
+        NEWSLETTER_LIMITER.reset()
         yield
-        NEWSLETTER_LIMITER._attempts.clear()
-        NEWSLETTER_LIMITER._day_counts.clear()
+        NEWSLETTER_LIMITER.reset()
 
     def test_sends_to_active_subscribers(self, authed_client, app):
         conn = app.state.db

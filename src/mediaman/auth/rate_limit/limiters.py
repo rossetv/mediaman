@@ -111,6 +111,18 @@ class ActionRateLimiter:
         for actor in stale:
             self._daily.pop(actor, None)
 
+    def reset(self) -> None:
+        """Test-helper for clearing all bucket state.
+
+        Drops every actor's burst-window history and rolling 24h log so
+        suites that share a module-level limiter can guarantee a clean
+        slate between cases. Not for production use.
+        """
+        with self._lock:
+            self._attempts.clear()
+            self._daily.clear()
+            self._calls_since_prune = 0
+
 
 def _bucket_key(ip: str) -> str:
     """Collapse an IP into a network-prefix bucket key (IPv4 /24, IPv6 /64)."""
@@ -181,3 +193,14 @@ class RateLimiter:
             return
         # popitem(last=False) removes the first (LRU) entry.
         self._attempts.popitem(last=False)
+
+    def reset(self) -> None:
+        """Test-helper for clearing all bucket state.
+
+        Drops every IP bucket's timestamp history so suites that share a
+        module-level limiter can guarantee a clean slate between cases.
+        Not for production use.
+        """
+        with self._lock:
+            self._attempts.clear()
+            self._calls_since_prune = 0
