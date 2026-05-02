@@ -135,19 +135,32 @@ def _ip_is_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address, *, strict:
 
     When *strict* is True the full RFC1918 set and loopback are blocked
     too.
+
+    All checks (metadata IPs, link-local, unspecified) are applied
+    *after* the IPv4-mapped unwrap so the same address presented as
+    ``169.254.169.254`` and ``::ffff:169.254.169.254`` is rejected by
+    the same rule path. An earlier version checked some flags before
+    the unwrap and others after, which left the metadata-IP membership
+    test relying on incidental coverage by the broader range blocks.
     """
+    # Unwrap IPv4-mapped-IPv6 first so every check below sees the
+    # canonical embedded form. ``ipaddress`` returns the unwrapped
+    # IPv4Address which has its own ``is_unspecified`` / ``is_link_local``
+    # flags — the IPv4-mapped wrapper does not propagate those.
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+
+    # Re-check the metadata-IP allow-list AFTER the unwrap so a v6-mapped
+    # 169.254.169.254 hits the explicit metadata block rather than relying
+    # on the link-local range to catch it incidentally.
     if ip in _METADATA_IPS:
         return True
     if ip.is_unspecified:
         return True
-
-    # Unwrap IPv4-mapped-IPv6 so ``::ffff:169.254.169.254`` is caught.
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-        ip = ip.ipv4_mapped
+    if ip.is_link_local:
+        return True
 
     if isinstance(ip, ipaddress.IPv4Address):
-        if ip.is_link_local:
-            return True
         for net in _BLOCKED_V4_NETS:
             if ip in net:
                 return True
@@ -158,8 +171,6 @@ def _ip_is_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address, *, strict:
         return False
 
     # IPv6 remaining branch.
-    if ip.is_link_local:
-        return True
     for net in _BLOCKED_V6_NETS:
         if ip in net:
             return True
