@@ -91,6 +91,21 @@ def resolve_safe_path(raw: str, roots: list[Path]) -> Path | None:
     * Any component in the chain is a symlink (symlink traversal is
       blocked entirely rather than followed).
     * The resolved path is not a descendant of any allowed root.
+
+    Note on the per-component symlink walk: there is a small TOCTOU
+    window between the per-component ``is_symlink`` check and the
+    final ``resolve()`` — an attacker who can rename a directory into
+    a symlink between the two syscalls could in theory bypass the
+    component check. The risk is bounded by the strict-descendant
+    check at the end (the resolved path must still sit inside a
+    configured root, so any swap would have to land *inside* that
+    root to be useful), and this helper is only called from the
+    disk-usage endpoint which is read-only — the worst-case failure
+    is reading stat data from an unintended path within a configured
+    root, not arbitrary file disclosure. For a destructive operation
+    we'd need the fd-based ``O_NOFOLLOW`` pattern used by
+    :mod:`mediaman.services.infra.storage`, but the read-only
+    nature of this caller makes the upgrade a non-priority.
     """
     try:
         candidate = Path(raw)
