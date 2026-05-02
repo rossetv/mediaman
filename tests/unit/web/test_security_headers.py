@@ -308,9 +308,13 @@ class TestCSPNonce:
 
     A 16-byte base64url nonce is minted for every request, exposed on
     ``request.state.csp_nonce`` for templates and route handlers, and
-    woven into both ``script-src`` and ``style-src``.  The existing
-    ``'unsafe-inline'`` is retained as a CSP2 fallback so untouched
-    inline blocks keep rendering until they are migrated.
+    woven into both ``script-src`` and ``style-src``.
+
+    Wave 7 extracted every page-level inline ``<script>`` to an external
+    file under ``static/js/``, so ``script-src`` no longer needs an
+    ``'unsafe-inline'`` fallback. ``style-src`` still allows
+    ``'unsafe-inline'`` until the inline ``style=`` attributes scattered
+    across templates are migrated to CSS classes.
     """
 
     def test_csp_header_contains_script_nonce(self):
@@ -318,14 +322,19 @@ class TestCSPNonce:
         resp = client.get("/ping")
         csp = resp.headers["Content-Security-Policy"]
         assert "script-src 'self' 'nonce-" in csp
-        # 'unsafe-inline' must still be present as the CSP2 fallback.
-        assert "'unsafe-inline'" in csp.split("script-src")[1].split(";")[0]
+        # 'unsafe-inline' was dropped from script-src after Wave 7 — a
+        # stored XSS in a Jinja |safe interpolation can no longer execute
+        # script content.
+        assert "'unsafe-inline'" not in csp.split("script-src")[1].split(";")[0]
 
     def test_csp_header_contains_style_nonce(self):
         client = TestClient(_build_app())
         resp = client.get("/ping")
         csp = resp.headers["Content-Security-Policy"]
         assert "style-src 'self' 'nonce-" in csp
+        # style-src keeps the unsafe-inline fallback until the inline
+        # style="display:none" attributes in templates are migrated to
+        # CSS classes (Domain 10 follow-up).
         assert "'unsafe-inline'" in csp.split("style-src")[1].split(";")[0]
 
     def test_consecutive_requests_have_different_nonces(self):

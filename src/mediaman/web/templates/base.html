@@ -1,10 +1,11 @@
 <!DOCTYPE html>
-<!-- TODO(H65): migrate from 'unsafe-inline' to a per-request CSP nonce.
-     Requires: emit nonce in SecurityHeadersMiddleware, thread it via
-     request.state.csp_nonce, add nonce="{{ request.state.csp_nonce }}"
-     to every remaining <script> tag. Blocked until all page-level inline
-     scripts are extracted to static files (downloads.html, download.html,
-     recommended.html, search.html, library.html, dashboard.html). -->
+<!-- CSP H65 status: script-src no longer permits 'unsafe-inline'.
+     Every page-level inline <script> was extracted to static/js/ in
+     Wave 7; the only remaining inline scripts are
+     <script type="application/json"> data islands, which CSP does not
+     gate. style-src still allows 'unsafe-inline' for the inline
+     style="display:none" attributes scattered across templates —
+     migrating those to CSS classes is the final cleanup step. -->
 <html lang="en-GB">
 <head>
   <meta charset="UTF-8">
