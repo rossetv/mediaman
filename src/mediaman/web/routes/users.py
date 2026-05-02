@@ -28,7 +28,6 @@ from mediaman.auth.login_lockout import admin_unlock
 from mediaman.auth.middleware import get_current_admin
 from mediaman.auth.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.auth.reauth import (
-    _require_reauth,
     grant_recent_reauth,
     has_recent_reauth,
     reauth_window_seconds,
@@ -76,6 +75,13 @@ _PASSWORD_CHANGE_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60
 _PASSWORD_CHANGE_IP_LIMITER = ActionRateLimiter(
     max_in_window=30, window_seconds=60, max_per_day=200
 )
+#: Per-actor cap for the sessions-list endpoint.  Without this an attacker
+#: holding a stolen session cookie can poll ``GET /api/users/sessions`` to
+#: detect the moment the legitimate user signs in (a new row appears) and
+#: race them out — a low-noise reconnaissance signal.  30 / minute leaves
+#: comfortable head-room for a UI that refreshes every few seconds while
+#: still cutting off automation.
+_SESSIONS_LIST_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=200)
 
 
 class _CreateUserBody(BaseModel):
@@ -222,14 +228,34 @@ def api_delete_user(
         )
 
     conn = get_db()
+    client_ip = get_client_ip(request)
     if not _USER_MGMT_LIMITER.check(admin):
+        logger.warning("user.delete_throttled actor=%s target_id=%d", admin, user_id)
+        security_event(
+            conn,
+            event="user.delete.rate_limited",
+            actor=admin,
+            ip=client_ip,
+            detail={"target_id": user_id},
+        )
         return JSONResponse(
             {"ok": False, "error": "Too many user-management operations"},
             status_code=429,
         )
     pw = x_confirm_password or ""
-    if not _require_reauth(conn, admin, pw):
+    # ``verify_reauth_password`` feeds wrong-password attempts into the
+    # ``reauth:<admin>`` namespace lockout so a stolen session cookie cannot
+    # be used to brute-force the password through this endpoint — the same
+    # 5/10/15 escalation that gates plain login also gates this delete.
+    if not verify_reauth_password(conn, admin, pw):
         logger.warning("user.delete_rejected user=%s reason=reauth_required", admin)
+        security_event(
+            conn,
+            event="user.delete.reauth_failed",
+            actor=admin,
+            ip=client_ip,
+            detail={"target_id": user_id},
+        )
         return JSONResponse(
             {"ok": False, "error": "Password confirmation required"},
             status_code=403,
@@ -240,7 +266,7 @@ def api_delete_user(
             user_id,
             admin,
             audit_actor=admin,
-            audit_ip=get_client_ip(request),
+            audit_ip=client_ip,
         )
     except Exception:
         logger.exception("user.delete failed actor=%s target_id=%d", admin, user_id)
@@ -484,16 +510,43 @@ def api_reauth(
     )
 
 
+#: Keys returned to the client by :func:`api_list_sessions`.
+#:
+#: ``issued_ip`` and ``fingerprint`` are deliberately stripped: the
+#: fingerprint exposes the SHA-256-prefix of the user-agent + the /24 of
+#: the issuing IP, which is exactly the material an attacker holding a
+#: stolen cookie would need to forge a matching fingerprint header on
+#: another device.  ``issued_ip`` is the legitimate user's IP and useful
+#: for nothing but reconnaissance / doxxing.  Timestamps are enough for
+#: the UI to render "this is your current session" without leaking either.
+_SESSION_SAFE_KEYS = ("created_at", "expires_at", "last_used_at")
+
+
 @router.get("/api/users/sessions")
-def api_list_sessions(admin: str = Depends(get_current_admin)) -> dict[str, object]:
+def api_list_sessions(admin: str = Depends(get_current_admin)) -> Response:
     """List active sessions for the current admin.
 
-    Returns metadata only (timestamps, issued IP, fingerprint) — never
-    raw tokens. Use `/api/users/sessions/revoke-others` to log out
-    other devices.
+    Returns timestamp metadata only — never raw tokens, IPs, or
+    fingerprints (a stolen cookie holder could otherwise use the
+    fingerprint to detect the legitimate user logging in or to forge a
+    matching fingerprint on a third device).  Use
+    ``/api/users/sessions/revoke-others`` to log out other devices.
+
+    Per-actor rate limited (:data:`_SESSIONS_LIST_LIMITER`) so a cookie
+    thief cannot poll this to detect the moment the legitimate user
+    signs in.
     """
+    if not _SESSIONS_LIST_LIMITER.check(admin):
+        logger.warning("session.list_throttled actor=%s", admin)
+        return JSONResponse(
+            {"ok": False, "error": "Too many session-list requests — slow down"},
+            status_code=429,
+        )
     conn = get_db()
-    return {"sessions": list_sessions_for(conn, admin)}
+    safe = [
+        {key: row.get(key) for key in _SESSION_SAFE_KEYS} for row in list_sessions_for(conn, admin)
+    ]
+    return JSONResponse({"sessions": safe})
 
 
 @router.post("/api/users/sessions/revoke-others")
