@@ -36,11 +36,13 @@ or surface the failure without digging into a requests ``Response``.
 from __future__ import annotations
 
 import contextlib
+import email.utils
 import json as _json
 import logging
 import socket
 import threading
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 import requests
@@ -77,12 +79,31 @@ def _patched_getaddrinfo(host, port, *args, **kwargs):  # pragma: no cover - thi
     record for the pinned IP, preserving the family that matches the
     address (v4 vs v6). If no pin is set, behaviour is identical to the
     upstream resolver.
+
+    If the caller asked for a specific family (e.g. ``family=AF_INET6``)
+    and the pin holds an address from the other family, an empty list
+    is returned rather than a record with the "wrong" family — that's
+    the same signal urllib3 uses to decide "no matching addresses, try
+    the next strategy", and avoids handing the connection layer a
+    record it cannot actually use.
     """
     pins: dict[str, str] | None = getattr(_DNS_PIN_LOCAL, "pins", None)
     if pins:
         ip = pins.get(host)
         if ip is not None:
             family = socket.AF_INET6 if ":" in ip else socket.AF_INET
+            requested_family = kwargs.get("family")
+            if requested_family is None and len(args) > 0:
+                requested_family = args[0]
+            # ``AF_UNSPEC`` (0) means "either family is fine" — preserve
+            # that as a wildcard match. Any other explicit family that
+            # disagrees with the pin's family must yield an empty list.
+            if (
+                requested_family
+                and requested_family != socket.AF_UNSPEC
+                and requested_family != family
+            ):
+                return []
             socktype = kwargs.get("type") or (args[1] if len(args) > 1 else 0)
             proto = kwargs.get("proto") or (args[2] if len(args) > 2 else 0)
             sockaddr = (ip, port or 0, 0, 0) if family == socket.AF_INET6 else (ip, port or 0)
@@ -114,6 +135,50 @@ def _install_dns_pin_hook() -> None:
             return
         socket.getaddrinfo = _patched_getaddrinfo
         _PIN_INSTALLED = True
+
+
+def _ensure_dns_pin_hook_installed() -> None:
+    """Verify (and re-install) the patched ``socket.getaddrinfo`` resolver.
+
+    The DNS pin works by replacing ``socket.getaddrinfo`` once at module
+    import. If anything in the process replaces the symbol *after*
+    import — a misbehaving plugin, a test fixture that forgets to
+    restore on teardown, an intrusive monitor — the pin silently stops
+    taking effect, and the SSRF guard's promise that "the connect goes
+    to the IP we validated" goes with it.
+
+    Called at the start of every request. When a replacement is
+    detected:
+
+    1. A CRITICAL log message records the tamper event so an operator
+       notices something is fighting the safety wrapper.
+    2. The replacement is captured as the new ``_ORIG_GETADDRINFO``
+       delegate, so any non-pinned lookup still flows through whatever
+       the replacement intends (this preserves legitimate uses such as
+       a test fixture that installs a fake resolver).
+    3. ``_patched_getaddrinfo`` is re-installed at ``socket.getaddrinfo``
+       so the pin takes effect again.
+
+    The replacement-as-delegate model means the pin always works
+    regardless of what the rest of the process does to
+    ``socket.getaddrinfo``. The only way to defeat the pin is to
+    replace ``_patched_getaddrinfo`` itself — and that requires being
+    able to execute arbitrary code in our process, at which point the
+    attacker has already won.
+    """
+    global _ORIG_GETADDRINFO
+    if socket.getaddrinfo is _patched_getaddrinfo:
+        return
+    logger.critical(
+        "socket.getaddrinfo was replaced after http_client import — "
+        "DNS pin would not have applied. Capturing the replacement as "
+        "the new delegate and re-installing the patched resolver. The "
+        "replacement was: %r",
+        socket.getaddrinfo,
+    )
+    # Capture the replacement so non-pinned lookups still flow through it.
+    _ORIG_GETADDRINFO = socket.getaddrinfo
+    _install_dns_pin_hook()
 
 
 _install_dns_pin_hook()
@@ -156,9 +221,37 @@ _DEFAULT_MAX_BYTES = 8 * 1024 * 1024
 #: HTTP status codes that we treat as transient on idempotent requests.
 _RETRYABLE_STATUSES = frozenset({429, 502, 503, 504})
 
+#: HTTP status codes for which a server-supplied ``Retry-After`` header
+#: is honoured (within reasonable bounds). 429 and 503 are the standard
+#: cases; 502/504 do not generally carry a meaningful Retry-After.
+_RETRY_AFTER_STATUSES = frozenset({429, 503})
+
 #: Backoff schedule for retries — two extra attempts after the first,
 #: so a worst case is three total requests.
 _RETRY_BACKOFFS: tuple[float, ...] = (0.5, 1.0)
+
+#: Maximum delay we'll honour for a server-supplied ``Retry-After``
+#: header. A pathological upstream cannot pin a worker for an arbitrary
+#: amount of time — capped to a sane upper bound.
+_RETRY_AFTER_MAX_SECONDS = 60.0
+
+#: Exceptions that we treat as retryable transport-layer errors. Any of
+#: these on an idempotent request triggers the backoff loop; the
+#: original error is reraised in a :class:`SafeHTTPError` if every
+#: retry exhausts.
+#:
+#: ``Timeout`` and ``ConnectionError`` cover the obvious cases; the
+#: remainder cover transient TLS resets, broken chunked transfer, gzip
+#: decode races during a server restart, and redirect storms (a
+#: redirect loop is harmless to retry once the upstream stabilises).
+_RETRYABLE_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    requests.Timeout,
+    requests.ConnectionError,
+    requests.exceptions.SSLError,
+    requests.exceptions.ChunkedEncodingError,
+    requests.exceptions.ContentDecodingError,
+    requests.exceptions.TooManyRedirects,
+)
 
 #: Bytes of the response body to include in a :class:`SafeHTTPError` for
 #: log / debugging purposes. Kept small so accidental logging of an
@@ -208,7 +301,13 @@ class SafeHTTPClient:
         strict_egress: bool | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/") if base_url else ""
-        self._session = session
+        # If the caller didn't supply a Session, create a private one so
+        # the connection pool is reused across calls. The previous
+        # default of ``self._session = None`` fell back to the bare
+        # ``requests`` module per request — which works, but pays a
+        # full pool-setup cost on every call from module-level
+        # singletons (TMDB, OMDb, etc.).
+        self._session = session or requests.Session()
         self._default_timeout = default_timeout
         self._default_max_bytes = default_max_bytes
         self._strict_egress = strict_egress
@@ -217,25 +316,121 @@ class SafeHTTPClient:
     # Public verb methods
     # ------------------------------------------------------------------
 
-    def get(self, path_or_url: str, **kwargs: Any) -> requests.Response:
+    def get(
+        self,
+        path_or_url: str,
+        *,
+        retry: bool = True,
+        timeout: tuple[float, float] | None = None,
+        max_bytes: int | None = None,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
+        json: Any = None,
+        data: Any = None,
+        auth: Any = None,
+        expected_content_type: str | None = None,
+    ) -> requests.Response:
         """Perform an SSRF-checked GET; retries 429/5xx on GETs by default."""
-        kwargs.setdefault("retry", True)
-        return self._request("GET", path_or_url, **kwargs)
+        return self._request(
+            "GET",
+            path_or_url,
+            retry=retry,
+            timeout=timeout,
+            max_bytes=max_bytes,
+            headers=headers,
+            params=params,
+            json=json,
+            data=data,
+            auth=auth,
+            expected_content_type=expected_content_type,
+        )
 
-    def post(self, path_or_url: str, **kwargs: Any) -> requests.Response:
+    def post(
+        self,
+        path_or_url: str,
+        *,
+        retry: bool = False,
+        timeout: tuple[float, float] | None = None,
+        max_bytes: int | None = None,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
+        json: Any = None,
+        data: Any = None,
+        auth: Any = None,
+        expected_content_type: str | None = None,
+    ) -> requests.Response:
         """Perform an SSRF-checked POST; no retries unless ``retry=True``."""
-        kwargs.setdefault("retry", False)
-        return self._request("POST", path_or_url, **kwargs)
+        return self._request(
+            "POST",
+            path_or_url,
+            retry=retry,
+            timeout=timeout,
+            max_bytes=max_bytes,
+            headers=headers,
+            params=params,
+            json=json,
+            data=data,
+            auth=auth,
+            expected_content_type=expected_content_type,
+        )
 
-    def put(self, path_or_url: str, **kwargs: Any) -> requests.Response:
+    def put(
+        self,
+        path_or_url: str,
+        *,
+        retry: bool = False,
+        timeout: tuple[float, float] | None = None,
+        max_bytes: int | None = None,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
+        json: Any = None,
+        data: Any = None,
+        auth: Any = None,
+        expected_content_type: str | None = None,
+    ) -> requests.Response:
         """Perform an SSRF-checked PUT; no retries unless ``retry=True``."""
-        kwargs.setdefault("retry", False)
-        return self._request("PUT", path_or_url, **kwargs)
+        return self._request(
+            "PUT",
+            path_or_url,
+            retry=retry,
+            timeout=timeout,
+            max_bytes=max_bytes,
+            headers=headers,
+            params=params,
+            json=json,
+            data=data,
+            auth=auth,
+            expected_content_type=expected_content_type,
+        )
 
-    def delete(self, path_or_url: str, **kwargs: Any) -> requests.Response:
+    def delete(
+        self,
+        path_or_url: str,
+        *,
+        retry: bool = False,
+        timeout: tuple[float, float] | None = None,
+        max_bytes: int | None = None,
+        headers: dict[str, str] | None = None,
+        params: dict[str, Any] | None = None,
+        json: Any = None,
+        data: Any = None,
+        auth: Any = None,
+        expected_content_type: str | None = None,
+    ) -> requests.Response:
         """Perform an SSRF-checked DELETE; no retries unless ``retry=True``."""
-        kwargs.setdefault("retry", False)
-        return self._request("DELETE", path_or_url, **kwargs)
+        return self._request(
+            "DELETE",
+            path_or_url,
+            retry=retry,
+            timeout=timeout,
+            max_bytes=max_bytes,
+            headers=headers,
+            params=params,
+            json=json,
+            data=data,
+            auth=auth,
+            expected_content_type=expected_content_type,
+        )
 
     # ------------------------------------------------------------------
     # Internal machinery
@@ -264,14 +459,32 @@ class SafeHTTPClient:
         json: Any = None,
         data: Any = None,
         auth: Any = None,
-        stream: bool = False,
+        expected_content_type: str | None = None,
     ) -> requests.Response:
         """Dispatch a single HTTP call with all the safety machinery.
 
-        The ``stream`` kwarg is accepted and passed through only for the
-        benefit of callers that want to read the streamed body directly
-        — the size cap is always enforced internally regardless.
+        Args:
+            method: HTTP verb (``"GET"``, ``"POST"``, …).
+            path_or_url: Absolute URL or a path resolved against
+                ``base_url``.
+            retry: When ``True``, retry transient transport errors and
+                429/5xx responses; honoured automatically for GETs.
+            timeout: ``(connect, read)`` tuple, defaulting to
+                ``(5.0, 30.0)``.
+            max_bytes: Hard cap on the response body, defaulting to
+                ``default_max_bytes``.
+            headers, params, json, data, auth: Forwarded to the
+                underlying ``requests`` call.
+            expected_content_type: When set, the response's
+                ``Content-Type`` header must start with this value
+                (case-insensitive, parameter-stripped). A mismatch
+                raises :class:`SafeHTTPError` so a misconfigured
+                upstream cannot smuggle HTML / binary into a JSON path.
         """
+        # Detect anything that swapped out ``socket.getaddrinfo`` after
+        # our import — without this, a tampered resolver would silently
+        # disable the DNS pin and reopen the SSRF rebind window.
+        _ensure_dns_pin_hook_installed()
         url = self._resolve_url(path_or_url)
         # The SSRF guard validates the URL **and** returns the IP that
         # any subsequent connect must use. Pinning that address inside
@@ -310,6 +523,7 @@ class SafeHTTPClient:
                     json=json,
                     data=data,
                     auth=auth,
+                    expected_content_type=expected_content_type,
                 )
         return self._dispatch_loop(
             caller=caller,
@@ -323,6 +537,7 @@ class SafeHTTPClient:
             json=json,
             data=data,
             auth=auth,
+            expected_content_type=expected_content_type,
         )
 
     def _dispatch_loop(
@@ -339,6 +554,7 @@ class SafeHTTPClient:
         json: Any,
         data: Any,
         auth: Any,
+        expected_content_type: str | None,
     ) -> requests.Response:
         """Inner dispatch + retry loop.
 
@@ -361,7 +577,7 @@ class SafeHTTPClient:
                     auth=auth,
                     timeout=timeout,
                 )
-            except (requests.Timeout, requests.ConnectionError) as exc:
+            except _RETRYABLE_EXCEPTIONS as exc:
                 logger.warning(
                     "HTTP %s %s transport error: %s",
                     method,
@@ -379,8 +595,19 @@ class SafeHTTPClient:
                 ) from exc
 
             try:
-                body = _read_capped(response, cap)
+                body = _read_capped(
+                    response,
+                    cap,
+                    expected_content_type=expected_content_type,
+                )
             except _SizeCapExceeded as exc:
+                response.close()
+                raise SafeHTTPError(
+                    status_code=response.status_code,
+                    body_snippet=str(exc),
+                    url=url,
+                ) from None
+            except _ContentTypeMismatch as exc:
                 response.close()
                 raise SafeHTTPError(
                     status_code=response.status_code,
@@ -401,7 +628,16 @@ class SafeHTTPClient:
                     response.status_code,
                 )
                 response.close()
-                time.sleep(_RETRY_BACKOFFS[attempt])
+                # Honour ``Retry-After`` on 429/503 within sane bounds;
+                # fall back to the fixed backoff schedule for other
+                # retryable statuses or when the header is absent /
+                # malformed.
+                delay = _RETRY_BACKOFFS[attempt]
+                if response.status_code in _RETRY_AFTER_STATUSES:
+                    advised = _retry_after_seconds(response.headers.get("Retry-After"))
+                    if advised is not None:
+                        delay = advised
+                time.sleep(delay)
                 last_status = response.status_code
                 last_snippet = _snippet(body)
                 continue
@@ -427,22 +663,6 @@ class SafeHTTPClient:
         # Should be unreachable; keep mypy/readers happy.
         assert last_exc is not None
         raise last_exc
-
-    @staticmethod
-    def raise_for_status(response: requests.Response) -> None:
-        """Raise :class:`SafeHTTPError` if *response* is non-2xx.
-
-        Helper for call-sites that receive a raw response from somewhere
-        else (e.g. plexapi) but still want mediaman's error shape.
-        """
-        if 200 <= response.status_code < 300:
-            return
-        body = response.content if getattr(response, "_content_consumed", False) else b""
-        raise SafeHTTPError(
-            status_code=response.status_code,
-            body_snippet=_snippet(body),
-            url=response.url or "",
-        )
 
 
 # ----------------------------------------------------------------------
@@ -481,17 +701,98 @@ def _dispatch(
     )
 
 
+def _retry_after_seconds(value: str | None) -> float | None:
+    """Parse a ``Retry-After`` header value into a delay in seconds.
+
+    The header takes either an integer-seconds form (``"30"``) or an
+    HTTP-date form (RFC 7231 §7.1.1.1). Returns the delay in seconds
+    with a hard cap of :data:`_RETRY_AFTER_MAX_SECONDS` to defeat a
+    pathological upstream that asks us to wait for hours. Returns
+    ``None`` for missing or unparseable values.
+    """
+    if not value:
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    # Integer-seconds form first — it's the common case and avoids the
+    # parsedate_to_datetime overhead.
+    try:
+        seconds = float(raw)
+    except (TypeError, ValueError):
+        seconds = None  # type: ignore[assignment]
+    else:
+        if seconds < 0:
+            return 0.0
+        return min(seconds, _RETRY_AFTER_MAX_SECONDS)
+    # HTTP-date form.
+    try:
+        target = email.utils.parsedate_to_datetime(raw)
+    except (TypeError, ValueError):
+        return None
+    if target is None:
+        return None
+    # ``parsedate_to_datetime`` returns aware on offset-bearing inputs
+    # and naive on missing offsets. Normalise to UTC-aware before diff.
+    now = datetime.now(timezone.utc)
+    if target.tzinfo is None:
+        target = target.replace(tzinfo=timezone.utc)
+    delta = (target - now).total_seconds()
+    if delta <= 0:
+        return 0.0
+    return min(delta, _RETRY_AFTER_MAX_SECONDS)
+
+
 class _SizeCapExceeded(Exception):
     """Internal signal that the streamed body breached ``max_bytes``."""
 
 
-def _read_capped(response: requests.Response, max_bytes: int) -> bytes:
+class _ContentTypeMismatch(Exception):
+    """Internal signal that the response Content-Type was unexpected."""
+
+
+def _read_capped(
+    response: requests.Response,
+    max_bytes: int,
+    *,
+    expected_content_type: str | None = None,
+) -> bytes:
     """Read *response* body up to *max_bytes*, raising if the cap is hit.
 
     Honours an advertised Content-Length as a fast-fail before reading
     anything, then streams chunks to catch servers that omit or lie
     about Content-Length.
+
+    When *expected_content_type* is non-``None``, the response's
+    ``Content-Type`` header (case-insensitive, parameter-stripped) is
+    matched against it before any body is read, and a mismatch raises
+    :class:`_ContentTypeMismatch`. The match is a prefix on the
+    ``type/subtype`` portion so ``"application/json"`` matches both
+    ``"application/json"`` and ``"application/json; charset=utf-8"``.
+    A response advertising ``Content-Encoding`` other than ``identity``
+    is rejected because the cap is on decoded bytes and the underlying
+    transport may already be decoding — a server that lies about its
+    encoding could push past the cap before we see it.
     """
+    if expected_content_type:
+        ctype_raw = response.headers.get("Content-Type", "") or ""
+        # Strip parameters such as charset / boundary.
+        ctype = ctype_raw.split(";", 1)[0].strip().lower()
+        expected = expected_content_type.split(";", 1)[0].strip().lower()
+        if not ctype.startswith(expected):
+            raise _ContentTypeMismatch(
+                f"unexpected Content-Type {ctype_raw!r}; expected {expected_content_type!r}"
+            )
+        # ``identity`` (or absent) is the only safe encoding when the
+        # caller has pinned a specific content-type — any other value
+        # means urllib3 / requests will decode for us, which can defeat
+        # the byte cap.
+        encoding = (response.headers.get("Content-Encoding", "") or "").strip().lower()
+        if encoding and encoding not in ("identity", ""):
+            raise _ContentTypeMismatch(
+                f"unexpected Content-Encoding {encoding!r}; expected identity"
+            )
+
     declared = response.headers.get("Content-Length")
     if declared is not None:
         try:
