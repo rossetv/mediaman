@@ -394,6 +394,55 @@ class TestTwoPhaseConsumption:
 
         assert resp2.status_code == 409
 
+    def test_redownload_token_released_on_409(self, db_path, secret_key):
+        """For a re-download link, a 409 from Radarr means the item is already
+        in the library — exactly the state the user wants to re-grab. The
+        token MUST be released so the page can immediately retry rather than
+        leaving the user stuck with 'link already used' on the next click."""
+        from mediaman.crypto import generate_download_token
+        from mediaman.services.infra.http_client import SafeHTTPError
+
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = TestClient(app)
+
+        # Use the redownload action — same crypto helper, action="redownload".
+        token = generate_download_token(
+            email="test@example.com",
+            action="redownload",
+            title="Dune",
+            media_type="movie",
+            tmdb_id=42,
+            recommendation_id=None,
+            secret_key=secret_key,
+        )
+
+        # First: Radarr says 409 (already exists). Redownload semantics say
+        # "release the token so the page can re-issue the click".
+        mock_radarr_409 = MagicMock()
+        mock_radarr_409.add_movie.side_effect = SafeHTTPError(
+            status_code=409, body_snippet="already exists", url="http://radarr/api/v3/movie"
+        )
+        with patch(
+            "mediaman.web.routes.download.submit.build_radarr_from_db",
+            return_value=mock_radarr_409,
+        ):
+            resp1 = client.post(f"/download/{token}")
+        assert resp1.status_code == 409
+        assert "already exists" in resp1.json()["error"]
+
+        # Second click on the same redownload link must succeed because
+        # the token was released — the user is allowed to retry.
+        mock_radarr_ok = MagicMock()
+        mock_radarr_ok.add_movie.return_value = None
+        with patch(
+            "mediaman.web.routes.download.submit.build_radarr_from_db",
+            return_value=mock_radarr_ok,
+        ):
+            resp2 = client.post(f"/download/{token}")
+        assert resp2.status_code == 200
+        assert resp2.json()["ok"] is True
+
 
 class TestPollingCapability:
     """C24 — POST /download/{token} issues a poll_token; status endpoint requires it."""

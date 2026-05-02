@@ -295,6 +295,21 @@ def download_submit(request: Request, token: str) -> JSONResponse:
     except SafeHTTPError as exc:
         status = exc.status_code
         if status in (409, 422):
+            # The Arr service reports the item already exists. For a
+            # *re-download* link this is the expected hot path — the
+            # user explicitly wants to re-grab a title that's already
+            # in the library, so the token must be released so the
+            # page can immediately re-issue the request via the usual
+            # flow rather than leaving the user stranded with a "link
+            # already used" error on the next click.
+            #
+            # For a fresh download link, the same response means the
+            # admin already added it elsewhere; the click was
+            # effectively idempotent, so we keep the token consumed
+            # (preserves replay protection) and surface a poll_token
+            # for the page to display the existing library state.
+            if is_redownload:
+                _unmark_token_used(token)
             service_name = "radarr" if media_type == "movie" else "sonarr"
             svc_label = "Radarr" if media_type == "movie" else "Sonarr"
             poll_token = None
