@@ -63,17 +63,20 @@ _USER_CREATE_LIMITER = ActionRateLimiter(max_in_window=3, window_seconds=3600, m
 # per minute. 30 / minute leaves head-room for the lockout to trip at
 # 5 failures and then keep climbing toward the 10 / 15 escalation bands.
 _REAUTH_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=200)
-# Password-change calls also share a per-actor burst cap. Same shape as
-# the reauth limiter so the route sequence (reauth then change) is a
-# coherent rate budget per session.
-_PASSWORD_CHANGE_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=200)
+# Password-change calls share a per-actor burst cap. Tighter than the
+# reauth limiter (5/min vs 30/min) because a successful change rotates
+# the credential — there's no legitimate workflow that fires this
+# endpoint dozens of times in a minute, while a stolen-session attacker
+# attempting to lock the user out by repeatedly setting a known password
+# benefits directly from a generous cap.
+_PASSWORD_CHANGE_LIMITER = ActionRateLimiter(max_in_window=5, window_seconds=60, max_per_day=50)
 #: Per-IP companion to :data:`_PASSWORD_CHANGE_LIMITER` — finding 8 / M-2.
 #: A stolen session cookie can be replayed from anywhere; the per-actor bucket
 #: alone does not cover that fan-out.  A per-IP cap applied in addition keeps
 #: any single source from grinding away at the password-change endpoint even
 #: if the username changed at the request layer.
 _PASSWORD_CHANGE_IP_LIMITER = ActionRateLimiter(
-    max_in_window=30, window_seconds=60, max_per_day=200
+    max_in_window=5, window_seconds=60, max_per_day=100
 )
 #: Per-actor cap for the sessions-list endpoint.  Without this an attacker
 #: holding a stolen session cookie can poll ``GET /api/users/sessions`` to
