@@ -77,14 +77,19 @@ class TestMediaDelete:
         resp = client.post("/api/media/m1/delete")
         assert resp.status_code == 401
 
-    def test_delete_nonexistent_returns_404(self, db_path, secret_key):
-        """Deleting an unknown media_id returns 404."""
+    def test_delete_nonexistent_returns_403(self, db_path, secret_key):
+        """Deleting an unknown media_id returns 403, not 404 (finding 12).
+
+        Returning 404 leaks whether a given media_id exists. With auth
+        already confirmed, an unknown id is treated as forbidden access
+        instead of a discoverable resource boundary.
+        """
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key)
         client = _auth_client(app, conn)
 
         resp = client.post("/api/media/does-not-exist/delete")
-        assert resp.status_code == 404
+        assert resp.status_code == 403
 
     def test_delete_movie_calls_radarr_and_removes_row(self, db_path, secret_key):
         """Deleting a movie calls Radarr delete_movie and removes the DB row."""
