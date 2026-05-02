@@ -38,7 +38,7 @@
       <div class="search-box">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <input type="text" name="q" value="{{ q }}" placeholder="Search library…"
-               autocomplete="off" oninput="debounceSubmit()">
+               autocomplete="off">
       </div>
       <div class="pill-row">
         <button type="submit" name="type" value=""      class="fpill {% if not current_type %}on{% endif %}">All</button>
@@ -57,7 +57,7 @@
   {% if items %}
   <div class="lib-mobile-sort">
     <label for="lib-mobile-sort-select" class="lib-mobile-sort-label">Sort by</label>
-    <select id="lib-mobile-sort-select" class="inp" onchange="setSort(this.value)" aria-label="Sort library by">
+    <select id="lib-mobile-sort-select" class="inp" aria-label="Sort library by">
       <option value="name_asc"     {% if current_sort == 'name_asc'     %}selected{% endif %}>Title (A–Z)</option>
       <option value="name_desc"    {% if current_sort == 'name_desc'    %}selected{% endif %}>Title (Z–A)</option>
       <option value="size_desc"    {% if current_sort == 'size_desc'    %}selected{% endif %}>Size (largest)</option>
@@ -226,381 +226,32 @@
     <h3 id="delete-modal-heading" class="delete-modal-title">Delete item?</h3>
     <p id="delete-modal-body" class="delete-modal-body"></p>
     <div class="delete-modal-actions">
-      <button class="btn btn--ghost" onclick="closeDeleteModal()">Cancel</button>
+      <button class="btn btn--ghost" data-action="close-delete-modal">Cancel</button>
       <button id="delete-confirm-btn" class="btn btn--danger">Delete</button>
     </div>
   </div>
 </div>
 
-{# TV Show Keep dialog #}
-<div class="keep-dialog-overlay" id="keep-dialog-overlay" onclick="closeKeepDialog()"
+{# TV Show Keep dialog — wiring lives in static/js/library.js. #}
+<div class="keep-dialog-overlay" id="keep-dialog-overlay"
      role="dialog" aria-modal="true" aria-labelledby="keep-dialog-title" aria-hidden="true">
-  <div class="keep-dialog" onclick="event.stopPropagation()">
+  <div class="keep-dialog">
     <h3 id="keep-dialog-title">Keep Show</h3>
     <div class="keep-duration-bar" id="keep-duration-bar">
-      <button class="keep-dur-btn" data-dur="7 days"  onclick="selectDuration(this)">7 days</button>
-      <button class="keep-dur-btn" data-dur="30 days" onclick="selectDuration(this)">30 days</button>
-      <button class="keep-dur-btn" data-dur="90 days" onclick="selectDuration(this)">90 days</button>
-      <button class="keep-dur-btn" data-dur="forever" onclick="selectDuration(this)">Forever</button>
+      <button class="keep-dur-btn" data-dur="7 days">7 days</button>
+      <button class="keep-dur-btn" data-dur="30 days">30 days</button>
+      <button class="keep-dur-btn" data-dur="90 days">90 days</button>
+      <button class="keep-dur-btn" data-dur="forever">Forever</button>
     </div>
     <div class="keep-season-list" id="keep-season-list"></div>
     <div class="keep-dialog-actions">
-      <button class="btn btn--danger btn--sm" id="keep-dialog-remove" onclick="removeAllKeeps()">Remove all keeps</button>
+      <button class="btn btn--danger btn--sm" id="keep-dialog-remove">Remove all keeps</button>
       <div class="u-flex-1"></div>
-      <button class="btn btn--ghost btn--sm" onclick="closeKeepDialog()">Cancel</button>
-      <button class="btn btn--primary btn--sm" id="keep-dialog-confirm" onclick="confirmKeepDialog()">Update</button>
+      <button class="btn btn--ghost btn--sm" data-action="close-keep-dialog">Cancel</button>
+      <button class="btn btn--primary btn--sm" id="keep-dialog-confirm">Update</button>
     </div>
   </div>
 </div>
 
-<script>
-  /**
-   * Submit a keep/snooze request for a media item.
-   * For TV seasons (showRk truthy), opens the season-picker dialog.
-   * For movies, submits directly and reloads.
-   */
-  var _keepDialogState = { showRk: '', showTitle: '', seasonId: '', duration: '30 days' };
-
-  function submitKeep(btn, duration) {
-    var wrapper = btn.closest('.keep-wrapper');
-    var mediaId = wrapper.dataset.id;
-    var isTv    = wrapper.dataset.tv === 'true';
-    var showRk  = wrapper.dataset.showRk || '';
-    var showTitle = wrapper.dataset.showTitle || '';
-
-    if (!isTv) {
-      var body = new URLSearchParams({ duration: duration });
-      fetch('/api/media/' + encodeURIComponent(mediaId) + '/keep', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body.toString(),
-      }).then(function (r) {
-        if (r.ok) window.location.reload();
-        else r.json().then(function (d) { window.UIFeedback.error("Couldn't save keep. " + (d.error || r.status)); });
-      });
-      return;
-    }
-    var durMap = { '7d': '7 days', '30d': '30 days', '90d': '90 days', 'forever': 'forever', 'current': null };
-    _keepDialogState.showRk = showRk;
-    _keepDialogState.showTitle = showTitle;
-    _keepDialogState.seasonId = mediaId;
-    _keepDialogState.duration = durMap[duration] || '30 days';
-    openKeepDialog();
-  }
-
-  function openKeepDialog() {
-    var overlay = document.getElementById('keep-dialog-overlay');
-    overlay.classList.add('active');
-    overlay.setAttribute('aria-hidden', 'false');
-    if (window.ModalA11y) window.ModalA11y.onOpened('keep-dialog-overlay');
-    if (_keepDialogState.duration) selectDurationByValue(_keepDialogState.duration);
-
-    var list = document.getElementById('keep-season-list');
-    list.textContent = 'Loading…';
-    var rk = _keepDialogState.showRk || '_by_title';
-    var url = '/api/show/' + encodeURIComponent(rk) + '/seasons';
-    if (!_keepDialogState.showRk && _keepDialogState.showTitle) {
-      url += '?title=' + encodeURIComponent(_keepDialogState.showTitle);
-    }
-    document.getElementById('keep-dialog-remove').classList.remove('is-visible');
-    document.getElementById('keep-dialog-confirm').textContent = 'Keep';
-    fetch(url)
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        document.getElementById('keep-dialog-title').textContent = 'Keep ' + (data.show_title || _keepDialogState.showTitle || 'Show');
-        var hasKeeps = data.show_kept || data.seasons.some(function (s) { return s.kept; });
-        document.getElementById('keep-dialog-remove').classList.toggle('is-visible', hasKeeps);
-        if (hasKeeps) document.getElementById('keep-dialog-confirm').textContent = 'Update';
-        if (!_keepDialogState.duration && data.show_kept && data.show_kept.snooze_duration) {
-          _keepDialogState.duration = data.show_kept.snooze_duration;
-          selectDurationByValue(_keepDialogState.duration);
-        } else if (!_keepDialogState.duration) {
-          _keepDialogState.duration = 'forever';
-          selectDurationByValue('forever');
-        }
-        renderSeasonPicker(data.seasons, data.show_kept);
-      })
-      .catch(function () { list.textContent = "Couldn't load seasons."; });
-  }
-
-  function closeKeepDialog() {
-    var overlay = document.getElementById('keep-dialog-overlay');
-    overlay.classList.remove('active');
-    overlay.setAttribute('aria-hidden', 'true');
-    if (window.ModalA11y) window.ModalA11y.onClosed('keep-dialog-overlay');
-  }
-  if (window.ModalA11y) window.ModalA11y.register('keep-dialog-overlay', closeKeepDialog);
-
-  function selectDuration(btn) {
-    document.querySelectorAll('.keep-dur-btn').forEach(function (b) { b.classList.remove('active'); });
-    btn.classList.add('active');
-    _keepDialogState.duration = btn.dataset.dur;
-  }
-  function selectDurationByValue(dur) {
-    document.querySelectorAll('.keep-dur-btn').forEach(function (b) { b.classList.toggle('active', b.dataset.dur === dur); });
-  }
-
-  function renderSeasonPicker(seasons, showKept) {
-    var list = document.getElementById('keep-season-list');
-    while (list.firstChild) list.removeChild(list.firstChild);
-
-    var allRow = document.createElement('div');
-    allRow.className = 'keep-season-item keep-all-row';
-    var allCb = document.createElement('input');
-    allCb.type = 'checkbox'; allCb.id = 'keep-all-seasons';
-    var anyKept = showKept || seasons.some(function (s) { return s.kept; });
-    allCb.checked = !!showKept || !anyKept;
-    allCb.addEventListener('change', function () {
-      list.querySelectorAll('input[data-season-id]').forEach(function (cb) { cb.checked = allCb.checked; });
-    });
-    var allLabel = document.createElement('label');
-    allLabel.htmlFor = 'keep-all-seasons';
-    allLabel.textContent = 'All seasons';
-    allRow.appendChild(allCb);
-    allRow.appendChild(allLabel);
-    list.appendChild(allRow);
-
-    seasons.forEach(function (s) {
-      var row = document.createElement('div');
-      row.className = 'keep-season-item';
-      var cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.id = 'keep-season-' + s.id;
-      cb.dataset.seasonId = s.id;
-      cb.checked = s.kept || !anyKept;
-      var label = document.createElement('label');
-      label.htmlFor = 'keep-season-' + s.id;
-      label.textContent = 'Season ' + s.season_number;
-      row.appendChild(cb);
-      row.appendChild(label);
-
-      var details = document.createElement('span');
-      details.className = 'keep-season-details';
-      var parts = [];
-      if (s.file_size) parts.push(s.file_size);
-      if (s.last_watched) parts.push('watched ' + s.last_watched);
-      else parts.push('never watched');
-      details.textContent = parts.join(' · ');
-      row.appendChild(details);
-
-      if (s.kept) {
-        var badge = document.createElement('span');
-        badge.className = 'pill pill--kept';
-        badge.textContent = 'Kept';
-        row.appendChild(badge);
-      }
-      list.appendChild(row);
-    });
-  }
-
-  function confirmKeepDialog() {
-    var allChecked = document.getElementById('keep-all-seasons').checked;
-    var selectedIds = [];
-    document.querySelectorAll('#keep-season-list input[data-season-id]:checked').forEach(function (cb) {
-      selectedIds.push(cb.dataset.seasonId);
-    });
-
-    if (selectedIds.length === 0 && !allChecked) {
-      window.UIFeedback.error('Select at least one season to continue.');
-      return;
-    }
-
-    var btn = document.getElementById('keep-dialog-confirm');
-    btn.disabled = true;
-    btn.textContent = 'Keeping…';
-
-    if (allChecked) {
-      if (selectedIds.length === 0) {
-        document.querySelectorAll('#keep-season-list input[data-season-id]').forEach(function (cb) {
-          selectedIds.push(cb.dataset.seasonId);
-        });
-      }
-      fetch('/api/show/' + encodeURIComponent(_keepDialogState.showRk) + '/keep', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ duration: _keepDialogState.duration, season_ids: selectedIds }),
-      }).then(function (r) {
-        if (r.ok) window.location.reload();
-        else r.json().then(function (d) { window.UIFeedback.error("Couldn't save keep. " + (d.error || 'Try again.')); btn.disabled = false; btn.textContent = 'Keep'; });
-      });
-    } else {
-      /* Finding 35: check response.ok for each request; report failed season IDs. */
-      var durMap = { '7 days': '7d', '30 days': '30d', '90 days': '90d', 'forever': 'forever' };
-      var dur = durMap[_keepDialogState.duration] || '30d';
-      var failed = [];
-      /* Run sequentially so we can short-circuit on first failure for user clarity. */
-      (function runNext(i) {
-        if (i >= selectedIds.length) {
-          if (failed.length) {
-            window.UIFeedback.error('Keep failed for ' + failed.length + ' season(s): ' + failed.join(', '));
-            btn.disabled = false;
-            btn.textContent = 'Keep';
-          } else {
-            window.location.reload();
-          }
-          return;
-        }
-        var sid = selectedIds[i];
-        fetch('/api/media/' + encodeURIComponent(sid) + '/keep', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ duration: dur }).toString(),
-        }).then(function (r) {
-          if (!r.ok) failed.push(sid);
-          runNext(i + 1);
-        }).catch(function () {
-          failed.push(sid);
-          runNext(i + 1);
-        });
-      })(0);
-    }
-  }
-
-  function removeAllKeeps() {
-    window.UIFeedback.confirm({
-      title: 'Remove all keeps for this show?',
-      body: 'Seasons may be scheduled for deletion on the next scan.',
-      confirmLabel: 'Remove all',
-      confirmVariant: 'danger'
-    }).then(function (ok) {
-      if (!ok) return;
-      /* Finding 35: collect season IDs to remove; check response.ok per request. */
-      var seasonIds = [];
-      var rk = _keepDialogState.showRk;
-      document.querySelectorAll('#keep-season-list input[data-season-id]').forEach(function (cb) {
-        seasonIds.push(cb.dataset.seasonId);
-      });
-
-      var failed = [];
-      var allRequests = [];
-      if (rk) allRequests.push({ url: '/api/show/' + encodeURIComponent(rk) + '/remove', id: rk });
-      seasonIds.forEach(function (sid) {
-        allRequests.push({ url: '/api/media/' + encodeURIComponent(sid) + '/unprotect', id: sid });
-      });
-
-      (function runNext(i) {
-        if (i >= allRequests.length) {
-          if (failed.length) {
-            window.UIFeedback.error('Remove failed for: ' + failed.join(', '));
-          } else {
-            window.location.reload();
-          }
-          return;
-        }
-        var req = allRequests[i];
-        fetch(req.url, { method: 'POST' }).then(function (r) {
-          if (!r.ok) failed.push(req.id);
-          runNext(i + 1);
-        }).catch(function () {
-          failed.push(req.id);
-          runNext(i + 1);
-        });
-      })(0);
-    });
-  }
-
-  let _pendingDeleteId = null;
-  function confirmDelete(mediaId, title) {
-    _pendingDeleteId = mediaId;
-    document.getElementById('delete-modal-body').textContent = 'Delete "' + title + '"? This cannot be undone.';
-    const modal = document.getElementById('delete-modal');
-    modal.classList.add('is-visible');
-    modal.setAttribute('aria-hidden', 'false');
-    if (window.ModalA11y) window.ModalA11y.onOpened('delete-modal');
-    document.getElementById('delete-confirm-btn').onclick = function () {
-      if (!_pendingDeleteId) return;
-      fetch('/api/media/' + encodeURIComponent(_pendingDeleteId) + '/delete', { method: 'POST' })
-        .then(r => {
-          if (r.ok) window.location.reload();
-          else r.json().then(d => window.UIFeedback.error("Couldn't delete item. " + (d.error || r.status)));
-        });
-      closeDeleteModal();
-    };
-  }
-
-  function closeDeleteModal() {
-    _pendingDeleteId = null;
-    var modal = document.getElementById('delete-modal');
-    modal.classList.remove('is-visible');
-    modal.setAttribute('aria-hidden', 'true');
-    if (window.ModalA11y) window.ModalA11y.onClosed('delete-modal');
-  }
-  if (window.ModalA11y) window.ModalA11y.register('delete-modal', closeDeleteModal);
-
-  function removeKeep(mediaId) {
-    fetch('/api/media/' + encodeURIComponent(mediaId) + '/unprotect', { method: 'POST' })
-      .then(function (r) { if (r.ok) window.location.reload(); });
-  }
-
-  document.getElementById('delete-modal').addEventListener('click', function (e) {
-    if (e.target === this) closeDeleteModal();
-  });
-
-  /* Finding 17: delegate data-keep-dur and data-action="confirm-delete" clicks
-     instead of using inline onclick handlers. Values come from data-* attributes
-     so they are never interpolated into JS strings. */
-  document.addEventListener('click', function (e) {
-    var keepBtn = e.target.closest('[data-keep-dur]');
-    if (keepBtn) {
-      e.preventDefault();
-      submitKeep(keepBtn, keepBtn.dataset.keepDur);
-      return;
-    }
-    var removeBtn = e.target.closest('[data-remove-keep-id]');
-    if (removeBtn) {
-      e.preventDefault();
-      /* dataset value is JSON-encoded by the template — parse it safely. */
-      var mid;
-      try { mid = JSON.parse(removeBtn.dataset.removeKeepId); } catch (_) { return; }
-      removeKeep(mid);
-      return;
-    }
-    var deleteBtn = e.target.closest('[data-action="confirm-delete"]');
-    if (deleteBtn) {
-      e.preventDefault();
-      var id = deleteBtn.dataset.id;
-      var title;
-      try { title = JSON.parse(deleteBtn.dataset.title); } catch (_) { title = ''; }
-      confirmDelete(id, title);
-    }
-  });
-
-  function setSort(value) {
-    document.getElementById('sort-input').value = value;
-    document.getElementById('toolbar-form').submit();
-  }
-
-  function toggleSort(col) {
-    var input = document.getElementById('sort-input');
-    var current = input.value;
-    var sortMap = {
-      name:    { default: 'name_asc',     asc: 'name_asc',    desc: 'name_desc' },
-      size:    { default: 'size_desc',    asc: 'size_asc',    desc: 'size_desc' },
-      watched: { default: 'watched_desc', asc: 'watched_asc', desc: 'watched_desc' },
-    };
-    var m = sortMap[col];
-    if (!m) return;
-    if (current === m.asc) input.value = m.desc;
-    else if (current === m.desc) input.value = m.asc;
-    else input.value = m.default;
-    document.getElementById('toolbar-form').submit();
-  }
-
-  /* Finding 10: delegated click handler for the .th-sort buttons.
-     Replaces the inline onclick attribute on <th> (which was illegal
-     a11y — <th> isn't keyboard-activatable). */
-  document.addEventListener('click', function (e) {
-    var sortBtn = e.target.closest('.th-sort');
-    if (sortBtn && sortBtn.dataset.sortCol) {
-      e.preventDefault();
-      toggleSort(sortBtn.dataset.sortCol);
-    }
-  });
-
-  let _searchTimer = null;
-  function debounceSubmit() {
-    clearTimeout(_searchTimer);
-    _searchTimer = setTimeout(function () { document.getElementById('toolbar-form').submit(); }, 400);
-  }
-</script>
+<script src="/static/js/library.js" defer></script>
 {% endblock %}
