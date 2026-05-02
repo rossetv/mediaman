@@ -128,7 +128,12 @@ def _aggregate_pack_episodes(card: ArrCard, card_series_id: int) -> None:
         total_left += e["sizeleft"]
 
     downloading = sum(1 for e in eps if e["progress"] > 0)
-    overall_pct = round((1 - total_left / max(total_size, 1)) * 100) if total_size else 0
+    # Clamp the aggregate percentage too — once any constituent record
+    # reports ``sizeleft > size`` the rolled-up subtraction can drop
+    # below zero or punch above 100.
+    overall_pct = (
+        max(0, min(100, round((1 - total_left / max(total_size, 1)) * 100))) if total_size else 0
+    )
     card["episode_count"] = len(eps)
     card["downloading_count"] = downloading
     card["progress"] = overall_pct
@@ -157,7 +162,10 @@ def fetch_sonarr_queue(client: SonarrClient) -> list[ArrCard]:
         series_id = series.get("id", 0)
         size = q.get("size") or 0
         sizeleft = q.get("sizeleft") or 0
-        progress = round((1 - sizeleft / max(size, 1)) * 100) if size else 0
+        # Clamp to [0, 100]: Sonarr can briefly report ``sizeleft > size``
+        # while a torrent re-downloads, which would otherwise produce a
+        # negative percentage and break progress bars.
+        progress = max(0, min(100, round((1 - sizeleft / max(size, 1)) * 100))) if size else 0
         status = q.get("status") or q.get("trackedDownloadStatus") or "queued"
 
         season_num = episode.get("seasonNumber")
