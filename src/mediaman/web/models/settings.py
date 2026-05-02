@@ -1,119 +1,29 @@
-"""Pydantic models for web API request/response validation."""
+"""Settings-update payload models.
+
+``SettingsUpdate`` is the canonical schema for the admin settings page
+— every key the UI can persist must be declared here.  ``DiskThresholds``
+is a smaller helper used for the per-path scanner thresholds.
+
+``_validate_url`` lives here because ``SettingsUpdate`` is its only
+caller; if a future model needs URL validation it should be promoted
+to ``_common``.
+"""
 
 from __future__ import annotations
 
-import re
 from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-#: Field-level cap on password input.  bcrypt itself only consumes 72
-#: bytes, but we accept up to this many characters at the API surface
-#: so a passphrase user gets a clear "too long" rejection instead of a
-#: silent truncation.  Anything bigger than this is almost certainly a
-#: log-injection or DoS payload.
-_MAX_PASSWORD_LEN = 1024
-
-#: Field-level cap on username input.  RFC 5321 caps SMTP local-parts
-#: at 64 characters; usernames here are even shorter in practice
-#: (admin/operator handles).  256 is a generous bound that accommodates
-#: any UTF-8 username we might reasonably see.
-_MAX_USERNAME_LEN = 256
-
-#: RFC 5321 maximum length for an email address (64 + 1 + 255).
-_MAX_EMAIL_LEN = 320
-
-#: Permissive subset of RFC 5322 — same regex used by the subscribers
-#: route helper (kept in sync) so adding a subscriber via the model
-#: layer mirrors the route's hand-rolled validator without pulling in
-#: ``email-validator`` as a hard dependency.
-_EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
-
-#: URL fields cap at 2048 — matches ``_validate_url``'s explicit
-#: length check; kept as a Field-level bound so the rejection
-#: surfaces before the validator runs.
-_URL_MAX = 2048
-
-#: API-key / token fields cap at 1024 — matches the upper bound in
-#: ``_API_KEY_RE``.
-_SECRET_MAX = 1024
-
-#: Hostname (incl. fully-qualified) max per RFC 1035 is 253; round up
-#: to 256 for a comfortable margin.
-_HOST_MAX = 256
-
-# ---------------------------------------------------------------------------
-# Action type constants — canonical string values stored in scheduled_actions
-# ---------------------------------------------------------------------------
-
-ACTION_PROTECTED_FOREVER = "protected_forever"
-ACTION_SNOOZED = "snoozed"
-ACTION_SCHEDULED_DELETION = "scheduled_deletion"
-
-# ---------------------------------------------------------------------------
-# Keep duration vocabulary — maps canonical long-form label to days (None = forever)
-# ---------------------------------------------------------------------------
-
-VALID_KEEP_DURATIONS: dict[str, int | None] = {
-    "7 days": 7,
-    "30 days": 30,
-    "90 days": 90,
-    "forever": None,
-}
-
-# ---------------------------------------------------------------------------
-# Shared validation helpers
-# ---------------------------------------------------------------------------
-
-#: Compiled once; used by the CRLF validator on every string field.
-#: Includes NUL (\x00) because a stray null byte in a value that is
-#: subsequently used as a C string (libcurl, sqlite3, syslog) terminates
-#: the rest of the value silently — the same blast radius as a CR/LF
-#: header injection but harder to spot.
-_CRLF_RE = re.compile(r"[\r\n\x00]")
-
-#: API keys / tokens sent as HTTP headers must only contain ASCII printable
-#: characters and must be short enough that no single header overflows a
-#: reasonable server limit. NUL is excluded because it terminates C strings.
-#: The upper bound is generous enough to accommodate JWT-style tokens —
-#: TMDB v4 "API Read Access Tokens" are ~220+ character JWTs.
-_API_KEY_RE = re.compile(r"^[\x20-\x7E]{1,1024}$")
-
-#: Allowed URL schemes for service base URLs.
-_ALLOWED_URL_SCHEMES = frozenset({"http", "https"})
-
-
-def _reject_crlf(v: str | None) -> str | None:
-    """Raise ``ValueError`` if *v* contains a CR, LF, or NUL character.
-
-    These characters can be injected into HTTP headers when the value is
-    used as an ``Authorization`` or ``X-Api-Key`` header. Rejecting them
-    at the model layer means every code path — not just the settings route
-    — is covered.
-
-    NUL (``\\x00``) is also rejected: many downstream consumers treat
-    strings as C strings (libcurl, sqlite3 BLOB-text coercion, syslog),
-    so a smuggled NUL silently truncates the rest of the value at the
-    boundary.
-    """
-    if v is not None and _CRLF_RE.search(v):
-        raise ValueError("value must not contain CR, LF, or NUL characters")
-    return v
-
-
-def _validate_api_key(v: str | None) -> str | None:
-    """Enforce API-key character set: ASCII printable, length 1–1024.
-
-    Rejects CR, LF, NUL, and non-ASCII so an injected key can never
-    corrupt an HTTP header line.  An empty string (used by the UI to
-    signal "leave unchanged") is passed through so the route can apply
-    its "****" / empty sentinel logic.
-    """
-    if v is None or v == "" or v == "****":
-        return v
-    if not _API_KEY_RE.match(v):
-        raise ValueError("API key must be 1–1024 ASCII printable characters (no CR, LF, or NUL)")
-    return v
+from ._common import (
+    _ALLOWED_URL_SCHEMES,
+    _HOST_MAX,
+    _MAX_EMAIL_LEN,
+    _SECRET_MAX,
+    _URL_MAX,
+    _reject_crlf,
+    _validate_api_key,
+)
 
 
 def _validate_url(v: str | None) -> str | None:
@@ -140,44 +50,6 @@ def _validate_url(v: str | None) -> str | None:
     if not parsed.netloc:
         raise ValueError("URL must include a host")
     return v
-
-
-class LoginRequest(BaseModel):
-    """Login form/JSON body.
-
-    ``extra="forbid"`` makes a stray field (e.g. an attacker shoving
-    ``is_admin=true`` into the body) raise HTTP 422 instead of being
-    silently ignored.  Length caps prevent a wedged client from
-    flooding the auth path with multi-megabyte usernames or passwords;
-    the bcrypt path already truncates passwords at 72 bytes, but a
-    1 MiB POST still costs CPU and log space before that point.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    username: Annotated[str, Field(min_length=1, max_length=_MAX_USERNAME_LEN)]
-    password: Annotated[str, Field(min_length=1, max_length=_MAX_PASSWORD_LEN)]
-
-
-class KeepRequest(BaseModel):
-    """Snooze-or-keep submission body.
-
-    ``duration`` is one of a fixed vocabulary; the
-    :data:`VALID_KEEP_DURATIONS` set bounds the value space and the
-    field-level cap keeps the payload bounded even when the value is
-    not in the allowlist (e.g. an attacker probing with garbage).
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    duration: Annotated[str, Field(min_length=1, max_length=32)]
-
-    @field_validator("duration")
-    @classmethod
-    def validate_duration(cls, v: str) -> str:
-        if v not in VALID_KEEP_DURATIONS:
-            raise ValueError(f"Duration must be one of: {set(VALID_KEEP_DURATIONS)}")
-        return v
 
 
 class DiskThresholds(BaseModel):
@@ -464,38 +336,4 @@ class SettingsUpdate(BaseModel):
                         f"disk_thresholds threshold for library {lib_id!r} "
                         "must be between 0 and 100"
                     )
-        return v
-
-
-class SubscriberCreate(BaseModel):
-    """Subscriber-creation payload (admin only).
-
-    The matching admin-side route currently accepts ``email`` via a
-    form field and runs its own regex validator (``_validate_email``);
-    this model is the canonical schema for any future JSON consumer,
-    and mirrors the route's checks at the type layer.
-
-    ``extra="forbid"`` blocks an attacker shoving extra fields into
-    the body (e.g. ``unsubscribed=False`` to bypass an opt-out).  The
-    ``max_length=320`` cap matches the RFC 5321 maximum for an email
-    address and prevents a multi-megabyte string slipping through to
-    the SQLite write.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    email: Annotated[str, Field(min_length=3, max_length=_MAX_EMAIL_LEN)]
-
-    @field_validator("email")
-    @classmethod
-    def validate_email(cls, v: str) -> str:
-        """Normalise + check the address against the same regex used by
-        the route helper.  Header-injection characters (CR/LF/NUL) are
-        already excluded by the regex (``[A-Za-z0-9._%+-]`` does not
-        admit them) but ``_reject_crlf`` is applied first so the error
-        message matches the shape used elsewhere."""
-        v = v.strip().lower()
-        _reject_crlf(v)
-        if not _EMAIL_RE.match(v):
-            raise ValueError("invalid email address")
         return v
