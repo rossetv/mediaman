@@ -64,7 +64,7 @@ docs/superpowers/
 
 # Playwright MCP scratch + ad-hoc screenshots (dev only)
 .playwright-mcp/
-/*.png
+/scorecard.png
 .desloppify/
 
 # Pre-OSS audit artefacts (local only)

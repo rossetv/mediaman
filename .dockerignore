@@ -24,3 +24,6 @@ CONTRIBUTING.md
 CODE_OF_CONDUCT.md
 SECURITY.md
 CHANGELOG.md
+
+# CI / static-analysis configuration — not needed at runtime.
+bandit.yaml

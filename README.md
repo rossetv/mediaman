@@ -1,5 +1,7 @@
 # mediaman
 
+[![CI](https://github.com/rossetv/mediaman/actions/workflows/ci.yml/badge.svg)](https://github.com/rossetv/mediaman/actions/workflows/ci.yml)
+
 Self-hosted media lifecycle management for Plex. Scans selected libraries for stale media, schedules deletion with a grace period, emails subscribers a weekly newsletter with "keep" links, and provides an admin web UI for browsing, protecting, and recovering items. Integrates with Sonarr, Radarr, NZBGet, Mailgun, TMDB, and OMDb.
 
 ## Architecture
@@ -144,11 +146,42 @@ Copying only the `.db` file while the application is running and the WAL has not
 
 ## Development
 
+mediaman targets Python 3.12 (see `.python-version`).
+
 ```
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
+pre-commit install   # optional but recommended; runs ruff on staged files
+```
+
+CI rejects PRs that fail any of these gates. The `Makefile` wraps the
+canonical incantations:
+
+```
+make test        # pytest -q
+make lint        # ruff check
+make format      # ruff format (rewrites files)
+make typecheck   # mypy
+```
+
+Or run the full pre-push smoke test in one go:
+
+```
+make check       # lint + format-check + typecheck + test
+```
+
+If you'd rather invoke the tools directly:
+
+```
+ruff check .
+ruff format --check .
+mypy src
 pytest -q
 ```
+
+`make clean` clears local `.coverage`, `__pycache__`, `.pytest_cache`,
+`.ruff_cache`, and `.mypy_cache`. Run it after `pytest --cov` if you don't
+want coverage data lingering in your working tree.
 
 Run the server locally:
 ```
@@ -157,6 +190,10 @@ MEDIAMAN_SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32))") 
   MEDIAMAN_BIND_HOST=127.0.0.1 \
   mediaman
 ```
+
+Contributors: see [`CONTRIBUTING.md`](CONTRIBUTING.md) for branch / commit /
+PR conventions, and [`SECURITY.md`](SECURITY.md) for how to report
+vulnerabilities privately.
 
 ## Licence
 
