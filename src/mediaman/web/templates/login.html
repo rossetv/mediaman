@@ -5,7 +5,8 @@
 {% block content %}
 <div class="login-page">
   <div class="login-card">
-    <div class="login-brand"><a href="/">media<b>man</b></a></div>
+    <h1 class="sr-only">Sign in to mediaman</h1>
+    <div class="login-brand" aria-hidden="true"><a href="/">media<b>man</b></a></div>
     <div class="login-sub">Sign in to manage your library</div>
 
     {% if error %}

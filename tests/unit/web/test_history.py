@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -34,7 +34,7 @@ def _auth_client(app: FastAPI, conn) -> TestClient:
 def _insert_audit_row(conn, action: str = "scanned", media_item_id: str = "m1") -> None:
     conn.execute(
         "INSERT INTO audit_log (media_item_id, action, created_at) VALUES (?, ?, ?)",
-        (media_item_id, action, datetime.now(timezone.utc).isoformat()),
+        (media_item_id, action, datetime.now(UTC).isoformat()),
     )
     conn.commit()
 
@@ -150,7 +150,7 @@ def _insert_audit_full(
     title-resolution / detail-scrubbing tests."""
     conn.execute(
         "INSERT INTO audit_log (media_item_id, action, detail, created_at) VALUES (?, ?, ?, ?)",
-        (media_item_id, action, detail, datetime.now(timezone.utc).isoformat()),
+        (media_item_id, action, detail, datetime.now(UTC).isoformat()),
     )
     conn.commit()
 
@@ -177,7 +177,7 @@ def _insert_kept_show(conn, *, rating_key: str, title: str) -> None:
             (show_rating_key, show_title, action, created_at)
         VALUES (?, ?, ?, ?)
         """,
-        (rating_key, title, "kept_show", datetime.now(timezone.utc).isoformat()),
+        (rating_key, title, "kept_show", datetime.now(UTC).isoformat()),
     )
     conn.commit()
 

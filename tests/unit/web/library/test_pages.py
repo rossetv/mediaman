@@ -9,7 +9,7 @@ GET /library page route:
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 from fastapi import FastAPI
@@ -48,7 +48,7 @@ def _auth_client(app: FastAPI, conn) -> TestClient:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _insert_movie(conn, media_id: str, title: str = "Test Movie") -> None:

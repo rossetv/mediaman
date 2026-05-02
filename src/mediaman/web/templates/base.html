@@ -5,7 +5,7 @@
      to every remaining <script> tag. Blocked until all page-level inline
      scripts are extracted to static files (downloads.html, download.html,
      recommended.html, search.html, library.html, dashboard.html). -->
-<html lang="en">
+<html lang="en-GB">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -29,7 +29,10 @@
   {% block head %}{% endblock %}
 </head>
 <body data-page="{{ nav_active or '' }}">
+  <a class="skip-link" href="#main-content">Skip to content</a>
   {% block nav %}{% endblock %}
-  {% block content %}{% endblock %}
+  <main id="main-content" tabindex="-1">
+    {% block content %}{% endblock %}
+  </main>
 </body>
 </html>

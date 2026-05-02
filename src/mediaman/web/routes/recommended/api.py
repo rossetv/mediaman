@@ -6,8 +6,7 @@ import logging
 import re
 import sqlite3
 import time as _time
-from datetime import datetime
-from datetime import timezone as _tz
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -137,7 +136,7 @@ def api_share_token(
 
     ttl_days = 14
     expires_at_ts = int(_time.time()) + ttl_days * 86400
-    expires_at = datetime.fromtimestamp(expires_at_ts, tz=_tz.utc).isoformat()
+    expires_at = datetime.fromtimestamp(expires_at_ts, tz=UTC).isoformat()
 
     share_token = generate_download_token(
         email=admin,

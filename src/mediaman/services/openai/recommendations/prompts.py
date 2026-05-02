@@ -11,7 +11,7 @@ import logging
 import re
 import sqlite3
 import unicodedata
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from urllib.parse import quote as urlquote
 
 from mediaman.services.openai.client import call_openai
@@ -219,7 +219,7 @@ def generate_trending(
             not to repeat them.
         secret_key: Encryption key for reading the OpenAI API key from DB settings.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     last_week_end = now - timedelta(days=now.weekday() + 1)
     last_week_start = last_week_end - timedelta(days=6)
     from mediaman.services.infra.format import format_day_month as _fmt_dm

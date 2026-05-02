@@ -2,6 +2,16 @@
    Mediaman component macros — single source of truth for buttons, pills,
    tiles, tables and settings primitives. Import via:
        {% import "_components.html" as c %}
+
+   SECURITY (H66 / Domain 10): macros below use ``|safe`` (and a few raw
+   ``{{ … }}`` interpolations) for inputs that are deliberately HTML
+   fragments (icon SVG strings, sub-text with inline links, header_extra
+   slots). These inputs MUST be server-controlled literals — never pass
+   user-supplied content (titles, names, comments) through these slots
+   without first running it through Jinja's autoescape. If you need to
+   surface user-supplied text inside one of these slots, escape it first
+   (e.g. ``{{ user_value | e }}``) and concatenate, or use a different
+   macro that escapes by default.
    ============================================================================ #}
 
 
@@ -53,6 +63,19 @@
 {# Countdown badge — used inside .tile-pills next to a media badge. #}
 {% macro countdown(label) -%}
   <span class="countdown">{{ label }}</span>
+{%- endmacro %}
+
+
+{# Poster image — single source of truth for tile/grid posters.
+   ``item`` exposes ``plex_rating_key`` (preferred — proxies through
+   /api/poster) and a ``title`` used only for the empty fallback's
+   visible aria-hidden label. Alt is intentionally empty because every
+   call site renders the title as a sibling text node, so a non-empty
+   alt would duplicate the announcement. #}
+{% macro poster(item) -%}
+  {% if item.plex_rating_key %}
+  <img src="/api/poster/{{ item.plex_rating_key }}" alt="" loading="lazy">
+  {% endif %}
 {%- endmacro %}
 
 

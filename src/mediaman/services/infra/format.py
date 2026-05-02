@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 # ---------------------------------------------------------------------------
 # Audit-log detail parsers — shared by dashboard and newsletter.
@@ -78,9 +78,9 @@ def ensure_tz(dt: datetime | None) -> datetime:
     A ``None`` input returns the current UTC time.
     """
     if dt is None:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        return dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -133,7 +133,7 @@ def parse_iso_utc(value: str | None) -> datetime | None:
         # behaviour of Radarr/Sonarr/Plex which emit UTC timestamps but
         # sometimes omit the offset marker.  Callers that have an
         # authoritative non-UTC offset should convert before calling.
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -172,7 +172,7 @@ _ENGLISH_MONTH_ABBR = (
 )
 
 
-def format_day_month(dt: "datetime", *, long_month: bool = False) -> str:
+def format_day_month(dt: datetime, *, long_month: bool = False) -> str:
     """Format *dt* as a day-month-year string without the ``%-d`` platform gotcha.
 
     ``%-d`` (GNU strftime extension for zero-strip) works on Linux but
@@ -262,7 +262,7 @@ def days_ago(value: str | None) -> str:
     dt = parse_iso_utc(value)
     if dt is None:
         return ""
-    delta = (datetime.now(timezone.utc) - dt).days
+    delta = (datetime.now(UTC) - dt).days
     if delta <= 0:
         return "today"
     if delta == 1:

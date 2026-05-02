@@ -25,9 +25,9 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 from mediaman.scanner import repository
 from mediaman.scanner.arr_dates import ArrDateCache

@@ -15,7 +15,7 @@ import re
 import sqlite3
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import TypedDict
 
 from mediaman.auth._token_hashing import hash_token as _hash_token
@@ -148,7 +148,7 @@ def create_session(
     """Create a session and return the opaque token."""
     token = generate_session_token()
     token_hash = _hash_token(token)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     now_iso = now.isoformat()
     if ttl_seconds is None:
         expires_at = (now + timedelta(days=_HARD_EXPIRY_DAYS)).isoformat()
@@ -231,7 +231,7 @@ def _parse_iso_aware(raw: str | None) -> datetime | None:
     if dt.tzinfo is None:
         # Treat naive timestamps as UTC — every code path in this
         # module writes UTC ISO strings via ``datetime.now(timezone.utc)``.
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt
 
 
@@ -375,7 +375,7 @@ def validate_session(
         return None
 
     global _last_cleanup_at
-    now_dt = datetime.now(timezone.utc)
+    now_dt = datetime.now(UTC)
     now_iso = now_dt.isoformat()
     token_hash = _hash_token(token)
 

@@ -6,7 +6,7 @@ import difflib
 import logging
 import secrets
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from urllib.parse import quote as _url_quote
 
 from fastapi import APIRouter, Depends, Form, Query, Request
@@ -46,7 +46,7 @@ def _record_delete_intent(
     crash between the external call and the local DB cleanup can be detected
     and reconciled on startup via :func:`reconcile_pending_delete_intents`.
     """
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     cur = conn.execute(
         "INSERT INTO delete_intents "
         "(media_item_id, target_kind, target_id, started_at) "
@@ -61,7 +61,7 @@ def _complete_delete_intent(conn: sqlite3.Connection, intent_id: int) -> None:
     """Mark a delete intent as successfully completed."""
     conn.execute(
         "UPDATE delete_intents SET completed_at = ? WHERE id = ?",
-        (datetime.now(timezone.utc).isoformat(), intent_id),
+        (datetime.now(UTC).isoformat(), intent_id),
     )
     conn.commit()
 
@@ -404,7 +404,7 @@ def api_media_keep(
     if row is None:
         return JSONResponse({"error": "Not found"}, status_code=404)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     if duration == "forever":
         action = ACTION_PROTECTED_FOREVER

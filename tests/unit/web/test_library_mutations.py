@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 from fastapi import FastAPI
@@ -36,7 +36,7 @@ def _auth_client(app: FastAPI, conn) -> TestClient:
 
 def _insert_movie(conn, media_id: str = "m1", radarr_id: int | None = 101) -> None:
     """Insert a minimal movie row into media_items."""
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     conn.execute(
         """INSERT INTO media_items
            (id, title, media_type, plex_library_id, plex_rating_key, added_at,
@@ -51,7 +51,7 @@ def _insert_tv_season(
     conn, media_id: str = "s1", sonarr_id: int | None = 202, season: int = 1
 ) -> None:
     """Insert a minimal TV season row into media_items."""
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     conn.execute(
         """INSERT INTO media_items
            (id, title, media_type, plex_library_id, plex_rating_key, added_at,
@@ -162,7 +162,7 @@ class TestMediaDelete:
         """Deleting a media item also prunes its associated scheduled_actions rows."""
         conn = init_db(str(db_path))
         _insert_movie(conn)
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute(
             """INSERT INTO scheduled_actions
                (media_item_id, action, scheduled_at, token, token_used)
@@ -535,7 +535,7 @@ class TestLibrarySearchLikeEscape:
         """A query containing '%' must only match titles containing a literal '%'."""
         conn = init_db(str(db_path))
         set_connection(conn)
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute(
             "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key, added_at, file_path, file_size_bytes) "
             "VALUES ('m1', '50% Off', 'movie', 1, 'rk1', ?, '/f1', 1000000)",
@@ -559,7 +559,7 @@ class TestLibrarySearchLikeEscape:
         """A query containing '_' must match titles with a literal underscore only."""
         conn = init_db(str(db_path))
         set_connection(conn)
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute(
             "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key, added_at, file_path, file_size_bytes) "
             "VALUES ('m1', 'foo_bar', 'movie', 1, 'rk1', ?, '/f1', 1000000)",

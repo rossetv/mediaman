@@ -26,7 +26,12 @@
   --t3: rgba(255,255,255,.5);
   --t4: rgba(255,255,255,.32);
 
-  /* Accents — interactive only */
+  /* Accents — interactive only.
+     Note: DESIGN.md §3 names Apple Blue (#0071e3) the "accent" and Bright Blue
+     (#2997ff) the "link" colour. Mediaman's tokens flip those names — `--accent`
+     is the dark-bg link blue (#2997ff) and `--accent-cta` is the CTA / focus blue
+     (#0071e3). Renaming the tokens would cascade through every CSS file and
+     template; the inversion is intentional and documented here. */
   --accent:     #2997ff;
   --accent-cta: #0071e3;
   --accent-hi:  #54aaff;
@@ -51,6 +56,15 @@
   /* Spacing & nav */
   --pad:     clamp(20px,4vw,40px);
   --section: clamp(36px,6vw,72px);
-  --nav-h:   52px;
+  --nav-h:   48px;
+
+  /* Z-index scale — single source of truth for app-wide stacking.
+     Local stacking contexts inside positioned ancestors stay numeric. */
+  --z-dropdown:        50;
+  --z-nav:             60;
+  --z-modal-backdrop: 100;
+  --z-modal:          110;
+  --z-confirm:        200;
+  --z-toast:          210;
 }
 

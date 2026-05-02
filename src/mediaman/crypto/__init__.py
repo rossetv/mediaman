@@ -10,7 +10,7 @@ to import every symbol from :mod:`mediaman.crypto`.
 
 # Re-export so ``mediaman.crypto.hmac.compare_digest`` patches still bind —
 # the test suite monkeypatches this attribute on the package.
-import hmac  # noqa: F401
+import hmac
 
 from .aes import (
     # Public API
@@ -47,23 +47,23 @@ from .tokens import (
 )
 
 __all__ = [
-    "encrypt_value",
-    "decrypt_value",
-    "canary_check",
-    "_load_or_create_salt",
     "_derive_aes_key_hkdf",
     "_derive_aes_key_legacy",
+    "_load_or_create_salt",
     "_secret_key_looks_strong",
-    "generate_keep_token",
-    "validate_keep_token",
+    "canary_check",
+    "decrypt_value",
+    "encrypt_value",
     "generate_download_token",
-    "validate_download_token",
-    "generate_unsubscribe_token",
-    "validate_unsubscribe_token",
-    "generate_poster_token",
-    "validate_poster_token",
-    "sign_poster_url",
+    "generate_keep_token",
     "generate_poll_token",
-    "validate_poll_token",
+    "generate_poster_token",
     "generate_session_token",
+    "generate_unsubscribe_token",
+    "sign_poster_url",
+    "validate_download_token",
+    "validate_keep_token",
+    "validate_poll_token",
+    "validate_poster_token",
+    "validate_unsubscribe_token",
 ]

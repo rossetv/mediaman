@@ -60,7 +60,7 @@ class _ScrubApiKeyFilter(logging.Filter):
     nothing downstream (file handler, syslog) sees the secret.
     """
 
-    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401 — Filter API
+    def filter(self, record: logging.LogRecord) -> bool:
         try:
             if isinstance(record.msg, str) and "apikey=" in record.msg.lower():
                 record.msg = _APIKEY_QS_RE.sub("apikey=<redacted>", record.msg)

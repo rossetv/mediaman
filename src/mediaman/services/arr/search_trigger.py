@@ -11,6 +11,7 @@ import sqlite3
 import threading
 import time
 import uuid
+from datetime import UTC
 
 from mediaman.audit import security_event
 from mediaman.services.arr.build import build_arr_client
@@ -119,9 +120,9 @@ def _save_trigger_to_db(conn: sqlite3.Connection, dl_id: str, epoch: float, coun
     the write fails (e.g. DB locked briefly).
     """
     try:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        ts = datetime.fromtimestamp(epoch, tz=timezone.utc).isoformat()
+        ts = datetime.fromtimestamp(epoch, tz=UTC).isoformat()
         conn.execute(
             "INSERT OR REPLACE INTO arr_search_throttle "
             "(key, last_triggered_at, search_count) VALUES (?, ?, ?)",
@@ -383,9 +384,9 @@ def reconcile_stranded_throttle(
     Returns:
         Number of rows deleted.
     """
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
-    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=ttl_seconds)).isoformat()
+    cutoff = (datetime.now(UTC) - timedelta(seconds=ttl_seconds)).isoformat()
     try:
         cur = conn.execute(
             "DELETE FROM arr_search_throttle WHERE last_triggered_at < ?",

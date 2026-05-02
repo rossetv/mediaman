@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from mediaman.crypto import validate_keep_token
 from mediaman.services.infra.format import format_day_month
@@ -121,7 +121,7 @@ def find_active_keep_action_by_id_and_token(
     column for rows not yet migrated to ``token_hash``.
     """
     th = token_hash(token)
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     row = conn.execute(
         "SELECT * FROM scheduled_actions "
         "WHERE id = ? AND token_hash = ? "
@@ -184,7 +184,7 @@ def parse_execute_at(raw: object, *, default: datetime) -> datetime:
     except (ValueError, TypeError):
         return default
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
     return parsed
 
 
@@ -301,8 +301,8 @@ def format_expiry(action: str | None, execute_at: str | None) -> str:
     try:
         dt = datetime.fromisoformat(execute_at)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        delta = (dt - datetime.now(timezone.utc)).days
+            dt = dt.replace(tzinfo=UTC)
+        delta = (dt - datetime.now(UTC)).days
         if delta <= 0:
             return "Expires today"
         if delta == 1:

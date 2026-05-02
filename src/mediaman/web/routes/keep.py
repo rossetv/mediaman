@@ -19,7 +19,7 @@ between FastAPI and that service.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -102,7 +102,7 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
         )
 
     # Determine state.
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     execute_at = parse_execute_at(row["execute_at"], default=now)
 
     if execute_at < now:
@@ -184,7 +184,7 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
     if verified is None:
         return HTMLResponse('{"error":"invalid_or_expired"}', status_code=400)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Check the token-used table first so replays get 409, not 400.
     if not mark_token_consumed(conn, token, now):
@@ -201,7 +201,7 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
     # ``duration`` is non-"forever" by the early reject above, so the
     # mapping is guaranteed to yield an int.
     days = VALID_KEEP_DURATIONS[duration]
-    assert days is not None  # noqa: S101 — invariant from VALID_KEEP_DURATIONS check above
+    assert days is not None
 
     rowcount = apply_keep_snooze(
         conn,
@@ -252,7 +252,7 @@ def keep_forever(
     if verified is None:
         return JSONResponse({"error": "invalid_or_expired"}, status_code=400)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Check replay first so replays get 409, not 400.
     if not mark_token_consumed(conn, token, now):

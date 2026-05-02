@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -36,7 +36,7 @@ def _insert_media_item(
     conn.execute(
         "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key, "
         "added_at, file_path, file_size_bytes) VALUES (?, ?, ?, 1, 'rk1', ?, '/f', 0)",
-        (media_id, title, media_type, datetime.now(timezone.utc).isoformat()),
+        (media_id, title, media_type, datetime.now(UTC).isoformat()),
     )
     conn.commit()
 
@@ -45,7 +45,7 @@ def _insert_protection(conn, media_item_id: str, action: str = "protected_foreve
     conn.execute(
         "INSERT INTO scheduled_actions (media_item_id, action, scheduled_at, token, token_used) "
         "VALUES (?, ?, ?, ?, 0)",
-        (media_item_id, action, datetime.now(timezone.utc).isoformat(), f"tok-{media_item_id}"),
+        (media_item_id, action, datetime.now(UTC).isoformat(), f"tok-{media_item_id}"),
     )
     conn.commit()
 
@@ -141,7 +141,7 @@ def _insert_season(
     conn, media_id: str, show_rating_key: str | None, show_title: str, season: int = 1
 ) -> None:
     """Insert a TV season with a specific show_rating_key / show_title."""
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     conn.execute(
         """INSERT INTO media_items
            (id, title, media_type, plex_library_id, plex_rating_key, added_at,
@@ -329,7 +329,7 @@ class TestApiRemoveShowKeep:
         _insert_season(conn, "m-X", "rk-show-X", "Galaxy Quest", season=1)
 
         # Create a keep rule first
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute(
             "INSERT INTO kept_shows (show_rating_key, show_title, action, created_at) "
             "VALUES ('rk-show-X', 'Galaxy Quest', 'protected_forever', ?)",

@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import secrets
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -274,8 +274,8 @@ def api_show_seasons(
             try:
                 lw_dt = datetime.fromisoformat(str(lw))
                 if lw_dt.tzinfo is None:
-                    lw_dt = lw_dt.replace(tzinfo=timezone.utc)
-                delta = (datetime.now(timezone.utc) - lw_dt).days
+                    lw_dt = lw_dt.replace(tzinfo=UTC)
+                delta = (datetime.now(UTC) - lw_dt).days
                 if delta == 0:
                     last_watched = "today"
                 elif delta == 1:
@@ -349,8 +349,7 @@ def api_keep_show(
 
     placeholders = ",".join("?" * len(season_ids))
     owned = conn.execute(
-        f"SELECT id FROM media_items WHERE id IN ({placeholders}) "  # noqa: S608 — placeholders are '?' only, not user input
-        f"AND show_rating_key = ?",
+        f"SELECT id FROM media_items WHERE id IN ({placeholders}) AND show_rating_key = ?",
         tuple(season_ids) + (resolved_key,),
     ).fetchall()
     owned_ids = {r["id"] for r in owned}
@@ -378,7 +377,7 @@ def api_keep_show(
 
     days = VALID_KEEP_DURATIONS.get(duration)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if duration == "forever":
         action = ACTION_PROTECTED_FOREVER
         execute_at = None

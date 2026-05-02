@@ -23,10 +23,10 @@ except ImportError:  # pragma: no cover
     FileSystemLoader = None  # type: ignore[assignment]
     _TemplateError = Exception  # type: ignore[assignment,misc]
 
-_JINJA_ENV: "Environment | None" = None
+_JINJA_ENV: Environment | None = None
 
 
-def _get_jinja_env() -> "Environment | None":
+def _get_jinja_env() -> Environment | None:
     """Return the shared Jinja2 environment, building it on first call.
 
     Returns ``None`` when Jinja2 is unavailable or the template directory

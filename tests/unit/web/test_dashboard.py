@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -48,7 +48,7 @@ def _insert_media_item(
             title,
             media_type,
             plex_rating_key,
-            datetime.now(timezone.utc).isoformat(),
+            datetime.now(UTC).isoformat(),
             file_size,
         ),
     )
@@ -57,14 +57,14 @@ def _insert_media_item(
 
 def _insert_scheduled_deletion(conn, media_item_id: str, execute_at: str | None = None) -> None:
     if execute_at is None:
-        execute_at = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        execute_at = (datetime.now(UTC) + timedelta(days=7)).isoformat()
     conn.execute(
         "INSERT INTO scheduled_actions "
         "(media_item_id, action, scheduled_at, execute_at, token, token_used) "
         "VALUES (?, 'scheduled_deletion', ?, ?, ?, 0)",
         (
             media_item_id,
-            datetime.now(timezone.utc).isoformat(),
+            datetime.now(UTC).isoformat(),
             execute_at,
             f"tok-{media_item_id}",
         ),
@@ -76,7 +76,7 @@ def _insert_audit_deleted(conn, media_item_id: str, space_bytes: int = 500_000_0
     conn.execute(
         "INSERT INTO audit_log (media_item_id, action, space_reclaimed_bytes, created_at) "
         "VALUES (?, 'deleted', ?, ?)",
-        (media_item_id, space_bytes, datetime.now(timezone.utc).isoformat()),
+        (media_item_id, space_bytes, datetime.now(UTC).isoformat()),
     )
     conn.commit()
 
@@ -194,7 +194,7 @@ class TestApiDashboardReclaimedChart:
         app = _make_app(conn, secret_key)
         client = _auth_client(app, conn)
         # Two deletions in the same week
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for space in (100, 200):
             conn.execute(
                 "INSERT INTO audit_log (media_item_id, action, space_reclaimed_bytes, created_at) "

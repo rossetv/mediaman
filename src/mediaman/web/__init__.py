@@ -777,10 +777,10 @@ def register_security_middleware(app) -> None:
 
 
 __all__ = [
-    "SecurityHeadersMiddleware",
     "BodySizeLimitMiddleware",
     "CSRFOriginMiddleware",
-    "Obscure405Middleware",
     "ForcePasswordChangeMiddleware",
+    "Obscure405Middleware",
+    "SecurityHeadersMiddleware",
     "register_security_middleware",
 ]

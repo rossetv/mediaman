@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -37,7 +37,7 @@ def authed_client(app):
 
 
 def _insert_season(conn, item_id, show_title, season_num, show_rating_key):
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     conn.execute(
         "INSERT INTO media_items (id, title, media_type, show_title, season_number, "
         "plex_library_id, plex_rating_key, show_rating_key, added_at, file_path, file_size_bytes) "
@@ -120,7 +120,7 @@ class TestShowKeepAPI:
 class TestShowRemoveAPI:
     def test_removes_show_keep(self, authed_client, app):
         conn = app.state.db
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute(
             "INSERT INTO kept_shows (show_rating_key, show_title, action, created_at) "
             "VALUES ('100', 'Breaking Bad', 'protected_forever', ?)",

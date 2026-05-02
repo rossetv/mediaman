@@ -10,8 +10,8 @@ from .db import bootstrap_db
 from .scheduling import bootstrap_scheduling, shutdown_scheduling
 
 __all__ = [
-    "bootstrap_db",
     "bootstrap_crypto",
+    "bootstrap_db",
     "bootstrap_scheduling",
     "shutdown_scheduling",
 ]

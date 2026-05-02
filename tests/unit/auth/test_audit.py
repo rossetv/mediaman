@@ -1,7 +1,7 @@
 """Unit tests for mediaman.audit.log_audit and security_event helpers."""
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -56,10 +56,10 @@ class TestLogAudit:
 
     def test_timestamp_is_utc_iso(self):
         conn = _make_conn()
-        before = datetime.now(timezone.utc).isoformat()
+        before = datetime.now(UTC).isoformat()
         log_audit(conn, "item-4", "test_action", "detail")
         conn.commit()
-        after = datetime.now(timezone.utc).isoformat()
+        after = datetime.now(UTC).isoformat()
 
         row = conn.execute("SELECT created_at FROM audit_log").fetchone()
         ts = row["created_at"]

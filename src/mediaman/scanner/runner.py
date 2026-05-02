@@ -68,7 +68,7 @@ class PlexClientBundle(NamedTuple):
     doesn't support.
     """
 
-    plex: "PlexClient"
+    plex: PlexClient
     lib_ids: list[str]
     lib_types: dict[str, str]
     lib_titles: dict[str, str]
@@ -84,7 +84,7 @@ logger = logging.getLogger("mediaman")
 # the underlying settings change, keyed on a hash of (raw plex_url,
 # raw encrypted plex_token row). The hash deliberately uses the raw
 # encrypted token so we never need to decrypt just to check freshness.
-_PLEX_CLIENT_CACHE: dict[str, "PlexClient"] = {}
+_PLEX_CLIENT_CACHE: dict[str, PlexClient] = {}
 _PLEX_CLIENT_CACHE_LOCK = threading.Lock()
 
 
@@ -193,7 +193,7 @@ def _filter_libraries_by_disk(
     return filtered
 
 
-def _get_or_build_plex(conn: sqlite3.Connection, secret_key: str) -> "PlexClient | None":
+def _get_or_build_plex(conn: sqlite3.Connection, secret_key: str) -> PlexClient | None:
     """Return a cached PlexClient, rebuilding only when settings change.
 
     Cache key: SHA-256 of (raw ``plex_url`` value, raw encrypted
@@ -229,7 +229,7 @@ def _get_or_build_plex(conn: sqlite3.Connection, secret_key: str) -> "PlexClient
     return plex
 
 
-def _build_plex_client(conn: sqlite3.Connection, secret_key: str) -> "PlexClientBundle | None":
+def _build_plex_client(conn: sqlite3.Connection, secret_key: str) -> PlexClientBundle | None:
     """Build a PlexClient and resolve library metadata from DB settings.
 
     Returns a ``(plex, lib_ids, lib_types, lib_titles)`` tuple, or ``None``
@@ -293,7 +293,7 @@ def run_scan_from_db(
 
     result = _build_plex_client(conn, secret_key)
     if result is None:
-        logger.warning("Scan skipped — plex_url or plex_token not configured")  # noqa: S105 — no token value logged, only the string "plex_token"
+        logger.warning("Scan skipped — plex_url or plex_token not configured")
         return {}
     plex, lib_ids, lib_types, lib_titles = result
 

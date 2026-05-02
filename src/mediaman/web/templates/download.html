@@ -22,7 +22,7 @@
   {% endif %}
   <div class="dl-cinema-gradient"></div>
   <div class="dl-cinema-info">
-    <div class="dl-cinema-title">{{ item.title }}{% if item.year %} <span class="year">({{ item.year }})</span>{% endif %}</div>
+    <h1 class="dl-cinema-title">{{ item.title }}{% if item.year %} <span class="year">({{ item.year }})</span>{% endif %}</h1>
     {% if item.tagline %}
     <div class="dl-cinema-tagline">&ldquo;{{ item.tagline }}&rdquo;</div>
     {% endif %}
@@ -141,6 +141,8 @@
 {% if item.download_state != "in_library" %}
 <div id="dl-hero-wrapper" style="{% if item.download_state != 'queued' %}display:none;{% endif %}">
   {% if item.download_state == "queued" and hero_item %}
+    {# When queued the .dl-cinema h1 above is hidden; expose the title to AT here. #}
+    <h1 class="sr-only">{{ hero_item.title }}</h1>
     {% with item=hero_item %}
     {% include "_dl_hero_card.html" %}
     {% endwith %}
@@ -167,7 +169,7 @@
         <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
       </svg>
     </div>
-    <div class="dl-expired-title">This download link has expired</div>
+    <h1 class="dl-expired-title">This download link has expired</h1>
     <div class="dl-expired-sub">Download links are valid for 14 days after the newsletter is sent.</div>
     <div class="dl-expired-back"><a href="/">Open Mediaman Dashboard &rarr;</a></div>
   </div>
