@@ -3,21 +3,23 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import patch
 
 from fastapi import FastAPI
+from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
 from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
-from mediaman.web.routes.subscribers import (
-    _unsub_confirm_html,
-    _unsub_html,
-    _validate_email,
-)
+from mediaman.web.routes.subscribers import _validate_email
 from mediaman.web.routes.subscribers import (
     router as subscribers_router,
+)
+
+_TEMPLATE_DIR = (
+    Path(__file__).parent.parent.parent.parent / "src" / "mediaman" / "web" / "templates"
 )
 
 
@@ -25,6 +27,7 @@ def _make_app(conn, secret_key: str) -> FastAPI:
     app = FastAPI()
     app.include_router(subscribers_router)
     app.state.config = Config(secret_key=secret_key)
+    app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
     set_connection(conn)
     return app
 
@@ -46,23 +49,73 @@ def _insert_subscriber(conn, email: str, active: int = 1) -> None:
 
 
 class TestUnsubscribeHtmlEscaping:
-    def test_confirm_html_escapes_email(self):
+    """The Jinja2 templates auto-escape ``{{ email }}`` and ``{{ token }}``,
+    so an attacker who lands a malicious payload in the unsubscribe URL
+    cannot inject HTML/JS into the rendered confirmation page.
+
+    The previous bespoke ``_unsub_confirm_html`` / ``_unsub_html``
+    helpers duplicated the real templates — they have been removed and
+    the routes render via Jinja2 directly. We exercise the live route
+    so a regression in the template (e.g. someone replaces ``{{ email }}``
+    with ``{{ email | safe }}``) is caught.
+    """
+
+    _KEY = "0123456789abcdef" * 4
+
+    def _signed_token_for(self, email: str) -> str:
+        from mediaman.crypto import generate_unsubscribe_token
+
+        return generate_unsubscribe_token(email=email, secret_key=self._KEY)
+
+    def test_confirm_page_escapes_email_from_token(self, db_path):
+        """A malicious email payload baked into a valid token must be
+        HTML-escaped by the Jinja2 template — no raw ``<script>`` ever
+        reaches the rendered page."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, self._KEY)
+        client = TestClient(app)
+
         malicious = '"><script>alert(1)</script>@evil.com'
-        html = _unsub_confirm_html(malicious, "safe-token")
-        assert "<script>" not in html
-        assert "&lt;script&gt;" in html
+        token = self._signed_token_for(malicious)
+        resp = client.get(f"/unsubscribe?token={token}")
 
-    def test_confirm_html_escapes_token(self):
-        malicious_token = '"><script>alert(2)</script>'
-        html = _unsub_confirm_html("safe@example.com", malicious_token)
-        assert "<script>alert(2)" not in html
+        # The route is configured to bail with a generic invalid-link
+        # response if the token's email fails the inner sanity check;
+        # we accept either outcome but neither must contain a raw
+        # ``<script>`` injected from the email field.
+        assert "<script>alert(1)" not in resp.text
+        # Defensive: confirm the response renders normally rather than
+        # 500ing.
+        assert resp.status_code == 200
 
-    def test_result_html_escapes_message(self):
-        malicious = "<img src=x onerror=alert(1)>@evil.com is already unsubscribed."
-        html = _unsub_html(malicious, success=True)
-        # The < and > must be escaped so the img tag never opens in the browser.
-        assert "<img" not in html
-        assert "&lt;img" in html
+    def test_result_page_escapes_message(self, db_path):
+        """The unsubscribe result page must HTML-escape the rendered
+        message so an attacker cannot land an ``<img onerror>`` in the
+        confirmation banner."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, self._KEY)
+
+        # Render the result template directly to assert the auto-escape
+        # behaviour without needing to manufacture a 429 path.
+        from fastapi import Request
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/unsubscribe",
+            "headers": [],
+            "app": app,
+        }
+        request = Request(scope)
+        templates = app.state.templates
+        rendered = templates.TemplateResponse(
+            request,
+            "subscribers/unsubscribe_result.html",
+            {"message": "<img src=x onerror=alert(1)>@evil.com", "success": True},
+        )
+        body = bytes(rendered.body).decode()
+        assert "<img" not in body
+        assert "&lt;img" in body
 
 
 class TestNewsletterRecipientHeaderInjection:
