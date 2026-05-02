@@ -393,3 +393,87 @@ class TestCSPNonce:
         )
         # 16 bytes of base64url is 22 characters with no padding.
         assert len(nonce) == 22
+
+
+class TestTrustedHostMiddleware:
+    """``MEDIAMAN_ALLOWED_HOSTS`` pins the set of acceptable Host headers.
+
+    An attacker who can set arbitrary ``Host:`` (e.g. by getting the
+    target to visit ``http://attacker.example`` that proxies to the
+    real origin) can poison anything we derive from ``request.url`` —
+    CSRF host comparisons, cookie domains, mailgun-templated absolute
+    URLs.  ``TrustedHostMiddleware`` rejects unknown hosts at the door
+    so the request never reaches the rest of the middleware stack.
+    """
+
+    def test_default_wildcard_accepts_anything(self, monkeypatch):
+        """Backward-compat: when the env var is unset the app keeps
+        accepting any Host (with a startup warning logged)."""
+        monkeypatch.delenv("MEDIAMAN_ALLOWED_HOSTS", raising=False)
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.get("/ping")
+        def _ping():
+            return {"ok": True}
+
+        client = TestClient(app)
+        resp = client.get("/ping", headers={"Host": "anything.example"})
+        assert resp.status_code == 200
+
+    def test_pinned_host_accepts_match(self, monkeypatch):
+        """A request whose Host matches the allowlist is accepted."""
+        monkeypatch.setenv("MEDIAMAN_ALLOWED_HOSTS", "mediaman.example.com")
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.get("/ping")
+        def _ping():
+            return {"ok": True}
+
+        client = TestClient(app, base_url="http://mediaman.example.com")
+        resp = client.get("/ping")
+        assert resp.status_code == 200
+
+    def test_pinned_host_rejects_mismatch(self, monkeypatch):
+        """A request whose Host is outside the allowlist is rejected."""
+        monkeypatch.setenv("MEDIAMAN_ALLOWED_HOSTS", "mediaman.example.com")
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.get("/ping")
+        def _ping():
+            return {"ok": True}
+
+        client = TestClient(app, base_url="http://attacker.example")
+        resp = client.get("/ping")
+        assert resp.status_code == 400
+
+    def test_multiple_hosts_accepted(self, monkeypatch):
+        """Comma-separated entries are all accepted."""
+        monkeypatch.setenv("MEDIAMAN_ALLOWED_HOSTS", "mediaman.example.com, alt.example.com ")
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.get("/ping")
+        def _ping():
+            return {"ok": True}
+
+        for host in ("mediaman.example.com", "alt.example.com"):
+            client = TestClient(app, base_url=f"http://{host}")
+            resp = client.get("/ping")
+            assert resp.status_code == 200, host
+
+    def test_startup_warning_logged_when_unconfigured(self, monkeypatch, caplog):
+        """Operators who forget to pin a hostname get a logged warning
+        on app build — silent wildcard acceptance is the bug we're
+        avoiding."""
+        import logging
+
+        monkeypatch.delenv("MEDIAMAN_ALLOWED_HOSTS", raising=False)
+        with caplog.at_level(logging.WARNING, logger="mediaman.web"):
+            app = FastAPI()
+            register_security_middleware(app)
+        # ``register_security_middleware`` should have logged a warning.
+        warned = [r for r in caplog.records if "MEDIAMAN_ALLOWED_HOSTS" in r.getMessage()]
+        assert warned, "expected an MEDIAMAN_ALLOWED_HOSTS startup warning"

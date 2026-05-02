@@ -8,10 +8,32 @@ import re
 import secrets
 
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
 logger = logging.getLogger("mediaman.web")
+
+
+def _parse_allowed_hosts(raw: str | None) -> list[str]:
+    """Parse ``MEDIAMAN_ALLOWED_HOSTS`` into a Starlette ``allowed_hosts`` list.
+
+    The env var accepts a comma-separated list of hostnames (with or
+    without surrounding whitespace).  An empty / unset value is
+    interpreted as ``["*"]`` — i.e. accept any Host header — to keep
+    backward compatibility with deployments that have not yet pinned a
+    hostname.  A ``*`` entry inside the list is also passed through so
+    operators can keep wildcard mode but still re-export the var with a
+    comment.
+
+    Hostnames are case-folded because the HTTP host comparison Starlette
+    performs is case-insensitive in spec but case-sensitive in code.
+    """
+    if not raw:
+        return ["*"]
+    hosts = [h.strip().lower() for h in raw.split(",") if h.strip()]
+    return hosts or ["*"]
+
 
 # Content Security Policy — per-request nonce strategy.
 #
@@ -426,11 +448,27 @@ def register_security_middleware(app) -> None:
     # Security headers wrap everything.
     # Order (outermost last): ForcePasswordChange runs first so a
     # flagged admin is funnelled immediately; CSRF + Obscure405
-    # apply next; SecurityHeaders wraps everything.
+    # apply next; SecurityHeaders wraps everything.  TrustedHost is
+    # outermost so a hostile Host header is rejected before any other
+    # middleware spends cycles on it.
     app.add_middleware(ForcePasswordChangeMiddleware)
     app.add_middleware(CSRFOriginMiddleware)
     app.add_middleware(Obscure405Middleware)
     app.add_middleware(SecurityHeadersMiddleware)
+
+    raw_allowed_hosts = os.environ.get("MEDIAMAN_ALLOWED_HOSTS", "")
+    allowed_hosts = _parse_allowed_hosts(raw_allowed_hosts)
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
+    if allowed_hosts == ["*"]:
+        # The default of ``*`` keeps the door open for operators who
+        # haven't yet pinned a hostname, but a Host-header attacker
+        # can poison anything we build from ``request.url`` (CSRF
+        # comparisons, cookie domains, generated absolute links).
+        # Log once at startup so the gap is at least *visible*.
+        logger.warning(
+            "MEDIAMAN_ALLOWED_HOSTS is unset; the app will accept any Host: header. "
+            "Set MEDIAMAN_ALLOWED_HOSTS=mediaman.example.com,... to lock this down."
+        )
 
 
 __all__ = [
