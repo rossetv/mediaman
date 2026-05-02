@@ -50,14 +50,24 @@ def _relative_label(batch_date: _date | None, index: int, today: _date) -> str:
     return "A month ago" if months == 1 else f"{months} months ago"
 
 
+#: Maximum number of recommendation batches surfaced on the page.
+#: Older batches stay in the database — the user can still navigate to
+#: them via the API or a future "show more" affordance — but the page
+#: itself only renders the four most recent so the initial paint stays
+#: bounded (finding 27).
+_MAX_VISIBLE_BATCHES = 4
+
+
 def _group_into_batches(
     recommendations: list[dict[str, object]],
     today: _date,
-) -> list[dict[str, object]]:
+) -> tuple[list[dict[str, object]], int]:
     """Group recommendations by ``batch_id``, preserving DESC order.
 
-    Returns at most the four most recent batches, each with trending and
-    personal sublists plus display labels.
+    Returns ``(formatted, total_batches)`` — the page renders at most
+    :data:`_MAX_VISIBLE_BATCHES` of those, but the caller can use the
+    full count to surface a "showing 4 of N" affordance and avoid
+    silently hiding older picks (finding 27).
     """
     batches_map: OrderedDict = OrderedDict()
     for s in recommendations:
@@ -69,8 +79,9 @@ def _group_into_batches(
         else:
             batches_map[bid]["personal"].append(s)
 
+    total_batches = len(batches_map)
     formatted_batches: list[dict[str, object]] = []
-    for index, (bid, groups) in enumerate(list(batches_map.items())[:4]):
+    for index, (bid, groups) in enumerate(list(batches_map.items())[:_MAX_VISIBLE_BATCHES]):
         try:
             batch_date: _date | None = datetime.strptime(str(bid), "%Y-%m-%d").date()
             date_label = batch_date.strftime("%-d %B %Y")
@@ -87,7 +98,36 @@ def _group_into_batches(
                 "personal": groups["personal"],
             }
         )
-    return formatted_batches
+    return formatted_batches, total_batches
+
+
+def _json_safe(value: object) -> object:
+    """Coerce a single value to a JSON-serialisable form (finding 26).
+
+    Replaces the catch-all ``default=str`` previously passed to
+    :func:`json.dumps`, which silently stringified anything it didn't
+    recognise — including types like ``bytes`` that produced incorrect
+    output (``b'...'`` literals leaking into the embedded JSON
+    payload). The handler now refuses unknown types loudly, which is
+    what we want: we control every field that lands in
+    ``all_recommendations_json`` and any new type showing up should be
+    spotted, not papered over.
+    """
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, _date):
+        return value.isoformat()
+    raise TypeError(
+        f"recommended/pages: unexpected non-JSON type {type(value).__name__} "
+        f"in recommendation payload — extend _json_safe before adding "
+        f"this type to a recommendation field"
+    )
 
 
 @router.get("/suggestions")
@@ -111,7 +151,8 @@ def recommended_page(request: Request) -> Response:
     recommendations = fetch_recommendations(conn) if enabled else []
 
     today = _date.today()
-    formatted_batches = _group_into_batches(recommendations, today)
+    formatted_batches, total_batches = _group_into_batches(recommendations, today)
+    older_batches_count = max(0, total_batches - len(formatted_batches))
 
     # Check library state for downloaded items.
     # Share URLs are no longer embedded in the page — they are minted on
@@ -141,7 +182,12 @@ def recommended_page(request: Request) -> Response:
 
             all_recs[item["id"]] = item
 
-    all_recommendations_json = json.dumps(all_recs, default=str).replace("</", "<\\/")
+    # Use an explicit type whitelist instead of ``default=str`` so an
+    # unexpected non-JSON value crashes the handler loudly (finding 26)
+    # rather than silently rendering ``str(value)`` into the page.
+    all_recommendations_json = json.dumps(
+        {str(k): _json_safe(v) for k, v in all_recs.items()},
+    ).replace("</", "<\\/")
 
     cooldown = refresh_cooldown_remaining(conn)
     if cooldown is None:
@@ -163,5 +209,11 @@ def recommended_page(request: Request) -> Response:
             "all_recommendations_json": all_recommendations_json,
             "manual_refresh_available": manual_refresh_available,
             "next_manual_refresh_at": next_manual_refresh_at,
+            # Surface the count so the template can render an "Older
+            # picks not shown" hint when needed (finding 27). Templates
+            # may render this conditionally on ``older_batches_count >
+            # 0``; templates not yet updated simply ignore the field.
+            "older_batches_count": older_batches_count,
+            "max_visible_batches": _MAX_VISIBLE_BATCHES,
         },
     )
