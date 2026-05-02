@@ -486,7 +486,18 @@ def maybe_auto_abandon(
         abandon_movie(conn, secret_key, arr_id=arr_id, dl_id=dl_id)
         return
 
-    seasons = sorted({int(ep.get("season_number") or 0) for ep in (item.get("episodes") or [])})
+    # Filter season 0 (specials): Sonarr uses S00 for specials, and
+    # ``abandon_seasons`` would otherwise unmonitor every special when
+    # all queue rows happen to be specials (Domain-06 #12). Specials
+    # are typically opt-in monitored separately — we never want to
+    # auto-unmonitor them.
+    seasons = sorted(
+        {
+            int(ep.get("season_number") or 0)
+            for ep in (item.get("episodes") or [])
+            if int(ep.get("season_number") or 0) > 0
+        }
+    )
     if not seasons:
         return
     security_event(
