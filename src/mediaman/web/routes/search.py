@@ -7,7 +7,7 @@ import sqlite3
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from typing import Literal, TypedDict
 
@@ -218,7 +218,7 @@ _ENRICH_BUDGET_SECONDS = 6.0
 def _enrich_ratings(results: list[dict], request: Request) -> None:
     conn = get_db()
     secret_key = request.app.state.config.secret_key
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=_RATINGS_TTL_DAYS)).isoformat()
+    cutoff = (datetime.now(UTC) - timedelta(days=_RATINGS_TTL_DAYS)).isoformat()
 
     by_key: dict[tuple[int, str], list[dict]] = {}
     for r in results:
@@ -238,7 +238,7 @@ def _enrich_ratings(results: list[dict], request: Request) -> None:
 
     placeholders = ",".join(["(?, ?)"] * len(by_key))
     flat: list = []
-    for tmdb_id, media_type in by_key.keys():
+    for tmdb_id, media_type in by_key:
         flat.extend([tmdb_id, media_type])
     rows = conn.execute(
         f"SELECT tmdb_id, media_type, imdb_rating, rt_rating, metascore, fetched_at "

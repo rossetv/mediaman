@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -71,9 +72,9 @@ class TestPlexLibrariesEndpoint:
     def test_returns_libraries_from_plex(self, conn, secret_key):
         """Happy path: Plex is configured and reachable."""
         # Store Plex settings in the test DB.
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute(
             "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
             ("plex_url", "http://plex:32400", now),
@@ -120,9 +121,9 @@ class TestPlexLibrariesEndpoint:
 
     def test_returns_error_on_plex_exception(self, conn, secret_key):
         """PlexClient raises — returns empty list with error message."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute(
             "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
             ("plex_url", "http://plex:32400", now),
@@ -449,9 +450,9 @@ class TestApiTestServiceOpenAiTmdbOmdb:
         return _auth_client(app, conn)
 
     def _store_setting(self, conn, key, value):
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute(
             "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)"
             " ON CONFLICT(key) DO UPDATE SET value=excluded.value, encrypted=0, updated_at=excluded.updated_at",
@@ -637,11 +638,11 @@ class TestSettingsTestServiceScopedDecryption:
     def test_openai_test_does_not_touch_plex_token(self, conn, secret_key, monkeypatch):
         """Patch the decrypt function and assert it's only called for
         ``openai_api_key`` when the openai tester runs."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         # Seed a real encrypted plex_token + openai_api_key so the test
         # can prove only one is touched.
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         ct_plex = encrypt_value("plex-secret", secret_key, conn=conn, aad=b"plex_token")
         ct_openai = encrypt_value("sk-openai", secret_key, conn=conn, aad=b"openai_api_key")
         conn.execute(
@@ -691,7 +692,7 @@ class TestSettingsLoadDistinguishesDecryptFromMissing:
     rotated" from "secret never set"."""
 
     def test_decrypt_failure_raises_config_decrypt_error(self, conn, secret_key):
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from mediaman.services.infra.settings_reader import ConfigDecryptError
         from mediaman.web.routes.settings import _load_settings
@@ -701,7 +702,7 @@ class TestSettingsLoadDistinguishesDecryptFromMissing:
         other_key = "fedcba9876543210" * 4
         ct = encrypt_value("plex-secret", other_key, conn=conn, aad=b"plex_token")
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute(
             "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 1, ?)",
             ("plex_token", ct, now),
@@ -718,11 +719,11 @@ class TestSettingsApiGetSkipsDecryption:
     cost is wasted and a needless plaintext exposure window."""
 
     def test_get_does_not_decrypt_secrets(self, conn, secret_key, monkeypatch):
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from mediaman.web.routes import settings as settings_module
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         ct = encrypt_value("very-secret", secret_key, conn=conn, aad=b"plex_token")
         conn.execute(
             "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 1, ?)",

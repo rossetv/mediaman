@@ -42,7 +42,7 @@ import logging
 import socket
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
@@ -733,9 +733,9 @@ def _retry_after_seconds(value: str | None) -> float | None:
         return None
     # ``parsedate_to_datetime`` returns aware on offset-bearing inputs
     # and naive on missing offsets. Normalise to UTC-aware before diff.
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if target.tzinfo is None:
-        target = target.replace(tzinfo=timezone.utc)
+        target = target.replace(tzinfo=UTC)
     delta = (target - now).total_seconds()
     if delta <= 0:
         return 0.0

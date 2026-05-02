@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -39,7 +39,7 @@ class TestCounterMechanics:
             ("alice",),
         ).fetchone()
         locked_until = datetime.fromisoformat(row["locked_until"])
-        delta = locked_until - datetime.now(timezone.utc)
+        delta = locked_until - datetime.now(UTC)
         # Allow a second of slack for clock jitter.
         assert timedelta(minutes=14) < delta <= timedelta(minutes=15, seconds=5)
         assert row["failure_count"] == 5
@@ -54,7 +54,7 @@ class TestCounterMechanics:
             ("alice",),
         ).fetchone()
         locked_until = datetime.fromisoformat(row["locked_until"])
-        delta = locked_until - datetime.now(timezone.utc)
+        delta = locked_until - datetime.now(UTC)
         assert timedelta(minutes=59) < delta <= timedelta(minutes=61)
         assert row["failure_count"] == 10
 
@@ -77,7 +77,7 @@ class TestDecay:
 
         # Back-date the counter as if it started 2 days ago, and clear
         # the lock so decay can apply.
-        two_days_ago = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+        two_days_ago = (datetime.now(UTC) - timedelta(days=2)).isoformat()
         conn.execute(
             "UPDATE login_failures SET first_failure_at = ?, locked_until = NULL "
             "WHERE username = ?",
@@ -102,7 +102,7 @@ class TestDecay:
             record_failure(conn, "alice")  # locked for 15 minutes
 
         # Back-date first_failure but leave locked_until alone.
-        two_days_ago = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+        two_days_ago = (datetime.now(UTC) - timedelta(days=2)).isoformat()
         conn.execute(
             "UPDATE login_failures SET first_failure_at = ? WHERE username = ?",
             (two_days_ago, "alice"),
@@ -123,7 +123,7 @@ class TestLockExpiry:
         for _ in range(5):
             record_failure(conn, "alice")
         # Artificially expire the lock.
-        past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+        past = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
         conn.execute(
             "UPDATE login_failures SET locked_until = ? WHERE username = ?",
             (past, "alice"),
@@ -202,7 +202,7 @@ class TestEscalatingLockoutWindows:
             ("alice",),
         ).fetchone()
         locked_until = datetime.fromisoformat(row["locked_until"])
-        delta = locked_until - datetime.now(timezone.utc)
+        delta = locked_until - datetime.now(UTC)
         # 24 h within 60 s slack.
         assert timedelta(hours=23, minutes=59) < delta <= timedelta(hours=24, seconds=60)
         assert row["failure_count"] == 15
@@ -253,7 +253,7 @@ class TestAuthenticateKeepsCountingWhileLocked:
         assert row["failure_count"] == 10
         # Lock now escalated to 1 h.
         locked_until = datetime.fromisoformat(row["locked_until"])
-        delta = locked_until - datetime.now(timezone.utc)
+        delta = locked_until - datetime.now(UTC)
         assert timedelta(minutes=59) < delta <= timedelta(minutes=61)
 
 
@@ -289,7 +289,7 @@ class TestConcurrentRecordFailure:
                 barrier.wait()
                 record_failure(c, "alice")
                 c.close()
-            except BaseException as exc:  # noqa: BLE001 — propagate to test
+            except BaseException as exc:
                 errors.append(exc)
 
         threads = [threading.Thread(target=worker) for _ in range(20)]

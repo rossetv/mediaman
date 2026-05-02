@@ -28,7 +28,7 @@
 
       <div class="poster-container">
         {% if item.plex_rating_key %}
-          <img src="/api/poster/{{ item.plex_rating_key }}" alt="{{ item.title }}">
+          <img src="/api/poster/{{ item.plex_rating_key }}" alt="">
         {% else %}
           <div class="item-poster-empty">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -39,9 +39,9 @@
         {% endif %}
       </div>
 
-      <div class="item-title">
+      <h1 class="item-title">
         {% if item.media_type == "tv" and item.show_title %}{{ item.show_title }}{% else %}{{ item.title }}{% endif %}
-      </div>
+      </h1>
       <div class="item-year">
         {% if item.media_type == "tv" and item.season_number %}Season {{ item.season_number }}
         {% elif item.added_at %}{{ item.added_at[:4] }}{% endif %}
@@ -84,12 +84,9 @@
             <button class="snooze-btn" type="submit" name="duration" value="90 days">
               Keep for <span class="duration">90 days</span>
             </button>
-            {% if is_admin %}
-            <button class="snooze-btn snooze-forever" type="submit" name="duration" value="forever">
-              Keep <span class="duration">forever</span>
-              <span class="admin-only">Admin</span>
-            </button>
-            {% endif %}
+            {# Finding 14: 'forever' is admin-only and is rejected by POST /keep/{token}.
+               Admins manage forever-keeps via the authenticated /library or /protected
+               pages instead, so the button is intentionally absent here. #}
           </div>
         </form>
       </div>
@@ -111,7 +108,7 @@
 
       <div class="poster-container">
         {% if item.plex_rating_key %}
-          <img src="/api/poster/{{ item.plex_rating_key }}" alt="{{ item.title }}">
+          <img src="/api/poster/{{ item.plex_rating_key }}" alt="">
         {% else %}
           <div class="item-poster-empty">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -122,9 +119,9 @@
         {% endif %}
       </div>
 
-      <div class="item-title">
+      <h1 class="item-title">
         {% if item.media_type == "tv" and item.show_title %}{{ item.show_title }}{% else %}{{ item.title }}{% endif %}
-      </div>
+      </h1>
       <div class="item-year">
         {% if item.media_type == "tv" and item.season_number %}Season {{ item.season_number }}
         {% elif item.added_at %}{{ item.added_at[:4] }}{% endif %}
@@ -174,9 +171,9 @@
 
       {% if item and item.plex_rating_key %}
         <div class="poster-container poster-faded">
-          <img src="/api/poster/{{ item.plex_rating_key }}" alt="{{ item.title }}">
+          <img src="/api/poster/{{ item.plex_rating_key }}" alt="">
         </div>
-        <div class="item-title item-title--secondary">{{ item.title }}</div>
+        <h1 class="item-title item-title--secondary">{{ item.title }}</h1>
         <div class="item-year">{% if item.added_at %}{{ item.added_at[:4] }}{% endif %}</div>
       {% endif %}
 

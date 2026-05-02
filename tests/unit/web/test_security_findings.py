@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time as _time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -46,7 +46,7 @@ def _insert_media_item(conn: sqlite3.Connection, media_id: str = "mi1") -> None:
         "INSERT INTO media_items "
         "(id, title, media_type, plex_library_id, plex_rating_key, added_at, file_path, file_size_bytes) "
         "VALUES (?, 'Test Title', 'movie', 1, 'rk1', ?, '/f', 0)",
-        (media_id, datetime.now(timezone.utc).isoformat()),
+        (media_id, datetime.now(UTC).isoformat()),
     )
     conn.commit()
 
@@ -59,7 +59,7 @@ def _insert_scheduled_action(
     execute_at_offset_days: int = 7,
 ) -> int:
     """Insert a scheduled_actions row and return the rowid."""
-    execute_at = (datetime.now(timezone.utc) + timedelta(days=execute_at_offset_days)).isoformat()
+    execute_at = (datetime.now(UTC) + timedelta(days=execute_at_offset_days)).isoformat()
     cur = conn.execute(
         "INSERT INTO scheduled_actions "
         "(media_item_id, action, scheduled_at, execute_at, token, delete_status) "

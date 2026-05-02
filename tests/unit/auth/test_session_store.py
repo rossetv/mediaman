@@ -7,7 +7,7 @@ helpers.
 
 import hashlib
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -93,7 +93,7 @@ class TestValidateSessionReadOnlyByDefault:
         """The read-only fast-path must not skip the idle-expiry write."""
         token = create_session(conn, "alice", user_agent="ua", client_ip="1.2.3.4")
         # Force the last_used_at far enough in the past to trigger idle expiry.
-        old = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+        old = (datetime.now(UTC) - timedelta(hours=48)).isoformat()
         conn.execute(
             "UPDATE admin_sessions SET last_used_at = ? WHERE token_hash = ?",
             (old, _hash_token(token)),
@@ -220,7 +220,7 @@ class TestValidateSession:
     def test_idle_timeout_expires_session(self, conn):
         token = create_session(conn, "alice")
         # Wind ``last_used_at`` back by 25 hours to trigger idle timeout.
-        past = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
+        past = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
         conn.execute("UPDATE admin_sessions SET last_used_at = ?", (past,))
         conn.commit()
         assert validate_session(conn, token) is None
@@ -323,7 +323,7 @@ class TestSessionDestructionRevokesReauth:
         grant_recent_reauth(conn, token, "alice")
 
         # Stale last_used_at: hours past the idle threshold.
-        stale = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        stale = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
         conn.execute(
             "UPDATE admin_sessions SET last_used_at = ? WHERE token_hash = ?",
             (stale, _hash_token(token)),
@@ -479,7 +479,7 @@ class TestExpiresAtParsing:
         token = create_session(conn, "alice")
         # Pin expires_at to a known-future timestamp using the ``Z``
         # suffix flavour.  Python 3.11+ ``fromisoformat`` accepts this.
-        future = (datetime.now(timezone.utc) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        future = (datetime.now(UTC) + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         conn.execute(
             "UPDATE admin_sessions SET expires_at = ? WHERE token_hash = ?",
             (future, _hash_token(token)),
@@ -564,7 +564,7 @@ class TestAtomicSessionAndReauthDelete:
         token = create_session(conn, "alice")
         # Wind ``last_used_at`` back to trigger idle expiry on the next
         # validate.
-        old = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+        old = (datetime.now(UTC) - timedelta(hours=48)).isoformat()
         conn.execute("UPDATE admin_sessions SET last_used_at = ?", (old,))
         conn.commit()
 

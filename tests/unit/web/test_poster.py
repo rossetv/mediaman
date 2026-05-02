@@ -1,5 +1,7 @@
 """Tests for poster proxy endpoint security."""
 
+from datetime import UTC
+
 import pytest
 import requests
 
@@ -304,14 +306,14 @@ class TestArrPosterByStoredId:
 
     def test_no_radarr_id_returns_none(self, tmp_path):
         """If the media_items row has a NULL radarr_id, the fallback returns None."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from mediaman.db import init_db, set_connection
         from mediaman.web.routes.poster import _fetch_arr_poster
 
         conn = init_db(str(tmp_path / "mediaman.db"))
         set_connection(conn)
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute(
             "INSERT INTO media_items (id, title, media_type, plex_library_id, "
             "plex_rating_key, added_at, file_path, file_size_bytes) "
@@ -335,7 +337,7 @@ class TestArrPosterByStoredId:
 
     def test_radarr_id_match_uses_id_not_title(self, tmp_path):
         """When radarr_id is stored, the Arr lookup matches by id, not title."""
-        from datetime import datetime, timezone
+        from datetime import datetime
         from unittest.mock import MagicMock, patch
 
         from mediaman.db import init_db, set_connection
@@ -343,7 +345,7 @@ class TestArrPosterByStoredId:
 
         conn = init_db(str(tmp_path / "mediaman.db"))
         set_connection(conn)
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         # Stored row: title "Inception", radarr_id 2020.
         conn.execute(
             "INSERT INTO media_items (id, title, media_type, plex_library_id, "
@@ -497,9 +499,9 @@ class TestPosterCacheAtomicWrite:
         client, conn = self._build_test_app(tmp_path, self._KEY)
 
         # Seed DB with Plex URL/token rows.
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute(
             "INSERT INTO settings (key, value, encrypted, updated_at) VALUES ('plex_url', 'https://localhost', 0, ?)",
             (now,),
@@ -571,9 +573,9 @@ class TestPosterTimeoutFallback:
 
         client, conn = self._build_test_app(tmp_path, self._KEY)
 
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute(
             "INSERT INTO settings (key, value, encrypted, updated_at) VALUES ('plex_url', 'https://localhost', 0, ?)",
             (now,),
@@ -712,13 +714,13 @@ class TestPosterCacheSidecarMime:
         return TestClient(app), conn
 
     def test_png_first_fetch_persists_sidecar_and_serves_correct_mime(self, tmp_path):
-        from datetime import datetime, timezone
+        from datetime import datetime
         from unittest.mock import MagicMock, patch
 
         from mediaman.web.routes.poster import sign_poster_url
 
         client, conn = self._setup(tmp_path)
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute(
             "INSERT INTO settings (key, value, encrypted, updated_at) VALUES "
             "('plex_url', 'https://localhost', 0, ?)",
@@ -865,7 +867,7 @@ class TestPosterTempCleanupOnFailure:
 
     def test_orphan_tmp_removed_on_replace_failure(self, tmp_path):
         import os
-        from datetime import datetime, timezone
+        from datetime import datetime
         from unittest.mock import MagicMock, patch
 
         from mediaman.web.routes import poster as poster_mod
@@ -893,7 +895,7 @@ class TestPosterTempCleanupOnFailure:
 
         POSTER_PUBLIC_LIMITER.reset()
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute(
             "INSERT INTO settings (key, value, encrypted, updated_at) VALUES "
             "('plex_url', 'https://localhost', 0, ?)",

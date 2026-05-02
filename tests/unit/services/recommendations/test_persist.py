@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -144,9 +145,9 @@ class TestRefreshRecommendations:
 
     def test_manual_refresh_replaces_todays_batch(self, conn):
         """manual=True should delete today's existing batch before inserting."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
         conn.execute(
             "INSERT INTO suggestions (title, year, media_type, category, reason, batch_id, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",

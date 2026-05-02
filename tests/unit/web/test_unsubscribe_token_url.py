@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -36,7 +36,7 @@ def client(app):
 def _insert_subscriber(conn, email: str) -> None:
     conn.execute(
         "INSERT INTO subscribers (email, active, created_at) VALUES (?, 1, ?)",
-        (email, datetime.now(timezone.utc).isoformat()),
+        (email, datetime.now(UTC).isoformat()),
     )
     conn.commit()
 

@@ -244,10 +244,10 @@ class LazyArrClients:
     def __init__(self, conn: sqlite3.Connection, secret_key: str) -> None:
         self._conn = conn
         self._secret_key = secret_key
-        self._radarr: "RadarrClient | None | _Sentinel" = _Sentinel
-        self._sonarr: "SonarrClient | None | _Sentinel" = _Sentinel
+        self._radarr: RadarrClient | None | _Sentinel = _Sentinel
+        self._sonarr: SonarrClient | None | _Sentinel = _Sentinel
 
-    def radarr(self) -> "RadarrClient | None":
+    def radarr(self) -> RadarrClient | None:
         """Return the :class:`~mediaman.services.arr.radarr.RadarrClient`, building it on first call."""
         if self._radarr is _Sentinel:
             from mediaman.services.arr.build import build_radarr_from_db
@@ -258,7 +258,7 @@ class LazyArrClients:
         # type[_Sentinel].  At this point it is always RadarrClient|None.
         return self._radarr  # type: ignore[return-value]
 
-    def sonarr(self) -> "SonarrClient | None":
+    def sonarr(self) -> SonarrClient | None:
         """Return the :class:`~mediaman.services.arr.sonarr.SonarrClient`, building it on first call."""
         if self._sonarr is _Sentinel:
             from mediaman.services.arr.build import build_sonarr_from_db

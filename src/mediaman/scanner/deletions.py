@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, TypedDict
 
 from mediaman.audit import log_audit
@@ -131,7 +131,7 @@ class DeletionExecutor:
         finding 10) so a real dry-run preview never mutates
         ``scheduled_actions``.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         deleted_count = 0
         reclaimed_bytes = 0
 

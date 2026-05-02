@@ -10,7 +10,7 @@ Internal to the ``scanner`` package — not part of the public API.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from mediaman.services.infra.format import ensure_tz as _ensure_tz
 
@@ -30,9 +30,9 @@ def check_age(added_at: datetime, min_age_days: int) -> bool:
     Returns:
         ``True`` when the item has been in the library at least *min_age_days*.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if added_at.tzinfo is None:
-        added_at = added_at.replace(tzinfo=timezone.utc)
+        added_at = added_at.replace(tzinfo=UTC)
     return (now - added_at).days >= min_age_days
 
 
@@ -63,7 +63,7 @@ def check_inactivity(watch_history: list[dict[str, object]], inactivity_days: in
     """
     if not watch_history:
         return True
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     timestamps = [
         _ensure_tz(h["viewed_at"]) for h in watch_history if h.get("viewed_at") is not None
     ]

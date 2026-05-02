@@ -7,7 +7,7 @@ client — these are pure DB-query helpers.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from mediaman.db import init_db, set_connection
 from mediaman.web.routes.library._query import (
@@ -19,7 +19,7 @@ from mediaman.web.routes.library._query import (
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _insert_movie(
@@ -104,14 +104,14 @@ class TestProtectionLabel:
         assert label == "Kept forever"
 
     def test_snoozed_future_date_returns_label(self):
-        future = (datetime.now(timezone.utc) + timedelta(days=10)).isoformat()
+        future = (datetime.now(UTC) + timedelta(days=10)).isoformat()
         label = _protection_label("snoozed", future)
         assert label is not None
         assert "10" in label or "day" in label
 
     def test_snoozed_past_date_returns_none(self):
         """An expired snooze is not shown as protected."""
-        past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
         label = _protection_label("snoozed", past)
         assert label is None
 
@@ -122,7 +122,7 @@ class TestProtectionLabel:
         assert _protection_label("snoozed", "not-a-date") is None
 
     def test_1_day_remaining_is_singular(self):
-        future = (datetime.now(timezone.utc) + timedelta(hours=25)).isoformat()
+        future = (datetime.now(UTC) + timedelta(hours=25)).isoformat()
         label = _protection_label("snoozed", future)
         # Should say "1 day" (not "1 days")
         assert label is not None
@@ -299,7 +299,7 @@ class TestFetchStats:
         """Items added and not watched beyond the configured thresholds are stale."""
         conn = init_db(str(db_path))
         set_connection(conn)
-        old_date = (datetime.now(timezone.utc) - timedelta(days=60)).isoformat()
+        old_date = (datetime.now(UTC) - timedelta(days=60)).isoformat()
         _insert_movie(conn, "m1", "Old Movie", added_at=old_date)
         stats = fetch_stats(conn)
         assert stats["stale"] >= 1

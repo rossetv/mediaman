@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 from collections import OrderedDict
+from datetime import UTC, datetime
 from datetime import date as _date
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -195,7 +195,7 @@ def recommended_page(request: Request) -> Response:
         next_manual_refresh_at = None
     else:
         manual_refresh_available = False
-        next_manual_refresh_at = (datetime.now(timezone.utc) + cooldown).isoformat()
+        next_manual_refresh_at = (datetime.now(UTC) + cooldown).isoformat()
 
     templates = request.app.state.templates
     return templates.TemplateResponse(

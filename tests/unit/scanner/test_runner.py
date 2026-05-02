@@ -1,7 +1,7 @@
 """Tests for run_scan_from_db disk-threshold filtering logic."""
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,7 +13,7 @@ from mediaman.db import init_db
 
 def _set_setting(conn, key, value):
     str_value = json.dumps(value) if isinstance(value, (dict, list, bool)) else str(value)
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     conn.execute(
         "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",

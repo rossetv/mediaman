@@ -1,6 +1,6 @@
 """Tests for Plex service client."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -48,7 +48,7 @@ class TestPlexClient:
         movie = MagicMock()
         movie.ratingKey = 123
         movie.title = "Test Movie"
-        movie.addedAt = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        movie.addedAt = datetime(2026, 1, 1, tzinfo=UTC)
         movie.media = [MagicMock()]
         movie.media[0].parts = [MagicMock()]
         movie.media[0].parts[0].file = "/data/movies/Test Movie (2024)/movie.mkv"
@@ -71,7 +71,7 @@ class TestPlexClient:
         movie = MagicMock()
         movie.ratingKey = 42
         movie.title = "Another Film"
-        movie.addedAt = datetime(2026, 2, 1, tzinfo=timezone.utc)
+        movie.addedAt = datetime(2026, 2, 1, tzinfo=UTC)
         movie.media = [MagicMock()]
         movie.media[0].parts = [MagicMock()]
         movie.media[0].parts[0].file = "/data/movies/Another Film/film.mkv"
@@ -188,10 +188,10 @@ class TestPlexClient:
         real_season = MagicMock()
         real_season.index = 1
         real_season.ratingKey = 200
-        real_season.addedAt = datetime(2026, 1, 15, tzinfo=timezone.utc)
+        real_season.addedAt = datetime(2026, 1, 15, tzinfo=UTC)
 
         ep = MagicMock()
-        ep.addedAt = datetime(2026, 1, 10, tzinfo=timezone.utc)
+        ep.addedAt = datetime(2026, 1, 10, tzinfo=UTC)
         ep.title = "Pilot"
         ep.media = [MagicMock()]
         ep.media[0].parts = [MagicMock()]
@@ -234,12 +234,12 @@ class TestPlexClient:
         season.addedAt = None  # force fallback
 
         ep1 = MagicMock()
-        ep1.addedAt = datetime(2026, 2, 1, tzinfo=timezone.utc)
+        ep1.addedAt = datetime(2026, 2, 1, tzinfo=UTC)
         ep1.media = []
         ep1.history.return_value = []
 
         ep2 = MagicMock()
-        ep2.addedAt = datetime(2026, 1, 5, tzinfo=timezone.utc)  # earlier
+        ep2.addedAt = datetime(2026, 1, 5, tzinfo=UTC)  # earlier
         ep2.media = []
         ep2.history.return_value = []
 
@@ -258,7 +258,7 @@ class TestPlexClient:
         client = PlexClient("http://plex:32400", "test-token")
         results = client.get_show_seasons("3")
 
-        assert results[0]["added_at"] == datetime(2026, 1, 5, tzinfo=timezone.utc)
+        assert results[0]["added_at"] == datetime(2026, 1, 5, tzinfo=UTC)
 
     @patch("mediaman.services.media_meta.plex.PlexServer")
     def test_get_season_watch_history(self, mock_cls, fake_http, fake_response):
@@ -439,7 +439,7 @@ class TestSafePlexSession:
         )
         called: list = []
 
-        def fake_super_request(self, method, url, **kwargs):  # noqa: ARG001
+        def fake_super_request(self, method, url, **kwargs):
             called.append((method, url))
             return self._stub_response()
 

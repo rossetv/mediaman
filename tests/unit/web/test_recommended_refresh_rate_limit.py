@@ -9,7 +9,7 @@ just hides the button to match.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -81,7 +81,7 @@ class TestCooldownHelpers:
     def test_recent_refresh_returns_remaining_time(self, db_path):
         conn = init_db(str(db_path))
         try:
-            _stamp_last_refresh(conn, datetime.now(timezone.utc) - timedelta(hours=1))
+            _stamp_last_refresh(conn, datetime.now(UTC) - timedelta(hours=1))
             remaining = _throttle.refresh_cooldown_remaining(conn)
             assert remaining is not None
             # Should be within (22h, 23h] — give a generous margin to
@@ -93,7 +93,7 @@ class TestCooldownHelpers:
     def test_expired_cooldown_returns_none(self, db_path):
         conn = init_db(str(db_path))
         try:
-            _stamp_last_refresh(conn, datetime.now(timezone.utc) - timedelta(hours=25))
+            _stamp_last_refresh(conn, datetime.now(UTC) - timedelta(hours=25))
             assert _throttle.refresh_cooldown_remaining(conn) is None
         finally:
             conn.close()
@@ -120,7 +120,7 @@ class TestRefreshRateLimit:
     def test_second_call_within_24h_returns_429(self, authed_client, app):
         conn = app.state.db
         # Pretend the first manual refresh ran an hour ago.
-        _stamp_last_refresh(conn, datetime.now(timezone.utc) - timedelta(hours=1))
+        _stamp_last_refresh(conn, datetime.now(UTC) - timedelta(hours=1))
 
         resp = authed_client.post("/api/recommended/refresh")
         assert resp.status_code == 429
@@ -133,7 +133,7 @@ class TestRefreshRateLimit:
 
     def test_call_after_cooldown_is_allowed(self, authed_client, app):
         conn = app.state.db
-        _stamp_last_refresh(conn, datetime.now(timezone.utc) - timedelta(hours=25))
+        _stamp_last_refresh(conn, datetime.now(UTC) - timedelta(hours=25))
 
         # Stub the Plex client lookup so the request gets past the
         # "Plex not configured" early-return — cooldown logic is the
@@ -167,7 +167,7 @@ class TestRefreshRateLimit:
 
     def test_status_endpoint_reports_cooldown(self, authed_client, app):
         conn = app.state.db
-        _stamp_last_refresh(conn, datetime.now(timezone.utc) - timedelta(hours=2))
+        _stamp_last_refresh(conn, datetime.now(UTC) - timedelta(hours=2))
         resp = authed_client.get("/api/recommended/refresh/status")
         assert resp.status_code == 200
         body = resp.json()
@@ -177,7 +177,7 @@ class TestRefreshRateLimit:
 
     def test_status_endpoint_reports_available_after_cooldown(self, authed_client, app):
         conn = app.state.db
-        _stamp_last_refresh(conn, datetime.now(timezone.utc) - timedelta(hours=25))
+        _stamp_last_refresh(conn, datetime.now(UTC) - timedelta(hours=25))
         resp = authed_client.get("/api/recommended/refresh/status")
         assert resp.status_code == 200
         body = resp.json()

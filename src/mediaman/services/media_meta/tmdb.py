@@ -38,7 +38,7 @@ _POSTER_BASE_W300 = "https://image.tmdb.org/t/p/w300"
 # reusing the connection pool.  We cache one client per (token, timeout)
 # pair so multiple callers share the same session.
 # ---------------------------------------------------------------------------
-_CLIENT_CACHE: dict[tuple[str, float], "TmdbClient"] = {}
+_CLIENT_CACHE: dict[tuple[str, float], TmdbClient] = {}
 _CLIENT_CACHE_LOCK = threading.Lock()
 
 
@@ -117,7 +117,7 @@ class TmdbClient:
         secret_key: str,
         *,
         timeout: float = 10.0,
-    ) -> "TmdbClient | None":
+    ) -> TmdbClient | None:
         """Factory that reads the read-token from the settings table.
 
         Returns ``None`` if the token is missing or cannot be decrypted —

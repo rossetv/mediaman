@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,7 +15,7 @@ _SECRET_KEY = "0123456789abcdef" * 4  # 64 hex chars — matches test conftest f
 
 def _insert_setting(conn, key: str, value: str) -> None:
     """Insert a plaintext (encrypted=0) setting row."""
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
         (key, value, now),
@@ -32,7 +32,7 @@ def _configure_mailgun(conn) -> None:
 
 
 def _add_subscriber(conn, email: str) -> None:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     conn.execute(
         "INSERT INTO subscribers (email, active, created_at) VALUES (?, 1, ?)",
         (email, now),
@@ -42,7 +42,7 @@ def _add_subscriber(conn, email: str) -> None:
 
 def _add_scheduled_item(conn) -> None:
     """Insert a media_item + scheduled_deletion action so the newsletter has content."""
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     conn.execute(
         """INSERT INTO media_items
            (id, title, media_type, plex_library_id, plex_rating_key,
@@ -524,7 +524,7 @@ class TestNewsletterSuggestionContext:
         _configure_mailgun(conn)
         _add_subscriber(conn, "alice@example.com")
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         # Insert a suggestion row with extra DB columns that must NOT leak into the template.
         conn.execute(
             """INSERT INTO suggestions (title, year, media_type, category, tmdb_id, imdb_id,

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from mediaman.services.downloads.download_format import extract_poster_url
@@ -174,7 +174,7 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[sqlite3.Row]:
                 ids = [r["id"] for r in rows]
                 placeholders = ",".join("?" * len(ids))
                 conn.execute(
-                    f"UPDATE download_notifications SET notified=2, claimed_at=? WHERE id IN ({placeholders})",  # noqa: S608 — placeholders are ? only
+                    f"UPDATE download_notifications SET notified=2, claimed_at=? WHERE id IN ({placeholders})",
                     (claim_iso, *ids),
                 )
             conn.execute("COMMIT")
@@ -225,7 +225,7 @@ def _release_claims_bulk(conn: sqlite3.Connection, row_ids: list[int]) -> None:
     try:
         placeholders = ",".join("?" * len(row_ids))
         conn.execute(
-            f"UPDATE download_notifications SET notified=0, claimed_at=NULL "  # noqa: S608 — placeholders only, ids asserted int
+            f"UPDATE download_notifications SET notified=0, claimed_at=NULL "
             f"WHERE id IN ({placeholders})",
             row_ids,
         )
@@ -259,7 +259,7 @@ def reconcile_stranded_notifications(
     pipeline isn't reaped — it is only ever observed by the next process
     after a restart, by which point the previous in-flight call is gone.
     """
-    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=grace_seconds)).isoformat()
+    cutoff = (datetime.now(UTC) - timedelta(seconds=grace_seconds)).isoformat()
     cur = conn.execute(
         "UPDATE download_notifications "
         "SET notified=0, claimed_at=NULL "
@@ -324,7 +324,7 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
     # not turn into N claim/release cycles per tick. Released back to
     # ``notified=0`` in bulk so the next tick can pick them up if their
     # backoff has elapsed.
-    now_dt = datetime.now(timezone.utc)
+    now_dt = datetime.now(UTC)
     deferred_ids: list[int] = []
     runnable: list[sqlite3.Row] = []
     for row in pending:
@@ -345,7 +345,7 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
     if tmdb_ids:
         placeholders = ",".join("?" * len(tmdb_ids))
         sugg_rows = conn.execute(
-            f"SELECT tmdb_id, year, runtime, director, description, rating, "  # noqa: S608 — placeholders only, ids asserted int
+            f"SELECT tmdb_id, year, runtime, director, description, rating, "
             f"imdb_rating, rt_rating, poster_url "
             f"FROM suggestions WHERE tmdb_id IN ({placeholders})",
             tmdb_ids,

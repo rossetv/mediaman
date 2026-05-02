@@ -65,13 +65,13 @@ logger = logging.getLogger("mediaman")
 
 __all__ = [
     "DownloadsResponse",
+    "_previous_initialised",
+    "_previous_queue",
+    "_reset_previous_queue",
+    "_state_lock",
     "build_downloads_response",
     "build_episode_dicts",
     "nzb_matches_arr",
-    "_reset_previous_queue",
-    "_state_lock",
-    "_previous_queue",
-    "_previous_initialised",
 ]
 
 
@@ -220,7 +220,7 @@ def _maybe_record_completions(
 
 
 def _build_unmatched_arr_item(
-    arr: "ArrCard",
+    arr: ArrCard,
     arr_base_urls_map: dict[str, str],
     abandon_thresholds: tuple[int, int],
 ) -> dict[str, object]:
@@ -273,7 +273,7 @@ def _parse_nzb_queue(
 
 def _build_arr_items(
     conn: sqlite3.Connection,
-    arr_items: list["ArrCard"],
+    arr_items: list[ArrCard],
     nzb_parsed: list[dict[str, object]],
     arr_base_urls_map: dict[str, str],
     download_rate: object,

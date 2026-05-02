@@ -1,6 +1,6 @@
 """Tests for the shared formatting helpers."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
 from mediaman.services.infra.format import (
     days_ago,
@@ -48,11 +48,11 @@ class TestParseIsoUtc:
 
     def test_z_suffix(self):
         dt = parse_iso_utc("2026-04-16T12:00:00Z")
-        assert dt == datetime(2026, 4, 16, 12, 0, 0, tzinfo=timezone.utc)
+        assert dt == datetime(2026, 4, 16, 12, 0, 0, tzinfo=UTC)
 
     def test_naive_treated_as_utc(self):
         dt = parse_iso_utc("2026-04-16T12:00:00")
-        assert dt == datetime(2026, 4, 16, 12, 0, 0, tzinfo=timezone.utc)
+        assert dt == datetime(2026, 4, 16, 12, 0, 0, tzinfo=UTC)
 
     def test_offset_preserved(self):
         dt = parse_iso_utc("2026-04-16T12:00:00+02:00")
@@ -78,10 +78,10 @@ class TestEnsureTz:
 
     def test_naive_treated_as_utc(self):
         naive = datetime(2026, 5, 1, 12, 0, 0)
-        assert ensure_tz(naive) == datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
+        assert ensure_tz(naive) == datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC)
 
     def test_aware_passed_through(self):
-        aware = datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc)
+        aware = datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC)
         assert ensure_tz(aware) is aware
 
     def test_aware_non_utc_passed_through(self):
@@ -92,7 +92,7 @@ class TestEnsureTz:
 
     def test_none_returns_now_utc(self):
         result = ensure_tz(None)
-        assert result.tzinfo == timezone.utc
+        assert result.tzinfo == UTC
 
 
 class TestFormatDayMonth:
@@ -163,13 +163,13 @@ class TestDaysAgo:
         assert days_ago(None) == ""
 
     def test_today(self):
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         assert days_ago(now) == "today"
 
     def test_yesterday(self):
-        yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        yesterday = (datetime.now(UTC) - timedelta(days=1)).isoformat()
         assert days_ago(yesterday) == "yesterday"
 
     def test_multiple_days(self):
-        past = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+        past = (datetime.now(UTC) - timedelta(days=10)).isoformat()
         assert days_ago(past) == "10 days ago"

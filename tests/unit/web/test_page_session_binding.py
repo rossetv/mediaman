@@ -29,7 +29,7 @@ def _make_app(conn, secret_key: str) -> FastAPI:
     # TemplateResponse that just echoes the context — the redirect path
     # doesn't touch it anyway.
     class _StubTemplates:
-        def TemplateResponse(self, *args, **kwargs):  # noqa: N802
+        def TemplateResponse(self, *args, **kwargs):
             from fastapi.responses import PlainTextResponse
 
             return PlainTextResponse("OK", status_code=200)

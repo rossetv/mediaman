@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from mediaman.services.openai.recommendations.enrich import enrich_recommendations
@@ -24,7 +24,7 @@ logger = logging.getLogger("mediaman")
 
 def refresh_recommendations(
     conn: sqlite3.Connection,
-    plex_client: "PlexClient | None",
+    plex_client: PlexClient | None,
     manual: bool = False,
     *,
     secret_key: str,
@@ -41,7 +41,7 @@ def refresh_recommendations(
 
     Returns the total number of recommendations generated.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     today = now.strftime("%Y-%m-%d")
 
     rows = conn.execute("""

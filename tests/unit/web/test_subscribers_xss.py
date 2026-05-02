@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -43,7 +43,7 @@ def _auth_client(app: FastAPI, conn) -> TestClient:
 def _insert_subscriber(conn, email: str, active: int = 1) -> None:
     conn.execute(
         "INSERT INTO subscribers (email, active, created_at) VALUES (?, ?, ?)",
-        (email, active, datetime.now(timezone.utc).isoformat()),
+        (email, active, datetime.now(UTC).isoformat()),
     )
     conn.commit()
 

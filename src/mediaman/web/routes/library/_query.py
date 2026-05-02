@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from mediaman.services.infra.format import days_ago, format_bytes, parse_iso_utc
 from mediaman.services.infra.settings_reader import get_int_setting
@@ -40,7 +40,7 @@ def _days_ago(dt_str: str | None) -> str:
     dt = parse_iso_utc(dt_str)
     if dt is None:
         return ""
-    delta = (datetime.now(timezone.utc) - dt).days
+    delta = (datetime.now(UTC) - dt).days
     if delta > 3650:
         return ""
     return days_ago(dt_str)
@@ -65,8 +65,8 @@ def _protection_label(sa_action: str | None, sa_execute_at: str | None) -> str |
         try:
             execute_at = datetime.fromisoformat(sa_execute_at)
             if execute_at.tzinfo is None:
-                execute_at = execute_at.replace(tzinfo=timezone.utc)
-            delta = (execute_at - datetime.now(timezone.utc)).days
+                execute_at = execute_at.replace(tzinfo=UTC)
+            delta = (execute_at - datetime.now(UTC)).days
             if delta <= 0:
                 return None
             return f"Kept for {delta} more day{'s' if delta != 1 else ''}"
@@ -104,7 +104,7 @@ def fetch_library(
     elif media_type == "stale":
         _min_age = get_int_setting(conn, "min_age_days", default=30)
         _inactivity = get_int_setting(conn, "inactivity_days", default=30)
-        _now = datetime.now(timezone.utc)
+        _now = datetime.now(UTC)
         age_cutoff = (_now - timedelta(days=_min_age)).isoformat()
         watch_cutoff = (_now - timedelta(days=_inactivity)).isoformat()
         where_clauses.append("added_at < ?")
@@ -337,7 +337,7 @@ def fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
     min_age = get_int_setting(conn, "min_age_days", default=30)
     inactivity = get_int_setting(conn, "inactivity_days", default=30)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     age_cutoff = (now - timedelta(days=min_age)).isoformat()
     watch_cutoff = (now - timedelta(days=inactivity)).isoformat()
 

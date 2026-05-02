@@ -43,17 +43,17 @@ from mediaman.auth.session_store import (
 )
 
 __all__ = [
-    "create_user",
+    "SessionMetadata",
     "authenticate",
     "change_password",
-    "list_users",
-    "delete_user",
-    "user_must_change_password",
-    "set_must_change_password",
     "create_session",
-    "validate_session",
-    "destroy_session",
+    "create_user",
+    "delete_user",
     "destroy_all_sessions_for",
+    "destroy_session",
     "list_sessions_for",
-    "SessionMetadata",
+    "list_users",
+    "set_must_change_password",
+    "user_must_change_password",
+    "validate_session",
 ]

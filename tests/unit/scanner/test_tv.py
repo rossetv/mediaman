@@ -1,12 +1,12 @@
 """Tests for TV season scanning logic."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from mediaman.scanner.tv import evaluate_season
 
 
 def _now():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class TestEvaluateSeason:

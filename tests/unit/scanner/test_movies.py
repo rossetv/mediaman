@@ -1,12 +1,12 @@
 """Tests for movie scanning logic."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from mediaman.scanner.movies import evaluate_movie
 
 
 def _now():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class TestEvaluateMovie:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC
 from unittest.mock import patch
 
 import pytest
@@ -135,13 +136,13 @@ class TestScanTrigger:
     def test_trigger_crashed_run_eventually_releases(self, db_path, secret_key):
         """A scan that crashed (no finish_scan_run called) is released after the
         sanity timeout. We simulate this by inserting a stale row."""
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key, str(db_path))
         client = _auth_client(app, conn)
         # Insert a row older than the 2-hour sanity timeout.
-        stale_time = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat()
+        stale_time = (datetime.now(UTC) - timedelta(hours=3)).isoformat()
         conn.execute(
             "INSERT INTO scan_runs (started_at, status) VALUES (?, 'running')",
             (stale_time,),
@@ -185,7 +186,7 @@ class TestClearScheduled:
     def _insert_scheduled(
         self, conn, media_item_id: str, action: str = "scheduled_deletion"
     ) -> None:
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         conn.execute(
             "INSERT INTO scheduled_actions "
@@ -194,20 +195,20 @@ class TestClearScheduled:
             (
                 media_item_id,
                 action,
-                datetime.now(timezone.utc).isoformat(),
-                (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+                datetime.now(UTC).isoformat(),
+                (datetime.now(UTC) + timedelta(days=7)).isoformat(),
                 f"tok-{media_item_id}-{action}",
             ),
         )
         conn.commit()
 
     def _insert_media_item(self, conn, media_id: str) -> None:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         conn.execute(
             "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key, "
             "added_at, file_path, file_size_bytes) VALUES (?, ?, 'movie', 1, 'rk1', ?, '/f', 0)",
-            (media_id, f"Item {media_id}", datetime.now(timezone.utc).isoformat()),
+            (media_id, f"Item {media_id}", datetime.now(UTC).isoformat()),
         )
         conn.commit()
 
@@ -342,7 +343,7 @@ class TestClearScheduledAuditLog:
         assert '"count":' in rows[0]["detail"]
 
     def test_audit_failure_rolls_back_delete(self, db_path, secret_key, monkeypatch):
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key, str(db_path))
@@ -353,7 +354,7 @@ class TestClearScheduledAuditLog:
             "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key, "
             "added_at, file_path, file_size_bytes) VALUES "
             "('mx', 'Item mx', 'movie', 1, 'rk-mx', ?, '/f', 0)",
-            (datetime.now(timezone.utc).isoformat(),),
+            (datetime.now(UTC).isoformat(),),
         )
         conn.execute(
             "INSERT INTO scheduled_actions "
@@ -361,8 +362,8 @@ class TestClearScheduledAuditLog:
             "VALUES (?, 'scheduled_deletion', ?, ?, 'tok-mx', 0)",
             (
                 "mx",
-                datetime.now(timezone.utc).isoformat(),
-                (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+                datetime.now(UTC).isoformat(),
+                (datetime.now(UTC) + timedelta(days=7)).isoformat(),
             ),
         )
         conn.commit()

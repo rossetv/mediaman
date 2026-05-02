@@ -44,7 +44,23 @@ class TestCreateUser:
         ).fetchone()
         # Must not store the plaintext and must be a bcrypt hash.
         assert row["password_hash"] != "pass"
-        assert row["password_hash"].startswith("$2b$")
+        # ``$2b$`` is the modern bcrypt prefix; the README claims cost
+        # factor 12 is in force, so the third ``$``-delimited segment
+        # MUST encode 12 rounds. A drift here (e.g. someone shipping
+        # ``rounds=10`` for "speed") would silently weaken password
+        # storage without changing any other observable behaviour.
+        # Hash format: ``$2b$<rounds>$<22-byte salt><31-byte hash>``
+        # so we can pull the cost out of the third field directly.
+        password_hash = row["password_hash"]
+        assert password_hash.startswith("$2b$")
+        parts = password_hash.split("$")
+        # parts[0] is empty (leading $); parts[1] = "2b"; parts[2] = cost.
+        assert parts[1] == "2b"
+        assert parts[2] == f"{BCRYPT_ROUNDS:02d}"
+        assert int(parts[2]) == 12, (
+            f"Expected bcrypt cost factor 12, got {parts[2]!r}. "
+            "README documents cost 12 — keep them in sync."
+        )
 
     def test_duplicate_username_raises_value_error(self, conn):
         create_user(conn, "alice", "pass1", enforce_policy=False)

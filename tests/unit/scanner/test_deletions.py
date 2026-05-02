@@ -4,7 +4,7 @@ Covers: DeletionExecutor.execute (dry_run, no allowed roots, actual delete
 path, stuck-state recovery) and _recover_stuck_deletions.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -30,7 +30,7 @@ def _insert_media(conn, *, media_id="m1", title="Test Film", file_path="/tmp/tes
 def _insert_pending_deletion(conn, *, media_id="m1", execute_at=None):
     """Insert a scheduled_deletion row with execute_at in the past."""
     if execute_at is None:
-        execute_at = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        execute_at = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
     conn.execute(
         "INSERT INTO scheduled_actions "
         "(media_item_id, action, scheduled_at, execute_at, token, token_used, delete_status) "
@@ -178,7 +178,7 @@ class TestSuccessfulDeletion:
 
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(tmp_path))
 
-        future = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        future = (datetime.now(UTC) + timedelta(days=7)).isoformat()
         _insert_media(conn, file_path=str(real_file))
         _insert_pending_deletion(conn, execute_at=future)
 

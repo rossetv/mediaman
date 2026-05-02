@@ -68,7 +68,7 @@
       <div class="tile">
         <div class="tile-poster">
           {% if item.plex_rating_key %}
-          <img src="/api/poster/{{ item.plex_rating_key }}" alt="{{ item.title }}" loading="lazy">
+          <img src="/api/poster/{{ item.plex_rating_key }}" alt="" loading="lazy">
           {% endif %}
           <div class="tile-pills">
             <span class="pill pill--{{ 'movie' if item.media_type == 'movie' else ('tv' if item.media_type == 'tv' else 'anime') }}">{{ item.type_label }}</span>
@@ -123,7 +123,7 @@
       {% for item in recently_deleted %}
       <div class="ditem">
         <div class="ditem-thumb">
-          {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="{{ item.title }}" loading="lazy">{% endif %}
+          {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="" loading="lazy">{% endif %}
         </div>
         <div>
           <div class="u-fwm">{{ item.title }}</div>

@@ -7,7 +7,7 @@ read_delete_allowed_roots_setting, cleanup_expired_snoozes, schedule_deletion.
 """
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -82,7 +82,7 @@ class TestUpsertMediaItem:
         return {
             "plex_rating_key": rk,
             "title": title,
-            "added_at": datetime(2024, 1, 1, tzinfo=timezone.utc),
+            "added_at": datetime(2024, 1, 1, tzinfo=UTC),
             "file_path": "/media/film.mkv",
             "file_size_bytes": 5_000_000,
             "poster_path": None,
@@ -128,8 +128,8 @@ class TestUpdateLastWatched:
     def test_stores_most_recent_watch(self, conn):
         _insert_item(conn)
         history = [
-            {"viewed_at": datetime(2024, 1, 10, tzinfo=timezone.utc)},
-            {"viewed_at": datetime(2024, 3, 20, tzinfo=timezone.utc)},
+            {"viewed_at": datetime(2024, 1, 10, tzinfo=UTC)},
+            {"viewed_at": datetime(2024, 3, 20, tzinfo=UTC)},
         ]
         repository.update_last_watched(conn, "m1", history)
         row = conn.execute("SELECT last_watched_at FROM media_items WHERE id='m1'").fetchone()
@@ -201,13 +201,13 @@ class TestIsProtected:
 
     def test_active_snooze_returns_true(self, conn):
         _insert_item(conn)
-        future = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        future = (datetime.now(UTC) + timedelta(days=7)).isoformat()
         _insert_action(conn, action="snoozed", token="sn-tok", execute_at=future)
         assert repository.is_protected(conn, "m1") is True
 
     def test_expired_snooze_returns_false(self, conn):
         _insert_item(conn)
-        past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
         _insert_action(conn, action="snoozed", token="sn-tok", execute_at=past)
         assert repository.is_protected(conn, "m1") is False
 
@@ -234,7 +234,7 @@ class TestIsProtected:
         # Older protected_forever row (lower id).
         _insert_action(conn, action="protected_forever", token="pf-old")
         # Newer expired snooze row (higher id, would win the old query).
-        past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
         _insert_action(conn, action="snoozed", token="sn-expired", execute_at=past)
         assert repository.is_protected(conn, "m1") is True
 
@@ -246,7 +246,7 @@ class TestIsProtected:
         """
         _insert_item(conn)
         _insert_action(conn, action="protected_forever", token="pf-first")
-        future = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        future = (datetime.now(UTC) + timedelta(days=7)).isoformat()
         _insert_action(conn, action="snoozed", token="sn-active", execute_at=future)
         assert repository.is_protected(conn, "m1") is True
 
@@ -255,8 +255,8 @@ class TestIsProtected:
         a later (higher-id) snooze row has already expired.
         """
         _insert_item(conn)
-        future = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
-        past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        future = (datetime.now(UTC) + timedelta(days=7)).isoformat()
+        past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
         _insert_action(conn, action="snoozed", token="sn-active", execute_at=future)
         _insert_action(conn, action="snoozed", token="sn-expired", execute_at=past)
         assert repository.is_protected(conn, "m1") is True
@@ -264,8 +264,8 @@ class TestIsProtected:
     def test_only_expired_snoozes_returns_false(self, conn):
         """Multiple expired snooze rows still mean the item is not protected."""
         _insert_item(conn)
-        past1 = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
-        past2 = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        past1 = (datetime.now(UTC) - timedelta(days=10)).isoformat()
+        past2 = (datetime.now(UTC) - timedelta(days=1)).isoformat()
         _insert_action(conn, action="snoozed", token="sn-old", execute_at=past1)
         _insert_action(conn, action="snoozed", token="sn-recent", execute_at=past2)
         assert repository.is_protected(conn, "m1") is False
@@ -331,7 +331,7 @@ class TestIsShowKept:
         assert repository.is_show_kept(conn, "rk1") is True
 
     def test_active_snooze_returns_true(self, conn):
-        future = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        future = (datetime.now(UTC) + timedelta(days=7)).isoformat()
         conn.execute(
             "INSERT INTO kept_shows (show_rating_key, show_title, action, execute_at, created_at) "
             "VALUES ('rk2', 'Show', 'snoozed', ?, '2026-01-01')",
@@ -350,7 +350,7 @@ class TestIsShowKept:
         composes them so the legacy "ask + clean" contract observed by
         the scan engine still holds.
         """
-        past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
         conn.execute(
             "INSERT INTO kept_shows (show_rating_key, show_title, action, execute_at, created_at) "
             "VALUES ('rk3', 'Show', 'snoozed', ?, '2026-01-01')",
@@ -369,7 +369,7 @@ class TestIsShowKept:
         side-effect-free — it never touches the DB even when the row is
         an expired snooze.
         """
-        past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
         conn.execute(
             "INSERT INTO kept_shows (show_rating_key, show_title, action, execute_at, created_at) "
             "VALUES ('rk-pure', 'Show', 'snoozed', ?, '2026-01-01')",
@@ -427,9 +427,9 @@ class TestReadDeleteAllowedRoots:
 class TestCleanupExpiredSnoozes:
     def test_removes_past_snoozes(self, conn):
         _insert_item(conn)
-        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
         _insert_action(conn, action="snoozed", token="sn-exp", execute_at=past)
-        repository.cleanup_expired_snoozes(conn, datetime.now(timezone.utc).isoformat())
+        repository.cleanup_expired_snoozes(conn, datetime.now(UTC).isoformat())
         conn.commit()
         assert (
             conn.execute("SELECT id FROM scheduled_actions WHERE token='sn-exp'").fetchone() is None
@@ -437,9 +437,9 @@ class TestCleanupExpiredSnoozes:
 
     def test_keeps_future_snoozes(self, conn):
         _insert_item(conn)
-        future = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        future = (datetime.now(UTC) + timedelta(days=7)).isoformat()
         _insert_action(conn, action="snoozed", token="sn-fut", execute_at=future)
-        repository.cleanup_expired_snoozes(conn, datetime.now(timezone.utc).isoformat())
+        repository.cleanup_expired_snoozes(conn, datetime.now(UTC).isoformat())
         conn.commit()
         assert (
             conn.execute("SELECT id FROM scheduled_actions WHERE token='sn-fut'").fetchone()
@@ -454,16 +454,14 @@ class TestCleanupExpiredSnoozes:
 
 class TestCleanupExpiredShowSnoozes:
     def test_removes_expired_snoozed_kept_show(self, conn):
-        past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
         conn.execute(
             "INSERT INTO kept_shows (show_rating_key, show_title, action, execute_at, created_at) "
             "VALUES ('rk-exp', 'Show', 'snoozed', ?, '2026-01-01')",
             (past,),
         )
         conn.commit()
-        removed = repository.cleanup_expired_show_snoozes(
-            conn, datetime.now(timezone.utc).isoformat()
-        )
+        removed = repository.cleanup_expired_show_snoozes(conn, datetime.now(UTC).isoformat())
         conn.commit()
         assert removed == 1
         assert (
@@ -472,16 +470,14 @@ class TestCleanupExpiredShowSnoozes:
         )
 
     def test_keeps_active_snoozed_kept_show(self, conn):
-        future = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        future = (datetime.now(UTC) + timedelta(days=7)).isoformat()
         conn.execute(
             "INSERT INTO kept_shows (show_rating_key, show_title, action, execute_at, created_at) "
             "VALUES ('rk-fut', 'Show', 'snoozed', ?, '2026-01-01')",
             (future,),
         )
         conn.commit()
-        removed = repository.cleanup_expired_show_snoozes(
-            conn, datetime.now(timezone.utc).isoformat()
-        )
+        removed = repository.cleanup_expired_show_snoozes(conn, datetime.now(UTC).isoformat())
         assert removed == 0
         assert (
             conn.execute("SELECT id FROM kept_shows WHERE show_rating_key='rk-fut'").fetchone()
@@ -496,9 +492,7 @@ class TestCleanupExpiredShowSnoozes:
             "VALUES ('rk-pf', 'Show', 'protected_forever', '2026-01-01')"
         )
         conn.commit()
-        removed = repository.cleanup_expired_show_snoozes(
-            conn, datetime.now(timezone.utc).isoformat()
-        )
+        removed = repository.cleanup_expired_show_snoozes(conn, datetime.now(UTC).isoformat())
         assert removed == 0
         assert (
             conn.execute("SELECT id FROM kept_shows WHERE show_rating_key='rk-pf'").fetchone()
@@ -517,8 +511,8 @@ class TestUpdateLastWatchedMonotonic:
         drag ``last_watched_at`` backwards.
         """
         _insert_item(conn)
-        recent = datetime(2024, 6, 1, tzinfo=timezone.utc)
-        old = datetime(2023, 1, 1, tzinfo=timezone.utc)
+        recent = datetime(2024, 6, 1, tzinfo=UTC)
+        old = datetime(2023, 1, 1, tzinfo=UTC)
         repository.update_last_watched(conn, "m1", [{"viewed_at": recent}])
         repository.update_last_watched(conn, "m1", [{"viewed_at": old}])
         row = conn.execute("SELECT last_watched_at FROM media_items WHERE id='m1'").fetchone()
@@ -528,8 +522,8 @@ class TestUpdateLastWatchedMonotonic:
     def test_advances_when_newer_watch_seen(self, conn):
         """A genuinely newer watch entry must overwrite the stored value."""
         _insert_item(conn)
-        old = datetime(2023, 1, 1, tzinfo=timezone.utc)
-        recent = datetime(2024, 6, 1, tzinfo=timezone.utc)
+        old = datetime(2023, 1, 1, tzinfo=UTC)
+        recent = datetime(2024, 6, 1, tzinfo=UTC)
         repository.update_last_watched(conn, "m1", [{"viewed_at": old}])
         repository.update_last_watched(conn, "m1", [{"viewed_at": recent}])
         row = conn.execute("SELECT last_watched_at FROM media_items WHERE id='m1'").fetchone()

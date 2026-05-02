@@ -720,11 +720,11 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
                 )
                 if not has_table:
                     continue
-                cols = {row[1] for row in c.execute(f"PRAGMA table_info({table})").fetchall()}  # noqa: S608 — table name from a fixed allow-list
+                cols = {row[1] for row in c.execute(f"PRAGMA table_info({table})").fetchall()}
                 if "owner_id" not in cols:
-                    c.execute(f"ALTER TABLE {table} ADD COLUMN owner_id TEXT")  # noqa: S608
+                    c.execute(f"ALTER TABLE {table} ADD COLUMN owner_id TEXT")
                 if "heartbeat_at" not in cols:
-                    c.execute(f"ALTER TABLE {table} ADD COLUMN heartbeat_at TEXT")  # noqa: S608
+                    c.execute(f"ALTER TABLE {table} ADD COLUMN heartbeat_at TEXT")
 
         _run_migration(24, _v24)
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from mediaman.services.infra.time import now_iso
 
@@ -77,6 +77,32 @@ def set_connection(conn: sqlite3.Connection) -> None:
     global _owning_conn, _owning_thread
     _owning_conn = conn
     _owning_thread = threading.get_ident()
+
+
+def reset_connection() -> None:
+    """Drop the registered bootstrap connection and per-thread state.
+
+    Tests autouse this between cases so a connection registered by one
+    test does not leak into the next (the thread-local is process-wide
+    and would otherwise survive across the test boundary). Production
+    code must not call this — the only correct lifecycle is one
+    :func:`init_db` per process.
+    """
+    global _owning_conn, _owning_thread, _db_path
+    _owning_conn = None
+    _owning_thread = None
+    _db_path = None
+    # Drop any lazily-opened thread-local connection too — leaving it
+    # in place would let ``get_db()`` return a connection bound to a
+    # database file from a previous test.
+    conn = getattr(_thread_local, "conn", None)
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        finally:
+            _thread_local.conn = None
 
 
 def _set_db_path(path: str) -> None:
@@ -158,11 +184,9 @@ def _is_job_running(conn: sqlite3.Connection, table: str) -> bool:
     has lapsed are treated as crashed so a new run can start cleanly.
     """
     _check_job_table(table)
-    cutoff = (
-        datetime.now(timezone.utc) - timedelta(seconds=_JOB_HEARTBEAT_STALE_SECONDS)
-    ).isoformat()
+    cutoff = (datetime.now(UTC) - timedelta(seconds=_JOB_HEARTBEAT_STALE_SECONDS)).isoformat()
     row = conn.execute(
-        f"SELECT id FROM {table} "  # noqa: S608 — table name from a fixed allow-list
+        f"SELECT id FROM {table} "
         "WHERE finished_at IS NULL "
         "  AND COALESCE(heartbeat_at, started_at) > ? LIMIT 1",
         (cutoff,),
@@ -185,7 +209,7 @@ def _start_job_run(conn: sqlite3.Connection, table: str) -> int | None:
         now = now_iso()
         owner = _job_owner_id()
         cursor = conn.execute(
-            f"INSERT INTO {table} "  # noqa: S608 — table name from a fixed allow-list
+            f"INSERT INTO {table} "
             "(started_at, status, owner_id, heartbeat_at) "
             "VALUES (?, 'running', ?, ?)",
             (now, owner, now),
@@ -212,8 +236,7 @@ def _finish_job_run(
     _check_job_table(table)
     now = now_iso()
     conn.execute(
-        f"UPDATE {table} SET finished_at=?, status=?, error=?, heartbeat_at=? "  # noqa: S608 — table name from a fixed allow-list
-        "WHERE id=?",
+        f"UPDATE {table} SET finished_at=?, status=?, error=?, heartbeat_at=? WHERE id=?",
         (now, status, error, now, run_id),
     )
     conn.commit()
@@ -231,7 +254,7 @@ def _heartbeat_job_run(conn: sqlite3.Connection, table: str, run_id: int) -> Non
     _check_job_table(table)
     try:
         conn.execute(
-            f"UPDATE {table} SET heartbeat_at=? WHERE id=? AND finished_at IS NULL",  # noqa: S608 — table name from a fixed allow-list
+            f"UPDATE {table} SET heartbeat_at=? WHERE id=? AND finished_at IS NULL",
             (now_iso(), run_id),
         )
         conn.commit()

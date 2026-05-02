@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import time
+from datetime import UTC
 
 import pytest
 
@@ -55,7 +56,7 @@ class TestMarkTokenUsed:
 
         exp = int(time.time()) + 3600
         _mark_token_used("secret-token", exp)
-        digest = hashlib.sha256("secret-token".encode()).hexdigest()
+        digest = hashlib.sha256(b"secret-token").hexdigest()
         with _USED_TOKENS_LOCK:
             assert digest in _USED_TOKENS
             assert "secret-token" not in _USED_TOKENS
@@ -66,7 +67,7 @@ class TestMarkTokenUsed:
 
         exp = int(time.time()) + 3600
         _mark_token_used("expiry-token", exp)
-        digest = hashlib.sha256("expiry-token".encode()).hexdigest()
+        digest = hashlib.sha256(b"expiry-token").hexdigest()
         with _USED_TOKENS_LOCK:
             assert _USED_TOKENS[digest] == float(exp)
 
@@ -85,7 +86,7 @@ class TestMarkTokenUsed:
         # The store must now only contain non-expired entries (our new token)
         import hashlib
 
-        digest = hashlib.sha256("trigger-eviction".encode()).hexdigest()
+        digest = hashlib.sha256(b"trigger-eviction").hexdigest()
         with _USED_TOKENS_LOCK:
             assert digest in _USED_TOKENS
             # All the expired fakes should be gone
@@ -115,7 +116,7 @@ class TestUnmarkTokenUsed:
         exp = int(time.time()) + 3600
         _mark_token_used("vanish-token", exp)
         _unmark_token_used("vanish-token")
-        digest = hashlib.sha256("vanish-token".encode()).hexdigest()
+        digest = hashlib.sha256(b"vanish-token").hexdigest()
         with _USED_TOKENS_LOCK:
             assert digest not in _USED_TOKENS
 
@@ -143,7 +144,7 @@ class TestPersistentClaim:
         exp = int(time.time()) + 3600
         assert _mark_token_used("persist-me", exp) is True
 
-        digest = hashlib.sha256("persist-me".encode()).hexdigest()
+        digest = hashlib.sha256(b"persist-me").hexdigest()
         row = db_conn.execute(
             "SELECT token_hash, expires_at, used_at FROM used_download_tokens WHERE token_hash = ?",
             (digest,),
@@ -163,16 +164,16 @@ class TestPersistentClaim:
 
     def test_replay_against_sibling_worker_is_rejected(self, db_conn):
         """A sibling worker's pre-populated DB row blocks a claim from this worker."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         exp = int(time.time()) + 3600
-        digest = hashlib.sha256("sibling-token".encode()).hexdigest()
+        digest = hashlib.sha256(b"sibling-token").hexdigest()
         db_conn.execute(
             "INSERT INTO used_download_tokens (token_hash, expires_at, used_at) VALUES (?, ?, ?)",
             (
                 digest,
-                datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(),
-                datetime.now(timezone.utc).isoformat(),
+                datetime.fromtimestamp(exp, tz=UTC).isoformat(),
+                datetime.now(UTC).isoformat(),
             ),
         )
         db_conn.commit()
@@ -187,7 +188,7 @@ class TestPersistentClaim:
         _mark_token_used("retry-after-failure", exp)
         _unmark_token_used("retry-after-failure")
 
-        digest = hashlib.sha256("retry-after-failure".encode()).hexdigest()
+        digest = hashlib.sha256(b"retry-after-failure").hexdigest()
         row = db_conn.execute(
             "SELECT token_hash FROM used_download_tokens WHERE token_hash = ?",
             (digest,),
@@ -198,16 +199,16 @@ class TestPersistentClaim:
 
     def test_first_use_via_db_only_blocks_replay(self, db_conn):
         """Simulates: cache empty, DB already has the row. Must be rejected."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         exp = int(time.time()) + 3600
-        digest = hashlib.sha256("from-other-worker".encode()).hexdigest()
+        digest = hashlib.sha256(b"from-other-worker").hexdigest()
         db_conn.execute(
             "INSERT INTO used_download_tokens (token_hash, expires_at, used_at) VALUES (?, ?, ?)",
             (
                 digest,
-                datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(),
-                datetime.now(timezone.utc).isoformat(),
+                datetime.fromtimestamp(exp, tz=UTC).isoformat(),
+                datetime.now(UTC).isoformat(),
             ),
         )
         db_conn.commit()

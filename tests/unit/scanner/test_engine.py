@@ -1,6 +1,6 @@
 """Tests for scan engine orchestration."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -26,7 +26,7 @@ def mock_plex():
 
 class TestScanEngine:
     def test_scan_schedules_stale_movie(self, conn, mock_plex):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         mock_plex.get_movie_items.return_value = [
             {
                 "plex_rating_key": "100",
@@ -57,7 +57,7 @@ class TestScanEngine:
         assert row["action"] == "scheduled_deletion"
 
     def test_scan_skips_protected_items(self, conn, mock_plex):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         conn.execute(
             "INSERT INTO media_items (id, title, media_type, plex_library_id, "
             "plex_rating_key, added_at, file_path, file_size_bytes) "
@@ -102,7 +102,7 @@ class TestScanEngine:
         assert result["scheduled"] == 0
 
     def test_scan_creates_media_item_record(self, conn, mock_plex):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         mock_plex.get_movie_items.return_value = [
             {
                 "plex_rating_key": "200",
@@ -129,7 +129,7 @@ class TestScanEngine:
 
     def test_scan_skips_already_scheduled(self, conn, mock_plex):
         """Items with an existing scheduled_deletion action are not re-scheduled."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         conn.execute(
             "INSERT INTO media_items (id, title, media_type, plex_library_id, "
             "plex_rating_key, added_at, file_path, file_size_bytes) "
@@ -179,7 +179,7 @@ class TestScanEngine:
 
     def test_scan_flags_reentry(self, conn, mock_plex):
         """An item whose snooze has expired is scheduled and marked as re-entry."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         conn.execute(
             "INSERT INTO media_items (id, title, media_type, plex_library_id, "
             "plex_rating_key, added_at, file_path, file_size_bytes) "
@@ -247,7 +247,7 @@ class TestScanEngine:
 
     def test_scan_tv_season(self, conn, mock_plex):
         """A stale TV season is scheduled for deletion."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         mock_plex.get_show_seasons.return_value = [
             {
                 "plex_rating_key": "500",
@@ -281,7 +281,7 @@ class TestScanEngine:
 
     def test_scan_audit_log_entry(self, conn, mock_plex):
         """Each scheduled item produces an audit_log entry."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         mock_plex.get_movie_items.return_value = [
             {
                 "plex_rating_key": "600",
@@ -323,7 +323,7 @@ class TestScanEngine:
 
     def test_scan_respects_newsletter_snooze(self, conn, mock_plex):
         """Items snoozed via the newsletter keep flow (token_used=1, future execute_at) are not re-scheduled."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         future = (now + timedelta(days=25)).isoformat()
         conn.execute(
             "INSERT INTO media_items (id, title, media_type, plex_library_id, "
@@ -370,7 +370,7 @@ class TestScanEngine:
 
     def test_scan_reschedules_expired_snooze(self, conn, mock_plex):
         """Items with an expired snooze (token_used=1, past execute_at) are scheduled for deletion."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         past = (now - timedelta(days=5)).isoformat()
         conn.execute(
             "INSERT INTO media_items (id, title, media_type, plex_library_id, "
@@ -420,7 +420,7 @@ class TestExecuteDeletions:
     """Tests for the execute_deletions method."""
 
     def _insert_item(self, conn, item_id, title, file_path="/tmp/fake", file_size=1_000_000):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         conn.execute(
             "INSERT INTO media_items (id, title, media_type, plex_library_id, "
             "plex_rating_key, added_at, file_path, file_size_bytes) "
@@ -442,13 +442,13 @@ class TestExecuteDeletions:
             "INSERT INTO scheduled_actions "
             "(media_item_id, action, scheduled_at, execute_at, token, token_used) "
             "VALUES (?, 'scheduled_deletion', ?, ?, ?, 0)",
-            (item_id, datetime.now(timezone.utc).isoformat(), execute_at, f"tok-{item_id}"),
+            (item_id, datetime.now(UTC).isoformat(), execute_at, f"tok-{item_id}"),
         )
         conn.commit()
 
     def test_dry_run_does_not_delete_files(self, conn, mock_plex):
         """dry_run=True logs dry_run_skip but does not delete or remove the action row."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
 
         self._insert_item(conn, "700", "Dry Run Movie")
@@ -479,7 +479,7 @@ class TestExecuteDeletions:
 
     def test_execute_deletes_past_due_items(self, conn, mock_plex, monkeypatch):
         """Items whose execute_at has passed are deleted and the action row removed."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
 
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/tmp")
@@ -512,7 +512,7 @@ class TestExecuteDeletions:
 
     def test_future_deletions_not_executed(self, conn, mock_plex):
         """Items whose execute_at is in the future are not touched."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         future = (now + timedelta(days=7)).isoformat()
 
         self._insert_item(conn, "900", "Future Movie")
@@ -533,7 +533,7 @@ class TestExecuteDeletions:
 
     def test_radarr_unmonitor_called(self, conn, mock_plex, monkeypatch):
         """execute_deletions calls radarr.unmonitor_movie when radarr_id is set."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
 
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/tmp")
@@ -572,7 +572,7 @@ class TestExecuteDeletions:
 
     def test_sonarr_unmonitor_called(self, conn, mock_plex, monkeypatch):
         """execute_deletions calls sonarr.unmonitor_season when sonarr_id + season_number set."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
 
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/tmp")
@@ -612,7 +612,7 @@ class TestExecuteDeletions:
 
     def test_arr_failure_does_not_abort_deletion(self, conn, mock_plex, monkeypatch):
         """A crash in radarr.unmonitor_movie does not prevent the item being deleted."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
 
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/tmp")
@@ -659,7 +659,7 @@ class TestExecuteDeletions:
     ):
         """With no roots configured, the scheduled deletion is skipped and left
         intact so a later run (once the admin sets a root) can execute it."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
 
         monkeypatch.delenv("MEDIAMAN_DELETE_ROOTS", raising=False)
@@ -698,7 +698,7 @@ class TestExecuteDeletions:
     ):
         """If the allowlist is set but a single item's path is outside it,
         only that item is skipped — other deletions still proceed."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
 
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/tmp")
@@ -725,7 +725,7 @@ class TestExecuteDeletions:
 
     def test_expired_snoozes_are_cleaned_up(self, conn, mock_plex):
         """Snoozed rows with a past execute_at are deleted so items re-enter the pipeline."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
 
         self._insert_item(conn, "940", "Snoozed Item")
@@ -751,7 +751,7 @@ class TestExecuteDeletions:
 
     def test_future_snoozes_are_preserved(self, conn, mock_plex):
         """Active snoozes (execute_at in the future) are not cleaned up."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         future = (now + timedelta(days=7)).isoformat()
 
         self._insert_item(conn, "950", "Active Snooze Item")
@@ -780,7 +780,7 @@ class TestShowLevelKeep:
     """Tests for show-level keep rules via kept_shows table."""
 
     def test_show_rating_key_stored_during_tv_scan(self, conn, mock_plex):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         mock_plex.get_show_seasons.return_value = [
             {
                 "plex_rating_key": "600",
@@ -810,7 +810,7 @@ class TestShowLevelKeep:
         assert row["show_rating_key"] == "599"
 
     def test_kept_show_skips_all_seasons(self, conn, mock_plex):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         conn.execute(
             "INSERT INTO kept_shows (show_rating_key, show_title, action, created_at) "
             "VALUES (?, ?, 'protected_forever', ?)",
@@ -846,7 +846,7 @@ class TestShowLevelKeep:
         assert result["skipped"] == 1
 
     def test_expired_show_snooze_allows_scan(self, conn, mock_plex):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         past = (now - timedelta(days=1)).isoformat()
         conn.execute(
             "INSERT INTO kept_shows (show_rating_key, show_title, action, execute_at, created_at) "
@@ -899,7 +899,7 @@ class TestShowLevelKeep:
         # unambiguous. Pass it through as a tz-aware UTC datetime —
         # which is what the production Plex client now produces.
         posix_ts = 1744400000  # 2025-04-11 ~19:33 UTC
-        aware_utc = datetime.fromtimestamp(posix_ts, tz=timezone.utc)
+        aware_utc = datetime.fromtimestamp(posix_ts, tz=UTC)
 
         mock_plex.get_movie_items.return_value = [
             {
@@ -923,7 +923,7 @@ class TestShowLevelKeep:
 
         row = conn.execute("SELECT added_at FROM media_items WHERE id='9999'").fetchone()
         stored = datetime.fromisoformat(row["added_at"])
-        expected_utc = datetime.fromtimestamp(posix_ts, tz=timezone.utc)
+        expected_utc = datetime.fromtimestamp(posix_ts, tz=UTC)
 
         # The stored value must represent the same instant as the original
         # POSIX timestamp — not be offset by the local UTC difference.
@@ -994,7 +994,7 @@ class TestTwoPhaseDelete:
     crash mid-way can be recovered by _recover_stuck_deletions."""
 
     def _insert_item(self, conn, item_id, file_path="/tmp/fake", size=1_000_000):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         conn.execute(
             "INSERT INTO media_items (id, title, media_type, plex_library_id, "
             "plex_rating_key, added_at, file_path, file_size_bytes) "
@@ -1015,7 +1015,7 @@ class TestTwoPhaseDelete:
             "(media_item_id, action, scheduled_at, execute_at, token, "
             "token_used, delete_status) "
             "VALUES (?, 'scheduled_deletion', ?, ?, ?, 0, ?)",
-            (item_id, datetime.now(timezone.utc).isoformat(), past, f"tok-{item_id}", status),
+            (item_id, datetime.now(UTC).isoformat(), past, f"tok-{item_id}", status),
         )
         conn.commit()
 
@@ -1026,7 +1026,7 @@ class TestTwoPhaseDelete:
         monkeypatch,
     ):
         """Happy path: row flips through 'deleting' then is removed."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/tmp")
         self._insert_item(conn, "d1")
@@ -1058,7 +1058,7 @@ class TestTwoPhaseDelete:
     def test_rollback_on_value_error(self, conn, mock_plex, monkeypatch):
         """When delete_path refuses, the marker must roll back to pending
         so a later run can retry."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/tmp")
         self._insert_item(conn, "d2", file_path="/etc/passwd")
@@ -1291,7 +1291,7 @@ class TestRunScanDryRun:
     """
 
     def _stale_movie(self, key="100", days_old=60):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         return {
             "plex_rating_key": key,
             "title": f"Stale Movie {key}",
@@ -1413,7 +1413,7 @@ class TestRunScanDryRun:
         would normally perform but must be suppressed under a true
         preview (D05 finding 10).
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
         # Seed a media item + expired snooze.
         conn.execute(
@@ -1470,8 +1470,8 @@ class TestResolveAddedAt:
             library_types={},
             secret_key="k",
         )
-        old_added = datetime.now(timezone.utc) - timedelta(days=400)
-        recent_updated = datetime.now(timezone.utc) - timedelta(hours=1)
+        old_added = datetime.now(UTC) - timedelta(days=400)
+        recent_updated = datetime.now(UTC) - timedelta(hours=1)
         item = {
             "file_path": "/media/movies/Foo",
             "added_at": old_added,
@@ -1501,7 +1501,7 @@ class TestResolveAddedAt:
         bad_path = "/media/movies/Bar"
         engine._arr_cache._dates = {normalise_path(bad_path): "not-a-date"}  # type: ignore[attr-defined]
         engine._arr_cache._loaded = True  # type: ignore[attr-defined]
-        old_added = datetime.now(timezone.utc) - timedelta(days=400)
+        old_added = datetime.now(UTC) - timedelta(days=400)
         item = {"file_path": bad_path, "added_at": old_added}
         resolved = engine._resolve_added_at(item)
         assert abs((resolved - old_added).total_seconds()) < 2
@@ -1557,7 +1557,7 @@ class TestPerLibraryOrphanGuard:
                     {
                         "plex_rating_key": f"item-7-{i}",
                         "title": f"t-{i}",
-                        "added_at": datetime.now(timezone.utc) - timedelta(days=5),
+                        "added_at": datetime.now(UTC) - timedelta(days=5),
                         "file_path": f"/media/{i}",
                         "file_size_bytes": 1,
                         "poster_path": None,
@@ -1571,7 +1571,7 @@ class TestPerLibraryOrphanGuard:
                     {
                         "plex_rating_key": f"new-9-{i}",
                         "title": f"new-{i}",
-                        "added_at": datetime.now(timezone.utc) - timedelta(days=5),
+                        "added_at": datetime.now(UTC) - timedelta(days=5),
                         "file_path": f"/media/new-{i}",
                         "file_size_bytes": 1,
                         "poster_path": None,

@@ -3,13 +3,13 @@
 Covers: check_age and check_inactivity.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from mediaman.scanner._eligibility import check_age, check_inactivity
 
 
 def _now():
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 # ---------------------------------------------------------------------------

@@ -12,7 +12,7 @@ No internal mocking — only the Mailgun HTTP layer (external service) is faked.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 from mediaman.db import init_db
@@ -22,7 +22,7 @@ _SECRET = "0123456789abcdef" * 4  # matches conftest fixture
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _insert_setting(conn, key: str, value: str) -> None:

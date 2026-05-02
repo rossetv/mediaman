@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 _KEY = "0123456789abcdef" * 4
 
@@ -10,7 +10,7 @@ _KEY = "0123456789abcdef" * 4
 def _seed_setting(conn, key, value):
     conn.execute(
         "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
-        (key, value, datetime.now(timezone.utc).isoformat()),
+        (key, value, datetime.now(UTC).isoformat()),
     )
     conn.commit()
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -37,7 +37,7 @@ def _insert_media_item(conn: sqlite3.Connection, media_id: str = "mi1") -> None:
     conn.execute(
         "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key, "
         "added_at, file_path, file_size_bytes) VALUES (?, 'Test', 'movie', 1, 'rk1', ?, '/f', 0)",
-        (media_id, datetime.now(timezone.utc).isoformat()),
+        (media_id, datetime.now(UTC).isoformat()),
     )
     conn.commit()
 

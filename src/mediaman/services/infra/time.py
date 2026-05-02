@@ -8,7 +8,7 @@ the same clock resolution and format.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def now_iso() -> str:
@@ -17,4 +17,4 @@ def now_iso() -> str:
     Equivalent to ``datetime.now(timezone.utc).isoformat()`` but defined
     once so all call sites read the same clock call and format.
     """
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()

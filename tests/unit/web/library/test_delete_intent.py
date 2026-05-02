@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 from fastapi import FastAPI
@@ -38,7 +38,7 @@ def _auth_client(app: FastAPI, conn) -> TestClient:
 
 
 def _insert_movie(conn, media_id: str = "m1", radarr_id: int | None = 101) -> None:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     conn.execute(
         "INSERT INTO media_items "
         "(id, title, media_type, plex_library_id, plex_rating_key, added_at, "

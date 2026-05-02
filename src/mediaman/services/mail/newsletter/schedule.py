@@ -118,7 +118,7 @@ def _mark_notified(
         # cannot validate per-recipient state.  Mark everything.
         placeholders = ",".join("?" * len(action_ids))
         conn.execute(
-            f"UPDATE scheduled_actions SET notified=1 WHERE id IN ({placeholders})",  # noqa: S608 — placeholders are '?' only; ids asserted int above
+            f"UPDATE scheduled_actions SET notified=1 WHERE id IN ({placeholders})",
             action_ids,
         )
         conn.commit()
@@ -139,7 +139,7 @@ def _mark_notified(
     if fully_delivered:
         placeholders = ",".join("?" * len(fully_delivered))
         conn.execute(
-            f"UPDATE scheduled_actions SET notified=1 WHERE id IN ({placeholders})",  # noqa: S608 — placeholders are '?' only; ids asserted int above
+            f"UPDATE scheduled_actions SET notified=1 WHERE id IN ({placeholders})",
             fully_delivered,
         )
         conn.commit()

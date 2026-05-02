@@ -21,8 +21,11 @@ from mediaman.config import Config
 from mediaman.crypto import generate_download_token, validate_poll_token
 from mediaman.db import init_db, set_connection
 from mediaman.services.infra.http_client import SafeHTTPError
-from mediaman.web.routes.download._tokens import _USED_TOKENS, _USED_TOKENS_LOCK
-from mediaman.web.routes.download.submit import _DOWNLOAD_LIMITER_POST
+from mediaman.web.routes.download import (
+    reset_download_caches,
+    reset_download_limiters,
+    reset_used_tokens,
+)
 from mediaman.web.routes.download.submit import router as submit_router
 
 _TPL_DIR = Path(__file__).parent.parent.parent / "src" / "mediaman" / "web" / "templates"
@@ -38,9 +41,15 @@ def _make_app(conn, secret_key: str) -> FastAPI:
 
 
 def _clear_state():
-    with _USED_TOKENS_LOCK:
-        _USED_TOKENS.clear()
-    _DOWNLOAD_LIMITER_POST._attempts.clear()
+    """Reset all download-route shared state via the public reset API.
+
+    Wave 4 added :func:`reset_download_limiters`, :func:`reset_download_caches`
+    and :func:`reset_used_tokens` precisely so tests don't have to reach
+    into module privates. Keep this helper aligned with that surface.
+    """
+    reset_used_tokens()
+    reset_download_limiters()
+    reset_download_caches()
 
 
 def _make_movie_token(secret_key: str, title: str = "Alien: Romulus", tmdb_id: int = 945961) -> str:

@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from mediaman.services.media_meta.tmdb import TmdbDetail
 
 
-def apply_tmdb_detail(item: dict[str, object], detail: "TmdbDetail") -> None:
+def apply_tmdb_detail(item: dict[str, object], detail: TmdbDetail) -> None:
     """Merge a :func:`TmdbClient.shape_detail` result into *item* in place.
 
     Only overwrites existing keys when the detail has a non-falsy value

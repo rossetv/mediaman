@@ -2,6 +2,7 @@
 
 import sqlite3
 import threading
+from datetime import UTC
 
 import pytest
 
@@ -437,12 +438,12 @@ class TestJobRunHelpers:
 
     def test_stale_scan_run_does_not_block(self, db_path):
         """A row whose heartbeat lapsed beyond the stale window is treated as crashed."""
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         from mediaman.db import is_scan_running
 
         conn = init_db(str(db_path))
-        stale = (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat()
+        stale = (datetime.now(UTC) - timedelta(hours=3)).isoformat()
         conn.execute(
             "INSERT INTO scan_runs (started_at, status) VALUES (?, 'running')",
             (stale,),
@@ -459,7 +460,7 @@ class TestJobRunHelpers:
         With the heartbeat lease the live run keeps blocking new starts
         as long as it ticks within the stale window.
         """
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         from mediaman.db import heartbeat_scan_run, is_scan_running, start_scan_run
 
@@ -472,7 +473,7 @@ class TestJobRunHelpers:
         conn.execute(
             "UPDATE scan_runs SET started_at = ? WHERE id = ?",
             (
-                (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat(),
+                (datetime.now(UTC) - timedelta(hours=3)).isoformat(),
                 run_id,
             ),
         )
@@ -482,14 +483,14 @@ class TestJobRunHelpers:
 
     def test_lapsed_heartbeat_unblocks_new_run(self, db_path):
         """A run whose heartbeat is older than the stale window is ignored."""
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         from mediaman.db import is_scan_running, start_scan_run
 
         conn = init_db(str(db_path))
         run_id = start_scan_run(conn)
         # Force the heartbeat back into the past beyond the stale window.
-        long_ago = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+        long_ago = (datetime.now(UTC) - timedelta(minutes=30)).isoformat()
         conn.execute(
             "UPDATE scan_runs SET heartbeat_at = ?, started_at = ? WHERE id = ?",
             (long_ago, long_ago, run_id),
@@ -553,9 +554,9 @@ class TestSchemaV18KeepTokensUsed:
     def test_token_hash_is_primary_key(self, db_path):
         """INSERT OR IGNORE on a duplicate token_hash must silently succeed (rowcount 0)."""
         conn = init_db(str(db_path))
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute("INSERT INTO keep_tokens_used (token_hash, used_at) VALUES ('abc', ?)", (now,))
         cursor = conn.execute(
             "INSERT OR IGNORE INTO keep_tokens_used (token_hash, used_at) VALUES ('abc', ?)", (now,)
