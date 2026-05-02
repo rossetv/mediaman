@@ -52,27 +52,40 @@ class CompletedItem(TypedDict):
 
 
 def detect_completed(
-    previous: dict[str, ArrCard], current: dict[str, ArrCard]
+    previous: dict[str, ArrCard] | dict[str, dict[str, Any]],
+    current: dict[str, ArrCard] | dict[str, dict[str, Any]],
 ) -> list[CompletedItem]:
     """Find items that disappeared from the queue (i.e. completed).
 
-    Returns a list of dicts with dl_id, title, media_type, poster_url
-    ready for insertion into recent_downloads.
+    Returns a list of dicts with dl_id, title, media_type, poster_url,
+    and (when present on the previous-snapshot entry) tmdb_id, ready
+    for insertion into recent_downloads.
+
+    The ``tmdb_id`` field on each :class:`CompletedItem` is what
+    :func:`record_verified_completions` uses to disambiguate two
+    same-titled releases.  Callers that build the snapshot map should
+    therefore enrich each entry with ``tmdb_id`` before stashing it —
+    see ``download_queue/__init__.py`` for the canonical enrichment.
+    The :class:`ArrCard` payload accepted here is duck-typed, so any
+    dict carrying ``title``, ``kind``, ``poster_url`` and (optionally)
+    ``tmdb_id`` works.
     """
     completed: list[CompletedItem] = []
     for dl_id, item in previous.items():
         if dl_id not in current:
-            completed.append(
-                cast(
-                    CompletedItem,
-                    {
-                        "dl_id": dl_id,
-                        "title": item.get("title", ""),
-                        "media_type": item.get("kind", "movie"),
-                        "poster_url": item.get("poster_url", ""),
-                    },
-                )
+            entry: CompletedItem = cast(
+                CompletedItem,
+                {
+                    "dl_id": dl_id,
+                    "title": item.get("title", ""),
+                    "media_type": item.get("kind", "movie"),
+                    "poster_url": item.get("poster_url", ""),
+                },
             )
+            tmdb_id = item.get("tmdb_id")
+            if isinstance(tmdb_id, int) and tmdb_id:
+                entry["tmdb_id"] = tmdb_id
+            completed.append(entry)
     return completed
 
 
@@ -99,8 +112,12 @@ def record_verified_completions(
 
     Performance: the Radarr/Sonarr library is fetched once per call and
     indexed by ``{tmdbId: movie}`` / ``{tmdbId: series}`` so lookups are
-    O(1) by ID.  A title-only fallback is used when no ``tmdbId`` is present
-    on the completed item (older entries, NZB-only grabs).
+    O(1) by ID.  A title-only fallback is used when no ``tmdb_id`` is
+    present on the completed item (older entries, NZB-only grabs).  The
+    fallback logs a WARNING because two same-titled releases would be
+    silently merged on that path; once :func:`detect_completed` reliably
+    propagates ``tmdb_id`` from the queue snapshot (D6 fix), the fallback
+    becomes vanishingly rare.
     """
     # Fetch Radarr/Sonarr libraries once per call and index by tmdbId + title.
     # None signals "not yet fetched"; an empty dict means "fetched, nothing found".
@@ -155,6 +172,15 @@ def record_verified_completions(
                 tmdb_id = c.get("tmdb_id")
                 movie = _radarr_by_id.get(int(tmdb_id)) if tmdb_id else None
                 if movie is None:
+                    if not tmdb_id:
+                        logger.warning(
+                            "record_verified_completions: no tmdb_id for %s "
+                            "(title=%r) — falling back to title-only match; "
+                            "two releases with the same title would be "
+                            "indistinguishable",
+                            dl_id,
+                            title,
+                        )
                     movie = _radarr_by_title.get(title)
                 if movie is not None and bool(movie.get("hasFile")):
                     verified = True
@@ -164,6 +190,15 @@ def record_verified_completions(
                 tmdb_id = c.get("tmdb_id")
                 series = _sonarr_by_id.get(int(tmdb_id)) if tmdb_id else None
                 if series is None:
+                    if not tmdb_id:
+                        logger.warning(
+                            "record_verified_completions: no tmdb_id for %s "
+                            "(title=%r) — falling back to title-only match; "
+                            "two releases with the same title would be "
+                            "indistinguishable",
+                            dl_id,
+                            title,
+                        )
                     series = _sonarr_by_title.get(title)
                 if series is not None and series_has_files(series):
                     verified = True

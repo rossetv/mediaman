@@ -330,3 +330,122 @@ class TestRecordVerifiedCompletions:
         dl_ids = {r["dl_id"] for r in rows}
         assert "radarr:Dune1" not in dl_ids  # failed — skipped
         assert "radarr:Dune" in dl_ids  # succeeded
+
+    def test_radarr_match_prefers_tmdb_id_over_title(self, conn):
+        """When ``tmdb_id`` is populated, the match keys on it — even when the title differs.
+
+        Two same-titled releases would otherwise collide in the title
+        index. The tmdb_id path disambiguates them.
+        """
+        mock_radarr = MagicMock()
+        mock_radarr.get_movies.return_value = [
+            # Same title, different tmdbId. Without tmdb_id matching, the
+            # title-only lookup picks the *last* one inserted into the
+            # by-title index — so an item meaning to verify against id=100
+            # would be conflated with id=200's hasFile flag.
+            {"tmdbId": 100, "title": "Dune", "hasFile": True},
+            {"tmdbId": 200, "title": "Dune", "hasFile": False},
+        ]
+
+        def build_client(c, svc):
+            return mock_radarr if svc == "radarr" else None
+
+        completed = [
+            {
+                "dl_id": "radarr:Dune-original",
+                "title": "Dune",
+                "media_type": "movie",
+                "poster_url": "",
+                "tmdb_id": 100,
+            }
+        ]
+        record_verified_completions(conn, completed, build_client)
+        rows = conn.execute(
+            "SELECT dl_id FROM recent_downloads WHERE dl_id = 'radarr:Dune-original'"
+        ).fetchall()
+        # Verified via tmdb_id=100 -> hasFile=True.
+        assert len(rows) == 1
+
+    def test_sonarr_match_prefers_tmdb_id_over_title(self, conn):
+        """The Sonarr branch must also disambiguate by ``tmdb_id`` when present."""
+        mock_sonarr = MagicMock()
+        mock_sonarr.get_series.return_value = [
+            {"tmdbId": 10, "title": "Severance", "statistics": {"episodeFileCount": 5}},
+            # Same title, different tmdbId, no files — must NOT verify the
+            # tmdb_id=10 caller.
+            {"tmdbId": 20, "title": "Severance", "statistics": {"episodeFileCount": 0}},
+        ]
+
+        def build_client(c, svc):
+            return mock_sonarr if svc == "sonarr" else None
+
+        completed = [
+            {
+                "dl_id": "sonarr:Severance-2010",
+                "title": "Severance",
+                "media_type": "series",
+                "poster_url": "",
+                "tmdb_id": 10,
+            }
+        ]
+        record_verified_completions(conn, completed, build_client)
+        rows = conn.execute(
+            "SELECT dl_id FROM recent_downloads WHERE dl_id = 'sonarr:Severance-2010'"
+        ).fetchall()
+        assert len(rows) == 1
+
+    def test_logs_warning_on_title_only_fallback(self, conn, caplog):
+        """No ``tmdb_id`` on the completed item triggers a WARNING about the title fallback."""
+        mock_radarr = MagicMock()
+        mock_radarr.get_movies.return_value = [{"title": "Dune", "hasFile": True}]
+
+        def build_client(c, svc):
+            return mock_radarr if svc == "radarr" else None
+
+        completed = [
+            {
+                "dl_id": "radarr:Dune",
+                "title": "Dune",
+                "media_type": "movie",
+                "poster_url": "",
+                # Note: no tmdb_id — fallback path.
+            }
+        ]
+        with caplog.at_level("WARNING", logger="mediaman"):
+            record_verified_completions(conn, completed, build_client)
+        # Item still records (the fallback works) but a warning is logged
+        # so operators are aware disambiguation may have failed.
+        assert any(
+            "title-only match" in r.message and "radarr:Dune" in r.message for r in caplog.records
+        )
+
+
+class TestDetectCompletedTmdbId:
+    """Tmdb-id propagation through detect_completed (D6 fix)."""
+
+    def test_propagates_tmdb_id_from_previous_snapshot(self):
+        """A ``tmdb_id`` field on the previous-snapshot entry is carried into the CompletedItem."""
+        previous = {
+            "radarr:Dune": {
+                "id": "radarr:Dune",
+                "title": "Dune",
+                "kind": "movie",
+                "poster_url": "",
+                "tmdb_id": 438631,
+            }
+        }
+        result = detect_completed(previous, {})
+        assert result[0]["tmdb_id"] == 438631
+
+    def test_omits_tmdb_id_when_absent(self):
+        """When the snapshot had no ``tmdb_id``, the CompletedItem doesn't fabricate one."""
+        previous = {
+            "radarr:Dune": {
+                "id": "radarr:Dune",
+                "title": "Dune",
+                "kind": "movie",
+                "poster_url": "",
+            }
+        }
+        result = detect_completed(previous, {})
+        assert "tmdb_id" not in result[0]
