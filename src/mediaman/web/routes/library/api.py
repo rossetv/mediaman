@@ -9,8 +9,9 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote as _url_quote
 
-from fastapi import APIRouter, Body, Depends, Form, Query, Request
+from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 from mediaman.audit import log_audit
 from mediaman.auth.middleware import get_current_admin
@@ -154,6 +155,15 @@ _KEEP_LIMITER = ActionRateLimiter(
     max_per_day=500,
 )
 
+# Per-admin cap on redownload triggers (finding 8). Each call spawns an
+# Arr lookup + add_movie/add_series round-trip, so a tighter burst cap
+# than the search-query path: 20 per minute / 200 per day per actor.
+_REDOWNLOAD_LIMITER = ActionRateLimiter(
+    max_in_window=20,
+    window_seconds=60,
+    max_per_day=200,
+)
+
 
 @router.get("/api/library")
 def api_library(
@@ -191,7 +201,25 @@ def api_media_delete(
     request: Request,
     username: str = Depends(get_current_admin),
 ) -> JSONResponse:
-    """Delete a media item via Radarr/Sonarr."""
+    """Delete a media item via Radarr/Sonarr.
+
+    Two-phase, three-transaction layout (finding 11) — intentionally split:
+
+    1. **Snapshot transaction** (``BEGIN IMMEDIATE`` … ``COMMIT``)
+       — read the media row, capture identifiers, release the lock.
+    2. **External Arr call** (no DB transaction held)
+       — Radarr / Sonarr round-trip can take seconds; holding a SQLite
+       write lock that long would block every other writer in the
+       process. A delete-intent row is persisted *before* this step so
+       a crash between the Arr call returning and the DB cleanup
+       landing can be reconciled by ``reconcile_pending_delete_intents``
+       at startup.
+    3. **Cleanup transaction** (``BEGIN IMMEDIATE`` … ``COMMIT``)
+       — write the audit row, prune ``scheduled_actions``, drop the
+       ``media_items`` row, then mark the delete-intent complete.
+
+    The recovery path handles every observable partial state.
+    """
     if not _DELETE_LIMITER.check(username):
         logger.warning("media.delete_throttled user=%s", username)
         return JSONResponse(
@@ -209,7 +237,12 @@ def api_media_delete(
         ).fetchone()
         if row is None:
             conn.execute("ROLLBACK")
-            return JSONResponse({"error": "Not found"}, status_code=404)
+            # Finding 12: do NOT leak existence/non-existence here.
+            # Returning 404 told an attacker which media IDs were
+            # valid; 403 is uniform across "row is missing" and
+            # "row exists but the actor isn't the owner" (auth has
+            # already been confirmed by the dependency above).
+            return JSONResponse({"error": "Forbidden"}, status_code=403)
         snapshot = {
             "title": row["title"],
             "media_type": row["media_type"],
@@ -236,6 +269,11 @@ def api_media_delete(
         resp = getattr(exc, "response", None)
         status = getattr(resp, "status_code", None) if resp is not None else None
         return status == 404
+
+    # Tracks the row id of the delete-intent persisted before any external
+    # call. ``None`` means there is no intent to finalise (the no-Arr-id
+    # path skips writing one — finding 13).
+    intent_id: int | None = None
 
     if is_movie:
         client = build_radarr_from_db(conn, config.secret_key)
@@ -269,13 +307,12 @@ def api_media_delete(
                             status_code=502,
                         )
             else:
-                intent_id = _record_delete_intent(conn, media_id, "radarr", "none")
+                # No external call to make → no recovery scenario, so
+                # don't write a placeholder intent row (finding 13).
                 logger.info(
                     "No stored radarr_id for '%s' — skipping Radarr-level delete.",
                     title,
                 )
-        else:
-            intent_id = _record_delete_intent(conn, media_id, "radarr", "none")
     else:
         client = build_sonarr_from_db(conn, config.secret_key)
         if client:
@@ -312,10 +349,7 @@ def api_media_delete(
                             },
                             status_code=502,
                         )
-            else:
-                intent_id = _record_delete_intent(conn, media_id, "sonarr", "none")
-        else:
-            intent_id = _record_delete_intent(conn, media_id, "sonarr", "none")
+            # If no sid/season_num, skip the placeholder intent (finding 13).
 
     rk = snapshot["plex_rating_key"] or ""
     detail = f"Deleted '{title}' by {username}"
@@ -323,7 +357,14 @@ def api_media_delete(
         detail += f" [rk:{rk}]"
     try:
         conn.execute("BEGIN IMMEDIATE")
-        log_audit(conn, media_id, "deleted", detail, space_bytes=snapshot["file_size_bytes"])
+        log_audit(
+            conn,
+            media_id,
+            "deleted",
+            detail,
+            space_bytes=snapshot["file_size_bytes"],
+            actor=username,
+        )
         conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_id,))
         conn.execute("DELETE FROM media_items WHERE id = ?", (media_id,))
         conn.execute("COMMIT")
@@ -334,7 +375,8 @@ def api_media_delete(
             pass
         raise
 
-    _complete_delete_intent(conn, intent_id)
+    if intent_id is not None:
+        _complete_delete_intent(conn, intent_id)
     logger.info("Deleted %s (%s) — %s by %s", media_id, title, snapshot["file_path"], username)
     return JSONResponse({"ok": True, "id": media_id})
 
@@ -408,7 +450,13 @@ def api_media_keep(
         conn.execute("ROLLBACK")
         raise
 
-    log_audit(conn, media_id, "snoozed", f"Kept for {snooze_label} by admin ({username})")
+    log_audit(
+        conn,
+        media_id,
+        "snoozed",
+        f"Kept for {snooze_label} by admin ({username})",
+        actor=username,
+    )
 
     conn.commit()
     logger.info("Media item %s protected for %s by %s", media_id, snooze_label, username)
@@ -418,6 +466,27 @@ def api_media_keep(
 
 # Minimum title similarity accepted for a title+year fuzzy match.
 _REDOWNLOAD_TITLE_SIMILARITY = 0.9
+
+
+class _RedownloadRequest(BaseModel):
+    """Body schema for ``POST /api/media/redownload`` (finding 9).
+
+    ``extra="forbid"`` rejects unknown keys with HTTP 422 instead of
+    silently ignoring them. The title is bounded at 4096 chars so an
+    over-length payload is refused at the wire layer; the handler
+    further truncates to 256 chars (matching the historic behaviour)
+    so existing clients that send slightly over-length titles continue
+    to work. Sane integer bounds are applied on the ID fields so an
+    attacker cannot smuggle in a negative or wildly large value.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(default="", max_length=4096)
+    year: int | None = Field(default=None, ge=1850, le=2200)
+    tmdb_id: int | None = Field(default=None, ge=1)
+    tvdb_id: int | None = Field(default=None, ge=1)
+    imdb_id: str | None = Field(default=None, max_length=32)
 
 
 def _pick_lookup_match(
@@ -490,32 +559,64 @@ def _pick_lookup_match(
     return best, None
 
 
+def _redownload_audit_id(
+    *,
+    media_type: str,
+    tmdb_id: int | None,
+    tvdb_id: int | None,
+    imdb_id: str | None,
+) -> str:
+    """Pick a stable audit-log ``media_item_id`` for a redownload (finding 10).
+
+    The deletion path stores a UUID in this column; the historic
+    redownload path stored the resolved title (free-text, locale-
+    dependent, mutable). Mixing those breaks downstream consumers — the
+    dashboard tries to cross-reference re-downloads against deletions
+    by string-matching the column.
+
+    Strategy: prefer the most stable identifier we have. ``tmdb:<id>``
+    for movies and TV (because TMDB ids are universal across both
+    Arrs); ``tvdb:<id>`` if Sonarr only knew the show by TVDB; finally
+    ``imdb:<id>`` as a last resort. Each prefix makes the column
+    self-describing instead of an opaque integer the dashboard might
+    accidentally match against unrelated UUIDs.
+
+    The ``actor`` column on the audit row carries the username; the
+    ``detail`` field holds the human-readable title for display.
+    """
+    if tmdb_id is not None:
+        return f"tmdb:{tmdb_id}"
+    if tvdb_id is not None:
+        return f"tvdb:{tvdb_id}"
+    if imdb_id:
+        return f"imdb:{imdb_id}"
+    # Should never happen — caller guarantees at least one stable id is
+    # present before we reach here. Fall back to a synthetic prefix so
+    # the column never holds a raw user-controlled title.
+    return f"redownload:{media_type}"
+
+
 @router.post("/api/media/redownload")
 def api_media_redownload(
     request: Request,
-    body: dict = Body(...),
+    body: _RedownloadRequest,
     username: str = Depends(get_current_admin),
 ) -> JSONResponse:
     """Re-download a deleted media item."""
-    title = str(body.get("title") or "").strip()[:256]
-    year_raw = body.get("year")
-    try:
-        year = int(year_raw) if year_raw not in (None, "") else None
-    except (TypeError, ValueError):
-        year = None
-    tmdb_id = body.get("tmdb_id")
-    tvdb_id = body.get("tvdb_id")
-    imdb_id = body.get("imdb_id")
-    try:
-        tmdb_id = int(tmdb_id) if tmdb_id not in (None, "") else None
-    except (TypeError, ValueError):
-        tmdb_id = None
-    try:
-        tvdb_id = int(tvdb_id) if tvdb_id not in (None, "") else None
-    except (TypeError, ValueError):
-        tvdb_id = None
-    if imdb_id is not None:
-        imdb_id = str(imdb_id).strip() or None
+    if not _REDOWNLOAD_LIMITER.check(username):
+        logger.warning("media.redownload_throttled user=%s", username)
+        return JSONResponse(
+            {"ok": False, "error": "Too many redownload requests — slow down"},
+            status_code=429,
+        )
+
+    title = body.title.strip()[:256]
+    year = body.year
+    tmdb_id = body.tmdb_id
+    tvdb_id = body.tvdb_id
+    imdb_id = body.imdb_id.strip() if body.imdb_id else None
+    if imdb_id == "":
+        imdb_id = None
 
     if tmdb_id is None and tvdb_id is None and not imdb_id:
         if not title or year is None:
@@ -555,14 +656,29 @@ def api_media_redownload(
                 resolved_tmdb = entry.get("tmdbId")
                 if resolved_tmdb:
                     resolved_title = entry.get("title") or title
-                    client.add_movie(resolved_tmdb, resolved_title)
-                    log_audit(conn, resolved_title, "re_downloaded", f"Re-downloaded by {username}")
+                    resolved_tmdb_int = (
+                        int(resolved_tmdb) if resolved_tmdb is not None else None
+                    )
+                    client.add_movie(resolved_tmdb_int, resolved_title)
+                    audit_id = _redownload_audit_id(
+                        media_type="movie",
+                        tmdb_id=resolved_tmdb_int,
+                        tvdb_id=None,
+                        imdb_id=imdb_id,
+                    )
+                    log_audit(
+                        conn,
+                        audit_id,
+                        "re_downloaded",
+                        f"Re-downloaded '{resolved_title}' by {username}",
+                        actor=username,
+                    )
                     record_download_notification(
                         conn,
                         email=username,
                         title=resolved_title,
                         media_type="movie",
-                        tmdb_id=resolved_tmdb,
+                        tmdb_id=resolved_tmdb_int,
                         service="radarr",
                     )
                     conn.commit()
@@ -598,16 +714,36 @@ def api_media_redownload(
                 resolved_tvdb = entry.get("tvdbId")
                 if resolved_tvdb:
                     resolved_title = entry.get("title") or title
-                    client.add_series(resolved_tvdb, resolved_title)
+                    resolved_tvdb_int = (
+                        int(resolved_tvdb) if resolved_tvdb is not None else None
+                    )
+                    client.add_series(resolved_tvdb_int, resolved_title)
                     resolved_tmdb_sonarr = entry.get("tmdbId")
-                    log_audit(conn, resolved_title, "re_downloaded", f"Re-downloaded by {username}")
+                    resolved_tmdb_sonarr_int = (
+                        int(resolved_tmdb_sonarr)
+                        if resolved_tmdb_sonarr is not None
+                        else None
+                    )
+                    audit_id = _redownload_audit_id(
+                        media_type="tv",
+                        tmdb_id=resolved_tmdb_sonarr_int,
+                        tvdb_id=resolved_tvdb_int,
+                        imdb_id=imdb_id,
+                    )
+                    log_audit(
+                        conn,
+                        audit_id,
+                        "re_downloaded",
+                        f"Re-downloaded '{resolved_title}' by {username}",
+                        actor=username,
+                    )
                     record_download_notification(
                         conn,
                         email=username,
                         title=resolved_title,
                         media_type="tv",
-                        tmdb_id=resolved_tmdb_sonarr,
-                        tvdb_id=resolved_tvdb,
+                        tmdb_id=resolved_tmdb_sonarr_int,
+                        tvdb_id=resolved_tvdb_int,
                         service="sonarr",
                     )
                     conn.commit()
