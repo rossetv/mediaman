@@ -174,6 +174,18 @@ class TestBlockedIPv6Ranges:
         # ::ffff:169.254.169.254 — attacker tries to smuggle v4 through v6.
         assert not is_safe_outbound_url("http://[::ffff:169.254.169.254]/")
 
+    def test_blocks_ipv4_mapped_alibaba_metadata(self):
+        """The Alibaba metadata IP must be caught after the unwrap.
+
+        Pre-fix the metadata-IP allow-list was consulted *before* the
+        IPv4-mapped IPv6 unwrap, so ``::ffff:100.100.100.200`` slipped
+        past the explicit metadata block and was caught only by the
+        broader range checks. The fix re-checks ``_METADATA_IPS`` after
+        the unwrap so the same address presented either way is rejected
+        by the same rule path.
+        """
+        assert not is_safe_outbound_url("http://[::ffff:100.100.100.200]/")
+
     def test_blocks_ipv4_mapped_loopback_under_strict(self):
         assert not is_safe_outbound_url("http://[::ffff:127.0.0.1]/", strict_egress=True)
 
