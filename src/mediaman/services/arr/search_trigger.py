@@ -615,9 +615,7 @@ def _trigger_sonarr_partial_missing(
         if series_id in already_poked:
             continue
         with _state_lock:
-            arr_last = _last_search_trigger_by_arr.get(
-                _arr_throttle_key("sonarr", series_id), 0.0
-            )
+            arr_last = _last_search_trigger_by_arr.get(_arr_throttle_key("sonarr", series_id), 0.0)
         if now - arr_last < _SEARCH_THROTTLE_SECONDS:
             continue
         maybe_trigger_search(
