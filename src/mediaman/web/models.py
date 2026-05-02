@@ -3,9 +3,44 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+#: Field-level cap on password input.  bcrypt itself only consumes 72
+#: bytes, but we accept up to this many characters at the API surface
+#: so a passphrase user gets a clear "too long" rejection instead of a
+#: silent truncation.  Anything bigger than this is almost certainly a
+#: log-injection or DoS payload.
+_MAX_PASSWORD_LEN = 1024
+
+#: Field-level cap on username input.  RFC 5321 caps SMTP local-parts
+#: at 64 characters; usernames here are even shorter in practice
+#: (admin/operator handles).  256 is a generous bound that accommodates
+#: any UTF-8 username we might reasonably see.
+_MAX_USERNAME_LEN = 256
+
+#: RFC 5321 maximum length for an email address (64 + 1 + 255).
+_MAX_EMAIL_LEN = 320
+
+#: Permissive subset of RFC 5322 — same regex used by the subscribers
+#: route helper (kept in sync) so adding a subscriber via the model
+#: layer mirrors the route's hand-rolled validator without pulling in
+#: ``email-validator`` as a hard dependency.
+_EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
+
+#: URL fields cap at 2048 — matches ``_validate_url``'s explicit
+#: length check; kept as a Field-level bound so the rejection
+#: surfaces before the validator runs.
+_URL_MAX = 2048
+
+#: API-key / token fields cap at 1024 — matches the upper bound in
+#: ``_API_KEY_RE``.
+_SECRET_MAX = 1024
+
+#: Hostname (incl. fully-qualified) max per RFC 1035 is 253; round up
+#: to 256 for a comfortable margin.
+_HOST_MAX = 256
 
 # ---------------------------------------------------------------------------
 # Action type constants — canonical string values stored in scheduled_actions
@@ -31,7 +66,11 @@ VALID_KEEP_DURATIONS: dict[str, int | None] = {
 # ---------------------------------------------------------------------------
 
 #: Compiled once; used by the CRLF validator on every string field.
-_CRLF_RE = re.compile(r"[\r\n]")
+#: Includes NUL (\x00) because a stray null byte in a value that is
+#: subsequently used as a C string (libcurl, sqlite3, syslog) terminates
+#: the rest of the value silently — the same blast radius as a CR/LF
+#: header injection but harder to spot.
+_CRLF_RE = re.compile(r"[\r\n\x00]")
 
 #: API keys / tokens sent as HTTP headers must only contain ASCII printable
 #: characters and must be short enough that no single header overflows a
@@ -45,15 +84,20 @@ _ALLOWED_URL_SCHEMES = frozenset({"http", "https"})
 
 
 def _reject_crlf(v: str | None) -> str | None:
-    """Raise ``ValueError`` if *v* contains a CR or LF character.
+    """Raise ``ValueError`` if *v* contains a CR, LF, or NUL character.
 
     These characters can be injected into HTTP headers when the value is
     used as an ``Authorization`` or ``X-Api-Key`` header. Rejecting them
     at the model layer means every code path — not just the settings route
     — is covered.
+
+    NUL (``\\x00``) is also rejected: many downstream consumers treat
+    strings as C strings (libcurl, sqlite3 BLOB-text coercion, syslog),
+    so a smuggled NUL silently truncates the rest of the value at the
+    boundary.
     """
     if v is not None and _CRLF_RE.search(v):
-        raise ValueError("value must not contain CR or LF characters")
+        raise ValueError("value must not contain CR, LF, or NUL characters")
     return v
 
 
@@ -99,12 +143,34 @@ def _validate_url(v: str | None) -> str | None:
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    """Login form/JSON body.
+
+    ``extra="forbid"`` makes a stray field (e.g. an attacker shoving
+    ``is_admin=true`` into the body) raise HTTP 422 instead of being
+    silently ignored.  Length caps prevent a wedged client from
+    flooding the auth path with multi-megabyte usernames or passwords;
+    the bcrypt path already truncates passwords at 72 bytes, but a
+    1 MiB POST still costs CPU and log space before that point.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    username: Annotated[str, Field(min_length=1, max_length=_MAX_USERNAME_LEN)]
+    password: Annotated[str, Field(min_length=1, max_length=_MAX_PASSWORD_LEN)]
 
 
 class KeepRequest(BaseModel):
-    duration: str
+    """Snooze-or-keep submission body.
+
+    ``duration`` is one of a fixed vocabulary; the
+    :data:`VALID_KEEP_DURATIONS` set bounds the value space and the
+    field-level cap keeps the payload bounded even when the value is
+    not in the allowlist (e.g. an attacker probing with garbage).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    duration: Annotated[str, Field(min_length=1, max_length=32)]
 
     @field_validator("duration")
     @classmethod
@@ -119,11 +185,17 @@ class DiskThresholds(BaseModel):
 
     Keys are filesystem paths (e.g. ``"/media"``); values are the usage
     percentage (0–100) at which a warning should be surfaced.
+
+    ``max_length=64`` on the ``thresholds`` dict caps the number of
+    libraries an admin can configure in one request — an admin
+    typically tracks 5–10 libraries; 64 is a generous bound that still
+    refuses a payload of millions of bogus paths designed to OOM the
+    JSON parser.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    thresholds: dict[str, int] = Field(default_factory=dict)
+    thresholds: dict[str, int] = Field(default_factory=dict, max_length=64)
 
     @field_validator("thresholds")
     @classmethod
@@ -143,9 +215,10 @@ class SettingsUpdate(BaseModel):
     immediately instead of causing silent data loss on save.
 
     All string fields are validated for CR/LF injection (header-injection
-    defence). Secret fields (API keys, tokens, passwords) are additionally
-    restricted to ASCII printable characters with a length cap of 200.
-    URL fields must use http(s) and must have a host component.
+    defence) and have a per-field length cap.  Secret fields (API keys,
+    tokens, passwords) are additionally restricted to ASCII printable
+    characters via ``_validate_api_key``.  URL fields must use http(s)
+    and must have a host component (``_validate_url``).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -153,64 +226,74 @@ class SettingsUpdate(BaseModel):
     # ------------------------------------------------------------------
     # Plex
     # ------------------------------------------------------------------
-    plex_url: str | None = None
-    plex_public_url: str | None = None
-    plex_token: str | None = None
-    plex_libraries: list[str] | None = None
+    plex_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
+    plex_public_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
+    plex_token: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
+    plex_libraries: Annotated[
+        list[Annotated[str, Field(max_length=_HOST_MAX)]] | None,
+        Field(max_length=128),
+    ] = None
 
     # ------------------------------------------------------------------
     # Sonarr
     # ------------------------------------------------------------------
-    sonarr_url: str | None = None
-    sonarr_public_url: str | None = None
-    sonarr_api_key: str | None = None
+    sonarr_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
+    sonarr_public_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
+    sonarr_api_key: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
 
     # ------------------------------------------------------------------
     # Radarr
     # ------------------------------------------------------------------
-    radarr_url: str | None = None
-    radarr_public_url: str | None = None
-    radarr_api_key: str | None = None
+    radarr_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
+    radarr_public_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
+    radarr_api_key: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
 
     # ------------------------------------------------------------------
     # NZBGet
     # ------------------------------------------------------------------
-    nzbget_url: str | None = None
-    nzbget_public_url: str | None = None
-    nzbget_username: str | None = None
-    nzbget_password: str | None = None
+    nzbget_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
+    nzbget_public_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
+    nzbget_username: Annotated[str | None, Field(max_length=128)] = None
+    nzbget_password: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
 
     # ------------------------------------------------------------------
     # Mailgun
     # ------------------------------------------------------------------
-    mailgun_domain: str | None = None
-    mailgun_api_key: str | None = None
-    mailgun_from_address: str | None = None
+    mailgun_domain: Annotated[str | None, Field(max_length=_HOST_MAX)] = None
+    mailgun_api_key: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
+    mailgun_from_address: Annotated[str | None, Field(max_length=_MAX_EMAIL_LEN)] = None
 
     # ------------------------------------------------------------------
     # TMDB
     # ------------------------------------------------------------------
-    tmdb_api_key: str | None = None
-    tmdb_read_token: str | None = None
+    tmdb_api_key: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
+    tmdb_read_token: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
 
     # ------------------------------------------------------------------
     # OpenAI
     # ------------------------------------------------------------------
-    openai_api_key: str | None = None
+    openai_api_key: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
     openai_web_search_enabled: bool | None = None
 
     # ------------------------------------------------------------------
     # OMDb
     # ------------------------------------------------------------------
-    omdb_api_key: str | None = None
+    omdb_api_key: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
 
     # ------------------------------------------------------------------
     # General / scheduling
     # ------------------------------------------------------------------
-    base_url: str | None = None
-    scan_day: str | None = None
-    scan_time: str | None = None
-    scan_timezone: str | None = None
+    base_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
+    # ``scan_day`` is a weekday name ("monday"…); a 16-char cap covers
+    # case variants and a leading slug prefix without admitting any
+    # garbage.
+    scan_day: Annotated[str | None, Field(max_length=16)] = None
+    # ``scan_time`` is a HH:MM clock value; 16 chars accommodates the
+    # broadest variant without admitting garbage.
+    scan_time: Annotated[str | None, Field(max_length=16)] = None
+    # IANA zone names go up to ~30 chars (e.g. ``America/Argentina/
+    # ComodRivadavia``).  64 is a generous cap.
+    scan_timezone: Annotated[str | None, Field(max_length=64)] = None
     library_sync_interval: int | None = None
     min_age_days: int | None = None
     inactivity_days: int | None = None
@@ -385,4 +468,34 @@ class SettingsUpdate(BaseModel):
 
 
 class SubscriberCreate(BaseModel):
-    email: str
+    """Subscriber-creation payload (admin only).
+
+    The matching admin-side route currently accepts ``email`` via a
+    form field and runs its own regex validator (``_validate_email``);
+    this model is the canonical schema for any future JSON consumer,
+    and mirrors the route's checks at the type layer.
+
+    ``extra="forbid"`` blocks an attacker shoving extra fields into
+    the body (e.g. ``unsubscribed=False`` to bypass an opt-out).  The
+    ``max_length=320`` cap matches the RFC 5321 maximum for an email
+    address and prevents a multi-megabyte string slipping through to
+    the SQLite write.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: Annotated[str, Field(min_length=3, max_length=_MAX_EMAIL_LEN)]
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        """Normalise + check the address against the same regex used by
+        the route helper.  Header-injection characters (CR/LF/NUL) are
+        already excluded by the regex (``[A-Za-z0-9._%+-]`` does not
+        admit them) but ``_reject_crlf`` is applied first so the error
+        message matches the shape used elsewhere."""
+        v = v.strip().lower()
+        _reject_crlf(v)
+        if not _EMAIL_RE.match(v):
+            raise ValueError("invalid email address")
+        return v
