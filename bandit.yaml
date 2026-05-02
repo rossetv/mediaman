@@ -7,4 +7,7 @@
 # baseline has 25 B608 findings, every one of which has been reviewed and
 # confirmed false-positive; re-enable on a dedicated audit.
 skips:
+  # TODO: tighten by replacing this global skip with per-call ``# nosec B608``
+  # markers next to each reviewed false-positive. A blanket skip means a real
+  # B608 finding in a future change would also be hidden.
   - B608  # hardcoded_sql_expressions -- all dynamic values bound via "?"
