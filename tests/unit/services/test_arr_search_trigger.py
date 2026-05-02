@@ -20,6 +20,7 @@ from mediaman.services.arr.search_trigger import (
     _trigger_sonarr_partial_missing,
     get_search_info,
     maybe_trigger_search,
+    reconcile_stranded_throttle,
     reset_search_triggers,
 )
 
@@ -587,6 +588,80 @@ class TestLockReleasedDuringNetwork:
             "_load_throttle_from_db must run OUTSIDE _state_lock so a slow "
             "DB read does not block sibling workers' throttle checks."
         )
+
+
+# ---------------------------------------------------------------------------
+# TestReconcileStrandedThrottle (Domain-06 #10)
+# ---------------------------------------------------------------------------
+
+
+class TestReconcileStrandedThrottle:
+    """Stranded ``arr_search_throttle`` rows are reaped after the TTL."""
+
+    def test_returns_zero_when_table_is_empty(self, db_conn):
+        """Empty table — nothing to do, no error."""
+        assert reconcile_stranded_throttle(db_conn) == 0
+
+    def test_keeps_recent_rows(self, db_conn):
+        """A row triggered within the TTL window must NOT be reaped."""
+        recent = time.time() - 60  # 1 minute ago
+        _save_trigger_to_db(db_conn, "radarr:Active", recent, 1)
+        assert reconcile_stranded_throttle(db_conn) == 0
+        epoch, _ = _load_throttle_from_db(db_conn, "radarr:Active")
+        assert epoch > 0
+
+    def test_deletes_rows_older_than_ttl(self, db_conn):
+        """A row whose ``last_triggered_at`` is older than the TTL is reaped.
+
+        The default TTL is 90 days; we use a small custom TTL here so
+        the test doesn't have to write a 91-day-old timestamp.
+        """
+        old_epoch = time.time() - 1_000  # well past 100s
+        _save_trigger_to_db(db_conn, "radarr:Stranded", old_epoch, 7)
+
+        deleted = reconcile_stranded_throttle(db_conn, ttl_seconds=100)
+
+        assert deleted == 1
+        # And the row really is gone.
+        epoch, count = _load_throttle_from_db(db_conn, "radarr:Stranded")
+        assert (epoch, count) == (0.0, 0)
+
+    def test_mixed_old_and_new_only_reaps_old(self, db_conn):
+        """Only stale rows are deleted; recent ones survive."""
+        old_epoch = time.time() - 1_000
+        recent_epoch = time.time() - 10
+        _save_trigger_to_db(db_conn, "radarr:OldA", old_epoch, 1)
+        _save_trigger_to_db(db_conn, "radarr:OldB", old_epoch, 2)
+        _save_trigger_to_db(db_conn, "radarr:Recent", recent_epoch, 3)
+
+        deleted = reconcile_stranded_throttle(db_conn, ttl_seconds=100)
+
+        assert deleted == 2
+        # Recent row still there.
+        epoch, count = _load_throttle_from_db(db_conn, "radarr:Recent")
+        assert count == 3
+        # Old rows gone.
+        assert _load_throttle_from_db(db_conn, "radarr:OldA") == (0.0, 0)
+        assert _load_throttle_from_db(db_conn, "radarr:OldB") == (0.0, 0)
+
+    def test_ttl_boundary_is_strictly_older(self, db_conn):
+        """A row exactly at the TTL boundary survives (strict inequality)."""
+        # The boundary check is ``last_triggered_at < cutoff``, so a row
+        # at the boundary itself must NOT be deleted.
+        boundary_epoch = time.time() - 50
+        _save_trigger_to_db(db_conn, "radarr:Boundary", boundary_epoch, 1)
+        # TTL of 1000s means cutoff is 1000s ago, the row is only 50s
+        # old — it must survive.
+        deleted = reconcile_stranded_throttle(db_conn, ttl_seconds=1_000)
+        assert deleted == 0
+
+    def test_returns_zero_on_locked_db(self):
+        """A transient DB error logs and returns 0 rather than raising."""
+        import sqlite3
+
+        bad_conn = MagicMock()
+        bad_conn.execute.side_effect = sqlite3.OperationalError("database is locked")
+        assert reconcile_stranded_throttle(bad_conn) == 0
 
 
 # ---------------------------------------------------------------------------
