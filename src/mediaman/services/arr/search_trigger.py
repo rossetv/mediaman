@@ -106,12 +106,20 @@ def maybe_trigger_search(
     - a search was triggered for the same dl_id within the last 15 minutes
     - secret_key is empty
 
-    Locking discipline (finding 25): the in-memory throttle lock is held
-    only while inspecting and reserving the per-``dl_id`` slot. The
-    Radarr/Sonarr HTTP call runs *outside* the lock so a slow upstream
-    cannot starve other workers' throttle reads. After the network call
-    we re-acquire the lock to update memory, and either persist the
-    success or roll back the reservation on failure.
+    Locking discipline (findings 25 + Domain-06 #7):
+
+    * The DB read is performed BEFORE acquiring the lock. A locked
+      SQLite database otherwise blocks every sibling worker's throttle
+      check across all dl_ids, since one slow read for any single
+      dl_id serialises the lot.
+    * Only the in-memory snapshot work — reading the cache, deciding
+      whether the throttle window has expired, and reserving the slot
+      — runs under the lock.
+    * The Radarr/Sonarr HTTP call runs entirely outside the lock so a
+      slow upstream cannot starve other workers' throttle reads.
+    * After the network call we re-acquire the lock to update memory,
+      and either persist the success or roll back the reservation on
+      failure.
     """
     if item.get("is_upcoming"):
         return
@@ -132,23 +140,29 @@ def maybe_trigger_search(
     if kind not in ("movie", "series"):
         return
 
-    # Phase 1: reserve the slot under the lock, mirroring the existing
-    # cache-then-DB warm-up. Treat *now* as the speculative trigger
-    # timestamp so concurrent siblings see the slot taken; we'll roll
-    # this back if the network call ultimately fails.
+    # Phase 0: warm-up DB read — done OUTSIDE the lock so a slow SQLite
+    # query for one dl_id can't serialise every other dl_id's throttle
+    # check across all workers (Domain-06 #7).
+    persisted_epoch, persisted_count = _load_throttle_from_db(conn, dl_id)
+
+    # Phase 1: reserve the slot under the lock. Treat *now* as the
+    # speculative trigger timestamp so concurrent siblings see the slot
+    # taken; we'll roll this back if the network call ultimately fails.
     with _state_lock:
         last = _last_search_trigger.get(dl_id, 0.0)
         previous_count = _search_count.get(dl_id, 0)
-        if last == 0.0:
-            # Not in memory — check the DB (handles restarts/deploys).
-            last, persisted_count = _load_throttle_from_db(conn, dl_id)
-            if last > 0.0:
-                _last_search_trigger[dl_id] = last  # warm the cache
-                # Restore count too so the "Searched N×" UI hint doesn't
-                # reset every time the process restarts.
-                if persisted_count > _search_count.get(dl_id, 0):
-                    _search_count[dl_id] = persisted_count
-                    previous_count = persisted_count
+        if last == 0.0 and persisted_epoch > 0.0:
+            # Not in memory but the DB says we've poked this dl_id
+            # before — warm the cache. Another worker that beat us to
+            # the lock may already have a fresher in-memory value, in
+            # which case we honour theirs.
+            last = persisted_epoch
+            _last_search_trigger[dl_id] = persisted_epoch
+        if persisted_count > previous_count:
+            # Restore count so the "Searched N×" UI hint doesn't reset
+            # every time the process restarts.
+            _search_count[dl_id] = persisted_count
+            previous_count = persisted_count
         if now - last < _SEARCH_THROTTLE_SECONDS:
             return
         # Reserve: bump the in-memory marker so a sibling worker sees
