@@ -72,7 +72,10 @@ def fetch_radarr_queue(client: RadarrClient) -> list[ArrCard]:
         movie = q.get("movie") or {}
         size = q.get("size") or 0
         sizeleft = q.get("sizeleft") or 0
-        progress = round((1 - sizeleft / max(size, 1)) * 100) if size else 0
+        # Clamp to [0, 100]: Radarr can briefly report ``sizeleft > size`` while
+        # a torrent re-downloads or pads, which would otherwise produce a
+        # negative percentage and break progress bars.
+        progress = max(0, min(100, round((1 - sizeleft / max(size, 1)) * 100))) if size else 0
         status = q.get("status") or q.get("trackedDownloadStatus") or "queued"
         poster_url = extract_poster_url(movie.get("images"))
         m_title = movie.get("title") or q.get("title") or "Unknown"

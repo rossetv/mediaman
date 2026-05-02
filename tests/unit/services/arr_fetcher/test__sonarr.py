@@ -330,6 +330,36 @@ class TestFetchSonarrQueueSearching:
 
 
 # ---------------------------------------------------------------------------
+# Progress clamp
+# ---------------------------------------------------------------------------
+
+
+class TestProgressClamp:
+    def test_queue_progress_clamped_when_sizeleft_exceeds_size(self):
+        """Queue rows with ``sizeleft > size`` clamp to 0, not negative."""
+        ep = _queue_ep(size=1_000, sizeleft=1_500)
+        client = _client(queue=[ep])
+        cards = fetch_sonarr_queue(client)
+        assert cards[0]["episodes"][0]["progress"] == 0
+
+    def test_card_progress_clamped_when_aggregated_left_exceeds_size(self):
+        """Aggregate progress also clamps to [0, 100]."""
+        eps = [
+            {
+                "label": "S01E01",
+                "title": "Ep 1",
+                "progress": 0,
+                "size": 1_000,
+                "sizeleft": 2_000,  # nonsensical but observed in the wild
+                "download_id": "x1",
+            }
+        ]
+        card = _make_sonarr_card("Test", episodes=eps)
+        _aggregate_pack_episodes(card, card_series_id=1)
+        assert card["progress"] == 0
+
+
+# ---------------------------------------------------------------------------
 # fetch_sonarr_queue — season_number on episode entries
 # ---------------------------------------------------------------------------
 
