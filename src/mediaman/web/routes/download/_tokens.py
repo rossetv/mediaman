@@ -11,13 +11,22 @@ two operational realities:
 The fix is to persist consumed token hashes in SQLite under a unique
 constraint (table ``used_download_tokens``, migration 23). The DB
 ``INSERT`` is the authoritative claim — equivalent to ``keep_tokens_used``
-for keep links. The legacy in-memory dict is retained as a tiny fast-path
-cache so the ``test__tokens.py`` regression suite keeps working without a
-DB connection, but every real claim now goes through SQLite.
+for keep links. The in-memory store is a small fast-path negative cache
+populated *after* the DB has spoken; it never makes a unilateral claim
+without DB confirmation, so the cache is always consistent with the
+authoritative table.
+
+The cache is a bounded LRU (:class:`collections.OrderedDict`) so the
+process memory cannot grow unbounded under sustained load with
+14-day-TTL tokens. Expired entries are pruned opportunistically; the
+public :func:`gc_expired_tokens` should also be wired into a startup or
+scheduled job so low-volume instances eventually purge expired rows
+even when the cache never fills.
 """
 
 from __future__ import annotations
 
+import collections
 import hashlib
 import logging
 import sqlite3
@@ -28,11 +37,16 @@ from datetime import datetime, timezone
 logger = logging.getLogger("mediaman")
 
 _USED_TOKENS_LOCK = threading.Lock()
-_USED_TOKENS: dict[str, float] = {}
+#: Bounded LRU mapping ``digest -> exp_ts`` of recently-claimed tokens.
+#: Acts as a fast-path negative cache: a hit short-circuits the DB
+#: round-trip on the replay path. Entries are added only after the DB
+#: has confirmed the claim outcome, so the cache can never make a
+#: claim the DB has not also recorded.
+_USED_TOKENS: collections.OrderedDict[str, float] = collections.OrderedDict()
 
-# Maximum number of consumed tokens held in the in-memory cache before
-# an eviction pass removes expired entries. 1 000 is generous enough to
-# handle burst usage without unbounded growth on a busy instance.
+#: Maximum entries held in the in-memory LRU cache. Generous enough to
+#: absorb a normal burst yet small enough that the upper bound on
+#: memory is trivial (a few hundred KiB even at full).
 _TOKEN_USED_CACHE_MAX = 1000
 
 
@@ -93,13 +107,26 @@ def _release_used_token(conn: sqlite3.Connection, digest: str) -> None:
         logger.warning("download token release failed for digest=%s", digest, exc_info=True)
 
 
-def _gc_expired_tokens(conn: sqlite3.Connection) -> None:
-    """Drop expired rows from ``used_download_tokens``.
+def gc_expired_tokens(conn: sqlite3.Connection | None = None) -> None:
+    """Purge expired rows from ``used_download_tokens``.
 
-    Runs opportunistically when the in-memory cache exceeds its size
-    cap. The token TTL is short (set by the issuer; typically ~30
-    days) so the table stays small even without an explicit job.
+    Public entry point intended to be wired into the startup or
+    scheduled-job pipeline (see ``mediaman.bootstrap.scheduling``) so
+    expired rows are cleaned up even on low-volume instances where the
+    in-memory cache never fills (and therefore never trips the
+    opportunistic GC pass in :func:`_mark_token_used`). Without that
+    wiring, ``used_download_tokens`` would grow without bound on a
+    quiet instance because the only existing GC trigger requires the
+    cache to overflow.
+
+    Pass *conn* explicitly when calling outside a request scope (e.g.
+    from a scheduler thread that has its own connection); otherwise
+    the active per-request connection is used.
     """
+    if conn is None:
+        conn = _get_db_or_none()
+        if conn is None:
+            return
     now_iso = datetime.now(timezone.utc).isoformat()
     try:
         conn.execute("DELETE FROM used_download_tokens WHERE expires_at < ?", (now_iso,))
@@ -108,61 +135,100 @@ def _gc_expired_tokens(conn: sqlite3.Connection) -> None:
         logger.debug("download token GC failed", exc_info=True)
 
 
+# Backwards-compatible private alias (older code imported the underscore-prefixed name).
+_gc_expired_tokens = gc_expired_tokens
+
+
+def _evict_cache_locked() -> None:
+    """Trim the LRU cache to within :data:`_TOKEN_USED_CACHE_MAX`.
+
+    Caller must already hold :data:`_USED_TOKENS_LOCK`. Two-pass:
+
+    1. First drop any entries whose ``exp`` has elapsed — those are
+       cheap wins that don't lose any meaningful state.
+    2. If the cache is still over the cap, evict in insertion order
+       (the LRU end of the ``OrderedDict``). This bounds memory on a
+       sustained-load instance with 14-day-TTL tokens that would
+       otherwise pile up indefinitely. An evicted entry is harmless —
+       the next request for that token will miss the cache and consult
+       the DB, which is still authoritative.
+    """
+    now = time.time()
+    for k, v in list(_USED_TOKENS.items()):
+        if v < now:
+            _USED_TOKENS.pop(k, None)
+    while len(_USED_TOKENS) > _TOKEN_USED_CACHE_MAX:
+        _USED_TOKENS.popitem(last=False)
+
+
 def _mark_token_used(token: str, exp: int) -> bool:
     """Atomically mark *token* as consumed. Return ``False`` if already used.
 
+    The DB is the source of truth. The in-memory cache is a bounded
+    fast-path negative cache populated *after* the DB call returns, so
+    it cannot make a claim the DB doesn't also know about.
+
     Order:
 
-    1. Cheap in-process check + populate. Two concurrent requests in the
-       same worker collide here without a DB round-trip.
-    2. DB ``INSERT OR IGNORE``. Two concurrent requests across workers
-       (or a request after a process restart) collide here.
+    1. Cheap in-process check: if the digest is already in the cache,
+       return ``False`` — this is a confirmed replay (the cache only
+       holds digests the DB has previously seen).
+    2. ``INSERT OR IGNORE`` against ``used_download_tokens``. The
+       rowcount tells us whether this is the first claim or someone
+       else got there first.
+    3. Either way, populate the cache with the digest so future
+       requests can short-circuit step 2.
 
-    Both layers must succeed for the claim to count. If the DB write
-    rejects (someone else got the row first), we also rewind the
-    in-memory cache so the user is told "already used" rather than
-    seeing a stale local cache hit.
+    On DB failure during step 2 the function logs CRITICAL and
+    re-raises. The caller (the submit handler) translates that into a
+    503 so the operator can retry once the DB recovers — failing closed
+    is preferable to letting a replay sneak through on the optimistic
+    cache write.
     """
     digest = _digest(token)
-    now = time.time()
     with _USED_TOKENS_LOCK:
-        if len(_USED_TOKENS) > _TOKEN_USED_CACHE_MAX:
-            for k, v in list(_USED_TOKENS.items()):
-                if v < now:
-                    _USED_TOKENS.pop(k, None)
-            conn = _get_db_or_none()
-            if conn is not None:
-                _gc_expired_tokens(conn)
         if digest in _USED_TOKENS:
+            # Confirmed replay: cache only holds entries the DB has
+            # already seen, so this is a fast-path "no" without the DB
+            # round-trip.
+            _USED_TOKENS.move_to_end(digest)
             return False
-        _USED_TOKENS[digest] = float(exp)
+        # GC pass: only pays the cost when the cache is at capacity, so
+        # the typical request still pays nothing.
+        if len(_USED_TOKENS) >= _TOKEN_USED_CACHE_MAX:
+            _evict_cache_locked()
 
     conn = _get_db_or_none()
     if conn is None:
         # No DB available (test harness). The in-memory cache alone is
         # the authoritative store in this mode.
+        with _USED_TOKENS_LOCK:
+            _USED_TOKENS[digest] = float(exp)
+            _USED_TOKENS.move_to_end(digest)
         return True
 
     try:
         claimed = _persist_used_token(conn, digest, exp)
     except Exception:
-        # DB failure on the authoritative claim path — refuse the token
-        # rather than letting a replay slip through. Roll back the
-        # cache entry so a retry can succeed once the DB recovers.
-        logger.warning("download token persistence failed; refusing claim", exc_info=True)
-        with _USED_TOKENS_LOCK:
-            _USED_TOKENS.pop(digest, None)
-        return False
+        # DB failure on the authoritative claim path — refuse the
+        # claim outcome rather than letting a replay slip through on
+        # an unverified cache write. The caller translates the
+        # exception into a 503 so the user can retry once the DB
+        # recovers; legitimate first-use is briefly inconvenient,
+        # which is the lesser of the two evils.
+        logger.critical(
+            "download token persistence failed; failing closed (raising)", exc_info=True
+        )
+        raise
 
-    if not claimed:
-        # Another worker claimed the same token — make sure local state
-        # agrees with the DB so the user sees the consistent "already used"
-        # response on subsequent retries against this worker.
-        with _USED_TOKENS_LOCK:
-            _USED_TOKENS[digest] = float(exp)
-        return False
+    # Either we won the race or we lost it — either way the DB is now
+    # authoritative for this digest, and a sibling cache miss should
+    # not pay another DB round-trip.
+    with _USED_TOKENS_LOCK:
+        _USED_TOKENS[digest] = float(exp)
+        _USED_TOKENS.move_to_end(digest)
 
-    return True
+    return claimed
 
 
 def _unmark_token_used(token: str) -> None:
