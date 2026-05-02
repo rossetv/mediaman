@@ -92,6 +92,84 @@ def _reset_previous_queue() -> None:
 _state_lock = threading.Lock()
 
 
+def _enrich_with_tmdb_ids(
+    conn: sqlite3.Connection,
+    current_map: dict[str, dict[str, object]],
+    secret_key: str,
+) -> None:
+    """Stamp each Arr-sourced entry in *current_map* with its ``tmdb_id``.
+
+    The simplified items emitted by the queue builder don't carry
+    ``tmdbId``, but :func:`record_verified_completions` needs it to
+    disambiguate two same-titled releases (without it, the title-only
+    fallback fires on every completion and silently merges duplicates).
+
+    The enrichment fetches the Radarr/Sonarr libraries lazily — only
+    when at least one Arr-prefixed entry is present — and builds an
+    ``arr_id -> tmdb_id`` map. The ``arr_id`` is already on every
+    queue item, so this keeps the lookup keyed off a stable, unique
+    identifier rather than the (collision-prone) title.
+
+    On any exception the enrichment silently bows out: a failure here
+    must not block completion detection, only narrow the disambiguation
+    window. ``record_verified_completions`` already logs a warning
+    whenever the title-only fallback fires.
+    """
+    from mediaman.services.arr.build import build_arr_client as _build_arr_client
+
+    arr_ids_radarr = {
+        v.get("arr_id")
+        for v in current_map.values()
+        if str(v.get("id", "")).startswith("radarr:") and v.get("arr_id")
+    }
+    arr_ids_sonarr = {
+        v.get("arr_id")
+        for v in current_map.values()
+        if str(v.get("id", "")).startswith("sonarr:") and v.get("arr_id")
+    }
+
+    radarr_tmdb_by_arr_id: dict[int, int] = {}
+    sonarr_tmdb_by_arr_id: dict[int, int] = {}
+
+    if arr_ids_radarr:
+        try:
+            client = _build_arr_client(conn, "radarr", secret_key)
+            if client:
+                for m in client.get_movies():
+                    aid = m.get("id")
+                    tid = m.get("tmdbId")
+                    if isinstance(aid, int) and isinstance(tid, int):
+                        radarr_tmdb_by_arr_id[aid] = tid
+        except Exception:
+            logger.warning("tmdb-id enrichment: Radarr lookup failed", exc_info=True)
+
+    if arr_ids_sonarr:
+        try:
+            client = _build_arr_client(conn, "sonarr", secret_key)
+            if client:
+                for s in client.get_series():
+                    aid = s.get("id")
+                    tid = s.get("tmdbId")
+                    if isinstance(aid, int) and isinstance(tid, int):
+                        sonarr_tmdb_by_arr_id[aid] = tid
+        except Exception:
+            logger.warning("tmdb-id enrichment: Sonarr lookup failed", exc_info=True)
+
+    for v in current_map.values():
+        dl_id = str(v.get("id", ""))
+        arr_id = v.get("arr_id")
+        if not isinstance(arr_id, int) or not arr_id:
+            continue
+        if dl_id.startswith("radarr:"):
+            tid = radarr_tmdb_by_arr_id.get(arr_id)
+            if tid:
+                v["tmdb_id"] = tid
+        elif dl_id.startswith("sonarr:"):
+            tid = sonarr_tmdb_by_arr_id.get(arr_id)
+            if tid:
+                v["tmdb_id"] = tid
+
+
 def _maybe_record_completions(
     conn: sqlite3.Connection,
     current_map: dict[str, dict[str, object]],
@@ -112,10 +190,19 @@ def _maybe_record_completions(
     the new state and not re-report the same completion. That's the
     right trade-off: the alternative (do I/O first, then swap) keeps
     the snapshot stale for the I/O window, which is worse.
+
+    Each Arr-sourced entry in ``current_map`` is enriched with its
+    ``tmdb_id`` before being stashed into the previous-queue snapshot,
+    so the next call's :func:`detect_completed` propagates the id all
+    the way through to :func:`record_verified_completions` — pinning
+    completion verification to a stable identifier instead of the
+    collision-prone title.
     """
     from mediaman.services.arr.build import build_arr_client as _build_arr_client
 
     global _previous_queue, _previous_initialised
+
+    _enrich_with_tmdb_ids(conn, current_map, secret_key)
 
     with _state_lock:
         previous_snapshot = _previous_queue
