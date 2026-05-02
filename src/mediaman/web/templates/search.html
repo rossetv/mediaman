@@ -282,7 +282,7 @@
         <img src="${escapeAttr(img)}" alt="">
         <div class="detail-modal-hero-gradient"></div>
         <div class="detail-modal-hero-info">
-          <div class="detail-modal-hero-title">${escapeHtml(d.title)}${d.year ? ` <span class="year">${escapeHtml(d.year)}</span>` : ""}</div>
+          <h2 id="detail-modal-title" class="detail-modal-hero-title">${escapeHtml(d.title)}${d.year ? ` <span class="year">${escapeHtml(d.year)}</span>` : ""}</h2>
         </div>
       `;
     }
