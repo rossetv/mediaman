@@ -265,9 +265,9 @@ class TestSchemaV13LegacySessionPurge:
         init_db(str(db_path)).close()  # must not raise
 
     def test_schema_version_is_current(self, db_path):
-        assert DB_SCHEMA_VERSION == 31
+        assert DB_SCHEMA_VERSION == 32
         conn = init_db(str(db_path))
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 31
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 32
 
 
 class TestSchemaV14DeleteStatus:
@@ -828,6 +828,77 @@ class TestSchemaV31AuditActor:
 
     def test_migration_idempotent(self, db_path):
         """Running init_db twice must not raise on the v31 step."""
+        init_db(str(db_path)).close()
+        init_db(str(db_path)).close()
+
+
+class TestSchemaV32HotPathIndexes:
+    """v32 adds two indexes for previously full-scan WHERE clauses (Domain 05).
+
+    * ``idx_media_items_plex_library_id`` — every scan iterates
+      ``media_items`` filtered by ``plex_library_id IN (...)``; the
+      previous schema indexed nothing on the column.
+    * ``idx_audit_log_action`` — the history view filters audit rows
+      heavily by ``action`` and the existing indexes only covered
+      ``media_item_id`` and ``created_at``.
+    """
+
+    def test_media_items_index_present_on_fresh_db(self, db_path):
+        conn = init_db(str(db_path))
+        rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name=?",
+            ("idx_media_items_plex_library_id",),
+        ).fetchall()
+        assert len(rows) == 1
+        conn.close()
+
+    def test_audit_log_action_index_present_on_fresh_db(self, db_path):
+        conn = init_db(str(db_path))
+        rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name=?",
+            ("idx_audit_log_action",),
+        ).fetchall()
+        assert len(rows) == 1
+        conn.close()
+
+    def test_migration_from_v31_creates_indexes(self, tmp_path):
+        """Simulate a v31 DB without the indexes; v32 must add them."""
+        import sqlite3 as _sq
+
+        db_path = tmp_path / "legacy.db"
+        # Bring the DB up to current then drop the indexes and rewind
+        # user_version so the v32 migration replays.
+        init_db(str(db_path)).close()
+        conn = _sq.connect(str(db_path))
+        conn.execute("DROP INDEX IF EXISTS idx_media_items_plex_library_id")
+        conn.execute("DROP INDEX IF EXISTS idx_audit_log_action")
+        conn.execute("PRAGMA user_version=31")
+        conn.commit()
+        conn.close()
+
+        # Sanity: the indexes are genuinely gone.
+        conn = _sq.connect(str(db_path))
+        names_before = {
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='index'").fetchall()
+        }
+        assert "idx_media_items_plex_library_id" not in names_before
+        assert "idx_audit_log_action" not in names_before
+        conn.close()
+
+        # Re-open via init_db → migration v32 runs.
+        conn = init_db(str(db_path))
+        names_after = {
+            r[0]
+            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='index'").fetchall()
+        }
+        assert "idx_media_items_plex_library_id" in names_after
+        assert "idx_audit_log_action" in names_after
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == DB_SCHEMA_VERSION
+        conn.close()
+
+    def test_migration_idempotent(self, db_path):
+        """Running init_db twice must not raise on the v32 step."""
         init_db(str(db_path)).close()
         init_db(str(db_path)).close()
 
