@@ -25,6 +25,74 @@ logger = logging.getLogger("mediaman")
 STRANDED_CLAIM_GRACE_SECONDS = 3600
 
 
+# ---------------------------------------------------------------------------
+# Module-cached Jinja environment.
+#
+# ``check_download_notifications`` is called once per library sync. Building
+# a fresh ``Environment`` (filesystem walk + template compilation) every tick
+# was wasted work, so we cache one env per process and reuse it for every
+# call. The download-ready template lives next to the newsletter templates
+# under ``mediaman/web/templates`` and never changes at runtime.
+# ---------------------------------------------------------------------------
+_NOTIFICATION_ENV = None
+_NOTIFICATION_TEMPLATE = None
+
+
+def _get_notification_template():
+    """Return the cached ``email/download_ready.html`` Jinja template.
+
+    Built lazily on first use rather than at import time so unit tests
+    that never trigger this code path don't pay the Jinja import cost.
+    """
+    global _NOTIFICATION_ENV, _NOTIFICATION_TEMPLATE
+    if _NOTIFICATION_TEMPLATE is not None:
+        return _NOTIFICATION_TEMPLATE
+    from jinja2 import Environment, FileSystemLoader
+
+    template_dir = Path(__file__).parent.parent.parent / "web" / "templates"
+    _NOTIFICATION_ENV = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
+    _NOTIFICATION_TEMPLATE = _NOTIFICATION_ENV.get_template("email/download_ready.html")
+    return _NOTIFICATION_TEMPLATE
+
+
+# ---------------------------------------------------------------------------
+# In-process backoff for transient *arr outages.
+#
+# When Radarr/Sonarr is unreachable (or returns ready=False) the original
+# loop claimed every pending row, found nothing ready, and released — once
+# per scheduler tick. With a sticky outage and N pending rows that's N×
+# claim/release cycles per minute for nothing. We keep an in-memory
+# ``next_retry_at`` per row id and skip the row while its backoff is
+# active.  The state is process-local — a restart wipes it (which matches
+# our existing reconcile-on-startup story).
+# ---------------------------------------------------------------------------
+_BACKOFF_BASE_SECONDS = 60.0  # first retry waits 1 minute
+_BACKOFF_MAX_SECONDS = 1800.0  # cap at 30 minutes
+_backoff_state: dict[int, tuple[int, datetime]] = {}
+
+
+def _is_backed_off(row_id: int, now: datetime) -> bool:
+    """Return True if *row_id* should be skipped this tick due to backoff."""
+    record = _backoff_state.get(row_id)
+    if record is None:
+        return False
+    _attempts, next_retry_at = record
+    return now < next_retry_at
+
+
+def _record_arr_failure(row_id: int, now: datetime) -> None:
+    """Bump the backoff counter for *row_id* and schedule the next retry."""
+    attempts, _next = _backoff_state.get(row_id, (0, now))
+    attempts += 1
+    delay = min(_BACKOFF_BASE_SECONDS * (2 ** (attempts - 1)), _BACKOFF_MAX_SECONDS)
+    _backoff_state[row_id] = (attempts, now + timedelta(seconds=delay))
+
+
+def _clear_backoff(row_id: int) -> None:
+    """Forget the backoff record for *row_id* once it has cleared."""
+    _backoff_state.pop(row_id, None)
+
+
 def record_download_notification(
     conn: sqlite3.Connection,
     *,
@@ -140,6 +208,34 @@ def _release_claim(conn: sqlite3.Connection, row_id: int) -> None:
         logger.warning("failed to release notification claim id=%s", row_id, exc_info=True)
 
 
+def _release_claims_bulk(conn: sqlite3.Connection, row_ids: list[int]) -> None:
+    """Roll many claimed rows back to ``notified=0`` in a single statement.
+
+    The per-row :func:`_release_claim` ran one ``UPDATE`` + one
+    ``COMMIT`` per stranded row.  When Mailgun is unconfigured every
+    pending row goes through the release path on every tick — that's N
+    fsyncs per scheduler poke. This helper does the same work in a
+    single statement and a single commit.
+
+    Skips silently when ``row_ids`` is empty so callers can pipe the
+    "claimed" list straight in.
+    """
+    if not row_ids:
+        return
+    try:
+        placeholders = ",".join("?" * len(row_ids))
+        conn.execute(
+            f"UPDATE download_notifications SET notified=0, claimed_at=NULL "  # noqa: S608 — placeholders only, ids asserted int
+            f"WHERE id IN ({placeholders})",
+            row_ids,
+        )
+        conn.commit()
+    except Exception:
+        logger.warning(
+            "failed to bulk-release notification claims (n=%d)", len(row_ids), exc_info=True
+        )
+
+
 def reconcile_stranded_notifications(
     conn: sqlite3.Connection,
     *,
@@ -191,8 +287,6 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
     This is designed to be called from the library sync job so it runs
     frequently enough that users get a timely notification.
     """
-    from jinja2 import Environment, FileSystemLoader
-
     from mediaman.services.arr.state import LazyArrClients
     from mediaman.services.infra.settings_reader import get_string_setting
     from mediaman.services.mail.mailgun import MailgunClient
@@ -210,8 +304,10 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
     mailgun_from = get_string_setting(conn, "mailgun_from_address", secret_key=secret_key)
     if not mailgun_domain or not mailgun_key:
         logger.debug("Download notifications skipped — Mailgun not configured")
-        for row in pending:
-            _release_claim(conn, row["id"])
+        # Single bulk UPDATE + single commit instead of N round-trips.
+        # On a backlog of dozens of pending rows the per-row path used
+        # to issue one fsync each.
+        _release_claims_bulk(conn, [int(r["id"]) for r in pending])
         return
     mailgun = MailgunClient(mailgun_domain, mailgun_key, mailgun_from)
 
@@ -219,11 +315,49 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
     # queue only contains movies (or only TV).
     arr = LazyArrClients(conn, secret_key)
 
-    template_dir = Path(__file__).parent.parent.parent / "web" / "templates"
-    env = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
-    template = env.get_template("email/download_ready.html")
+    # Reuse the module-cached Jinja env + compiled template so a tick
+    # with many pending rows doesn't pay the FS-walk + parse cost on
+    # every invocation.
+    template = _get_notification_template()
 
+    # Filter out rows currently in backoff so a sticky *arr outage does
+    # not turn into N claim/release cycles per tick. Released back to
+    # ``notified=0`` in bulk so the next tick can pick them up if their
+    # backoff has elapsed.
+    now_dt = datetime.now(timezone.utc)
+    deferred_ids: list[int] = []
+    runnable: list[sqlite3.Row] = []
     for row in pending:
+        if _is_backed_off(int(row["id"]), now_dt):
+            deferred_ids.append(int(row["id"]))
+        else:
+            runnable.append(row)
+    if deferred_ids:
+        _release_claims_bulk(conn, deferred_ids)
+    if not runnable:
+        return
+
+    # Batch the suggestions lookup so an N-row tick only fires one query
+    # instead of N. Skips when no row has a tmdb_id so we don't run a
+    # ``WHERE tmdb_id IN ()`` (which is a syntax error in SQLite).
+    tmdb_ids = sorted({int(r["tmdb_id"]) for r in runnable if r["tmdb_id"] is not None})
+    suggestions_by_tmdb: dict[int, sqlite3.Row] = {}
+    if tmdb_ids:
+        placeholders = ",".join("?" * len(tmdb_ids))
+        sugg_rows = conn.execute(
+            f"SELECT tmdb_id, year, runtime, director, description, rating, "  # noqa: S608 — placeholders only, ids asserted int
+            f"imdb_rating, rt_rating, poster_url "
+            f"FROM suggestions WHERE tmdb_id IN ({placeholders})",
+            tmdb_ids,
+        ).fetchall()
+        for sr in sugg_rows:
+            # Multiple suggestion rows may exist for the same tmdb_id
+            # across batches — keep the first hit (any row contains the
+            # same metadata aside from rating timing).
+            if sr["tmdb_id"] not in suggestions_by_tmdb:
+                suggestions_by_tmdb[int(sr["tmdb_id"])] = sr
+
+    for row in runnable:
         row_id = row["id"]
         email = row["email"]
         title = row["title"]
@@ -238,22 +372,51 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
         try:
             ready = False
             movie = None
+            arr_unreachable = False
             if service == "radarr":
                 client = arr.radarr()
                 if client and tmdb_id:
-                    movie = client.get_movie_by_tmdb(tmdb_id)
-                    ready = bool(movie and movie.get("hasFile"))
+                    try:
+                        movie = client.get_movie_by_tmdb(tmdb_id)
+                    except Exception:
+                        # Network/HTTP errors propagate from Radarr — treat
+                        # as a transient outage so the backoff kicks in.
+                        arr_unreachable = True
+                        logger.warning(
+                            "Radarr lookup failed for notification id=%s tmdb=%s",
+                            row_id,
+                            tmdb_id,
+                            exc_info=True,
+                        )
+                    else:
+                        ready = bool(movie and movie.get("hasFile"))
             elif service == "sonarr":
                 client = arr.sonarr()
                 # Match on TVDB id first (authoritative for Sonarr); fall
                 # back to TMDB for series added via TMDB lookup where the
                 # Sonarr record happens to carry both.
                 if client and (tvdb_id or tmdb_id):
-                    ready = _sonarr_has_files(client, tvdb_id=tvdb_id, tmdb_id=tmdb_id)
+                    try:
+                        ready = _sonarr_has_files(client, tvdb_id=tvdb_id, tmdb_id=tmdb_id)
+                    except Exception:
+                        arr_unreachable = True
+                        logger.warning(
+                            "Sonarr lookup failed for notification id=%s",
+                            row_id,
+                            exc_info=True,
+                        )
+
+            if arr_unreachable:
+                _record_arr_failure(int(row_id), now_dt)
+                _release_claim(conn, row_id)
+                continue
 
             if not ready:
                 # Item still downloading — release the claim so the next
-                # tick of the scheduler can re-evaluate it.
+                # tick of the scheduler can re-evaluate it.  Bump the
+                # backoff so a long-running download doesn't burn a
+                # claim/release every minute either.
+                _record_arr_failure(int(row_id), now_dt)
                 _release_claim(conn, row_id)
                 continue
 
@@ -269,12 +432,9 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
                 "poster_url": "",
             }
 
-            # Try recommendations table first
-            rec_row = conn.execute(
-                "SELECT year, runtime, director, description, rating, imdb_rating, "
-                "rt_rating, poster_url FROM suggestions WHERE tmdb_id = ? LIMIT 1",
-                (tmdb_id,),
-            ).fetchone()
+            # Recommendations cache lookup — pulled from the batch fetch
+            # above so we don't do per-row queries.
+            rec_row = suggestions_by_tmdb.get(int(tmdb_id)) if tmdb_id else None
             if rec_row:
                 for k in meta:
                     if rec_row[k]:
@@ -329,12 +489,19 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
 
             conn.execute("UPDATE download_notifications SET notified=1 WHERE id=?", (row_id,))
             conn.commit()
+            # Successful send — drop any backoff state we may have built
+            # up for this row during a previous outage.
+            _clear_backoff(int(row_id))
             logger.info("Download notification sent to %s for '%s'", email, title)
 
         except Exception:
             logger.exception(
                 "Failed to process download notification id=%s for '%s'", row_id, title
             )
+            # Mailgun (or another downstream) failed — apply the same
+            # backoff as for *arr outages so a Mailgun-down period
+            # doesn't burn N tries per minute either.
+            _record_arr_failure(int(row_id), now_dt)
             # Release the claim so a later scheduler tick can retry —
             # otherwise a transient Mailgun outage strands the row at
             # ``notified=2`` forever.
