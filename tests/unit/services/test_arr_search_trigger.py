@@ -722,7 +722,7 @@ class TestAutoAbandon:
     def test_off_when_multiplier_zero(self, db_conn, monkeypatch):
         """Default config (multiplier=0) never auto-abandons."""
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.get_int_setting",
+            "mediaman.services.arr.auto_abandon.get_int_setting",
             lambda c, k, **kw: 0 if k == "abandon_search_auto_multiplier" else 50,
         )
         called = {"abandon_movie": 0}
@@ -748,7 +748,7 @@ class TestAutoAbandon:
     def test_fires_when_count_crosses_escalate_times_multiplier(self, db_conn, monkeypatch):
         """At escalate_at=50 and multiplier=4, fires at count >= 200."""
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.get_int_setting",
+            "mediaman.services.arr.auto_abandon.get_int_setting",
             lambda c, k, **kw: {
                 "abandon_search_escalate_at": 50,
                 "abandon_search_auto_multiplier": 4,
@@ -775,7 +775,7 @@ class TestAutoAbandon:
 
     def test_does_not_fire_below_threshold(self, db_conn, monkeypatch):
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.get_int_setting",
+            "mediaman.services.arr.auto_abandon.get_int_setting",
             lambda c, k, **kw: {
                 "abandon_search_escalate_at": 50,
                 "abandon_search_auto_multiplier": 4,
@@ -802,7 +802,7 @@ class TestAutoAbandon:
     def test_series_passes_derived_seasons(self, db_conn, monkeypatch):
         """For a series item, derives season list from episodes."""
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.get_int_setting",
+            "mediaman.services.arr.auto_abandon.get_int_setting",
             lambda c, k, **kw: {
                 "abandon_search_escalate_at": 50,
                 "abandon_search_auto_multiplier": 4,
@@ -849,7 +849,7 @@ class TestAutoAbandon:
         catastrophic.
         """
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.get_int_setting",
+            "mediaman.services.arr.auto_abandon.get_int_setting",
             lambda c, k, **kw: {
                 "abandon_search_escalate_at": 50,
                 "abandon_search_auto_multiplier": 4,
@@ -886,7 +886,7 @@ class TestAutoAbandon:
     def test_series_with_mixed_specials_filters_season_zero(self, db_conn, monkeypatch):
         """Mixed specials + real seasons → only the real seasons are abandoned."""
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.get_int_setting",
+            "mediaman.services.arr.auto_abandon.get_int_setting",
             lambda c, k, **kw: {
                 "abandon_search_escalate_at": 50,
                 "abandon_search_auto_multiplier": 4,
@@ -923,7 +923,7 @@ class TestAutoAbandon:
     def test_series_with_no_episodes_skipped(self, db_conn, monkeypatch):
         """Series with empty episodes list is silently skipped (no error)."""
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.get_int_setting",
+            "mediaman.services.arr.auto_abandon.get_int_setting",
             lambda c, k, **kw: {
                 "abandon_search_escalate_at": 50,
                 "abandon_search_auto_multiplier": 4,
@@ -975,7 +975,7 @@ class TestAutoAbandonAuditLog:
     def test_movie_fire_emits_audit_row(self, db_conn, monkeypatch):
         """Firing on a movie writes one ``sec:auto_abandon.fired`` row."""
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.get_int_setting",
+            "mediaman.services.arr.auto_abandon.get_int_setting",
             lambda c, k, **kw: {
                 "abandon_search_escalate_at": 50,
                 "abandon_search_auto_multiplier": 4,
@@ -1012,7 +1012,7 @@ class TestAutoAbandonAuditLog:
     def test_series_fire_emits_audit_row_with_seasons(self, db_conn, monkeypatch):
         """Series firings record the derived season list in the detail."""
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.get_int_setting",
+            "mediaman.services.arr.auto_abandon.get_int_setting",
             lambda c, k, **kw: {
                 "abandon_search_escalate_at": 50,
                 "abandon_search_auto_multiplier": 4,
@@ -1051,7 +1051,7 @@ class TestAutoAbandonAuditLog:
     def test_no_audit_row_when_multiplier_zero(self, db_conn, monkeypatch):
         """Default-off (multiplier=0) writes no audit row, no matter the count."""
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.get_int_setting",
+            "mediaman.services.arr.auto_abandon.get_int_setting",
             lambda c, k, **kw: 0 if k == "abandon_search_auto_multiplier" else 50,
         )
         import mediaman.services.downloads.abandon as abandon_module
@@ -1071,7 +1071,7 @@ class TestAutoAbandonAuditLog:
     def test_no_audit_row_below_threshold(self, db_conn, monkeypatch):
         """Below escalate_at × multiplier — gated, no row written."""
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.get_int_setting",
+            "mediaman.services.arr.auto_abandon.get_int_setting",
             lambda c, k, **kw: {
                 "abandon_search_escalate_at": 50,
                 "abandon_search_auto_multiplier": 4,
@@ -1094,7 +1094,7 @@ class TestAutoAbandonAuditLog:
     def test_no_audit_row_for_series_with_no_episodes(self, db_conn, monkeypatch):
         """Series skipped pre-firing (no episodes) writes no audit row."""
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.get_int_setting",
+            "mediaman.services.arr.auto_abandon.get_int_setting",
             lambda c, k, **kw: {
                 "abandon_search_escalate_at": 50,
                 "abandon_search_auto_multiplier": 4,
@@ -1122,7 +1122,7 @@ class TestAutoAbandonAuditLog:
         what the policy decided to do.
         """
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.get_int_setting",
+            "mediaman.services.arr.auto_abandon.get_int_setting",
             lambda c, k, **kw: {
                 "abandon_search_escalate_at": 50,
                 "abandon_search_auto_multiplier": 4,
