@@ -12,6 +12,7 @@ from mediaman.auth.middleware import get_current_admin
 from mediaman.db import (
     finish_scan_run,
     get_db,
+    heartbeat_scan_run,
     is_scan_running,
     open_thread_connection,
     start_scan_run,
@@ -24,7 +25,15 @@ router = APIRouter()
 
 @router.post("/api/scan/trigger")
 def trigger_scan(request: Request, admin: str = Depends(get_current_admin)) -> dict[str, object]:
-    """Trigger a manual scan. Returns immediately; scan runs in background thread."""
+    """Trigger a manual scan. Returns immediately; scan runs in background thread.
+
+    Spawns a heartbeat thread alongside the scan worker so the
+    ``scan_runs`` lease is renewed every minute (D05 finding 9). The
+    previous code only renewed via the manual scan thread itself, so a
+    long Plex / *arr round-trip would let the lease lapse and a
+    competing cron scan would (correctly) consider the row stale and
+    fire a duplicate run.
+    """
     conn = get_db()
     run_id = start_scan_run(conn)
     if run_id is None:
@@ -32,6 +41,28 @@ def trigger_scan(request: Request, admin: str = Depends(get_current_admin)) -> d
 
     db_path = request.app.state.db_path
     secret_key = request.app.state.config.secret_key
+
+    stop_heartbeat = threading.Event()
+
+    def _heartbeat_loop() -> None:
+        try:
+            hb_conn = open_thread_connection(db_path)
+        except Exception:
+            logger.warning("manual scan heartbeat thread could not open DB", exc_info=True)
+            return
+        try:
+            while not stop_heartbeat.wait(60):
+                heartbeat_scan_run(hb_conn, run_id)
+        finally:
+            try:
+                hb_conn.close()
+            except Exception:  # pragma: no cover — best-effort close
+                logger.debug("manual scan heartbeat close failed", exc_info=True)
+
+    heartbeat_thread = threading.Thread(
+        target=_heartbeat_loop, name="manual-scan-heartbeat", daemon=True
+    )
+    heartbeat_thread.start()
 
     def run():
         thread_conn = open_thread_connection(db_path)
@@ -47,6 +78,8 @@ def trigger_scan(request: Request, admin: str = Depends(get_current_admin)) -> d
                 pass
             logger.exception("Background scan failed")
         finally:
+            stop_heartbeat.set()
+            heartbeat_thread.join(timeout=5)
             thread_conn.close()
 
     thread = threading.Thread(target=run, daemon=True)
