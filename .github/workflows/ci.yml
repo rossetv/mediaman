@@ -149,11 +149,44 @@ jobs:
         # mediaman dependency) stays out of scope.
         run: pip-audit -r requirements.lock --require-hashes
 
+  lock-up-to-date:
+    name: requirements.lock up to date
+    runs-on: ubuntu-latest
+    # Major/minor Dependabot bumps to pyproject.toml don't regenerate the
+    # lock file. This job catches drift so a pyproject change can't merge
+    # without the matching lock refresh.
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install pip-tools
+        run: pip install pip-tools
+
+      - name: Verify lock matches pyproject
+        run: |
+          pip-compile \
+            --quiet \
+            --generate-hashes \
+            --output-file requirements.lock.check \
+            pyproject.toml
+          if ! diff -q requirements.lock requirements.lock.check >/dev/null; then
+            echo "::error::requirements.lock is out of date. Run pip-compile --generate-hashes -o requirements.lock pyproject.toml and commit the result."
+            diff -u requirements.lock requirements.lock.check || true
+            exit 1
+          fi
+
   docker:
     name: Docker build
     # Gate the image push on every check-job, not just tests. A lint or
     # bandit regression is not an excuse to ship.
-    needs: [tests, lint, typecheck, security-scan, dependency-audit]
+    needs: [tests, lint, typecheck, security-scan, dependency-audit, lock-up-to-date]
     runs-on: ubuntu-latest
 
     steps:
