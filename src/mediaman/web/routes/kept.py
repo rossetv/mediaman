@@ -14,10 +14,11 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from mediaman.audit import log_audit
 from mediaman.auth.middleware import get_current_admin
+from mediaman.auth.rate_limit import ActionRateLimiter
 from mediaman.db import get_db
 from mediaman.services.infra.format import format_bytes as _format_bytes
 from mediaman.services.infra.format import media_type_badge
@@ -25,6 +26,14 @@ from mediaman.services.infra.time import now_iso
 from mediaman.services.scheduled_actions import format_expiry
 from mediaman.web.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
 from mediaman.web.routes._helpers import is_admin as _is_admin
+
+# Canonical list of TV / anime season media_type values, shared with the
+# library type filter (finding 34). Keeping the list co-located with
+# library/_query.py would create a circular import; instead we redeclare
+# the same tuple here and rely on the unit test to detect drift.
+_TV_SEASON_TYPES: tuple[str, ...] = ("tv_season", "tv", "season")
+_ANIME_SEASON_TYPES: tuple[str, ...] = ("anime_season", "anime")
+_ALL_SEASON_TYPES: tuple[str, ...] = _TV_SEASON_TYPES + _ANIME_SEASON_TYPES
 
 
 def _resolve_show_rating_key(
@@ -42,13 +51,8 @@ def _resolve_show_rating_key(
     Resolution rules:
       (a) ``supplied_key`` is present and at least one media_items row
           carries that exact ``show_rating_key`` → use the supplied key.
-      (b) ``supplied_key`` is missing (empty) but one, and only one,
-          show exists matching by ``show_title`` across the whole
-          library → use the rating key from that single row. The unique
-          match guarantee is what keeps the IDOR shut.
-      (c) anything else (no supplied key + zero or >1 title matches,
-          or supplied key that doesn't map to any stored row) → return
-          ``(None, error_message)`` so the caller can 409.
+      (b) anything else → return ``(None, error_message)`` so the caller
+          can 409.
 
     ``supplied_key`` is the raw path parameter. Callers pass it through
     unchanged — never synthesised from ``show_title``.
@@ -66,10 +70,26 @@ def _resolve_show_rating_key(
 
 
 class _KeepShowBody(BaseModel):
-    """Body shape for POST /api/show/{show_rating_key}/keep."""
+    """Body shape for POST /api/show/{show_rating_key}/keep.
+
+    ``season_ids`` is capped at 50 entries (finding 32) — generous for
+    even the longest series but tight enough to refuse a flood payload.
+    A 50-element list × 36 chars per UUID is ~1.8 KB, well within
+    reasonable JSON body limits.
+    """
 
     duration: str = "forever"
-    season_ids: list[str] = []
+    season_ids: list[str] = Field(default_factory=list, max_length=50)
+
+
+# Per-admin cap on /api/media/{id}/unprotect (finding 30) — matches the
+# /keep limiter on the library side so an admin can't strip protection
+# rapidly via a script while the partner /keep endpoint is throttled.
+_UNPROTECT_LIMITER = ActionRateLimiter(
+    max_in_window=60,
+    window_seconds=60,
+    max_per_day=500,
+)
 
 
 logger = logging.getLogger("mediaman")
@@ -177,8 +197,17 @@ def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)
     """Remove protection from a media item.
 
     Deletes the scheduled_actions entry (protected_forever or snoozed) and
-    logs the action to audit_log.
+    logs the action to audit_log. Rate-limited (finding 30) to match the
+    keep limiter — without this, an admin could script-strip protections
+    far faster than they could re-apply them.
     """
+    if not _UNPROTECT_LIMITER.check(username):
+        logger.warning("media.unprotect_throttled user=%s", username)
+        return JSONResponse(
+            {"error": "Too many unprotect operations — slow down"},
+            status_code=429,
+        )
+
     conn = get_db()
 
     # Pick the most-recent protection row — avoids targeting a stale
@@ -194,7 +223,13 @@ def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)
         return JSONResponse({"error": "No active protection found"}, status_code=404)
 
     conn.execute("DELETE FROM scheduled_actions WHERE id = ?", (row["id"],))
-    log_audit(conn, media_item_id, "unprotected", "Protection removed by admin")
+    log_audit(
+        conn,
+        media_item_id,
+        "unprotected",
+        f"Protection removed by {username}",
+        actor=username,
+    )
     conn.commit()
 
     logger.info("Unprotected media_item_id=%s by %s", media_item_id, username)
@@ -207,9 +242,12 @@ def api_show_seasons(
 ) -> JSONResponse:
     """Return all seasons of a show for the keep dialog season picker.
 
-    Looks up by show_rating_key first. If that yields no results (column
-    not yet populated by a scan), falls back to matching by show_title
-    via the ``title`` query parameter.
+    Looks up by show_rating_key only. The previous implementation fell
+    back to matching by show_title via the ``title`` query parameter
+    when the rating-key lookup was empty — that branch is removed
+    (finding 31) because an admin could probe arbitrary titles to
+    enumerate which shows existed in the library, and two distinct
+    shows sharing a title would collide.
     """
     conn = get_db()
     rows = conn.execute(
@@ -218,18 +256,6 @@ def api_show_seasons(
         "WHERE show_rating_key = ? ORDER BY season_number ASC",
         (show_rating_key,),
     ).fetchall()
-
-    # Fallback: match by show_title if show_rating_key isn't populated yet
-    if not rows:
-        fallback_title = request.query_params.get("title", "")
-        if fallback_title:
-            rows = conn.execute(
-                "SELECT id, title, show_title, season_number, file_size_bytes, last_watched_at "
-                "FROM media_items "
-                "WHERE show_title = ? AND media_type IN ('tv_season', 'anime_season', 'season') "
-                "ORDER BY season_number ASC",
-                (fallback_title,),
-            ).fetchall()
 
     show_title = rows[0]["show_title"] if rows else ""
 
@@ -360,9 +386,14 @@ def api_keep_show(
         action = ACTION_SNOOZED
         execute_at = (now + timedelta(days=days)).isoformat() if days else None
 
+    # Use the *resolved* key for every subsequent DB lookup (finding 33).
+    # The unverified path parameter was being used for both the
+    # title-row lookup and the kept_shows insert, which meant a request
+    # with a slightly different cased key could land on the wrong show
+    # row even after _resolve_show_rating_key approved it.
     title_row = conn.execute(
         "SELECT show_title FROM media_items WHERE show_rating_key = ? LIMIT 1",
-        (show_rating_key,),
+        (resolved_key,),
     ).fetchone()
     show_title = title_row["show_title"] if title_row else "Unknown"
 
@@ -371,7 +402,7 @@ def api_keep_show(
         "VALUES (?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(show_rating_key) DO UPDATE SET action=excluded.action, "
         "execute_at=excluded.execute_at, snooze_duration=excluded.snooze_duration",
-        (show_rating_key, show_title, action, execute_at, duration, now.isoformat()),
+        (resolved_key, show_title, action, execute_at, duration, now.isoformat()),
     )
 
     for sid in season_ids:
@@ -395,11 +426,15 @@ def api_keep_show(
             )
 
     log_audit(
-        conn, show_rating_key, "kept_show", f"Show '{show_title}' kept ({duration}) by {admin}"
+        conn,
+        resolved_key,
+        "kept_show",
+        f"Show '{show_title}' kept ({duration}) by {admin}",
+        actor=admin,
     )
     conn.commit()
 
-    logger.info("Kept show %s (%s) — %s by %s", show_rating_key, show_title, duration, admin)
+    logger.info("Kept show %s (%s) — %s by %s", resolved_key, show_title, duration, admin)
     return JSONResponse({"ok": True})
 
 
@@ -423,6 +458,7 @@ def api_remove_show_keep(
         show_rating_key,
         "removed_show_keep",
         f"Show keep removed for '{row['show_title']}' by {admin}",
+        actor=admin,
     )
     conn.commit()
 
