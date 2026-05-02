@@ -17,12 +17,15 @@ repeating the string literals so a future rename touches one place.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from typing import TYPE_CHECKING, Any, Final, TypedDict
 
 if TYPE_CHECKING:
     from mediaman.services.arr.radarr import RadarrClient
     from mediaman.services.arr.sonarr import SonarrClient
+
+logger = logging.getLogger("mediaman")
 
 # ---------------------------------------------------------------------------
 # Download-state action constants
@@ -90,15 +93,40 @@ def compute_download_state(media_type: str, tmdb_id: int, caches: ArrCaches) -> 
     def _stats(season: dict) -> dict[str, object]:
         return season.get("statistics") or {}
 
-    # Only consider seasons that have aired (previousAiring is set) and
-    # are not season 0 (specials).
+    def _has_aired(season: dict) -> bool:
+        """Return True if Sonarr signals at least one episode has aired.
+
+        Sonarr v3 exposes this as ``previousAiring`` on the season's
+        statistics.  Older Sonarr versions used ``previousAiringDate`` on
+        the season payload itself; we accept either so a freshly-upgraded
+        Sonarr (or a downgrade) doesn't silently report every season as
+        unaired.
+        """
+        stats = _stats(season)
+        if stats.get("previousAiring"):
+            return True
+        return bool(season.get("previousAiringDate") or stats.get("previousAiringDate"))
+
+    # Only consider seasons that have aired and are not season 0 (specials).
+    # We additionally require ``monitored=True`` so an unmonitored season
+    # the user explicitly skipped doesn't drag the show into ``partial``.
     aired_seasons = [
         s
         for s in series.get("seasons", [])
-        if s.get("seasonNumber", 0) > 0 and _stats(s).get("previousAiring")
+        if s.get("seasonNumber", 0) > 0 and s.get("monitored", True) and _has_aired(s)
     ]
 
     if aired_seasons:
+        # ``have_all`` requires ``episodeCount > 0`` per season on purpose:
+        # right after Sonarr flips a brand-new season to ``aired``, it
+        # briefly reports ``episodeCount == 0`` and ``episodeFileCount ==
+        # 0``.  Without the ``> 0`` guard the boolean ``0 >= 0`` would
+        # silently satisfy ``have_all`` and a fully-downloaded show with
+        # one not-yet-populated season would flip to ``in_library`` for
+        # one polling cycle.  Treating the season as ``partial`` for a
+        # cycle is the lesser evil — see ``test_arr_state.py:
+        # test_tv_aired_season_with_zero_episode_count_does_not_mask_partial``
+        # for the regression that pinned this behaviour.
         have_any = any(_stats(s).get("episodeFileCount", 0) > 0 for s in aired_seasons)
         have_all = all(
             _stats(s).get("episodeFileCount", 0) >= _stats(s).get("episodeCount", 0)
@@ -119,10 +147,34 @@ def build_radarr_cache(client: RadarrClient | None) -> RadarrCaches:
     """Build the per-request Radarr cache fragment. Returns a partial
     ``ArrCaches`` containing only the Radarr keys; combine with
     ``build_sonarr_cache`` via dict-spread to get a full ``ArrCaches``.
-    ``client`` may be ``None``."""
+    ``client`` may be ``None``.
+
+    Two movies in the Radarr library can in principle share a ``tmdbId``
+    (typically because the operator added a release through manual TMDB
+    lookup for a duplicate entry). The dict comprehension would silently
+    keep only the second one, hiding the duplicate. We log a warning so
+    the operator can clean up the library — taking the last entry is
+    deliberate (matches dict-update semantics) and stable across calls.
+    """
     if client is None:
         return {"radarr_movies": {}, "radarr_queue_tmdb_ids": set()}
-    movies = {m.get("tmdbId"): m for m in client.get_movies() if m.get("tmdbId")}
+    movies: dict[int, dict[str, Any]] = {}
+    for m in client.get_movies():
+        tid = m.get("tmdbId")
+        if not tid:
+            continue
+        if tid in movies:
+            existing_title = movies[tid].get("title")
+            new_title = m.get("title")
+            logger.warning(
+                "build_radarr_cache: duplicate tmdbId=%s in Radarr library "
+                "(existing=%r, new=%r) — keeping the later entry; "
+                "disambiguation by tmdb_id may be unreliable for this title",
+                tid,
+                existing_title,
+                new_title,
+            )
+        movies[tid] = m
     queue_ids = {
         (q.get("movie") or {}).get("tmdbId")
         for q in client.get_queue()
@@ -135,10 +187,29 @@ def build_sonarr_cache(client: SonarrClient | None) -> SonarrCaches:
     """Build the per-request Sonarr cache fragment. Returns a partial
     ``ArrCaches`` containing only the Sonarr keys; combine with
     ``build_radarr_cache`` via dict-spread to get a full ``ArrCaches``.
-    ``client`` may be ``None``."""
+    ``client`` may be ``None``.
+
+    See :func:`build_radarr_cache` for the duplicate-tmdb-id handling.
+    """
     if client is None:
         return {"sonarr_series": {}, "sonarr_queue_tmdb_ids": set()}
-    series = {s.get("tmdbId"): s for s in client.get_series() if s.get("tmdbId")}
+    series: dict[int, dict[str, Any]] = {}
+    for s in client.get_series():
+        tid = s.get("tmdbId")
+        if not tid:
+            continue
+        if tid in series:
+            existing_title = series[tid].get("title")
+            new_title = s.get("title")
+            logger.warning(
+                "build_sonarr_cache: duplicate tmdbId=%s in Sonarr library "
+                "(existing=%r, new=%r) — keeping the later entry; "
+                "disambiguation by tmdb_id may be unreliable for this title",
+                tid,
+                existing_title,
+                new_title,
+            )
+        series[tid] = s
     queue_ids = {
         (q.get("series") or {}).get("tmdbId")
         for q in client.get_queue()
