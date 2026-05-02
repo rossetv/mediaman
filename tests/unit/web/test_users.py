@@ -14,6 +14,7 @@ from mediaman.web.routes.users import (
     _PASSWORD_CHANGE_IP_LIMITER,
     _PASSWORD_CHANGE_LIMITER,
     _REAUTH_LIMITER,
+    _SESSIONS_LIST_LIMITER,
     _USER_CREATE_LIMITER,
     _USER_MGMT_LIMITER,
 )
@@ -60,6 +61,7 @@ def _clear_rate_limiter():
         _REAUTH_LIMITER,
         _PASSWORD_CHANGE_LIMITER,
         _PASSWORD_CHANGE_IP_LIMITER,
+        _SESSIONS_LIST_LIMITER,
     ):
         lim._attempts.clear()
         lim._day_counts.clear()
@@ -70,6 +72,7 @@ def _clear_rate_limiter():
         _REAUTH_LIMITER,
         _PASSWORD_CHANGE_LIMITER,
         _PASSWORD_CHANGE_IP_LIMITER,
+        _SESSIONS_LIST_LIMITER,
     ):
         lim._attempts.clear()
         lim._day_counts.clear()
@@ -349,6 +352,203 @@ class TestListSessions:
         assert resp.status_code == 200
         assert "sessions" in resp.json()
         assert len(resp.json()["sessions"]) >= 1
+
+    def test_sessions_response_does_not_leak_ip_or_fingerprint(self, db_path, secret_key):
+        """Finding 14 / HIGH: ``issued_ip`` and ``fingerprint`` must NOT appear.
+
+        The fingerprint exposes the SHA-256 prefix of UA + the /24 of the
+        original IP, which is exactly what an attacker holding a stolen
+        cookie would need to forge a matching fingerprint header.  The
+        issued_ip would otherwise let any cookie thief dox the legitimate
+        owner of the session.
+        """
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+        resp = client.get("/api/users/sessions")
+        assert resp.status_code == 200
+        sessions = resp.json()["sessions"]
+        assert len(sessions) >= 1
+        for row in sessions:
+            assert "issued_ip" not in row, "issued_ip leaks the user's IP — must be stripped"
+            assert "fingerprint" not in row, (
+                "fingerprint leaks the SHA-256/24-prefix material — must be stripped"
+            )
+        # The safe key set is exactly what the route exposes today.
+        assert set(sessions[0].keys()) == {"created_at", "expires_at", "last_used_at"}
+
+    def test_sessions_rate_limited_after_cap(self, db_path, secret_key):
+        """Finding 16 / MEDIUM: per-actor cap stops a cookie thief from
+        polling this endpoint to detect the legitimate user signing in."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        # Burn the burst cap directly via the limiter so we don't have to
+        # fire 30 HTTP requests per test.
+        for _ in range(_SESSIONS_LIST_LIMITER._max_in_window):
+            _SESSIONS_LIST_LIMITER.check("admin")
+
+        resp = client.get("/api/users/sessions")
+        assert resp.status_code == 429
+        assert resp.json()["ok"] is False
+
+
+class TestDeleteUserBruteForceLockout:
+    """Finding 13 / CRITICAL: wrong-password attempts must feed the
+    ``reauth:<admin>`` namespace lockout so a stolen cookie cannot be
+    used to mount a low-and-slow brute-force against ``X-Confirm-Password``.
+    """
+
+    def test_wrong_password_records_reauth_failure(self, db_path, secret_key):
+        """One wrong password bumps the reauth-namespace counter to 1."""
+        from mediaman.auth.reauth import REAUTH_LOCKOUT_PREFIX
+
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+        other_id = _make_second_user(conn)
+
+        resp = client.delete(
+            f"/api/users/{other_id}",
+            headers={"X-Confirm-Password": "wrongpassword"},
+        )
+        assert resp.status_code == 403
+
+        row = conn.execute(
+            "SELECT failure_count FROM login_failures WHERE username = ?",
+            (f"{REAUTH_LOCKOUT_PREFIX}admin",),
+        ).fetchone()
+        assert row is not None
+        assert row["failure_count"] == 1
+
+    def test_five_wrong_passwords_lock_the_namespace(self, db_path, secret_key):
+        """Five wrong passwords trip the namespace lockout — even the
+        right password is then refused for the lock duration."""
+        from mediaman.auth.login_lockout import check_lockout
+        from mediaman.auth.reauth import REAUTH_LOCKOUT_PREFIX
+
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+        other_id = _make_second_user(conn)
+
+        for _ in range(5):
+            # Reset only the rate limiter — the namespace lockout is
+            # what we are testing; the rate limiter would otherwise trip
+            # at 5/min and obscure the lockout.
+            _USER_MGMT_LIMITER._attempts.clear()
+            _USER_MGMT_LIMITER._day_counts.clear()
+            resp = client.delete(
+                f"/api/users/{other_id}",
+                headers={"X-Confirm-Password": "wrongpassword"},
+            )
+            assert resp.status_code == 403
+
+        assert check_lockout(conn, f"{REAUTH_LOCKOUT_PREFIX}admin") is True
+
+        # Even with the correct password the delete is now refused.
+        _USER_MGMT_LIMITER._attempts.clear()
+        _USER_MGMT_LIMITER._day_counts.clear()
+        resp = client.delete(
+            f"/api/users/{other_id}",
+            headers={"X-Confirm-Password": "password1234"},
+        )
+        assert resp.status_code == 403
+        # The target user must still exist — the delete really was refused.
+        row = conn.execute("SELECT id FROM admin_users WHERE id=?", (other_id,)).fetchone()
+        assert row is not None
+
+    def test_failed_delete_does_not_bump_plain_login_counter(self, db_path, secret_key):
+        """A stolen-session attacker pounding delete-user must not also
+        DoS the legitimate user out of /login by polluting their plain
+        ``admin`` lockout counter."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+        other_id = _make_second_user(conn)
+
+        for _ in range(3):
+            _USER_MGMT_LIMITER._attempts.clear()
+            _USER_MGMT_LIMITER._day_counts.clear()
+            client.delete(
+                f"/api/users/{other_id}",
+                headers={"X-Confirm-Password": "wrongpassword"},
+            )
+
+        plain = conn.execute(
+            "SELECT failure_count FROM login_failures WHERE username = 'admin'"
+        ).fetchone()
+        assert plain is None
+
+
+class TestDeleteUserAuditTrail:
+    """Finding 15 / HIGH: failed delete attempts must leave an audit row
+    so SecOps can spot a brute-force pattern from the log alone."""
+
+    def test_reauth_failed_writes_audit_row(self, db_path, secret_key):
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+        other_id = _make_second_user(conn)
+
+        resp = client.delete(
+            f"/api/users/{other_id}",
+            headers={"X-Confirm-Password": "wrongpassword"},
+        )
+        assert resp.status_code == 403
+
+        rows = conn.execute(
+            "SELECT action, actor, detail FROM audit_log "
+            "WHERE action = 'sec:user.delete.reauth_failed'"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["actor"] == "admin"
+        assert "actor=admin" in rows[0]["detail"]
+        assert str(other_id) in rows[0]["detail"]
+
+    def test_rate_limit_writes_audit_row(self, db_path, secret_key):
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+        other_id = _make_second_user(conn)
+
+        # Burn the cap.
+        for _ in range(_USER_MGMT_LIMITER._max_in_window):
+            _USER_MGMT_LIMITER.check("admin")
+
+        resp = client.delete(
+            f"/api/users/{other_id}",
+            headers={"X-Confirm-Password": "password1234"},
+        )
+        assert resp.status_code == 429
+
+        rows = conn.execute(
+            "SELECT action, actor FROM audit_log WHERE action = 'sec:user.delete.rate_limited'"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["actor"] == "admin"
+
+    def test_successful_delete_writes_exactly_one_audit_row(self, db_path, secret_key):
+        """Belt-and-braces — verify the success path still writes exactly
+        one ``sec:user.deleted`` row (not zero, not two) so the failed-
+        delete additions did not accidentally double-log success."""
+        conn = init_db(str(db_path))
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+        other_id = _make_second_user(conn)
+
+        resp = client.delete(
+            f"/api/users/{other_id}",
+            headers={"X-Confirm-Password": "password1234"},
+        )
+        assert resp.status_code == 200
+
+        rows = conn.execute(
+            "SELECT action, actor FROM audit_log WHERE action = 'sec:user.deleted'"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["actor"] == "admin"
 
 
 class TestRevokeOtherSessions:
