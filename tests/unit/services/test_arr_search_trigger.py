@@ -687,7 +687,7 @@ class TestReconcileStrandedThrottle:
 
         assert deleted == 2
         # Recent row still there.
-        epoch, count = _load_throttle_from_db(db_conn, "radarr:Recent")
+        _epoch, count = _load_throttle_from_db(db_conn, "radarr:Recent")
         assert count == 3
         # Old rows gone.
         assert _load_throttle_from_db(db_conn, "radarr:OldA") == (0.0, 0)
@@ -1146,6 +1146,6 @@ class TestAutoAbandonAuditLog:
 
         rows = _read_auto_abandon_rows(db_conn)
         assert len(rows) == 1
-        action, actor, detail = rows[0]
+        action, _actor, detail = rows[0]
         assert action == "sec:auto_abandon.fired"
         assert '"dl_id":"radarr:Y"' in detail

@@ -259,7 +259,8 @@ class TestDiscoverEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert data["popular_tv"] == []
-        assert data["trending"] and data["popular_movies"]
+        assert data["trending"]
+        assert data["popular_movies"]
 
     def test_caps_trending_at_21_and_filters_person(self, authed_client, fake_http, fake_response):
         trending_payload = {

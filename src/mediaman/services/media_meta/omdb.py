@@ -64,12 +64,11 @@ class _ScrubApiKeyFilter(logging.Filter):
         try:
             if isinstance(record.msg, str) and "apikey=" in record.msg.lower():
                 record.msg = _APIKEY_QS_RE.sub("apikey=<redacted>", record.msg)
-            if record.args:
-                if isinstance(record.args, tuple):
-                    record.args = tuple(
-                        _APIKEY_QS_RE.sub("apikey=<redacted>", a) if isinstance(a, str) else a
-                        for a in record.args
-                    )
+            if record.args and isinstance(record.args, tuple):
+                record.args = tuple(
+                    _APIKEY_QS_RE.sub("apikey=<redacted>", a) if isinstance(a, str) else a
+                    for a in record.args
+                )
         except Exception:
             # A logging filter that raises would silence the log entirely —
             # drop quietly and let the (possibly unscrubbed) record through.

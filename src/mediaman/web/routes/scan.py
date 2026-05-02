@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
 
@@ -101,10 +102,8 @@ def trigger_scan(
             run_scan_from_db(thread_conn, secret_key, skip_disk_check=True)
             finish_scan_run(thread_conn, run_id, "done")
         except Exception as exc:
-            try:
+            with contextlib.suppress(Exception):
                 finish_scan_run(thread_conn, run_id, "error", str(exc))
-            except Exception:
-                pass
             logger.exception("Background scan failed")
         finally:
             stop_heartbeat.set()

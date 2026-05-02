@@ -15,17 +15,17 @@ from mediaman.services.downloads.download_format._render import (
 
 class TestBuildItem:
     def _item(self, **kwargs) -> dict:
-        defaults = dict(
-            dl_id="radarr:Dune",
-            title="Dune",
-            media_type="movie",
-            poster_url="",
-            state="downloading",
-            progress=50,
-            eta="~10 min remaining",
-            size_done="2.0 GB",
-            size_total="4.0 GB",
-        )
+        defaults = {
+            "dl_id": "radarr:Dune",
+            "title": "Dune",
+            "media_type": "movie",
+            "poster_url": "",
+            "state": "downloading",
+            "progress": 50,
+            "eta": "~10 min remaining",
+            "size_done": "2.0 GB",
+            "size_total": "4.0 GB",
+        }
         defaults.update(kwargs)
         return build_item(**defaults)
 
@@ -120,7 +120,7 @@ class TestSelectHero:
     def test_downloading_item_wins_over_searching(self):
         searching = self._dl_item(state="searching", progress=0, title="Searching")
         downloading = self._dl_item(state="downloading", progress=60, title="Downloading")
-        hero, rest = select_hero([searching, downloading])
+        hero, _rest = select_hero([searching, downloading])
         assert hero["title"] == "Downloading"
 
     def test_highest_progress_downloading_wins(self):

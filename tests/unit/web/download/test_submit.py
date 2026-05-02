@@ -155,7 +155,8 @@ class TestDownloadSubmitMovie:
         assert poll_token is not None
         poll_payload = validate_poll_token(poll_token, secret_key)
         assert poll_payload is not None
-        assert poll_payload.get("svc") == "radarr" and poll_payload.get("tmdb") == 42
+        assert poll_payload.get("svc") == "radarr"
+        assert poll_payload.get("tmdb") == 42
 
     def test_radarr_not_configured_returns_503(self, db_path, secret_key):
         """When Radarr is not configured, submit returns 503 and token is unmarked."""

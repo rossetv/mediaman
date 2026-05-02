@@ -53,7 +53,8 @@ class TestCommonPasswordsDataFile:
 class TestPasswordIssues:
     def test_empty_is_rejected(self):
         issues = password_issues("")
-        assert issues and "required" in issues[0].lower()
+        assert issues
+        assert "required" in issues[0].lower()
 
     def test_too_short(self):
         issues = password_issues("Abc123!x", username="alice")
@@ -100,7 +101,8 @@ class TestPasswordIssues:
 
     def test_policy_summary_non_empty(self):
         summary = policy_summary()
-        assert summary and all(isinstance(s, str) for s in summary)
+        assert summary
+        assert all(isinstance(s, str) for s in summary)
 
 
 class TestPasswordMaxLength:

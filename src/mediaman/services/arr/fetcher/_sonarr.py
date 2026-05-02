@@ -132,7 +132,7 @@ def _aggregate_totals_per_cluster(
     seen_keys: set[str] = set()
     total_size = 0
     total_left = 0
-    for e, k in zip(eps, cluster_keys):
+    for e, k in zip(eps, cluster_keys, strict=False):
         if k is None or k in seen_keys:
             continue
         seen_keys.add(k)
@@ -155,7 +155,7 @@ def _finalise_card_aggregates(
     ``[0, 100]`` so a quirky ``sizeleft > size`` can't render a
     negative bar.
     """
-    for e, k in zip(eps, cluster_keys):
+    for e, k in zip(eps, cluster_keys, strict=False):
         e["is_pack_episode"] = k is not None and cluster_counts.get(k, 0) > 1
 
     downloading = sum(1 for e in eps if e["progress"] > 0)

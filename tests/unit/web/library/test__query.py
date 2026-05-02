@@ -176,7 +176,7 @@ class TestFetchLibrary:
         conn = init_db(str(db_path))
         set_connection(conn)
         _insert_movie(conn, "m1", "Dune")
-        items, total = fetch_library(conn, q="dune")
+        _items, total = fetch_library(conn, q="dune")
         assert total == 1
 
     def test_type_filter_movie(self, db_path):
@@ -211,7 +211,7 @@ class TestFetchLibrary:
         conn = init_db(str(db_path))
         set_connection(conn)
         _insert_movie(conn, "m1", "Dune")
-        items, total = fetch_library(conn, sort="totally_wrong")
+        _items, total = fetch_library(conn, sort="totally_wrong")
         assert total == 1
 
     def test_kept_filter_only_shows_protected_items(self, db_path):
