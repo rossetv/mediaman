@@ -109,6 +109,13 @@ class MailgunClient:
     _US_BASE = "https://api.mailgun.net"
 
     def __init__(self, domain: str, api_key: str, from_address: str, region: str = "eu") -> None:
+        # Defensive validation: a CR/LF/NUL in the configured ``from``
+        # address would let an attacker who controlled the settings table
+        # (e.g. via a stale admin session) inject arbitrary headers into
+        # every outbound message.  Reject at construction so a bad
+        # configuration fails closed instead of slipping through into
+        # every ``send`` call.
+        _validate_header_value(from_address, "from")
         self._domain = domain
         self._api_key = api_key
         self._from = from_address
