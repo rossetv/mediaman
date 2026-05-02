@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from ._tokens import reset_used_tokens
 from .confirm import _DOWNLOAD_LIMITER_GET, _reset_arr_cache_for_tests
 from .confirm import router as _confirm_router
 from .status import _DOWNLOAD_STATUS_LIMITER, _reset_status_cache_for_tests
@@ -38,4 +39,9 @@ def reset_download_caches() -> None:
     _reset_status_cache_for_tests()
 
 
-__all__ = ["router", "reset_download_limiters", "reset_download_caches"]
+__all__ = [
+    "reset_download_caches",
+    "reset_download_limiters",
+    "reset_used_tokens",
+    "router",
+]

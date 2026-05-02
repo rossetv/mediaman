@@ -1,6 +1,6 @@
 """Tests for session management."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -325,7 +325,7 @@ class TestValidateSessionTransactional:
         token = create_session(conn, "alice")
 
         # Pin expires_at to a future time so validate passes.
-        future = (datetime.now(timezone.utc) + timedelta(seconds=5)).isoformat()
+        future = (datetime.now(UTC) + timedelta(seconds=5)).isoformat()
         conn.execute("UPDATE admin_sessions SET expires_at = ?", (future,))
         conn.commit()
         assert validate_session(conn, token) == "alice"
@@ -334,7 +334,7 @@ class TestValidateSessionTransactional:
         create_user(conn, "alice", "pw", enforce_policy=False)
         token = create_session(conn, "alice")
 
-        past = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+        past = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
         conn.execute("UPDATE admin_sessions SET expires_at = ?", (past,))
         conn.commit()
         assert validate_session(conn, token) is None

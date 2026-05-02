@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from mediaman.services.infra.format import format_day_month, parse_iso_utc
 
@@ -53,7 +53,7 @@ def classify_movie_upcoming(movie: dict) -> tuple[bool, str]:
     if movie.get("isAvailable"):
         return False, ""
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     max_year = now.year + _MAX_FUTURE_YEARS
     candidates = []
     for key in ("digitalRelease", "physicalRelease", "inCinemas"):
@@ -86,7 +86,7 @@ def classify_series_upcoming(series: dict, episodes: list[dict]) -> tuple[bool, 
     if stats.get("episodeFileCount", 0) > 0:
         return False, ""
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     status = (series.get("status") or "").lower()
 
     has_aired = False

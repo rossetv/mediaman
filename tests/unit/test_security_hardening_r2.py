@@ -15,7 +15,7 @@ Covers the fixes landed after the external pentest:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 _KEY = "0123456789abcdef" * 4
 
@@ -338,7 +338,7 @@ class TestSessionIdleTimeout:
         token = create_session(conn, "dan")
 
         # Poke last_used_at into the past (25 h ago — beyond idle window).
-        past = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
+        past = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
         conn.execute("UPDATE admin_sessions SET last_used_at = ?", (past,))
         conn.commit()
 

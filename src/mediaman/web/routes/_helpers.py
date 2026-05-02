@@ -40,7 +40,7 @@ def set_session_cookie(response: JSONResponse, token: str, *, secure: bool) -> N
 # ---------------------------------------------------------------------------
 
 
-def is_admin(request: "Request") -> bool:
+def is_admin(request: Request) -> bool:
     """Return True when the current request carries a valid admin session.
 
     Replaces the repeated ``get_optional_admin_from_token(request.cookies.get(

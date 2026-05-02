@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from typing import Any, Callable, NotRequired, TypedDict, cast
+from collections.abc import Callable
+from typing import Any, NotRequired, TypedDict, cast
 
 from mediaman.services.arr.fetcher import ArrCard
 from mediaman.services.arr.state import series_has_files

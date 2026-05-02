@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging as _logging
 import re as _re
 import warnings as _warnings
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal, TypedDict
 
 import defusedxml
@@ -293,11 +293,11 @@ def _to_utc(dt: datetime | None) -> datetime | None:
     if dt is None:
         return None
     if dt.tzinfo is None:
-        return dt.astimezone(timezone.utc)
-    return dt.astimezone(timezone.utc)
+        return dt.astimezone(UTC)
+    return dt.astimezone(UTC)
 
 
-def _movie_to_item(movie) -> "PlexMovieItem":
+def _movie_to_item(movie) -> PlexMovieItem:
     """Convert a plexapi Movie object to a :class:`PlexMovieItem` dict."""
     file_path = ""
     file_size = 0
@@ -316,7 +316,7 @@ def _movie_to_item(movie) -> "PlexMovieItem":
     }
 
 
-def _season_to_item(show, season) -> "PlexSeasonItem":
+def _season_to_item(show, season) -> PlexSeasonItem:
     """Convert a plexapi Season object (and its parent Show) to a :class:`PlexSeasonItem` dict."""
     episodes = season.episodes()
     file_size = 0
@@ -503,7 +503,7 @@ class PlexClient:
             # offending row instead so a single corrupt record doesn't
             # silently zero out everyone's watch history.
             try:
-                viewed_at = datetime.fromtimestamp(int(viewed_at_ts), tz=timezone.utc)
+                viewed_at = datetime.fromtimestamp(int(viewed_at_ts), tz=UTC)
                 account_id = int(v.get("accountID", 0))
             except (ValueError, TypeError, OSError, OverflowError):
                 _logger.debug(

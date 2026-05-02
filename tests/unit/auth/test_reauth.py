@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -108,7 +108,7 @@ class TestGrantHasRevoke:
         token = "a" * 64
         grant_recent_reauth(conn, token, "alice", window_seconds=60)
         # Back-date both timestamps beyond the window.
-        old = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        old = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
         conn.execute(
             "UPDATE reauth_tickets SET granted_at = ?, expires_at = ? WHERE session_token_hash = ?",
             (old, old, _hash_token(token)),
@@ -122,8 +122,8 @@ class TestGrantHasRevoke:
         grant_recent_reauth(conn, token, "alice", window_seconds=300)
         # Force the granted_at to be 200 s ago — within the stored 300 s
         # window but above any stricter caller-supplied limit.
-        old = (datetime.now(timezone.utc) - timedelta(seconds=200)).isoformat()
-        future = (datetime.now(timezone.utc) + timedelta(seconds=100)).isoformat()
+        old = (datetime.now(UTC) - timedelta(seconds=200)).isoformat()
+        future = (datetime.now(UTC) + timedelta(seconds=100)).isoformat()
         conn.execute(
             "UPDATE reauth_tickets SET granted_at = ?, expires_at = ? WHERE session_token_hash = ?",
             (old, future, _hash_token(token)),
@@ -191,9 +191,9 @@ class TestCleanupExpiredReauth:
     """H-4: a periodic sweep stops dead tickets piling up."""
 
     def test_sweeps_only_past_expiry(self, conn):
-        future = (datetime.now(timezone.utc) + timedelta(seconds=300)).isoformat()
-        past = (datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat()
-        now_iso = datetime.now(timezone.utc).isoformat()
+        future = (datetime.now(UTC) + timedelta(seconds=300)).isoformat()
+        past = (datetime.now(UTC) - timedelta(seconds=10)).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
 
         # Two tickets, one fresh, one expired.
         conn.execute(

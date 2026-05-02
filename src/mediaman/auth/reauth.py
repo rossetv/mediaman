@@ -45,7 +45,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from mediaman.auth._token_hashing import hash_token as _hash_token
 
@@ -90,7 +90,7 @@ def reauth_window_seconds() -> int:
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _ensure_table(conn: sqlite3.Connection) -> None:
@@ -288,9 +288,9 @@ def has_recent_reauth(
     except (TypeError, ValueError):
         return False
     if granted.tzinfo is None:
-        granted = granted.replace(tzinfo=timezone.utc)
+        granted = granted.replace(tzinfo=UTC)
     if expires.tzinfo is None:
-        expires = expires.replace(tzinfo=timezone.utc)
+        expires = expires.replace(tzinfo=UTC)
     # Honour both the stored expiry AND the per-call max_age clamp so a
     # caller can demand a stricter window than the original grant.
     if now > expires:

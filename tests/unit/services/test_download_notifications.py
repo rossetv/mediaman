@@ -9,6 +9,7 @@ must escape every TMDB-sourced field so a malicious free-text value
 
 from __future__ import annotations
 
+from datetime import UTC
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
@@ -146,7 +147,7 @@ class TestSonarrSeriesMatching:
 
     def _setup(self, tmp_path, monkeypatch):
         """Wire a minimal DB and stub out Mailgun + Radarr; return conn."""
-        from datetime import datetime, timezone
+        from datetime import datetime
         from unittest.mock import MagicMock
 
         from mediaman.db import init_db
@@ -155,7 +156,7 @@ class TestSonarrSeriesMatching:
 
         # Settings needed by the module — Mailgun must be configured
         # enough to proceed past the early-bail guard.
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute(
             "INSERT INTO settings (key, value, encrypted, updated_at) "
             "VALUES ('mailgun_domain', 'test.example.com', 0, ?)",
@@ -186,7 +187,7 @@ class TestSonarrSeriesMatching:
 
     def test_tvdb_only_series_matches(self, tmp_path, monkeypatch):
         """Series with tmdbId=None must still flip notified=1 via tvdbId."""
-        from datetime import datetime, timezone
+        from datetime import datetime
         from unittest.mock import MagicMock
 
         from mediaman.services.downloads.notifications import (
@@ -196,7 +197,7 @@ class TestSonarrSeriesMatching:
         conn, sent = self._setup(tmp_path, monkeypatch)
 
         # Insert a pending Sonarr row with only a TVDB id.
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute(
             "INSERT INTO download_notifications "
             "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
@@ -232,7 +233,7 @@ class TestSonarrSeriesMatching:
 
     def test_tvdb_mismatch_leaves_row_pending(self, tmp_path, monkeypatch):
         """If Sonarr doesn't have the series yet, notified stays 0."""
-        from datetime import datetime, timezone
+        from datetime import datetime
         from unittest.mock import MagicMock
 
         from mediaman.services.downloads.notifications import (
@@ -241,7 +242,7 @@ class TestSonarrSeriesMatching:
 
         conn, sent = self._setup(tmp_path, monkeypatch)
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute(
             "INSERT INTO download_notifications "
             "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
@@ -278,7 +279,7 @@ class TestSonarrSeriesMatching:
         running ``check_download_notifications``: nothing should be
         sent because all rows are already claimed.
         """
-        from datetime import datetime, timezone
+        from datetime import datetime
         from unittest.mock import MagicMock
 
         from mediaman.db import init_db
@@ -288,7 +289,7 @@ class TestSonarrSeriesMatching:
         )
 
         conn = init_db(str(tmp_path / "mm.db"))
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute(
             "INSERT INTO settings (key, value, encrypted, updated_at) "
             "VALUES ('mailgun_domain', 'test.example.com', 0, ?)",
@@ -326,7 +327,7 @@ class TestSonarrSeriesMatching:
 
     def test_claim_then_release_allows_retry(self, tmp_path):
         """Releasing a claim must roll the row back to notified=0."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from mediaman.db import init_db
         from mediaman.services.downloads.notifications import (
@@ -335,7 +336,7 @@ class TestSonarrSeriesMatching:
         )
 
         conn = init_db(str(tmp_path / "mm.db"))
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         conn.execute(
             "INSERT INTO download_notifications "
             "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
@@ -354,7 +355,7 @@ class TestSonarrSeriesMatching:
 
     def test_mailgun_failure_releases_claim(self, tmp_path, monkeypatch):
         """A Mailgun-misconfigured run must release every claim it took."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from mediaman.db import init_db
         from mediaman.services.downloads.notifications import (
@@ -362,7 +363,7 @@ class TestSonarrSeriesMatching:
         )
 
         conn = init_db(str(tmp_path / "mm.db"))
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         # No Mailgun config at all — settings table empty.
         conn.execute(
             "INSERT INTO download_notifications "
@@ -465,7 +466,7 @@ class TestReconcileStrandedNotifications:
 
     def test_stranded_claim_is_reset(self, tmp_path):
         """notified=2 with a stale claimed_at → reset to notified=0."""
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         from mediaman.services.downloads.notifications import (
             STRANDED_CLAIM_GRACE_SECONDS,
@@ -474,7 +475,7 @@ class TestReconcileStrandedNotifications:
 
         conn = self._make_conn(tmp_path)
         stale = (
-            datetime.now(timezone.utc) - timedelta(seconds=STRANDED_CLAIM_GRACE_SECONDS + 60)
+            datetime.now(UTC) - timedelta(seconds=STRANDED_CLAIM_GRACE_SECONDS + 60)
         ).isoformat()
         row_id = self._insert(conn, notified=2, claimed_at=stale)
 
@@ -490,14 +491,14 @@ class TestReconcileStrandedNotifications:
 
     def test_fresh_claim_is_not_reset(self, tmp_path):
         """notified=2 with a fresh claimed_at — still in flight, leave it."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
         from mediaman.services.downloads.notifications import (
             reconcile_stranded_notifications,
         )
 
         conn = self._make_conn(tmp_path)
-        fresh = datetime.now(timezone.utc).isoformat()
+        fresh = datetime.now(UTC).isoformat()
         row_id = self._insert(conn, notified=2, claimed_at=fresh)
 
         reset = reconcile_stranded_notifications(conn)

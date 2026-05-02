@@ -7,7 +7,7 @@ import sqlite3
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends, Request
@@ -50,7 +50,7 @@ def _days_until(dt_str: str | None) -> str:
     execute_at = parse_iso_utc(dt_str)
     if execute_at is None:
         return ""
-    delta = (execute_at - datetime.now(timezone.utc)).days
+    delta = (execute_at - datetime.now(UTC)).days
     if delta <= 0:
         return "Deletes today"
     if delta == 1:

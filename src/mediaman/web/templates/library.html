@@ -75,15 +75,31 @@
       <thead>
         <tr>
           <th class="col-thumb"></th>
-          <th class="sortable" onclick="toggleSort('name')">
-            Title {{ '▲' if current_sort == 'name_asc' else ('▼' if current_sort == 'name_desc' else '') }}
+          {# Finding 10: sort headers must be real buttons so keyboard / AT users
+             can trigger them. The .th-sort button inherits the existing th
+             typography from CSS (see _base.css §10) so the visual looks
+             unchanged — only the semantics improve. #}
+          <th class="sortable">
+            <button type="button" class="th-sort"
+                    aria-sort="{% if current_sort == 'name_asc' %}ascending{% elif current_sort == 'name_desc' %}descending{% else %}none{% endif %}"
+                    data-sort-col="name">
+              Title {{ '▲' if current_sort == 'name_asc' else ('▼' if current_sort == 'name_desc' else '') }}
+            </button>
           </th>
           <th>Type</th>
-          <th class="sortable" onclick="toggleSort('size')">
-            Size {{ '▼' if current_sort == 'size_desc' else ('▲' if current_sort == 'size_asc' else '') }}
+          <th class="sortable">
+            <button type="button" class="th-sort"
+                    aria-sort="{% if current_sort == 'size_asc' %}ascending{% elif current_sort == 'size_desc' %}descending{% else %}none{% endif %}"
+                    data-sort-col="size">
+              Size {{ '▼' if current_sort == 'size_desc' else ('▲' if current_sort == 'size_asc' else '') }}
+            </button>
           </th>
-          <th class="sortable" onclick="toggleSort('watched')">
-            Last watched {{ '▼' if current_sort == 'watched_desc' else ('▲' if current_sort == 'watched_asc' else '') }}
+          <th class="sortable">
+            <button type="button" class="th-sort"
+                    aria-sort="{% if current_sort == 'watched_asc' %}ascending{% elif current_sort == 'watched_desc' %}descending{% else %}none{% endif %}"
+                    data-sort-col="watched">
+              Last watched {{ '▼' if current_sort == 'watched_desc' else ('▲' if current_sort == 'watched_asc' else '') }}
+            </button>
           </th>
           <th class="u-tar">Actions</th>
         </tr>
@@ -569,6 +585,17 @@
     else input.value = m.default;
     document.getElementById('toolbar-form').submit();
   }
+
+  /* Finding 10: delegated click handler for the .th-sort buttons.
+     Replaces the inline onclick attribute on <th> (which was illegal
+     a11y — <th> isn't keyboard-activatable). */
+  document.addEventListener('click', function (e) {
+    var sortBtn = e.target.closest('.th-sort');
+    if (sortBtn && sortBtn.dataset.sortCol) {
+      e.preventDefault();
+      toggleSort(sortBtn.dataset.sortCol);
+    }
+  });
 
   let _searchTimer = null;
   function debounceSubmit() {

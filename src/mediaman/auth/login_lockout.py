@@ -49,7 +49,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 
 def _parse_iso(value: str | None) -> datetime | None:
@@ -59,7 +59,7 @@ def _parse_iso(value: str | None) -> datetime | None:
     try:
         dt = datetime.fromisoformat(str(value))
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
         return dt
     except (TypeError, ValueError):
         return None
@@ -90,7 +90,7 @@ _DECAY_HOURS = 24
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _iso(dt: datetime) -> str:

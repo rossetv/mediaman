@@ -244,7 +244,7 @@ def _mask_secrets(settings: dict[str, object]) -> dict[str, object]:
     """Return a copy of *settings* with secret fields replaced by '****'."""
     out = dict(settings)
     for key in SECRET_FIELDS:
-        if key in out and out[key]:
+        if out.get(key):
             out[key] = _SECRET_PLACEHOLDER
     return out
 
@@ -387,7 +387,7 @@ def _validate_url_fields(body: dict) -> JSONResponse | None:
     if all URL fields pass validation.
     """
     for url_key in _URL_FIELDS:
-        if url_key in body and body[url_key]:
+        if body.get(url_key):
             candidate = str(body[url_key]).strip()
             if len(candidate) > 2048:
                 return JSONResponse({"error": f"{url_key} too long"}, status_code=400)
@@ -766,7 +766,7 @@ def api_test_service(
                     service,
                 )
                 return JSONResponse({"ok": False, "error": "timeout"})
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Service test failed for %s: %s", service, exc)
         return JSONResponse({"ok": False, "error": "Service connection test failed"})
 
@@ -782,7 +782,7 @@ def api_plex_libraries(request: Request, admin: str = Depends(get_current_admin)
             return JSONResponse({"libraries": [], "error": "Plex URL and token are not configured"})
         libraries = client.get_libraries()
         return JSONResponse({"libraries": libraries})
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Failed to fetch Plex libraries: %s", exc)
         return JSONResponse({"libraries": [], "error": "Failed to fetch Plex libraries"})
 
@@ -817,6 +817,6 @@ def api_disk_usage(
         )
     except FileNotFoundError:
         return JSONResponse({"error": "not_found"}, status_code=404)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Failed to read disk usage for %s: %s", resolved, exc)
         return JSONResponse({"error": "Failed to read disk usage"})

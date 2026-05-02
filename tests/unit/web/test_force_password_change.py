@@ -89,56 +89,50 @@ class TestForceChangePost:
 
     def test_policy_violation_renders_issues(self, conn):
         app = _make_app(conn)
-        with patch(SESSION_PATCH, return_value=("admin", conn)):
-            with patch(
+        with (
+            patch(SESSION_PATCH, return_value=("admin", conn)),
+            patch(
                 "mediaman.web.routes.force_password_change.password_issues",
                 return_value=["Too short"],
-            ):
-                resp = self._post(
-                    app, old_password="old", new_password="weak", confirm_password="weak"
-                )
+            ),
+        ):
+            resp = self._post(app, old_password="old", new_password="weak", confirm_password="weak")
         assert "Too short" in resp.text
 
     def test_wrong_old_password_logs_security_event(self, conn):
         app = _make_app(conn)
-        with patch(SESSION_PATCH, return_value=("admin", conn)):
-            with patch(
-                "mediaman.web.routes.force_password_change.password_issues", return_value=[]
-            ):
-                with patch(
-                    "mediaman.web.routes.force_password_change.change_password", return_value=False
-                ):
-                    with patch(
-                        "mediaman.web.routes.force_password_change.security_event"
-                    ) as mock_event:
-                        resp = self._post(
-                            app,
-                            old_password="wrong",
-                            new_password="Str0ng!Pass",
-                            confirm_password="Str0ng!Pass",
-                        )
+        with (
+            patch(SESSION_PATCH, return_value=("admin", conn)),
+            patch("mediaman.web.routes.force_password_change.password_issues", return_value=[]),
+            patch("mediaman.web.routes.force_password_change.change_password", return_value=False),
+            patch("mediaman.web.routes.force_password_change.security_event") as mock_event,
+        ):
+            resp = self._post(
+                app,
+                old_password="wrong",
+                new_password="Str0ng!Pass",
+                confirm_password="Str0ng!Pass",
+            )
         assert "incorrect" in resp.text
         mock_event.assert_called_once()
 
     def test_success_rotates_session_and_redirects(self, conn):
         app = _make_app(conn)
-        with patch(SESSION_PATCH, return_value=("admin", conn)):
-            with patch(
-                "mediaman.web.routes.force_password_change.password_issues", return_value=[]
-            ):
-                with patch(
-                    "mediaman.web.routes.force_password_change.change_password", return_value=True
-                ):
-                    with patch("mediaman.auth.session.create_session", return_value="new-token"):
-                        client = TestClient(app, raise_server_exceptions=True)
-                        resp = client.post(
-                            "/force-password-change",
-                            data={
-                                "old_password": "old",
-                                "new_password": "Strong!Pass1",
-                                "confirm_password": "Strong!Pass1",
-                            },
-                            follow_redirects=False,
-                        )
+        with (
+            patch(SESSION_PATCH, return_value=("admin", conn)),
+            patch("mediaman.web.routes.force_password_change.password_issues", return_value=[]),
+            patch("mediaman.web.routes.force_password_change.change_password", return_value=True),
+            patch("mediaman.auth.session.create_session", return_value="new-token"),
+        ):
+            client = TestClient(app, raise_server_exceptions=True)
+            resp = client.post(
+                "/force-password-change",
+                data={
+                    "old_password": "old",
+                    "new_password": "Strong!Pass1",
+                    "confirm_password": "Strong!Pass1",
+                },
+                follow_redirects=False,
+            )
         assert resp.status_code == 302
         assert resp.headers["location"] == "/"

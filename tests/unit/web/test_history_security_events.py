@@ -10,7 +10,7 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from fastapi import FastAPI
@@ -43,7 +43,7 @@ def _auth_client(app: FastAPI, conn) -> TestClient:
 def _add_media_audit(conn, action: str = "scanned") -> None:
     conn.execute(
         "INSERT INTO audit_log (media_item_id, action, created_at) VALUES (?, ?, ?)",
-        ("m1", action, datetime.now(timezone.utc).isoformat()),
+        ("m1", action, datetime.now(UTC).isoformat()),
     )
     conn.commit()
 

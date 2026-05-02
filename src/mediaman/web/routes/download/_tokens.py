@@ -32,7 +32,7 @@ import logging
 import sqlite3
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 logger = logging.getLogger("mediaman")
 
@@ -53,6 +53,18 @@ _TOKEN_USED_CACHE_MAX = 1000
 def _digest(token: str) -> str:
     """Return the SHA-256 hex digest of *token* — the at-rest identifier."""
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def reset_used_tokens() -> None:
+    """Clear the in-memory replay cache. Tests use this to isolate cases.
+
+    The DB-backed ``used_download_tokens`` table is owned by whichever
+    fixture provisioned the connection — tests that want a fresh DB
+    state simply provision a fresh connection. The in-memory LRU is
+    process-wide module state, so it must be wiped explicitly.
+    """
+    with _USED_TOKENS_LOCK:
+        _USED_TOKENS.clear()
 
 
 def _get_db_or_none() -> sqlite3.Connection | None:
@@ -81,8 +93,8 @@ def _persist_used_token(conn: sqlite3.Connection, digest: str, exp: int) -> bool
     claim succeeded or whether a sibling worker / earlier request had
     already taken the slot.
     """
-    expires_at = datetime.fromtimestamp(exp, tz=timezone.utc).isoformat()
-    used_at = datetime.now(timezone.utc).isoformat()
+    expires_at = datetime.fromtimestamp(exp, tz=UTC).isoformat()
+    used_at = datetime.now(UTC).isoformat()
     cursor = conn.execute(
         "INSERT OR IGNORE INTO used_download_tokens "
         "(token_hash, expires_at, used_at) VALUES (?, ?, ?)",
@@ -127,7 +139,7 @@ def gc_expired_tokens(conn: sqlite3.Connection | None = None) -> None:
         conn = _get_db_or_none()
         if conn is None:
             return
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     try:
         conn.execute("DELETE FROM used_download_tokens WHERE expires_at < ?", (now_iso,))
         conn.commit()

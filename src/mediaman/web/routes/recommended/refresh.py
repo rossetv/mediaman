@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
@@ -71,7 +71,7 @@ def api_refresh_recommendations(
     # Cooldown — enforced before we touch OpenAI / Plex / the lock.
     cooldown = refresh_cooldown_remaining(conn)
     if cooldown is not None:
-        next_at = (datetime.now(timezone.utc) + cooldown).isoformat()
+        next_at = (datetime.now(UTC) + cooldown).isoformat()
         return JSONResponse(
             {
                 "ok": False,
@@ -114,7 +114,7 @@ def api_refresh_recommendations(
                 # failure must not lock the user out for 24h. Record
                 # the timestamp here, after the work returned without
                 # raising.
-                record_manual_refresh(thread_conn, datetime.now(timezone.utc))
+                record_manual_refresh(thread_conn, datetime.now(UTC))
                 manual_refresh_recorded = True
             else:
                 result = {"ok": False, "error": "Plex not configured"}
@@ -154,7 +154,7 @@ def api_refresh_status(admin: str = Depends(get_current_admin)) -> JSONResponse:
     cooldown_payload: dict[str, object] = {"manual_refresh_available": cooldown is None}
     if cooldown is not None:
         cooldown_payload["cooldown_seconds"] = int(cooldown.total_seconds())
-        cooldown_payload["next_available_at"] = (datetime.now(timezone.utc) + cooldown).isoformat()
+        cooldown_payload["next_available_at"] = (datetime.now(UTC) + cooldown).isoformat()
 
     if running:
         return JSONResponse({"status": "running", **cooldown_payload})

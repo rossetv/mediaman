@@ -6,7 +6,7 @@ and api_send_newsletter in mediaman.web.routes.subscribers.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -57,7 +57,7 @@ def _reset_subscriber_limiter():
 def _insert_subscriber(conn, email: str, active: int = 1) -> None:
     conn.execute(
         "INSERT INTO subscribers (email, active, created_at) VALUES (?, ?, ?)",
-        (email, active, datetime.now(timezone.utc).isoformat()),
+        (email, active, datetime.now(UTC).isoformat()),
     )
     conn.commit()
 

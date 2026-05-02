@@ -47,6 +47,35 @@ h1, h2, h3, h4 {
   border: 0;
 }
 
+/* Skip-to-content link — visible on keyboard focus only. WCAG 2.4.1.
+   Hidden off-screen by default; reveals at top-left when focused so
+   keyboard users can bypass the nav and jump straight to <main>. */
+.skip-link {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 1000;
+  padding: 10px 16px;
+  background: var(--accent-cta);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: var(--r-sm);
+  text-decoration: none;
+  transform: translateY(-200%);
+  transition: transform .15s;
+}
+.skip-link:focus,
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: 2px solid var(--accent-cta);
+  outline-offset: 2px;
+}
+
+/* Make <main> a passive landmark — no styling, no layout impact. */
+main { display: block; }
+main:focus { outline: none; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .01ms !important;
@@ -159,8 +188,26 @@ h1, h2, h3, h4 {
   padding: 10px 14px;
   border-bottom: 1px solid var(--hair);
 }
-.tbl thead th.sortable { cursor: pointer; }
+.tbl thead th.sortable { cursor: pointer; padding: 0; }
 .tbl thead th.sortable:hover { color: var(--t1); }
+/* Finding 10 (a11y): the sortable headers wrap their content in a real
+   <button> so keyboard users can trigger the sort. The button stretches
+   to fill the cell and inherits the th's typography so the visual is
+   indistinguishable from the previous click-on-th implementation. */
+.tbl thead th.sortable .th-sort {
+  display: block;
+  width: 100%;
+  text-align: inherit;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  padding: 10px 14px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.tbl thead th.sortable .th-sort:hover { color: var(--t1); }
 .tbl tbody td {
   padding: 14px;
   border-bottom: 1px solid var(--hair);

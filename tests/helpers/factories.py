@@ -1,6 +1,6 @@
 """Test data factories."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 
 def make_media_item(
@@ -21,7 +21,7 @@ def make_media_item(
 ):
     """Create a media item dict for testing."""
     if added_at is None:
-        added_at = datetime.now(timezone.utc) - timedelta(days=60)
+        added_at = datetime.now(UTC) - timedelta(days=60)
     return {
         "id": id,
         "title": title,
@@ -51,7 +51,7 @@ def make_scheduled_action(
     is_reentry=False,
 ):
     """Create a scheduled action dict for testing."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if scheduled_at is None:
         scheduled_at = now
     if execute_at is None:

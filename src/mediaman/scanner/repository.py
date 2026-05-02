@@ -19,7 +19,7 @@ import logging
 import os
 import secrets
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from mediaman.audit import log_audit
 from mediaman.crypto import generate_keep_token
@@ -139,7 +139,7 @@ def count_items_in_libraries(conn: sqlite3.Connection, library_ids: list[int]) -
         return 0
     lp = ",".join("?" * len(library_ids))
     row = conn.execute(
-        f"SELECT COUNT(*) AS n FROM media_items WHERE plex_library_id IN ({lp})",  # noqa: S608 — placeholders are '?' only, not user input
+        f"SELECT COUNT(*) AS n FROM media_items WHERE plex_library_id IN ({lp})",
         tuple(library_ids),
     ).fetchone()
     return row["n"] if row else 0
@@ -155,7 +155,7 @@ def fetch_ids_in_libraries(conn: sqlite3.Connection, library_ids: list[int]) -> 
         chunk = library_ids[start : start + 500]
         lp = ",".join("?" * len(chunk))
         rows = conn.execute(
-            f"SELECT id FROM media_items WHERE plex_library_id IN ({lp})",  # noqa: S608
+            f"SELECT id FROM media_items WHERE plex_library_id IN ({lp})",
             tuple(chunk),
         ).fetchall()
         ids.extend(r["id"] for r in rows)
@@ -190,11 +190,11 @@ def delete_media_items(conn: sqlite3.Connection, ids: list[str]) -> None:
             in_outer_txn = True
         try:
             conn.execute(
-                f"DELETE FROM scheduled_actions WHERE media_item_id IN ({placeholders})",  # noqa: S608 — placeholders are '?' only, not user input
+                f"DELETE FROM scheduled_actions WHERE media_item_id IN ({placeholders})",
                 tuple(chunk),
             )
             conn.execute(
-                f"DELETE FROM media_items WHERE id IN ({placeholders})",  # noqa: S608 — placeholders are '?' only, not user input
+                f"DELETE FROM media_items WHERE id IN ({placeholders})",
                 tuple(chunk),
             )
             if not in_outer_txn:
@@ -392,7 +392,7 @@ def schedule_deletion(
     runs, then swaps in the real HMAC-signed keep token once we know the
     row id.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     execute_at = now + timedelta(days=grace_days)
     expires_at = int((now + timedelta(days=_TOKEN_TTL_DAYS)).timestamp())
 

@@ -17,7 +17,7 @@ Public API
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from mediaman.services.infra.settings_reader import get_string_setting
 
@@ -44,7 +44,7 @@ def refresh_cooldown_remaining(conn: sqlite3.Connection) -> timedelta | None:
     if last is None:
         return None
     cooldown = timedelta(hours=RECOMMENDATION_REFRESH_COOLDOWN_HOURS)
-    elapsed = datetime.now(timezone.utc) - last
+    elapsed = datetime.now(UTC) - last
     if elapsed >= cooldown:
         return None
     return cooldown - elapsed
