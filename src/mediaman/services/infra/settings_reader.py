@@ -14,9 +14,30 @@ import os
 import sqlite3
 from typing import Any
 
+from cryptography.exceptions import InvalidTag
+
 from mediaman.crypto import decrypt_value
 
 logger = logging.getLogger("mediaman")
+
+
+class ConfigDecryptError(Exception):
+    """Raised when a setting exists but cannot be decrypted with the supplied *secret_key*.
+
+    Callers that need to distinguish "setting not configured" from "setting
+    present but key is wrong" should catch this exception separately from a
+    ``None``/default return.
+
+    Defined at module top so :func:`get_setting` can raise it before
+    :func:`get_string_setting_strict` is defined further down.
+
+    :param key: the settings-table key that failed to decrypt.
+    :param cause: the underlying exception from the crypto layer.
+    """
+
+    def __init__(self, key: str, cause: Exception) -> None:
+        self.key = key
+        super().__init__(f"Failed to decrypt setting '{key}': {cause}")
 
 
 def get_media_path() -> str:
@@ -46,6 +67,14 @@ def get_setting(
     - Decryption errors return ``default`` (and log a warning) — the
       likely cause is a rotated secret key, which should not crash the
       whole app.
+
+    Raises :exc:`ConfigDecryptError` when the row is encrypted but no
+    ``secret_key`` was supplied. Returning the *default* in that case
+    silently hides a deployment misconfiguration: an operator that
+    forgot to set their secret key would see all their saved
+    credentials disappear with no log entry pointing at the cause.
+    Surfacing the error gives the caller a clear failure rather than
+    a mysterious "feature stopped working".
     """
     row = conn.execute("SELECT value, encrypted FROM settings WHERE key=?", (key,)).fetchone()
     if row is None or row["value"] in (None, ""):
@@ -54,7 +83,10 @@ def get_setting(
     val = row["value"]
     if row["encrypted"]:
         if not secret_key:
-            return default
+            raise ConfigDecryptError(
+                key,
+                ValueError("encrypted setting requires secret_key — none was supplied"),
+            )
         try:
             # Pass ``conn`` so v2 (HKDF) ciphertexts can look up the
             # per-install salt; pass the setting key as AAD so a DB
@@ -63,7 +95,19 @@ def get_setting(
             # ``decrypt_value`` falls back to no-AAD on InvalidTag so
             # pre-AAD ciphertexts still read.
             val = decrypt_value(val, secret_key, conn=conn, aad=key.encode())
-        except Exception:
+        except (sqlite3.OperationalError, sqlite3.DatabaseError, InvalidTag, ValueError):
+            # Narrow exception list:
+            # * sqlite3.* — salt lookup failed (corrupted bootstrap
+            #   row, locked DB, schema drift)
+            # * InvalidTag — wrong key, tampered ciphertext, or
+            #   missing AAD (the no-AAD fallback inside decrypt_value
+            #   already retried before this fires)
+            # * ValueError — malformed ciphertext / bad b64
+            #
+            # The previous ``except Exception`` swallowed everything
+            # including programmer errors (e.g. a typo in the call
+            # site that raised AttributeError), making the cause
+            # invisible. Anything outside this list now propagates.
             logger.warning("Failed to decrypt setting '%s' — returning default", key)
             return default
 
@@ -139,23 +183,6 @@ def get_string_setting(
     return str(value) if not isinstance(value, str) else value
 
 
-class ConfigDecryptError(Exception):
-    """Raised by :func:`get_string_setting_strict` when a setting exists but
-    cannot be decrypted with the supplied *secret_key*.
-
-    Callers that need to distinguish "setting not configured" from "setting
-    present but key is wrong" should catch this exception separately from a
-    ``None`` return.
-
-    :param key: the settings-table key that failed to decrypt.
-    :param cause: the underlying exception from the crypto layer.
-    """
-
-    def __init__(self, key: str, cause: Exception) -> None:
-        self.key = key
-        super().__init__(f"Failed to decrypt setting '{key}': {cause}")
-
-
 def get_string_setting_strict(
     conn: sqlite3.Connection,
     key: str,
@@ -188,7 +215,10 @@ def get_string_setting_strict(
             return None
         try:
             val = decrypt_value(val, secret_key, conn=conn, aad=key.encode())
-        except Exception as exc:
+        except (sqlite3.OperationalError, sqlite3.DatabaseError, InvalidTag, ValueError) as exc:
+            # Same narrow list as :func:`get_setting`. Anything outside
+            # this set is a programmer error and should surface as the
+            # original exception type rather than be re-wrapped here.
             raise ConfigDecryptError(key, exc) from exc
 
     try:

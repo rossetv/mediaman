@@ -64,9 +64,21 @@ class TestGetSetting:
             == "FB"
         )
 
-    def test_missing_secret_for_encrypted_returns_default(self, conn):
+    def test_missing_secret_for_encrypted_raises(self, conn):
+        """Encrypted row without a secret_key surfaces an error.
+
+        Returning the default silently would hide a deployment
+        misconfiguration (operator forgot to set the secret key) —
+        the saved credentials would all appear empty with no log
+        entry pointing at the cause. Raising forces the caller to
+        deal with the missing key explicitly.
+        """
+        from mediaman.services.infra.settings_reader import ConfigDecryptError
+
         _put(conn, "api_key", "gibberish", encrypted=1)
-        assert get_setting(conn, "api_key", default="FB") == "FB"
+        with pytest.raises(ConfigDecryptError) as excinfo:
+            get_setting(conn, "api_key", default="FB")
+        assert excinfo.value.key == "api_key"
 
     def test_empty_value_returns_default(self, conn):
         _put(conn, "blank", "")
