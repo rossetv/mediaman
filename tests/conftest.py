@@ -22,6 +22,26 @@ def _fake_dns_ok(monkeypatch):
     monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
 
 
+@pytest.fixture(autouse=True)
+def _clear_scanner_runner_caches():
+    """Reset module-level scanner caches between tests.
+
+    The runner caches a constructed ``PlexClient`` keyed on the stored
+    Plex settings hash so the hot ``run_library_sync`` path doesn't
+    rebuild it every 30 minutes. In tests, that cache leaks across
+    cases (e.g. test 1 builds a real client; test 2 patches
+    ``_build_plex`` to raise but the cached client from test 1 short-
+    circuits the patch). Always-clear is the safest default.
+    """
+    try:
+        from mediaman.scanner.runner import _reset_plex_client_cache
+    except Exception:
+        return
+    _reset_plex_client_cache()
+    yield
+    _reset_plex_client_cache()
+
+
 class _FakeHTTPSession:
     """Captures HTTP calls for tests that used to patch ``requests.get/post/...``.
 

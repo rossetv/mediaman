@@ -7,9 +7,11 @@ lifespan job (main.py) without duplication.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import sqlite3
+import threading
 from typing import TYPE_CHECKING, NamedTuple, TypedDict
 
 from mediaman.services.arr.build import (
@@ -73,6 +75,43 @@ class PlexClientBundle(NamedTuple):
 
 
 logger = logging.getLogger("mediaman")
+
+
+# Module-level Plex client cache (D05 finding 8). The previous code
+# rebuilt PlexClient on every ``run_library_sync`` call (every 30 min by
+# default) — each rebuild re-validates the URL via the SSRF guard and
+# decrypts the stored token. The cache reuses the existing client until
+# the underlying settings change, keyed on a hash of (raw plex_url,
+# raw encrypted plex_token row). The hash deliberately uses the raw
+# encrypted token so we never need to decrypt just to check freshness.
+_PLEX_CLIENT_CACHE: dict[str, "PlexClient"] = {}
+_PLEX_CLIENT_CACHE_LOCK = threading.Lock()
+
+
+def _plex_settings_fingerprint(conn: sqlite3.Connection) -> str | None:
+    """Return a stable fingerprint of the Plex-related settings.
+
+    The fingerprint is an SHA-256 hash of the raw stored ``plex_url``
+    plus the **raw encrypted** ``plex_token`` row (no decryption
+    needed). Returns ``None`` when either setting is missing — callers
+    treat that as "Plex not configured" and skip the cache.
+    """
+    url_row = conn.execute("SELECT value FROM settings WHERE key='plex_url'").fetchone()
+    tok_row = conn.execute("SELECT value FROM settings WHERE key='plex_token'").fetchone()
+    if not url_row or not url_row["value"] or not tok_row or not tok_row["value"]:
+        return None
+    h = hashlib.sha256()
+    h.update(b"plex_url:")
+    h.update(str(url_row["value"]).encode("utf-8"))
+    h.update(b"\x00plex_token:")
+    h.update(str(tok_row["value"]).encode("utf-8"))
+    return h.hexdigest()
+
+
+def _reset_plex_client_cache() -> None:
+    """Clear the cached Plex client. Test helper; safe to call any time."""
+    with _PLEX_CLIENT_CACHE_LOCK:
+        _PLEX_CLIENT_CACHE.clear()
 
 
 def _load_library_ids(conn: sqlite3.Connection) -> list[str]:
@@ -154,6 +193,42 @@ def _filter_libraries_by_disk(
     return filtered
 
 
+def _get_or_build_plex(conn: sqlite3.Connection, secret_key: str) -> "PlexClient | None":
+    """Return a cached PlexClient, rebuilding only when settings change.
+
+    Cache key: SHA-256 of (raw ``plex_url`` value, raw encrypted
+    ``plex_token`` value). Any settings change invalidates the entry.
+
+    Returns ``None`` when Plex is unconfigured. Re-raises ``ValueError``
+    from the SSRF guard to the caller so it can log + skip.
+
+    Avoids the per-invocation cost of SSRF re-validation and token
+    decryption on the hot ``run_library_sync`` path (D05 finding 8).
+    """
+    fp = _plex_settings_fingerprint(conn)
+    if fp is None:
+        # No usable settings — also clear any stale cached client.
+        with _PLEX_CLIENT_CACHE_LOCK:
+            _PLEX_CLIENT_CACHE.clear()
+        return None
+
+    with _PLEX_CLIENT_CACHE_LOCK:
+        cached = _PLEX_CLIENT_CACHE.get(fp)
+    if cached is not None:
+        return cached
+
+    plex = _build_plex(conn, secret_key)
+    if plex is None:
+        return None
+
+    with _PLEX_CLIENT_CACHE_LOCK:
+        # Drop other entries: at most one Plex configuration is in
+        # use at a time and we don't want to leak old clients.
+        _PLEX_CLIENT_CACHE.clear()
+        _PLEX_CLIENT_CACHE[fp] = plex
+    return plex
+
+
 def _build_plex_client(conn: sqlite3.Connection, secret_key: str) -> "PlexClientBundle | None":
     """Build a PlexClient and resolve library metadata from DB settings.
 
@@ -170,10 +245,12 @@ def _build_plex_client(conn: sqlite3.Connection, secret_key: str) -> "PlexClient
     ``PlexClient`` constructor itself revalidates the configured URL,
     so a stored URL that has since started resolving to an internal
     or metadata address is refused here rather than at the first
-    network call.
+    network call. The constructed client is cached at module scope
+    keyed on the settings fingerprint so subsequent calls with the
+    same configuration reuse it (D05 finding 8).
     """
     try:
-        plex = _build_plex(conn, secret_key)
+        plex = _get_or_build_plex(conn, secret_key)
     except ValueError:
         # PlexClient constructor refused the URL (SSRF guard). Log
         # without surfacing the URL itself — it may carry topology
