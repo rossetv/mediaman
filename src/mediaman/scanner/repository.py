@@ -171,26 +171,43 @@ def delete_media_items(conn: sqlite3.Connection, ids: list[str]) -> None:
 def is_protected(conn: sqlite3.Connection, media_id: str) -> bool:
     """Return True if the item has an active protection action.
 
-    An item is protected if it has a ``protected_forever`` action
-    (regardless of ``token_used``) or a ``snoozed`` action whose
-    ``execute_at`` is still in the future.
+    An item is protected if **any** of its ``scheduled_actions`` rows
+    has ``action='protected_forever'`` (regardless of ``token_used``),
+    or if **any** of its ``snoozed`` rows still has ``execute_at`` in
+    the future.
+
+    The previous implementation used ``ORDER BY id DESC LIMIT 1`` to
+    pick a single "latest" row, which gave the wrong answer whenever
+    a higher-id row contradicted a still-authoritative lower-id one
+    (Domain 05 finding): an earlier ``protected_forever`` row could be
+    masked by a later expired ``snoozed`` row, falsely reporting the
+    item as unprotected and queuing it for deletion. The schema does
+    not enforce one-row-per-item, so we must not rely on row order —
+    we check the two protective states explicitly instead.
     """
-    now = now_iso()
-    row = conn.execute(
-        """
-        SELECT action, execute_at FROM scheduled_actions
-        WHERE media_item_id = ?
-          AND action IN ('protected_forever', 'snoozed')
-        ORDER BY id DESC LIMIT 1
-        """,
-        (media_id,),
-    ).fetchone()
-    if row is None:
-        return False
-    if row["action"] == "protected_forever":
+    # protected_forever wins over everything: ignore execute_at and
+    # token_used here. If even one such row exists, the item is kept.
+    if (
+        conn.execute(
+            "SELECT 1 FROM scheduled_actions "
+            "WHERE media_item_id = ? AND action = 'protected_forever' LIMIT 1",
+            (media_id,),
+        ).fetchone()
+        is not None
+    ):
         return True
-    # Snoozed — only protected if execute_at is in the future.
-    return row["execute_at"] is not None and row["execute_at"] > now
+    # No protected_forever row — fall back to active snoozes.
+    now = now_iso()
+    return (
+        conn.execute(
+            "SELECT 1 FROM scheduled_actions "
+            "WHERE media_item_id = ? AND action = 'snoozed' "
+            "AND execute_at IS NOT NULL AND execute_at > ? "
+            "LIMIT 1",
+            (media_id, now),
+        ).fetchone()
+        is not None
+    )
 
 
 def is_already_scheduled(conn: sqlite3.Connection, media_id: str) -> bool:
