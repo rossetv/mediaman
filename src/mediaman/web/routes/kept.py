@@ -22,6 +22,7 @@ from mediaman.db import get_db
 from mediaman.services.infra.format import format_bytes as _format_bytes
 from mediaman.services.infra.format import media_type_badge
 from mediaman.services.infra.time import now_iso
+from mediaman.services.scheduled_actions import format_expiry
 from mediaman.web.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
 from mediaman.web.routes._helpers import is_admin as _is_admin
 
@@ -76,27 +77,6 @@ logger = logging.getLogger("mediaman")
 router = APIRouter()
 
 
-def _format_expiry(action: str, execute_at: str | None) -> str:
-    """Return a human-readable expiry string for a protected item."""
-    if action == ACTION_PROTECTED_FOREVER:
-        return "Forever"
-    if not execute_at:
-        return "Unknown"
-    try:
-        dt = datetime.fromisoformat(execute_at)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        now = datetime.now(timezone.utc)
-        delta = (dt - now).days
-        if delta <= 0:
-            return "Expires today"
-        if delta == 1:
-            return "Expires tomorrow"
-        return f"Expires in {delta} days"
-    except (ValueError, TypeError):
-        return "Unknown"
-
-
 def _fetch_protected(conn: sqlite3.Connection) -> tuple[list[dict], list[dict]]:
     """Return (forever_items, snoozed_items) from scheduled_actions joined with media_items."""
     now = now_iso()
@@ -140,7 +120,7 @@ def _fetch_protected(conn: sqlite3.Connection) -> tuple[list[dict], list[dict]]:
             "badge_class": badge_class,
             "type_label": type_label,
             "action": r["action"],
-            "expiry": _format_expiry(r["action"], r["execute_at"]),
+            "expiry": format_expiry(r["action"], r["execute_at"]),
             "snooze_duration": r["snooze_duration"] or "",
             "file_size": _format_bytes(r["file_size_bytes"] or 0),
         }
