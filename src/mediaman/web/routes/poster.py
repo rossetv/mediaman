@@ -27,6 +27,7 @@ import hashlib
 import logging
 import os
 import tempfile
+import threading
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -35,6 +36,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 
 from mediaman.auth.middleware import get_optional_admin
+from mediaman.auth.rate_limit import get_client_ip
 from mediaman.crypto import (
     decrypt_value,
     sign_poster_url,  # noqa: F401 — re-exported for web/templates + tests
@@ -44,6 +46,9 @@ from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.download_format import extract_poster_url
 from mediaman.services.infra.http_client import SafeHTTPClient, SafeHTTPError
+from mediaman.services.infra.rate_limits import (
+    POSTER_PUBLIC_LIMITER as _POSTER_PUBLIC_LIMITER,
+)
 from mediaman.services.infra.url_safety import is_safe_outbound_url
 
 # Remote poster fetches get a tight 3 s read timeout and 4 MiB cap — a
@@ -62,6 +67,25 @@ _cache_dir: Path | None = None  # populated on first request from app config
 
 # Cache posters for 7 days (response header) — browser won't re-request
 _CACHE_MAX_AGE = 7 * 24 * 60 * 60
+
+# Soft cap for the on-disk poster cache. The directory was previously
+# unbounded — a long-lived install would let it grow until the data
+# volume filled. 500 MiB is generous (a poster averages ~80 KiB, so
+# this caps at roughly 6,500 posters) but keeps disk pressure
+# predictable. Cleanup is opportunistic: once total size exceeds the
+# cap, the route deletes oldest files by mtime until usage is back
+# under the cap. The check is throttled so we don't pay the directory
+# walk cost on every request.
+_CACHE_DIR_MAX_BYTES = 500 * 1024 * 1024
+#: One-in-N requests trigger a real LRU sweep. Rest path-checks just
+#: see if the in-memory size estimate exceeds the cap.
+_CACHE_GC_RECHECK_EVERY = 50
+
+# Sweep state guarded by the lock so two concurrent requests don't both
+# walk the directory. Lock is best-effort — if it cannot be acquired
+# without blocking, the request skips the GC and serves immediately.
+_cache_gc_lock = threading.Lock()
+_cache_gc_counter = 0
 
 # Only these mime types are ever served back to the client. Everything
 # else is normalised down to image/jpeg so a malicious CDN cannot
@@ -96,6 +120,128 @@ def _get_cache_dir(data_dir: str) -> Path:
         _cache_dir = Path(data_dir) / "poster_cache"
         _cache_dir.mkdir(parents=True, exist_ok=True)
     return _cache_dir
+
+
+def _read_sidecar_mime(cache_path: Path) -> str:
+    """Return the mime type recorded for a cached poster, or ``image/jpeg``.
+
+    The original implementation always served ``image/jpeg`` for cache
+    hits regardless of the actual stored format. Under ``X-Content-Type-
+    Options: nosniff`` that broke PNG/WebP — the browser would refuse to
+    render the image because the bytes did not match the advertised
+    type. We now persist the upstream mime in a ``.mime`` sidecar file
+    next to the cached image and read it on hit.
+
+    Falls back to ``image/jpeg`` if the sidecar is missing (legacy
+    entries written before this change), unparseable, or names a mime
+    that's not in :data:`_ALLOWED_IMAGE_MIMES` — never trust the
+    sidecar's content as-is.
+    """
+    sidecar = cache_path.with_suffix(cache_path.suffix + ".mime")
+    try:
+        raw = sidecar.read_text(encoding="ascii", errors="ignore").strip()
+    except OSError:
+        return "image/jpeg"
+    if not raw or len(raw) > 64:
+        return "image/jpeg"
+    if raw not in _ALLOWED_IMAGE_MIMES:
+        return "image/jpeg"
+    return raw
+
+
+def _write_sidecar_mime(cache_path: Path, mime: str) -> None:
+    """Atomically persist the served mime alongside *cache_path*.
+
+    Mirrors the temp-file + os.replace pattern used for the image
+    bytes. Failure is non-fatal: if the sidecar can't be written, the
+    next read falls back to ``image/jpeg``, which is the safe default.
+    """
+    sidecar = cache_path.with_suffix(cache_path.suffix + ".mime")
+    safe = mime if mime in _ALLOWED_IMAGE_MIMES else "image/jpeg"
+    tmp_name: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=cache_path.parent, delete=False, suffix=".mime.tmp"
+        ) as tmp:
+            tmp.write(safe.encode("ascii"))
+            tmp_name = tmp.name
+        os.replace(tmp_name, sidecar)
+    except OSError:
+        logger.debug("Sidecar mime write failed for %s", cache_path, exc_info=True)
+        if tmp_name and os.path.exists(tmp_name):
+            try:
+                os.remove(tmp_name)
+            except OSError:
+                pass
+
+
+def _maybe_sweep_cache(cache_dir: Path) -> None:
+    """Opportunistically delete oldest cache entries when over the cap.
+
+    Called from the cache-write path. The sweep walks the directory
+    once, sums up sizes, and — if total exceeds
+    :data:`_CACHE_DIR_MAX_BYTES` — deletes oldest-mtime files until the
+    total is back under 90% of the cap (a small headroom so we don't
+    sweep on every subsequent write).
+
+    The walk is guarded by a non-blocking lock so concurrent writers
+    don't stampede the same directory; if another thread is already
+    sweeping, we skip and return. The throttled counter means the
+    expensive walk only runs once per ~50 cache misses.
+    """
+    global _cache_gc_counter
+    _cache_gc_counter += 1
+    if _cache_gc_counter < _CACHE_GC_RECHECK_EVERY:
+        return
+    if not _cache_gc_lock.acquire(blocking=False):
+        return
+    _cache_gc_counter = 0
+    try:
+        entries: list[tuple[float, int, Path]] = []
+        total = 0
+        try:
+            for entry in cache_dir.iterdir():
+                # ``.tmp`` files are short-lived from in-flight writes —
+                # don't touch them here. Sidecars are tiny and walk-
+                # cheap; sweep them alongside their image so we don't
+                # leak orphans.
+                try:
+                    st = entry.stat()
+                except OSError:
+                    continue
+                size = int(st.st_size)
+                total += size
+                entries.append((st.st_mtime, size, entry))
+        except OSError:
+            return
+
+        if total <= _CACHE_DIR_MAX_BYTES:
+            return
+
+        # Delete oldest first until 90% of cap.
+        entries.sort(key=lambda e: e[0])
+        target = int(_CACHE_DIR_MAX_BYTES * 0.9)
+        for _mtime, size, path in entries:
+            if total <= target:
+                break
+            try:
+                path.unlink()
+                total -= size
+                # If we removed an image, also unlink its sidecar.
+                if path.suffix == ".jpg":
+                    sidecar = path.with_suffix(path.suffix + ".mime")
+                    try:
+                        sidecar.unlink()
+                    except FileNotFoundError:
+                        pass
+                    except OSError:
+                        logger.debug("Failed to unlink sidecar for %s", path, exc_info=True)
+            except FileNotFoundError:
+                continue
+            except OSError:
+                logger.debug("Failed to unlink %s during sweep", path, exc_info=True)
+    finally:
+        _cache_gc_lock.release()
 
 
 def _is_allowed_poster_host(url: str) -> bool:
@@ -299,12 +445,20 @@ def proxy_poster(
     importantly, the 401 is returned BEFORE any rating_key validity
     or existence check, so the endpoint cannot be used as an oracle
     to enumerate Plex rating keys.
+
+    Unauthenticated callers (signed-URL path) are additionally
+    rate-limited per /24 (IPv4) or /64 (IPv6) at 60 req/min so a leaked
+    signed URL cannot be used as a bandwidth-amplification vector.
+    Authenticated admin sessions skip the IP cap — they're already
+    bounded by the auth layer.
     """
     # Auth FIRST — return 401 for any unauthenticated caller regardless
     # of whether the rating_key is well-formed or present on the Plex
     # server. This closes the enumeration oracle noted in the pentest.
     config = request.app.state.config
     if admin is None:
+        if not _POSTER_PUBLIC_LIMITER.check(get_client_ip(request)):
+            return Response(status_code=429)
         if not sig or len(sig) > 4096:
             return Response(status_code=401)
         if not _validate_rating_key(rating_key):
@@ -323,11 +477,13 @@ def proxy_poster(
     safe_name = hashlib.sha256(rating_key.encode()).hexdigest()
     cached_path = cache_dir / f"{safe_name}.jpg"
 
-    # Serve from cache if available
+    # Serve from cache if available — read mime from sidecar so PNG /
+    # WebP entries are served with their actual type and don't trip the
+    # nosniff guard on modern browsers.
     if cached_path.exists():
         return Response(
             content=cached_path.read_bytes(),
-            media_type="image/jpeg",
+            media_type=_read_sidecar_mime(cached_path),
             headers={"Cache-Control": f"public, max-age={_CACHE_MAX_AGE}"},
         )
 
@@ -387,14 +543,30 @@ def proxy_poster(
 
     # Write to cache atomically: write to a temp file in the same directory
     # (guaranteeing same filesystem), then os.replace() it into place.
-    # This prevents another reader from seeing a partial write.
+    # This prevents another reader from seeing a partial write. On
+    # failure after the temp file was written, the temp must be removed
+    # explicitly — leaving it would orphan disk space until the next
+    # sweep.
+    tmp_name: str | None = None
     try:
         with tempfile.NamedTemporaryFile(dir=cache_dir, delete=False, suffix=".tmp") as tmp:
             tmp.write(content)
             tmp_name = tmp.name
         os.replace(tmp_name, cached_path)
+        tmp_name = None  # Success — replace consumed the temp.
+        # Persist the served mime so subsequent cache hits return the
+        # same Content-Type rather than always claiming image/jpeg.
+        _write_sidecar_mime(cached_path, content_type)
+        # Opportunistic LRU sweep — if the cache directory has grown
+        # past the soft cap, delete oldest entries until back under.
+        _maybe_sweep_cache(cache_dir)
     except OSError:
         logger.warning("Poster cache write failed for %s", rating_key, exc_info=True)
+        if tmp_name and os.path.exists(tmp_name):
+            try:
+                os.remove(tmp_name)
+            except OSError:
+                logger.debug("Failed to remove orphan temp %s", tmp_name, exc_info=True)
 
     return Response(
         content=content,

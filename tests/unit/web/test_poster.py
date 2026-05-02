@@ -1,6 +1,24 @@
 """Tests for poster proxy endpoint security."""
 
+import pytest
 import requests
+
+
+@pytest.fixture(autouse=True)
+def _reset_poster_module_state():
+    """Reset poster.py module-level state between tests so suite
+    ordering does not cause spurious failures (cache dir, GC counter,
+    public-IP rate limiter)."""
+    from mediaman.services.infra.rate_limits import POSTER_PUBLIC_LIMITER
+    from mediaman.web.routes import poster as poster_mod
+
+    poster_mod._cache_dir = None
+    poster_mod._cache_gc_counter = 0
+    POSTER_PUBLIC_LIMITER.reset()
+    yield
+    poster_mod._cache_dir = None
+    poster_mod._cache_gc_counter = 0
+    POSTER_PUBLIC_LIMITER.reset()
 
 
 class TestRatingKeyValidation:
@@ -578,3 +596,337 @@ class TestPosterTimeoutFallback:
             r = client.get(signed)
 
         assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Sidecar mime, LRU cap, public rate limit, tmp cleanup (Domain 03 19-22)
+# ---------------------------------------------------------------------------
+
+
+class TestPosterPublicRateLimit:
+    """The unauthenticated signed-URL path must be IP-bucket-limited so
+    a leaked URL cannot be used as a bandwidth-amplification vector."""
+
+    _KEY = "0123456789abcdef" * 4
+
+    def _setup(self, tmp_path):
+        import hashlib as _hashlib
+        import os
+
+        os.environ["MEDIAMAN_SECRET_KEY"] = self._KEY
+        os.environ["MEDIAMAN_DATA_DIR"] = str(tmp_path)
+
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from mediaman.config import load_config
+        from mediaman.db import init_db, set_connection
+        from mediaman.services.infra.rate_limits import POSTER_PUBLIC_LIMITER
+        from mediaman.web.routes.poster import router
+
+        POSTER_PUBLIC_LIMITER.reset()
+        conn = init_db(str(tmp_path / "mediaman.db"))
+        set_connection(conn)
+
+        app = FastAPI()
+        app.state.config = load_config()
+        app.include_router(router)
+
+        # Pre-seed the cache so the response is a fast 200.
+        cache_dir = tmp_path / "poster_cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = _hashlib.sha256(b"12345").hexdigest()
+        (cache_dir / f"{safe_name}.jpg").write_bytes(b"fake-jpg")
+
+        import mediaman.web.routes.poster as poster_mod
+
+        poster_mod._cache_dir = None
+        return TestClient(app), POSTER_PUBLIC_LIMITER
+
+    def test_unauthenticated_burst_is_throttled(self, tmp_path):
+        from mediaman.web.routes.poster import sign_poster_url
+
+        client, _ = self._setup(tmp_path)
+        signed = sign_poster_url("12345", self._KEY)
+
+        # Limiter is 60/min per /24 (or /64 for v6). Burst slightly past.
+        ok = 0
+        throttled = 0
+        for _ in range(70):
+            r = client.get(signed)
+            if r.status_code == 200:
+                ok += 1
+            elif r.status_code == 429:
+                throttled += 1
+        assert ok == 60
+        assert throttled == 10
+
+    def test_admin_bypasses_ip_cap(self, tmp_path):
+        client, _ = self._setup(tmp_path)
+        from mediaman.auth.session import create_session, create_user
+        from mediaman.db import get_db
+
+        conn = get_db()
+        create_user(conn, "admin", "long-enough-test-password-please", enforce_policy=False)
+        token = create_session(conn, "admin")
+
+        client.cookies.set("session_token", token)
+
+        # Admin gets unlimited access — burst past the IP cap with no 429s.
+        for _ in range(80):
+            r = client.get("/api/poster/12345")
+            assert r.status_code == 200
+
+
+class TestPosterCacheSidecarMime:
+    """Cache writes must persist the served mime in a sidecar file so
+    PNG/WebP cache hits don't get served as image/jpeg under nosniff."""
+
+    _KEY = "0123456789abcdef" * 4
+
+    def _setup(self, tmp_path):
+        import os
+
+        os.environ["MEDIAMAN_SECRET_KEY"] = self._KEY
+        os.environ["MEDIAMAN_DATA_DIR"] = str(tmp_path)
+
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from mediaman.config import load_config
+        from mediaman.db import init_db, set_connection
+        from mediaman.services.infra.rate_limits import POSTER_PUBLIC_LIMITER
+        from mediaman.web.routes.poster import router
+
+        POSTER_PUBLIC_LIMITER.reset()
+        conn = init_db(str(tmp_path / "mediaman.db"))
+        set_connection(conn)
+
+        app = FastAPI()
+        app.state.config = load_config()
+        app.include_router(router)
+
+        import mediaman.web.routes.poster as poster_mod
+
+        poster_mod._cache_dir = None
+        return TestClient(app), conn
+
+    def test_png_first_fetch_persists_sidecar_and_serves_correct_mime(self, tmp_path):
+        from datetime import datetime, timezone
+        from unittest.mock import MagicMock, patch
+
+        from mediaman.web.routes.poster import sign_poster_url
+
+        client, conn = self._setup(tmp_path)
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES "
+            "('plex_url', 'https://localhost', 0, ?)",
+            (now,),
+        )
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES "
+            "('plex_token', 'fake-token', 0, ?)",
+            (now,),
+        )
+        conn.commit()
+
+        png_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+        mock_resp = MagicMock()
+        mock_resp.content = png_bytes
+        mock_resp.headers = {"Content-Type": "image/png"}
+
+        with (
+            patch("mediaman.web.routes.poster._POSTER_HTTP") as mock_http,
+            patch(
+                "mediaman.web.routes.poster._sanitise_plex_url",
+                return_value="https://localhost",
+            ),
+        ):
+            mock_http.get.return_value = mock_resp
+            signed = sign_poster_url("99988", self._KEY)
+            r1 = client.get(signed)
+
+        assert r1.status_code == 200
+        assert r1.headers["content-type"].startswith("image/png")
+
+        # Cache hit on the second request must serve image/png too,
+        # not the legacy image/jpeg default.
+        signed = sign_poster_url("99988", self._KEY)
+        r2 = client.get(signed)
+        assert r2.status_code == 200
+        assert r2.headers["content-type"].startswith("image/png")
+
+    def test_legacy_cache_without_sidecar_falls_back_to_jpeg(self, tmp_path):
+        """A pre-existing cache entry from before this change has no
+        sidecar; the route must serve image/jpeg rather than 500."""
+        import hashlib as _hashlib
+
+        from mediaman.web.routes.poster import sign_poster_url
+
+        client, _ = self._setup(tmp_path)
+        cache_dir = tmp_path / "poster_cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = _hashlib.sha256(b"55512").hexdigest()
+        (cache_dir / f"{safe_name}.jpg").write_bytes(b"fake")
+
+        signed = sign_poster_url("55512", self._KEY)
+        r = client.get(signed)
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("image/jpeg")
+
+    def test_sidecar_with_unknown_mime_falls_back_to_jpeg(self, tmp_path):
+        """A sidecar whose contents are not in the allow-list must
+        never reach the wire — defaults back to image/jpeg."""
+        import hashlib as _hashlib
+
+        from mediaman.web.routes.poster import sign_poster_url
+
+        client, _ = self._setup(tmp_path)
+        cache_dir = tmp_path / "poster_cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = _hashlib.sha256(b"55513").hexdigest()
+        cached = cache_dir / f"{safe_name}.jpg"
+        cached.write_bytes(b"fake")
+        cached.with_suffix(".jpg.mime").write_text("text/html", encoding="ascii")
+
+        signed = sign_poster_url("55513", self._KEY)
+        r = client.get(signed)
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("image/jpeg")
+
+
+class TestPosterCacheLruCap:
+    """The cache directory must sweep oldest-first when total size
+    exceeds the cap so a long-lived install doesn't fill the disk."""
+
+    def test_sweep_drops_oldest_when_over_cap(self, tmp_path, monkeypatch):
+        import os as _os
+        import time
+
+        from mediaman.web.routes import poster as poster_mod
+
+        cache_dir = tmp_path / "poster_cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # Set a very small cap so a 200-byte payload trips it.
+        monkeypatch.setattr(poster_mod, "_CACHE_DIR_MAX_BYTES", 200)
+        monkeypatch.setattr(poster_mod, "_CACHE_GC_RECHECK_EVERY", 1)
+        monkeypatch.setattr(poster_mod, "_cache_gc_counter", 0, raising=False)
+
+        # Oldest first.
+        for i in range(5):
+            f = cache_dir / f"{i:04d}.jpg"
+            f.write_bytes(b"x" * 100)
+            mtime = time.time() - (5 - i) * 60  # 5 mins, 4 mins, ...
+            _os.utime(str(f), (mtime, mtime))
+
+        poster_mod._maybe_sweep_cache(cache_dir)
+
+        survivors = sorted(p.name for p in cache_dir.iterdir())
+        # 5 files * 100 bytes = 500 bytes; cap 200 → target 180 → keep at most one.
+        assert len(survivors) <= 2
+
+    def test_sidecar_is_swept_with_image(self, tmp_path, monkeypatch):
+        import os as _os
+        import time
+
+        from mediaman.web.routes import poster as poster_mod
+
+        cache_dir = tmp_path / "poster_cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        monkeypatch.setattr(poster_mod, "_CACHE_DIR_MAX_BYTES", 50)
+        monkeypatch.setattr(poster_mod, "_CACHE_GC_RECHECK_EVERY", 1)
+        monkeypatch.setattr(poster_mod, "_cache_gc_counter", 0, raising=False)
+
+        old_jpg = cache_dir / "old.jpg"
+        old_jpg.write_bytes(b"x" * 100)
+        old_sidecar = cache_dir / "old.jpg.mime"
+        old_sidecar.write_text("image/jpeg", encoding="ascii")
+
+        # Force older mtime.
+        mtime = time.time() - 600
+        _os.utime(str(old_jpg), (mtime, mtime))
+
+        poster_mod._maybe_sweep_cache(cache_dir)
+
+        # Both the jpg and its sidecar should be gone.
+        assert not old_jpg.exists()
+        assert not old_sidecar.exists()
+
+
+class TestPosterTempCleanupOnFailure:
+    """When ``os.replace`` fails after the temp file is written, the
+    temp must be removed explicitly — leaving it would orphan disk
+    space until the next sweep."""
+
+    _KEY = "0123456789abcdef" * 4
+
+    def test_orphan_tmp_removed_on_replace_failure(self, tmp_path):
+        import os
+        from datetime import datetime, timezone
+        from unittest.mock import MagicMock, patch
+
+        from mediaman.web.routes import poster as poster_mod
+        from mediaman.web.routes.poster import sign_poster_url
+
+        os.environ["MEDIAMAN_SECRET_KEY"] = self._KEY
+        os.environ["MEDIAMAN_DATA_DIR"] = str(tmp_path)
+
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from mediaman.config import load_config
+        from mediaman.db import init_db, set_connection
+
+        conn = init_db(str(tmp_path / "mediaman.db"))
+        set_connection(conn)
+        app = FastAPI()
+        app.state.config = load_config()
+        app.include_router(poster_mod.router)
+        client = TestClient(app)
+
+        poster_mod._cache_dir = None
+
+        from mediaman.services.infra.rate_limits import POSTER_PUBLIC_LIMITER
+
+        POSTER_PUBLIC_LIMITER.reset()
+
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES "
+            "('plex_url', 'https://localhost', 0, ?)",
+            (now,),
+        )
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES "
+            "('plex_token', 'fake-token', 0, ?)",
+            (now,),
+        )
+        conn.commit()
+
+        mock_resp = MagicMock()
+        mock_resp.content = b"\xff\xd8\xff" + b"\x00" * 32
+        mock_resp.headers = {"Content-Type": "image/jpeg"}
+
+        # Make os.replace blow up so the temp file is left behind.
+        def fail_replace(_src, _dst):
+            raise OSError("simulated replace failure")
+
+        with (
+            patch("mediaman.web.routes.poster._POSTER_HTTP") as mock_http,
+            patch(
+                "mediaman.web.routes.poster._sanitise_plex_url",
+                return_value="https://localhost",
+            ),
+            patch("mediaman.web.routes.poster.os.replace", side_effect=fail_replace),
+        ):
+            mock_http.get.return_value = mock_resp
+            signed = sign_poster_url("44455", self._KEY)
+            r = client.get(signed)
+
+        assert r.status_code == 200
+        cache_dir = tmp_path / "poster_cache"
+        leftover = list(cache_dir.glob("*.tmp"))
+        assert leftover == [], f"Stale .tmp left after replace failure: {leftover}"
