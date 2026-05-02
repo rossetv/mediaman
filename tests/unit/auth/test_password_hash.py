@@ -4,9 +4,12 @@ Covers: create_user, authenticate, change_password, list_users, delete_user,
 user_must_change_password, set_must_change_password.
 """
 
+from unittest.mock import patch
+
 import pytest
 
 from mediaman.auth.password_hash import (
+    BCRYPT_ROUNDS,
     authenticate,
     change_password,
     create_user,
@@ -206,3 +209,257 @@ class TestDeleteUser:
     def test_unknown_id_returns_false(self, conn):
         create_user(conn, "alice", "pass", enforce_policy=False)
         assert delete_user(conn, 99999, current_username="alice") is False
+
+
+# ---------------------------------------------------------------------------
+# Bcrypt 72-byte truncation defence (FINDINGS Domain 01: D01-1, D01-9)
+# ---------------------------------------------------------------------------
+
+
+class TestLongPasswordEntropyPreserved:
+    """Bcrypt silently truncates inputs to 72 bytes; the SHA-256 pre-hash
+    in :func:`_prepare_bcrypt_input` must defeat that so two passwords
+    differing only in their bytes 73+ remain distinguishable."""
+
+    def test_two_passwords_differing_after_byte_72_are_distinguishable(self, conn):
+        # Build two passwords whose first 72 bytes are identical and
+        # which then diverge. Without the pre-hash, bcrypt would treat
+        # them as the same input and authenticate() would return True
+        # for the wrong one.
+        common_prefix = "A" * 72
+        password_a = common_prefix + "tail-a-12345"
+        password_b = common_prefix + "tail-b-67890"
+        assert password_a[:72] == password_b[:72]
+        assert password_a != password_b
+
+        create_user(conn, "alice", password_a, enforce_policy=False)
+        # The correct long password must verify.
+        assert authenticate(conn, "alice", password_a) is True
+        # The other long password — same first 72 bytes — must NOT
+        # verify. Without the pre-hash, bcrypt would have treated it as
+        # equal and this would return True.
+        assert authenticate(conn, "alice", password_b) is False
+
+    def test_short_password_round_trips(self, conn):
+        """Inputs ≤ 72 bytes must continue to verify against bcrypt
+        directly, so existing rows minted before the pre-hash landed
+        still validate."""
+        create_user(conn, "alice", "short-pass-789!", enforce_policy=False)
+        assert authenticate(conn, "alice", "short-pass-789!") is True
+
+    def test_existing_row_without_prehash_still_verifies(self, conn):
+        """Belt-and-braces: a row inserted with the legacy
+        ``bcrypt.hashpw(password.encode(), ...)`` pattern must still
+        verify under the new authenticate(). This guards against an
+        accidental scheme switch that would lock everyone out."""
+        import bcrypt
+
+        legacy = "legacy-pass-abc"
+        legacy_hash = bcrypt.hashpw(legacy.encode(), bcrypt.gensalt(rounds=4)).decode()
+        conn.execute(
+            "INSERT INTO admin_users (username, password_hash, created_at) "
+            "VALUES (?, ?, '2026-01-01')",
+            ("legacy", legacy_hash),
+        )
+        conn.commit()
+        assert authenticate(conn, "legacy", legacy) is True
+
+    def test_bcrypt_rounds_constant_used(self, conn):
+        """The bcrypt cost factor MUST come from the BCRYPT_ROUNDS
+        module constant rather than scattered ``rounds=12`` literals,
+        so the dummy hash and the real-user hash agree."""
+        assert BCRYPT_ROUNDS == 12
+
+    def test_unicode_normalisation_round_trip(self, conn):
+        """``é`` (precomposed, U+00E9) and ``e`` + combining acute
+        (U+0065 U+0301) must hash to the same bcrypt value so a user
+        who sets their password on one OS can still log in from
+        another."""
+        precomposed = "Café-passphrase-789"
+        decomposed = "Café-passphrase-789"
+        # Sanity: these are different byte sequences.
+        assert precomposed.encode("utf-8") != decomposed.encode("utf-8")
+        # But identical to a human eye after NFKC.
+        create_user(conn, "alice", precomposed, enforce_policy=False)
+        assert authenticate(conn, "alice", decomposed) is True
+        # Sanity: a different password still fails.
+        assert authenticate(conn, "alice", "Cafe-different-789") is False
+
+
+# ---------------------------------------------------------------------------
+# Empty-username DoS short-circuit (FINDINGS Domain 01: D01-2)
+# ---------------------------------------------------------------------------
+
+
+class TestEmptyUsernameShortCircuit:
+    """An empty username must return False without burning a bcrypt
+    round, otherwise an unauthenticated attacker can stream
+    empty-username requests at the endpoint and DoS the server's CPU."""
+
+    def test_empty_username_does_not_call_bcrypt(self, conn):
+        with patch("mediaman.auth.password_hash.bcrypt") as mock_bcrypt:
+            assert authenticate(conn, "", "any-password") is False
+            assert not mock_bcrypt.checkpw.called
+            assert not mock_bcrypt.hashpw.called
+
+    def test_empty_username_returns_false_quickly(self, conn):
+        # Smoke test: doesn't hit bcrypt, so wall time is in the
+        # micro-second range. We don't measure here (CI noise) — the
+        # mock-based test above is the load-bearing assertion.
+        assert authenticate(conn, "", "any") is False
+
+
+# ---------------------------------------------------------------------------
+# Locked-account short-circuit (FINDINGS Domain 01: D01-4)
+# ---------------------------------------------------------------------------
+
+
+class TestLockedAccountSkipsBcrypt:
+    """When the account is already locked, authenticate() must skip the
+    bcrypt round. record_failure() is still called so the escalation
+    thresholds (5/10/15 → 15min/1h/24h) remain reachable — see C6 in
+    test_login_lockout.py."""
+
+    def test_locked_account_skips_bcrypt_call(self, conn):
+        from mediaman.auth.login_lockout import record_failure
+
+        create_user(conn, "alice", "correct-pass", enforce_policy=False)
+        # Force the account into a locked state.
+        for _ in range(5):
+            record_failure(conn, "alice")
+        # Now patch bcrypt and confirm authenticate does not call it.
+        with patch("mediaman.auth.password_hash.bcrypt") as mock_bcrypt:
+            assert authenticate(conn, "alice", "anything") is False
+            assert not mock_bcrypt.checkpw.called
+            assert not mock_bcrypt.hashpw.called
+
+    def test_locked_account_lookup_constant_for_existing_and_missing(self, conn):
+        """Lockout state lookup must take roughly the same time whether
+        the username exists or not, otherwise a timing channel
+        enumerates valid usernames. We assert by execution-path: both
+        cases skip bcrypt entirely once locked."""
+        from mediaman.auth.login_lockout import record_failure
+
+        # Real user, locked.
+        create_user(conn, "alice", "correct-pass", enforce_policy=False)
+        for _ in range(5):
+            record_failure(conn, "alice")
+
+        # Phantom user, also locked. We push the counter directly so a
+        # ghost username is "locked" without ever existing in
+        # admin_users.
+        for _ in range(5):
+            record_failure(conn, "ghost")
+
+        with patch("mediaman.auth.password_hash.bcrypt") as mock_bcrypt:
+            assert authenticate(conn, "alice", "anything") is False
+            assert authenticate(conn, "ghost", "anything") is False
+            assert not mock_bcrypt.checkpw.called
+            assert not mock_bcrypt.hashpw.called
+
+    def test_locked_account_keeps_counting(self, conn):
+        """Regression: the short-circuit MUST still call record_failure
+        so the 10-failure / 15-failure escalation remains reachable."""
+        create_user(conn, "alice", "correct-pass", enforce_policy=False)
+        # Trip the 5-failure lock.
+        for _ in range(5):
+            authenticate(conn, "alice", "wrong")
+        # Then 5 more under lockout — counter must climb to 10.
+        for _ in range(5):
+            authenticate(conn, "alice", "wrong")
+        row = conn.execute(
+            "SELECT failure_count FROM login_failures WHERE username = ?",
+            ("alice",),
+        ).fetchone()
+        assert row["failure_count"] == 10
+
+
+# ---------------------------------------------------------------------------
+# change_password failure logging (FINDINGS Domain 01: D01-5)
+# ---------------------------------------------------------------------------
+
+
+class TestChangePasswordFailureLogging:
+    def test_wrong_old_password_logs_warning(self, conn, caplog):
+        import logging
+
+        create_user(conn, "alice", "correct-old", enforce_policy=False)
+        with caplog.at_level(logging.WARNING, logger="mediaman"):
+            ok = change_password(conn, "alice", "wrong-old", "new-pass", enforce_policy=False)
+        assert ok is False
+        # Look for the password.change_failed event.
+        records = [r for r in caplog.records if "password.change_failed" in r.getMessage()]
+        assert records, "expected password.change_failed warning"
+        # Must NOT contain the password itself.
+        for r in records:
+            assert "wrong-old" not in r.getMessage()
+            assert "new-pass" not in r.getMessage()
+
+
+# ---------------------------------------------------------------------------
+# change_password TOCTOU (FINDINGS Domain 01: D01-6)
+# ---------------------------------------------------------------------------
+
+
+class TestChangePasswordTOCTOU:
+    def test_user_deleted_between_authenticate_and_update(self, conn):
+        """If the user is deleted between authenticate() returning True
+        and the UPDATE running, change_password() must roll back and
+        return False — not silently claim success."""
+        create_user(conn, "alice", "correct-old", enforce_policy=False)
+
+        # Race: delete the user *during* authenticate() but before the
+        # UPDATE. We do that by patching authenticate to side-effect
+        # the deletion just before returning True.
+        original_authenticate = authenticate
+
+        def authenticate_then_delete(c, u, p, *, record_failures=True):
+            result = original_authenticate(c, u, p, record_failures=record_failures)
+            if result and u == "alice":
+                # Race in: deletion happens before our caller's UPDATE.
+                c.execute("DELETE FROM admin_users WHERE username = ?", (u,))
+                c.commit()
+            return result
+
+        with patch(
+            "mediaman.auth.password_hash.authenticate",
+            side_effect=authenticate_then_delete,
+        ):
+            ok = change_password(conn, "alice", "correct-old", "new-pass-2", enforce_policy=False)
+        assert ok is False
+        # No row should have been updated (the user was deleted, so
+        # rowcount is 0 and the rollback should have left things
+        # consistent).
+        row = conn.execute("SELECT 1 FROM admin_users WHERE username = ?", ("alice",)).fetchone()
+        assert row is None
+
+
+# ---------------------------------------------------------------------------
+# change_password reauth ticket revocation inside the transaction
+# (FINDINGS Domain 01: D01-7)
+# ---------------------------------------------------------------------------
+
+
+class TestChangePasswordReauthInsideTransaction:
+    def test_reauth_tickets_dropped_on_password_change(self, conn):
+        """Reauth tickets keyed by the user's old session must be
+        revoked atomically with the password-change transaction so a
+        thief holding a ticket cannot redeem it under the freshly
+        issued session."""
+        from mediaman.auth.reauth import grant_recent_reauth, has_recent_reauth
+        from mediaman.auth.session_store import create_session
+
+        create_user(conn, "alice", "old-pass", enforce_policy=False)
+        token = create_session(conn, "alice")
+        grant_recent_reauth(conn, token, "alice")
+        assert has_recent_reauth(conn, token, "alice") is True
+
+        ok = change_password(conn, "alice", "old-pass", "new-pass", enforce_policy=False)
+        assert ok is True
+
+        # Both the session AND the reauth ticket must be gone.
+        assert has_recent_reauth(conn, token, "alice") is False
+        ticket_row = conn.execute(
+            "SELECT 1 FROM reauth_tickets WHERE username = ?", ("alice",)
+        ).fetchone()
+        assert ticket_row is None

@@ -103,6 +103,72 @@ class TestPasswordIssues:
         assert summary and all(isinstance(s, str) for s in summary)
 
 
+class TestPasswordMaxLength:
+    """Hard byte cap protects against megabyte-scale password DoS
+    (FINDINGS Domain 01: D01-3)."""
+
+    def test_two_megabyte_password_rejected(self):
+        # 2 MB of ASCII — far above the 1024-byte cap.
+        huge = "A" * (2 * 1024 * 1024)
+        issues = password_issues(huge, username="alice")
+        assert issues
+        assert any("too long" in issue.lower() for issue in issues)
+
+    def test_just_over_cap_rejected(self):
+        from mediaman.auth.password_policy import MAX_BYTES
+
+        too_long = "A" * (MAX_BYTES + 1)
+        issues = password_issues(too_long, username="alice")
+        assert any("too long" in issue.lower() for issue in issues)
+
+    def test_just_under_cap_uses_normal_path(self):
+        """A password right at the cap should be evaluated by the
+        normal rules (and likely fail other checks like class
+        diversity), not short-circuited as 'too long'."""
+        from mediaman.auth.password_policy import MAX_BYTES
+
+        at_cap = "A" * MAX_BYTES
+        issues = password_issues(at_cap, username="alice")
+        # Should NOT be the byte-cap issue.
+        assert not any("too long" in issue.lower() for issue in issues)
+
+    def test_too_long_short_circuits_other_checks(self):
+        """Returning early on the length cap keeps the response payload
+        tiny when an attacker submits a giant password — and avoids
+        wasting CPU on set() / lower() over megabytes of input."""
+        huge = "A" * (10 * 1024 * 1024)
+        issues = password_issues(huge, username="alice")
+        # Only the byte-cap issue should appear.
+        assert len(issues) == 1
+        assert "too long" in issues[0].lower()
+
+
+class TestUnicodeNormalisation:
+    """NFKC normalisation must be applied so visually-identical strings
+    in different encodings are treated as equal (FINDINGS Domain 01:
+    D01-9)."""
+
+    def test_precomposed_and_decomposed_equivalent(self):
+        # Build the two byte sequences explicitly so the source-file
+        # editor cannot accidentally normalise them at save time:
+        #   ``é`` precomposed = U+00E9
+        #   ``e`` + combining acute = U+0065 U+0301
+        precomposed = "Café-passphrase-789"
+        decomposed = "Café-passphrase-789"
+        assert precomposed.encode("utf-8") != decomposed.encode("utf-8")
+        # Both must produce identical issue lists after NFKC.
+        assert password_issues(precomposed, "alice") == password_issues(decomposed, "alice")
+
+    def test_full_width_digits_folded(self):
+        """NFKC folds compatibility digits (full-width '１' → '1') so a
+        password mixing full-width and ASCII digits is treated as a
+        single canonical form."""
+        # Two passwords that NFKC normalises to the same thing.
+        full_width = "Café-passphrase-７８９"  # U+FF17/18/19 are full-width 7/8/9
+        ascii_digits = "Café-passphrase-789"
+        assert password_issues(full_width, "alice") == password_issues(ascii_digits, "alice")
+
+
 class TestForceChangeFlag:
     """Integration: login with a weak plaintext should flip the flag."""
 
