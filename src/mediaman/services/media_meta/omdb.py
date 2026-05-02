@@ -10,23 +10,81 @@ reads the OMDb API key from the DB but must only be called from the thread
 that owns *conn*.  Callers that dispatch work to a thread pool must read the
 key via :func:`get_omdb_key` *before* submitting tasks and pass the resolved
 key string to worker callables directly (see ``search.py``).
+
+Logging note
+------------
+The OMDb REST API only accepts the API key as a query string parameter.
+``urllib3`` logs request URLs at DEBUG, so the key would otherwise leak
+into ``mediaman.log`` in any deployment that enables DEBUG-level
+logging.  We install a logging filter on the urllib3 connection logger
+that scrubs ``apikey=`` from messages before they're emitted.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 
-from mediaman.services.infra.http_client import SafeHTTPClient
+import requests
+
+from mediaman.services.infra.http_client import SafeHTTPClient, SafeHTTPError
 from mediaman.services.infra.settings_reader import get_string_setting
 
 #: Base URL for the OMDb REST API.
 OMDB_API_BASE_URL = "https://www.omdbapi.com"
 
-# Module-level client so the connection pool is shared across calls.
-_OMDB_CLIENT = SafeHTTPClient(OMDB_API_BASE_URL)
+# Module-level client + session so the connection pool is shared across
+# calls. ``SafeHTTPClient`` accepts a ``session`` kwarg so callers can
+# provide their own pool — the previous build constructed the client
+# without one, which left every call using a fresh connection.
+_OMDB_SESSION = requests.Session()
+_OMDB_CLIENT = SafeHTTPClient(OMDB_API_BASE_URL, session=_OMDB_SESSION)
 
 logger = logging.getLogger("mediaman")
+
+
+# ---------------------------------------------------------------------------
+# Scrub ``apikey=`` from any urllib3/requests log messages so a DEBUG-level
+# logging configuration cannot leak the key into the on-disk log.
+# ---------------------------------------------------------------------------
+_APIKEY_QS_RE = re.compile(r"apikey=[^&\s'\"]*", re.IGNORECASE)
+
+
+class _ScrubApiKeyFilter(logging.Filter):
+    """Logging filter that replaces ``apikey=<value>`` with ``apikey=<redacted>``.
+
+    Attached to the ``urllib3.connectionpool`` logger at module import.
+    DEBUG log records on that logger include the full request URL, which
+    on OMDb means the key.  The filter rewrites the message in place so
+    nothing downstream (file handler, syslog) sees the secret.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401 — Filter API
+        try:
+            if isinstance(record.msg, str) and "apikey=" in record.msg.lower():
+                record.msg = _APIKEY_QS_RE.sub("apikey=<redacted>", record.msg)
+            if record.args:
+                if isinstance(record.args, tuple):
+                    record.args = tuple(
+                        _APIKEY_QS_RE.sub("apikey=<redacted>", a) if isinstance(a, str) else a
+                        for a in record.args
+                    )
+        except Exception:
+            # A logging filter that raises would silence the log entirely —
+            # drop quietly and let the (possibly unscrubbed) record through.
+            return True
+        return True
+
+
+# Attach to the urllib3 connection-pool logger (where the request URL is
+# logged at DEBUG) and to ``mediaman`` itself for any caller that ever
+# stringifies a SafeHTTPError carrying the URL.  The filter is idempotent
+# — repeated module imports won't double-attach because ``addFilter``
+# silently no-ops on an already-present instance reference.
+_omdb_apikey_filter = _ScrubApiKeyFilter()
+logging.getLogger("urllib3.connectionpool").addFilter(_omdb_apikey_filter)
+logger.addFilter(_omdb_apikey_filter)
 
 
 def get_omdb_key(conn: sqlite3.Connection, secret_key: str) -> str | None:
@@ -87,7 +145,12 @@ def fetch_ratings(
     try:
         resp = _OMDB_CLIENT.get("/", params=params, timeout=(5.0, 5.0))
         data = resp.json()
-    except Exception:
+    except (SafeHTTPError, requests.RequestException, ValueError, KeyError):
+        # ValueError covers ``Response.json``'s ``json.JSONDecodeError``
+        # (a subclass of ValueError, NOT RequestException) which the
+        # bare-Exception catch used to swallow alongside genuine
+        # programming errors.  KeyError is kept for the rare case where
+        # SafeHTTPClient internals raise on a missing dict key.
         return {}
     if not isinstance(data, dict) or data.get("Response") != "True":
         return {}
