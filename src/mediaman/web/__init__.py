@@ -39,19 +39,24 @@ def _parse_allowed_hosts(raw: str | None) -> list[str]:
 
 # Content Security Policy — per-request nonce strategy.
 #
-# - A fresh ``nonce-<base64url>`` value is minted per request and added to
-#   ``script-src`` and ``style-src`` alongside the existing
-#   ``'unsafe-inline'``.  CSP3-aware browsers ignore ``'unsafe-inline'``
-#   when a ``'nonce-...'`` is present, so any inline ``<script>`` or
-#   ``<style>`` block that doesn't carry the matching ``nonce="..."``
-#   attribute will be rejected.  Legacy browsers that don't support
-#   nonces fall back to ``'unsafe-inline'`` so existing inline blocks
-#   continue to render until they are migrated to either external files
-#   or to nonce-marked blocks (TODO H65).
+# Wave 7 extracted every page-level inline ``<script>`` block to an
+# external file under ``static/js/``. The only remaining inline scripts
+# in templates are ``<script type="application/json">`` JSON islands,
+# which are non-executable and not subject to ``script-src``. As a
+# result the previous ``'unsafe-inline'`` fallback on ``script-src`` is
+# no longer needed and has been dropped — a stored XSS in a Jinja
+# ``|safe`` interpolation can no longer execute script content.
 #
-#   Templates expose the nonce via ``request.state.csp_nonce`` (set by
-#   :class:`SecurityHeadersMiddleware`).  Inline scripts that need to
-#   stay inline should add ``nonce="{{ request.state.csp_nonce }}"``.
+# ``style-src`` keeps ``'unsafe-inline'`` for now because several
+# templates still use ``style="display:none"`` inline attributes
+# (Domain 10 finding M2 / NIT). Migrating those to CSS classes is a
+# separate cleanup pass; until it lands the fallback prevents a CSP
+# violation on every page render.
+#
+# Templates expose the nonce via ``request.state.csp_nonce`` (set by
+# :class:`SecurityHeadersMiddleware`).  Any future inline ``<script>``
+# that genuinely has to stay inline must add
+# ``nonce="{{ request.state.csp_nonce }}"`` to the tag.
 #
 # - ``img-src`` is an allowlist of known image CDNs (finding 20):
 #   * 'self'           — /api/poster proxy + static assets
@@ -86,13 +91,17 @@ _CSP_STATIC_DIRECTIVES = (
 def _build_csp(nonce: str) -> str:
     """Return the per-request CSP header text with *nonce* threaded in.
 
-    The nonce is added to both ``script-src`` and ``style-src``; the
-    existing ``'unsafe-inline'`` is retained as the legacy fallback so
-    templates that still ship un-noncified inline blocks keep working
-    on CSP2-only browsers.
+    ``script-src`` no longer carries ``'unsafe-inline'``: every
+    page-level inline ``<script>`` was extracted to an external file in
+    Wave 7, and the only remaining inline scripts are
+    ``type="application/json"`` data islands which CSP does not gate.
+
+    ``style-src`` still carries ``'unsafe-inline'`` until the inline
+    ``style=`` attributes scattered across templates are migrated to
+    CSS classes.
     """
     return (
-        f"script-src 'self' 'nonce-{nonce}' 'unsafe-inline'; "
+        f"script-src 'self' 'nonce-{nonce}'; "
         f"style-src 'self' 'nonce-{nonce}' 'unsafe-inline'; "
         f"{_CSP_STATIC_DIRECTIVES}"
     )
