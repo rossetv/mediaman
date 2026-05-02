@@ -397,7 +397,12 @@ class TestThrottleDbPersistence:
 
         # Cold start — clear in-memory state as if the process just booted.
         reset_search_triggers()
-        assert get_search_info("radarr:LongRunner") == (0, 0.0)
+        # `get_search_info` is now DB-backed (Wave 4-8 made the DB the
+        # source of truth), so the persisted count is visible immediately
+        # after the cold start, not only after a triggering call.
+        warmed_count, warmed_epoch = get_search_info("radarr:LongRunner")
+        assert warmed_count == 5
+        assert abs(warmed_epoch - old_epoch) < 1
 
         item = {
             "kind": "movie",
