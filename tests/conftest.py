@@ -1,9 +1,43 @@
 """Shared test fixtures."""
 
 import socket
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+
+# Tests directory root, used by ``pytest_collection_modifyitems`` to attach
+# unit/integration markers based on which subtree a test file lives under.
+_TESTS_ROOT = Path(__file__).resolve().parent
+
+
+def pytest_collection_modifyitems(config, items):
+    """Auto-apply ``unit`` / ``integration`` markers based on test path.
+
+    The pyproject declares both markers under ``[tool.pytest.ini_options]``
+    but every test file would otherwise need to opt in manually. We tag
+    everything under ``tests/unit/`` with ``@pytest.mark.unit`` and anything
+    under ``tests/integration/`` with ``@pytest.mark.integration`` so
+    selecting a subset via ``-m unit`` or ``-m integration`` works without
+    editing every test.
+
+    Tests that explicitly mark themselves keep their existing marker — we
+    only add when missing. Tests outside both subtrees are left unmarked
+    so the strict-markers config doesn't trip on ad-hoc placements.
+    """
+    unit_root = _TESTS_ROOT / "unit"
+    integration_root = _TESTS_ROOT / "integration"
+    for item in items:
+        try:
+            item_path = Path(item.path).resolve()
+        except Exception:
+            continue
+        if unit_root in item_path.parents:
+            if "unit" not in {m.name for m in item.iter_markers()}:
+                item.add_marker(pytest.mark.unit)
+        elif integration_root in item_path.parents:
+            if "integration" not in {m.name for m in item.iter_markers()}:
+                item.add_marker(pytest.mark.integration)
 
 
 @pytest.fixture(autouse=True)
@@ -40,6 +74,26 @@ def _clear_scanner_runner_caches():
     _reset_plex_client_cache()
     yield
     _reset_plex_client_cache()
+
+
+@pytest.fixture(autouse=True)
+def _reset_db_connection_state():
+    """Drop any thread-local DB connection registered by the previous test.
+
+    ``set_connection`` writes module-level globals
+    (``_owning_conn``/``_owning_thread``) and a thread-local
+    ``_thread_local.conn``. Without an explicit reset between tests, a
+    connection bound to a SQLite file from test A keeps responding to
+    ``get_db()`` calls from test B — and because pytest's tmp_path
+    fixtures change the file underneath, the stale handle silently
+    returns rows from the wrong DB.
+    """
+    yield
+    try:
+        from mediaman.db import reset_connection
+    except Exception:
+        return
+    reset_connection()
 
 
 class _FakeHTTPSession:
