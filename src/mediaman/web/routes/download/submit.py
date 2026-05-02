@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import sqlite3
 from typing import TypedDict
 
@@ -231,9 +232,29 @@ def download_submit(request: Request, token: str) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "Token expired or invalid"}, status_code=410)
 
     exp_value = payload.get("exp", 0)
-    if not isinstance(exp_value, (int, float)):
+    # ``int(float('inf'))`` raises OverflowError. Guard against a
+    # signer-controlled non-finite ``exp`` so a malformed token can never
+    # crash the handler — treat it as expired/invalid.
+    if not isinstance(exp_value, (int, float)) or not math.isfinite(exp_value):
         return JSONResponse({"ok": False, "error": "Token expired or invalid"}, status_code=410)
-    if not _mark_token_used(token, int(exp_value)):
+
+    # Phase 1 of the 2-phase reservation: claim the token in the DB
+    # *before* doing any Arr work. _mark_token_used returns False when
+    # the digest is already recorded (replay or cross-worker collision)
+    # and raises on DB failure (fail closed → 503 so the user can retry
+    # once the DB recovers, rather than letting a replay slip through
+    # on an unverified cache entry).
+    try:
+        claimed = _mark_token_used(token, int(exp_value))
+    except Exception:
+        # The token persistence layer already logs CRITICAL with a
+        # traceback; here we only need to translate the failure into a
+        # retryable response to the client.
+        return JSONResponse(
+            {"ok": False, "error": "Service temporarily unavailable, please retry"},
+            status_code=503,
+        )
+    if not claimed:
         return JSONResponse(
             {"ok": False, "error": "This download link has already been used"},
             status_code=409,
@@ -267,6 +288,8 @@ def download_submit(request: Request, token: str) -> JSONResponse:
             result = _submit_to_radarr(dl_payload)
         else:
             result = _submit_to_sonarr(dl_payload)
+        # Phase 2 (success): the Arr submission completed — leave the
+        # reservation row in place so the token cannot be replayed.
         return result
 
     except SafeHTTPError as exc:
@@ -289,6 +312,8 @@ def download_submit(request: Request, token: str) -> JSONResponse:
             if poll_token:
                 response["poll_token"] = poll_token
             return JSONResponse(response, status_code=409)
+        # Phase 2 (failure): release the reservation so the user can
+        # retry once the upstream recovers.
         _unmark_token_used(token)
         logger.warning("Download token submit failed for '%s': %s", title, exc, exc_info=True)
         return JSONResponse(
