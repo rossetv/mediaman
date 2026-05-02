@@ -307,6 +307,18 @@ def get_search_info(dl_id: str) -> tuple[int, float]:
 
     ``(0, 0.0)`` is only returned when nothing is in memory AND nothing
     is in the DB.
+
+    Connection caveat (Domain-06 #13): the DB-fallback branch calls
+    ``mediaman.db.get_db()`` rather than reusing the connection passed
+    in by the caller — because this entry point takes only a ``dl_id``
+    string and doesn't have a connection in scope. ``get_db()`` returns
+    the request-local connection from the FastAPI middleware, which is
+    a DIFFERENT SQLite connection from the one the background scheduler
+    thread holds when it persists throttle writes. SQLite's WAL mode
+    handles cross-connection visibility, so committed writes from the
+    scheduler are immediately visible here, but the two connections
+    are not the same — anyone modifying this code should be aware that
+    transactions started by the caller are NOT in scope here.
     """
     with _state_lock:
         count = _search_count.get(dl_id, 0)
