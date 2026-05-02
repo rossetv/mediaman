@@ -550,7 +550,7 @@ class TestLibrarySearchLikeEscape:
 
         from mediaman.web.routes.library._query import fetch_library as _fetch_library
 
-        items, total = _fetch_library(conn, q="%")
+        items, _total = _fetch_library(conn, q="%")
         titles = {i["title"] for i in items}
         assert "50% Off" in titles
         assert "Normal Movie" not in titles
@@ -574,7 +574,7 @@ class TestLibrarySearchLikeEscape:
 
         from mediaman.web.routes.library._query import fetch_library as _fetch_library
 
-        items, total = _fetch_library(conn, q="_")
+        items, _total = _fetch_library(conn, q="_")
         titles = {i["title"] for i in items}
         assert "foo_bar" in titles
         assert "fooXbar" not in titles

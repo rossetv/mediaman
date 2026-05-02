@@ -6,6 +6,7 @@ migrations live in :mod:`mediaman.db.schema`.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import sqlite3
 import threading
@@ -218,10 +219,8 @@ def _start_job_run(conn: sqlite3.Connection, table: str) -> int | None:
         conn.execute("COMMIT")
         return run_id
     except Exception:
-        try:
+        with contextlib.suppress(Exception):
             conn.execute("ROLLBACK")
-        except Exception:
-            pass
         raise
 
 

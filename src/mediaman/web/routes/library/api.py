@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import difflib
 import logging
 import secrets
@@ -125,10 +126,8 @@ def reconcile_pending_delete_intents() -> int:
                 media_item_id,
             )
         except Exception as exc:
-            try:
+            with contextlib.suppress(Exception):
                 conn.execute("ROLLBACK")
-            except Exception:
-                pass
             _fail_delete_intent(conn, intent_id, str(exc))
             logger.warning(
                 "delete_intent.reconcile_failed intent_id=%s media_id=%s error=%s",
@@ -255,10 +254,8 @@ def api_media_delete(
         }
         conn.execute("COMMIT")
     except Exception:
-        try:
+        with contextlib.suppress(Exception):
             conn.execute("ROLLBACK")
-        except Exception:
-            pass
         raise
 
     title = snapshot["title"]
@@ -369,10 +366,8 @@ def api_media_delete(
         conn.execute("DELETE FROM media_items WHERE id = ?", (media_id,))
         conn.execute("COMMIT")
     except Exception:
-        try:
+        with contextlib.suppress(Exception):
             conn.execute("ROLLBACK")
-        except Exception:
-            pass
         raise
 
     if intent_id is not None:
@@ -618,19 +613,18 @@ def api_media_redownload(
     if imdb_id == "":
         imdb_id = None
 
-    if tmdb_id is None and tvdb_id is None and not imdb_id:
-        if not title or year is None:
-            return JSONResponse(
-                {
-                    "ok": False,
-                    "error": (
-                        "Provide at least one of tmdb_id, tvdb_id, imdb_id; "
-                        "title+year alone is only accepted with an exact "
-                        "year and a confident title match"
-                    ),
-                },
-                status_code=400,
-            )
+    if tmdb_id is None and tvdb_id is None and not imdb_id and (not title or year is None):
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": (
+                    "Provide at least one of tmdb_id, tvdb_id, imdb_id; "
+                    "title+year alone is only accepted with an exact "
+                    "year and a confident title match"
+                ),
+            },
+            status_code=400,
+        )
 
     if not title:
         return JSONResponse({"ok": False, "error": "No title provided"}, status_code=400)

@@ -118,10 +118,7 @@ def _host_is_metadata(hostname: str) -> bool:
     h = hostname.lower().rstrip(".")
     if h in _METADATA_HOSTNAMES:
         return True
-    for suffix in _BLOCKED_HOST_SUFFIXES:
-        if h.endswith(suffix):
-            return True
-    return False
+    return any(h.endswith(suffix) for suffix in _BLOCKED_HOST_SUFFIXES)
 
 
 def _ip_is_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address, *, strict: bool) -> bool:

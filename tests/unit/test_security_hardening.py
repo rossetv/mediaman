@@ -194,7 +194,8 @@ class TestUnsubscribeToken:
 
         token = generate_unsubscribe_token(email="x@y.com", secret_key=_KEY)
         payload = validate_unsubscribe_token(token, _KEY)
-        assert payload is not None and payload.get("email") == "x@y.com"
+        assert payload is not None
+        assert payload.get("email") == "x@y.com"
 
     def test_wrong_email_rejected(self):
         from mediaman.crypto import (

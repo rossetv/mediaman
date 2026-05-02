@@ -69,7 +69,8 @@ class TestPosterSignature:
         assert url.startswith("/api/poster/12345?sig=")
         sig = url.split("?sig=", 1)[1]
         payload = validate_poster_token(sig, self._KEY)
-        assert payload is not None and payload.get("rk") == "12345"
+        assert payload is not None
+        assert payload.get("rk") == "12345"
 
     def test_verify_rejects_tampered_rating_key(self):
         """Token for "12345" must not authorise access to "99999"."""
@@ -417,7 +418,8 @@ class TestPosterTokenTimingSafety:
 
         token = generate_poster_token(rating_key="99", secret_key=self._KEY)
         payload = validate_poster_token(token, self._KEY)
-        assert payload is not None and payload.get("rk") == "99"
+        assert payload is not None
+        assert payload.get("rk") == "99"
 
     def test_token_with_single_bit_flip_returns_none(self):
         """A one-character mutation in the signature must always fail."""
@@ -454,7 +456,8 @@ class TestPosterTokenTimingSafety:
         with patch("mediaman.crypto.hmac.compare_digest", side_effect=recording_compare_digest):
             result = validate_poster_token(token, self._KEY)
 
-        assert result is not None and result.get("rk") == "42"
+        assert result is not None
+        assert result.get("rk") == "42"
         assert len(calls) >= 1, "hmac.compare_digest was not called"
         assert calls[-1] is True
 

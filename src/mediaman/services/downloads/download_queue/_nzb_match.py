@@ -11,7 +11,4 @@ def nzb_matches_arr(nzb_t_norm: str, arr_candidates: list[str]) -> bool:
     is a list of normalised strings built from the arr item's primary title
     and any release names Sonarr/Radarr recorded.
     """
-    for cand in arr_candidates:
-        if cand in nzb_t_norm or nzb_t_norm in cand:
-            return True
-    return False
+    return any(cand in nzb_t_norm or nzb_t_norm in cand for cand in arr_candidates)

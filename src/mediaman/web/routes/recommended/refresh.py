@@ -7,6 +7,7 @@ endpoints, and the worker that calls into
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
 from datetime import UTC, datetime
@@ -122,10 +123,8 @@ def api_refresh_recommendations(
         except Exception as exc:
             logger.exception("Background recommendation refresh failed")
             result = {"ok": False, "error": "Recommendation refresh failed"}
-            try:
+            with contextlib.suppress(Exception):
                 finish_refresh_run(thread_conn, run_id, "error", str(exc))
-            except Exception:
-                pass
         finally:
             _set_refresh_result(result)
             if not manual_refresh_recorded:

@@ -7,6 +7,7 @@ Takes a list of partially-populated recommendation dicts (from
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from typing import Any
 from urllib.parse import quote as urlquote
@@ -87,7 +88,5 @@ def enrich_recommendations(
         if "metascore" in ratings:
             s["metascore"] = ratings["metascore"]
         if not s.get("rating") and "imdb" in ratings:
-            try:
+            with contextlib.suppress(TypeError, ValueError):
                 s["rating"] = round(float(ratings["imdb"]), 1)
-            except (TypeError, ValueError):
-                pass

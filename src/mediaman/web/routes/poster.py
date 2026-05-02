@@ -23,6 +23,7 @@ oracle to enumerate the user's library rating keys.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import os
@@ -169,10 +170,8 @@ def _write_sidecar_mime(cache_path: Path, mime: str) -> None:
     except OSError:
         logger.debug("Sidecar mime write failed for %s", cache_path, exc_info=True)
         if tmp_name and os.path.exists(tmp_name):
-            try:
+            with contextlib.suppress(OSError):
                 os.remove(tmp_name)
-            except OSError:
-                pass
 
 
 def _maybe_sweep_cache(cache_dir: Path) -> None:

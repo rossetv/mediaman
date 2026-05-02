@@ -295,9 +295,7 @@ def has_recent_reauth(
     # caller can demand a stricter window than the original grant.
     if now > expires:
         return False
-    if now - granted > timedelta(seconds=max_age_seconds):
-        return False
-    return True
+    return not now - granted > timedelta(seconds=max_age_seconds)
 
 
 def revoke_reauth(conn: sqlite3.Connection, session_token: str) -> None:

@@ -486,7 +486,8 @@ class TestPollingCapability:
         # Validate the poll_token is scoped to the correct service + tmdb_id
         poll_payload = validate_poll_token(data["poll_token"], secret_key)
         assert poll_payload is not None
-        assert poll_payload.get("svc") == "radarr" and poll_payload.get("tmdb") == 42
+        assert poll_payload.get("svc") == "radarr"
+        assert poll_payload.get("tmdb") == 42
 
     def test_poll_token_validates_wrong_service(self, db_path, secret_key):
         """A radarr poll_token must not validate for sonarr."""

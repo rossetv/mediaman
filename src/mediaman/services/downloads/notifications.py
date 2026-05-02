@@ -7,6 +7,7 @@ called frequently (once per library sync) so users get timely alerts.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import sqlite3
 from datetime import UTC, datetime, timedelta
@@ -180,10 +181,8 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[sqlite3.Row]:
             conn.execute("COMMIT")
             return rows
         except Exception:
-            try:
+            with contextlib.suppress(Exception):
                 conn.execute("ROLLBACK")
-            except Exception:
-                pass
             raise
 
 

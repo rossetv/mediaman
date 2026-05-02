@@ -424,15 +424,14 @@ def download_status(
         # submit response and must use it exclusively for polling.
         authenticated = False
 
-        if poll_token is not None:
-            if len(poll_token) <= 4096:
-                poll_payload = validate_poll_token(poll_token, config.secret_key)
-                if (
-                    poll_payload is not None
-                    and poll_payload.get("svc") == service
-                    and poll_payload.get("tmdb") == tmdb_id
-                ):
-                    authenticated = True
+        if poll_token is not None and len(poll_token) <= 4096:
+            poll_payload = validate_poll_token(poll_token, config.secret_key)
+            if (
+                poll_payload is not None
+                and poll_payload.get("svc") == service
+                and poll_payload.get("tmdb") == tmdb_id
+            ):
+                authenticated = True
 
         if not authenticated:
             return JSONResponse({"error": "Not authenticated"}, status_code=401)

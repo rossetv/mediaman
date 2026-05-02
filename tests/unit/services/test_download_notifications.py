@@ -584,4 +584,5 @@ class TestReconcileStrandedNotifications:
             (rows[0]["id"],),
         ).fetchone()
         assert row["notified"] == 2
-        assert row["claimed_at"] is not None and row["claimed_at"] != ""
+        assert row["claimed_at"] is not None
+        assert row["claimed_at"] != ""

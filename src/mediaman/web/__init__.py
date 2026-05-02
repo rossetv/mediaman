@@ -510,10 +510,7 @@ def _normalise_origin(value: str, default_scheme: str | None = None) -> tuple[st
         # IPv6 hosts must keep their bracketing when re-stitched with a
         # port, so something like "::1" gets serialised as "[::1]:8080"
         # rather than the ambiguous "::1:8080".
-        if ":" in host:
-            host_with_port = f"[{host}]:{port}"
-        else:
-            host_with_port = f"{host}:{port}"
+        host_with_port = f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
     else:
         host_with_port = host
     return (scheme, host_with_port)

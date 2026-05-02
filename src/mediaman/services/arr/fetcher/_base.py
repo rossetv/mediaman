@@ -16,7 +16,7 @@ logger = logging.getLogger("mediaman")
 _T = TypeVar("_T")
 
 
-def _iter_still_searching(
+def _iter_still_searching[T](
     fetch_items: Callable[[], Iterable[_T]],
     *,
     service_label: str,

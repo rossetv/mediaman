@@ -82,7 +82,7 @@ def _mock_tmdb(search_return=None, card_return=None, detail_return=None):
 
 class TestEnrichRecommendations:
     def test_tmdb_data_applied_to_rec(self, conn):
-        cls, inst = _mock_tmdb(
+        cls, _inst = _mock_tmdb(
             search_return={"id": 438631, "title": "Dune"}, card_return=_shape_card()
         )
         with (
@@ -100,7 +100,7 @@ class TestEnrichRecommendations:
     def test_description_truncated_to_250_chars(self, conn):
         card = _shape_card()
         card["description"] = "A" * 400
-        cls, inst = _mock_tmdb(search_return={"id": 1, "title": "Dune"}, card_return=card)
+        cls, _inst = _mock_tmdb(search_return={"id": 1, "title": "Dune"}, card_return=card)
         with (
             patch("mediaman.services.media_meta.tmdb.TmdbClient", cls),
             patch("mediaman.services.media_meta.omdb.fetch_ratings", return_value={}),
@@ -111,7 +111,7 @@ class TestEnrichRecommendations:
         assert len(recs[0]["description"]) <= 250
 
     def test_omdb_ratings_applied(self, conn):
-        cls, inst = _mock_tmdb(search_return=None)
+        cls, _inst = _mock_tmdb(search_return=None)
         with (
             patch("mediaman.services.media_meta.tmdb.TmdbClient", cls),
             patch(
@@ -128,7 +128,7 @@ class TestEnrichRecommendations:
 
     def test_imdb_score_used_as_fallback_rating(self, conn):
         """When TMDB has no rating, fall back to the IMDb score from OMDb."""
-        cls, inst = _mock_tmdb(search_return=None)
+        cls, _inst = _mock_tmdb(search_return=None)
         with (
             patch("mediaman.services.media_meta.tmdb.TmdbClient", cls),
             patch("mediaman.services.media_meta.omdb.fetch_ratings", return_value={"imdb": "7.5"}),
@@ -141,7 +141,7 @@ class TestEnrichRecommendations:
 
     def test_rec_without_title_skipped(self, conn):
         """A recommendation dict with no title must be skipped without raising."""
-        cls, inst = _mock_tmdb(search_return=None)
+        cls, _inst = _mock_tmdb(search_return=None)
         with (
             patch("mediaman.services.media_meta.tmdb.TmdbClient", cls),
             patch("mediaman.services.media_meta.omdb.fetch_ratings", return_value={}),
@@ -153,7 +153,7 @@ class TestEnrichRecommendations:
     def test_trailer_url_updated_with_year(self, conn):
         """When TMDB yields a year, trailer_url is rebuilt with title + year."""
         card = _shape_card(year=2021)
-        cls, inst = _mock_tmdb(search_return={"id": 1, "title": "Dune"}, card_return=card)
+        cls, _inst = _mock_tmdb(search_return={"id": 1, "title": "Dune"}, card_return=card)
         with (
             patch("mediaman.services.media_meta.tmdb.TmdbClient", cls),
             patch("mediaman.services.media_meta.omdb.fetch_ratings", return_value={}),

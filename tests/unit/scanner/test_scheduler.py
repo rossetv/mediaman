@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,10 +17,8 @@ def reset_scheduler():
     _sched_module._scheduler = None
     yield
     if _sched_module._scheduler is not None:
-        try:
+        with contextlib.suppress(Exception):
             _sched_module._scheduler.shutdown(wait=False)
-        except Exception:
-            pass
         _sched_module._scheduler = None
 
 

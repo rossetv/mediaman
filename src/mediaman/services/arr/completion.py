@@ -169,7 +169,8 @@ def record_verified_completions(
         try:
             if dl_id.startswith("radarr:"):
                 _ensure_radarr()
-                assert _radarr_by_id is not None and _radarr_by_title is not None
+                assert _radarr_by_id is not None
+                assert _radarr_by_title is not None
                 tmdb_id = c.get("tmdb_id")
                 movie = _radarr_by_id.get(int(tmdb_id)) if tmdb_id else None
                 if movie is None:
@@ -187,7 +188,8 @@ def record_verified_completions(
                     verified = True
             elif dl_id.startswith("sonarr:"):
                 _ensure_sonarr()
-                assert _sonarr_by_id is not None and _sonarr_by_title is not None
+                assert _sonarr_by_id is not None
+                assert _sonarr_by_title is not None
                 tmdb_id = c.get("tmdb_id")
                 series = _sonarr_by_id.get(int(tmdb_id)) if tmdb_id else None
                 if series is None:

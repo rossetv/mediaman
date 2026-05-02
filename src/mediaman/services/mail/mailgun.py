@@ -21,7 +21,7 @@ _T = TypeVar("_T")
 _RETRYABLE_POST_STATUSES = frozenset({429, 500, 502, 503, 504})
 
 
-def _retry_with_jitter(fn: Callable[[], _T], *, attempts: int = 3) -> _T:
+def _retry_with_jitter[T](fn: Callable[[], _T], *, attempts: int = 3) -> _T:
     """Call *fn* up to *attempts* times, retrying on transient errors.
 
     Applies exponential backoff with full jitter between retries. Aborts

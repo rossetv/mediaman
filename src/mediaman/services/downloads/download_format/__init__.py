@@ -31,22 +31,22 @@ from mediaman.services.downloads.download_format._types import DownloadItem
 __all__ = [
     # Types
     "DownloadItem",
-    # Parsing
-    "parse_clean_title",
-    "normalise_for_match",
-    "format_relative_time",
-    "looks_like_series_nzb",
-    "format_episode_label",
-    "format_eta",
-    # Classification
-    "extract_poster_url",
-    "classify_movie_upcoming",
-    "classify_series_upcoming",
-    "map_state",
-    "map_arr_status",
-    "map_episode_state",
+    "build_episode_summary",
     # Rendering
     "build_item",
-    "build_episode_summary",
+    "classify_movie_upcoming",
+    "classify_series_upcoming",
+    # Classification
+    "extract_poster_url",
+    "format_episode_label",
+    "format_eta",
+    "format_relative_time",
+    "looks_like_series_nzb",
+    "map_arr_status",
+    "map_episode_state",
+    "map_state",
+    "normalise_for_match",
+    # Parsing
+    "parse_clean_title",
     "select_hero",
 ]

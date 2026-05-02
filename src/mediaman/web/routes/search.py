@@ -137,7 +137,7 @@ def search_page(request: Request) -> Response:
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
-    username, conn = resolved
+    username, _conn = resolved
     templates = request.app.state.templates
     return templates.TemplateResponse(
         request,

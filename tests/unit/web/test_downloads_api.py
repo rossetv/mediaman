@@ -644,12 +644,12 @@ class TestClassifyMovieUpcoming:
 
     def test_unmonitored_movie_is_not_upcoming(self):
         movie = {"monitored": False, "hasFile": False, "isAvailable": False}
-        is_upcoming, label = classify_movie_upcoming(movie)
+        is_upcoming, _label = classify_movie_upcoming(movie)
         assert is_upcoming is False
 
     def test_already_has_file_is_not_upcoming(self):
         movie = {"monitored": True, "hasFile": True, "isAvailable": False}
-        is_upcoming, label = classify_movie_upcoming(movie)
+        is_upcoming, _label = classify_movie_upcoming(movie)
         assert is_upcoming is False
 
     def test_upcoming_with_no_release_dates_has_fallback_label(self):
@@ -706,7 +706,7 @@ class TestClassifySeriesUpcoming:
             "status": "upcoming",
             "statistics": {"episodeFileCount": 0},
         }
-        is_upcoming, label = classify_series_upcoming(series, episodes=[])
+        is_upcoming, _label = classify_series_upcoming(series, episodes=[])
         assert is_upcoming is True
 
     def test_continuing_with_aired_episodes_is_not_upcoming(self):
@@ -716,12 +716,12 @@ class TestClassifySeriesUpcoming:
             "statistics": {"episodeFileCount": 0},
         }
         episodes = [{"airDateUtc": "2020-01-01T00:00:00Z"}]
-        is_upcoming, label = classify_series_upcoming(series, episodes=episodes)
+        is_upcoming, _label = classify_series_upcoming(series, episodes=episodes)
         assert is_upcoming is False
 
     def test_unmonitored_is_not_upcoming(self):
         series = {"monitored": False, "status": "upcoming"}
-        is_upcoming, label = classify_series_upcoming(series, episodes=[])
+        is_upcoming, _label = classify_series_upcoming(series, episodes=[])
         assert is_upcoming is False
 
     def test_has_episode_files_is_not_upcoming(self):
@@ -730,7 +730,7 @@ class TestClassifySeriesUpcoming:
             "status": "upcoming",
             "statistics": {"episodeFileCount": 3},
         }
-        is_upcoming, label = classify_series_upcoming(series, episodes=[])
+        is_upcoming, _label = classify_series_upcoming(series, episodes=[])
         assert is_upcoming is False
 
     def test_all_future_episodes_with_continuing_status_is_upcoming(self):

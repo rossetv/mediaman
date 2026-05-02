@@ -350,7 +350,7 @@ def api_keep_show(
     placeholders = ",".join("?" * len(season_ids))
     owned = conn.execute(
         f"SELECT id FROM media_items WHERE id IN ({placeholders}) AND show_rating_key = ?",
-        tuple(season_ids) + (resolved_key,),
+        (*tuple(season_ids), resolved_key),
     ).fetchall()
     owned_ids = {r["id"] for r in owned}
     if owned_ids != set(season_ids):
