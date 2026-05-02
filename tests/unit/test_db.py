@@ -266,9 +266,9 @@ class TestSchemaV13LegacySessionPurge:
         init_db(str(db_path)).close()  # must not raise
 
     def test_schema_version_is_current(self, db_path):
-        assert DB_SCHEMA_VERSION == 32
+        assert DB_SCHEMA_VERSION == 33
         conn = init_db(str(db_path))
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 32
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 33
 
 
 class TestSchemaV14DeleteStatus:
@@ -902,6 +902,75 @@ class TestSchemaV32HotPathIndexes:
         """Running init_db twice must not raise on the v32 step."""
         init_db(str(db_path)).close()
         init_db(str(db_path)).close()
+
+
+class TestSchemaV33AuditLogTamperEvidence:
+    """v33 adds BEFORE-UPDATE / BEFORE-DELETE triggers on ``audit_log``.
+
+    Tamper-evidence rather than tamper-prevention: anyone with DB-file
+    write access can drop the trigger first, but doing so leaves a
+    visible diff in ``sqlite_master`` so an operator running ``.schema``
+    notices.
+    """
+
+    def test_update_on_existing_row_is_refused(self, db_path):
+        conn = init_db(str(db_path))
+        try:
+            conn.execute(
+                "INSERT INTO audit_log (media_item_id, action, detail, created_at) "
+                "VALUES ('test', 'fixture', '{}', '2026-05-02T00:00:00Z')"
+            )
+            conn.commit()
+            with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+                conn.execute("UPDATE audit_log SET detail='tampered' WHERE media_item_id='test'")
+        finally:
+            conn.close()
+
+    def test_delete_on_existing_row_is_refused(self, db_path):
+        conn = init_db(str(db_path))
+        try:
+            conn.execute(
+                "INSERT INTO audit_log (media_item_id, action, detail, created_at) "
+                "VALUES ('test', 'fixture', '{}', '2026-05-02T00:00:00Z')"
+            )
+            conn.commit()
+            with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+                conn.execute("DELETE FROM audit_log WHERE media_item_id='test'")
+        finally:
+            conn.close()
+
+    def test_insert_remains_unrestricted(self, db_path):
+        """The application must still be able to write new audit rows."""
+        conn = init_db(str(db_path))
+        try:
+            conn.execute(
+                "INSERT INTO audit_log (media_item_id, action, detail, created_at) "
+                "VALUES ('a', 'one', '{}', '2026-05-02T00:00:00Z')"
+            )
+            conn.execute(
+                "INSERT INTO audit_log (media_item_id, action, detail, created_at) "
+                "VALUES ('b', 'two', '{}', '2026-05-02T00:00:01Z')"
+            )
+            conn.commit()
+            count = conn.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0]
+            assert count == 2
+        finally:
+            conn.close()
+
+    def test_triggers_present_in_sqlite_master(self, db_path):
+        """The triggers must be visible to operator inspection."""
+        conn = init_db(str(db_path))
+        try:
+            names = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='trigger'"
+                ).fetchall()
+            }
+            assert "audit_log_no_update" in names
+            assert "audit_log_no_delete" in names
+        finally:
+            conn.close()
 
 
 class TestFactories:
