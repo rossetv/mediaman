@@ -274,6 +274,29 @@ _HISTORY_MAX_BYTES = 4 * 1024 * 1024
 # ---------------------------------------------------------------------------
 
 
+def _to_utc(dt: datetime | None) -> datetime | None:
+    """Promote a plexapi datetime to a tz-aware UTC value.
+
+    PlexAPI parses Plex's XML ``addedAt`` / ``updatedAt`` (which are
+    POSIX timestamps in seconds) via ``datetime.fromtimestamp(int(...))``
+    — that yields a NAIVE local-time datetime even though the underlying
+    instant is UTC.  Downstream code uses
+    :func:`mediaman.services.infra.format.ensure_tz`, which now treats
+    naive inputs as already-UTC.  Without explicit conversion here the
+    stored timestamp would jump by the local UTC offset.
+
+    On Python 3.12, ``naive.astimezone(tz)`` interprets the naive value
+    as local time, so this round-trips correctly back to UTC for the
+    actual Plex server's wall clock.  Aware inputs are pass-through-
+    converted; ``None`` stays ``None``.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.astimezone(timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def _movie_to_item(movie) -> "PlexMovieItem":
     """Convert a plexapi Movie object to a :class:`PlexMovieItem` dict."""
     file_path = ""
@@ -285,8 +308,8 @@ def _movie_to_item(movie) -> "PlexMovieItem":
     return {
         "plex_rating_key": str(movie.ratingKey),
         "title": movie.title,
-        "added_at": movie.addedAt,
-        "updated_at": movie.updatedAt,
+        "added_at": _to_utc(movie.addedAt),
+        "updated_at": _to_utc(movie.updatedAt),
         "file_path": file_path,
         "file_size_bytes": file_size,
         "poster_path": movie.thumb,
@@ -314,8 +337,8 @@ def _season_to_item(show, season) -> "PlexSeasonItem":
         "title": show.title,
         "show_title": show.title,
         "season_number": season.index,
-        "added_at": added_at,
-        "updated_at": show.updatedAt,
+        "added_at": _to_utc(added_at),
+        "updated_at": _to_utc(show.updatedAt),
         "file_path": file_path,
         "file_size_bytes": file_size,
         "poster_path": show.thumb,
