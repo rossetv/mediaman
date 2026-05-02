@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
 
-import requests
-
-from mediaman.services.arr.fetcher._base import ArrCard, _format_size_fields
-from mediaman.services.infra.http_client import SafeHTTPError
+from mediaman.services.arr.fetcher._base import (
+    ArrCard,
+    _format_size_fields,
+    _iter_still_searching,
+)
 
 if TYPE_CHECKING:
     from mediaman.services.arr.radarr import RadarrClient
 from mediaman.services.downloads.download_format import classify_movie_upcoming, extract_poster_url
 from mediaman.services.infra.format import parse_iso_utc
-
-logger = logging.getLogger("mediaman")
 
 
 def _make_radarr_card(
@@ -95,42 +93,39 @@ def fetch_radarr_queue(client: RadarrClient) -> list[ArrCard]:
         )
 
     # Also include monitored movies still searching (not yet in queue).
+    # ``_iter_still_searching`` owns the outer try/except so a transient
+    # upstream failure doesn't discard the queue cards we already
+    # collected, and so both fetchers share a single exception-list
+    # contract.
     queue_title_years = {(i["title"], i.get("year")) for i in items if i.get("kind") == "movie"}
-    try:
-        for movie in client.get_movies():
-            m_title = movie.get("title", "")
-            m_year = movie.get("year")
-            if not movie.get("monitored"):
-                continue
-            if movie.get("hasFile"):
-                continue
-            if (m_title, m_year) in queue_title_years:
-                continue
+    for movie in _iter_still_searching(client.get_movies, service_label="Radarr"):
+        m_title = movie.get("title", "")
+        m_year = movie.get("year")
+        if not movie.get("monitored"):
+            continue
+        if movie.get("hasFile"):
+            continue
+        if (m_title, m_year) in queue_title_years:
+            continue
 
-            is_upcoming, release_label = classify_movie_upcoming(movie)
+        is_upcoming, release_label = classify_movie_upcoming(movie)
 
-            added_at = 0.0
-            added_dt = parse_iso_utc(movie.get("added", ""))
-            if added_dt is not None:
-                added_at = added_dt.timestamp()
+        added_at = 0.0
+        added_dt = parse_iso_utc(movie.get("added", ""))
+        if added_dt is not None:
+            added_at = added_dt.timestamp()
 
-            poster_url = extract_poster_url(movie.get("images"))
+        poster_url = extract_poster_url(movie.get("images"))
 
-            items.append(
-                _make_radarr_card(
-                    m_title,
-                    poster_url=poster_url,
-                    arr_id=movie.get("id", 0),
-                    title_slug=movie.get("titleSlug", ""),
-                    added_at=added_at,
-                    is_upcoming=is_upcoming,
-                    release_label=release_label,
-                )
+        items.append(
+            _make_radarr_card(
+                m_title,
+                poster_url=poster_url,
+                arr_id=movie.get("id", 0),
+                title_slug=movie.get("titleSlug", ""),
+                added_at=added_at,
+                is_upcoming=is_upcoming,
+                release_label=release_label,
             )
-    except (requests.RequestException, SafeHTTPError):
-        # SafeHTTPClient raises ``SafeHTTPError`` for non-2xx responses
-        # (e.g. a 503 from Radarr) — that's NOT a ``RequestException``
-        # subclass, so without this catch a transient upstream failure
-        # would discard every queue card we already collected.
-        logger.warning("Failed to check Radarr for searching movies", exc_info=True)
+        )
     return items

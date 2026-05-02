@@ -1,9 +1,44 @@
-"""Shared types for the arr_fetcher package."""
+"""Shared types and helpers for the arr_fetcher package."""
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import TypedDict
+from typing import TypedDict, TypeVar
+
+import requests
+
+from mediaman.services.infra.http_client import SafeHTTPError
+
+logger = logging.getLogger("mediaman")
+
+_T = TypeVar("_T")
+
+
+def _iter_still_searching(
+    fetch_items: Callable[[], Iterable[_T]],
+    *,
+    service_label: str,
+) -> Iterable[_T]:
+    """Yield items from *fetch_items*, swallowing transient HTTP failures.
+
+    The Radarr and Sonarr fetchers each tail their queue with a
+    "monitored items still searching" pass that calls
+    ``client.get_movies`` / ``client.get_series``. Both treat a network
+    blip as recoverable — we'd rather show partial cards than wipe out
+    the queue cards we already collected. This helper centralises that
+    pattern so both fetchers use the same exception list
+    (``RequestException`` AND ``SafeHTTPError``, since SafeHTTPClient
+    raises the latter for non-2xx responses) and the same log format.
+
+    The caller does its per-item filtering and card construction inside
+    its own loop body — this helper only owns the outer try/except.
+    """
+    try:
+        yield from fetch_items()
+    except (requests.RequestException, SafeHTTPError):
+        logger.warning("Failed to check %s for searching items", service_label, exc_info=True)
 
 
 def _format_size_fields(size: int, sizeleft: int) -> tuple[str, str]:
