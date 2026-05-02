@@ -24,6 +24,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger("mediaman")
 
 
+def _read_arr_credentials(
+    conn: sqlite3.Connection, service: str, secret_key: str
+) -> tuple[str, str] | None:
+    """Read ``{service}_url`` / ``{service}_api_key`` from settings.
+
+    Returns the ``(url, api_key)`` pair or ``None`` if either is missing.
+    The API key column may be encrypted; ``secret_key`` is used to
+    decrypt it. Centralised here so the per-service wrappers stay one
+    line each — and so a future setting-name rename touches one place.
+    """
+    url = get_string_setting(conn, f"{service}_url")
+    key = get_string_setting(conn, f"{service}_api_key", secret_key=secret_key)
+    if not url or not key:
+        return None
+    return url, key
+
+
 def build_radarr_from_db(conn: sqlite3.Connection, secret_key: str) -> RadarrClient | None:
     """Return a ``RadarrClient`` or ``None`` if Radarr isn't configured.
 
@@ -31,24 +48,22 @@ def build_radarr_from_db(conn: sqlite3.Connection, secret_key: str) -> RadarrCli
     returns a constructed client. Import of ``RadarrClient`` is deferred
     so the services layer doesn't pay its cost when Radarr is disabled.
     """
-    url = get_string_setting(conn, "radarr_url")
-    key = get_string_setting(conn, "radarr_api_key", secret_key=secret_key)
-    if not url or not key:
+    creds = _read_arr_credentials(conn, "radarr", secret_key)
+    if creds is None:
         return None
     from mediaman.services.arr.radarr import RadarrClient
 
-    return RadarrClient(url, key)
+    return RadarrClient(*creds)
 
 
 def build_sonarr_from_db(conn: sqlite3.Connection, secret_key: str) -> SonarrClient | None:
     """Return a ``SonarrClient`` or ``None`` if Sonarr isn't configured."""
-    url = get_string_setting(conn, "sonarr_url")
-    key = get_string_setting(conn, "sonarr_api_key", secret_key=secret_key)
-    if not url or not key:
+    creds = _read_arr_credentials(conn, "sonarr", secret_key)
+    if creds is None:
         return None
     from mediaman.services.arr.sonarr import SonarrClient
 
-    return SonarrClient(url, key)
+    return SonarrClient(*creds)
 
 
 def build_arr_client(
