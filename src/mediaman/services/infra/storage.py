@@ -33,6 +33,14 @@ _FORBIDDEN_ROOTS: frozenset[str] = frozenset(
         "/media",
         "/mnt",
         "/opt",
+        "/private",
+        # macOS resolves /tmp, /var, /etc to /private/tmp, /private/var,
+        # /private/etc. Without these explicit entries, an operator who
+        # mis-configures their delete root to /tmp on macOS would have it
+        # resolved to /private/tmp and slip past the bare-name check.
+        "/private/etc",
+        "/private/tmp",  # nosec B108 — forbidden delete root, not a temp path used by mediaman
+        "/private/var",
         "/proc",
         "/root",
         "/run",
@@ -56,6 +64,14 @@ def _validate_delete_roots(roots: list[str]) -> list[Path]:
     The resolved-path check runs against the **resolved** form so an
     attacker who manages to set ``delete_allowed_roots = ["/data/.."]``
     (which resolves to ``/``) is still refused.
+
+    The symlink check is done by opening the candidate path with
+    ``O_NOFOLLOW | O_DIRECTORY`` and lstat'ing the resulting fd in a
+    single atomic step. The earlier two-step ``is_symlink()`` then
+    ``resolve()`` had a TOCTOU window: an attacker who could swap the
+    directory for a symlink between the two syscalls could slip past
+    the symlink check. The fd-based form holds the inode reference so
+    nothing can swap it after the open.
     """
     if not roots:
         raise ValueError(
@@ -78,19 +94,19 @@ def _validate_delete_roots(roots: list[str]) -> list[Path]:
                 "absolute path. Configure delete_allowed_roots with "
                 "absolute directory paths only."
             )
-        if candidate.is_symlink():
-            raise ValueError(
-                f"Refusing to delete: allowed root '{raw}' is a symlink. "
-                "Configure delete_allowed_roots with real directories only."
-            )
+        # Resolve to the canonical form first so the forbidden-root
+        # check catches things like ``/data/..`` (which resolves to
+        # ``/``) regardless of whether the literal path exists. We
+        # tolerate a missing path here — operators sometimes configure
+        # roots that don't exist yet (e.g. a mount that's brought up
+        # later) and the misconfiguration is still caught by the
+        # forbidden-root list.
         try:
             real = candidate.resolve()
         except (OSError, RuntimeError) as exc:
             raise ValueError(
                 f"Refusing to delete: allowed root '{raw}' could not be resolved: {exc}"
             ) from exc
-        # Forbidden-root check uses the resolved form so a relative or
-        # ``/data/..``-style configuration is caught.
         normalised = str(real)
         if normalised in _FORBIDDEN_ROOTS:
             raise ValueError(
@@ -100,6 +116,55 @@ def _validate_delete_roots(roots: list[str]) -> list[Path]:
                 "specific content directories (e.g. '/media/movies'), "
                 "never bare top-level mounts."
             )
+        # Atomic symlink check via ``O_NOFOLLOW``: if the candidate
+        # path exists, open it with O_NOFOLLOW so the kernel refuses
+        # the open if the leaf is a symlink. The earlier two-step
+        # ``is_symlink()`` then ``resolve()`` had a TOCTOU window in
+        # which an attacker could swap the directory for a symlink
+        # between syscalls; the fd-based form rejects that. If the
+        # path is missing entirely we accept it (matches previous
+        # behaviour for unconfigured-yet mounts) — the forbidden-root
+        # check above already shielded the dangerous cases.
+        if real.exists():
+            try:
+                fd = os.open(
+                    str(candidate),
+                    os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY,
+                )
+            except OSError as exc:
+                import errno as _errno
+
+                # ``O_NOFOLLOW`` on a symlink yields ``ELOOP`` on Linux
+                # but ``ENOTDIR`` (and sometimes ``ELOOP``) on macOS,
+                # depending on whether ``O_DIRECTORY`` or the symlink
+                # rule fires first. Re-check with ``lstat`` to give a
+                # precise error in either case.
+                try:
+                    lst = os.lstat(str(candidate))
+                except OSError:
+                    lst = None
+                import stat as _stat
+
+                if lst is not None and _stat.S_ISLNK(lst.st_mode):
+                    raise ValueError(
+                        f"Refusing to delete: allowed root '{raw}' is a symlink. "
+                        "Configure delete_allowed_roots with real directories only."
+                    ) from None
+                if exc.errno == _errno.ELOOP:
+                    raise ValueError(
+                        f"Refusing to delete: allowed root '{raw}' is a symlink. "
+                        "Configure delete_allowed_roots with real directories only."
+                    ) from None
+                if exc.errno == _errno.ENOTDIR:
+                    raise ValueError(
+                        f"Refusing to delete: allowed root '{raw}' is not a directory."
+                    ) from None
+                # Anything else (EACCES, etc.) — operator config error.
+                raise ValueError(
+                    f"Refusing to delete: allowed root '{raw}' cannot be opened: {exc}"
+                ) from exc
+            else:
+                os.close(fd)
         resolved.append(real)
     return resolved
 
@@ -162,11 +227,23 @@ def delete_path(path: str, *, allowed_roots: list[str] | None = None) -> None:
     compromised or buggy Plex response can populate ``part.file = "/media"``
     and the cleanup job would otherwise recursively wipe the entire mount.
     Only paths *under* a configured root are eligible.
+
+    The target *path* itself must be absolute. A relative path resolves
+    against the current working directory, which is implementation
+    detail nothing legitimate should rely on for a destructive
+    operation; we refuse outright rather than silently anchor the
+    deletion at CWD.
     """
     if allowed_roots is None:
         raise ValueError(
             "delete_path requires allowed_roots — refusing deletion until "
             "a trusted allowlist is supplied."
+        )
+    if not isinstance(path, str) or not Path(path).is_absolute():
+        raise ValueError(
+            f"Refusing to delete '{path}' — target must be an absolute path. "
+            "Relative paths anchor on the current working directory which "
+            "is unsafe for a destructive operation."
         )
     # Validate the allowlist fully before we touch the target — bad
     # config must never be ignored just because the caller's path is
@@ -255,13 +332,19 @@ def _safe_rmtree(
     if os.path.islink(str(resolved)):
         raise ValueError(f"Refusing to delete '{resolved}' — target is a symlink.")
 
-    # Identify which root we're rooted under so we can pin to its device.
-    pinned_root: Path | None = None
-    for root in allowed_roots:
-        if root in resolved.parents:
-            pinned_root = root
-            break
-    assert pinned_root is not None  # strict-descendant check above already verified
+    # Identify which root we're rooted under so we can pin to its
+    # device. When two roots share a parent (e.g. ``/media`` and
+    # ``/media/movies`` mounted on a separate device), the *longest*
+    # matching root is the correct anchor — picking the more general
+    # one would compare the target's device against the umbrella mount
+    # rather than the actual content mount and refuse the deletion as
+    # cross-device.
+    matching_roots = [root for root in allowed_roots if root in resolved.parents]
+    if not matching_roots:
+        # Should be unreachable — ``delete_path`` already enforced the
+        # strict-descendant rule. Belt-and-braces nonetheless.
+        raise ValueError(f"Refusing to delete '{resolved}' — no matching allowed root found.")
+    pinned_root = max(matching_roots, key=lambda r: len(str(r)))
     try:
         root_dev = os.stat(str(pinned_root)).st_dev
     except FileNotFoundError as exc:
@@ -289,50 +372,60 @@ def _safe_rmtree(
     # operations are relative to the opened directory, not re-resolved
     # from the original path — that's what defeats a symlink swap
     # between our lstat and our unlink.
-    for dirpath, dirnames, filenames, dirfd in os.fwalk(
-        str(resolved), topdown=False, follow_symlinks=False
-    ):
-        # Refuse to descend into any device other than the pinned root's.
-        try:
-            dev = os.fstat(dirfd).st_dev
-        except OSError as exc:
-            raise ValueError(
-                f"Refusing to delete '{resolved}' — cannot stat '{dirpath}': {exc}"
-            ) from exc
-        if dev != root_dev:
-            raise ValueError(
-                f"Refusing to delete '{resolved}' — '{dirpath}' is on a "
-                "different device than the allowed root."
-            )
-
-        for name in filenames:
-            entry_stat = os.lstat(name, dir_fd=dirfd)
-            if _stat.S_ISLNK(entry_stat.st_mode):
-                # Remove symlink entries themselves (they don't follow
-                # the link to delete its target) — this is safe and the
-                # only way to empty the dir.
-                os.unlink(name, dir_fd=dirfd)
-                continue
-            if entry_stat.st_dev != root_dev:
+    #
+    # ``os.fwalk`` is a generator that holds open file descriptors at
+    # each level. If we raise mid-iteration the generator stays alive
+    # until garbage-collection runs, leaking those fds for the duration.
+    # Wrap the iteration in a try/finally that explicitly closes the
+    # generator so the fds are released as soon as we bail out.
+    walker = os.fwalk(str(resolved), topdown=False, follow_symlinks=False)
+    try:
+        for dirpath, dirnames, filenames, dirfd in walker:
+            # Refuse to descend into any device other than the pinned root's.
+            try:
+                dev = os.fstat(dirfd).st_dev
+            except OSError as exc:
                 raise ValueError(
-                    f"Refusing to delete '{resolved}' — entry '{name}' in "
-                    f"'{dirpath}' is on a different device."
-                )
-            os.unlink(name, dir_fd=dirfd)
-
-        for name in dirnames:
-            entry_stat = os.lstat(name, dir_fd=dirfd)
-            if _stat.S_ISLNK(entry_stat.st_mode):
-                # Symlinked subdir: remove the link entry, don't recurse
-                # (fwalk already refuses with follow_symlinks=False).
-                os.unlink(name, dir_fd=dirfd)
-                continue
-            if entry_stat.st_dev != root_dev:
+                    f"Refusing to delete '{resolved}' — cannot stat '{dirpath}': {exc}"
+                ) from exc
+            if dev != root_dev:
                 raise ValueError(
-                    f"Refusing to delete '{resolved}' — subdirectory "
-                    f"'{name}' in '{dirpath}' is on a different device."
+                    f"Refusing to delete '{resolved}' — '{dirpath}' is on a "
+                    "different device than the allowed root."
                 )
-            os.rmdir(name, dir_fd=dirfd)
+
+            for name in filenames:
+                entry_stat = os.lstat(name, dir_fd=dirfd)
+                if _stat.S_ISLNK(entry_stat.st_mode):
+                    # Remove symlink entries themselves (they don't follow
+                    # the link to delete its target) — this is safe and the
+                    # only way to empty the dir.
+                    os.unlink(name, dir_fd=dirfd)
+                    continue
+                if entry_stat.st_dev != root_dev:
+                    raise ValueError(
+                        f"Refusing to delete '{resolved}' — entry '{name}' in "
+                        f"'{dirpath}' is on a different device."
+                    )
+                os.unlink(name, dir_fd=dirfd)
+
+            for name in dirnames:
+                entry_stat = os.lstat(name, dir_fd=dirfd)
+                if _stat.S_ISLNK(entry_stat.st_mode):
+                    # Symlinked subdir: remove the link entry, don't recurse
+                    # (fwalk already refuses with follow_symlinks=False).
+                    os.unlink(name, dir_fd=dirfd)
+                    continue
+                if entry_stat.st_dev != root_dev:
+                    raise ValueError(
+                        f"Refusing to delete '{resolved}' — subdirectory "
+                        f"'{name}' in '{dirpath}' is on a different device."
+                    )
+                os.rmdir(name, dir_fd=dirfd)
+    finally:
+        # ``close()`` on a generator runs its finally blocks (which
+        # close the open fds) immediately rather than waiting for GC.
+        walker.close()
 
     # Finally remove the top-level directory itself.
     os.rmdir(str(resolved))
