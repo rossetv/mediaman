@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 
 from mediaman.services.infra.format import format_day_month as _format_day_month
 
