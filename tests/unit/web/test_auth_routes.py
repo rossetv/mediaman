@@ -10,7 +10,14 @@ downgrade bug found in the security audit.
 
 from unittest.mock import MagicMock
 
-from mediaman.web.routes.auth import _sanitise_log_field, is_request_secure
+import pytest
+
+from mediaman.web.routes.auth import (
+    _sanitise_log_field,
+    _secure_cookie_override,
+    _ua_hash,
+    is_request_secure,
+)
 
 
 def _request(headers=None, peer="203.0.113.99", scheme="http"):
@@ -22,6 +29,19 @@ def _request(headers=None, peer="203.0.113.99", scheme="http"):
     req.url = MagicMock()
     req.url.scheme = scheme
     return req
+
+
+@pytest.fixture(autouse=True)
+def _reset_secure_cookie_cache():
+    """``_secure_cookie_override`` is module-scope ``lru_cache``-d.
+
+    Tests that mutate ``MEDIAMAN_FORCE_SECURE_COOKIES`` mid-process must
+    invalidate it on the way in AND on the way out, otherwise a value set
+    by an earlier case bleeds into the next.
+    """
+    _secure_cookie_override.cache_clear()
+    yield
+    _secure_cookie_override.cache_clear()
 
 
 class TestIsRequestSecure:
@@ -118,3 +138,58 @@ class TestSanitiseLogField:
     def test_email_style_username_preserved(self):
         result = _sanitise_log_field("user.name@example.com")
         assert result == "user.name@example.com"
+
+
+class TestUaHash:
+    """``_ua_hash`` must return a stable, length-bounded SHA-256 prefix."""
+
+    def test_known_value(self):
+        # Spot-check stability: SHA-256 of "" prefix.
+        import hashlib
+
+        expected = hashlib.sha256(b"").hexdigest()[:16]
+        assert _ua_hash("") == expected
+
+    def test_length_is_16_chars(self):
+        assert len(_ua_hash("Mozilla/5.0")) == 16
+
+    def test_long_input_does_not_pollute_output(self):
+        # Previous implementation stored ``user_agent[:80]`` verbatim — a
+        # 1MB UA would land 80 chars of attacker text in the audit blob.
+        # The hash output is fixed-length regardless of input size.
+        out = _ua_hash("X" * 1_000_000)
+        assert len(out) == 16
+        # Hex chars only — no attacker-controlled content can leak through.
+        assert all(c in "0123456789abcdef" for c in out)
+
+    def test_hash_is_deterministic(self):
+        ua = "Mozilla/5.0 (compatible; test/1.0)"
+        assert _ua_hash(ua) == _ua_hash(ua)
+
+
+class TestSecureCookieOverrideCache:
+    """The env-var read is cached so it's not re-evaluated on every request."""
+
+    def test_cache_is_used(self, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_FORCE_SECURE_COOKIES", "true")
+        first = _secure_cookie_override()
+        # Mutate the env without clearing the cache — second call should
+        # still see the old value.
+        monkeypatch.setenv("MEDIAMAN_FORCE_SECURE_COOKIES", "false")
+        second = _secure_cookie_override()
+        assert first == second == "true"
+
+    def test_cache_clear_picks_up_new_value(self, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_FORCE_SECURE_COOKIES", "true")
+        assert _secure_cookie_override() == "true"
+        monkeypatch.setenv("MEDIAMAN_FORCE_SECURE_COOKIES", "false")
+        _secure_cookie_override.cache_clear()
+        assert _secure_cookie_override() == "false"
+
+    def test_unset_returns_none(self, monkeypatch):
+        monkeypatch.delenv("MEDIAMAN_FORCE_SECURE_COOKIES", raising=False)
+        assert _secure_cookie_override() is None
+
+    def test_garbage_value_returns_none(self, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_FORCE_SECURE_COOKIES", "yes-please")
+        assert _secure_cookie_override() is None
