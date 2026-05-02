@@ -51,12 +51,25 @@ class TestFetchMovieLibrary:
         results = fetcher.fetch_library_items("10")
         assert results[0].watch_history == history
 
-    def test_watch_history_error_gives_empty_list(self):
-        plex = _make_plex(movies=[_make_movie()])
-        plex.get_watch_history.side_effect = RuntimeError("Plex unavailable")
+    def test_watch_history_error_excludes_item(self):
+        """A failed watch-history fetch must NOT yield an empty history —
+        that would let a transient Plex 500 reclassify the item as
+        'never watched' and queue it for deletion (D05 finding 13).
+
+        The fetcher should fail closed: the item is excluded from this
+        scan and a future scan retries once Plex is healthy again.
+        """
+        plex = _make_plex(movies=[_make_movie("1"), _make_movie("2")])
+        # Fail on the first item; second item should still come through.
+        plex.get_watch_history.side_effect = [
+            RuntimeError("Plex unavailable"),
+            [],  # second call succeeds
+        ]
         fetcher = PlexFetcher(plex_client=plex, library_types={"10": "movie"})
         results = fetcher.fetch_library_items("10")
-        assert results[0].watch_history == []
+        # Only the successful item is returned; the failed one is dropped.
+        assert len(results) == 1
+        assert results[0].item["plex_rating_key"] == "2"
 
     def test_empty_library_returns_empty_list(self):
         plex = _make_plex(movies=[])
@@ -108,12 +121,24 @@ class TestFetchShowLibrary:
         results = fetcher.fetch_library_items("20")
         assert results[0].media_type == "anime_season"
 
-    def test_season_watch_history_error_gives_empty_list(self):
-        plex = _make_plex(seasons=[_make_season()])
-        plex.get_season_watch_history.side_effect = RuntimeError("timeout")
+    def test_season_watch_history_error_excludes_season(self):
+        """Same fail-closed contract as the movie path (D05 finding 13).
+
+        A transient Plex 500 on a season's watch-history fetch must
+        NOT reclassify the season as never-watched (which combined
+        with ``check_inactivity`` returning True for empty histories
+        would queue the season for deletion). Drop the season from
+        this scan instead.
+        """
+        plex = _make_plex(seasons=[_make_season("201"), _make_season("202")])
+        plex.get_season_watch_history.side_effect = [
+            RuntimeError("timeout"),
+            [],  # second call succeeds
+        ]
         fetcher = PlexFetcher(plex_client=plex, library_types={"20": "show"})
         results = fetcher.fetch_library_items("20")
-        assert results[0].watch_history == []
+        assert len(results) == 1
+        assert results[0].item["plex_rating_key"] == "202"
 
     def test_library_id_passed_through(self):
         plex = _make_plex(seasons=[_make_season()])
