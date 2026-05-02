@@ -257,6 +257,9 @@ def download_page(request: Request, token: str) -> HTMLResponse:
             mt = "movie" if payload.get("mt") == "movie" else "tv"
             # Only build the cache for the matching service — the other
             # half is dead work and doubles the outbound load otherwise.
+            # Use ``.get`` with empty defaults so a malformed upstream
+            # cache (e.g. a unit test that patches ``build_radarr_cache``
+            # to return ``{}``) doesn't crash the page render.
             caches: ArrCaches = {
                 "radarr_movies": {},
                 "radarr_queue_tmdb_ids": set(),
@@ -265,12 +268,12 @@ def download_page(request: Request, token: str) -> HTMLResponse:
             }
             if mt == "movie":
                 radarr_cache = _get_radarr_cache_cached(conn, config.secret_key)
-                caches["radarr_movies"] = radarr_cache["radarr_movies"]
-                caches["radarr_queue_tmdb_ids"] = radarr_cache["radarr_queue_tmdb_ids"]
+                caches["radarr_movies"] = radarr_cache.get("radarr_movies", {}) or {}
+                caches["radarr_queue_tmdb_ids"] = radarr_cache.get("radarr_queue_tmdb_ids") or set()
             else:
                 sonarr_cache = _get_sonarr_cache_cached(conn, config.secret_key)
-                caches["sonarr_series"] = sonarr_cache["sonarr_series"]
-                caches["sonarr_queue_tmdb_ids"] = sonarr_cache["sonarr_queue_tmdb_ids"]
+                caches["sonarr_series"] = sonarr_cache.get("sonarr_series", {}) or {}
+                caches["sonarr_queue_tmdb_ids"] = sonarr_cache.get("sonarr_queue_tmdb_ids") or set()
             state = compute_download_state(mt, tmdb_id, caches)
             if state is not None:
                 item["download_state"] = state
