@@ -54,6 +54,15 @@ def _load_throttle_from_db(conn: sqlite3.Connection, dl_id: str) -> tuple[float,
     Reads from the ``arr_search_throttle`` table.  Returns ``(0.0, 0)``
     when the table or row doesn't exist yet (pre-migration DBs during
     startup, or items mediaman has never poked).
+
+    Exception policy (Domain-06 #9): only ``sqlite3.OperationalError``
+    and ``sqlite3.DatabaseError`` are swallowed — those genuinely
+    represent transient or pre-migration states where ``(0.0, 0)`` is
+    the correct fallback. A broader ``except Exception`` previously
+    masked schema/migration faults too, silently disabling the
+    throttle by reporting "never triggered" for every dl_id.  Any other
+    exception (e.g. a coding bug in the parser) now propagates so the
+    caller sees the real failure.
     """
     try:
         row = conn.execute(
@@ -68,7 +77,15 @@ def _load_throttle_from_db(conn: sqlite3.Connection, dl_id: str) -> tuple[float,
         epoch = dt.timestamp() if dt is not None else 0.0
         count = int(row[1] or 0)
         return epoch, count
-    except Exception:
+    except (sqlite3.OperationalError, sqlite3.DatabaseError) as exc:
+        # Transient or pre-migration state — fall back to "never
+        # triggered" so the throttle warm-up doesn't fail loudly the
+        # first time a fresh DB is brought up.
+        logger.warning(
+            "arr_search_trigger: throttle load fell back to zeros for %s: %s",
+            dl_id,
+            exc,
+        )
         return 0.0, 0
 
 
