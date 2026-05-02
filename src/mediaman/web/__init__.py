@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import re
+import secrets
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -10,11 +12,23 @@ from starlette.responses import Response
 
 from mediaman.auth.rate_limit import peer_is_trusted, trusted_proxies
 
-# Content Security Policy.
-# - ``'unsafe-inline'`` on script/style is still present because several
-#   templates ship inline ``style=`` attributes and script blocks; a full
-#   nonce/hash CSP is a larger refactor tracked separately.
-# - ``img-src`` is now an allowlist of known image CDNs (finding 20):
+# Content Security Policy — per-request nonce strategy.
+#
+# - A fresh ``nonce-<base64url>`` value is minted per request and added to
+#   ``script-src`` and ``style-src`` alongside the existing
+#   ``'unsafe-inline'``.  CSP3-aware browsers ignore ``'unsafe-inline'``
+#   when a ``'nonce-...'`` is present, so any inline ``<script>`` or
+#   ``<style>`` block that doesn't carry the matching ``nonce="..."``
+#   attribute will be rejected.  Legacy browsers that don't support
+#   nonces fall back to ``'unsafe-inline'`` so existing inline blocks
+#   continue to render until they are migrated to either external files
+#   or to nonce-marked blocks (TODO H65).
+#
+#   Templates expose the nonce via ``request.state.csp_nonce`` (set by
+#   :class:`SecurityHeadersMiddleware`).  Inline scripts that need to
+#   stay inline should add ``nonce="{{ request.state.csp_nonce }}"``.
+#
+# - ``img-src`` is an allowlist of known image CDNs (finding 20):
 #   * 'self'           — /api/poster proxy + static assets
 #   * data: blob:      — inline data URIs and object URLs used by JS
 #   * image.tmdb.org   — TMDB poster/backdrop images
@@ -27,7 +41,7 @@ from mediaman.auth.rate_limit import peer_is_trusted, trusted_proxies
 # - ``object-src 'none'`` defangs plugin-based XSS.
 # - ``frame-ancestors 'none'`` + ``X-Frame-Options: DENY`` belt-and-braces
 #   clickjacking defence.
-_CSP = (
+_CSP_STATIC_DIRECTIVES = (
     "default-src 'self'; "
     "img-src 'self' data: blob: "
     "https://image.tmdb.org "
@@ -35,8 +49,6 @@ _CSP = (
     "https://www.gravatar.com "
     "https://mediacover.radarr.video "
     "https://mediacover.sonarr.video; "
-    "style-src 'self' 'unsafe-inline'; "
-    "script-src 'self' 'unsafe-inline'; "
     "connect-src 'self'; "
     "frame-src https://www.youtube.com; "
     "frame-ancestors 'none'; "
@@ -45,13 +57,36 @@ _CSP = (
     "form-action 'self'"
 )
 
-# Always-on headers applied to every response.
+
+def _build_csp(nonce: str) -> str:
+    """Return the per-request CSP header text with *nonce* threaded in.
+
+    The nonce is added to both ``script-src`` and ``style-src``; the
+    existing ``'unsafe-inline'`` is retained as the legacy fallback so
+    templates that still ship un-noncified inline blocks keep working
+    on CSP2-only browsers.
+    """
+    return (
+        f"script-src 'self' 'nonce-{nonce}' 'unsafe-inline'; "
+        f"style-src 'self' 'nonce-{nonce}' 'unsafe-inline'; "
+        f"{_CSP_STATIC_DIRECTIVES}"
+    )
+
+
+# Backward-compatible representative CSP value for tests and tooling
+# that need a static string snapshot of the policy.  The placeholder
+# obviously is not a real per-request value — call :func:`_build_csp`
+# for the runtime header.
+_CSP = _build_csp("placeholder")
+
+# Always-on headers applied to every response.  CSP is added per-request
+# in :class:`SecurityHeadersMiddleware` because the nonce changes on
+# every dispatch.
 _STATIC_HEADERS: dict[str, str] = {
     "X-Frame-Options": "DENY",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "interest-cohort=(), geolocation=(), camera=(), microphone=()",
-    "Content-Security-Policy": _CSP,
     "Cross-Origin-Opener-Policy": "same-origin",
 }
 
@@ -95,12 +130,27 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     Adds clickjacking, MIME-type-sniffing, referrer-leak, CSP, and
     Permissions-Policy defences. HSTS is emitted whenever the
     browser-visible scheme is HTTPS (or when the operator forces it).
+
+    Mints a fresh CSP nonce for each request and stashes it on
+    ``request.state.csp_nonce`` so route handlers and Jinja templates
+    can pull it for inline ``<script nonce="...">`` /
+    ``<style nonce="...">`` blocks.  The same nonce is woven into the
+    ``Content-Security-Policy`` header on the outbound response so the
+    browser accepts the marked inline blocks.
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]  # Starlette types call_next as a positional-only callable with no public type alias; annotating it fully would require importing private starlette internals
+        # 16 random bytes → 22 base64url chars: enough entropy that an
+        # attacker cannot brute-force the nonce within the lifetime of
+        # a single response, but short enough not to bloat every inline
+        # block by more than a couple of dozen characters.
+        nonce = secrets.token_urlsafe(16)
+        request.state.csp_nonce = nonce
+
         response = await call_next(request)
         for name, value in _STATIC_HEADERS.items():
             response.headers.setdefault(name, value)
+        response.headers.setdefault("Content-Security-Policy", _build_csp(nonce))
         # Hide server banner (FastAPI/uvicorn leaks nothing sensitive,
         # but there's no reason to advertise).
         response.headers["Server"] = "mediaman"
@@ -119,23 +169,45 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 # REST app.
 _CSRF_PROTECTED_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
-# Routes that must accept cross-origin POSTs (they are token-auth'd and
-# get hit from email clients where the browser's Origin is whichever
-# mail host the user used). The token IS the authorisation — SameSite
-# doesn't apply to in-email links because the user clicks through.
-# All entries end with ``/`` (or explicitly cover the path via
-# _CSRF_EXEMPT_EXACT) so a future route starting with the same substring
-# can't accidentally inherit the exemption.
-_CSRF_EXEMPT_PREFIXES = (
-    "/keep/",
-    "/download/",  # /download/{token} + /download/{token} POST
-    "/unsubscribe/",
+# Explicit allowlist of (method, path-pattern) pairs that bypass the
+# Origin/Referer check.  Each entry MUST correspond to a route whose
+# authorisation does not ride on the session cookie — typically routes
+# that are HMAC-token-authenticated and arrive from a mail client where
+# the browser-supplied Origin is whichever webmail host the recipient
+# happens to use.
+#
+# Switching from a prefix-based exemption (the original design) to an
+# explicit (method, regex) allowlist closes a sharp edge: previously a
+# *new* POST added under one of the exempt prefixes (``/download/...``,
+# ``/keep/...``, ``/unsubscribe/...``) would silently inherit the
+# exemption with no compile-time signal.  Adding a new exempt route
+# now requires editing this list, which is reviewable and grep-able.
+#
+# Patterns are anchored with ``^`` and ``$`` and use ``[^/]+`` to match
+# a single token segment — they will NOT match nested paths like
+# ``/download/abc/extra`` even if those happen to share the prefix.
+_CSRF_EXEMPT_ROUTES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    # POST /download/{token} — public download submit.  Authorised by
+    # an HMAC-signed download token in the URL; SameSite=Strict cookies
+    # would block legitimate clickthroughs from webmail.
+    ("POST", re.compile(r"^/download/[^/]+$")),
+    # POST /keep/{token} — public snooze for scheduled deletions.
+    # Authorised by an HMAC-signed keep token in the URL.
+    # NB: ``POST /api/keep/{token}/forever`` is NOT exempt; it sits
+    # under ``/api/...`` and requires an admin session.
+    ("POST", re.compile(r"^/keep/[^/]+$")),
+    # POST /unsubscribe — public unsubscribe confirmation.  Authorised
+    # by an HMAC-signed token submitted as a form field.
+    ("POST", re.compile(r"^/unsubscribe$")),
 )
-_CSRF_EXEMPT_EXACT = frozenset(
-    {
-        "/unsubscribe",  # bare path without query string
-    }
-)
+
+
+def _csrf_route_is_exempt(method: str, path: str) -> bool:
+    """Return True iff (*method*, *path*) is in the explicit exempt list."""
+    for exempt_method, pattern in _CSRF_EXEMPT_ROUTES:
+        if exempt_method == method and pattern.match(path):
+            return True
+    return False
 
 
 def _normalise_host(netloc: str) -> str:
@@ -163,8 +235,8 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
     cookies without honouring the SameSite attribute.
 
     The check is intentionally narrow: only POST/PUT/PATCH/DELETE
-    from non-same-origin origins are refused, and only for paths
-    that aren't in the explicit exempt list (where the token, not
+    from non-same-origin origins are refused, and only for routes
+    that aren't in :data:`_CSRF_EXEMPT_ROUTES` (where the token, not
     the cookie, is the authorisation).
     """
 
@@ -173,11 +245,8 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         path = request.url.path
-        if path in _CSRF_EXEMPT_EXACT:
+        if _csrf_route_is_exempt(request.method, path):
             return await call_next(request)
-        for prefix in _CSRF_EXEMPT_PREFIXES:
-            if path.startswith(prefix):
-                return await call_next(request)
 
         origin = request.headers.get("origin")
         referer = request.headers.get("referer")

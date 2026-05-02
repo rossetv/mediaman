@@ -139,6 +139,13 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
 def keep_submit(request: Request, token: str, duration: str = Form(default="")) -> Response:
     """Apply a snooze via the keep page.
 
+    CSRF-exempt: this route is HMAC-token-authenticated and gets clicked
+    through from email clients where the browser's Origin is whichever
+    webmail host the recipient happens to use.  The exemption is opt-in
+    via the explicit ``_CSRF_EXEMPT_ROUTES`` allowlist in
+    :mod:`mediaman.web` — adding a sibling ``POST /keep/...`` will NOT
+    silently inherit the exemption.
+
     Token invalidation strategy (H27):
 
     1. HMAC-verify the token first — forged tokens never touch the DB.

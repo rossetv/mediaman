@@ -306,6 +306,14 @@ def unsubscribe_confirm(
 ) -> HTMLResponse:
     """Process the unsubscribe after user confirmation.
 
+    CSRF-exempt: this route is HMAC-token-authenticated (the token rides
+    in the form body) and gets submitted from email clients where the
+    browser's Origin is whichever webmail host the recipient happens to
+    use.  The exemption is opt-in via the explicit
+    ``_CSRF_EXEMPT_ROUTES`` allowlist in :mod:`mediaman.web` — adding a
+    sibling ``POST /unsubscribe/...`` will NOT silently inherit the
+    exemption.
+
     The email is derived from the validated token, not from form input
     (finding 36).  The ``email`` form field is accepted for backwards
     compatibility with the confirmation template but is not used for
