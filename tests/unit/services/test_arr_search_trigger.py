@@ -464,6 +464,63 @@ class TestLockReleasedDuringNetwork:
         # And the count must not have been incremented.
         assert _st._search_count.get("radarr:RollbackMe", 0) == 0
 
+    def test_rollback_uses_per_attempt_token(self, db_conn, monkeypatch):
+        """Domain-06 #8: a sibling thread overwriting
+        ``_last_search_trigger[dl_id]`` after our reservation must NOT
+        cause our rollback to silently no-op.
+
+        Regression: the original implementation compared
+        ``_last_search_trigger.get(dl_id) == now``. A sibling thread
+        racing in the few ms between our reservation and our rollback
+        would write a different timestamp, and the equality check would
+        skip the rollback even though the slot was emphatically NOT
+        ours any more — leaving the reservation pinned to whatever the
+        sibling stamped.
+
+        With the per-attempt token, the rollback compares
+        ``_reservation_tokens[dl_id] == my_token`` and correctly defers
+        to the sibling's reservation rather than nuking it.
+        """
+        from mediaman.services.arr import search_trigger as _st
+
+        # Failure path so the rollback branch fires.
+        client = MagicMock()
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_arr_client",
+            lambda c, svc, sk: client if svc == "radarr" else None,
+        )
+
+        # Simulate a sibling stamping its own reservation between phase 1
+        # and phase 3 by patching the network call to mutate state at
+        # the moment we'd otherwise be holding the slot.
+        sibling_now = time.time() + 0.001
+        sibling_token = "sibling-token"
+
+        def overwrite_then_fail(_arr_id):
+            with _st._state_lock:
+                _st._last_search_trigger["radarr:RaceMe"] = sibling_now
+                _st._reservation_tokens["radarr:RaceMe"] = sibling_token
+            raise RuntimeError("our network call failed AFTER sibling overwrote")
+
+        client.search_movie.side_effect = overwrite_then_fail
+
+        item = {
+            "kind": "movie",
+            "dl_id": "radarr:RaceMe",
+            "arr_id": 9999,
+            "is_upcoming": False,
+            "added_at": time.time() - 600,
+        }
+        _st.maybe_trigger_search(db_conn, item, matched_nzb=False, secret_key="key")
+
+        # Our rollback must NOT have undone the sibling's reservation.
+        assert _st._last_search_trigger.get("radarr:RaceMe") == sibling_now, (
+            "rollback overwrote a sibling worker's reservation"
+        )
+        assert _st._reservation_tokens.get("radarr:RaceMe") == sibling_token, (
+            "rollback dropped the sibling's reservation token"
+        )
+
     def test_db_read_happens_outside_state_lock(self, monkeypatch):
         """Domain-06 #7: ``_state_lock`` must NOT be held while the DB
         read for warm-up runs.
