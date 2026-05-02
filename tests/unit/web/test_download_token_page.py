@@ -57,6 +57,7 @@ class TestDownloadPageGet:
         _download_tokens._USED_TOKENS.clear()
         _download_confirm._DOWNLOAD_LIMITER_GET._attempts.clear()
         _download_submit._DOWNLOAD_LIMITER_POST._attempts.clear()
+        _download_confirm._reset_arr_cache_for_tests()
 
     def test_valid_token_renders_confirm_state(self, db_path, secret_key):
         """GET with a valid token returns state=confirm with item details."""
@@ -161,6 +162,7 @@ class TestDownloadPagePost:
         _download_tokens._USED_TOKENS.clear()
         _download_confirm._DOWNLOAD_LIMITER_GET._attempts.clear()
         _download_submit._DOWNLOAD_LIMITER_POST._attempts.clear()
+        _download_confirm._reset_arr_cache_for_tests()
 
     def test_post_valid_movie_token_calls_radarr(self, db_path, secret_key):
         """POST with a valid movie token triggers Radarr add_movie."""
@@ -299,6 +301,7 @@ class TestTwoPhaseConsumption:
         _download_tokens._USED_TOKENS.clear()
         _download_confirm._DOWNLOAD_LIMITER_GET._attempts.clear()
         _download_submit._DOWNLOAD_LIMITER_POST._attempts.clear()
+        _download_confirm._reset_arr_cache_for_tests()
 
     def test_token_released_on_radarr_exception(self, db_path, secret_key):
         """A transient exception from Radarr must not permanently burn the token."""
@@ -451,6 +454,7 @@ class TestPollingCapability:
         _download_tokens._USED_TOKENS.clear()
         _download_confirm._DOWNLOAD_LIMITER_GET._attempts.clear()
         _download_submit._DOWNLOAD_LIMITER_POST._attempts.clear()
+        _download_confirm._reset_arr_cache_for_tests()
 
     def test_successful_post_returns_poll_token(self, db_path, secret_key):
         """A successful POST /download/{token} for a movie includes a poll_token."""
