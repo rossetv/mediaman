@@ -57,7 +57,7 @@
       <div class="u-flex u-gap-md">
         {% if scheduled_count > 0 %}
         <span class="sub">{{ scheduled_count }} item{{ 's' if scheduled_count != 1 }} · {{ scheduled_size }} to reclaim</span>
-        <button class="btn btn--danger btn--sm" type="button" onclick="clearScheduled(this)">Clear all</button>
+        <button class="btn btn--danger btn--sm" type="button" data-action="clear-scheduled">Clear all</button>
         {% endif %}
       </div>
     </div>
@@ -83,17 +83,17 @@
              data-id="{{ item.media_item_id }}" data-tv="{{ (item.media_type == 'tv') | tojson }}"
              data-show-rk="{{ item.show_rating_key or '' }}" data-show-title="{{ item.show_title_raw or item.title | e }}">
           <button class="btn btn--accent-soft btn--sm" type="button"
-                  onclick="dashSubmitKeep(this, '30d')">Keep</button>
+                  data-action="keep-tile" data-duration="30d">Keep</button>
           <button type="button" class="btn btn--icon btn--secondary btn-sm-caret"
                   aria-haspopup="menu" aria-expanded="false"
                   aria-label="More keep options">
             <svg viewBox="0 0 24 24" class="svg-icon-xs"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
           </button>
           <div class="snooze-dropdown" role="menu">
-            <button class="snooze-option" role="menuitem" tabindex="-1" onclick="dashSubmitKeep(this, '7d')">7 days</button>
-            <button class="snooze-option" role="menuitem" tabindex="-1" onclick="dashSubmitKeep(this, '30d')">30 days</button>
-            <button class="snooze-option" role="menuitem" tabindex="-1" onclick="dashSubmitKeep(this, '90d')">90 days</button>
-            <button class="snooze-option forever" role="menuitem" tabindex="-1" onclick="dashSubmitKeep(this, 'forever')">Forever</button>
+            <button class="snooze-option" role="menuitem" tabindex="-1" data-action="keep-tile" data-duration="7d">7 days</button>
+            <button class="snooze-option" role="menuitem" tabindex="-1" data-action="keep-tile" data-duration="30d">30 days</button>
+            <button class="snooze-option" role="menuitem" tabindex="-1" data-action="keep-tile" data-duration="90d">90 days</button>
+            <button class="snooze-option forever" role="menuitem" tabindex="-1" data-action="keep-tile" data-duration="forever">Forever</button>
           </div>
         </div>
       </div>
@@ -151,137 +151,5 @@
   <div class="page-bottom-spacer"></div>
 </div>
 
-<script>
-  var _scanElapsed = 0;
-
-  /* Wire data-action="trigger-scan" — removes inline onclick. */
-  document.addEventListener('click', function (e) {
-    var btn = e.target.closest('[data-action="trigger-scan"]');
-    if (btn) triggerScan(btn);
-  });
-
-  function triggerScan(btn) {
-    btn.disabled = true;
-    btn.classList.add('scan-running');
-    btn.textContent = 'Scanning';
-    _scanElapsed = 0;
-    updateScanStatus('Starting scan…');
-    fetch('/api/scan/trigger', { method: 'POST' })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (data.status === 'already_running') updateScanStatus('Scan already in progress');
-        pollScanStatus(btn);
-      })
-      .catch(function () {
-        btn.textContent = 'Scan failed';
-        btn.classList.remove('scan-running');
-        btn.classList.add('is-error');
-        btn.disabled = false;
-        updateScanStatus('');
-      });
-  }
-
-  function updateScanStatus(msg) {
-    var el = document.getElementById('scan-status');
-    el.textContent = '';
-    if (!msg) return;
-    el.appendChild(document.createTextNode(msg + ' '));
-    var dots = document.createElement('span');
-    dots.className = 'scan-dots';
-    for (var i = 0; i < 3; i++) { var d = document.createElement('span'); d.textContent = '·'; dots.appendChild(d); }
-    el.appendChild(dots);
-  }
-
-  function fmtElapsed(sec) { return sec < 60 ? sec + 's' : Math.floor(sec / 60) + 'm ' + (sec % 60) + 's'; }
-
-  function pollScanStatus(btn) {
-    setTimeout(function check() {
-      _scanElapsed += 3;
-      fetch('/api/scan/status')
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          if (data.running) {
-            updateScanStatus('Scanning libraries — ' + fmtElapsed(_scanElapsed));
-            setTimeout(check, 3000);
-          } else {
-            btn.classList.remove('scan-running');
-            btn.classList.add('is-success');
-            btn.textContent = 'Scan complete ✓';
-            var statusEl = document.getElementById('scan-status');
-            statusEl.textContent = 'Finished in ' + fmtElapsed(_scanElapsed) + ' — reloading…';
-            statusEl.classList.add('scan-status--success');
-            setTimeout(function () { window.location.reload(); }, 1500);
-          }
-        });
-    }, 3000);
-  }
-
-  /* Finding 34: redownload now submits stable identifiers from data-* attributes.
-     The inline onclick is replaced by event delegation below. */
-  function redownload(btn) {
-    var title, mediaItemId, mediaType;
-    try { title = JSON.parse(btn.dataset.title); } catch (_) { title = ''; }
-    try { mediaItemId = JSON.parse(btn.dataset.mediaItemId); } catch (_) { mediaItemId = ''; }
-    try { mediaType = JSON.parse(btn.dataset.mediaType); } catch (_) { mediaType = ''; }
-
-    if (!mediaItemId && !title) {
-      window.UIFeedback && window.UIFeedback.error('No identifier available — cannot re-download this item.');
-      return;
-    }
-
-    btn.disabled = true;
-    btn.textContent = 'Adding…';
-    fetch('/api/media/redownload', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: title, media_item_id: mediaItemId, media_type: mediaType }),
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (data.ok) { btn.textContent = 'Queued ✓'; btn.classList.add('is-success'); }
-        else { btn.textContent = data.error && data.error.length < 30 ? data.error : 'Failed'; btn.classList.add('is-error'); btn.disabled = false; }
-      })
-      .catch(function () { btn.textContent = 'Error'; btn.classList.add('is-error'); btn.disabled = false; });
-  }
-
-  /* Delegate redownload clicks (finding 34). */
-  document.addEventListener('click', function (e) {
-    var rdBtn = e.target.closest('[data-action="redownload"]');
-    if (rdBtn) redownload(rdBtn);
-  });
-
-  async function clearScheduled(btn) {
-    var proceed = await window.UIFeedback.confirm({
-      title: 'Clear all scheduled deletions?',
-      body: 'Nothing is deleted now. Items will be re-evaluated on the next scan and may be rescheduled.',
-      confirmLabel: 'Clear all',
-      confirmVariant: 'danger'
-    });
-    if (!proceed) return;
-    btn.disabled = true;
-    btn.textContent = 'Clearing…';
-    fetch('/api/scan/clear-scheduled', { method: 'POST' })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (data.ok) { btn.textContent = 'Cleared ' + data.cleared; btn.classList.add('is-success'); setTimeout(function () { window.location.reload(); }, 1000); }
-      });
-  }
-
-  // Submit a keep request from a dashboard tile. For TV items the existing
-  // library.html keep-dialog flow is too heavy for the dashboard scheduled
-  // view, so we just submit directly with the chosen duration.
-  function dashSubmitKeep(btn, duration) {
-    var wrapper = btn.closest('.keep-wrapper');
-    if (!wrapper) return;
-    var mediaId = wrapper.dataset.id;
-    fetch('/api/media/' + encodeURIComponent(mediaId) + '/keep', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ duration: duration }).toString(),
-    }).then(function (r) {
-      if (r.ok) window.location.reload();
-      else r.json().then(function (d) { window.UIFeedback.error("Couldn't save keep. " + (d.error || r.status)); });
-    });
-  }
-</script>
+<script src="/static/js/dashboard.js" defer></script>
 {% endblock %}
