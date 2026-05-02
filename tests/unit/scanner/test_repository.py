@@ -141,29 +141,6 @@ class TestUpdateLastWatched:
         row = conn.execute("SELECT last_watched_at FROM media_items WHERE id='m1'").fetchone()
         assert row["last_watched_at"] is None
 
-    def test_does_not_rewind_existing_timestamp(self, conn):
-        """Domain 05: a subsequent re-scan that fetches an older watch
-        entry must not drag ``last_watched_at`` backwards.
-        """
-        _insert_item(conn)
-        recent = datetime(2024, 6, 1, tzinfo=timezone.utc)
-        old = datetime(2023, 1, 1, tzinfo=timezone.utc)
-        repository.update_last_watched(conn, "m1", [{"viewed_at": recent}])
-        repository.update_last_watched(conn, "m1", [{"viewed_at": old}])
-        row = conn.execute("SELECT last_watched_at FROM media_items WHERE id='m1'").fetchone()
-        # Stored value must still be the recent watch — never rewound.
-        assert "2024-06-01" in row["last_watched_at"]
-
-    def test_advances_when_newer_watch_seen(self, conn):
-        """A genuinely newer watch entry must overwrite the stored value."""
-        _insert_item(conn)
-        old = datetime(2023, 1, 1, tzinfo=timezone.utc)
-        recent = datetime(2024, 6, 1, tzinfo=timezone.utc)
-        repository.update_last_watched(conn, "m1", [{"viewed_at": old}])
-        repository.update_last_watched(conn, "m1", [{"viewed_at": recent}])
-        row = conn.execute("SELECT last_watched_at FROM media_items WHERE id='m1'").fetchone()
-        assert "2024-06-01" in row["last_watched_at"]
-
 
 # ---------------------------------------------------------------------------
 # count_items_in_libraries / fetch_ids_in_libraries
@@ -316,65 +293,6 @@ class TestIsAlreadyScheduled:
 
 
 # ---------------------------------------------------------------------------
-# schedule_deletion — race handling (Domain 05)
-# ---------------------------------------------------------------------------
-
-
-class TestScheduleDeletionRace:
-    def test_returns_scheduled_on_success(self, conn):
-        _insert_item(conn)
-        result = repository.schedule_deletion(
-            conn,
-            media_id="m1",
-            is_reentry=False,
-            grace_days=14,
-            secret_key="0123456789abcdef" * 4,
-        )
-        assert result == "scheduled"
-        assert (
-            conn.execute(
-                "SELECT id FROM scheduled_actions "
-                "WHERE media_item_id='m1' AND action='scheduled_deletion'"
-            ).fetchone()
-            is not None
-        )
-
-    def test_returns_skipped_on_concurrent_active_deletion(self, conn):
-        """A second concurrent run lining up the same item must not raise.
-
-        The migration-25 partial unique index enforces "one active
-        pending deletion per item" — a sibling worker that lost the race
-        should observe the existing row and skip cleanly, not bubble
-        IntegrityError up to the caller.
-        """
-        _insert_item(conn)
-        first = repository.schedule_deletion(
-            conn,
-            media_id="m1",
-            is_reentry=False,
-            grace_days=14,
-            secret_key="0123456789abcdef" * 4,
-        )
-        assert first == "scheduled"
-        # Second call hits the partial unique index — must report skipped.
-        second = repository.schedule_deletion(
-            conn,
-            media_id="m1",
-            is_reentry=False,
-            grace_days=14,
-            secret_key="0123456789abcdef" * 4,
-        )
-        assert second == "skipped"
-        # Only one active row remains.
-        rows = conn.execute(
-            "SELECT id FROM scheduled_actions "
-            "WHERE media_item_id='m1' AND action='scheduled_deletion' "
-            "AND token_used=0 AND (delete_status IS NULL OR delete_status='pending')"
-        ).fetchall()
-        assert len(rows) == 1
-
-
-# ---------------------------------------------------------------------------
 # has_expired_snooze
 # ---------------------------------------------------------------------------
 
@@ -441,7 +359,7 @@ class TestIsShowKept:
         conn.commit()
         result = repository.is_show_kept(conn, "rk3")
         assert result is False
-        # Expired row should have been cleaned up.
+        # Expired row was swept out by the wrapper.
         assert (
             conn.execute("SELECT id FROM kept_shows WHERE show_rating_key='rk3'").fetchone() is None
         )
@@ -461,14 +379,72 @@ class TestIsShowKept:
         result = repository._is_show_kept_pure(conn, "rk-pure")
         assert result is False
         assert (
-            conn.execute(
-                "SELECT id FROM kept_shows WHERE show_rating_key='rk-pure'"
-            ).fetchone()
+            conn.execute("SELECT id FROM kept_shows WHERE show_rating_key='rk-pure'").fetchone()
             is not None
         )
 
     def test_unknown_show_returns_false(self, conn):
         assert repository.is_show_kept(conn, "unknown-rk") is False
+
+
+# ---------------------------------------------------------------------------
+# read_delete_allowed_roots_setting
+# ---------------------------------------------------------------------------
+
+
+class TestReadDeleteAllowedRoots:
+    def test_reads_json_from_db(self, conn, monkeypatch):
+        monkeypatch.delenv("MEDIAMAN_DELETE_ROOTS", raising=False)
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value, encrypted, updated_at) "
+            "VALUES ('delete_allowed_roots', ?, 0, '2026-01-01')",
+            (json.dumps(["/media/movies", "/media/tv"]),),
+        )
+        conn.commit()
+        roots = repository.read_delete_allowed_roots_setting(conn)
+        assert roots == ["/media/movies", "/media/tv"]
+
+    def test_reads_colon_separated_env_var(self, conn, monkeypatch):
+        conn.execute("DELETE FROM settings WHERE key='delete_allowed_roots'")
+        conn.commit()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/media/movies:/media/tv")
+        roots = repository.read_delete_allowed_roots_setting(conn)
+        assert roots == ["/media/movies", "/media/tv"]
+
+    def test_empty_when_nothing_configured(self, conn, monkeypatch):
+        conn.execute("DELETE FROM settings WHERE key='delete_allowed_roots'")
+        conn.commit()
+        monkeypatch.delenv("MEDIAMAN_DELETE_ROOTS", raising=False)
+        roots = repository.read_delete_allowed_roots_setting(conn)
+        assert roots == []
+
+
+# ---------------------------------------------------------------------------
+# cleanup_expired_snoozes
+# ---------------------------------------------------------------------------
+
+
+class TestCleanupExpiredSnoozes:
+    def test_removes_past_snoozes(self, conn):
+        _insert_item(conn)
+        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        _insert_action(conn, action="snoozed", token="sn-exp", execute_at=past)
+        repository.cleanup_expired_snoozes(conn, datetime.now(timezone.utc).isoformat())
+        conn.commit()
+        assert (
+            conn.execute("SELECT id FROM scheduled_actions WHERE token='sn-exp'").fetchone() is None
+        )
+
+    def test_keeps_future_snoozes(self, conn):
+        _insert_item(conn)
+        future = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        _insert_action(conn, action="snoozed", token="sn-fut", execute_at=future)
+        repository.cleanup_expired_snoozes(conn, datetime.now(timezone.utc).isoformat())
+        conn.commit()
+        assert (
+            conn.execute("SELECT id FROM scheduled_actions WHERE token='sn-fut'").fetchone()
+            is not None
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -531,60 +507,108 @@ class TestCleanupExpiredShowSnoozes:
 
 
 # ---------------------------------------------------------------------------
-# read_delete_allowed_roots_setting
+# update_last_watched — monotonic guard (Domain 05)
 # ---------------------------------------------------------------------------
 
 
-class TestReadDeleteAllowedRoots:
-    def test_reads_json_from_db(self, conn, monkeypatch):
-        monkeypatch.delenv("MEDIAMAN_DELETE_ROOTS", raising=False)
-        conn.execute(
-            "INSERT OR REPLACE INTO settings (key, value, encrypted, updated_at) "
-            "VALUES ('delete_allowed_roots', ?, 0, '2026-01-01')",
-            (json.dumps(["/media/movies", "/media/tv"]),),
-        )
-        conn.commit()
-        roots = repository.read_delete_allowed_roots_setting(conn)
-        assert roots == ["/media/movies", "/media/tv"]
-
-    def test_reads_colon_separated_env_var(self, conn, monkeypatch):
-        conn.execute("DELETE FROM settings WHERE key='delete_allowed_roots'")
-        conn.commit()
-        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/media/movies:/media/tv")
-        roots = repository.read_delete_allowed_roots_setting(conn)
-        assert roots == ["/media/movies", "/media/tv"]
-
-    def test_empty_when_nothing_configured(self, conn, monkeypatch):
-        conn.execute("DELETE FROM settings WHERE key='delete_allowed_roots'")
-        conn.commit()
-        monkeypatch.delenv("MEDIAMAN_DELETE_ROOTS", raising=False)
-        roots = repository.read_delete_allowed_roots_setting(conn)
-        assert roots == []
-
-
-# ---------------------------------------------------------------------------
-# cleanup_expired_snoozes
-# ---------------------------------------------------------------------------
-
-
-class TestCleanupExpiredSnoozes:
-    def test_removes_past_snoozes(self, conn):
+class TestUpdateLastWatchedMonotonic:
+    def test_does_not_rewind_existing_timestamp(self, conn):
+        """A subsequent re-scan that fetches an older watch entry must not
+        drag ``last_watched_at`` backwards.
+        """
         _insert_item(conn)
-        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
-        _insert_action(conn, action="snoozed", token="sn-exp", execute_at=past)
-        repository.cleanup_expired_snoozes(conn, datetime.now(timezone.utc).isoformat())
-        conn.commit()
-        assert (
-            conn.execute("SELECT id FROM scheduled_actions WHERE token='sn-exp'").fetchone() is None
-        )
+        recent = datetime(2024, 6, 1, tzinfo=timezone.utc)
+        old = datetime(2023, 1, 1, tzinfo=timezone.utc)
+        repository.update_last_watched(conn, "m1", [{"viewed_at": recent}])
+        repository.update_last_watched(conn, "m1", [{"viewed_at": old}])
+        row = conn.execute("SELECT last_watched_at FROM media_items WHERE id='m1'").fetchone()
+        # Stored value must still be the recent watch — never rewound.
+        assert "2024-06-01" in row["last_watched_at"]
 
-    def test_keeps_future_snoozes(self, conn):
+    def test_advances_when_newer_watch_seen(self, conn):
+        """A genuinely newer watch entry must overwrite the stored value."""
         _insert_item(conn)
-        future = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
-        _insert_action(conn, action="snoozed", token="sn-fut", execute_at=future)
-        repository.cleanup_expired_snoozes(conn, datetime.now(timezone.utc).isoformat())
-        conn.commit()
+        old = datetime(2023, 1, 1, tzinfo=timezone.utc)
+        recent = datetime(2024, 6, 1, tzinfo=timezone.utc)
+        repository.update_last_watched(conn, "m1", [{"viewed_at": old}])
+        repository.update_last_watched(conn, "m1", [{"viewed_at": recent}])
+        row = conn.execute("SELECT last_watched_at FROM media_items WHERE id='m1'").fetchone()
+        assert "2024-06-01" in row["last_watched_at"]
+
+
+# ---------------------------------------------------------------------------
+# schedule_deletion — race handling (Domain 05)
+# ---------------------------------------------------------------------------
+
+
+class TestScheduleDeletionRace:
+    def test_returns_scheduled_on_success(self, conn):
+        _insert_item(conn)
+        result = repository.schedule_deletion(
+            conn,
+            media_id="m1",
+            is_reentry=False,
+            grace_days=14,
+            secret_key="0123456789abcdef" * 4,
+        )
+        assert result == "scheduled"
         assert (
-            conn.execute("SELECT id FROM scheduled_actions WHERE token='sn-fut'").fetchone()
+            conn.execute(
+                "SELECT id FROM scheduled_actions "
+                "WHERE media_item_id='m1' AND action='scheduled_deletion'"
+            ).fetchone()
             is not None
+        )
+
+    def test_returns_skipped_on_concurrent_active_deletion(self, conn):
+        """A second concurrent run lining up the same item must not raise.
+
+        The migration-25 partial unique index enforces "one active
+        pending deletion per item" — a sibling worker that lost the race
+        should observe the existing row and skip cleanly, not bubble
+        IntegrityError up to the caller.
+        """
+        _insert_item(conn)
+        first = repository.schedule_deletion(
+            conn,
+            media_id="m1",
+            is_reentry=False,
+            grace_days=14,
+            secret_key="0123456789abcdef" * 4,
+        )
+        assert first == "scheduled"
+        # Second call hits the partial unique index — must report skipped.
+        second = repository.schedule_deletion(
+            conn,
+            media_id="m1",
+            is_reentry=False,
+            grace_days=14,
+            secret_key="0123456789abcdef" * 4,
+        )
+        assert second == "skipped"
+        # Only one active row remains.
+        rows = conn.execute(
+            "SELECT id FROM scheduled_actions "
+            "WHERE media_item_id='m1' AND action='scheduled_deletion' "
+            "AND token_used=0 AND (delete_status IS NULL OR delete_status='pending')"
+        ).fetchall()
+        assert len(rows) == 1
+
+
+# ---------------------------------------------------------------------------
+# delete_media_items — atomic chunk transaction (Domain 05)
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteMediaItemsAtomic:
+    def test_clean_path_commits_both_deletes(self, conn):
+        """Happy path: both ``scheduled_actions`` and ``media_items`` rows go."""
+        _insert_item(conn, media_id="m1")
+        _insert_action(conn, media_id="m1")
+        repository.delete_media_items(conn, ["m1"])
+        # Both tables must be empty for m1.
+        assert conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone() is None
+        assert (
+            conn.execute("SELECT id FROM scheduled_actions WHERE media_item_id='m1'").fetchone()
+            is None
         )
