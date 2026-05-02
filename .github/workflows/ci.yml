@@ -75,9 +75,10 @@ jobs:
   typecheck:
     name: Type check (mypy)
     runs-on: ubuntu-latest
-    # Scoped to the security-critical packages where type-level signal is
-    # highest. The rest of the codebase has pre-existing type drift; widen
-    # this scope in a later cluster once it has had a type-annotation pass.
+    # Full-tree mypy. Errors are not yet zero (strict = true is a P7 task
+    # per pyproject comments); ignore_missing_imports keeps the install
+    # surface manageable. The previous narrow scope hid real type drift in
+    # the rest of the tree.
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
@@ -95,12 +96,7 @@ jobs:
           pip install -e ".[dev]" types-requests
 
       - name: mypy
-        run: |
-          mypy \
-            src/mediaman/auth/ \
-            src/mediaman/crypto/ \
-            src/mediaman/services/infra/http_client.py \
-            src/mediaman/services/infra/url_safety.py
+        run: mypy src/mediaman
 
   security-scan:
     name: Security scan (bandit)
