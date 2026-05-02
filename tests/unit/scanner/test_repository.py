@@ -211,8 +211,63 @@ class TestIsProtected:
         _insert_action(conn, action="snoozed", token="sn-tok", execute_at=past)
         assert repository.is_protected(conn, "m1") is False
 
+    def test_pending_only_returns_false(self, conn):
+        _insert_item(conn)
+        _insert_action(conn, action="scheduled_deletion", token="pend-tok")
+        assert repository.is_protected(conn, "m1") is False
+
     def test_no_action_returns_false(self, conn):
         _insert_item(conn)
+        assert repository.is_protected(conn, "m1") is False
+
+    def test_unknown_media_id_returns_false(self, conn):
+        # No matching row at all — must be False, not crash.
+        assert repository.is_protected(conn, "does-not-exist") is False
+
+    def test_protected_forever_wins_over_later_expired_snooze(self, conn):
+        """Regression for Domain 05 finding: ``ORDER BY id DESC LIMIT 1``
+        let a later expired snooze row mask an earlier protected_forever
+        row. A protected_forever row is authoritative regardless of where
+        it sits in id order.
+        """
+        _insert_item(conn)
+        # Older protected_forever row (lower id).
+        _insert_action(conn, action="protected_forever", token="pf-old")
+        # Newer expired snooze row (higher id, would win the old query).
+        past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        _insert_action(conn, action="snoozed", token="sn-expired", execute_at=past)
+        assert repository.is_protected(conn, "m1") is True
+
+    def test_protected_forever_wins_over_later_active_snooze(self, conn):
+        """A later active snooze row must not downgrade an earlier
+        protected_forever — both would normally return True, but if
+        anything ever changes the snooze semantics, protected_forever
+        remains the authoritative answer.
+        """
+        _insert_item(conn)
+        _insert_action(conn, action="protected_forever", token="pf-first")
+        future = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        _insert_action(conn, action="snoozed", token="sn-active", execute_at=future)
+        assert repository.is_protected(conn, "m1") is True
+
+    def test_active_snooze_with_later_expired_snooze_returns_true(self, conn):
+        """An active snooze must still register as protected even when
+        a later (higher-id) snooze row has already expired.
+        """
+        _insert_item(conn)
+        future = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+        past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        _insert_action(conn, action="snoozed", token="sn-active", execute_at=future)
+        _insert_action(conn, action="snoozed", token="sn-expired", execute_at=past)
+        assert repository.is_protected(conn, "m1") is True
+
+    def test_only_expired_snoozes_returns_false(self, conn):
+        """Multiple expired snooze rows still mean the item is not protected."""
+        _insert_item(conn)
+        past1 = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+        past2 = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        _insert_action(conn, action="snoozed", token="sn-old", execute_at=past1)
+        _insert_action(conn, action="snoozed", token="sn-recent", execute_at=past2)
         assert repository.is_protected(conn, "m1") is False
 
 
