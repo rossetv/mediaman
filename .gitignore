@@ -70,3 +70,9 @@ docs/superpowers/
 # Pre-OSS audit artefacts (local only)
 .review/
 FINDINGS.md
+
+# macOS Finder duplicate-suffix shadow files (e.g. "foo 2.py")
+* [0-9].py
+* [0-9].md
+* [0-9].json
+* [0-9].yml
