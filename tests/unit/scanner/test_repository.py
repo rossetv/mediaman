@@ -316,6 +316,65 @@ class TestIsAlreadyScheduled:
 
 
 # ---------------------------------------------------------------------------
+# schedule_deletion — race handling (Domain 05)
+# ---------------------------------------------------------------------------
+
+
+class TestScheduleDeletionRace:
+    def test_returns_scheduled_on_success(self, conn):
+        _insert_item(conn)
+        result = repository.schedule_deletion(
+            conn,
+            media_id="m1",
+            is_reentry=False,
+            grace_days=14,
+            secret_key="0123456789abcdef" * 4,
+        )
+        assert result == "scheduled"
+        assert (
+            conn.execute(
+                "SELECT id FROM scheduled_actions "
+                "WHERE media_item_id='m1' AND action='scheduled_deletion'"
+            ).fetchone()
+            is not None
+        )
+
+    def test_returns_skipped_on_concurrent_active_deletion(self, conn):
+        """A second concurrent run lining up the same item must not raise.
+
+        The migration-25 partial unique index enforces "one active
+        pending deletion per item" — a sibling worker that lost the race
+        should observe the existing row and skip cleanly, not bubble
+        IntegrityError up to the caller.
+        """
+        _insert_item(conn)
+        first = repository.schedule_deletion(
+            conn,
+            media_id="m1",
+            is_reentry=False,
+            grace_days=14,
+            secret_key="0123456789abcdef" * 4,
+        )
+        assert first == "scheduled"
+        # Second call hits the partial unique index — must report skipped.
+        second = repository.schedule_deletion(
+            conn,
+            media_id="m1",
+            is_reentry=False,
+            grace_days=14,
+            secret_key="0123456789abcdef" * 4,
+        )
+        assert second == "skipped"
+        # Only one active row remains.
+        rows = conn.execute(
+            "SELECT id FROM scheduled_actions "
+            "WHERE media_item_id='m1' AND action='scheduled_deletion' "
+            "AND token_used=0 AND (delete_status IS NULL OR delete_status='pending')"
+        ).fetchall()
+        assert len(rows) == 1
+
+
+# ---------------------------------------------------------------------------
 # has_expired_snooze
 # ---------------------------------------------------------------------------
 
