@@ -7,6 +7,7 @@ import time
 import pytest
 
 from mediaman.auth.rate_limit import (
+    ActionRateLimiter,
     RateLimiter,
     get_client_ip,
     trusted_proxies,
@@ -83,6 +84,147 @@ class TestRateLimiter:
             t.join()
 
         assert sum(results) == 5
+
+
+class TestRateLimiterEviction:
+    """Bucket-cap eviction must be O(1) and target the least-recently-used."""
+
+    def test_lru_bucket_evicted_when_cap_hit(self, monkeypatch):
+        """Filling beyond _MAX_BUCKETS evicts the LEAST-recently-used bucket."""
+        from mediaman.auth.rate_limit import limiters as limiters_module
+
+        monkeypatch.setattr(limiters_module, "_MAX_BUCKETS", 3)
+        limiter = RateLimiter(max_attempts=10, window_seconds=60)
+
+        # Touch four distinct /24s; the first should be evicted.
+        limiter.check("10.0.1.1")  # bucket A — LRU
+        limiter.check("10.0.2.1")  # bucket B
+        limiter.check("10.0.3.1")  # bucket C
+        limiter.check("10.0.4.1")  # bucket D — triggers eviction of A
+
+        assert "10.0.1.0/24" not in limiter._attempts
+        assert "10.0.2.0/24" in limiter._attempts
+        assert "10.0.3.0/24" in limiter._attempts
+        assert "10.0.4.0/24" in limiter._attempts
+
+    def test_recent_access_promotes_bucket(self, monkeypatch):
+        """A bucket touched most recently must NOT be the next eviction target."""
+        from mediaman.auth.rate_limit import limiters as limiters_module
+
+        monkeypatch.setattr(limiters_module, "_MAX_BUCKETS", 3)
+        limiter = RateLimiter(max_attempts=10, window_seconds=60)
+
+        limiter.check("10.0.1.1")  # bucket A (oldest)
+        limiter.check("10.0.2.1")  # bucket B
+        limiter.check("10.0.3.1")  # bucket C
+        # Re-touch bucket A — it should become the most-recently-used.
+        limiter.check("10.0.1.2")
+        # Now adding D should evict B (currently the LRU), not A.
+        limiter.check("10.0.4.1")
+
+        assert "10.0.1.0/24" in limiter._attempts
+        assert "10.0.2.0/24" not in limiter._attempts
+        assert "10.0.3.0/24" in limiter._attempts
+        assert "10.0.4.0/24" in limiter._attempts
+
+
+class TestActionRateLimiterSlidingDay:
+    """The 24h cap must be a true sliding window — no midnight cliff bypass."""
+
+    def test_burst_around_24h_boundary_does_not_double_dip(self, monkeypatch):
+        """5 hits one second apart, then jump just past 24h.
+
+        Spacing the hits one second apart means they age out one-by-one.
+        After jumping to ``first_hit + 24h + 0.5s``, exactly the FIRST
+        hit (at t=1000) has aged out; the four later hits are still in
+        the rolling window. So one slot has freed up, and only ONE more
+        request gets through before the cap reasserts itself.
+
+        Whole-window double-dipping (the old calendar-day bug) would
+        have admitted FIVE more here.
+        """
+        clock = [1000.0]
+
+        def fake_monotonic():
+            return clock[0]
+
+        monkeypatch.setattr(time, "monotonic", fake_monotonic)
+
+        limiter = ActionRateLimiter(max_in_window=100, window_seconds=1.0, max_per_day=5)
+
+        # Burn the daily quota — one hit per second so hits age out one-by-one.
+        for i in range(5):
+            clock[0] = 1000.0 + i  # t = 1000, 1001, 1002, 1003, 1004
+            assert limiter.check("alice") is True
+        # Quota exhausted.
+        assert limiter.check("alice") is False
+
+        # Jump to t=1000 + 23h59m55s (every hit still inside the 24h window).
+        clock[0] = 1000.0 + (24 * 3600.0) - 5.0
+        # Cap still in force.
+        assert limiter.check("alice") is False
+
+        # Jump to t=1000 + 24h + 0.5s — only the first hit (logged at
+        # t=1000) has aged out; the other four are still in the window.
+        clock[0] = 1000.0 + (24 * 3600.0) + 0.5
+        assert limiter.check("alice") is True  # one slot freed up
+        assert limiter.check("alice") is False  # back at cap
+
+        # Far enough in the future that EVERY old hit ages out (the
+        # latest hit at t=87400.5 needs > 24h to age out, so jump to
+        # well beyond that).
+        clock[0] = 1000.0 + (96 * 3600.0)
+        for _ in range(5):
+            assert limiter.check("alice") is True
+        assert limiter.check("alice") is False
+
+    def test_no_calendar_midnight_double_dip(self, monkeypatch):
+        """Calling 23:59:59 then 00:00:01 must NOT yield two daily quotas.
+
+        Regression test for the previous calendar-day bug: with the old
+        ``time.strftime("%Y-%m-%d")`` logic, an attacker could spend the
+        day-N quota at 23:59:59 and the day-N+1 quota at 00:00:01 — 2x
+        the intended budget in 2 seconds. Sliding window fixes it.
+        """
+        clock = [1000.0]
+
+        def fake_monotonic():
+            return clock[0]
+
+        monkeypatch.setattr(time, "monotonic", fake_monotonic)
+
+        limiter = ActionRateLimiter(max_in_window=100, window_seconds=1.0, max_per_day=3)
+
+        # Spend the entire daily quota.
+        for _ in range(3):
+            assert limiter.check("alice") is True
+        # Two seconds later — old logic let this through (new calendar day).
+        clock[0] += 2.0
+        assert limiter.check("alice") is False
+        # And again two seconds further on.
+        clock[0] += 2.0
+        assert limiter.check("alice") is False
+
+    def test_burst_window_still_enforced(self, monkeypatch):
+        """The short-window burst limit still rejects bursts."""
+        clock = [1000.0]
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+
+        limiter = ActionRateLimiter(max_in_window=2, window_seconds=10.0, max_per_day=100)
+        assert limiter.check("alice") is True
+        assert limiter.check("alice") is True
+        assert limiter.check("alice") is False  # burst cap
+
+        clock[0] += 11.0
+        assert limiter.check("alice") is True
+
+    def test_no_daily_cap_skips_log(self):
+        """``max_per_day=0`` (the default) means the daily log isn't allocated."""
+        limiter = ActionRateLimiter(max_in_window=5, window_seconds=60)
+        for _ in range(5):
+            assert limiter.check("bob") is True
+        # Internal: no daily log created when feature disabled.
+        assert limiter._daily == {}
 
 
 class TestGetClientIp:
