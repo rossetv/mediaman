@@ -38,6 +38,22 @@ def authed_client(app):
     return client
 
 
+@pytest.fixture(autouse=True)
+def _reset_search_limiter():
+    """Drop the shared search-query limiter state between tests.
+
+    The limiter is module-level (200/day per actor) — without this
+    reset, a long test run accumulates "admin" hits across cases and
+    the day-cap eventually fires inside a test that knows nothing
+    about it.
+    """
+    from mediaman.web.routes.search import _QUERY_LIMITER
+
+    _QUERY_LIMITER.reset()
+    yield
+    _QUERY_LIMITER.reset()
+
+
 class TestSearchEndpoint:
     def test_returns_merged_pages_filtered(self, authed_client, fake_http, fake_response):
         page1 = {
