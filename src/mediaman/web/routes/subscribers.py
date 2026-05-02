@@ -8,17 +8,23 @@ from __future__ import annotations
 
 import logging
 import re
-from html import escape
+import sqlite3
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
+from mediaman.audit import security_event
 from mediaman.auth.middleware import get_current_admin
 from mediaman.auth.rate_limit import RateLimiter, get_client_ip
 from mediaman.crypto import validate_unsubscribe_token
 from mediaman.db import get_db
-from mediaman.services.infra.rate_limits import NEWSLETTER_LIMITER as _NEWSLETTER_LIMITER
+from mediaman.services.infra.rate_limits import (
+    NEWSLETTER_LIMITER as _NEWSLETTER_LIMITER,
+)
+from mediaman.services.infra.rate_limits import (
+    SUBSCRIBER_WRITE_LIMITER as _SUBSCRIBER_WRITE_LIMITER,
+)
 from mediaman.services.infra.time import now_iso
 
 
@@ -54,6 +60,20 @@ def _validate_email(email: str) -> bool:
     return bool(_EMAIL_RE.match(email.strip()))
 
 
+def _mask_email_log(email: str) -> str:
+    """Return a masked email for log output (first char of local-part + domain + length).
+
+    Avoids logging PII in plaintext while still giving operators enough
+    context to triage delivery issues (finding 36).
+    """
+    try:
+        local, domain = email.split("@", 1)
+    except ValueError:
+        return f"(len={len(email)})"
+    first = local[0] if local else "?"
+    return f"{first}...@{domain} (len={len(email)})"
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -83,6 +103,7 @@ def api_list_subscribers(username: str = Depends(get_current_admin)) -> JSONResp
 
 @router.post("/api/subscribers")
 def api_add_subscriber(
+    request: Request,
     email: str = Form(...),
     username: str = Depends(get_current_admin),
 ) -> JSONResponse:
@@ -90,33 +111,83 @@ def api_add_subscriber(
 
     Validates email format, then inserts into subscribers. Returns 409 if
     the address is already registered, 422 if the format is invalid.
+
+    The SELECT-then-INSERT path is wrapped in ``BEGIN IMMEDIATE`` so two
+    concurrent admin sessions adding the same email cannot both pass the
+    SELECT and then race on the INSERT — the loser hits the unique
+    constraint and is converted to a clean 409 instead of bubbling a 500
+    out of the IntegrityError.
     """
+    if not _SUBSCRIBER_WRITE_LIMITER.check(username):
+        logger.warning("subscriber.add_throttled user=%s", username)
+        return JSONResponse(
+            {"error": "Too many subscriber changes — slow down"},
+            status_code=429,
+        )
     email = email.strip().lower()
     if not _validate_email(email):
         return JSONResponse({"error": "Invalid email address"}, status_code=422)
 
     conn = get_db()
-    existing = conn.execute("SELECT id FROM subscribers WHERE email = ?", (email,)).fetchone()
-    if existing:
-        return JSONResponse({"error": "Email already subscribed"}, status_code=409)
-
     now = now_iso()
-    conn.execute(
-        "INSERT INTO subscribers (email, active, created_at) VALUES (?, 1, ?)",
-        (email, now),
-    )
-    conn.commit()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            existing = conn.execute(
+                "SELECT id FROM subscribers WHERE email = ?", (email,)
+            ).fetchone()
+            if existing:
+                conn.execute("ROLLBACK")
+                return JSONResponse({"error": "Email already subscribed"}, status_code=409)
+            try:
+                conn.execute(
+                    "INSERT INTO subscribers (email, active, created_at) VALUES (?, 1, ?)",
+                    (email, now),
+                )
+            except sqlite3.IntegrityError:
+                # Concurrent admin landed first — convert to a clean
+                # 409. Without this, both racers passed the SELECT,
+                # one INSERT succeeded, the other returned a 500.
+                conn.execute("ROLLBACK")
+                return JSONResponse({"error": "Email already subscribed"}, status_code=409)
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+    except Exception:
+        logger.exception("subscriber.add failed user=%s", username)
+        return JSONResponse({"error": "Internal error"}, status_code=500)
 
-    logger.info("Subscriber added: %s by %s", email, username)
+    masked = _mask_email_log(email)
+    logger.info("Subscriber added: %s by %s", masked, username)
+    security_event(
+        conn,
+        event="subscriber.added",
+        actor=username,
+        ip=get_client_ip(request),
+        detail={"email": masked},
+    )
     return JSONResponse({"ok": True, "email": email}, status_code=201)
 
 
 @router.delete("/api/subscribers/{subscriber_id}")
 def api_remove_subscriber(
+    request: Request,
     subscriber_id: int,
     username: str = Depends(get_current_admin),
 ) -> JSONResponse:
-    """Remove a subscriber by ID."""
+    """Remove a subscriber by ID.
+
+    Rate-limited per admin to bound abuse via a leaked session cookie,
+    and writes a security_event audit row so a compromised account
+    cannot silently churn the subscriber list.
+    """
+    if not _SUBSCRIBER_WRITE_LIMITER.check(username):
+        logger.warning("subscriber.remove_throttled user=%s", username)
+        return JSONResponse(
+            {"error": "Too many subscriber changes — slow down"},
+            status_code=429,
+        )
     conn = get_db()
     row = conn.execute("SELECT email FROM subscribers WHERE id = ?", (subscriber_id,)).fetchone()
     if row is None:
@@ -125,7 +196,15 @@ def api_remove_subscriber(
     conn.execute("DELETE FROM subscribers WHERE id = ?", (subscriber_id,))
     conn.commit()
 
-    logger.info("Subscriber removed: %s by %s", row["email"], username)
+    masked = _mask_email_log(row["email"] or "")
+    logger.info("Subscriber removed: %s by %s", masked, username)
+    security_event(
+        conn,
+        event="subscriber.removed",
+        actor=username,
+        ip=get_client_ip(request),
+        detail={"id": subscriber_id, "email": masked},
+    )
     return JSONResponse({"ok": True})
 
 
@@ -170,8 +249,13 @@ def api_send_newsletter(
         return JSONResponse({"ok": False, "error": "No valid recipients"}, status_code=400)
 
     placeholders = ",".join("?" * len(requested))
+    # ``subscribers.email`` is normalised to lowercase on write (M14)
+    # and the column carries a UNIQUE INDEX with COLLATE NOCASE — no
+    # need for a function call here. Wrapping the column in lower()
+    # forced a full table scan and defeated the index, which on a
+    # large subscriber list became a measurable hot path.
     allowed_rows = conn.execute(
-        f"SELECT email FROM subscribers WHERE active=1 AND lower(email) IN ({placeholders})",
+        f"SELECT email FROM subscribers WHERE active=1 AND email IN ({placeholders})",
         tuple(requested),
     ).fetchall()
 
@@ -217,6 +301,13 @@ def api_send_newsletter(
             admin,
             rejected,
         )
+        security_event(
+            conn,
+            event="newsletter.sent",
+            actor=admin,
+            ip=get_client_ip(request),
+            detail={"sent_to": len(recipients), "rejected": rejected},
+        )
         return JSONResponse({"ok": True, "sent_to": len(recipients)})
     except Exception as exc:
         logger.warning("Manual newsletter send failed: %s", exc)
@@ -246,20 +337,6 @@ def _generic_invalid_response(request: Request) -> HTMLResponse:
     whether an email is subscribed, whether a token was syntactically
     well-formed but wrong-signed, or whether it has expired."""
     return _render_result(request, "This unsubscribe link is no longer valid.", success=False)
-
-
-def _mask_email_log(email: str) -> str:
-    """Return a masked email for log output (first char of local-part + domain + length).
-
-    Avoids logging PII in plaintext while still giving operators enough
-    context to triage delivery issues (finding 36).
-    """
-    try:
-        local, domain = email.split("@", 1)
-    except ValueError:
-        return f"(len={len(email)})"
-    first = local[0] if local else "?"
-    return f"{first}...@{domain} (len={len(email)})"
 
 
 @router.get("/unsubscribe", response_class=HTMLResponse)
@@ -339,8 +416,12 @@ def unsubscribe_confirm(
         return _generic_invalid_response(request)
 
     conn = get_db()
+    # ``subscribers.email`` is normalised to lowercase on write (M14),
+    # so we look up directly by the column. Wrapping it in lower()
+    # forced a full table scan — the schema's UNIQUE INDEX with
+    # COLLATE NOCASE is sufficient.
     row = conn.execute(
-        "SELECT id, active FROM subscribers WHERE lower(email) = ?", (email_from_token,)
+        "SELECT id, active FROM subscribers WHERE email = ?", (email_from_token,)
     ).fetchone()
 
     # Return a uniform "you've been unsubscribed" response whether the
@@ -367,42 +448,3 @@ def unsubscribe_confirm(
         _UNSUB_CONFIRMATION_MSG,
         success=True,
     )
-
-
-def _unsub_confirm_html(email: str, token: str) -> str:
-    """Render an unsubscribe confirmation page with a button (kept for tests)."""
-    safe_email = escape(email)
-    safe_token = escape(token)
-    return f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Unsubscribe · Mediaman</title></head>
-<body style="margin:0;padding:0;background:#000;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;">
-<div style="text-align:center;max-width:400px;padding:40px;">
-<div style="font-size:24px;font-weight:600;margin-bottom:16px;">media<span style="color:#2997ff;">man</span></div>
-<div style="font-size:17px;font-weight:600;margin-bottom:8px;">Unsubscribe?</div>
-<div style="font-size:15px;color:rgba(255,255,255,0.5);line-height:1.5;margin-bottom:24px;">
-You will no longer receive newsletter emails at<br><strong style="color:#fff;">{safe_email}</strong>
-</div>
-<form method="POST" action="/unsubscribe">
-<input type="hidden" name="email" value="{safe_email}">
-<input type="hidden" name="token" value="{safe_token}">
-<button type="submit" style="padding:12px 32px;border-radius:980px;border:none;background:#ff453a;color:#fff;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;margin-right:12px;">Unsubscribe</button>
-<a href="/" style="padding:12px 24px;border-radius:980px;border:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.6);font-size:15px;font-weight:600;text-decoration:none;">Cancel</a>
-</form>
-</div></body></html>"""
-
-
-def _unsub_html(message: str, success: bool) -> str:
-    """Render a minimal unsubscribe result page (kept for tests)."""
-    safe_message = escape(message)
-    colour = "#30d158" if success else "#ff453a"
-    icon = "&#10003;" if success else "&#10007;"
-    return f"""<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Unsubscribe · Mediaman</title></head>
-<body style="margin:0;padding:0;background:#000;font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;">
-<div style="text-align:center;max-width:400px;padding:40px;">
-<div style="font-size:48px;color:{colour};margin-bottom:16px;">{icon}</div>
-<div style="font-size:24px;font-weight:600;margin-bottom:8px;">media<span style="color:#2997ff;">man</span></div>
-<div style="font-size:15px;color:rgba(255,255,255,0.6);line-height:1.5;">{safe_message}</div>
-</div></body></html>"""

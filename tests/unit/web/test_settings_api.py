@@ -13,7 +13,22 @@ from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.crypto import encrypt_value
 from mediaman.db import init_db, set_connection
+from mediaman.services.infra.rate_limits import (
+    SETTINGS_TEST_LIMITER,
+    SETTINGS_WRITE_LIMITER,
+)
 from mediaman.web.routes.settings import router
+
+
+@pytest.fixture(autouse=True)
+def _reset_limiters():
+    """Reset shared admin limiters between tests so suite ordering does
+    not cause spurious 429s. Each test starts with a clean budget."""
+    SETTINGS_WRITE_LIMITER.reset()
+    SETTINGS_TEST_LIMITER.reset()
+    yield
+    SETTINGS_WRITE_LIMITER.reset()
+    SETTINGS_TEST_LIMITER.reset()
 
 
 def _make_app(conn, secret_key: str) -> FastAPI:
@@ -569,3 +584,250 @@ class TestApiTestServiceOpenAiTmdbOmdb:
         data = resp.json()
         assert data["ok"] is False
         assert "ssrf_refused" in data["error"]
+
+
+class TestSettingsTestServiceRateLimit:
+    """Service-test endpoint must be admin-keyed rate-limited so a leaked
+    session cookie cannot chain test calls to flood Plex / Mailgun."""
+
+    def test_eleventh_call_in_window_is_429(self, conn, secret_key):
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+        # Limiter is 10/min — eleventh call must be throttled.
+        for _ in range(10):
+            resp = client.post("/api/settings/test/openai")
+            assert resp.status_code == 200
+        resp = client.post("/api/settings/test/openai")
+        assert resp.status_code == 429
+
+
+class TestSettingsTestServiceTimeout:
+    """Each tester runs under a hard wall-clock cap so an unreachable
+    Plex cannot pin the request thread for 35+ seconds."""
+
+    def test_long_running_tester_returns_timeout(self, conn, secret_key, monkeypatch):
+        import time
+
+        from mediaman.web.routes import settings as settings_module
+
+        def slow_tester(_settings):
+            time.sleep(2.0)
+            from fastapi.responses import JSONResponse
+
+            return JSONResponse({"ok": True})
+
+        monkeypatch.setattr(settings_module, "_TESTER_TIMEOUT_SECONDS", 0.1)
+        monkeypatch.setitem(settings_module._SERVICE_TESTERS, "plex", slow_tester)
+
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        resp = client.post("/api/settings/test/plex")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is False
+        assert data["error"] == "timeout"
+
+
+class TestSettingsTestServiceScopedDecryption:
+    """A single-service test must NOT decrypt every other secret in
+    the DB. The route restricts ``_load_settings`` to the keys that
+    tester actually needs."""
+
+    def test_openai_test_does_not_touch_plex_token(self, conn, secret_key, monkeypatch):
+        """Patch the decrypt function and assert it's only called for
+        ``openai_api_key`` when the openai tester runs."""
+        from datetime import datetime, timezone
+
+        # Seed a real encrypted plex_token + openai_api_key so the test
+        # can prove only one is touched.
+        now = datetime.now(timezone.utc).isoformat()
+        ct_plex = encrypt_value("plex-secret", secret_key, conn=conn, aad=b"plex_token")
+        ct_openai = encrypt_value("sk-openai", secret_key, conn=conn, aad=b"openai_api_key")
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 1, ?)",
+            ("plex_token", ct_plex, now),
+        )
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 1, ?)",
+            ("openai_api_key", ct_openai, now),
+        )
+        conn.commit()
+
+        from mediaman.web.routes import settings as settings_module
+
+        seen_keys: list[bytes] = []
+        original_decrypt = settings_module.decrypt_value
+
+        def recording_decrypt(value, sk, *, conn=None, aad=None):
+            if aad is not None:
+                seen_keys.append(aad)
+            return original_decrypt(value, sk, conn=conn, aad=aad)
+
+        monkeypatch.setattr(settings_module, "decrypt_value", recording_decrypt)
+
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        # Stub the actual SafeHTTP call so we don't hit the network.
+        with patch(
+            "mediaman.services.infra.http_client._dispatch",
+            return_value=MagicMock(status_code=200, headers={}, content=b"{}"),
+        ):
+            resp = client.post("/api/settings/test/openai")
+        assert resp.status_code == 200
+
+        # The openai tester only needs openai_api_key. plex_token
+        # MUST NOT have been decrypted.
+        assert b"plex_token" not in seen_keys, (
+            f"plex_token should not be decrypted by an openai test; saw aad={seen_keys}"
+        )
+        assert b"openai_api_key" in seen_keys
+
+
+class TestSettingsLoadDistinguishesDecryptFromMissing:
+    """``_load_settings`` must surface ``ConfigDecryptError`` for rows that
+    exist but cannot be decrypted, so callers can distinguish "secret
+    rotated" from "secret never set"."""
+
+    def test_decrypt_failure_raises_config_decrypt_error(self, conn, secret_key):
+        from datetime import datetime, timezone
+
+        from mediaman.services.infra.settings_reader import ConfigDecryptError
+        from mediaman.web.routes.settings import _load_settings
+
+        # Write a ciphertext encrypted under one key, then attempt to
+        # decrypt under a different key.
+        other_key = "fedcba9876543210" * 4
+        ct = encrypt_value("plex-secret", other_key, conn=conn, aad=b"plex_token")
+
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 1, ?)",
+            ("plex_token", ct, now),
+        )
+        conn.commit()
+
+        with pytest.raises(ConfigDecryptError):
+            _load_settings(conn, secret_key, keys={"plex_token"})
+
+
+class TestSettingsApiGetSkipsDecryption:
+    """GET /api/settings should never attempt to decrypt secrets — they
+    are masked as '****' regardless of plaintext, so the decryption
+    cost is wasted and a needless plaintext exposure window."""
+
+    def test_get_does_not_decrypt_secrets(self, conn, secret_key, monkeypatch):
+        from datetime import datetime, timezone
+
+        from mediaman.web.routes import settings as settings_module
+
+        now = datetime.now(timezone.utc).isoformat()
+        ct = encrypt_value("very-secret", secret_key, conn=conn, aad=b"plex_token")
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 1, ?)",
+            ("plex_token", ct, now),
+        )
+        conn.commit()
+
+        seen: list[bytes] = []
+        original = settings_module.decrypt_value
+
+        def recording(value, sk, *, conn=None, aad=None):
+            if aad is not None:
+                seen.append(aad)
+            return original(value, sk, conn=conn, aad=aad)
+
+        monkeypatch.setattr(settings_module, "decrypt_value", recording)
+
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        resp = client.get("/api/settings")
+        assert resp.status_code == 200
+        assert resp.json().get("plex_token") == "****"
+        assert b"plex_token" not in seen, (
+            f"GET /api/settings should not decrypt secrets; saw {seen}"
+        )
+
+
+class TestSettingsClearSentinel:
+    """Sending the ``__CLEAR__`` sentinel for a secret field deletes the
+    row — without it, a stored credential cannot be erased through the
+    UI."""
+
+    def test_clear_sentinel_deletes_secret_row(self, conn, secret_key):
+        # Seed a stored secret.
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn, with_reauth=True)
+
+        resp = client.put("/api/settings", json={"plex_token": "real-token-1234"})
+        assert resp.status_code == 200
+        row = conn.execute("SELECT value FROM settings WHERE key='plex_token'").fetchone()
+        assert row is not None
+
+        # Clear it.
+        resp = client.put("/api/settings", json={"plex_token": "__CLEAR__"})
+        assert resp.status_code == 200
+        row = conn.execute("SELECT value FROM settings WHERE key='plex_token'").fetchone()
+        assert row is None
+
+    def test_clear_sentinel_requires_reauth(self, conn, secret_key):
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn, with_reauth=False)
+
+        resp = client.put("/api/settings", json={"plex_token": "__CLEAR__"})
+        assert resp.status_code == 403
+
+
+class TestSettingsThrottleAuditLog:
+    """When the settings-write rate limiter fires, an audit row must be
+    written so operators can see the throttled attempt — not just a log
+    line in app stdout."""
+
+    def test_throttled_write_records_security_event(self, conn, secret_key):
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+
+        # Burn through the burst window (20/min).
+        for _ in range(20):
+            resp = client.put("/api/settings", json={"scan_day": "monday"})
+            assert resp.status_code == 200
+
+        resp = client.put("/api/settings", json={"scan_day": "monday"})
+        assert resp.status_code == 429
+
+        rows = conn.execute(
+            "SELECT action, detail FROM audit_log WHERE action = 'sec:settings.write.throttled'"
+        ).fetchall()
+        assert rows, "throttle path must write a security_event audit row"
+
+
+class TestSsrfBlockedLogScrubs:
+    """SSRF-blocked URLs must not be logged verbatim — userinfo and
+    query strings can carry credentials and the candidate is
+    user-controlled."""
+
+    def test_userinfo_stripped_from_log(self, conn, secret_key, caplog):
+        from mediaman.web.routes import settings as settings_module
+
+        # Force the URL into the SSRF-blocked path by stubbing
+        # is_safe_outbound_url to refuse it.
+        with patch.object(settings_module, "is_safe_outbound_url", return_value=False):
+            app = _make_app(conn, secret_key)
+            client = _auth_client(app, conn)
+            with caplog.at_level("WARNING"):
+                resp = client.put(
+                    "/api/settings",
+                    json={
+                        "radarr_url": "http://admin:s3cr3t@evil.example.com/path?api_key=leaked"
+                    },
+                )
+        assert resp.status_code == 400
+
+        joined = " ".join(rec.getMessage() for rec in caplog.records)
+        # Neither the userinfo nor the query string can appear verbatim.
+        assert "s3cr3t" not in joined
+        assert "leaked" not in joined
+        # Host should still be logged for triage value.
+        assert "evil.example.com" in joined
