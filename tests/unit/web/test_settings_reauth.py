@@ -48,11 +48,9 @@ def conn(db_path):
 
 @pytest.fixture(autouse=True)
 def _clear_settings_limiter():
-    _SETTINGS_WRITE_LIMITER._attempts.clear()
-    _SETTINGS_WRITE_LIMITER._day_counts.clear()
+    _SETTINGS_WRITE_LIMITER.reset()
     yield
-    _SETTINGS_WRITE_LIMITER._attempts.clear()
-    _SETTINGS_WRITE_LIMITER._day_counts.clear()
+    _SETTINGS_WRITE_LIMITER.reset()
 
 
 # ---------------------------------------------------------------------------

@@ -64,8 +64,7 @@ class TestUserCreateRateLimit:
             _PASSWORD_CHANGE_LIMITER,
             _PASSWORD_CHANGE_IP_LIMITER,
         ):
-            lim._attempts.clear()
-            lim._day_counts.clear()
+            lim.reset()
 
     def test_user_create_throttled_after_cap(self, db_path, secret_key):
         """After _USER_CREATE_LIMITER._max_in_window requests, 429 is returned."""

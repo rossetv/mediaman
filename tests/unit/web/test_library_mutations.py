@@ -65,8 +65,7 @@ def _insert_tv_season(
 
 class TestMediaDelete:
     def setup_method(self):
-        _DELETE_LIMITER._attempts.clear()
-        _DELETE_LIMITER._day_counts.clear()
+        _DELETE_LIMITER.reset()
 
     def test_delete_requires_auth(self, db_path, secret_key):
         """DELETE endpoint returns 401 when no session cookie is present."""
@@ -187,8 +186,7 @@ class TestMediaDeleteTransactional:
     """C22 — transactional delete with Arr failure propagation."""
 
     def setup_method(self):
-        _DELETE_LIMITER._attempts.clear()
-        _DELETE_LIMITER._day_counts.clear()
+        _DELETE_LIMITER.reset()
 
     def test_arr_failure_returns_502_and_preserves_row(self, db_path, secret_key):
         """If Radarr delete raises, the endpoint returns 502 and keeps the DB row."""
@@ -505,10 +503,8 @@ class TestMediaKeepRateLimit:
     """H20 — /api/media/{id}/keep must be rate-limited."""
 
     def setup_method(self):
-        _KEEP_LIMITER._attempts.clear()
-        _KEEP_LIMITER._day_counts.clear()
-        _DELETE_LIMITER._attempts.clear()
-        _DELETE_LIMITER._day_counts.clear()
+        _KEEP_LIMITER.reset()
+        _DELETE_LIMITER.reset()
 
     def test_keep_rate_limit_blocks_after_window_exceeded(self, db_path, secret_key):
         """Hammering /keep more than 60 times per minute returns 429."""
@@ -583,10 +579,8 @@ class TestRedownloadSafeHTTPError:
     """SafeHTTPError 409/422 from Radarr/Sonarr must surface as 'already exists' responses."""
 
     def setup_method(self):
-        _DELETE_LIMITER._attempts.clear()
-        _DELETE_LIMITER._day_counts.clear()
-        _KEEP_LIMITER._attempts.clear()
-        _KEEP_LIMITER._day_counts.clear()
+        _DELETE_LIMITER.reset()
+        _KEEP_LIMITER.reset()
 
     def test_radarr_409_safe_http_error_returns_already_exists(self, db_path, secret_key):
         """A 409 SafeHTTPError from Radarr returns the 'already exists in Radarr' message."""
@@ -671,10 +665,8 @@ class TestRedownloadTitleCap:
     """H11 — redownload title must be capped at 256 chars."""
 
     def setup_method(self):
-        _DELETE_LIMITER._attempts.clear()
-        _DELETE_LIMITER._day_counts.clear()
-        _KEEP_LIMITER._attempts.clear()
-        _KEEP_LIMITER._day_counts.clear()
+        _DELETE_LIMITER.reset()
+        _KEEP_LIMITER.reset()
 
     def test_overlong_title_is_silently_truncated(self, db_path, secret_key):
         """A title over 256 chars is truncated, not rejected."""

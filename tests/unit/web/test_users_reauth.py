@@ -67,8 +67,7 @@ def _clear_rate_limiters():
         _REAUTH_LIMITER,
         _PASSWORD_CHANGE_LIMITER,
     ):
-        lim._attempts.clear()
-        lim._day_counts.clear()
+        lim.reset()
     yield
     for lim in (
         _USER_CREATE_LIMITER,
@@ -76,8 +75,7 @@ def _clear_rate_limiters():
         _REAUTH_LIMITER,
         _PASSWORD_CHANGE_LIMITER,
     ):
-        lim._attempts.clear()
-        lim._day_counts.clear()
+        lim.reset()
 
 
 # ---------------------------------------------------------------------------

@@ -27,9 +27,9 @@ router.include_router(_status_router)
 
 def reset_download_limiters() -> None:
     """Clear all download route rate-limiter state. Used by tests."""
-    _DOWNLOAD_LIMITER_GET._attempts.clear()
-    _DOWNLOAD_LIMITER_POST._attempts.clear()
-    _DOWNLOAD_STATUS_LIMITER._attempts.clear()
+    _DOWNLOAD_LIMITER_GET.reset()
+    _DOWNLOAD_LIMITER_POST.reset()
+    _DOWNLOAD_STATUS_LIMITER.reset()
 
 
 __all__ = ["router", "reset_download_limiters"]

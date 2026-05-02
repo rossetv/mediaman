@@ -38,14 +38,12 @@ _SHARE_TOKEN_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, ma
 
 def reset_download_action_limiter() -> None:
     """Clear the download-action rate-limiter state. Used by tests."""
-    _DOWNLOAD_ACTION_LIMITER._attempts.clear()
-    _DOWNLOAD_ACTION_LIMITER._day_counts.clear()
+    _DOWNLOAD_ACTION_LIMITER.reset()
 
 
 def reset_share_token_limiter() -> None:
     """Clear the share-token rate-limiter state. Used by tests."""
-    _SHARE_TOKEN_LIMITER._attempts.clear()
-    _SHARE_TOKEN_LIMITER._day_counts.clear()
+    _SHARE_TOKEN_LIMITER.reset()
 
 
 @router.get("/api/recommended")
