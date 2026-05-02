@@ -249,11 +249,36 @@ class TestThrottleDbPersistence:
         assert abs(loaded_epoch - 2_000_000.0) < 1.0
         assert loaded_count == 7
 
-    def test_load_returns_zero_on_broken_db(self):
-        """A broken/missing DB never raises — returns (0.0, 0) gracefully."""
+    def test_load_returns_zero_on_locked_db(self):
+        """A transient ``sqlite3.OperationalError`` (e.g. locked DB) is
+        swallowed and we fall back to ``(0.0, 0)``."""
+        import sqlite3
+
         bad_conn = MagicMock()
-        bad_conn.execute.side_effect = Exception("DB locked")
+        bad_conn.execute.side_effect = sqlite3.OperationalError("database is locked")
         assert _load_throttle_from_db(bad_conn, "radarr:X") == (0.0, 0)
+
+    def test_load_returns_zero_on_pre_migration_db(self):
+        """A missing table raises ``sqlite3.DatabaseError`` — also swallowed."""
+        import sqlite3
+
+        bad_conn = MagicMock()
+        bad_conn.execute.side_effect = sqlite3.DatabaseError("no such table: arr_search_throttle")
+        assert _load_throttle_from_db(bad_conn, "radarr:X") == (0.0, 0)
+
+    def test_load_propagates_unexpected_exception(self):
+        """Domain-06 #9: a non-DB exception must NOT be silently swallowed.
+
+        Regression: the previous bare ``except Exception`` masked
+        schema migration faults and parser bugs — every call returned
+        ``(0.0, 0)``, which the throttle interpreted as "never
+        triggered" for every dl_id, effectively disabling the throttle
+        across the entire instance.
+        """
+        bad_conn = MagicMock()
+        bad_conn.execute.side_effect = RuntimeError("genuine bug")
+        with pytest.raises(RuntimeError, match="genuine bug"):
+            _load_throttle_from_db(bad_conn, "radarr:X")
 
     def test_save_swallows_db_error(self):
         """_save_trigger_to_db is best-effort; never raises on DB failure."""
