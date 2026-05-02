@@ -18,6 +18,13 @@ from datetime import datetime, timezone
 _AUDIT_TITLE_RE = re.compile(r"^Deleted[: ]+['\"]?(.+?)['\"]?(?:\s+by\s+.+?)?(?:\s+\[rk:.*\])?$")
 _AUDIT_RK_RE = re.compile(r"\[rk:([^\]]+)\]")
 
+#: Hard cap on the length of a string fed to :data:`_AUDIT_TITLE_RE`.
+#: The non-greedy ``(.+?)`` followed by optional groups can exhibit
+#: O(n^2) backtracking on long inputs, so we cap before matching to
+#: keep the worst case bounded. 256 chars covers every legitimate
+#: media title and a tag block by a wide margin.
+_AUDIT_TITLE_MAX_INPUT = 256
+
 
 def title_from_audit_detail(detail: str | None) -> str:
     """Extract a media title from an ``audit_log.detail`` string.
@@ -28,11 +35,16 @@ def title_from_audit_detail(detail: str | None) -> str:
     * ``"Deleted 'Some Title' by admin [rk:123]"`` — library route
 
     Returns ``"Unknown"`` when *detail* is empty or does not match.
+
+    Long inputs are truncated to :data:`_AUDIT_TITLE_MAX_INPUT` before
+    matching to bound the regex worst case; a malformed audit row
+    cannot trigger pathological backtracking.
     """
     if not detail:
         return "Unknown"
-    m = _AUDIT_TITLE_RE.match(detail)
-    return m.group(1) if m else detail
+    capped = detail if len(detail) <= _AUDIT_TITLE_MAX_INPUT else detail[:_AUDIT_TITLE_MAX_INPUT]
+    m = _AUDIT_TITLE_RE.match(capped)
+    return m.group(1) if m else capped
 
 
 def rk_from_audit_detail(detail: str | None) -> str | None:
@@ -47,19 +59,28 @@ def rk_from_audit_detail(detail: str | None) -> str | None:
 
 
 def ensure_tz(dt: datetime | None) -> datetime:
-    """Return *dt* in UTC, treating naive datetimes as local time.
+    """Return *dt* in UTC, treating naive datetimes as UTC.
 
-    PlexAPI returns naive datetimes via ``datetime.fromtimestamp()``,
-    which produces **local** time. Using ``.replace(tzinfo=UTC)``
-    would mislabel the local time as UTC — off by the local UTC offset.
-    ``.astimezone(UTC)`` correctly converts from local to UTC.
+    Every authoritative source of datetimes in mediaman now produces
+    UTC: PlexAPI's ``viewedAt`` is built with ``tz=timezone.utc``, the
+    scanner uses ``datetime.now(timezone.utc).isoformat()`` for
+    ``added_at``, and Radarr/Sonarr emit ISO timestamps that
+    :func:`parse_iso_utc` already treats as UTC when no offset is
+    present.
+
+    The previous implementation treated a naive input as **local
+    time** (via ``.astimezone(timezone.utc)``), which silently shifted
+    timestamps by the local UTC offset and disagreed with
+    :func:`parse_iso_utc`'s naive-as-UTC convention. Two helpers that
+    both labelled themselves "ensure UTC" but applied opposite rules
+    is a bug factory; the unified rule is "naive is UTC".
 
     A ``None`` input returns the current UTC time.
     """
     if dt is None:
         return datetime.now(timezone.utc)
     if dt.tzinfo is None:
-        return dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=timezone.utc)
     return dt
 
 
@@ -116,13 +137,53 @@ def parse_iso_utc(value: str | None) -> datetime | None:
     return dt
 
 
+#: English month names — used to keep formatted dates locale-stable
+#: even when the host's ``LC_TIME`` is set to something else. ``strftime``
+#: honours the system locale by default which would render the same
+#: timestamp differently across hosts (e.g. "1 abr 2026" on a Spanish
+#: locale, breaking deterministic output the newsletter relies on).
+_ENGLISH_MONTH_FULL = (
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+)
+_ENGLISH_MONTH_ABBR = (
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+)
+
+
 def format_day_month(dt: "datetime", *, long_month: bool = False) -> str:
     """Format *dt* as a day-month-year string without the ``%-d`` platform gotcha.
 
     ``%-d`` (GNU strftime extension for zero-strip) works on Linux but
     raises ``ValueError`` on Windows and some BSD platforms.  This helper
-    uses ``%d`` and then strips the leading zero manually, so it is safe
-    everywhere.
+    builds the day component manually and uses an internal English
+    month-name table, so it is safe and locale-stable everywhere.
+
+    The internal month table sidesteps ``strftime``'s locale awareness:
+    on a host with a non-English ``LC_TIME``, ``%b`` / ``%B`` would
+    render the month in the host's language and break newsletters
+    rendered for English-speaking subscribers.
 
     Args:
         dt: A :class:`datetime` instance (aware or naive).
@@ -133,12 +194,8 @@ def format_day_month(dt: "datetime", *, long_month: bool = False) -> str:
         ``format_day_month(dt)``          → ``"1 Apr 2026"``
         ``format_day_month(dt, long_month=True)`` → ``"1 April 2026"``
     """
-    fmt = "%d %B %Y" if long_month else "%d %b %Y"
-    s = dt.strftime(fmt)
-    # Strip a leading zero from the day component (e.g. "01" → "1").
-    if s and s[0] == "0":
-        s = s[1:]
-    return s
+    table = _ENGLISH_MONTH_FULL if long_month else _ENGLISH_MONTH_ABBR
+    return f"{dt.day} {table[dt.month - 1]} {dt.year}"
 
 
 def safe_json_list(value: object) -> list:
