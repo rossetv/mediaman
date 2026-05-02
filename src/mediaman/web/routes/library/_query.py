@@ -21,6 +21,19 @@ _VALID_SORTS = {
 }
 _VALID_TYPES = {"movie", "tv", "anime", "kept", "stale"}
 
+# Hard cap on the user-supplied search term applied to the LIKE filter
+# (finding 14). Without this an attacker could submit a multi-megabyte
+# string and force SQLite to do a slow scan against every title and
+# show_title row. 200 chars is well above any realistic title length.
+_MAX_SEARCH_TERM_LEN = 200
+
+# Canonical media_type values that represent a TV / anime *season* row.
+# Used by the type filter, the display CTE, and the kept route — keeping
+# a single list prevents the three from drifting (finding 34).
+TV_SEASON_TYPES: tuple[str, ...] = ("tv_season", "tv", "season")
+ANIME_SEASON_TYPES: tuple[str, ...] = ("anime_season", "anime")
+ALL_SEASON_TYPES: tuple[str, ...] = TV_SEASON_TYPES + ANIME_SEASON_TYPES
+
 
 def _days_ago(dt_str: str | None) -> str:
     """Return 'N days ago' or '' given an ISO datetime string."""
@@ -75,6 +88,11 @@ def fetch_library(
     params: list[object] = []
 
     if q:
+        # Cap the LIKE term before escaping (finding 14) — escaping
+        # before truncation would let metacharacters at position
+        # _MAX_SEARCH_TERM_LEN-1 split mid-escape and produce a
+        # malformed pattern. Truncate raw, then escape.
+        q = q[:_MAX_SEARCH_TERM_LEN]
         where_clauses.append("(title LIKE ? ESCAPE '\\' OR show_title LIKE ? ESCAPE '\\')")
         q_escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         like = f"%{q_escaped}%"
@@ -96,8 +114,8 @@ def fetch_library(
     elif media_type and media_type in _VALID_TYPES:
         _TYPE_MAP = {
             "movie": ("movie",),
-            "tv": ("tv_season", "tv", "season"),
-            "anime": ("anime_season", "anime"),
+            "tv": TV_SEASON_TYPES,
+            "anime": ANIME_SEASON_TYPES,
         }
         db_types = _TYPE_MAP.get(media_type, (media_type,))
         placeholders = ",".join("?" * len(db_types))
@@ -118,6 +136,17 @@ def fetch_library(
     }
     order = _CTE_SORT.get(sort, _CTE_SORT["added_desc"])
 
+    # Performance note (finding 15): the per-row ``EXISTS(...)`` against
+    # ``scheduled_actions(media_item_id, token_used)`` and ``kept_shows
+    # (show_rating_key)`` benefits from indexes. Adding them lives in
+    # ``db/schema.py``, which this wave does NOT touch — flagged here
+    # so a follow-up commit can land the indexes:
+    #   CREATE INDEX IF NOT EXISTS idx_sa_mid_token
+    #     ON scheduled_actions(media_item_id, token_used);
+    #   CREATE INDEX IF NOT EXISTS idx_ks_rk
+    #     ON kept_shows(show_rating_key);
+    # The query as-written still works correctly without them; it just
+    # falls back to a sequential scan on large libraries.
     cte_sql = f"""
     WITH filtered AS (
         SELECT * FROM media_items {where_sql}
@@ -268,19 +297,41 @@ def fetch_library(
 
 
 def fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
-    """Return counts and stale count for the library stats bar."""
+    """Return counts and stale count for the library stats bar.
+
+    The TV/anime totals use the same grouping definition as
+    :func:`fetch_library`'s display_items CTE — ``COALESCE(show_rating_key,
+    show_title)`` (finding 16). When a show has NULL in both columns
+    SQLite's ``COUNT(DISTINCT NULL)`` returned 0 while the CTE's
+    ``GROUP BY NULL`` collapsed every such row into a single group of 1,
+    so the two queries reported different totals on the same data.
+
+    Wrapping the count in a sub-select with ``GROUP BY`` (instead of
+    ``COUNT(DISTINCT ...)``) makes the NULL behaviour match: NULL is a
+    group in its own right, counted as 1.
+    """
     movies = conn.execute(
         "SELECT COUNT(*) AS n FROM media_items WHERE media_type = 'movie'"
     ).fetchone()["n"]
 
+    tv_placeholders = ",".join("?" * len(TV_SEASON_TYPES))
     tv = conn.execute(
-        "SELECT COUNT(DISTINCT COALESCE(show_rating_key, show_title)) AS n "
-        "FROM media_items WHERE media_type IN ('tv_season', 'tv', 'season')"
+        f"SELECT COUNT(*) AS n FROM ("
+        f"  SELECT 1 FROM media_items "
+        f"  WHERE media_type IN ({tv_placeholders}) "
+        f"  GROUP BY COALESCE(show_rating_key, show_title)"
+        f")",
+        TV_SEASON_TYPES,
     ).fetchone()["n"]
 
+    anime_placeholders = ",".join("?" * len(ANIME_SEASON_TYPES))
     anime = conn.execute(
-        "SELECT COUNT(DISTINCT COALESCE(show_rating_key, show_title)) AS n "
-        "FROM media_items WHERE media_type IN ('anime_season', 'anime')"
+        f"SELECT COUNT(*) AS n FROM ("
+        f"  SELECT 1 FROM media_items "
+        f"  WHERE media_type IN ({anime_placeholders}) "
+        f"  GROUP BY COALESCE(show_rating_key, show_title)"
+        f")",
+        ANIME_SEASON_TYPES,
     ).fetchone()["n"]
 
     min_age = get_int_setting(conn, "min_age_days", default=30)
