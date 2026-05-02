@@ -398,13 +398,20 @@ class TestDNSPinning:
         ans = socket.getaddrinfo("vanish.example.test", 0)
         assert ans[0][4][0] == "198.51.100.42"
 
-    def test_literal_ip_url_does_not_install_pin(self, monkeypatch):
-        """A URL with a literal IP needs no pin — there's no DNS to corrupt."""
+    def test_literal_ip_url_pins_to_self(self, monkeypatch):
+        """A URL with a literal IP is pinned to itself.
+
+        urllib3 still calls ``getaddrinfo("192.0.2.1", port)`` for a
+        literal-IP URL; pinning the address to itself short-circuits
+        the resolver so a monkeypatched / process-wide
+        ``socket.getaddrinfo`` cannot redirect the connect anywhere
+        else.
+        """
         monkeypatch.setattr(
             http_client,
             "resolve_safe_outbound_url",
-            # Literal IP path: hostname is the IP, no separate pin returned.
-            lambda url, strict_egress=None: (True, "192.0.2.1", None),
+            # Literal IP path: hostname is the IP and the pin is itself.
+            lambda url, strict_egress=None: (True, "192.0.2.1", "192.0.2.1"),
         )
         monkeypatch.setattr(socket, "getaddrinfo", http_client._patched_getaddrinfo)
 
@@ -416,8 +423,8 @@ class TestDNSPinning:
 
         monkeypatch.setattr(http_client, "_dispatch", spy_dispatch)
         SafeHTTPClient().get("http://192.0.2.1/")
-        # No pin was installed for this hostname.
-        assert "192.0.2.1" not in captured["pins"]
+        # The literal-IP URL pinned itself for the duration of the request.
+        assert captured["pins"].get("192.0.2.1") == "192.0.2.1"
 
     def test_pin_overrides_rebind_attempt(self, monkeypatch):
         """The full rebind scenario: validation sees a public IP, the

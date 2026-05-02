@@ -214,7 +214,20 @@ def _normalise_host(hostname: str) -> str | None:
     Uses IDNA UTS-46 so that a Unicode homoglyph cannot slip past an
     ASCII-only blocklist match. An empty string is returned for IP
     literals (they're caught by the caller before this is used).
+
+    A trailing dot (``"metadata.google.internal."``) is stripped before
+    encoding so the suffix check downstream sees the bare label form.
+    Without that strip, ``endswith(".internal")`` would miss
+    ``"metadata.google.internal."`` (it ends with ``".internal."``),
+    even though the resolver treats the two as identical.
     """
+    if not hostname:
+        return None
+    # Strip a trailing dot — both DNS and idna treat the absolute form
+    # as identical to the relative one, but the suffix-blocklist check
+    # at ``_host_is_metadata`` is a literal ``endswith(".internal")``
+    # and would otherwise miss the FQDN form.
+    hostname = hostname.rstrip(".")
     if not hostname:
         return None
     # IP literals go through untouched — idna would reject them.
@@ -295,9 +308,15 @@ def resolve_safe_outbound_url(
     else:
         if _ip_is_blocked(ip, strict=strict):
             return False, normalised, None
-        # Already a literal — no pin needed; the connection cannot be
-        # redirected by DNS at all.
-        return True, normalised, None
+        # Even for literal IPs, modern urllib3 still calls
+        # ``getaddrinfo("192.0.2.1", port)`` to build the connection
+        # tuple — and any future test/library that monkeypatches
+        # ``socket.getaddrinfo`` could redirect that lookup elsewhere.
+        # Pinning the literal address to itself short-circuits the
+        # resolver and makes the connect deterministic with the
+        # validated answer, regardless of what's installed on the
+        # process-wide ``socket.getaddrinfo``.
+        return True, normalised, normalised
 
     # Hostname → resolve and reject if *any* returned address is blocked,
     # OR if the name fails to resolve at all. A non-resolving name used
