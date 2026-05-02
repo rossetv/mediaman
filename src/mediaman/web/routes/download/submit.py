@@ -7,6 +7,7 @@ import math
 import sqlite3
 from typing import TypedDict
 
+import requests
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
@@ -330,14 +331,23 @@ def download_submit(request: Request, token: str) -> JSONResponse:
         # Phase 2 (failure): release the reservation so the user can
         # retry once the upstream recovers.
         _unmark_token_used(token)
-        logger.warning("Download token submit failed for '%s': %s", title, exc, exc_info=True)
+        # Demote to DEBUG: every transient Arr blip would otherwise
+        # spam the WARNING log with a full traceback. The audit trail
+        # captures the user-facing failure separately, so operators
+        # who need the stack can dial up the log level.
+        logger.debug("Download token submit failed for '%s': %s", title, exc, exc_info=True)
         return JSONResponse(
             {"ok": False, "error": "Download request failed — check service connectivity"},
             status_code=502,
         )
-    except Exception as exc:
+    except (requests.RequestException, sqlite3.Error) as exc:
+        # Narrow handler: only swallow network/DB-shaped failures so
+        # asyncio.CancelledError, KeyboardInterrupt, and other control
+        # exceptions propagate as intended. The previous bare
+        # ``except Exception`` masked them and silently turned an
+        # in-flight cancellation into a stale 502.
         _unmark_token_used(token)
-        logger.warning("Download token submit failed for '%s': %s", title, exc, exc_info=True)
+        logger.debug("Download token submit failed for '%s': %s", title, exc, exc_info=True)
         return JSONResponse(
             {"ok": False, "error": "Download request failed — check service connectivity"},
             status_code=502,

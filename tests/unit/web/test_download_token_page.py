@@ -305,6 +305,8 @@ class TestTwoPhaseConsumption:
 
     def test_token_released_on_radarr_exception(self, db_path, secret_key):
         """A transient exception from Radarr must not permanently burn the token."""
+        import requests
+
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key)
         client = TestClient(app)
@@ -312,7 +314,10 @@ class TestTwoPhaseConsumption:
         token = _valid_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
 
         mock_radarr = MagicMock()
-        mock_radarr.add_movie.side_effect = Exception("Connection refused")
+        # Use a transport-shaped exception — the submit handler narrows
+        # its broad ``except Exception`` to network/DB errors so unrelated
+        # control exceptions (CancelledError, KeyboardInterrupt) propagate.
+        mock_radarr.add_movie.side_effect = requests.ConnectionError("Connection refused")
 
         with patch(
             "mediaman.web.routes.download.submit.build_radarr_from_db", return_value=mock_radarr
@@ -336,6 +341,8 @@ class TestTwoPhaseConsumption:
 
     def test_token_released_on_sonarr_exception(self, db_path, secret_key):
         """A transient exception from Sonarr must not permanently burn the token."""
+        import requests
+
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key)
         client = TestClient(app)
@@ -343,7 +350,8 @@ class TestTwoPhaseConsumption:
         token = _valid_token(secret_key, title="Severance", media_type="tv", tmdb_id=99)
 
         mock_sonarr = MagicMock()
-        mock_sonarr.lookup_by_tmdb_id.side_effect = Exception("Timeout")
+        # Use a transport-shaped exception — see test_token_released_on_radarr_exception.
+        mock_sonarr.lookup_by_tmdb_id.side_effect = requests.Timeout("Timeout")
 
         with patch(
             "mediaman.web.routes.download.submit.build_sonarr_from_db", return_value=mock_sonarr
