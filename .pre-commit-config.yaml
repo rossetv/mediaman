@@ -1,0 +1,25 @@
+# Pre-commit hooks for mediaman.
+#
+# Install once after cloning:
+#
+#   pip install pre-commit   # or `pipx install pre-commit`
+#   pre-commit install
+#
+# After that, every `git commit` runs the hooks below on staged files. CI runs
+# the same `ruff format --check` and `ruff check` gates; passing pre-commit
+# locally means CI's lint/format gates will also pass.
+#
+# `mypy` is intentionally NOT in this config — it's slow on a cold cache and
+# would make every commit feel sluggish. CI runs it on every PR instead. Run
+# `make typecheck` locally if you want the same coverage before pushing.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Pin to the same ruff major as `pip install -e ".[dev]"` resolves.
+    # Bump in lockstep with the dev dependency to avoid lint drift between
+    # the local pre-commit hook and CI.
+    rev: v0.14.6
+    hooks:
+      - id: ruff-format
+      - id: ruff
+        args: [--fix]
