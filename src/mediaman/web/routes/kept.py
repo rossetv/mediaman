@@ -91,6 +91,16 @@ _UNPROTECT_LIMITER = ActionRateLimiter(
     max_per_day=500,
 )
 
+# Per-admin cap on /api/show/{id}/remove. Same shape as the unprotect
+# limiter for symmetry — both endpoints strip protection and a stolen
+# session cookie should not be able to wipe show-level keeps in a tight
+# loop.
+_REMOVE_SHOW_KEEP_LIMITER = ActionRateLimiter(
+    max_in_window=60,
+    window_seconds=60,
+    max_per_day=500,
+)
+
 
 logger = logging.getLogger("mediaman")
 
@@ -442,6 +452,11 @@ def api_remove_show_keep(
     show_rating_key: str, admin: str = Depends(get_current_admin)
 ) -> JSONResponse:
     """Remove a show-level keep rule. Individual season keeps are not affected."""
+    if not _REMOVE_SHOW_KEEP_LIMITER.check(admin):
+        return JSONResponse(
+            {"ok": False, "error": "Too many remove-show-keep requests; try again shortly."},
+            status_code=429,
+        )
     conn = get_db()
     row = conn.execute(
         "SELECT id, show_title FROM kept_shows WHERE show_rating_key = ?",
