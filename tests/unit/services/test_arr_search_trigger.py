@@ -718,7 +718,7 @@ class TestReconcileStrandedThrottle:
 # TestAutoAbandon
 # ---------------------------------------------------------------------------
 
-_OVER_THRESHOLD = _time.time() - 10 * 86_400  # 10 days ago — always over 7 d threshold
+_OVER_THRESHOLD = _time.time() - 20 * 86_400  # 20 days ago — always over 14 d threshold
 
 
 class TestAutoAbandon:
@@ -748,7 +748,7 @@ class TestAutoAbandon:
         assert called["abandon_movie"] == 0
 
     def test_fires_when_enabled_and_over_threshold(self, db_conn, monkeypatch):
-        """Fires when auto_abandon_enabled=True and item is older than 7 days."""
+        """Fires when auto_abandon_enabled=True and item is older than 14 days."""
         monkeypatch.setattr(
             "mediaman.services.arr.auto_abandon.get_bool_setting",
             lambda c, k, default=False: True,
@@ -774,7 +774,7 @@ class TestAutoAbandon:
         assert called == {"arr_id": 42, "dl_id": "radarr:X"}
 
     def test_does_not_fire_below_threshold(self, db_conn, monkeypatch):
-        """Does not fire when item is under 7 days old even if enabled."""
+        """Does not fire when item is under 14 days old even if enabled."""
         monkeypatch.setattr(
             "mediaman.services.arr.auto_abandon.get_bool_setting",
             lambda c, k, default=False: True,
@@ -790,7 +790,7 @@ class TestAutoAbandon:
         from mediaman.services.arr.search_trigger import maybe_auto_abandon
 
         now = _time.time()
-        under_threshold = now - (7 * 86_400 - 3600)  # 6 d 23 h ago
+        under_threshold = now - (14 * 86_400 - 3600)  # 13 d 23 h ago
         maybe_auto_abandon(
             db_conn,
             "secret",
@@ -1075,7 +1075,7 @@ class TestAutoAbandonAuditLog:
         assert _read_auto_abandon_rows(db_conn) == []
 
     def test_no_audit_row_below_threshold(self, db_conn, monkeypatch):
-        """Under 7 days old — gated, no row written."""
+        """Under 14 days old — gated, no row written."""
         monkeypatch.setattr(
             "mediaman.services.arr.auto_abandon.get_bool_setting",
             lambda c, k, default=False: True,
@@ -1086,7 +1086,7 @@ class TestAutoAbandonAuditLog:
         from mediaman.services.arr.search_trigger import maybe_auto_abandon
 
         now = _time.time()
-        under_threshold = now - (7 * 86_400 - 3600)  # 1 hour under
+        under_threshold = now - (14 * 86_400 - 3600)  # 1 hour under
         maybe_auto_abandon(
             db_conn,
             "secret",

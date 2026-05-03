@@ -1,7 +1,7 @@
 """Auto-abandon escalation policy for long-stalled monitored items.
 
 When a monitored Radarr/Sonarr item has been sitting in `searching` state
-beyond ``_AUTO_ABANDON_AFTER_SECONDS`` (7 days), and the operator has
+beyond ``_AUTO_ABANDON_AFTER_SECONDS`` (14 days), and the operator has
 enabled the ``auto_abandon_enabled`` setting, this module unmonitors it
 and emits a ``sec:auto_abandon.fired`` audit row. The audit row makes a
 compromised-settings attack discoverable after the fact.
@@ -29,7 +29,7 @@ _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS = 10 * 3600  # 10 h
 
 # When auto-abandon is enabled in settings, items older than this since
 # added_at get unmonitored automatically.
-_AUTO_ABANDON_AFTER_SECONDS = 7 * 86_400  # 7 d
+_AUTO_ABANDON_AFTER_SECONDS = 14 * 86_400  # 14 d
 
 
 def maybe_auto_abandon(
