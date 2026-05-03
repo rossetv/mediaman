@@ -1198,6 +1198,33 @@
 }
 .setg-pg .link-danger:hover { background: rgba(255,69,58,.10); }
 
+/* Reauth modal — narrow variant of .modal-sheet for the savebar
+   sensitive-settings password gate. The shared inline drawer pattern
+   (.pw-prompt) sits before the fixed savebar and ends up with its action
+   row hidden underneath; a centred modal removes the ambiguity. ------ */
+.reauth-sheet { max-width: 460px; padding: 28px 28px 24px; }
+.reauth-sheet .reauth-title {
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 22px; font-weight: 600; line-height: 1.19;
+  letter-spacing: -.011em; color: var(--t1);
+  margin: 0 0 8px;
+}
+.reauth-sheet .reauth-desc {
+  font-size: 14px; line-height: 1.43; letter-spacing: -.224px;
+  color: var(--t2); margin: 0 0 20px;
+}
+.reauth-sheet .reauth-field { display: flex; flex-direction: column; gap: 6px; }
+.reauth-sheet .reauth-field-lbl { font-size: 12px; font-weight: 500; color: var(--t3); }
+.reauth-sheet .reauth-actions {
+  display: flex; justify-content: flex-end; gap: 8px;
+  margin-top: 20px;
+}
+.reauth-sheet .reauth-msg {
+  font-size: 12px; color: var(--danger);
+  margin-right: auto; align-self: center;
+  min-height: 1em;
+}
+
 /* Ghost-style test button on card headers ----------------------- */
 .setg-pg .btn-test {
   font-size: 12px; font-weight: 500; padding: 7px 14px;
