@@ -281,6 +281,8 @@ class SettingsUpdate(BaseModel):
         """
         if v is None:
             return v
+        if not isinstance(v, (int, str, bytes)):
+            raise ValueError("library_sync_interval must be an integer")
         try:
             iv = int(v)
         except (TypeError, ValueError) as exc:

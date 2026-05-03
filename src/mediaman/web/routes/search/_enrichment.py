@@ -25,6 +25,7 @@ from mediaman.auth.rate_limit import ActionRateLimiter
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
+    ArrCaches,
     build_radarr_cache,
     build_sonarr_cache,
     compute_download_state,
@@ -114,7 +115,7 @@ def _annotate_states(results: list[dict], request: Request) -> None:
         )
         sonarr_cache = build_sonarr_cache(None)
 
-    caches = {**radarr_cache, **sonarr_cache}
+    caches: ArrCaches = {**radarr_cache, **sonarr_cache}
     for r in results:
         if r.get("tmdb_id"):
             r["download_state"] = compute_download_state(r["media_type"], r["tmdb_id"], caches)

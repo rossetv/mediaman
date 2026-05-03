@@ -99,7 +99,7 @@ def api_refresh_recommendations(
     _db_path = request.app.state.db_path
     _secret_key = config.secret_key
 
-    def run():
+    def run() -> None:
         thread_conn = open_thread_connection(_db_path)
         thread_secret_key = _secret_key
         result: dict[str, object]

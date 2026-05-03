@@ -12,7 +12,7 @@ import json
 import logging
 import sqlite3
 import threading
-from typing import TYPE_CHECKING, NamedTuple, TypedDict
+from typing import TYPE_CHECKING, NamedTuple, TypedDict, cast
 
 from mediaman.services.arr.build import (
     build_plex_from_db as _build_plex,
@@ -327,7 +327,7 @@ def run_scan_from_db(
         sonarr_client=sonarr_client,
         radarr_client=radarr_client,
     )
-    return engine.run_scan()
+    return cast(ScanSummary, engine.run_scan())
 
 
 def run_library_sync(conn: sqlite3.Connection, secret_key: str) -> ScanSummary:
@@ -339,11 +339,11 @@ def run_library_sync(conn: sqlite3.Connection, secret_key: str) -> ScanSummary:
     """
     from mediaman.scanner.engine import ScanEngine
 
-    result = _build_plex_client(conn, secret_key)
-    if result is None:
+    bundle = _build_plex_client(conn, secret_key)
+    if bundle is None:
         logger.debug("Library sync skipped — Plex not configured")
         return {}
-    plex, lib_ids, lib_types, lib_titles = result
+    plex, lib_ids, lib_types, lib_titles = bundle
 
     engine = ScanEngine(
         conn=conn,
@@ -367,4 +367,4 @@ def run_library_sync(conn: sqlite3.Connection, secret_key: str) -> ScanSummary:
     except Exception:
         logger.exception("Download notification check failed — sync results unaffected")
 
-    return result
+    return cast(ScanSummary, result)

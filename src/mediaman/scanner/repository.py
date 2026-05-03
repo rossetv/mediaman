@@ -57,15 +57,18 @@ def upsert_media_item(
     """
     now = now_iso()
 
+    added_at: str
     if arr_date:
         parsed = _parse_iso_utc(arr_date)
         added_at = parsed.isoformat() if parsed else arr_date
     else:
-        added_at = item.get("added_at")
-        if isinstance(added_at, datetime):
-            added_at = _ensure_tz(added_at).isoformat()
-        elif added_at is None:
+        raw = item.get("added_at")
+        if isinstance(raw, datetime):
+            added_at = _ensure_tz(raw).isoformat()
+        elif raw is None:
             added_at = now
+        else:
+            added_at = str(raw)
 
     conn.execute(
         """
@@ -428,6 +431,9 @@ def schedule_deletion(
         )
         return "skipped"
     action_id = cursor.lastrowid
+    # ``lastrowid`` is typed as ``int | None``; SQLite always populates it
+    # after a successful INSERT against an INTEGER PRIMARY KEY table.
+    assert action_id is not None
 
     token = generate_keep_token(
         media_item_id=media_id,

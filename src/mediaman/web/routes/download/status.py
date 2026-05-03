@@ -6,7 +6,7 @@ import logging
 import sqlite3
 import threading
 import time
-from typing import Literal
+from typing import Any, Literal, cast
 
 import requests
 from fastapi import APIRouter, Depends, Query, Request
@@ -24,6 +24,7 @@ from mediaman.services.downloads.download_format import (
     format_episode_label,
     map_arr_status,
 )
+from mediaman.services.downloads.download_format._types import DownloadItem
 from mediaman.services.downloads.download_queue import build_episode_dicts
 from mediaman.services.infra.format import format_bytes
 from mediaman.services.infra.http_client import SafeHTTPError
@@ -55,7 +56,7 @@ _DOWNLOAD_STATUS_LIMITER = RateLimiter(max_attempts=120, window_seconds=60)
 _STATUS_CACHE_TTL_SECONDS = 2.5
 _STATUS_CACHE_LOCK = threading.Lock()
 # (service, tmdb_id, secret_key_fingerprint) -> (timestamp, status_dict)
-_STATUS_CACHE: dict[tuple[str, int, str], tuple[float, dict[str, object]]] = {}
+_STATUS_CACHE: dict[tuple[str, int, str], tuple[float, DownloadItem]] = {}
 
 
 def _key_fingerprint(secret_key: str) -> str:
@@ -130,7 +131,7 @@ def _safe_progress(size_total: int, size_left: int) -> int:
     return max(0, min(100, raw))
 
 
-_UNKNOWN_ITEM: dict[str, object] = build_item(
+_UNKNOWN_ITEM: DownloadItem = build_item(
     dl_id="",
     title="",
     media_type="movie",
@@ -143,7 +144,7 @@ _UNKNOWN_ITEM: dict[str, object] = build_item(
 )
 
 
-def _radarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> dict[str, object]:
+def _radarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> DownloadItem:
     """Return the download-status item dict for a Radarr movie by TMDB ID."""
     client = build_radarr_from_db(conn, secret_key)
     if not client:
@@ -151,8 +152,8 @@ def _radarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> d
 
     movie = client.get_movie_by_tmdb(tmdb_id)
     if movie and movie.get("hasFile"):
-        title = movie.get("title", "")
-        poster_url = extract_poster_url(movie.get("images"))
+        title = cast(str, movie.get("title", ""))
+        poster_url = extract_poster_url(cast("list[dict[Any, Any]] | None", movie.get("images")))
         return build_item(
             dl_id=f"radarr:{title}",
             title=title,
@@ -193,7 +194,7 @@ def _radarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> d
                 size_total=format_bytes(size_total),
             )
 
-    title = (movie or {}).get("title", "")
+    title = cast(str, (movie or {}).get("title", ""))
     if title:
         recent = conn.execute(
             "SELECT dl_id, title, poster_url FROM recent_downloads WHERE dl_id = ?",
@@ -225,7 +226,7 @@ def _radarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> d
     )
 
 
-def _sonarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> dict[str, object]:
+def _sonarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> DownloadItem:
     """Return the download-status item dict for a Sonarr series by TMDB ID."""
     client = build_sonarr_from_db(conn, secret_key)
     if not client:
@@ -369,7 +370,7 @@ def _sonarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> d
 
 def _cached_status(
     *, service: str, tmdb_id: int, conn: sqlite3.Connection, secret_key: str
-) -> dict[str, object]:
+) -> DownloadItem:
     """Return cached or freshly-fetched status for ``(service, tmdb_id)``.
 
     See module-level docstring for cache semantics. Cache misses fan

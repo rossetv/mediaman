@@ -33,7 +33,7 @@ class Obscure405Middleware(BaseHTTPMiddleware):
     that time.
     """
 
-    async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]  # same as SecurityHeadersMiddleware — call_next has no stable public type in Starlette
+    async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
         if response.status_code == 405 and request.url.path.startswith("/api/"):
             body = b'{"detail":"Not authenticated"}'

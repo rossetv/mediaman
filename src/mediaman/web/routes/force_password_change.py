@@ -95,6 +95,7 @@ def force_change_submit(
     username, redirect = _resolve_session(request)
     if redirect is not None:
         return redirect
+    assert username is not None  # narrowed by _resolve_session contract
 
     templates = request.app.state.templates
     conn = get_db()

@@ -50,7 +50,7 @@ class ForcePasswordChangeMiddleware(BaseHTTPMiddleware):
         "/readyz",
     )
 
-    async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]  # same as SecurityHeadersMiddleware — call_next has no stable public type in Starlette
+    async def dispatch(self, request: Request, call_next) -> Response:
         token = request.cookies.get("session_token")
         if not token:
             return await call_next(request)

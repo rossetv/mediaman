@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from typing import TypedDict
+from typing import Any, TypedDict
+from typing import cast as _cast
 
 import requests as _requests
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -19,6 +20,7 @@ from mediaman.auth.middleware import get_current_admin
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
+    ArrCaches,
     RadarrCaches,
     SonarrCaches,
     build_radarr_cache,
@@ -56,7 +58,9 @@ class _SonarrDetail(TypedDict):
     seasons_in_library: set[int]
 
 
-def _fetch_sonarr_series_detail(tmdb_id: int, sonarr_cache: dict, client) -> _SonarrDetail:
+def _fetch_sonarr_series_detail(
+    tmdb_id: int, sonarr_cache: SonarrCaches, client: Any
+) -> _SonarrDetail:
     if not client:
         return {"tracked": False, "seasons_in_library": set()}
     lookup = client.lookup_series_by_tmdb(tmdb_id)
@@ -146,9 +150,13 @@ def api_detail(
     if client is None:
         return JSONResponse({"error": "TMDB not configured"}, status_code=502)
 
-    data = client.details(media_type, tmdb_id)
-    if data is None:
+    raw_data = client.details(media_type, tmdb_id)
+    if raw_data is None:
         return JSONResponse({"error": "TMDB request failed"}, status_code=502)
+    # The TMDB client returns a generic ``dict[str, object]`` so callers
+    # widen here to ``Any`` for ergonomic access to the well-known fields
+    # below; values are still validated/coerced before use.
+    data = _cast(dict[str, Any], raw_data)
 
     title = data.get("title") or data.get("name") or ""
     date = data.get("release_date") or data.get("first_air_date") or ""
@@ -159,7 +167,7 @@ def api_detail(
     ratings = fetch_ratings(title, year, media_type, conn=conn, secret_key=secret_key)
 
     radarr_cache, sonarr_cache, sonarr_client = _build_arr_caches(conn, secret_key, media_type)
-    caches = {**radarr_cache, **sonarr_cache}
+    caches: ArrCaches = {**radarr_cache, **sonarr_cache}
     state = compute_download_state(media_type, tmdb_id, caches)
 
     out: dict = {

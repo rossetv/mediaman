@@ -373,10 +373,10 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
             movie = None
             arr_unreachable = False
             if service == "radarr":
-                client = arr.radarr()
-                if client and tmdb_id:
+                radarr_client = arr.radarr()
+                if radarr_client and tmdb_id:
                     try:
-                        movie = client.get_movie_by_tmdb(tmdb_id)
+                        movie = radarr_client.get_movie_by_tmdb(tmdb_id)
                     except Exception:
                         # Network/HTTP errors propagate from Radarr — treat
                         # as a transient outage so the backoff kicks in.
@@ -390,13 +390,13 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
                     else:
                         ready = bool(movie and movie.get("hasFile"))
             elif service == "sonarr":
-                client = arr.sonarr()
+                sonarr_client = arr.sonarr()
                 # Match on TVDB id first (authoritative for Sonarr); fall
                 # back to TMDB for series added via TMDB lookup where the
                 # Sonarr record happens to carry both.
-                if client and (tvdb_id or tmdb_id):
+                if sonarr_client and (tvdb_id or tmdb_id):
                     try:
-                        ready = _sonarr_has_files(client, tvdb_id=tvdb_id, tmdb_id=tmdb_id)
+                        ready = _sonarr_has_files(sonarr_client, tvdb_id=tvdb_id, tmdb_id=tmdb_id)
                     except Exception:
                         arr_unreachable = True
                         logger.warning(
@@ -443,7 +443,8 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
             if not meta["poster_url"]:
                 try:
                     if service == "radarr" and movie:
-                        url = extract_poster_url(movie.get("images"))
+                        images = movie.get("images")
+                        url = extract_poster_url(images if isinstance(images, list) else None)
                         if url:
                             meta["poster_url"] = url
                 except (TypeError, KeyError):

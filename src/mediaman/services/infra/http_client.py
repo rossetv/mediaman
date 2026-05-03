@@ -351,9 +351,8 @@ class SafeHTTPClient:
         # ``python-requests/x.y.z`` is anonymous and gets aggressive
         # rate-limit treatment on a few of the upstreams (TMDB, OMDb).
         # Preserve any caller-provided UA on the session.
-        if "User-Agent" not in self._session.headers or self._session.headers[
-            "User-Agent"
-        ].startswith("python-requests/"):
+        existing_ua = self._session.headers.get("User-Agent")
+        if existing_ua is None or str(existing_ua).startswith("python-requests/"):
             self._session.headers["User-Agent"] = _USER_AGENT
         self._default_timeout = default_timeout
         self._default_max_bytes = default_max_bytes
@@ -664,7 +663,7 @@ class SafeHTTPClient:
 
             # Re-attach the buffered body on the response object so the
             # caller can use .json(), .text, .content as normal.
-            response._content = body  # type: ignore[attr-defined]
+            response._content = body
             response._content_consumed = True  # type: ignore[attr-defined]
 
             if response.status_code in _RETRYABLE_STATUSES and attempt + 1 < attempts:

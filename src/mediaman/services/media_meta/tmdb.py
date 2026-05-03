@@ -372,7 +372,7 @@ class TmdbClient:
         ``suggestions`` table columns and the ``items`` dict passed to
         the download template — callers merge them directly.
         """
-        out: dict[str, Any] = {
+        out: TmdbDetail = {
             "tagline": data.get("tagline") or None,
             "description": data.get("overview") or "",
         }

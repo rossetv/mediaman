@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import TypedDict, TypeVar
+from typing import TypedDict
 
 import requests
 
@@ -13,14 +13,12 @@ from mediaman.services.infra.http_client import SafeHTTPError
 
 logger = logging.getLogger("mediaman")
 
-_T = TypeVar("_T")
-
 
 def _iter_still_searching[T](
-    fetch_items: Callable[[], Iterable[_T]],
+    fetch_items: Callable[[], Iterable[T]],
     *,
     service_label: str,
-) -> Iterable[_T]:
+) -> Iterable[T]:
     """Yield items from *fetch_items*, swallowing transient HTTP failures.
 
     The Radarr and Sonarr fetchers each tail their queue with a

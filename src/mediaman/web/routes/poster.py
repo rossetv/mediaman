@@ -535,10 +535,11 @@ def proxy_poster(
 
     # Fallback: fetch poster from Radarr/Sonarr via TMDB if Plex has none
     if content is None:
-        content, content_type = _fetch_arr_poster(conn, rating_key, plex_token_row, config)
+        content, fallback_type = _fetch_arr_poster(conn, rating_key, plex_token_row, config)
         if content is None:
             logger.info("Poster unavailable for rating_key=%s — returning 404", rating_key)
             return Response(status_code=404)
+        content_type = fallback_type or "image/jpeg"
 
     # Write to cache atomically: write to a temp file in the same directory
     # (guaranteeing same filesystem), then os.replace() it into place.

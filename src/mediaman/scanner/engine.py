@@ -33,6 +33,7 @@ from mediaman.scanner import repository
 from mediaman.scanner.arr_dates import ArrDateCache
 from mediaman.scanner.deletions import (
     DeletionExecutor,
+    DeletionResult,
     _recover_stuck_deletions,
 )
 from mediaman.scanner.fetch import PlexFetcher, _PlexItemFetch
@@ -354,7 +355,7 @@ class ScanEngine:
 
         return summary
 
-    def execute_deletions(self) -> dict[str, int]:
+    def execute_deletions(self) -> DeletionResult:
         """Execute pending deletions where the grace period has passed.
 
         Delegates to :class:`DeletionExecutor`. Kept on ``ScanEngine``
@@ -379,7 +380,10 @@ class ScanEngine:
         indefinitely. Falls back to ``datetime.now(UTC)`` via
         ``ensure_tz(None)`` when nothing usable is present.
         """
-        arr_date_str = self._arr_cache.get(item.get("file_path", ""))
+        file_path = item.get("file_path") or ""
+        if not isinstance(file_path, str):
+            file_path = ""
+        arr_date_str = self._arr_cache.get(file_path)
         if arr_date_str:
             parsed = _parse_iso_utc(arr_date_str)
             if parsed is not None:
@@ -401,7 +405,10 @@ class ScanEngine:
         # using it would mean every subtitle/poster refresh resets
         # the eligibility clock, so it must only be a last-resort
         # fallback when ``added_at`` is missing entirely.
-        return _ensure_tz(item.get("added_at") or item.get("updated_at"))
+        candidate = item.get("added_at") or item.get("updated_at")
+        if candidate is not None and not isinstance(candidate, datetime):
+            candidate = None
+        return _ensure_tz(candidate)
 
     def _scan_items(
         self,
@@ -659,7 +666,10 @@ class ScanEngine:
         a pure pass-through.
         """
         self._arr_cache.ensure_loaded()
-        arr_date = self._arr_cache.get(item.get("file_path", ""))
+        file_path = item.get("file_path") or ""
+        if not isinstance(file_path, str):
+            file_path = ""
+        arr_date = self._arr_cache.get(file_path)
         repository.upsert_media_item(
             self._conn,
             item=item,

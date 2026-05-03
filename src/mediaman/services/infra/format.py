@@ -214,6 +214,8 @@ def safe_json_list(value: object) -> list:
         return []
     if isinstance(value, list):
         return value
+    if not isinstance(value, (str, bytes, bytearray)):
+        return []
     try:
         result = json.loads(value)
         return result if isinstance(result, list) else []

@@ -168,7 +168,9 @@ class _SafePlexSession(http_requests.Session):
                 url=_scrub_plex_token(url),
             ) from None
         response._content = body
-        response._content_consumed = True
+        # ``_content_consumed`` is a private requests internal; setattr keeps
+        # mypy quiet about poking at non-public attributes.
+        response.__setattr__("_content_consumed", True)
         return response
 
     @staticmethod
@@ -599,7 +601,7 @@ class PlexClient:
             List of ``{"id": int, "name": str}`` dicts.
         """
         response = self.server.query("/accounts")
-        accounts = []
+        accounts: list[PlexAccount] = []
         for account in response.findall(".//Account"):
             name = account.get("name", "")
             if name:

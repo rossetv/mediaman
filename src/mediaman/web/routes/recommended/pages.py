@@ -71,7 +71,9 @@ def _group_into_batches(
     """
     batches_map: OrderedDict = OrderedDict()
     for s in recommendations:
-        bid = s.get("batch_id") or s.get("created_at", "")[:10]
+        created_at = s.get("created_at", "")
+        created_prefix = created_at[:10] if isinstance(created_at, str) else ""
+        bid = s.get("batch_id") or created_prefix
         if bid not in batches_map:
             batches_map[bid] = {"trending": [], "personal": []}
         if s.get("category") == "trending":
@@ -82,12 +84,14 @@ def _group_into_batches(
     total_batches = len(batches_map)
     formatted_batches: list[dict[str, object]] = []
     for index, (bid, groups) in enumerate(list(batches_map.items())[:_MAX_VISIBLE_BATCHES]):
+        batch_date: _date | None
         try:
-            batch_date: _date | None = datetime.strptime(str(bid), "%Y-%m-%d").date()
-            date_label = batch_date.strftime("%-d %B %Y")
+            batch_date = datetime.strptime(str(bid), "%Y-%m-%d").date()
         except (ValueError, TypeError):
             batch_date = None
             date_label = str(bid)
+        else:
+            date_label = batch_date.strftime("%-d %B %Y")
         formatted_batches.append(
             {
                 "batch_id": bid,

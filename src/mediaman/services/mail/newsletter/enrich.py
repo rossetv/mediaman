@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from typing import TYPE_CHECKING, cast
 
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
@@ -11,6 +12,9 @@ from mediaman.services.arr.state import (
     build_sonarr_cache,
     compute_download_state,
 )
+
+if TYPE_CHECKING:
+    from mediaman.services.arr.state import ArrCaches
 
 logger = logging.getLogger("mediaman")
 
@@ -43,7 +47,7 @@ def _annotate_rec_download_states(
         )
         sonarr_cache = build_sonarr_cache(None)
 
-    caches = {**radarr_cache, **sonarr_cache}
+    caches = cast("ArrCaches", {**radarr_cache, **sonarr_cache})
     for item in rec_items:
         tmdb_id = item.get("tmdb_id")
         if not tmdb_id:

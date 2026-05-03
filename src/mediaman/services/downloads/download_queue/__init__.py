@@ -29,6 +29,8 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
+from collections.abc import Callable
+from typing import cast
 
 from mediaman.services.arr.build import build_nzbget_from_db
 from mediaman.services.arr.completion import (
@@ -39,6 +41,7 @@ from mediaman.services.arr.completion import (
 from mediaman.services.arr.fetcher import fetch_arr_queue
 from mediaman.services.arr.fetcher._base import ArrCard
 from mediaman.services.arr.search_trigger import maybe_trigger_search
+from mediaman.services.downloads.download_format._types import DownloadItem
 from mediaman.services.downloads.download_queue._deep_links import (
     arr_base_urls as _arr_base_urls,
 )
@@ -133,9 +136,12 @@ def _enrich_with_tmdb_ids(
 
     if arr_ids_radarr:
         try:
+            from mediaman.services.arr.radarr import RadarrClient
+
             client = _build_arr_client(conn, "radarr", secret_key)
             if client:
-                for m in client.get_movies():
+                radarr_client = cast(RadarrClient, client)
+                for m in radarr_client.get_movies():
                     aid = m.get("id")
                     tid = m.get("tmdbId")
                     if isinstance(aid, int) and isinstance(tid, int):
@@ -145,9 +151,12 @@ def _enrich_with_tmdb_ids(
 
     if arr_ids_sonarr:
         try:
+            from mediaman.services.arr.sonarr import SonarrClient
+
             client = _build_arr_client(conn, "sonarr", secret_key)
             if client:
-                for s in client.get_series():
+                sonarr_client = cast(SonarrClient, client)
+                for s in sonarr_client.get_series():
                     aid = s.get("id")
                     tid = s.get("tmdbId")
                     if isinstance(aid, int) and isinstance(tid, int):
@@ -223,14 +232,14 @@ def _build_unmatched_arr_item(
     arr: ArrCard,
     arr_base_urls_map: dict[str, str],
     abandon_thresholds: tuple[int, int],
-) -> dict[str, object]:
+) -> DownloadItem:
     """Wrapper that binds the deep-link helpers + abandon thresholds for
     :func:`_build_unmatched_arr_item_impl`."""
     return _build_unmatched_arr_item_impl(
         arr,
         arr_base_urls_map,
         _build_search_hint,
-        _build_arr_link,
+        cast(Callable[[ArrCard, dict[str, str]], str], _build_arr_link),
         abandon_thresholds,
     )
 
@@ -247,10 +256,13 @@ def _parse_nzb_queue(
 
     nzb_parsed: list[dict[str, object]] = []
     for nzb in nzb_queue:
-        nzb_name = nzb.get("NZBName", "")
+        raw_name = nzb.get("NZBName", "")
+        nzb_name = raw_name if isinstance(raw_name, str) else ""
         clean = parse_clean_title(nzb_name)
-        file_mb = nzb.get("FileSizeMB", 0)
-        remain_mb = nzb.get("RemainingSizeMB", 0)
+        raw_file_mb = nzb.get("FileSizeMB", 0)
+        raw_remain_mb = nzb.get("RemainingSizeMB", 0)
+        file_mb = raw_file_mb if isinstance(raw_file_mb, int | float) else 0
+        remain_mb = raw_remain_mb if isinstance(raw_remain_mb, int | float) else 0
         done_mb = file_mb - remain_mb
         pct = round(done_mb / file_mb * 100) if file_mb > 0 else 0
         nzb_parsed.append(
@@ -276,10 +288,10 @@ def _build_arr_items(
     arr_items: list[ArrCard],
     nzb_parsed: list[dict[str, object]],
     arr_base_urls_map: dict[str, str],
-    download_rate: object,
+    download_rate: int,
     secret_key: str,
     abandon_thresholds: tuple[int, int],
-) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+) -> tuple[list[DownloadItem], list[DownloadItem]]:
     """Match arr cards to NZBGet entries and build simplified queue items.
 
     Returns ``(items, upcoming_items)``.  NZBGet entries that match an arr
@@ -293,8 +305,8 @@ def _build_arr_items(
         normalise_for_match,
     )
 
-    items: list[dict[str, object]] = []
-    upcoming_items: list[dict[str, object]] = []
+    items: list[DownloadItem] = []
+    upcoming_items: list[DownloadItem] = []
 
     for arr in arr_items:
         if arr.get("is_upcoming"):
@@ -331,11 +343,13 @@ def _build_arr_items(
                     continue
                 if not arr_is_series and nzb.get("looks_like_series"):
                     continue
-                nzb_t_norm = normalise_for_match(nzb.get("title") or "")
+                title_val = nzb.get("title") or ""
+                nzb_t_norm = normalise_for_match(title_val if isinstance(title_val, str) else "")
                 if not nzb_t_norm:
                     continue
                 if nzb_matches_arr(nzb_t_norm, arr_candidates):
-                    remain = nzb.get("remain_mb", 0) or 0
+                    raw_remain = nzb.get("remain_mb", 0) or 0
+                    remain = float(raw_remain) if isinstance(raw_remain, int | float) else 0.0
                     if remain > best_remain:
                         best_remain = remain
                         matched_nzb = nzb
@@ -346,27 +360,35 @@ def _build_arr_items(
                 for nzb in nzb_parsed:
                     if nzb["_matched"]:
                         continue
-                    nzb_t_norm = normalise_for_match(nzb.get("title") or "")
+                    title_val2 = nzb.get("title") or ""
+                    nzb_t_norm = normalise_for_match(
+                        title_val2 if isinstance(title_val2, str) else ""
+                    )
                     if nzb_t_norm and nzb_matches_arr(nzb_t_norm, arr_candidates):
                         nzb["_matched"] = True
-            state = map_state(matched_nzb["raw_status"], has_nzbget_match=True)
-            eta = format_eta(matched_nzb["remain_mb"], download_rate)
+            raw_status = matched_nzb["raw_status"]
+            state = map_state(
+                raw_status if isinstance(raw_status, str) else None, has_nzbget_match=True
+            )
+            raw_remain_mb = matched_nzb["remain_mb"]
+            remain_mb_val = float(raw_remain_mb) if isinstance(raw_remain_mb, int | float) else 0.0
+            eta = format_eta(remain_mb_val, download_rate)
             if state == "almost_ready":
                 eta = "Post-processing…"
 
             items.append(_build_matched_item(arr, matched_nzb, state, eta, download_rate))
-            maybe_trigger_search(conn, arr, matched_nzb=True, secret_key=secret_key)
+            maybe_trigger_search(conn, cast(dict, arr), matched_nzb=True, secret_key=secret_key)
         else:
             items.append(_build_unmatched_arr_item(arr, arr_base_urls_map, abandon_thresholds))
-            maybe_trigger_search(conn, arr, matched_nzb=False, secret_key=secret_key)
+            maybe_trigger_search(conn, cast(dict, arr), matched_nzb=False, secret_key=secret_key)
 
     return items, upcoming_items
 
 
 def _add_unmatched_nzb_items(
-    items: list[dict[str, object]],
+    items: list[DownloadItem],
     nzb_parsed: list[dict[str, object]],
-    download_rate: object,
+    download_rate: int,
 ) -> None:
     """Append unmatched NZBGet entries (manual grabs with no arr card) to *items* in place."""
     from mediaman.services.downloads.download_format import build_item, format_eta, map_state
@@ -375,22 +397,36 @@ def _add_unmatched_nzb_items(
     for nzb in nzb_parsed:
         if nzb["_matched"]:
             continue
-        state = map_state(nzb["raw_status"], has_nzbget_match=True)
-        eta = format_eta(nzb["remain_mb"], download_rate)
+        raw_status = nzb["raw_status"]
+        state = map_state(
+            raw_status if isinstance(raw_status, str) else None, has_nzbget_match=True
+        )
+        raw_remain = nzb["remain_mb"]
+        remain_mb_val = float(raw_remain) if isinstance(raw_remain, int | float) else 0.0
+        eta = format_eta(remain_mb_val, download_rate)
         if state == "almost_ready":
             eta = "Post-processing…"
         media_type = "series" if nzb.get("looks_like_series") else "movie"
+        dl_id_val = nzb["dl_id"]
+        title_val = nzb["title"]
+        progress_val = nzb["progress"]
+        done_mb_val = nzb["done_mb"]
+        file_mb_val = nzb["file_mb"]
         items.append(
             build_item(
-                dl_id=nzb["dl_id"],
-                title=nzb["title"],
+                dl_id=dl_id_val if isinstance(dl_id_val, str) else "",
+                title=title_val if isinstance(title_val, str) else "",
                 media_type=media_type,
                 poster_url="",
                 state=state,
-                progress=nzb["progress"],
+                progress=progress_val if isinstance(progress_val, int) else 0,
                 eta=eta,
-                size_done=format_bytes(nzb["done_mb"] * 1024 * 1024),
-                size_total=format_bytes(nzb["file_mb"] * 1024 * 1024),
+                size_done=format_bytes(
+                    int(done_mb_val * 1024 * 1024) if isinstance(done_mb_val, int | float) else 0
+                ),
+                size_total=format_bytes(
+                    int(file_mb_val * 1024 * 1024) if isinstance(file_mb_val, int | float) else 0
+                ),
                 arr_id=0,
                 kind=media_type,
             )
@@ -428,7 +464,8 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
         except Exception:
             logger.warning("Failed to fetch NZBGet queue/status", exc_info=True)
 
-    download_rate = nzb_status.get("DownloadRate", 0)
+    raw_download_rate = nzb_status.get("DownloadRate", 0)
+    download_rate = raw_download_rate if isinstance(raw_download_rate, int) else 0
 
     # 3. Parse NZBGet items.
     nzb_parsed = _parse_nzb_queue(nzb_queue)
@@ -451,17 +488,23 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     _add_unmatched_nzb_items(items, nzb_parsed, download_rate)
 
     # 7. Completion detection.
-    current_map = {item["id"]: item for item in items}
+    # Cast through a plain-dict view because completion-detection helpers
+    # were typed against ``dict[str, object]`` before ``DownloadItem`` was
+    # introduced; the runtime shape is identical.
+    items_as_dicts = cast(list[dict[str, object]], items)
+    current_map: dict[str, dict[str, object]] = {
+        cast(str, item["id"]): item for item in items_as_dicts
+    }
     _maybe_record_completions(conn, current_map, secret_key)
 
     # 8. Hero selection
-    hero, queue = select_hero(items)
+    hero, queue = select_hero(items_as_dicts)
 
     # 9. Recent downloads (last 7 days), excluding anything actively in queue.
     from mediaman.services.arr.build import build_arr_client as _build_arr_client_local
 
-    active_ids = {item["id"] for item in items}
-    active_titles = {item["title"] for item in items}
+    active_ids = {cast(str, item["id"]) for item in items_as_dicts}
+    active_titles = {cast(str, item["title"]) for item in items_as_dicts}
     recent = fetch_and_sync_recent_downloads(
         conn,
         active_ids,
@@ -472,6 +515,6 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     return {
         "hero": hero,
         "queue": queue,
-        "upcoming": upcoming_items,
-        "recent": recent,
+        "upcoming": cast(list[dict[str, object]], upcoming_items),
+        "recent": cast(list[dict[str, object]], recent),
     }
