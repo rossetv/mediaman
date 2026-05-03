@@ -43,7 +43,7 @@ from mediaman.services.arr.build import build_arr_client
 from mediaman.services.arr.fetcher import fetch_arr_queue
 from mediaman.services.arr.throttle import (
     _SEARCH_STALE_SECONDS,
-    _SEARCH_THROTTLE_SECONDS,
+    _PER_ARR_THROTTLE_SECONDS,
     _STRANDED_THROTTLE_TTL_SECONDS,
     _arr_throttle_key,
     _last_search_trigger,
@@ -86,7 +86,7 @@ __all__ = [  # noqa: RUF022 — grouped by public/private; sorting would obscure
     "_search_count",
     "_state_lock",
     "_SEARCH_STALE_SECONDS",
-    "_SEARCH_THROTTLE_SECONDS",
+    "_PER_ARR_THROTTLE_SECONDS",
     "_STRANDED_THROTTLE_TTL_SECONDS",
     "_trigger_sonarr_partial_missing",
 ]
@@ -178,7 +178,7 @@ def maybe_trigger_search(
             # every time the process restarts.
             _search_count[dl_id] = persisted_count
             previous_count = persisted_count
-        if now - last < _SEARCH_THROTTLE_SECONDS:
+        if now - last < _PER_ARR_THROTTLE_SECONDS:
             return
         # Reserve: bump the in-memory marker and stamp our token so a
         # sibling worker sees this slot as recently triggered. If the
@@ -338,7 +338,7 @@ def _trigger_sonarr_partial_missing(
             continue
         with _state_lock:
             arr_last = _last_search_trigger_by_arr.get(_arr_throttle_key("sonarr", series_id), 0.0)
-        if now - arr_last < _SEARCH_THROTTLE_SECONDS:
+        if now - arr_last < _PER_ARR_THROTTLE_SECONDS:
             continue
         maybe_trigger_search(
             conn,

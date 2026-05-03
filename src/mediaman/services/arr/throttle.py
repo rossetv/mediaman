@@ -68,10 +68,6 @@ _SEARCH_BACKOFF_BASE_SECONDS = 120        # 2 min
 _SEARCH_BACKOFF_MAX_SECONDS = 86_400      # 24 h cap
 _SEARCH_BACKOFF_JITTER = 0.1              # ±10% multiplicative jitter
 
-# Backwards-compatibility alias. Task 2 will update search_trigger.py to
-# import _PER_ARR_THROTTLE_SECONDS directly and remove this alias.
-_SEARCH_THROTTLE_SECONDS = _PER_ARR_THROTTLE_SECONDS
-
 _STRANDED_THROTTLE_TTL_SECONDS = 90 * 24 * 60 * 60  # 90 days
 
 
