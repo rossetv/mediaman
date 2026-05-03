@@ -266,9 +266,9 @@ class TestSchemaV13LegacySessionPurge:
         init_db(str(db_path)).close()  # must not raise
 
     def test_schema_version_is_current(self, db_path):
-        assert DB_SCHEMA_VERSION == 33
+        assert DB_SCHEMA_VERSION == 34
         conn = init_db(str(db_path))
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 33
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 34
 
 
 class TestSchemaV14DeleteStatus:
@@ -1022,3 +1022,85 @@ class TestFactories:
         assert action["notified"] is False
         # execute_at must be after scheduled_at.
         assert action["execute_at"] > action["scheduled_at"]
+
+
+class TestMigrationV34:
+    """Migration v34 drops deprecated abandon_search_* settings and resets throttle counters."""
+
+    def test_drops_deprecated_settings_keys(self, tmp_path):
+        db_path = tmp_path / "v33.db"
+        conn = init_db(str(db_path))
+        # Roll back to pre-v34.
+        conn.execute("PRAGMA user_version=33")
+        for key in (
+            "abandon_search_visible_at",
+            "abandon_search_escalate_at",
+            "abandon_search_auto_multiplier",
+        ):
+            conn.execute(
+                "INSERT INTO settings (key, value, encrypted, updated_at) "
+                "VALUES (?, ?, 0, '2026-01-01T00:00:00+00:00')",
+                (key, "42"),
+            )
+        conn.commit()
+        conn.close()
+
+        conn = init_db(str(db_path))
+        for key in (
+            "abandon_search_visible_at",
+            "abandon_search_escalate_at",
+            "abandon_search_auto_multiplier",
+        ):
+            row = conn.execute(
+                "SELECT 1 FROM settings WHERE key = ?", (key,)
+            ).fetchone()
+            assert row is None, f"{key} should have been deleted by v34"
+
+    def test_resets_throttle_search_count_and_timestamp(self, tmp_path):
+        db_path = tmp_path / "v33-throttle.db"
+        conn = init_db(str(db_path))
+        conn.execute("PRAGMA user_version=33")
+        conn.execute(
+            "INSERT INTO arr_search_throttle (key, last_triggered_at, search_count) "
+            "VALUES (?, ?, ?)",
+            ("radarr:Stuck Movie", "2026-04-01T10:00:00+00:00", 149),
+        )
+        conn.commit()
+        conn.close()
+
+        conn = init_db(str(db_path))
+        row = conn.execute(
+            "SELECT last_triggered_at, search_count FROM arr_search_throttle "
+            "WHERE key = ?",
+            ("radarr:Stuck Movie",),
+        ).fetchone()
+        assert row[1] == 0  # search_count
+        assert row[0] == "1970-01-01T00:00:00+00:00"  # last_triggered_at
+
+    def test_preserves_unrelated_settings(self, tmp_path):
+        db_path = tmp_path / "v33-other.db"
+        conn = init_db(str(db_path))
+        conn.execute("PRAGMA user_version=33")
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) "
+            "VALUES ('plex_url', 'http://plex:32400', 0, '2026-01-01T00:00:00+00:00')"
+        )
+        conn.commit()
+        conn.close()
+
+        conn = init_db(str(db_path))
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key = 'plex_url'"
+        ).fetchone()
+        assert row[0] == "http://plex:32400"
+
+    def test_user_version_bumped_to_34(self, tmp_path):
+        db_path = tmp_path / "v33-version.db"
+        conn = init_db(str(db_path))
+        conn.execute("PRAGMA user_version=33")
+        conn.commit()
+        conn.close()
+
+        conn = init_db(str(db_path))
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        assert version >= 34
