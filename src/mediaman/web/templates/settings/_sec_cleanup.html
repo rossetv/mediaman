@@ -28,31 +28,14 @@
   {% endcall %}
 
   {% call c.setg_card_v2(title="Stuck searches",
-                         sub="How long mediaman waits before offering — and then nudging — you to abandon a download that Radarr/Sonarr can't find a release for.") %}
-    {% call c.setg_row_v2("Show \"Abandon search\" after",
-                          "Number of automatic search attempts before the button appears on the Downloads page. With the default 15-minute throttle, 10 attempts ≈ 2½ hours of poking.") %}
-      <div class="thresh-field">
-        <input class="inp inp--num" type="number" id="abandon_search_visible_at"
-               value="{{ settings.get('abandon_search_visible_at', 10) }}" min="1" max="500">
-        <span class="unit">attempts</span>
-      </div>
-    {% endcall %}
-    {% call c.setg_row_v2("Escalate styling after",
-                          "Switches the button to the danger tint to nudge harder. Set higher than the threshold above. 50 attempts ≈ 12 hours.") %}
-      <div class="thresh-field">
-        <input class="inp inp--num" type="number" id="abandon_search_escalate_at"
-               value="{{ settings.get('abandon_search_escalate_at', 50) }}" min="2" max="2000">
-        <span class="unit">attempts</span>
-      </div>
-    {% endcall %}
-    {% set auto_mul = settings.get('abandon_search_auto_multiplier', 0)|int %}
+                         sub="When a download has been searching for ages with no result, mediaman can give up automatically. The Abandon button on the Downloads page is always available after 10 hours of searching for manual control.") %}
+    {% set auto_abandon = settings.get('auto_abandon_enabled', False) not in (False, 'false', 'False', 0, '0') %}
     {% call c.setg_row_v2("Auto-abandon",
-                          "When on, mediaman unmonitors stuck items itself once their search count exceeds the escalate threshold ×4. For movies, the whole movie. For series, only the seasons currently missing episodes.") %}
-      <span class="tog {% if auto_mul > 0 %}on{% endif %}" role="switch" tabindex="0"
-            data-toggle data-target="abandon_search_auto_multiplier"
-            data-on-value="4" data-off-value="0"
-            aria-checked="{{ 'true' if auto_mul > 0 else 'false' }}"></span>
-      <input type="hidden" id="abandon_search_auto_multiplier" value="{{ auto_mul }}">
+                          "When on, mediaman unmonitors stuck items after 7 days of fruitless searching. For movies, the whole movie. For series, only the seasons currently missing episodes.") %}
+      <span class="tog {% if auto_abandon %}on{% endif %}" role="switch" tabindex="0"
+            data-toggle data-target="auto_abandon_enabled"
+            aria-checked="{{ 'true' if auto_abandon else 'false' }}"></span>
+      <input type="hidden" id="auto_abandon_enabled" value="{{ 'true' if auto_abandon else 'false' }}">
     {% endcall %}
   {% endcall %}
 
