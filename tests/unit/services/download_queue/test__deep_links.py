@@ -18,7 +18,8 @@ class TestBuildSearchHint:
         ts = now - 600  # 10 min ago
         result = build_search_hint(search_count=1, last_search_ts=ts, added_at=0, now=now)
         assert "Searched once" in result
-        assert "10m ago" in result
+        # new copy: "next attempt in X" or "firing now"
+        assert "next attempt" in result or "firing now" in result
 
     def test_searched_multiple_times(self):
         now = 1_000_000
@@ -84,3 +85,100 @@ class TestBuildArrLink:
         arr = {"kind": "movie"}
         base_urls = {"radarr": "http://radarr.local"}
         assert build_arr_link(arr, base_urls) == ""
+
+
+# ---------------------------------------------------------------------------
+# TestSearchHintNextAttempt
+# ---------------------------------------------------------------------------
+
+
+class TestSearchHintNextAttempt:
+    """build_search_hint surfaces 'next attempt in X' derived from the backoff curve."""
+
+    def test_first_search_pending_keeps_legacy_copy(self):
+        out = build_search_hint(
+            search_count=0, last_search_ts=0.0, added_at=1700000000.0, now=1700000900.0
+        )
+        assert "waiting for first search" in out
+
+    def test_minutes_format_under_one_hour(self, monkeypatch):
+        from mediaman.services.downloads.download_queue import _deep_links
+
+        monkeypatch.setattr("mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0)
+
+        last = 1700000000.0
+        # search_count=1 → interval = 120 s. 30 s elapsed → 90 s remain → "in 1m" (floor).
+        out = _deep_links.build_search_hint(
+            search_count=1,
+            last_search_ts=last,
+            added_at=last - 600,
+            now=last + 30,
+            dl_id="radarr:Foo",
+        )
+        assert "Searched once" in out
+        assert "next attempt in 1m" in out
+
+    def test_hours_format_band(self, monkeypatch):
+        from mediaman.services.downloads.download_queue import _deep_links
+
+        monkeypatch.setattr("mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0)
+
+        last = 1700000000.0
+        # search_count=8 → interval = 256 m = 15360 s. 1 s elapsed.
+        out = _deep_links.build_search_hint(
+            search_count=8,
+            last_search_ts=last,
+            added_at=last - 99999,
+            now=last + 1,
+            dl_id="radarr:Foo",
+        )
+        # 15359 s ≈ 4 h 16 m → rounded to 4 h.
+        assert "Searched 8×" in out
+        assert "next attempt in ~4h" in out
+
+    def test_cap_band_displays_24h(self, monkeypatch):
+        from mediaman.services.downloads.download_queue import _deep_links
+
+        monkeypatch.setattr("mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0)
+
+        last = 1700000000.0
+        out = _deep_links.build_search_hint(
+            search_count=20,
+            last_search_ts=last,
+            added_at=last - 99999,
+            now=last + 60,
+            dl_id="radarr:Foo",
+        )
+        assert "next attempt in ~24h" in out
+
+    def test_firing_now_when_window_elapsed(self, monkeypatch):
+        from mediaman.services.downloads.download_queue import _deep_links
+
+        monkeypatch.setattr("mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0)
+
+        last = 1700000000.0
+        out = _deep_links.build_search_hint(
+            search_count=2,
+            last_search_ts=last,
+            added_at=last - 99999,
+            now=last + 99999,  # well past any backoff window
+            dl_id="radarr:Foo",
+        )
+        assert "firing now" in out
+
+    def test_minutes_floor_minimum_one_minute(self, monkeypatch):
+        """Even if there's only 5 s left, we round up to '1m' to avoid '0m'."""
+        from mediaman.services.downloads.download_queue import _deep_links
+
+        monkeypatch.setattr("mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0)
+
+        last = 1700000000.0
+        # interval(1) = 120 s. 115 s elapsed → 5 s remain.
+        out = _deep_links.build_search_hint(
+            search_count=1,
+            last_search_ts=last,
+            added_at=last - 99999,
+            now=last + 115,
+            dl_id="radarr:Foo",
+        )
+        assert "next attempt in 1m" in out

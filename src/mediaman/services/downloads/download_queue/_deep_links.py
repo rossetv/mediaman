@@ -15,26 +15,56 @@ def build_search_hint(
     last_search_ts: float,
     added_at: float,
     now: float,
+    dl_id: str = "",
 ) -> str:
-    """Build the "Last searched 12m ago" subline shown under the pill.
+    """Build the "Searched 12× · next attempt in ~4h" subline shown under the pill.
 
-    Falls back to "Added Xm ago" when mediaman hasn't fired a search yet
-    — either the item is still inside the 5-min staleness window, or the
-    process was restarted so the in-memory trigger log is empty. Returns
-    "" only when we genuinely have nothing to say.
+    Falls back to "Added Xm ago · waiting for first search" when mediaman
+    hasn't fired a search yet — either the item is still inside the 5-min
+    staleness window, or the process was restarted so the in-memory
+    trigger log is empty. Returns "" only when we genuinely have nothing
+    to say.
+
+    The next-attempt countdown is derived from the same
+    :func:`~mediaman.services.arr.throttle._search_backoff_seconds` helper
+    that gates the actual fire, so what the UI shows matches when the search
+    will really run. The deterministic jitter inside that helper means the
+    displayed time stays stable across polls within a single waiting window.
     """
+    from mediaman.services.arr.throttle import _search_backoff_seconds
+
     if search_count > 0 and last_search_ts > 0:
-        rel = format_relative_time(last_search_ts, now)
-        if not rel:
-            return ""
+        next_in = (
+            last_search_ts + _search_backoff_seconds(search_count, dl_id, last_search_ts) - now
+        )
+        nxt = _format_next_attempt(next_in)
         if search_count == 1:
-            return f"Searched once · last attempt {rel}"
-        return f"Searched {search_count}× · last attempt {rel}"
+            return f"Searched once · {nxt}"
+        return f"Searched {search_count}× · {nxt}"
     if added_at > 0:
         rel = format_relative_time(added_at, now)
         if rel:
             return f"Added {rel} · waiting for first search"
     return ""
+
+
+def _format_next_attempt(next_in_seconds: float) -> str:
+    """Render the countdown in one of four bands.
+
+    * ``<= 0`` → "firing now" (race between gate and poll cadence).
+    * ``< 60 m`` → "next attempt in 14m" (floor to integer minutes, minimum 1m).
+    * ``< 24 h`` → "next attempt in ~4h" (rounded to nearest hour).
+    * ``>= 24 h`` → "next attempt in ~24h" (cap edge under jitter).
+    """
+    if next_in_seconds <= 0:
+        return "firing now"
+    if next_in_seconds < 3600:
+        minutes = max(1, int(next_in_seconds // 60))
+        return f"next attempt in {minutes}m"
+    if next_in_seconds < 24 * 3600:
+        hours = round(next_in_seconds / 3600)
+        return f"next attempt in ~{hours}h"
+    return "next attempt in ~24h"
 
 
 def arr_base_urls(conn: sqlite3.Connection, secret_key: str) -> dict[str, str]:
