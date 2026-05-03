@@ -6,6 +6,8 @@ import concurrent.futures
 import json
 import logging
 import sqlite3
+import threading
+import time
 from collections.abc import Callable
 from urllib.parse import urlparse as _urlparse
 
@@ -536,6 +538,7 @@ def api_update_settings(
             {"error": "Internal error during settings write"},
             status_code=500,
         )
+    _invalidate_test_cache_for_keys(set(written))
     return JSONResponse({"status": "saved", "written": written, "ignored": ignored})
 
 
@@ -704,6 +707,47 @@ _SERVICE_TESTER_KEYS: dict[str, set[str]] = {
 }
 
 
+#: TTL for the service-test result cache. The settings page auto-fires
+#: a test for every configured service on load, which trivially blows
+#: the per-admin rate limit (10/min) on a couple of reloads. Caching
+#: the result for 120s makes reloads cheap without hiding genuine
+#: connectivity changes for long.
+_TEST_CACHE_TTL_SECONDS = 120.0
+
+#: In-memory cache of the most recent tester payload per service.
+#: Shared across admins because the underlying settings are global.
+#: Invalidated on any settings write that touches the service's keys.
+_TEST_CACHE: dict[str, tuple[float, dict]] = {}
+_TEST_CACHE_LOCK = threading.Lock()
+
+
+def _cache_get(service: str) -> dict | None:
+    with _TEST_CACHE_LOCK:
+        entry = _TEST_CACHE.get(service)
+        if entry is None:
+            return None
+        expires_at, payload = entry
+        if time.monotonic() >= expires_at:
+            _TEST_CACHE.pop(service, None)
+            return None
+        return payload
+
+
+def _cache_put(service: str, payload: dict) -> None:
+    with _TEST_CACHE_LOCK:
+        _TEST_CACHE[service] = (time.monotonic() + _TEST_CACHE_TTL_SECONDS, payload)
+
+
+def _invalidate_test_cache_for_keys(written_keys: set[str]) -> None:
+    """Drop cached test results for any service whose inputs just changed."""
+    if not written_keys:
+        return
+    with _TEST_CACHE_LOCK:
+        for service, keys in _SERVICE_TESTER_KEYS.items():
+            if keys & written_keys:
+                _TEST_CACHE.pop(service, None)
+
+
 @router.post("/api/settings/test/{service}")
 def api_test_service(
     service: str, request: Request, admin: str = Depends(get_current_admin)
@@ -725,6 +769,10 @@ def api_test_service(
     tester = _SERVICE_TESTERS.get(service)
     if tester is None:
         return JSONResponse({"ok": False, "error": f"Unknown service: {service}"}, status_code=400)
+
+    cached = _cache_get(service)
+    if cached is not None:
+        return JSONResponse(cached)
 
     if not _SETTINGS_TEST_LIMITER.check(admin):
         logger.warning("settings.test_throttled user=%s service=%s", admin, service)
@@ -753,7 +801,7 @@ def api_test_service(
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(tester, settings)
             try:
-                return future.result(timeout=_TESTER_TIMEOUT_SECONDS)
+                response = future.result(timeout=_TESTER_TIMEOUT_SECONDS)
             except concurrent.futures.TimeoutError:
                 # The worker thread is still running — we can't kill it,
                 # but we MUST return promptly. The thread will finish on
@@ -763,10 +811,19 @@ def api_test_service(
                     _TESTER_TIMEOUT_SECONDS,
                     service,
                 )
-                return JSONResponse({"ok": False, "error": "timeout"})
+                payload = {"ok": False, "error": "timeout"}
+                _cache_put(service, payload)
+                return JSONResponse(payload)
     except Exception as exc:
         logger.warning("Service test failed for %s: %s", service, exc)
         return JSONResponse({"ok": False, "error": "Service connection test failed"})
+
+    try:
+        payload = json.loads(bytes(response.body).decode("utf-8"))
+    except Exception:
+        return response
+    _cache_put(service, payload)
+    return response
 
 
 @router.get("/api/plex/libraries")
