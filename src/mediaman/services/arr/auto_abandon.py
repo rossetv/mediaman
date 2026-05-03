@@ -1,11 +1,10 @@
-"""Auto-abandon escalation policy for over-searched monitored items.
+"""Auto-abandon escalation policy for long-stalled monitored items.
 
-When a monitored Radarr/Sonarr item has been searched ``escalate_at *
-multiplier`` times without ever matching an NZB, the operator's
-configured policy may unmonitor it automatically. This module owns
-:func:`maybe_auto_abandon` and the per-fire ``sec:auto_abandon.fired``
-audit emission that makes a compromised-settings attack discoverable
-after the fact.
+When a monitored Radarr/Sonarr item has been sitting in `searching` state
+beyond ``_AUTO_ABANDON_AFTER_SECONDS`` (7 days), and the operator has
+enabled the ``auto_abandon_enabled`` setting, this module unmonitors it
+and emits a ``sec:auto_abandon.fired`` audit row. The audit row makes a
+compromised-settings attack discoverable after the fact.
 
 Split out of :mod:`mediaman.services.arr.search_trigger` so the policy
 logic and its audit guarantees are isolated from the trigger-decision
@@ -19,7 +18,7 @@ import logging
 import sqlite3
 
 from mediaman.audit import security_event
-from mediaman.services.infra.settings_reader import get_int_setting
+from mediaman.services.infra.settings_reader import get_bool_setting
 
 logger = logging.getLogger("mediaman")
 
@@ -38,24 +37,24 @@ def maybe_auto_abandon(
     secret_key: str,
     *,
     item: dict,
-    search_count: int,
+    now: float,
 ) -> None:
-    """Auto-unmonitor *item* if its search count has crossed the threshold.
+    """Auto-unmonitor *item* if it has been searching beyond the time threshold.
 
-    Multiplier of 0 (default) disables the feature; the function returns
-    immediately. Otherwise abandons via the same service entry-points the
-    manual button uses, so semantics (throttle clear, partial-failure
-    behaviour, logging) are identical.
+    Driven by the boolean ``auto_abandon_enabled`` setting (default off).
+    Time clock is ``item["added_at"]``, matching the manual Abandon button's
+    visibility threshold. Series with no positive-numbered seasons in the
+    queue are skipped — Sonarr only knows about specials there, and we
+    never want to auto-unmonitor specials.
 
-    Series with no derivable season list (no episodes in the queue) are
-    skipped — there's nothing for Sonarr to unmonitor that wouldn't be a
-    no-op or an error.
+    Abandons via the same service entry-points the manual button uses, so
+    semantics (throttle clear, partial-failure behaviour, logging) are
+    identical.
     """
-    multiplier = get_int_setting(conn, "abandon_search_auto_multiplier", default=0, min=0, max=100)
-    if multiplier <= 0:
+    if not get_bool_setting(conn, "auto_abandon_enabled", default=False):
         return
-    escalate_at = get_int_setting(conn, "abandon_search_escalate_at", default=50, min=2, max=10000)
-    if search_count < escalate_at * multiplier:
+    added_at = item.get("added_at") or 0.0
+    if now - added_at < _AUTO_ABANDON_AFTER_SECONDS:
         return
 
     # Late import breaks the otherwise-circular dependency between
@@ -71,14 +70,12 @@ def maybe_auto_abandon(
     if not dl_id or not arr_id:
         return
 
+    searching_for_seconds = int(now - added_at)
     kind = item.get("kind")
     if kind == "movie":
         # Audit BEFORE the abandon call so the trail records the policy
-        # firing even if Radarr is down. A settings-write attacker who
-        # sets multiplier=1 to mass-unmonitor every item leaves one
-        # ``sec:auto_abandon.fired`` row per affected item — discoverable
-        # by an operator scanning the audit log. Pass ``actor=""`` to
-        # mark this as a system-driven (not admin-triggered) event.
+        # firing even if Radarr is down. Pass actor="" so the row is
+        # marked as a system-driven (not admin-triggered) event.
         security_event(
             conn,
             event="auto_abandon.fired",
@@ -89,9 +86,7 @@ def maybe_auto_abandon(
                 "arr_id": arr_id,
                 "service": "radarr",
                 "kind": "movie",
-                "multiplier": multiplier,
-                "escalate_at": escalate_at,
-                "search_count": search_count,
+                "searching_for_seconds": searching_for_seconds,
             },
         )
         abandon_movie(conn, secret_key, arr_id=arr_id, dl_id=dl_id)
@@ -122,9 +117,7 @@ def maybe_auto_abandon(
             "service": "sonarr",
             "kind": "series",
             "seasons": seasons,
-            "multiplier": multiplier,
-            "escalate_at": escalate_at,
-            "search_count": search_count,
+            "searching_for_seconds": searching_for_seconds,
         },
     )
     abandon_seasons(

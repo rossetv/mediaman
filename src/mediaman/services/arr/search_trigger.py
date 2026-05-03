@@ -283,12 +283,12 @@ def trigger_pending_searches(conn: sqlite3.Connection, secret_key: str) -> None:
         logger.warning("trigger_pending_searches: failed to fetch arr queue", exc_info=True)
         arr_items = []
 
+    now = time.time()
     for item in arr_items:
         item_dict = cast(dict, item)
         maybe_trigger_search(conn, item_dict, matched_nzb=False, secret_key=secret_key)
         try:
-            count, _ = get_search_info(item.get("dl_id") or "")
-            maybe_auto_abandon(conn, secret_key, item=item_dict, search_count=count)
+            maybe_auto_abandon(conn, secret_key, item=item_dict, now=now)
         except Exception:
             logger.warning(
                 "auto-abandon: skipped %s due to error", item.get("dl_id"), exc_info=True
