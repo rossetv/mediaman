@@ -390,9 +390,9 @@ class TestThrottleDbPersistence:
         )
 
         # Simulate: process previously fired 5 searches, last one was
-        # 20 minutes ago (outside the 15-min throttle, so a new search
-        # may fire and bump the count).
-        old_epoch = time.time() - (20 * 60)
+        # 35 minutes ago. At count=5 the backoff is 32 min
+        # (120 * 2^4 = 1920 s), so 35 min clears it comfortably.
+        old_epoch = time.time() - (35 * 60)
         _save_trigger_to_db(db_conn, "radarr:LongRunner", old_epoch, 5)
 
         # Cold start — clear in-memory state as if the process just booted.
