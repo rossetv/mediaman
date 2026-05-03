@@ -51,6 +51,7 @@ from mediaman.services.arr.throttle import (
     _load_throttle_from_db,
     _reservation_tokens,
     _save_trigger_to_db,
+    _search_backoff_seconds,
     _search_count,
     _state_lock,
     clear_throttle,
@@ -83,6 +84,7 @@ __all__ = [  # noqa: RUF022 — grouped by public/private; sorting would obscure
     "_load_throttle_from_db",
     "_reservation_tokens",
     "_save_trigger_to_db",
+    "_search_backoff_seconds",
     "_search_count",
     "_state_lock",
     "_SEARCH_STALE_SECONDS",
@@ -178,7 +180,7 @@ def maybe_trigger_search(
             # every time the process restarts.
             _search_count[dl_id] = persisted_count
             previous_count = persisted_count
-        if now - last < _PER_ARR_THROTTLE_SECONDS:
+        if now - last < _search_backoff_seconds(previous_count, dl_id, last):
             return
         # Reserve: bump the in-memory marker and stamp our token so a
         # sibling worker sees this slot as recently triggered. If the

@@ -907,27 +907,80 @@ class TestSearchTriggerThrottle:
 
         mock_radarr.search_movie.assert_called_once_with(42)
 
-    def test_second_call_within_15_min_does_not_trigger(self, monkeypatch):
+    def test_second_call_within_two_minutes_does_not_trigger(self, monkeypatch):
+        """After the first fire, the per-dl_id backoff gate is 2 min — anything sooner is dropped."""
         mock_radarr = MagicMock()
         conn = MagicMock()
-
+        # Make the DB appear empty so no persisted count inflates previous_count.
+        conn.execute.return_value.fetchone.return_value = None
         monkeypatch.setattr(
             "mediaman.services.arr.search_trigger.build_arr_client",
             lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
+        )
+        # Pin jitter so the gate is exactly 120 s, not [108, 132].
+        monkeypatch.setattr(
+            "mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0
         )
 
         import time
 
         item = {
             "kind": "movie",
-            "dl_id": "radarr:Feel My Voice",
-            "arr_id": 42,
+            "dl_id": "radarr:Backoff Test",
+            "arr_id": 99,
             "is_upcoming": False,
             "added_at": time.time() - 600,
         }
-        maybe_trigger_search(conn, item, matched_nzb=False, secret_key="test-key")
+        # Fire #1 — wide-open gate.
         maybe_trigger_search(conn, item, matched_nzb=False, secret_key="test-key")
         assert mock_radarr.search_movie.call_count == 1
+        # Fire #2 immediately — gated by interval(1) = 120 s.
+        maybe_trigger_search(conn, item, matched_nzb=False, secret_key="test-key")
+        assert mock_radarr.search_movie.call_count == 1
+
+    def test_backoff_curve_advances_through_steps(self, monkeypatch):
+        """Once each backoff window passes, the next call fires; doubles each step."""
+        mock_radarr = MagicMock()
+        conn = MagicMock()
+        # Make the DB appear empty so no persisted count inflates previous_count.
+        conn.execute.return_value.fetchone.return_value = None
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_arr_client",
+            lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0
+        )
+
+        from mediaman.services.arr import search_trigger as st
+
+        clock = [1700000000.0]
+        monkeypatch.setattr(st.time, "time", lambda: clock[0])
+
+        item = {
+            "kind": "movie",
+            "dl_id": "radarr:Backoff Cycle",
+            "arr_id": 100,
+            "is_upcoming": False,
+            "added_at": clock[0] - 600,
+        }
+        st.maybe_trigger_search(conn, item, matched_nzb=False, secret_key="test-key")
+        assert mock_radarr.search_movie.call_count == 1
+
+        # Advance past the 2-min interval(1) gate.
+        clock[0] += 121
+        st.maybe_trigger_search(conn, item, matched_nzb=False, secret_key="test-key")
+        assert mock_radarr.search_movie.call_count == 2
+
+        # Now interval(2) = 4 min. 121 s isn't enough.
+        clock[0] += 121
+        st.maybe_trigger_search(conn, item, matched_nzb=False, secret_key="test-key")
+        assert mock_radarr.search_movie.call_count == 2
+
+        # Advance past 4 min total.
+        clock[0] += 240 + 1
+        st.maybe_trigger_search(conn, item, matched_nzb=False, secret_key="test-key")
+        assert mock_radarr.search_movie.call_count == 3
 
     def test_upcoming_item_does_not_trigger_search(self, monkeypatch):
         mock_radarr = MagicMock()
