@@ -582,7 +582,10 @@
     saveBtn.classList.add('btn--primary');
   }
 
-  if (saveBtn) saveBtn.addEventListener('click', function () {
+  // Extracted from the click handler so the reauth retry path can re-fire
+  // the save with the captured payload without duplicating the response
+  // bookkeeping.
+  function runSave(payload) {
     saveBtn.disabled = true;
     clearSaveError();
     var orig = 'Save Settings';
@@ -593,7 +596,7 @@
     fetch('/api/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(collectSettings()),
+      body: JSON.stringify(payload),
     })
       .then(function (r) { statusCode = r.status; return r.json().catch(function () { return {}; }); })
       .then(function (data) {
@@ -616,16 +619,57 @@
               statusEl.textContent = 'Edits apply to every section at once.';
             }
           }, 2200);
-        } else {
-          setSaveError(summariseSaveError(data, statusCode));
-          saveBtn.disabled = false;
+          return;
         }
+
+        // Sensitive-settings reauth gate. The backend returns 403 with
+        // ``reauth_required: true`` when the session has no recent reauth
+        // ticket. Open the shared password drawer; on success, re-fire the
+        // same payload so the user keeps their unsaved edits.
+        if (statusCode === 403 && data && data.reauth_required) {
+          saveBtn.textContent = orig;
+          saveBtn.disabled = false;
+          if (statusEl) statusEl.textContent = 'Confirm your password to continue.';
+          openPasswordPrompt({
+            anchor: savebarEl,
+            where: 'before',
+            title: 'Re-authenticate to save sensitive settings',
+            descText: 'mediaman requires a recent password confirmation before changing credentials or other sensitive options.',
+            confirmLabel: 'Confirm & save',
+            onSubmit: function (pw) {
+              return fetch('/api/auth/reauth', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: pw }),
+              }).then(function (r) {
+                var sc = r.status;
+                return r.json().catch(function () { return {}; }).then(function (d) {
+                  if (sc >= 200 && sc < 300 && d && d.ok) {
+                    runSave(payload);
+                    return { ok: true };
+                  }
+                  return { ok: false, error: (d && d.error) || ('Reauth failed (HTTP ' + sc + ')') };
+                });
+              });
+            },
+            onCancel: function () {
+              setSaveError('Save cancelled — re-authentication required.');
+            },
+          });
+          return;
+        }
+
+        setSaveError(summariseSaveError(data, statusCode));
+        saveBtn.disabled = false;
       })
       .catch(function () {
         setSaveError("Couldn't reach the server — check your connection and try again.");
         saveBtn.disabled = false;
       });
-  });
+  }
+
+  if (saveBtn) saveBtn.addEventListener('click', function () { runSave(collectSettings()); });
 
   // Any subsequent edit should clear the error chrome so the bar reads
   // "Unsaved changes" again — keeping a stale red banner around after the
@@ -931,28 +975,33 @@
     });
   }
 
-  function openDeleteDrawer(user, row) {
-    document.querySelectorAll('.setg-pg .delete-drawer').forEach(function (n) { n.remove(); });
+  // Shared password-confirm drawer used by both the delete-user flow and
+  // the sensitive-settings reauth gate. ``onSubmit(pw)`` returns a Promise
+  // resolving to ``{ok, error?}``; the drawer self-removes on ok and
+  // surfaces the error inline otherwise. Only one prompt exists at a time
+  // — opening a new one displaces any existing instance.
+  function openPasswordPrompt(opts) {
+    document.querySelectorAll('.setg-pg .pw-prompt').forEach(function (n) { n.remove(); });
+
     var drawer = document.createElement('div');
-    drawer.className = 'inline-form delete-drawer';
+    drawer.className = 'inline-form pw-prompt';
 
     var title = document.createElement('div');
     title.className = 'fld-lbl';
     title.style.textTransform = 'none';
     title.style.letterSpacing = '-.005em';
     title.style.fontSize = '14px';
-    title.appendChild(document.createTextNode('Delete '));
-    var strong = document.createElement('strong');
-    strong.textContent = user.username;
-    title.appendChild(strong);
-    title.appendChild(document.createTextNode('?'));
+    if (typeof opts.title === 'string') title.textContent = opts.title;
+    else if (opts.title) title.appendChild(opts.title);
     drawer.appendChild(title);
 
-    var desc = document.createElement('div');
-    desc.className = 'fld-sub';
-    desc.style.marginTop = '6px';
-    desc.textContent = 'Irreversible. All active sessions for this user will be terminated.';
-    drawer.appendChild(desc);
+    if (opts.descText) {
+      var desc = document.createElement('div');
+      desc.className = 'fld-sub';
+      desc.style.marginTop = '6px';
+      desc.textContent = opts.descText;
+      drawer.appendChild(desc);
+    }
 
     var lbl = document.createElement('label');
     lbl.className = 'fld';
@@ -970,52 +1019,92 @@
 
     var actions = document.createElement('div');
     actions.className = 'inline-form-actions';
-    var cancel = document.createElement('button');
-    cancel.type = 'button';
-    cancel.className = 'btn btn--ghost btn--sm';
-    cancel.textContent = 'Cancel';
-    cancel.addEventListener('click', function () { drawer.remove(); });
-    actions.appendChild(cancel);
-    var confirm = document.createElement('button');
-    confirm.type = 'button';
-    confirm.className = 'btn btn--danger btn--sm';
-    confirm.textContent = 'Delete user';
-    actions.appendChild(confirm);
+    var cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'btn btn--ghost btn--sm';
+    cancelBtn.textContent = 'Cancel';
+    actions.appendChild(cancelBtn);
+    var confirmBtn = document.createElement('button');
+    confirmBtn.type = 'button';
+    confirmBtn.className = opts.dangerConfirm ? 'btn btn--danger btn--sm' : 'btn btn--primary btn--sm';
+    confirmBtn.textContent = opts.confirmLabel || 'Confirm';
+    actions.appendChild(confirmBtn);
     var msg = document.createElement('span');
     msg.className = 'inline-form-msg';
     msg.style.margin = '0';
     actions.appendChild(msg);
     drawer.appendChild(actions);
 
-    row.after(drawer);
+    if (opts.where === 'before') opts.anchor.before(drawer);
+    else opts.anchor.after(drawer);
     input.focus();
 
-    function doDelete() {
-      var pw = input.value;
-      if (!pw) { msg.className = 'inline-form-msg err'; msg.textContent = 'Password required.'; return; }
-      confirm.disabled = true;
-      fetch('/api/users/' + user.id, {
-        method: 'DELETE',
-        credentials: 'same-origin',
-        headers: { 'X-Confirm-Password': pw },
-      })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          confirm.disabled = false;
-          if (data.ok) { drawer.remove(); loadUsers(); }
-          else {
-            msg.className = 'inline-form-msg err';
-            msg.textContent = data.error || 'Delete failed';
-          }
-        })
-        .catch(function () {
-          confirm.disabled = false;
-          msg.className = 'inline-form-msg err';
-          msg.textContent = 'Network error. Try again.';
-        });
+    function close(viaCancel) {
+      drawer.remove();
+      if (viaCancel && typeof opts.onCancel === 'function') opts.onCancel();
     }
-    confirm.addEventListener('click', doDelete);
-    input.addEventListener('keydown', function (e) { if (e.key === 'Enter') doDelete(); });
+    cancelBtn.addEventListener('click', function () { close(true); });
+
+    function submit() {
+      var pw = input.value;
+      if (!pw) {
+        msg.className = 'inline-form-msg err';
+        msg.textContent = 'Password required.';
+        return;
+      }
+      confirmBtn.disabled = true;
+      msg.className = 'inline-form-msg';
+      msg.textContent = '';
+      Promise.resolve(opts.onSubmit(pw)).then(function (res) {
+        confirmBtn.disabled = false;
+        if (res && res.ok) {
+          drawer.remove();
+        } else {
+          msg.className = 'inline-form-msg err';
+          msg.textContent = (res && res.error) || 'Failed';
+          input.focus();
+          input.select();
+        }
+      }).catch(function () {
+        confirmBtn.disabled = false;
+        msg.className = 'inline-form-msg err';
+        msg.textContent = 'Network error. Try again.';
+      });
+    }
+    confirmBtn.addEventListener('click', submit);
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') submit();
+      else if (e.key === 'Escape') close(true);
+    });
+  }
+
+  function openDeleteDrawer(user, row) {
+    var title = document.createDocumentFragment();
+    title.appendChild(document.createTextNode('Delete '));
+    var strong = document.createElement('strong');
+    strong.textContent = user.username;
+    title.appendChild(strong);
+    title.appendChild(document.createTextNode('?'));
+
+    openPasswordPrompt({
+      anchor: row,
+      title: title,
+      descText: 'Irreversible. All active sessions for this user will be terminated.',
+      confirmLabel: 'Delete user',
+      dangerConfirm: true,
+      onSubmit: function (pw) {
+        return fetch('/api/users/' + user.id, {
+          method: 'DELETE',
+          credentials: 'same-origin',
+          headers: { 'X-Confirm-Password': pw },
+        }).then(function (r) {
+          return r.json().catch(function () { return {}; }).then(function (data) {
+            if (data && data.ok) { loadUsers(); return { ok: true }; }
+            return { ok: false, error: (data && data.error) || 'Delete failed' };
+          });
+        });
+      },
+    });
   }
 
   // ---- Add user + self password + revoke sessions ----
