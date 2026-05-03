@@ -59,7 +59,6 @@ from mediaman.services.arr.throttle import (
     reconcile_stranded_throttle,
     reset_search_triggers,
 )
-from mediaman.services.downloads.download_queue._deep_links import _format_next_attempt
 from mediaman.services.infra.settings_reader import get_int_setting
 
 logger = logging.getLogger("mediaman")
@@ -208,13 +207,21 @@ def maybe_trigger_search(
         else:
             cast(SonarrClient, client).search_series(arr_id)
         success = True
-        new_count = previous_count + 1
-        next_in_seconds = _search_backoff_seconds(new_count, dl_id, now)
+        # Late import: ``_deep_links`` lives in the ``download_queue`` package
+        # whose ``__init__`` imports ``maybe_trigger_search`` from this module,
+        # so a top-level import here would cycle. The post-fire log mirrors
+        # the count update done inside the finally block (line below); keeping
+        # the value inline avoids shadowing the ``new_count: int | None``
+        # declaration the lock-protected commit path relies on.
+        from mediaman.services.downloads.download_queue._deep_links import (
+            _format_next_attempt,
+        )
+
         logger.info(
             "Triggered search for stalled item %s (n=%d, %s)",
             dl_id,
-            new_count,
-            _format_next_attempt(next_in_seconds),
+            previous_count + 1,
+            _format_next_attempt(_search_backoff_seconds(previous_count + 1, dl_id, now)),
         )
     except Exception:
         logger.warning("Failed to trigger search for %s", dl_id, exc_info=True)
