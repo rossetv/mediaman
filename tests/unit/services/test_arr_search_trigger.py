@@ -9,6 +9,7 @@ _trigger_sonarr_partial_missing, and reset_search_triggers.
 from __future__ import annotations
 
 import time
+import time as _time
 from unittest.mock import MagicMock
 
 import pytest
@@ -717,8 +718,6 @@ class TestReconcileStrandedThrottle:
 # TestAutoAbandon
 # ---------------------------------------------------------------------------
 
-import time as _time
-
 _OVER_THRESHOLD = _time.time() - 10 * 86_400  # 10 days ago — always over 7 d threshold
 
 
@@ -989,7 +988,12 @@ class TestAutoAbandonAuditLog:
         maybe_auto_abandon(
             db_conn,
             "secret",
-            item={"kind": "movie", "dl_id": "radarr:Dune", "arr_id": 42, "added_at": _OVER_THRESHOLD},
+            item={
+                "kind": "movie",
+                "dl_id": "radarr:Dune",
+                "arr_id": 42,
+                "added_at": _OVER_THRESHOLD,
+            },
             now=now,
         )
 
@@ -1143,7 +1147,12 @@ class TestAutoAbandonAuditLog:
             maybe_auto_abandon(
                 db_conn,
                 "secret",
-                item={"kind": "movie", "dl_id": "radarr:Y", "arr_id": 42, "added_at": _OVER_THRESHOLD},
+                item={
+                    "kind": "movie",
+                    "dl_id": "radarr:Y",
+                    "arr_id": 42,
+                    "added_at": _OVER_THRESHOLD,
+                },
                 now=now,
             )
 
@@ -1166,22 +1175,29 @@ class TestSearchBackoff:
         """search_count=0 yields exactly 120 s when jitter is fixed at 1.0."""
         from mediaman.services.arr.throttle import _search_backoff_seconds
 
-        monkeypatch.setattr(
-            "mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0
-        )
+        monkeypatch.setattr("mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0)
         assert _search_backoff_seconds(0, "radarr:Foo", 0.0) == 120.0
 
     @pytest.mark.parametrize(
-        "count, expected_minutes",
-        [(1, 2), (2, 4), (3, 8), (4, 16), (5, 32), (6, 64), (7, 128), (8, 256), (9, 512), (10, 1024)],
+        ("count", "expected_minutes"),
+        [
+            (1, 2),
+            (2, 4),
+            (3, 8),
+            (4, 16),
+            (5, 32),
+            (6, 64),
+            (7, 128),
+            (8, 256),
+            (9, 512),
+            (10, 1024),
+        ],
     )
     def test_geometric_sequence(self, monkeypatch, count, expected_minutes):
         """The unjittered curve doubles each step from 2 m up to but excluding the cap."""
         from mediaman.services.arr.throttle import _search_backoff_seconds
 
-        monkeypatch.setattr(
-            "mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0
-        )
+        monkeypatch.setattr("mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0)
         assert _search_backoff_seconds(count, "radarr:Foo", 1.0) == expected_minutes * 60
 
     @pytest.mark.parametrize("count", [11, 12, 50, 200])
@@ -1189,18 +1205,14 @@ class TestSearchBackoff:
         """Above n=10 the unjittered value clamps to exactly 86_400 s."""
         from mediaman.services.arr.throttle import _search_backoff_seconds
 
-        monkeypatch.setattr(
-            "mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0
-        )
+        monkeypatch.setattr("mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0)
         assert _search_backoff_seconds(count, "radarr:Foo", 1.0) == 86_400.0
 
     def test_negative_count_treated_as_zero(self, monkeypatch):
         """Defensive: a stray negative count returns the base interval."""
         from mediaman.services.arr.throttle import _search_backoff_seconds
 
-        monkeypatch.setattr(
-            "mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0
-        )
+        monkeypatch.setattr("mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0)
         assert _search_backoff_seconds(-5, "radarr:Foo", 1.0) == 120.0
 
     def test_jitter_deterministic_per_fire(self):
@@ -1234,3 +1246,13 @@ class TestSearchBackoff:
         v = _search_backoff_seconds(5, "radarr:Foo", 1700000000.0)
         # n=5 → 32 m base = 1920 s. ±10% → [1728, 2112].
         assert 1728.0 <= v <= 2112.0
+
+    def test_jitter_at_cap_never_exceeds_cap(self):
+        """At n≥11 the jittered value is clamped to 86 400 s — no ~26 h surprises."""
+        from mediaman.services.arr.throttle import _search_backoff_seconds
+
+        for count in (11, 12, 20, 50, 200):
+            v = _search_backoff_seconds(count, "radarr:Foo", 1700000000.0)
+            assert v <= 86_400.0, f"count={count}: {v} > 86_400"
+            # Lower bound: base is at cap and jitter can be as low as −10%.
+            assert v >= 86_400.0 * 0.9, f"count={count}: {v} < 77_760"

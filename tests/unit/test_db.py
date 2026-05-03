@@ -1051,9 +1051,7 @@ class TestMigrationV34:
             "abandon_search_escalate_at",
             "abandon_search_auto_multiplier",
         ):
-            row = conn.execute(
-                "SELECT 1 FROM settings WHERE key = ?", (key,)
-            ).fetchone()
+            row = conn.execute("SELECT 1 FROM settings WHERE key = ?", (key,)).fetchone()
             assert row is None, f"{key} should have been deleted by v34"
 
     def test_resets_throttle_search_count_and_timestamp(self, tmp_path):
@@ -1070,8 +1068,7 @@ class TestMigrationV34:
 
         conn = init_db(str(db_path))
         row = conn.execute(
-            "SELECT last_triggered_at, search_count FROM arr_search_throttle "
-            "WHERE key = ?",
+            "SELECT last_triggered_at, search_count FROM arr_search_throttle WHERE key = ?",
             ("radarr:Stuck Movie",),
         ).fetchone()
         assert row[1] == 0  # search_count
@@ -1089,9 +1086,7 @@ class TestMigrationV34:
         conn.close()
 
         conn = init_db(str(db_path))
-        row = conn.execute(
-            "SELECT value FROM settings WHERE key = 'plex_url'"
-        ).fetchone()
+        row = conn.execute("SELECT value FROM settings WHERE key = 'plex_url'").fetchone()
         assert row[0] == "http://plex:32400"
 
     def test_user_version_bumped_to_34(self, tmp_path):

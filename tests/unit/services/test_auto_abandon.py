@@ -5,8 +5,6 @@ from __future__ import annotations
 import time as _time_mod
 from unittest.mock import MagicMock
 
-import pytest
-
 
 def test_abandon_button_threshold_is_ten_hours():
     from mediaman.services.arr.auto_abandon import _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS
@@ -128,6 +126,26 @@ class TestMaybeAutoAbandon:
         maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
         item = {"kind": "movie", "dl_id": "radarr:X", "arr_id": 0, "added_at": now - 8 * 86_400}
         maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
+        assert called == []
+
+    def test_skips_when_added_at_is_zero(self, monkeypatch):
+        """added_at=0 must never trigger auto-abandon (missing timestamp, not ancient)."""
+        from mediaman.services.arr.auto_abandon import maybe_auto_abandon
+
+        monkeypatch.setattr(
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda conn, key, default=False: True,
+        )
+        called = []
+        monkeypatch.setattr(
+            "mediaman.services.downloads.abandon.abandon_movie",
+            lambda *a, **kw: called.append(kw),
+        )
+
+        now = _time_mod.time()
+        item = self._movie_item(added_at=0.0)
+        maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
+
         assert called == []
 
     def test_fires_series_with_filtered_seasons(self, monkeypatch):

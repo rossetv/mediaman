@@ -31,6 +31,8 @@ def build_search_hint(
     will really run. The deterministic jitter inside that helper means the
     displayed time stays stable across polls within a single waiting window.
     """
+    # Late import: arr.search_trigger imports _format_next_attempt from this
+    # module; hoisting would create a circular dependency at module load time.
     from mediaman.services.arr.throttle import _search_backoff_seconds
 
     if search_count > 0 and last_search_ts > 0:

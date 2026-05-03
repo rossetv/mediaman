@@ -842,7 +842,9 @@ class TestAutoAbandonSetting:
         assert put_resp.status_code == 200, put_resp.json()
         response = client.get("/api/settings")
         assert response.status_code == 200
-        assert response.json().get("auto_abandon_enabled") in ("true", True, "1")
+        # PUT stores the string "true"; json.loads("true") == True, so the GET
+        # response deserialises the stored row back to a JSON boolean.
+        assert response.json().get("auto_abandon_enabled") is True
 
     def test_default_when_unset(self, conn, secret_key):
         # Fresh DB, no setting written — the route either omits the key or returns a falsy default.

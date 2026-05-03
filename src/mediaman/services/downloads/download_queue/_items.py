@@ -118,7 +118,10 @@ def build_unmatched_arr_item(
     search_count, last_search_ts = get_search_info(arr.get("dl_id", ""))
     added_at = arr.get("added_at", 0.0)
     now = time.time()
-    abandon_visible_now = now - added_at >= _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS
+    # Guard: added_at=0 means the timestamp is missing; now - 0 ≈ 1.7e9 s
+    # which would make every such item look like it has been searching for
+    # years, showing the Abandon button immediately.
+    abandon_visible_now = added_at > 0.0 and now - added_at >= _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS
     if arr.get("kind") == "series":
         episodes = build_episode_dicts(arr.get("episodes", []))
         if episodes and all(e["state"] == "ready" for e in episodes):
