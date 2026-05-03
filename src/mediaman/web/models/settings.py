@@ -182,11 +182,9 @@ class SettingsUpdate(BaseModel):
     disk_thresholds: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------
-    # Stuck searches (abandon search feature)
+    # Stuck searches
     # ------------------------------------------------------------------
-    abandon_search_visible_at: int | None = None
-    abandon_search_escalate_at: int | None = None
-    abandon_search_auto_multiplier: int | None = None
+    auto_abandon_enabled: bool | None = None
 
     # ------------------------------------------------------------------
     # Field-level validators
