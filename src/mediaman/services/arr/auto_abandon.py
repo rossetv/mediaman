@@ -54,6 +54,10 @@ def maybe_auto_abandon(
     if not get_bool_setting(conn, "auto_abandon_enabled", default=False):
         return
     added_at = item.get("added_at") or 0.0
+    if added_at <= 0.0:
+        # No reliable timestamp — treat as unknown age and skip rather than
+        # immediately abandoning (now - 0.0 ≈ 1.7e9 s, way past any threshold).
+        return
     if now - added_at < _AUTO_ABANDON_AFTER_SECONDS:
         return
 
