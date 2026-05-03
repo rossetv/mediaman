@@ -18,18 +18,22 @@ from mediaman.services.infra.rate_limits import (
     SETTINGS_TEST_LIMITER,
     SETTINGS_WRITE_LIMITER,
 )
-from mediaman.web.routes.settings import router
+from mediaman.web.routes.settings import _TEST_CACHE, router
 
 
 @pytest.fixture(autouse=True)
 def _reset_limiters():
     """Reset shared admin limiters between tests so suite ordering does
-    not cause spurious 429s. Each test starts with a clean budget."""
+    not cause spurious 429s. Each test starts with a clean budget. The
+    service-test result cache is reset for the same reason — a stale
+    cached payload would mask a tester result the next test asserts on."""
     SETTINGS_WRITE_LIMITER.reset()
     SETTINGS_TEST_LIMITER.reset()
+    _TEST_CACHE.clear()
     yield
     SETTINGS_WRITE_LIMITER.reset()
     SETTINGS_TEST_LIMITER.reset()
+    _TEST_CACHE.clear()
 
 
 def _make_app(conn, secret_key: str) -> FastAPI:
@@ -595,9 +599,15 @@ class TestSettingsTestServiceRateLimit:
         app = _make_app(conn, secret_key)
         client = _auth_client(app, conn)
         # Limiter is 10/min — eleventh call must be throttled.
+        # Clear the result cache between calls so each one hits the
+        # tester (and therefore the limiter) rather than returning the
+        # cached 200 — the cache short-circuits limiter accounting by
+        # design.
         for _ in range(10):
+            _TEST_CACHE.clear()
             resp = client.post("/api/settings/test/openai")
             assert resp.status_code == 200
+        _TEST_CACHE.clear()
         resp = client.post("/api/settings/test/openai")
         assert resp.status_code == 429
 
