@@ -31,7 +31,7 @@
                          sub="When a download has been searching for ages with no result, mediaman can give up automatically. The Abandon button on the Downloads page is always available after 10 hours of searching for manual control.") %}
     {% set auto_abandon = settings.get('auto_abandon_enabled', False) not in (False, 'false', 'False', 0, '0') %}
     {% call c.setg_row_v2("Auto-abandon",
-                          "When on, mediaman unmonitors stuck items after 7 days of fruitless searching. For movies, the whole movie. For series, only the seasons currently missing episodes.") %}
+                          "When on, mediaman unmonitors stuck items after 14 days of fruitless searching. For movies, the whole movie. For series, only the seasons currently missing episodes.") %}
       <span class="tog {% if auto_abandon %}on{% endif %}" role="switch" tabindex="0"
             data-toggle data-target="auto_abandon_enabled"
             aria-checked="{{ 'true' if auto_abandon else 'false' }}"></span>

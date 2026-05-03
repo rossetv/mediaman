@@ -12,10 +12,10 @@ def test_abandon_button_threshold_is_ten_hours():
     assert _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS == 10 * 3600
 
 
-def test_auto_abandon_threshold_is_seven_days():
+def test_auto_abandon_threshold_is_fourteen_days():
     from mediaman.services.arr.auto_abandon import _AUTO_ABANDON_AFTER_SECONDS
 
-    assert _AUTO_ABANDON_AFTER_SECONDS == 7 * 86_400
+    assert _AUTO_ABANDON_AFTER_SECONDS == 14 * 86_400
 
 
 class TestMaybeAutoAbandon:
@@ -62,8 +62,8 @@ class TestMaybeAutoAbandon:
         )
 
         now = _time_mod.time()
-        # 6 days, 23 hours — under 7 d.
-        item = self._movie_item(added_at=now - (7 * 86_400 - 3600))
+        # 13 days, 23 hours — under 14 d.
+        item = self._movie_item(added_at=now - (14 * 86_400 - 3600))
         maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
 
         assert called == []
@@ -88,7 +88,7 @@ class TestMaybeAutoAbandon:
         )
 
         now = _time_mod.time()
-        item = self._movie_item(added_at=now - 8 * 86_400, arr_id=42)
+        item = self._movie_item(added_at=now - 15 * 86_400, arr_id=42)
         maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
 
         # Movie was abandoned with the right arr_id.
@@ -122,9 +122,9 @@ class TestMaybeAutoAbandon:
         )
 
         now = _time_mod.time()
-        item = {"kind": "movie", "dl_id": "", "arr_id": 1, "added_at": now - 8 * 86_400}
+        item = {"kind": "movie", "dl_id": "", "arr_id": 1, "added_at": now - 15 * 86_400}
         maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
-        item = {"kind": "movie", "dl_id": "radarr:X", "arr_id": 0, "added_at": now - 8 * 86_400}
+        item = {"kind": "movie", "dl_id": "radarr:X", "arr_id": 0, "added_at": now - 15 * 86_400}
         maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
         assert called == []
 
@@ -172,7 +172,7 @@ class TestMaybeAutoAbandon:
             "kind": "series",
             "dl_id": "sonarr:Show",
             "arr_id": 7,
-            "added_at": now - 8 * 86_400,
+            "added_at": now - 15 * 86_400,
             "episodes": [
                 {"season_number": 0},  # specials, filtered
                 {"season_number": 2},
