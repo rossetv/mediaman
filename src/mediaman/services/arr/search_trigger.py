@@ -42,8 +42,8 @@ from mediaman.services.arr.auto_abandon import maybe_auto_abandon
 from mediaman.services.arr.build import build_arr_client
 from mediaman.services.arr.fetcher import fetch_arr_queue
 from mediaman.services.arr.throttle import (
-    _SEARCH_STALE_SECONDS,
     _PER_ARR_THROTTLE_SECONDS,
+    _SEARCH_STALE_SECONDS,
     _STRANDED_THROTTLE_TTL_SECONDS,
     _arr_throttle_key,
     _last_search_trigger,
@@ -59,6 +59,7 @@ from mediaman.services.arr.throttle import (
     reconcile_stranded_throttle,
     reset_search_triggers,
 )
+from mediaman.services.downloads.download_queue._deep_links import _format_next_attempt
 from mediaman.services.infra.settings_reader import get_int_setting
 
 logger = logging.getLogger("mediaman")
@@ -207,7 +208,14 @@ def maybe_trigger_search(
         else:
             cast(SonarrClient, client).search_series(arr_id)
         success = True
-        logger.info("Triggered search for stalled item %s", dl_id)
+        new_count = previous_count + 1
+        next_in_seconds = _search_backoff_seconds(new_count, dl_id, now)
+        logger.info(
+            "Triggered search for stalled item %s (n=%d, %s)",
+            dl_id,
+            new_count,
+            _format_next_attempt(next_in_seconds),
+        )
     except Exception:
         logger.warning("Failed to trigger search for %s", dl_id, exc_info=True)
     finally:
