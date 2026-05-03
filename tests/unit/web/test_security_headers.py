@@ -304,17 +304,19 @@ class TestCSRFExemptAllowlist:
 
 
 class TestCSPNonce:
-    """Per-request CSP nonce — script-src and style-src.
+    """Per-request CSP nonce — script-src, style-src, and style-src-attr.
 
     A 16-byte base64url nonce is minted for every request, exposed on
     ``request.state.csp_nonce`` for templates and route handlers, and
-    woven into both ``script-src`` and ``style-src``.
+    woven into both ``script-src`` and ``style-src`` (for ``<script>``
+    and ``<style>`` blocks respectively).
 
-    Wave 7 extracted every page-level inline ``<script>`` to an external
-    file under ``static/js/``, so ``script-src`` no longer needs an
-    ``'unsafe-inline'`` fallback. ``style-src`` still allows
-    ``'unsafe-inline'`` until the inline ``style=`` attributes scattered
-    across templates are migrated to CSS classes.
+    Inline ``style="..."`` ATTRIBUTES are gated by a separate
+    ``style-src-attr`` directive that uses ``'unsafe-inline'`` without a
+    nonce. Chromium blocks inline-style attributes when ``style-src``
+    contains a nonce, even with ``'unsafe-inline'`` listed alongside;
+    splitting the directive avoids that pitfall while keeping the
+    block-level lockdown.
     """
 
     def test_csp_header_contains_script_nonce(self):
@@ -331,11 +333,28 @@ class TestCSPNonce:
         client = TestClient(_build_app())
         resp = client.get("/ping")
         csp = resp.headers["Content-Security-Policy"]
+        # The ``<style>`` block source list is locked down to nonce only
+        # — the previous ``'unsafe-inline'`` fallback was redundant
+        # under CSP3 (the nonce overrides it for blocks anyway).
+        # ``style-src`` directive comes first; ``style-src-attr`` adds
+        # the attribute escape hatch separately.
         assert "style-src 'self' 'nonce-" in csp
-        # style-src keeps the unsafe-inline fallback until the inline
-        # style="display:none" attributes in templates are migrated to
-        # CSS classes (Domain 10 follow-up).
-        assert "'unsafe-inline'" in csp.split("style-src")[1].split(";")[0]
+        style_src_segment = csp.split("style-src ")[1].split(";")[0]
+        assert "'unsafe-inline'" not in style_src_segment
+
+    def test_csp_header_allows_inline_style_attributes_separately(self):
+        """``style-src-attr 'unsafe-inline'`` keeps inline ``style=""``
+        attributes working without re-opening ``<style>`` blocks.
+
+        Reported: every modal that hides via ``style="display:none"``
+        rendered visible-by-default after the directive split because
+        Chromium honoured the nonce-overrides-unsafe-inline rule for
+        attributes too.
+        """
+        client = TestClient(_build_app())
+        resp = client.get("/ping")
+        csp = resp.headers["Content-Security-Policy"]
+        assert "style-src-attr 'unsafe-inline'" in csp
 
     def test_consecutive_requests_have_different_nonces(self):
         """Two consecutive requests must mint different nonces — a
