@@ -11,7 +11,7 @@
   {% if item.abandon_visible %}
   <div class="dl-hero-abandon">
     <button type="button"
-            class="btn btn--icon {{ 'btn--danger' if item.abandon_escalated else 'btn--ghost' }}"
+            class="btn btn--icon btn--ghost"
             data-abandon-trigger
             data-dl-id="{{ item.id }}"
             data-kind="{{ 'series' if item.media_type != 'movie' else 'movie' }}"

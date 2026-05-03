@@ -53,7 +53,6 @@ from mediaman.services.downloads.download_queue._deep_links import (
 )
 from mediaman.services.downloads.download_queue._items import (
     build_episode_dicts,
-    read_abandon_thresholds,
 )
 from mediaman.services.downloads.download_queue._items import (
     build_matched_item as _build_matched_item,
@@ -231,16 +230,14 @@ def _maybe_record_completions(
 def _build_unmatched_arr_item(
     arr: ArrCard,
     arr_base_urls_map: dict[str, str],
-    abandon_thresholds: tuple[int, int],
 ) -> DownloadItem:
-    """Wrapper that binds the deep-link helpers + abandon thresholds for
+    """Wrapper that binds the deep-link helpers for
     :func:`_build_unmatched_arr_item_impl`."""
     return _build_unmatched_arr_item_impl(
         arr,
         arr_base_urls_map,
         _build_search_hint,
         cast(Callable[[ArrCard, dict[str, str]], str], _build_arr_link),
-        abandon_thresholds,
     )
 
 
@@ -290,7 +287,6 @@ def _build_arr_items(
     arr_base_urls_map: dict[str, str],
     download_rate: int,
     secret_key: str,
-    abandon_thresholds: tuple[int, int],
 ) -> tuple[list[DownloadItem], list[DownloadItem]]:
     """Match arr cards to NZBGet entries and build simplified queue items.
 
@@ -379,7 +375,7 @@ def _build_arr_items(
             items.append(_build_matched_item(arr, matched_nzb, state, eta, download_rate))
             maybe_trigger_search(conn, cast(dict, arr), matched_nzb=True, secret_key=secret_key)
         else:
-            items.append(_build_unmatched_arr_item(arr, arr_base_urls_map, abandon_thresholds))
+            items.append(_build_unmatched_arr_item(arr, arr_base_urls_map))
             maybe_trigger_search(conn, cast(dict, arr), matched_nzb=False, secret_key=secret_key)
 
     return items, upcoming_items
@@ -470,10 +466,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     # 3. Parse NZBGet items.
     nzb_parsed = _parse_nzb_queue(nzb_queue)
 
-    # 4. Read abandon thresholds once for this response cycle.
-    abandon_thresholds = read_abandon_thresholds(conn)
-
-    # 5. Match arr cards to NZBGet entries; collect upcoming separately.
+    # 4. Match arr cards to NZBGet entries; collect upcoming separately.
     items, upcoming_items = _build_arr_items(
         conn,
         arr_items,
@@ -481,7 +474,6 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
         arr_base_urls_map,
         download_rate,
         secret_key,
-        abandon_thresholds,
     )
 
     # 6. Add unmatched NZBGet items (manual additions with no Arr match).

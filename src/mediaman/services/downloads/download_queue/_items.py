@@ -20,30 +20,6 @@ from mediaman.services.infra.format import format_bytes
 logger = logging.getLogger("mediaman")
 
 
-def read_abandon_thresholds(conn) -> tuple[int, int]:
-    """Return ``(visible_at, escalate_at)`` for the abandon-search button.
-
-    Read once per ``build_downloads_response`` call and threaded down into
-    every item builder, so a queue of N searching items pays one pair of
-    SELECTs rather than 2N.
-    """
-    from mediaman.services.infra.settings_reader import get_int_setting
-
-    try:
-        visible_at = get_int_setting(
-            conn, "abandon_search_visible_at", default=10, min=1, max=10000
-        )
-    except Exception:
-        visible_at = 10
-    try:
-        escalate_at = get_int_setting(
-            conn, "abandon_search_escalate_at", default=50, min=2, max=10000
-        )
-    except Exception:
-        escalate_at = 50
-    return visible_at, escalate_at
-
-
 def _stuck_seasons_from_episodes(
     episodes: list[ArrEpisodeEntry] | list[dict[str, Any]],
 ) -> list[dict[str, int]]:
@@ -126,21 +102,23 @@ def build_unmatched_arr_item(
     arr_base_urls: dict[str, str],
     build_search_hint: Callable[..., str],
     build_arr_link: Callable[[ArrCard, dict[str, str]], str],
-    abandon_thresholds: tuple[int, int],
 ) -> DownloadItem:
     """Build a download-card item for an *arr entry with no NZBGet match.
 
     Derives the card state from episode progress (series) or reported
     percentage (movie) so callers don't need kind-specific logic.
 
-    ``abandon_thresholds`` is the ``(visible_at, escalate_at)`` tuple read
-    once at response-build time by :func:`read_abandon_thresholds`.
+    ``abandon_visible`` becomes True once the item has been searching for
+    at least :data:`~mediaman.services.arr.auto_abandon._ABANDON_BUTTON_VISIBLE_AFTER_SECONDS`
+    seconds (10 hours by default), measured against ``added_at``.
     """
+    from mediaman.services.arr.auto_abandon import _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS
     from mediaman.services.arr.search_trigger import get_search_info
 
     search_count, last_search_ts = get_search_info(arr.get("dl_id", ""))
     added_at = arr.get("added_at", 0.0)
-    threshold, escalate_at = abandon_thresholds
+    now = time.time()
+    abandon_visible_now = now - added_at >= _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS
     if arr.get("kind") == "series":
         episodes = build_episode_dicts(arr.get("episodes", []))
         if episodes and all(e["state"] == "ready" for e in episodes):
@@ -175,8 +153,7 @@ def build_unmatched_arr_item(
             search_hint=search_hint,
             arr_link=build_arr_link(arr, arr_base_urls),
             arr_source=arr.get("source", ""),
-            abandon_visible=(state == "searching" and search_count >= threshold),
-            abandon_escalated=(state == "searching" and search_count >= escalate_at),
+            abandon_visible=(state == "searching" and abandon_visible_now),
             stuck_seasons=stuck_seasons,
             arr_id=arr.get("arr_id") or 0,
             kind="series",
@@ -207,8 +184,7 @@ def build_unmatched_arr_item(
         search_hint=search_hint,
         arr_link=build_arr_link(arr, arr_base_urls),
         arr_source=arr.get("source", ""),
-        abandon_visible=(state == "searching" and search_count >= threshold),
-        abandon_escalated=(state == "searching" and search_count >= escalate_at),
+        abandon_visible=(state == "searching" and abandon_visible_now),
         stuck_seasons=[],
         arr_id=arr.get("arr_id") or 0,
         kind="movie",

@@ -1,7 +1,7 @@
 // src/mediaman/web/static/js/dl-abandon.js
 //
 // Wires up the abandon-search icon buttons to the shared confirm modal.
-// Server is the source of truth for abandon_visible / abandon_escalated;
+// Server is the source of truth for abandon_visible;
 // this file is purely click → fetch → refresh.
 //
 // All dynamic DOM is built with createElement + textContent. We never
