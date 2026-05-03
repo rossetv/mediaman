@@ -32,6 +32,10 @@ import logging
 import sqlite3
 import time
 import uuid
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from mediaman.services.arr.fetcher import ArrCard
 
 from mediaman.audit import security_event
 from mediaman.services.arr.auto_abandon import maybe_auto_abandon
@@ -190,10 +194,16 @@ def maybe_trigger_search(
         client = build_arr_client(conn, service, secret_key)
         if client is None:
             return
+        # ``service`` is paired with ``kind`` above (radarr↔movie, sonarr↔series),
+        # so ``build_arr_client`` returns the matching subtype — narrow with cast
+        # since mypy can't track the relationship.
+        from mediaman.services.arr.radarr import RadarrClient
+        from mediaman.services.arr.sonarr import SonarrClient
+
         if kind == "movie":
-            client.search_movie(arr_id)
+            cast(RadarrClient, client).search_movie(arr_id)
         else:
-            client.search_series(arr_id)
+            cast(SonarrClient, client).search_series(arr_id)
         success = True
         logger.info("Triggered search for stalled item %s", dl_id)
     except Exception:
@@ -207,6 +217,7 @@ def maybe_trigger_search(
         # or drop the sibling's reservation. With the token, we either
         # restore our prior value or quietly defer to whoever beat us
         # to the slot.
+        new_count: int | None
         with _state_lock:
             if success:
                 new_count = previous_count + 1
@@ -271,10 +282,11 @@ def trigger_pending_searches(conn: sqlite3.Connection, secret_key: str) -> None:
         arr_items = []
 
     for item in arr_items:
-        maybe_trigger_search(conn, item, matched_nzb=False, secret_key=secret_key)
+        item_dict = cast(dict, item)
+        maybe_trigger_search(conn, item_dict, matched_nzb=False, secret_key=secret_key)
         try:
             count, _ = get_search_info(item.get("dl_id") or "")
-            maybe_auto_abandon(conn, secret_key, item=item, search_count=count)
+            maybe_auto_abandon(conn, secret_key, item=item_dict, search_count=count)
         except Exception:
             logger.warning(
                 "auto-abandon: skipped %s due to error", item.get("dl_id"), exc_info=True
@@ -291,7 +303,7 @@ def trigger_pending_searches(conn: sqlite3.Connection, secret_key: str) -> None:
 
 def _trigger_sonarr_partial_missing(
     conn: sqlite3.Connection,
-    arr_items: list[dict],
+    arr_items: list[ArrCard],
     secret_key: str,
 ) -> None:
     """Fire SeriesSearch for Sonarr series with partial missing episodes.
@@ -300,9 +312,13 @@ def _trigger_sonarr_partial_missing(
     ``arr_id``, and reuses the ``sonarr:{title}`` dl_id format so the
     per-item throttle recognises the same series across passes.
     """
+    from mediaman.services.arr.sonarr import SonarrClient
+
     client = build_arr_client(conn, "sonarr", secret_key)
     if client is None:
         return
+    # ``service="sonarr"`` always yields a SonarrClient; narrow for mypy.
+    sonarr_client = cast(SonarrClient, client)
 
     already_poked = {
         item.get("arr_id")
@@ -316,7 +332,7 @@ def _trigger_sonarr_partial_missing(
     # Pre-filter on the arr-id-stable parallel throttle so a renamed
     # series we recently triggered cannot be re-poked here.
     now = time.time()
-    missing = client.get_missing_series()
+    missing = sonarr_client.get_missing_series()
     for series_id, title in missing.items():
         if series_id in already_poked:
             continue

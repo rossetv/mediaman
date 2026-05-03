@@ -7,7 +7,7 @@ no side effects beyond DB reads and outbound API calls.
 from __future__ import annotations
 
 import sqlite3
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from mediaman.services.media_meta.tmdb import TmdbDetail
@@ -50,12 +50,12 @@ def enrich_item_with_tmdb(
     # Preserve the 5s timeout this code path used before consolidation —
     # the guest download page is interactive and should stay snappy.
     client = TmdbClient.from_db(conn, secret_key, timeout=5.0)
-    title = item["title"]
-    media_type = item.get("media_type", "movie")
+    title = cast(str, item["title"])
+    media_type = cast(str, item.get("media_type", "movie"))
 
     if client is not None:
         # Search → populate tmdb_id / year / description / rating / poster
-        tmdb_id = item.get("tmdb_id")
+        tmdb_id = cast("int | None", item.get("tmdb_id"))
         if not tmdb_id:
             best = client.search(title, media_type=media_type)
             if best:
@@ -89,7 +89,8 @@ def enrich_item_with_tmdb(
                     item["rating"] = card["rating"]
 
     # OMDB ratings
-    ratings = fetch_ratings(title, item.get("year"), media_type, conn=conn, secret_key=secret_key)
+    year = cast("int | None", item.get("year"))
+    ratings = fetch_ratings(title, year, media_type, conn=conn, secret_key=secret_key)
     if "rt" in ratings:
         item["rt_rating"] = ratings["rt"]
     if "imdb" in ratings:

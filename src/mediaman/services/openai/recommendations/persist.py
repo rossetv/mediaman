@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from mediaman.services.openai.recommendations.enrich import enrich_recommendations
 from mediaman.services.openai.recommendations.prompts import (
@@ -17,7 +17,7 @@ from mediaman.services.openai.recommendations.prompts import (
 )
 
 if TYPE_CHECKING:
-    from mediaman.services.media_meta.plex import PlexClient
+    from mediaman.services.media_meta.plex import PlexClient, PlexRatedItem
 
 logger = logging.getLogger("mediaman")
 
@@ -63,10 +63,11 @@ def refresh_recommendations(
             media_type = "movie"
         watch_history.append({"title": r["title"], "type": media_type})
 
-    user_ratings = []
+    user_ratings: list[PlexRatedItem] = []
     try:
-        user_ratings = plex_client.get_user_ratings()
-        logger.info("Fetched %d user ratings from Plex", len(user_ratings))
+        if plex_client is not None:
+            user_ratings = plex_client.get_user_ratings()
+            logger.info("Fetched %d user ratings from Plex", len(user_ratings))
     except Exception:
         logger.warning("Failed to fetch Plex user ratings — proceeding without them", exc_info=True)
 
@@ -78,7 +79,13 @@ def refresh_recommendations(
 
     trending = generate_trending(conn, previous_titles, secret_key=secret_key)
     personal = (
-        generate_personal(conn, watch_history, user_ratings, previous_titles, secret_key=secret_key)
+        generate_personal(
+            conn,
+            watch_history,
+            cast("list[dict]", user_ratings),
+            previous_titles,
+            secret_key=secret_key,
+        )
         if watch_history
         else []
     )

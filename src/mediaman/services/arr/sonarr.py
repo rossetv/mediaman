@@ -18,7 +18,7 @@ class SonarrClient(ArrClient):
         ``episodeFileIds`` list) rather than N serial DELETEs, which would
         hammer Sonarr on large seasons.
         """
-        efs = cast(list[dict[str, object]], self._get(f"/api/v3/episodefile?seriesId={series_id}"))
+        efs = cast(list[dict[str, Any]], self._get(f"/api/v3/episodefile?seriesId={series_id}"))
         ids = [
             int(ef["id"])
             for ef in efs
@@ -265,9 +265,7 @@ class SonarrClient(ArrClient):
             quality_profile_id if quality_profile_id is not None else self._choose_quality_profile()
         )
 
-        lookup = cast(
-            list[dict[str, object]], self._get(f"/api/v3/series/lookup?term=tvdb:{tvdb_id}")
-        )
+        lookup = cast(list[dict[str, Any]], self._get(f"/api/v3/series/lookup?term=tvdb:{tvdb_id}"))
         if not lookup:
             raise RuntimeError(f"Sonarr lookup returned no results for tvdb:{tvdb_id}")
         meta = lookup[0]

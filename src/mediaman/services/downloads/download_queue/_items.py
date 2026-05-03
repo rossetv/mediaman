@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 from mediaman.services.arr.fetcher._base import ArrCard, ArrEpisodeEntry
 from mediaman.services.downloads.download_format import (
@@ -44,7 +44,9 @@ def read_abandon_thresholds(conn) -> tuple[int, int]:
     return visible_at, escalate_at
 
 
-def _stuck_seasons_from_episodes(episodes: list[dict]) -> list[dict]:
+def _stuck_seasons_from_episodes(
+    episodes: list[ArrEpisodeEntry] | list[dict[str, Any]],
+) -> list[dict[str, int]]:
     """Group queue episodes by season_number and count missing episodes.
 
     Returns a sorted list of ``{"number": int, "missing_episodes": int}``
@@ -70,7 +72,7 @@ def build_episode_dicts(
         {
             "label": e.get("label", ""),
             "title": e.get("title", ""),
-            "state": map_episode_state(e),
+            "state": map_episode_state(cast(dict, e)),
             "progress": e.get("progress", 0),
             "is_pack_episode": e.get("is_pack_episode", False),
         }

@@ -10,9 +10,12 @@ from __future__ import annotations
 import logging
 import sqlite3
 from dataclasses import dataclass, field
+from typing import cast
 
 from mediaman.services.arr.build import build_arr_client
+from mediaman.services.arr.radarr import RadarrClient
 from mediaman.services.arr.search_trigger import clear_throttle
+from mediaman.services.arr.sonarr import SonarrClient
 
 logger = logging.getLogger("mediaman")
 
@@ -50,10 +53,12 @@ def abandon_movie(
     The throttle is preserved on failure so retries still know how many
     times mediaman has been poking.
     """
-    client = build_arr_client(conn, "radarr", secret_key)
-    if client is None:
+    raw_client = build_arr_client(conn, "radarr", secret_key)
+    if raw_client is None:
         logger.warning("abandon_movie: no radarr client available for %s", dl_id)
         return AbandonResult(kind="movie", failed=[0], dl_id=dl_id)
+    # build_arr_client("radarr", ...) is documented to return a RadarrClient.
+    client = cast(RadarrClient, raw_client)
     try:
         client.unmonitor_movie(arr_id)
     except Exception:
@@ -86,10 +91,12 @@ def abandon_seasons(
     if not season_numbers:
         raise ValueError("abandon_seasons requires at least one season number")
 
-    client = build_arr_client(conn, "sonarr", secret_key)
-    if client is None:
+    raw_client = build_arr_client(conn, "sonarr", secret_key)
+    if raw_client is None:
         logger.warning("abandon_seasons: no sonarr client available for %s", dl_id)
         return AbandonResult(kind="series", failed=list(season_numbers), dl_id=dl_id)
+    # build_arr_client("sonarr", ...) is documented to return a SonarrClient.
+    client = cast(SonarrClient, raw_client)
 
     succeeded: list[int] = []
     failed: list[int] = []

@@ -216,9 +216,10 @@ def api_download(
         return JSONResponse(
             {"ok": False, "error": "Series not found in Sonarr lookup"}, status_code=404
         )
-    tvdb_id = lookup.get("tvdbId")
-    if not tvdb_id:
+    tvdb_id_raw = lookup.get("tvdbId")
+    if not isinstance(tvdb_id_raw, int) or tvdb_id_raw <= 0:
         return JSONResponse({"ok": False, "error": "No TVDB ID for this series"}, status_code=422)
+    tvdb_id: int = tvdb_id_raw
 
     try:
         existing = sonarr.get_series()

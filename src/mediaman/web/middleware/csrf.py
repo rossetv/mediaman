@@ -166,7 +166,7 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
     the cookie, is the authorisation).
     """
 
-    async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]  # same as SecurityHeadersMiddleware — call_next has no stable public type in Starlette
+    async def dispatch(self, request: Request, call_next) -> Response:
         if request.method not in _CSRF_PROTECTED_METHODS:
             return await call_next(request)
 

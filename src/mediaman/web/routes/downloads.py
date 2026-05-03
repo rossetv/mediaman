@@ -34,8 +34,8 @@ def _lookup_dl_item(conn: sqlite3.Connection, secret_key: str, dl_id: str) -> di
     any stale client-side state.
     """
     payload = build_downloads_response(conn, secret_key)
-    for bucket in ("queue", "upcoming"):
-        for item in payload.get(bucket, []):
+    for bucket in (payload.get("queue", []), payload.get("upcoming", [])):
+        for item in bucket:
             if item.get("id") == dl_id:
                 return item
     hero = payload.get("hero")

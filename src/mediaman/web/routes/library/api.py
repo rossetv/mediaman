@@ -127,6 +127,7 @@ def api_media_keep(
         snooze_label = "forever"
     else:
         days = VALID_KEEP_DURATIONS[duration]
+        assert days is not None  # only "forever" maps to None and is handled above
         action = ACTION_SNOOZED
         execute_at = (now + timedelta(days=int(days))).isoformat()
         snooze_label = duration

@@ -434,7 +434,7 @@ def api_update_settings(
     so we never have a "settings changed but no audit trail" outcome
     for high-impact mutations (M27).
     """
-    body: dict = body.model_dump(exclude_none=True)  # type: ignore[no-redef]
+    body_dict: dict = body.model_dump(exclude_none=True)
     conn = get_db()
     if not _SETTINGS_WRITE_LIMITER.check(admin):
         logger.warning("settings.write_throttled user=%s", admin)
@@ -446,7 +446,7 @@ def api_update_settings(
             event="settings.write.throttled",
             actor=admin,
             ip=get_client_ip(request),
-            detail={"keys": sorted(k for k in body if k in _ALL_KEYS)},
+            detail={"keys": sorted(k for k in body_dict if k in _ALL_KEYS)},
         )
         return JSONResponse(
             {"error": "Too many settings changes — slow down"},
@@ -455,11 +455,11 @@ def api_update_settings(
     config = request.app.state.config
     now = now_iso()
 
-    url_err = _validate_url_fields(body)
+    url_err = _validate_url_fields(body_dict)
     if url_err is not None:
         return url_err
 
-    sensitive_write = _touches_sensitive_keys(body)
+    sensitive_write = _touches_sensitive_keys(body_dict)
     if sensitive_write and not has_recent_reauth(conn, session_token, admin):
         logger.warning("settings.write_rejected user=%s reason=reauth_required", admin)
         return JSONResponse(
@@ -470,14 +470,14 @@ def api_update_settings(
             status_code=403,
         )
 
-    written = sorted(k for k in body if k in _ALL_KEYS)
-    ignored = sorted(k for k in body if k not in _ALL_KEYS)
+    written = sorted(k for k in body_dict if k in _ALL_KEYS)
+    ignored = sorted(k for k in body_dict if k not in _ALL_KEYS)
     sensitive_written = sorted(k for k in written if k in SENSITIVE_KEYS)
 
     try:
         conn.execute("BEGIN IMMEDIATE")
         try:
-            for key, value in body.items():
+            for key, value in body_dict.items():
                 if key not in _ALL_KEYS:
                     continue
                 if value is None:
@@ -538,7 +538,7 @@ def api_update_settings(
             {"error": "Internal error during settings write"},
             status_code=500,
         )
-    return {"status": "saved", "written": written, "ignored": ignored}
+    return JSONResponse({"status": "saved", "written": written, "ignored": ignored})
 
 
 def _safe_http_error_to_response(exc: SafeHTTPError) -> JSONResponse:

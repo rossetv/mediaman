@@ -211,7 +211,7 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
 
     current_version = conn.execute("PRAGMA user_version").fetchone()[0]
 
-    def _run_migration(target_version: int, body_fn) -> None:  # type: ignore[type-arg]
+    def _run_migration(target_version: int, body_fn) -> None:
         conn.execute("BEGIN")
         try:
             body_fn(conn)
