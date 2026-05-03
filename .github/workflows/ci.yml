@@ -47,14 +47,7 @@ jobs:
         # Coverage threshold lives in pyproject.toml ([tool.coverage.report]
         # fail_under). Don't override it here — one source of truth.
         # --maxfail bounds runtime when a refactor breaks many tests at once.
-        run: pytest -q --cov=mediaman --cov-report=term-missing --cov-report=xml --maxfail=10
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@3f20e214133d0983f9a10f3d63b0faf9241a3daa  # v6.0.0
-        with:
-          files: ./coverage.xml
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
+        run: pytest -q --cov=mediaman --cov-report=term-missing --maxfail=10
 
   lint:
     name: Lint (ruff)
