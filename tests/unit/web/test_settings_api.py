@@ -830,3 +830,40 @@ class TestSsrfBlockedLogScrubs:
         assert "leaked" not in joined
         # Host should still be logged for triage value.
         assert "evil.example.com" in joined
+
+
+class TestAutoAbandonSetting:
+    """auto_abandon_enabled is the new boolean replacing the three count-based knobs."""
+
+    def test_round_trip_enabled(self, conn, secret_key):
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+        put_resp = client.put("/api/settings", json={"auto_abandon_enabled": "true"})
+        assert put_resp.status_code == 200, put_resp.json()
+        response = client.get("/api/settings")
+        assert response.status_code == 200
+        assert response.json().get("auto_abandon_enabled") in ("true", True, "1")
+
+    def test_default_when_unset(self, conn, secret_key):
+        # Fresh DB, no setting written — the route either omits the key or returns a falsy default.
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+        response = client.get("/api/settings")
+        assert response.status_code == 200
+        val = response.json().get("auto_abandon_enabled")
+        assert val in (None, False, "false", "0", ""), f"unexpected default: {val!r}"
+
+    def test_deprecated_keys_are_rejected(self, conn, secret_key):
+        # The three legacy keys were removed from SettingsUpdate (extra="forbid"),
+        # so sending them now returns 422 — they are never persisted.
+        app = _make_app(conn, secret_key)
+        client = _auth_client(app, conn)
+        for key in (
+            "abandon_search_visible_at",
+            "abandon_search_escalate_at",
+            "abandon_search_auto_multiplier",
+        ):
+            response = client.put("/api/settings", json={key: 99})
+            assert response.status_code == 422, (
+                f"{key} should be rejected (422) after removal from SettingsUpdate"
+            )

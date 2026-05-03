@@ -540,9 +540,7 @@
       grace_days:           n('grace_days'),
       disk_thresholds:      collectDiskThresholds(),
       suggestions_enabled:  v('suggestions_enabled'),
-      abandon_search_visible_at: n('abandon_search_visible_at'),
-      abandon_search_escalate_at: n('abandon_search_escalate_at'),
-      abandon_search_auto_multiplier: n('abandon_search_auto_multiplier'),
+      auto_abandon_enabled: v('auto_abandon_enabled'),
     };
   }
   var saveBtn = document.getElementById('btn-save');
