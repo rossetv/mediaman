@@ -717,17 +717,19 @@ class TestReconcileStrandedThrottle:
 # TestAutoAbandon
 # ---------------------------------------------------------------------------
 
+import time as _time
+
+_OVER_THRESHOLD = _time.time() - 10 * 86_400  # 10 days ago — always over 7 d threshold
+
 
 class TestAutoAbandon:
-    def test_off_when_multiplier_zero(self, db_conn, monkeypatch):
-        """Default config (multiplier=0) never auto-abandons."""
+    def test_off_when_setting_disabled(self, db_conn, monkeypatch):
+        """auto_abandon_enabled=False never auto-abandons regardless of age."""
         monkeypatch.setattr(
-            "mediaman.services.arr.auto_abandon.get_int_setting",
-            lambda c, k, **kw: 0 if k == "abandon_search_auto_multiplier" else 50,
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda c, k, default=False: False,
         )
         called = {"abandon_movie": 0}
-        # Patch the late-imported symbol via its source module so the local
-        # import inside maybe_auto_abandon picks up our fake.
         import mediaman.services.downloads.abandon as abandon_module
 
         monkeypatch.setattr(
@@ -737,22 +739,20 @@ class TestAutoAbandon:
         )
         from mediaman.services.arr.search_trigger import maybe_auto_abandon
 
+        now = _time.time()
         maybe_auto_abandon(
             db_conn,
             "secret",
-            item={"kind": "movie", "dl_id": "radarr:X", "arr_id": 1},
-            search_count=99999,
+            item={"kind": "movie", "dl_id": "radarr:X", "arr_id": 1, "added_at": _OVER_THRESHOLD},
+            now=now,
         )
         assert called["abandon_movie"] == 0
 
-    def test_fires_when_count_crosses_escalate_times_multiplier(self, db_conn, monkeypatch):
-        """At escalate_at=50 and multiplier=4, fires at count >= 200."""
+    def test_fires_when_enabled_and_over_threshold(self, db_conn, monkeypatch):
+        """Fires when auto_abandon_enabled=True and item is older than 7 days."""
         monkeypatch.setattr(
-            "mediaman.services.arr.auto_abandon.get_int_setting",
-            lambda c, k, **kw: {
-                "abandon_search_escalate_at": 50,
-                "abandon_search_auto_multiplier": 4,
-            }[k],
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda c, k, default=False: True,
         )
         called = {}
 
@@ -765,21 +765,20 @@ class TestAutoAbandon:
         monkeypatch.setattr(abandon_module, "abandon_movie", fake_abandon_movie)
         from mediaman.services.arr.search_trigger import maybe_auto_abandon
 
+        now = _time.time()
         maybe_auto_abandon(
             db_conn,
             "secret",
-            item={"kind": "movie", "dl_id": "radarr:X", "arr_id": 42},
-            search_count=200,
+            item={"kind": "movie", "dl_id": "radarr:X", "arr_id": 42, "added_at": _OVER_THRESHOLD},
+            now=now,
         )
         assert called == {"arr_id": 42, "dl_id": "radarr:X"}
 
     def test_does_not_fire_below_threshold(self, db_conn, monkeypatch):
+        """Does not fire when item is under 7 days old even if enabled."""
         monkeypatch.setattr(
-            "mediaman.services.arr.auto_abandon.get_int_setting",
-            lambda c, k, **kw: {
-                "abandon_search_escalate_at": 50,
-                "abandon_search_auto_multiplier": 4,
-            }[k],
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda c, k, default=False: True,
         )
         called = {"n": 0}
         import mediaman.services.downloads.abandon as abandon_module
@@ -791,22 +790,21 @@ class TestAutoAbandon:
         )
         from mediaman.services.arr.search_trigger import maybe_auto_abandon
 
+        now = _time.time()
+        under_threshold = now - (7 * 86_400 - 3600)  # 6 d 23 h ago
         maybe_auto_abandon(
             db_conn,
             "secret",
-            item={"kind": "movie", "dl_id": "radarr:X", "arr_id": 1},
-            search_count=199,
+            item={"kind": "movie", "dl_id": "radarr:X", "arr_id": 1, "added_at": under_threshold},
+            now=now,
         )
         assert called["n"] == 0
 
     def test_series_passes_derived_seasons(self, db_conn, monkeypatch):
         """For a series item, derives season list from episodes."""
         monkeypatch.setattr(
-            "mediaman.services.arr.auto_abandon.get_int_setting",
-            lambda c, k, **kw: {
-                "abandon_search_escalate_at": 50,
-                "abandon_search_auto_multiplier": 4,
-            }[k],
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda c, k, default=False: True,
         )
         called = {}
 
@@ -820,6 +818,7 @@ class TestAutoAbandon:
         monkeypatch.setattr(abandon_module, "abandon_seasons", fake_abandon_seasons)
         from mediaman.services.arr.search_trigger import maybe_auto_abandon
 
+        now = _time.time()
         maybe_auto_abandon(
             db_conn,
             "secret",
@@ -827,13 +826,14 @@ class TestAutoAbandon:
                 "kind": "series",
                 "dl_id": "sonarr:X",
                 "arr_id": 7,
+                "added_at": _OVER_THRESHOLD,
                 "episodes": [
                     {"season_number": 21},
                     {"season_number": 21},
                     {"season_number": 22},
                 ],
             },
-            search_count=200,
+            now=now,
         )
         assert called == {"series_id": 7, "seasons": [21, 22], "dl_id": "sonarr:X"}
 
@@ -849,11 +849,8 @@ class TestAutoAbandon:
         catastrophic.
         """
         monkeypatch.setattr(
-            "mediaman.services.arr.auto_abandon.get_int_setting",
-            lambda c, k, **kw: {
-                "abandon_search_escalate_at": 50,
-                "abandon_search_auto_multiplier": 4,
-            }[k],
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda c, k, default=False: True,
         )
         called = {"n": 0}
         import mediaman.services.downloads.abandon as abandon_module
@@ -865,6 +862,7 @@ class TestAutoAbandon:
         )
         from mediaman.services.arr.search_trigger import maybe_auto_abandon
 
+        now = _time.time()
         maybe_auto_abandon(
             db_conn,
             "secret",
@@ -872,12 +870,13 @@ class TestAutoAbandon:
                 "kind": "series",
                 "dl_id": "sonarr:Specials",
                 "arr_id": 7,
+                "added_at": _OVER_THRESHOLD,
                 "episodes": [
                     {"season_number": 0},
                     {"season_number": 0},
                 ],
             },
-            search_count=200,
+            now=now,
         )
 
         # The function should be a no-op — no abandon call AT ALL.
@@ -886,11 +885,8 @@ class TestAutoAbandon:
     def test_series_with_mixed_specials_filters_season_zero(self, db_conn, monkeypatch):
         """Mixed specials + real seasons → only the real seasons are abandoned."""
         monkeypatch.setattr(
-            "mediaman.services.arr.auto_abandon.get_int_setting",
-            lambda c, k, **kw: {
-                "abandon_search_escalate_at": 50,
-                "abandon_search_auto_multiplier": 4,
-            }[k],
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda c, k, default=False: True,
         )
         called = {}
 
@@ -902,6 +898,7 @@ class TestAutoAbandon:
         monkeypatch.setattr(abandon_module, "abandon_seasons", fake_abandon_seasons)
         from mediaman.services.arr.search_trigger import maybe_auto_abandon
 
+        now = _time.time()
         maybe_auto_abandon(
             db_conn,
             "secret",
@@ -909,13 +906,14 @@ class TestAutoAbandon:
                 "kind": "series",
                 "dl_id": "sonarr:Mixed",
                 "arr_id": 7,
+                "added_at": _OVER_THRESHOLD,
                 "episodes": [
                     {"season_number": 0},  # special — must be excluded
                     {"season_number": 1},
                     {"season_number": 2},
                 ],
             },
-            search_count=200,
+            now=now,
         )
 
         assert called["seasons"] == [1, 2]
@@ -923,11 +921,8 @@ class TestAutoAbandon:
     def test_series_with_no_episodes_skipped(self, db_conn, monkeypatch):
         """Series with empty episodes list is silently skipped (no error)."""
         monkeypatch.setattr(
-            "mediaman.services.arr.auto_abandon.get_int_setting",
-            lambda c, k, **kw: {
-                "abandon_search_escalate_at": 50,
-                "abandon_search_auto_multiplier": 4,
-            }[k],
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda c, k, default=False: True,
         )
         called = {"n": 0}
         import mediaman.services.downloads.abandon as abandon_module
@@ -939,11 +934,18 @@ class TestAutoAbandon:
         )
         from mediaman.services.arr.search_trigger import maybe_auto_abandon
 
+        now = _time.time()
         maybe_auto_abandon(
             db_conn,
             "secret",
-            item={"kind": "series", "dl_id": "sonarr:X", "arr_id": 7, "episodes": []},
-            search_count=200,
+            item={
+                "kind": "series",
+                "dl_id": "sonarr:X",
+                "arr_id": 7,
+                "added_at": _OVER_THRESHOLD,
+                "episodes": [],
+            },
+            now=now,
         )
         assert called["n"] == 0
 
@@ -966,31 +968,29 @@ def _read_auto_abandon_rows(conn) -> list[tuple[str, str | None, str]]:
 class TestAutoAbandonAuditLog:
     """Finding 06 — every auto-abandon firing must leave an audit trail.
 
-    Settings writes are admin-gated, but if those creds are compromised an
-    attacker can set ``multiplier=1, escalate_at=2`` to mass-unmonitor the
-    library. A per-fire ``sec:auto_abandon.fired`` row makes that attack
-    detectable after the fact.
+    The ``auto_abandon_enabled`` setting is operator-gated. If credentials
+    are compromised, an attacker enabling this toggle to mass-unmonitor the
+    library will leave one ``sec:auto_abandon.fired`` row per affected item
+    — detectable by scanning the audit log.
     """
 
     def test_movie_fire_emits_audit_row(self, db_conn, monkeypatch):
         """Firing on a movie writes one ``sec:auto_abandon.fired`` row."""
         monkeypatch.setattr(
-            "mediaman.services.arr.auto_abandon.get_int_setting",
-            lambda c, k, **kw: {
-                "abandon_search_escalate_at": 50,
-                "abandon_search_auto_multiplier": 4,
-            }[k],
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda c, k, default=False: True,
         )
         import mediaman.services.downloads.abandon as abandon_module
 
         monkeypatch.setattr(abandon_module, "abandon_movie", lambda *a, **kw: None)
         from mediaman.services.arr.search_trigger import maybe_auto_abandon
 
+        now = _time.time()
         maybe_auto_abandon(
             db_conn,
             "secret",
-            item={"kind": "movie", "dl_id": "radarr:Dune", "arr_id": 42},
-            search_count=200,
+            item={"kind": "movie", "dl_id": "radarr:Dune", "arr_id": 42, "added_at": _OVER_THRESHOLD},
+            now=now,
         )
 
         rows = _read_auto_abandon_rows(db_conn)
@@ -1005,24 +1005,24 @@ class TestAutoAbandonAuditLog:
         assert '"dl_id":"radarr:Dune"' in detail
         assert '"arr_id":42' in detail
         assert '"service":"radarr"' in detail
-        assert '"multiplier":4' in detail
-        assert '"escalate_at":50' in detail
-        assert '"search_count":200' in detail
+        assert '"searching_for_seconds"' in detail
+        # Deprecated fields must not appear.
+        assert '"multiplier"' not in detail
+        assert '"escalate_at"' not in detail
+        assert '"search_count"' not in detail
 
     def test_series_fire_emits_audit_row_with_seasons(self, db_conn, monkeypatch):
         """Series firings record the derived season list in the detail."""
         monkeypatch.setattr(
-            "mediaman.services.arr.auto_abandon.get_int_setting",
-            lambda c, k, **kw: {
-                "abandon_search_escalate_at": 50,
-                "abandon_search_auto_multiplier": 4,
-            }[k],
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda c, k, default=False: True,
         )
         import mediaman.services.downloads.abandon as abandon_module
 
         monkeypatch.setattr(abandon_module, "abandon_seasons", lambda *a, **kw: None)
         from mediaman.services.arr.search_trigger import maybe_auto_abandon
 
+        now = _time.time()
         maybe_auto_abandon(
             db_conn,
             "secret",
@@ -1030,13 +1030,14 @@ class TestAutoAbandonAuditLog:
                 "kind": "series",
                 "dl_id": "sonarr:Foundation",
                 "arr_id": 7,
+                "added_at": _OVER_THRESHOLD,
                 "episodes": [
                     {"season_number": 1},
                     {"season_number": 2},
                     {"season_number": 2},
                 ],
             },
-            search_count=200,
+            now=now,
         )
 
         rows = _read_auto_abandon_rows(db_conn)
@@ -1048,45 +1049,45 @@ class TestAutoAbandonAuditLog:
         assert '"service":"sonarr"' in detail
         assert '"seasons":[1,2]' in detail
 
-    def test_no_audit_row_when_multiplier_zero(self, db_conn, monkeypatch):
-        """Default-off (multiplier=0) writes no audit row, no matter the count."""
+    def test_no_audit_row_when_setting_disabled(self, db_conn, monkeypatch):
+        """auto_abandon_enabled=False writes no audit row, regardless of age."""
         monkeypatch.setattr(
-            "mediaman.services.arr.auto_abandon.get_int_setting",
-            lambda c, k, **kw: 0 if k == "abandon_search_auto_multiplier" else 50,
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda c, k, default=False: False,
         )
         import mediaman.services.downloads.abandon as abandon_module
 
         monkeypatch.setattr(abandon_module, "abandon_movie", lambda *a, **kw: None)
         from mediaman.services.arr.search_trigger import maybe_auto_abandon
 
+        now = _time.time()
         maybe_auto_abandon(
             db_conn,
             "secret",
-            item={"kind": "movie", "dl_id": "radarr:X", "arr_id": 1},
-            search_count=99999,
+            item={"kind": "movie", "dl_id": "radarr:X", "arr_id": 1, "added_at": _OVER_THRESHOLD},
+            now=now,
         )
 
         assert _read_auto_abandon_rows(db_conn) == []
 
     def test_no_audit_row_below_threshold(self, db_conn, monkeypatch):
-        """Below escalate_at × multiplier — gated, no row written."""
+        """Under 7 days old — gated, no row written."""
         monkeypatch.setattr(
-            "mediaman.services.arr.auto_abandon.get_int_setting",
-            lambda c, k, **kw: {
-                "abandon_search_escalate_at": 50,
-                "abandon_search_auto_multiplier": 4,
-            }[k],
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda c, k, default=False: True,
         )
         import mediaman.services.downloads.abandon as abandon_module
 
         monkeypatch.setattr(abandon_module, "abandon_movie", lambda *a, **kw: None)
         from mediaman.services.arr.search_trigger import maybe_auto_abandon
 
+        now = _time.time()
+        under_threshold = now - (7 * 86_400 - 3600)  # 1 hour under
         maybe_auto_abandon(
             db_conn,
             "secret",
-            item={"kind": "movie", "dl_id": "radarr:X", "arr_id": 1},
-            search_count=199,  # 1 below threshold
+            item={"kind": "movie", "dl_id": "radarr:X", "arr_id": 1, "added_at": under_threshold},
+            now=now,
         )
 
         assert _read_auto_abandon_rows(db_conn) == []
@@ -1094,22 +1095,26 @@ class TestAutoAbandonAuditLog:
     def test_no_audit_row_for_series_with_no_episodes(self, db_conn, monkeypatch):
         """Series skipped pre-firing (no episodes) writes no audit row."""
         monkeypatch.setattr(
-            "mediaman.services.arr.auto_abandon.get_int_setting",
-            lambda c, k, **kw: {
-                "abandon_search_escalate_at": 50,
-                "abandon_search_auto_multiplier": 4,
-            }[k],
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda c, k, default=False: True,
         )
         import mediaman.services.downloads.abandon as abandon_module
 
         monkeypatch.setattr(abandon_module, "abandon_seasons", lambda *a, **kw: None)
         from mediaman.services.arr.search_trigger import maybe_auto_abandon
 
+        now = _time.time()
         maybe_auto_abandon(
             db_conn,
             "secret",
-            item={"kind": "series", "dl_id": "sonarr:X", "arr_id": 7, "episodes": []},
-            search_count=200,
+            item={
+                "kind": "series",
+                "dl_id": "sonarr:X",
+                "arr_id": 7,
+                "added_at": _OVER_THRESHOLD,
+                "episodes": [],
+            },
+            now=now,
         )
 
         assert _read_auto_abandon_rows(db_conn) == []
@@ -1122,11 +1127,8 @@ class TestAutoAbandonAuditLog:
         what the policy decided to do.
         """
         monkeypatch.setattr(
-            "mediaman.services.arr.auto_abandon.get_int_setting",
-            lambda c, k, **kw: {
-                "abandon_search_escalate_at": 50,
-                "abandon_search_auto_multiplier": 4,
-            }[k],
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda c, k, default=False: True,
         )
         import mediaman.services.downloads.abandon as abandon_module
 
@@ -1136,12 +1138,13 @@ class TestAutoAbandonAuditLog:
         monkeypatch.setattr(abandon_module, "abandon_movie", boom)
         from mediaman.services.arr.search_trigger import maybe_auto_abandon
 
+        now = _time.time()
         with pytest.raises(RuntimeError):
             maybe_auto_abandon(
                 db_conn,
                 "secret",
-                item={"kind": "movie", "dl_id": "radarr:Y", "arr_id": 42},
-                search_count=200,
+                item={"kind": "movie", "dl_id": "radarr:Y", "arr_id": 42, "added_at": _OVER_THRESHOLD},
+                now=now,
             )
 
         rows = _read_auto_abandon_rows(db_conn)
