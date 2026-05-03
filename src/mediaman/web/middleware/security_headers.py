@@ -73,13 +73,27 @@ def _build_csp(nonce: str) -> str:
     Wave 7, and the only remaining inline scripts are
     ``type="application/json"`` data islands which CSP does not gate.
 
-    ``style-src`` still carries ``'unsafe-inline'`` until the inline
-    ``style=`` attributes scattered across templates are migrated to
-    CSS classes.
+    ``style-src`` carries a nonce for ``<style>`` blocks. **Critical
+    quirk:** in Chromium, when a nonce is present in ``style-src``,
+    inline ``style="..."`` *attributes* are blocked — even if
+    ``'unsafe-inline'`` is also listed. This is the documented CSP3
+    behaviour for ``<style>`` BLOCKS but Chromium applies it to
+    inline-style ATTRIBUTES too. Mediaman's templates use inline
+    ``style="display:none"`` for modal hiding plus dynamic
+    ``style="--fill-pct:..."`` for progress bars, so we publish a
+    SEPARATE ``style-src-attr`` directive that allows ``'unsafe-inline'``
+    without a nonce. The two directives interact correctly: blocks
+    use the nonce, attributes use ``'unsafe-inline'``.
+
+    Without ``style-src-attr`` the modals on /search and /downloads
+    render with ``display:flex`` instead of ``display:none``, leaving
+    the dialog stuck open on every page load (reported by an operator
+    on 2026-05-03 against commit be509c1).
     """
     return (
         f"script-src 'self' 'nonce-{nonce}'; "
-        f"style-src 'self' 'nonce-{nonce}' 'unsafe-inline'; "
+        f"style-src 'self' 'nonce-{nonce}'; "
+        f"style-src-attr 'unsafe-inline'; "
         f"{_CSP_STATIC_DIRECTIVES}"
     )
 
