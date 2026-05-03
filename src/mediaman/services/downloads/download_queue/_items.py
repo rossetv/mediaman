@@ -128,7 +128,9 @@ def build_unmatched_arr_item(
         else:
             state = map_state(None, has_nzbget_match=False)
         search_hint = (
-            build_search_hint(search_count, last_search_ts, added_at, time.time())
+            build_search_hint(
+                search_count, last_search_ts, added_at, time.time(), dl_id=arr.get("dl_id", "")
+            )
             if state == "searching"
             else ""
         )
@@ -164,7 +166,9 @@ def build_unmatched_arr_item(
         else map_state(None, has_nzbget_match=False)
     )
     search_hint = (
-        build_search_hint(search_count, last_search_ts, added_at, time.time())
+        build_search_hint(
+            search_count, last_search_ts, added_at, time.time(), dl_id=arr.get("dl_id", "")
+        )
         if state == "searching"
         else ""
     )
