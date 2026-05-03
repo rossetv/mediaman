@@ -202,7 +202,7 @@ def api_create_user(
             status_code=500,
         )
     logger.info("user.created actor=%s new_user=%s", admin, username)
-    return {"ok": True, "username": username}
+    return JSONResponse({"ok": True, "username": username})
 
 
 @router.delete("/api/users/{user_id}")
@@ -281,7 +281,7 @@ def api_delete_user(
         )
     if deleted:
         logger.info("user.deleted actor=%s target_id=%d", admin, user_id)
-        return {"ok": True}
+        return JSONResponse({"ok": True})
     return JSONResponse(
         {"ok": False, "error": "Cannot delete yourself or user not found"}, status_code=400
     )
@@ -359,7 +359,7 @@ def api_unlock_user(
             status_code=500,
         )
     logger.info("user.unlocked actor=%s target=%s had_lock=%s", admin, target_username, cleared)
-    return {"ok": True, "had_lock": cleared}
+    return JSONResponse({"ok": True, "had_lock": cleared})
 
 
 @router.post("/api/users/change-password")

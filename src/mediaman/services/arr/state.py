@@ -90,7 +90,7 @@ def compute_download_state(media_type: str, tmdb_id: int, caches: ArrCaches) -> 
     if series is None:
         return None
 
-    def _stats(season: dict) -> dict[str, object]:
+    def _stats(season: dict) -> dict[str, Any]:
         return season.get("statistics") or {}
 
     def _has_aired(season: dict) -> bool:
@@ -175,10 +175,8 @@ def build_radarr_cache(client: RadarrClient | None) -> RadarrCaches:
                 new_title,
             )
         movies[tid] = m
-    queue_ids = {
-        (q.get("movie") or {}).get("tmdbId")
-        for q in client.get_queue()
-        if (q.get("movie") or {}).get("tmdbId")
+    queue_ids: set[int] = {
+        tid for q in client.get_queue() if (tid := (q.get("movie") or {}).get("tmdbId"))
     }
     return {"radarr_movies": movies, "radarr_queue_tmdb_ids": queue_ids}
 
@@ -210,10 +208,8 @@ def build_sonarr_cache(client: SonarrClient | None) -> SonarrCaches:
                 new_title,
             )
         series[tid] = s
-    queue_ids = {
-        (q.get("series") or {}).get("tmdbId")
-        for q in client.get_queue()
-        if (q.get("series") or {}).get("tmdbId")
+    queue_ids: set[int] = {
+        tid for q in client.get_queue() if (tid := (q.get("series") or {}).get("tmdbId"))
     }
     return {"sonarr_series": series, "sonarr_queue_tmdb_ids": queue_ids}
 
@@ -244,8 +240,8 @@ class LazyArrClients:
     def __init__(self, conn: sqlite3.Connection, secret_key: str) -> None:
         self._conn = conn
         self._secret_key = secret_key
-        self._radarr: RadarrClient | None | _Sentinel = _Sentinel
-        self._sonarr: SonarrClient | None | _Sentinel = _Sentinel
+        self._radarr: RadarrClient | None | type[_Sentinel] = _Sentinel
+        self._sonarr: SonarrClient | None | type[_Sentinel] = _Sentinel
 
     def radarr(self) -> RadarrClient | None:
         """Return the :class:`~mediaman.services.arr.radarr.RadarrClient`, building it on first call."""

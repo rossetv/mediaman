@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fastapi.responses import JSONResponse
+from starlette.responses import Response
 
 if TYPE_CHECKING:
     from fastapi import Request
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 SESSION_COOKIE_MAX_AGE: int = 86400  # 24 hours
 
 
-def set_session_cookie(response: JSONResponse, token: str, *, secure: bool) -> None:
+def set_session_cookie(response: Response, token: str, *, secure: bool) -> None:
     """Set the session cookie on *response* with canonical options."""
     response.set_cookie(
         "session_token",

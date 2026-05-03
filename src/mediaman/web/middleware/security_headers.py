@@ -174,7 +174,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     browser accepts the marked inline blocks.
     """
 
-    async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]  # Starlette types call_next as a positional-only callable with no public type alias; annotating it fully would require importing private starlette internals
+    async def dispatch(self, request: Request, call_next) -> Response:
         # 16 random bytes → 22 base64url chars: enough entropy that an
         # attacker cannot brute-force the nonce within the lifetime of
         # a single response, but short enough not to bloat every inline

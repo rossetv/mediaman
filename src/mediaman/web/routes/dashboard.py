@@ -9,6 +9,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from functools import lru_cache
+from typing import cast
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -456,7 +457,9 @@ def dashboard_page(request: Request) -> Response:
 
     # Aggregate totals for section subtitles
     scheduled_count = len(scheduled_items)
-    scheduled_size = format_bytes(sum(i["file_size_bytes"] for i in scheduled_items))
+    scheduled_size = format_bytes(
+        sum(cast(int, i["file_size_bytes"] or 0) for i in scheduled_items)
+    )
 
     # SUM always returns a row; value is NULL when audit_log is empty.
     reclaimed_total_row = conn.execute(

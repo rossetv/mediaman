@@ -5,8 +5,11 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sqlite3
 import threading
 import time
+from collections.abc import Mapping
+from typing import cast
 
 import requests
 from fastapi import APIRouter, Request
@@ -136,7 +139,7 @@ def _coerce_string_list(value: object) -> list[str]:
     return [item for item in value if isinstance(item, str)]
 
 
-def _base_download_item(payload: dict[str, object]) -> dict[str, object]:
+def _base_download_item(payload: Mapping[str, object]) -> dict[str, object]:
     """Build the skeleton download item from a validated token payload."""
     return {
         "title": payload.get("title", ""),
@@ -163,7 +166,9 @@ def _base_download_item(payload: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _build_item_from_suggestion(payload: dict[str, object], row: object) -> dict[str, object]:
+def _build_item_from_suggestion(
+    payload: Mapping[str, object], row: sqlite3.Row
+) -> dict[str, object]:
     """Build a fully-populated download item from a suggestions DB row."""
     item = _base_download_item(payload)
     item.update(
@@ -237,16 +242,21 @@ def download_page(request: Request, token: str) -> HTMLResponse:
     else:
         item = _base_download_item(payload)
 
-    item["trailer_key"] = validate_youtube_id(item.get("trailer_key"))
+    trailer_value = item.get("trailer_key")
+    item["trailer_key"] = validate_youtube_id(
+        trailer_value if isinstance(trailer_value, str) else None
+    )
 
-    if item.get("genres"):
+    genres_value = item.get("genres")
+    if isinstance(genres_value, (str, bytes, bytearray)):
         try:
-            item["genres_list"] = _coerce_string_list(json.loads(item["genres"]))
+            item["genres_list"] = _coerce_string_list(json.loads(genres_value))
         except (json.JSONDecodeError, TypeError):
             item["genres_list"] = []
-    if item.get("cast_json"):
+    cast_value = item.get("cast_json")
+    if isinstance(cast_value, (str, bytes, bytearray)):
         try:
-            item["cast_list"] = _coerce_string_list(json.loads(item["cast_json"]))
+            item["cast_list"] = _coerce_string_list(json.loads(cast_value))
         except (json.JSONDecodeError, TypeError):
             item["cast_list"] = []
 
@@ -286,11 +296,14 @@ def download_page(request: Request, token: str) -> HTMLResponse:
     poll_token = None
     if item["download_state"] == "queued":
         service = "radarr" if item["media_type"] == "movie" else "sonarr"
+        hero_title = cast(str, item["title"])
+        hero_media_type = cast(str, item["media_type"])
+        hero_poster = cast("str | None", item.get("poster_url")) or ""
         hero_item = build_item(
-            dl_id=f"{service}:{item['title']}",
-            title=item["title"],
-            media_type=item["media_type"],
-            poster_url=item.get("poster_url") or "",
+            dl_id=f"{service}:{hero_title}",
+            title=hero_title,
+            media_type=hero_media_type,
+            poster_url=hero_poster,
             state="searching",
             progress=0,
             eta="",
@@ -301,7 +314,7 @@ def download_page(request: Request, token: str) -> HTMLResponse:
         # polling immediately without exposing the long-lived download token.
         if tmdb_id:
             poll_token = generate_poll_token(
-                media_item_id=f"{service}:{item['title']}",
+                media_item_id=f"{service}:{hero_title}",
                 service=service,
                 tmdb_id=tmdb_id,
                 secret_key=config.secret_key,

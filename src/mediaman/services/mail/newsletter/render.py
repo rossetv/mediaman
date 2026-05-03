@@ -20,7 +20,7 @@ try:
     from jinja2 import TemplateError as _TemplateError
 except ImportError:  # pragma: no cover
     Environment = None  # type: ignore[assignment,misc]
-    FileSystemLoader = None  # type: ignore[assignment]
+    FileSystemLoader = None  # type: ignore[assignment,misc]
     _TemplateError = Exception  # type: ignore[assignment,misc]
 
 _JINJA_ENV: Environment | None = None

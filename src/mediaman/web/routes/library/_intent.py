@@ -272,18 +272,18 @@ def api_media_delete(
                     title,
                 )
     else:
-        client = _api.build_sonarr_from_db(conn, config.secret_key)
-        if client:
+        sonarr_client = _api.build_sonarr_from_db(conn, config.secret_key)
+        if sonarr_client:
             sid = snapshot["sonarr_id"]
             season_num = snapshot["season_number"]
             if sid and season_num is not None:
                 intent_id = _record_delete_intent(conn, media_id, "sonarr", sid)
                 try:
-                    client.delete_episode_files(sid, season_num)
-                    client.unmonitor_season(sid, season_num)
+                    sonarr_client.delete_episode_files(sid, season_num)
+                    sonarr_client.unmonitor_season(sid, season_num)
                     logger.info("Deleted season files for '%s' S%s via Sonarr", title, season_num)
-                    if not client.has_remaining_files(sid):
-                        client.delete_series(sid)
+                    if not sonarr_client.has_remaining_files(sid):
+                        sonarr_client.delete_series(sid)
                         logger.info(
                             "No files remain for '%s' — deleted series from Sonarr with exclusion",
                             title,

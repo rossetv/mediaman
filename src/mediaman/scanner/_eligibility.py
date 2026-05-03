@@ -65,7 +65,9 @@ def check_inactivity(watch_history: list[dict[str, object]], inactivity_days: in
         return True
     now = datetime.now(UTC)
     timestamps = [
-        _ensure_tz(h["viewed_at"]) for h in watch_history if h.get("viewed_at") is not None
+        _ensure_tz(viewed)
+        for h in watch_history
+        if isinstance(viewed := h.get("viewed_at"), datetime)
     ]
     if not timestamps:
         # Watch history exists but every entry is missing a timestamp.

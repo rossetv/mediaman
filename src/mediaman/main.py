@@ -36,7 +36,7 @@ _FORBIDDEN_TRUSTED_PROXY_TOKENS = frozenset({"*", "0.0.0.0/0", "::/0"})
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # type: ignore[return]  # FastAPI's lifespan protocol requires an async generator; mypy can't infer the implicit return from yield
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup and shutdown lifecycle.
 
     Delegates the actual work to the :mod:`mediaman.bootstrap` package

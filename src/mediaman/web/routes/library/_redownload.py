@@ -114,7 +114,7 @@ def _pick_lookup_match(
     target = _norm(title)
     scored: list[tuple[float, dict[str, object]]] = []
     for entry in lookup:
-        cand_title = _norm(entry.get("title") or "")
+        cand_title = _norm(str(entry.get("title") or ""))
         if not cand_title:
             continue
         ratio = difflib.SequenceMatcher(None, target, cand_title).ratio()
@@ -237,8 +237,8 @@ def api_media_redownload(
             if entry is not None:
                 resolved_tmdb = entry.get("tmdbId")
                 if resolved_tmdb:
-                    resolved_title = entry.get("title") or title
-                    resolved_tmdb_int = int(resolved_tmdb) if resolved_tmdb is not None else None
+                    resolved_title = str(entry.get("title") or title)
+                    resolved_tmdb_int = int(str(resolved_tmdb))
                     client.add_movie(resolved_tmdb_int, resolved_title)
                     audit_id = _redownload_audit_id(
                         media_type="movie",
@@ -278,9 +278,11 @@ def api_media_redownload(
 
     # Try Sonarr (TV)
     try:
-        client = _api.build_sonarr_from_db(conn, config.secret_key)
-        if client:
-            results = client.lookup_by_term(_url_quote(title), endpoint="/api/v3/series/lookup")
+        sonarr_client = _api.build_sonarr_from_db(conn, config.secret_key)
+        if sonarr_client:
+            results = sonarr_client.lookup_by_term(
+                _url_quote(title), endpoint="/api/v3/series/lookup"
+            )
             entry, err = _pick_lookup_match(
                 results or [],
                 title=title,
@@ -293,12 +295,12 @@ def api_media_redownload(
             if entry is not None:
                 resolved_tvdb = entry.get("tvdbId")
                 if resolved_tvdb:
-                    resolved_title = entry.get("title") or title
-                    resolved_tvdb_int = int(resolved_tvdb) if resolved_tvdb is not None else None
-                    client.add_series(resolved_tvdb_int, resolved_title)
+                    resolved_title = str(entry.get("title") or title)
+                    resolved_tvdb_int = int(str(resolved_tvdb))
+                    sonarr_client.add_series(resolved_tvdb_int, resolved_title)
                     resolved_tmdb_sonarr = entry.get("tmdbId")
                     resolved_tmdb_sonarr_int = (
-                        int(resolved_tmdb_sonarr) if resolved_tmdb_sonarr is not None else None
+                        int(str(resolved_tmdb_sonarr)) if resolved_tmdb_sonarr is not None else None
                     )
                     audit_id = _redownload_audit_id(
                         media_type="tv",

@@ -1,6 +1,12 @@
 # mediaman
 
 [![CI](https://github.com/rossetv/mediaman/actions/workflows/ci.yml/badge.svg)](https://github.com/rossetv/mediaman/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/rossetv/mediaman/branch/main/graph/badge.svg)](https://codecov.io/gh/rossetv/mediaman)
+[![Docker Image Version](https://img.shields.io/docker/v/rossetv/mediaman?label=docker&sort=semver)](https://hub.docker.com/r/rossetv/mediaman)
+[![Docker Pulls](https://img.shields.io/docker/pulls/rossetv/mediaman)](https://hub.docker.com/r/rossetv/mediaman)
+[![License: MIT](https://img.shields.io/github/license/rossetv/mediaman)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.12-blue)](pyproject.toml)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 Self-hosted media lifecycle management for Plex. Scans selected libraries for stale media, schedules deletion with a grace period, emails subscribers a weekly newsletter with "keep" links, and provides an admin web UI for browsing, protecting, and recovering items. Integrates with Sonarr, Radarr, NZBGet, Mailgun, TMDB, and OMDb.
 
