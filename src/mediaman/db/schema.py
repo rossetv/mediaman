@@ -13,11 +13,11 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger("mediaman")
 
-DB_SCHEMA_VERSION = 33
+DB_SCHEMA_VERSION = 34
 
-assert DB_SCHEMA_VERSION == 33, (
+assert DB_SCHEMA_VERSION == 34, (
     f"DB_SCHEMA_VERSION is {DB_SCHEMA_VERSION} but the highest migration "
-    "block is 33 — update one of them."
+    "block is 34 — update one of them."
 )
 
 _SCHEMA = """
@@ -1159,3 +1159,50 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
             )
 
         _run_migration(33, _v33)
+
+    if current_version < 34:
+
+        def _v34(c: sqlite3.Connection) -> None:
+            """Drop deprecated count-based abandon settings and reset throttle counters.
+
+            The three ``abandon_search_*`` keys have been replaced by a single
+            time-based ``auto_abandon_enabled`` toggle. Existing rows are
+            ignored by the new code, but deleting them keeps the settings
+            table clean.
+
+            Throttle counters are reset to 0 because the legacy flat-15-min
+            cadence accumulated counts (149+ on long-stalled items) that have
+            no useful meaning under the new exponential backoff curve. Reset
+            unconditionally because the throttle table doesn't carry queue
+            state — dormant rows for non-searching items are unconsulted and
+            will TTL out via reconcile_stranded_throttle. ``last_triggered_at``
+            is set to epoch zero (1970-01-01) so the next poll's
+            ``now - last >= interval`` check passes immediately.
+            """
+            has_settings = (
+                c.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings'"
+                ).fetchone()
+                is not None
+            )
+            if has_settings:
+                c.execute(
+                    "DELETE FROM settings WHERE key IN ("
+                    "'abandon_search_visible_at',"
+                    "'abandon_search_escalate_at',"
+                    "'abandon_search_auto_multiplier')"
+                )
+            has_throttle = (
+                c.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='arr_search_throttle'"
+                ).fetchone()
+                is not None
+            )
+            if has_throttle:
+                c.execute(
+                    "UPDATE arr_search_throttle "
+                    "SET search_count = 0, "
+                    "    last_triggered_at = '1970-01-01T00:00:00+00:00'"
+                )
+
+        _run_migration(34, _v34)
