@@ -23,6 +23,15 @@ from mediaman.services.infra.settings_reader import get_int_setting
 
 logger = logging.getLogger("mediaman")
 
+# How long an item has to sit in `searching` state before the manual Abandon
+# button appears in the queue UI. Time-based (clock = item.added_at) so the
+# threshold is independent of how often the page is polled.
+_ABANDON_BUTTON_VISIBLE_AFTER_SECONDS = 10 * 3600  # 10 h
+
+# When auto-abandon is enabled in settings, items older than this since
+# added_at get unmonitored automatically.
+_AUTO_ABANDON_AFTER_SECONDS = 7 * 86_400  # 7 d
+
 
 def maybe_auto_abandon(
     conn: sqlite3.Connection,
