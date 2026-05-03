@@ -149,10 +149,16 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
     legacy browsers, in-app webviews, and anything that might ship
     cookies without honouring the SameSite attribute.
 
-    Both **scheme** and **host** must match — finding 11.  An attacker
-    page on ``http://example.com`` must not be able to submit to
-    ``https://example.com``; the previous host-only check accepted
-    those cross-scheme requests.
+    The comparison is **host-only**, not (scheme, host).  The Wave 5-1
+    "compare scheme too" hardening (Domain 04 finding 11) broke real
+    reverse-proxy deployments where uvicorn sees ``request.url.scheme
+    == "http"`` but the browser is on ``https://`` and sets
+    ``Origin: https://...``.  Trusting ``X-Forwarded-Proto`` to
+    rewrite the scheme is itself a footgun (it requires
+    ``MEDIAMAN_TRUSTED_PROXIES`` to be configured first), and the
+    cross-scheme attack the harden was guarding against is already
+    closed by ``Secure`` cookie flag (browser refuses to send the
+    cookie over HTTP) and ``SameSite=Strict`` on the session cookie.
 
     The check is intentionally narrow: only POST/PUT/PATCH/DELETE
     from non-same-origin origins are refused, and only for routes
@@ -170,8 +176,14 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
 
         origin = request.headers.get("origin")
         referer = request.headers.get("referer")
+        # Compare hosts only (see class docstring for why scheme equality
+        # was reverted).  Use ``_normalise_origin`` for the IPv6 + default-
+        # port handling, but ignore the scheme component of the returned
+        # tuple by indexing ``[1]``.
         request_scheme = (request.url.scheme or "").lower()
-        expected = _normalise_origin(request.url.netloc or "", default_scheme=request_scheme)
+        expected_host = _normalise_origin(request.url.netloc or "", default_scheme=request_scheme)[
+            1
+        ]
 
         # If neither header is present AND no session cookie is present,
         # assume a non-browser API client (curl, scripts). Those callers
@@ -189,14 +201,14 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
                 )
             return await call_next(request)
 
-        def _origin_of(url: str) -> tuple[str, str]:
+        def _host_of(url: str) -> str:
             try:
-                return _normalise_origin(url, default_scheme=request_scheme)
+                return _normalise_origin(url, default_scheme=request_scheme)[1]
             except Exception:
-                return ("", "")
+                return ""
 
-        if origin and _origin_of(origin) != expected:
+        if origin and _host_of(origin) != expected_host:
             return Response(status_code=403, content=b"CSRF: origin mismatch")
-        if not origin and referer and _origin_of(referer) != expected:
+        if not origin and referer and _host_of(referer) != expected_host:
             return Response(status_code=403, content=b"CSRF: referer mismatch")
         return await call_next(request)

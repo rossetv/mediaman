@@ -710,14 +710,24 @@ class TestNormaliseOrigin:
         assert _normalise_host("[2001:db8::1]:443") == "2001:db8::1"
 
 
-class TestCSRFSchemeChecked:
-    """CSRF compares both scheme and host (finding 11)."""
+class TestCSRFHostOnly:
+    """CSRF compares hosts only — see ``CSRFOriginMiddleware`` docstring.
 
-    def test_cross_scheme_post_rejected(self):
-        """A request whose Origin uses ``http`` while the request URL
-        is ``https`` must be rejected even when the host matches —
-        an attacker page on ``http://example.com`` should not be able
-        to submit to ``https://example.com``."""
+    The Wave 5-1 attempt to compare ``(scheme, host)`` (finding 11)
+    broke real reverse-proxy deployments where uvicorn sees
+    ``request.url.scheme == "http"`` but the browser is on ``https://``
+    and sets ``Origin: https://...``.  The cross-scheme attack the
+    harden was guarding against is already closed by ``Secure`` cookie
+    flag (browser refuses to send the cookie over HTTP) and
+    ``SameSite=Strict`` on the session cookie.
+    """
+
+    def test_cross_scheme_same_host_accepted(self):
+        """A reverse-proxy deployment where uvicorn sees ``http`` but
+        the browser submits ``Origin: https://example.com`` is
+        accepted as long as the host matches.  This is exactly the
+        scenario where the previous strict-scheme check produced a
+        spurious 403 on every login."""
         app = FastAPI()
         register_security_middleware(app)
 
@@ -725,15 +735,15 @@ class TestCSRFSchemeChecked:
         def _endpoint():
             return {"ok": True}
 
-        client = TestClient(app, base_url="https://example.com")
+        client = TestClient(app, base_url="http://example.com")
         resp = client.post(
             "/api/thing",
-            headers={"Origin": "http://example.com"},
+            headers={"Origin": "https://example.com"},
         )
-        assert resp.status_code == 403
+        assert resp.status_code == 200
 
-    def test_same_scheme_post_accepted(self):
-        """Both scheme and host match — request is accepted."""
+    def test_same_scheme_same_host_accepted(self):
+        """The trivial case continues to work."""
         app = FastAPI()
         register_security_middleware(app)
 
@@ -747,6 +757,23 @@ class TestCSRFSchemeChecked:
             headers={"Origin": "https://example.com"},
         )
         assert resp.status_code == 200
+
+    def test_cross_host_rejected(self):
+        """Different host is still rejected — that's the substantive
+        CSRF check that wasn't reverted."""
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.post("/api/thing")
+        def _endpoint():
+            return {"ok": True}
+
+        client = TestClient(app, base_url="https://example.com")
+        resp = client.post(
+            "/api/thing",
+            headers={"Origin": "https://evil.com"},
+        )
+        assert resp.status_code == 403
 
 
 class TestForcePasswordChangeHealthExempt:
