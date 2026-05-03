@@ -221,6 +221,13 @@ class TestAbandonVisibleThreshold:
         item = self._make_item(added_at=now - 48 * 3600)
         assert "abandon_escalated" not in item
 
+    def test_hidden_when_added_at_is_zero(self):
+        """added_at=0 must never show the Abandon button regardless of clock value."""
+        # now - 0.0 ≈ 1.7e9 s — far past any threshold — but missing timestamp
+        # should not trick us into showing the button.
+        item = self._make_item(added_at=0.0)
+        assert item["abandon_visible"] is False
+
 
 # ---------------------------------------------------------------------------
 # stuck_seasons derivation

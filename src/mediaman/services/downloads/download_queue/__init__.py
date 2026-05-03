@@ -476,10 +476,10 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
         secret_key,
     )
 
-    # 6. Add unmatched NZBGet items (manual additions with no Arr match).
+    # 5. Add unmatched NZBGet items (manual additions with no Arr match).
     _add_unmatched_nzb_items(items, nzb_parsed, download_rate)
 
-    # 7. Completion detection.
+    # 6. Completion detection.
     # Cast through a plain-dict view because completion-detection helpers
     # were typed against ``dict[str, object]`` before ``DownloadItem`` was
     # introduced; the runtime shape is identical.
@@ -489,10 +489,10 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     }
     _maybe_record_completions(conn, current_map, secret_key)
 
-    # 8. Hero selection
+    # 7. Hero selection
     hero, queue = select_hero(items_as_dicts)
 
-    # 9. Recent downloads (last 7 days), excluding anything actively in queue.
+    # 8. Recent downloads (last 7 days), excluding anything actively in queue.
     from mediaman.services.arr.build import build_arr_client as _build_arr_client_local
 
     active_ids = {cast(str, item["id"]) for item in items_as_dicts}

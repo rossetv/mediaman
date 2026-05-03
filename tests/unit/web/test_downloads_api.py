@@ -918,9 +918,7 @@ class TestSearchTriggerThrottle:
             lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
         )
         # Pin jitter so the gate is exactly 120 s, not [108, 132].
-        monkeypatch.setattr(
-            "mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0
-        )
+        monkeypatch.setattr("mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0)
 
         import time
 
@@ -948,9 +946,7 @@ class TestSearchTriggerThrottle:
             "mediaman.services.arr.search_trigger.build_arr_client",
             lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
         )
-        monkeypatch.setattr(
-            "mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0
-        )
+        monkeypatch.setattr("mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0)
 
         from mediaman.services.arr import search_trigger as st
 

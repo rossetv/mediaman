@@ -19,6 +19,7 @@ backwards compatibility with callers and tests that import from there.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import random
 import sqlite3
@@ -64,9 +65,9 @@ _PER_ARR_THROTTLE_SECONDS = 15 * 60
 # Per-item exponential backoff. interval(n) = base * 2^max(n-1, 0), clamped.
 # n is the number of fires already completed for this dl_id; the gate uses it
 # to compute the wait until the next allowed fire.
-_SEARCH_BACKOFF_BASE_SECONDS = 120        # 2 min
-_SEARCH_BACKOFF_MAX_SECONDS = 86_400      # 24 h cap
-_SEARCH_BACKOFF_JITTER = 0.1              # ±10% multiplicative jitter
+_SEARCH_BACKOFF_BASE_SECONDS = 120  # 2 min
+_SEARCH_BACKOFF_MAX_SECONDS = 86_400  # 24 h cap
+_SEARCH_BACKOFF_JITTER = 0.1  # ±10% multiplicative jitter
 
 _STRANDED_THROTTLE_TTL_SECONDS = 90 * 24 * 60 * 60  # 90 days
 
@@ -77,19 +78,18 @@ def _jitter_for(dl_id: str, last_triggered_at: float) -> float:
     Determinism matters because the backoff gate is checked on every
     ``/api/downloads`` poll. A fresh random roll on each call would let a
     search through whenever a low multiplier was rolled, defeating the
-    rate limit. Seeding from ``(dl_id, last_triggered_at)`` keeps the
-    multiplier stable across polls until the next successful fire bumps
-    ``last_triggered_at`` — which then seeds a fresh-but-stable multiplier
-    for the new interval.
+    rate limit. Seeding from a blake2b digest of ``(dl_id, last_triggered_at)``
+    keeps the multiplier stable across polls and across processes — unlike
+    ``hash()``, which is salted by ``PYTHONHASHSEED`` and produces different
+    values in different interpreter instances.
     """
-    seed = hash((dl_id, last_triggered_at)) & 0xFFFF_FFFF
+    blob = f"{dl_id}|{last_triggered_at!r}".encode()
+    seed = int.from_bytes(hashlib.blake2b(blob, digest_size=4).digest(), "big")
     rng = random.Random(seed)
     return rng.uniform(1.0 - _SEARCH_BACKOFF_JITTER, 1.0 + _SEARCH_BACKOFF_JITTER)
 
 
-def _search_backoff_seconds(
-    search_count: int, dl_id: str, last_triggered_at: float
-) -> float:
+def _search_backoff_seconds(search_count: int, dl_id: str, last_triggered_at: float) -> float:
     """Return the wait in seconds before the next fire is allowed.
 
     *search_count* is the number of fires already completed for *dl_id*.
@@ -101,7 +101,9 @@ def _search_backoff_seconds(
         _SEARCH_BACKOFF_BASE_SECONDS * 2 ** max(n - 1, 0),
         _SEARCH_BACKOFF_MAX_SECONDS,
     )
-    return base * _jitter_for(dl_id, last_triggered_at)
+    # Clamp after applying jitter so a +10% multiplier at the cap (86 400 s)
+    # never produces a value above the displayed "~24h" ceiling.
+    return min(base * _jitter_for(dl_id, last_triggered_at), _SEARCH_BACKOFF_MAX_SECONDS)
 
 
 def reset_search_triggers() -> None:
