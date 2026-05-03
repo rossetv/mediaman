@@ -27,7 +27,6 @@ def build_item(
     arr_link: str = "",
     arr_source: str = "",
     abandon_visible: bool = False,
-    abandon_escalated: bool = False,
     stuck_seasons: list[dict] | None = None,
     arr_id: int = 0,
     kind: str = "",
@@ -43,10 +42,10 @@ def build_item(
     and ``arr_source`` is ``"Radarr"`` or ``"Sonarr"`` — used to label
     the deep-link button.
 
-    ``abandon_visible`` / ``abandon_escalated`` are server-authoritative
-    threshold checks so the frontend renders the abandon button without
-    any client-side threshold logic. ``stuck_seasons`` is a per-season
-    missing-episode breakdown for series (empty for movies).
+    ``abandon_visible`` is a server-authoritative threshold check so the
+    frontend renders the abandon button without any client-side logic.
+    ``stuck_seasons`` is a per-season missing-episode breakdown for series
+    (empty for movies).
     """
     if stuck_seasons is None:
         stuck_seasons = []
@@ -71,7 +70,6 @@ def build_item(
         "arr_link": arr_link,
         "arr_source": arr_source,
         "abandon_visible": abandon_visible,
-        "abandon_escalated": abandon_escalated,
         "stuck_seasons": stuck_seasons,
         "arr_id": arr_id,
         "kind": kind,
