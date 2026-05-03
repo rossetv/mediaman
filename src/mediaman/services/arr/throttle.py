@@ -20,6 +20,7 @@ backwards compatibility with callers and tests that import from there.
 from __future__ import annotations
 
 import logging
+import random
 import sqlite3
 import threading
 from datetime import UTC
@@ -54,9 +55,57 @@ _last_search_trigger_by_arr: dict[str, float] = {}
 _state_lock = threading.Lock()
 
 _SEARCH_STALE_SECONDS = 5 * 60  # trigger if item has been searching > 5 min
-_SEARCH_THROTTLE_SECONDS = 15 * 60  # don't re-trigger within 15 min
+
+# Per-arr-instance serialiser: don't fire more than one search per Radarr/Sonarr
+# instance within this window, regardless of how many items are eligible. Caps
+# fan-out to the indexer when many stuck items contend at the same moment.
+_PER_ARR_THROTTLE_SECONDS = 15 * 60
+
+# Per-item exponential backoff. interval(n) = base * 2^max(n-1, 0), clamped.
+# n is the number of fires already completed for this dl_id; the gate uses it
+# to compute the wait until the next allowed fire.
+_SEARCH_BACKOFF_BASE_SECONDS = 120        # 2 min
+_SEARCH_BACKOFF_MAX_SECONDS = 86_400      # 24 h cap
+_SEARCH_BACKOFF_JITTER = 0.1              # ±10% multiplicative jitter
+
+# Backwards-compatibility alias. Task 2 will update search_trigger.py to
+# import _PER_ARR_THROTTLE_SECONDS directly and remove this alias.
+_SEARCH_THROTTLE_SECONDS = _PER_ARR_THROTTLE_SECONDS
 
 _STRANDED_THROTTLE_TTL_SECONDS = 90 * 24 * 60 * 60  # 90 days
+
+
+def _jitter_for(dl_id: str, last_triggered_at: float) -> float:
+    """Return a deterministic ±10% multiplier for *(dl_id, last_triggered_at)*.
+
+    Determinism matters because the backoff gate is checked on every
+    ``/api/downloads`` poll. A fresh random roll on each call would let a
+    search through whenever a low multiplier was rolled, defeating the
+    rate limit. Seeding from ``(dl_id, last_triggered_at)`` keeps the
+    multiplier stable across polls until the next successful fire bumps
+    ``last_triggered_at`` — which then seeds a fresh-but-stable multiplier
+    for the new interval.
+    """
+    seed = hash((dl_id, last_triggered_at)) & 0xFFFF_FFFF
+    rng = random.Random(seed)
+    return rng.uniform(1.0 - _SEARCH_BACKOFF_JITTER, 1.0 + _SEARCH_BACKOFF_JITTER)
+
+
+def _search_backoff_seconds(
+    search_count: int, dl_id: str, last_triggered_at: float
+) -> float:
+    """Return the wait in seconds before the next fire is allowed.
+
+    *search_count* is the number of fires already completed for *dl_id*.
+    The result is the jittered interval that gates the next fire after
+    *last_triggered_at*.
+    """
+    n = max(search_count, 0)
+    base = min(
+        _SEARCH_BACKOFF_BASE_SECONDS * 2 ** max(n - 1, 0),
+        _SEARCH_BACKOFF_MAX_SECONDS,
+    )
+    return base * _jitter_for(dl_id, last_triggered_at)
 
 
 def reset_search_triggers() -> None:
