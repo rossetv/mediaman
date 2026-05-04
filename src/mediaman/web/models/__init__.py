@@ -26,6 +26,9 @@ from .auth import LoginRequest as LoginRequest
 from .settings import DiskThresholds as DiskThresholds
 from .settings import SettingsUpdate as SettingsUpdate
 from .subscribers import SubscriberCreate as SubscriberCreate
+from .users import ChangePasswordBody as ChangePasswordBody
+from .users import CreateUserBody as CreateUserBody
+from .users import ReauthBody as ReauthBody
 
 __all__ = [
     # Action constants
@@ -35,9 +38,12 @@ __all__ = [
     # Vocabulary
     "VALID_KEEP_DURATIONS",
     # Public models
+    "ChangePasswordBody",
+    "CreateUserBody",
     "DiskThresholds",
     "KeepRequest",
     "LoginRequest",
+    "ReauthBody",
     "SettingsUpdate",
     "SubscriberCreate",
 ]
