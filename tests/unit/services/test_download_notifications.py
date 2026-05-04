@@ -380,58 +380,6 @@ class TestSonarrSeriesMatching:
         # Mailgun is configured) can pick it up.
         assert row["notified"] == 0
 
-    def test_v11_migration_moves_sonarr_ids_to_tvdb_column(self, tmp_path):
-        """Existing sonarr rows had TVDB ids mis-stored in tmdb_id.
-
-        The v11 migration must move them into the new tvdb_id column.
-        """
-        import sqlite3
-
-        from mediaman.db import init_db
-
-        # Simulate a pre-v11 DB: create the table without tvdb_id and
-        # insert the legacy broken row, then re-init_db to trigger the
-        # migration.
-        db_path = tmp_path / "legacy.db"
-        conn_old = sqlite3.connect(str(db_path))
-        conn_old.executescript(
-            """
-            CREATE TABLE download_notifications (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT NOT NULL,
-                title TEXT NOT NULL,
-                media_type TEXT NOT NULL,
-                tmdb_id INTEGER,
-                service TEXT NOT NULL,
-                notified INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL
-            );
-            INSERT INTO download_notifications
-                (email, title, media_type, tmdb_id, service, notified, created_at)
-            VALUES ('u@x', 'Legacy Show', 'tv', 370524, 'sonarr', 0, '2026-01-01');
-            INSERT INTO download_notifications
-                (email, title, media_type, tmdb_id, service, notified, created_at)
-            VALUES ('u@x', 'Legacy Movie', 'movie', 12345, 'radarr', 0, '2026-01-01');
-            """
-        )
-        # Pretend it's a v10 DB so the v11 migration will run.
-        conn_old.execute("PRAGMA user_version=10")
-        conn_old.commit()
-        conn_old.close()
-
-        conn = init_db(str(db_path))
-        rows = conn.execute(
-            "SELECT title, tmdb_id, tvdb_id, service FROM download_notifications ORDER BY title"
-        ).fetchall()
-        # Sonarr row: TVDB id moved across, tmdb_id cleared.
-        sonarr_row = next(r for r in rows if r["service"] == "sonarr")
-        assert sonarr_row["tvdb_id"] == 370524
-        assert sonarr_row["tmdb_id"] is None
-        # Radarr row: tmdb_id untouched.
-        radarr_row = next(r for r in rows if r["service"] == "radarr")
-        assert radarr_row["tmdb_id"] == 12345
-        assert radarr_row["tvdb_id"] is None
-
 
 class TestReconcileStrandedNotifications:
     """H-5: a startup sweep recovers rows stranded at notified=2 after a crash.
