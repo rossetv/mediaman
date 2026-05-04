@@ -3,7 +3,9 @@
    ============================================================= */
 .card           { background: var(--s2); border-radius: var(--r-lg); overflow: hidden; }
 .card--flat     { background: transparent; }
-.card--bordered { background: var(--s1); border: 1px solid var(--hair); }
+.card--bordered { background: var(--s1); border: 1px solid var(--hair); overflow: visible; }
+.card--bordered > table.tbl > tbody > tr:last-child > td:first-child { border-bottom-left-radius: var(--r-lg); }
+.card--bordered > table.tbl > tbody > tr:last-child > td:last-child { border-bottom-right-radius: var(--r-lg); }
 .card-pad       { padding: 24px; }
 
 /* =============================================================
