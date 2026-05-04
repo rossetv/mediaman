@@ -51,5 +51,27 @@
   "scan_time": settings.get('scan_time', '09:00'),
   "scan_timezone": settings.get('scan_timezone', 'UTC')
 } | tojson | safe }}</script>
+{# Core helpers must load before the settings modules. #}
+<script src="/static/js/core/api.js" defer></script>
+<script src="/static/js/core/dom.js" defer></script>
+<script src="/static/js/core/modal.js" defer></script>
+{# Settings modules — order matters: general exposes shared state read by others. #}
+<script src="/static/js/settings/general.js" defer></script>
+<script src="/static/js/settings/integrations.js" defer></script>
+<script src="/static/js/settings/users.js" defer></script>
+<script src="/static/js/settings/newsletter.js" defer></script>
+<script>
+  // Inline scripts run synchronously during parsing; the deferred module
+  // scripts above haven't executed yet. Wire up DOMContentLoaded so that
+  // by the time it fires, all defer'd scripts have run and MM.settings.*
+  // are available.
+  document.addEventListener('DOMContentLoaded', function () {
+    MM.settings.general.init();
+    MM.settings.integrations.init();
+    MM.settings.users.init();
+    MM.settings.newsletter.init();
+  });
+</script>
+{# Back-compat shim — see settings.js for explanation. #}
 <script src="/static/js/settings.js" defer></script>
 {% endblock %}
