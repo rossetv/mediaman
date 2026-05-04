@@ -4,21 +4,7 @@ from mediaman.services.infra.storage import (
     delete_path,
     get_aggregate_disk_usage,
     get_directory_size,
-    get_disk_usage,
 )
-
-
-class TestDiskUsage:
-    def test_returns_usage_dict(self, tmp_path):
-        usage = get_disk_usage(str(tmp_path))
-        assert "total_bytes" in usage
-        assert "used_bytes" in usage
-        assert "free_bytes" in usage
-        assert usage["total_bytes"] > 0
-
-    def test_nonexistent_path_raises(self):
-        with pytest.raises(FileNotFoundError):
-            get_disk_usage("/nonexistent/path/12345")
 
 
 class TestDeletePath:
@@ -42,12 +28,14 @@ class TestDeletePath:
 
 class TestAggregateDiskUsage:
     def test_returns_usage_for_single_device(self, tmp_path):
-        """When all subdirs are on the same device, result matches get_disk_usage."""
+        """When all subdirs are on the same device, result has expected keys."""
+        import shutil
+
         (tmp_path / "subdir").mkdir()
-        single = get_disk_usage(str(tmp_path))
+        single = shutil.disk_usage(str(tmp_path))
         agg = get_aggregate_disk_usage(str(tmp_path))
-        assert agg["total_bytes"] == single["total_bytes"]
-        assert agg["used_bytes"] == single["used_bytes"]
+        assert agg["total_bytes"] == single.total
+        assert agg["used_bytes"] == single.used
 
     def test_nonexistent_path_raises(self):
         with pytest.raises(FileNotFoundError):
