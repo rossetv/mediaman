@@ -18,15 +18,34 @@ def test_auto_abandon_threshold_is_fourteen_days():
     assert _AUTO_ABANDON_AFTER_SECONDS == 14 * 86_400
 
 
+def test_auto_abandon_release_grace_is_thirty_days():
+    from mediaman.services.arr.auto_abandon import _AUTO_ABANDON_RELEASE_GRACE_SECONDS
+
+    assert _AUTO_ABANDON_RELEASE_GRACE_SECONDS == 30 * 86_400
+
+
 class TestMaybeAutoAbandon:
     """Time-based auto-abandon, gated by the auto_abandon_enabled setting."""
 
-    def _movie_item(self, added_at: float, dl_id: str = "radarr:Old", arr_id: int = 1) -> dict:
+    def _movie_item(
+        self,
+        added_at: float,
+        dl_id: str = "radarr:Old",
+        arr_id: int = 1,
+        released_at: float | None = None,
+    ) -> dict:
+        # Default ``released_at`` to a year before ``added_at`` so the
+        # release-grace gate doesn't unintentionally short-circuit tests
+        # that aren't exercising it.
+        if released_at is None:
+            released_at = added_at - 365 * 86_400
         return {
             "kind": "movie",
             "dl_id": dl_id,
             "arr_id": arr_id,
             "added_at": added_at,
+            "released_at": released_at,
+            "is_upcoming": False,
         }
 
     def test_skips_when_setting_disabled(self, monkeypatch):
@@ -122,9 +141,22 @@ class TestMaybeAutoAbandon:
         )
 
         now = _time_mod.time()
-        item = {"kind": "movie", "dl_id": "", "arr_id": 1, "added_at": now - 15 * 86_400}
+        old_release = now - 365 * 86_400
+        item = {
+            "kind": "movie",
+            "dl_id": "",
+            "arr_id": 1,
+            "added_at": now - 15 * 86_400,
+            "released_at": old_release,
+        }
         maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
-        item = {"kind": "movie", "dl_id": "radarr:X", "arr_id": 0, "added_at": now - 15 * 86_400}
+        item = {
+            "kind": "movie",
+            "dl_id": "radarr:X",
+            "arr_id": 0,
+            "added_at": now - 15 * 86_400,
+            "released_at": old_release,
+        }
         maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
         assert called == []
 
@@ -173,6 +205,8 @@ class TestMaybeAutoAbandon:
             "dl_id": "sonarr:Show",
             "arr_id": 7,
             "added_at": now - 15 * 86_400,
+            "released_at": now - 200 * 86_400,
+            "is_upcoming": False,
             "episodes": [
                 {"season_number": 0},  # specials, filtered
                 {"season_number": 2},
@@ -184,3 +218,147 @@ class TestMaybeAutoAbandon:
 
         assert called == [{"series_id": 7, "season_numbers": [2, 5], "dl_id": "sonarr:Show"}]
         assert captured_events[0]["detail"]["seasons"] == [2, 5]
+
+    def test_skips_upcoming_movie_even_when_added_long_ago(self, monkeypatch):
+        """Coming-soon movies must never auto-abandon, even if added > 14 d ago.
+
+        Regression: enabling auto-abandon was wiping monitored movies from
+        the "Coming soon" list. Indexers correctly have no copies for
+        unreleased movies, so the 14-day search threshold trips even
+        though the movie isn't out yet.
+        """
+        from mediaman.services.arr.auto_abandon import maybe_auto_abandon
+
+        monkeypatch.setattr(
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda conn, key, default=False: True,
+        )
+        called = []
+        monkeypatch.setattr(
+            "mediaman.services.downloads.abandon.abandon_movie",
+            lambda *a, **kw: called.append(kw),
+        )
+
+        now = _time_mod.time()
+        item = {
+            "kind": "movie",
+            "dl_id": "radarr:Avatar 3",
+            "arr_id": 99,
+            "added_at": now - 60 * 86_400,
+            # Future release date.
+            "released_at": now + 90 * 86_400,
+            "is_upcoming": True,
+        }
+        maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
+
+        assert called == []
+
+    def test_skips_movie_released_within_thirty_days(self, monkeypatch):
+        """Recently-released movies must not auto-abandon — copies may still be propagating."""
+        from mediaman.services.arr.auto_abandon import maybe_auto_abandon
+
+        monkeypatch.setattr(
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda conn, key, default=False: True,
+        )
+        called = []
+        monkeypatch.setattr(
+            "mediaman.services.downloads.abandon.abandon_movie",
+            lambda *a, **kw: called.append(kw),
+        )
+
+        now = _time_mod.time()
+        item = {
+            "kind": "movie",
+            "dl_id": "radarr:Fresh",
+            "arr_id": 11,
+            # Searching for ages, but the movie only came out 10 days ago.
+            "added_at": now - 60 * 86_400,
+            "released_at": now - 10 * 86_400,
+            "is_upcoming": False,
+        }
+        maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
+
+        assert called == []
+
+    def test_skips_when_released_at_unknown(self, monkeypatch):
+        """No release-date metadata → conservative skip; never abandon blindly."""
+        from mediaman.services.arr.auto_abandon import maybe_auto_abandon
+
+        monkeypatch.setattr(
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda conn, key, default=False: True,
+        )
+        called = []
+        monkeypatch.setattr(
+            "mediaman.services.downloads.abandon.abandon_movie",
+            lambda *a, **kw: called.append(kw),
+        )
+
+        now = _time_mod.time()
+        item = {
+            "kind": "movie",
+            "dl_id": "radarr:NoDate",
+            "arr_id": 12,
+            "added_at": now - 60 * 86_400,
+            # released_at omitted (or 0.0) → unknown release date.
+            "is_upcoming": False,
+        }
+        maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
+
+        assert called == []
+
+    def test_fires_movie_released_long_ago(self, monkeypatch):
+        """Movie released > 30 d ago AND searching > 14 d → eligible to abandon."""
+        from mediaman.services.arr.auto_abandon import maybe_auto_abandon
+
+        monkeypatch.setattr(
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda conn, key, default=False: True,
+        )
+        called = []
+        monkeypatch.setattr(
+            "mediaman.services.downloads.abandon.abandon_movie",
+            lambda *a, **kw: called.append(kw),
+        )
+
+        now = _time_mod.time()
+        item = {
+            "kind": "movie",
+            "dl_id": "radarr:Stale",
+            "arr_id": 13,
+            "added_at": now - 20 * 86_400,
+            "released_at": now - 90 * 86_400,
+            "is_upcoming": False,
+        }
+        maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
+
+        assert called == [{"arr_id": 13, "dl_id": "radarr:Stale"}]
+
+    def test_skips_upcoming_series(self, monkeypatch):
+        """Coming-soon series must not auto-abandon either."""
+        from mediaman.services.arr.auto_abandon import maybe_auto_abandon
+
+        monkeypatch.setattr(
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda conn, key, default=False: True,
+        )
+        called = []
+        monkeypatch.setattr(
+            "mediaman.services.downloads.abandon.abandon_seasons",
+            lambda *a, **kw: called.append(kw),
+        )
+
+        now = _time_mod.time()
+        item = {
+            "kind": "series",
+            "dl_id": "sonarr:Future Show",
+            "arr_id": 88,
+            "added_at": now - 60 * 86_400,
+            "released_at": 0.0,  # nothing aired yet
+            "is_upcoming": True,
+            "episodes": [{"season_number": 1}],
+        }
+        maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
+
+        assert called == []

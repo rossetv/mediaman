@@ -42,6 +42,57 @@ def _format_release_date(dt: datetime) -> str:
     return format_day_month(dt)
 
 
+def compute_movie_released_at(movie: dict) -> float:
+    """Return the earliest known release-date epoch for a Radarr movie, or 0.0.
+
+    Looks at ``digitalRelease``, ``physicalRelease`` and ``inCinemas`` and
+    returns the earliest parseable timestamp as POSIX seconds. Future-dated
+    entries are accepted (callers can compare against ``now`` themselves);
+    only the year-9999 sentinel and other absurdly far-future values
+    (beyond :data:`_MAX_FUTURE_YEARS`) are filtered out.
+
+    Returns ``0.0`` when none of the fields are populated or parseable —
+    auto-abandon treats that as "release date unknown" and skips the item
+    rather than guessing.
+    """
+    now = datetime.now(UTC)
+    max_year = now.year + _MAX_FUTURE_YEARS
+    candidates: list[datetime] = []
+    for key in ("digitalRelease", "physicalRelease", "inCinemas"):
+        dt = parse_iso_utc(movie.get(key, ""))
+        if dt and dt.year <= max_year:
+            candidates.append(dt)
+    if not candidates:
+        return 0.0
+    return min(candidates).timestamp()
+
+
+def compute_series_released_at(episodes: list[dict]) -> float:
+    """Return the most recent past airing epoch across *episodes*, or 0.0.
+
+    Used by auto-abandon to gate "too fresh to abandon" decisions. The
+    *latest* past airing matters here, not the earliest: a long-running
+    series whose first episode aired in 2010 may have a missing episode
+    that aired last week — abandoning that episode early would bin a
+    legitimate search just because the series itself is old.
+
+    Future airings are ignored because :func:`classify_series_upcoming`
+    already covers the upcoming case via ``is_upcoming``. Returns ``0.0``
+    when no episode has a parseable past ``airDateUtc``.
+    """
+    now = datetime.now(UTC)
+    latest: datetime | None = None
+    for ep in episodes:
+        dt = parse_iso_utc(ep.get("airDateUtc", ""))
+        if dt is None or dt > now:
+            continue
+        if latest is None or dt > latest:
+            latest = dt
+    if latest is None:
+        return 0.0
+    return latest.timestamp()
+
+
 def classify_movie_upcoming(movie: dict) -> tuple[bool, str]:
     """Classify a Radarr movie as upcoming and build its release label.
 

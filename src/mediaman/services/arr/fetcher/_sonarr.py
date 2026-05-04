@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from mediaman.services.arr.sonarr import SonarrClient
 from mediaman.services.downloads.download_format import (
     classify_series_upcoming,
+    compute_series_released_at,
     extract_poster_url,
     format_episode_label,
 )
@@ -49,6 +50,7 @@ def _make_sonarr_card(
     arr_id: int = 0,
     title_slug: str = "",
     added_at: float = 0.0,
+    released_at: float = 0.0,
     is_upcoming: bool = False,
     release_label: str = "",
     release_names: list[str] | None = None,
@@ -69,6 +71,7 @@ def _make_sonarr_card(
         arr_id=arr_id,
         title_slug=title_slug,
         added_at=added_at,
+        released_at=released_at,
         is_upcoming=is_upcoming,
         release_label=release_label,
         release_names=release_names,
@@ -286,6 +289,7 @@ def fetch_sonarr_queue(client: SonarrClient) -> list[ArrCard]:
             episodes_raw = []
 
         is_upcoming, release_label = classify_series_upcoming(series, episodes_raw)
+        released_at = compute_series_released_at(episodes_raw)
 
         added_at = 0.0
         added_dt = parse_iso_utc(series.get("added", ""))
@@ -301,6 +305,7 @@ def fetch_sonarr_queue(client: SonarrClient) -> list[ArrCard]:
                 arr_id=series_id,
                 title_slug=series.get("titleSlug", ""),
                 added_at=added_at,
+                released_at=released_at,
                 is_upcoming=is_upcoming,
                 release_label=release_label,
             )

@@ -3,8 +3,8 @@
 from mediaman.services.arr.state import compute_download_state
 
 
-def _movie_caches(in_library=False, in_queue=False, tmdb_id=100):
-    movie = {"tmdbId": tmdb_id, "hasFile": in_library}
+def _movie_caches(in_library=False, in_queue=False, tmdb_id=100, monitored=True):
+    movie = {"tmdbId": tmdb_id, "hasFile": in_library, "monitored": monitored}
     return {
         "radarr_movies": {tmdb_id: movie},
         "radarr_queue_tmdb_ids": {tmdb_id} if in_queue else set(),
@@ -52,6 +52,29 @@ class TestComputeDownloadState:
 
     def test_movie_tracked_no_file_no_queue_returns_queued(self):
         assert compute_download_state("movie", 100, _movie_caches()) == "queued"
+
+    def test_movie_unmonitored_no_file_returns_null(self):
+        """An abandoned (unmonitored) movie should report as untracked.
+
+        Regression: after auto-abandon (or manual abandon) the movie stays
+        in Radarr but ``monitored=False``. Reporting it as ``queued``
+        wedged the search modal — the button rendered as a disabled
+        "Queued" pill, leaving no way to re-download. Treating it as
+        untracked here lets the search/download endpoint re-monitor on
+        click.
+        """
+        caches = _movie_caches(monitored=False)
+        assert compute_download_state("movie", 100, caches) is None
+
+    def test_movie_unmonitored_in_library_still_in_library(self):
+        """An unmonitored movie that already has a file is still ``in_library``.
+
+        ``hasFile`` wins over ``monitored=False`` — the user has the
+        copy; the abandon-residue heuristic only matters for entries
+        with no file.
+        """
+        caches = _movie_caches(in_library=True, monitored=False)
+        assert compute_download_state("movie", 100, caches) == "in_library"
 
     def test_tv_not_tracked_returns_null(self):
         caches = {
