@@ -513,6 +513,31 @@ def destroy_all_sessions_for(conn: sqlite3.Connection, username: str) -> int:
 
 
 class SessionMetadata(TypedDict):
+    """Typed projection of an ``admin_sessions`` row for API/UI consumption.
+
+    All fields are optional strings because SQLite may return ``NULL`` for
+    rows inserted by older schema versions.  Consumers must guard against
+    ``None`` before formatting timestamps or displaying the ``issued_ip``.
+
+    Fields
+    ------
+    created_at:
+        ISO-8601 UTC timestamp at which the session was first created.
+    expires_at:
+        ISO-8601 UTC hard-expiry timestamp.  The session becomes invalid
+        once this instant passes regardless of recent activity.
+    last_used_at:
+        ISO-8601 UTC timestamp of the most recent successful
+        ``validate_session`` call.  Drives idle-expiry eviction.
+    issued_ip:
+        Client IP address recorded at session creation, stored for audit
+        purposes only — not re-validated on subsequent requests.
+    fingerprint:
+        Opaque string computed by :func:`_client_fingerprint` at session
+        creation.  Empty when fingerprint mode is ``"off"`` or no
+        client context was available at creation time.
+    """
+
     created_at: str | None
     expires_at: str | None
     last_used_at: str | None
