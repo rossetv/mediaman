@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import re as _re
 from functools import lru_cache
 
 from fastapi import APIRouter, Form, Request
@@ -29,6 +28,7 @@ from mediaman.auth.session import (
     validate_session,
 )
 from mediaman.db import get_db
+from mediaman.web.auth.password_hash import _sanitise_log_field
 from mediaman.web.responses import respond_err
 from mediaman.web.routes._helpers import set_session_cookie
 
@@ -56,24 +56,6 @@ _limiter = RateLimiter(max_attempts=5, window_seconds=_LOGIN_RATE_WINDOW_SECONDS
 # at this many chars to bound the log-row size and prevent a megabyte-
 # username from polluting the history page.
 _AUDIT_USERNAME_LIMIT = 64
-
-# Characters permitted in sanitised log fields.  Anything outside this
-# set is stripped before interpolation so CR/LF and control characters
-# cannot be used to forge additional log lines.
-_LOG_FIELD_RE = _re.compile(r"[^A-Za-z0-9._@\-]")
-
-
-def _sanitise_log_field(value: str, limit: int = 64) -> str:
-    """Strip non-safe characters from *value* and truncate to *limit*.
-
-    Safe characters: ``A-Za-z0-9._@-``.  Everything else is removed.
-    If the original string was longer than *limit* (before stripping),
-    an ellipsis marker is appended to the sanitised result so log
-    readers know truncation occurred.
-    """
-    truncated = len(value) > limit
-    sanitised = _LOG_FIELD_RE.sub("", value)[:limit]
-    return sanitised + "..." if truncated else sanitised
 
 
 def _ua_hash(user_agent: str) -> str:

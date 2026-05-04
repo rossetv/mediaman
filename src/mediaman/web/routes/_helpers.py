@@ -6,12 +6,8 @@ copy-pasted into three or more route files belong here.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
+from fastapi import Request
 from starlette.responses import Response
-
-if TYPE_CHECKING:
-    from fastapi import Request
 
 # ---------------------------------------------------------------------------
 # Session cookie
@@ -47,8 +43,9 @@ def is_admin(request: Request) -> bool:
     "session_token"), request=request) is not None`` pattern at four call
     sites (keep.py × 2, kept.py × 2, recommended.py).
 
-    Uses a deferred import to avoid a circular import cycle (middleware
-    depends on session, helpers must not depend on middleware at module level).
+    The import is deferred so that test patches on
+    ``mediaman.auth.middleware.get_optional_admin_from_token`` take effect
+    at call time rather than at module-load time.
     """
     from mediaman.auth.middleware import get_optional_admin_from_token
 

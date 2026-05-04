@@ -167,7 +167,7 @@ def force_change_submit(
     # change_password invalidates every session for the user; we need
     # to issue a fresh one so the admin lands on the dashboard logged
     # in under the new credential.
-    from mediaman.auth.session import create_session
+    from mediaman.auth.session import create_session  # deferred: patched in tests
 
     new_token = create_session(
         conn,
