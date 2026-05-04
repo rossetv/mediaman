@@ -56,7 +56,7 @@
 }
 .nav-btn:hover,
 .nav-links a:hover,
-.nav-links button:hover { color: var(--t1); background: rgba(255,255,255,.06); }
+.nav-links button:hover { color: var(--t1); background: var(--rgba-overlay-sm); }
 
 .nav-btn.on,
 .nav-btn.active,

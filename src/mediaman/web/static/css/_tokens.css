@@ -66,5 +66,29 @@
   --z-modal:          110;
   --z-confirm:        200;
   --z-toast:          210;
+
+  /* Semantic rgba helpers — see DESIGN.md §2 Semantic Palette.
+     These four literals appeared across 30+ selectors with no shared name;
+     tokenising them here removes the scatter and makes intent legible. */
+
+  /* Frosted-glass overlay track, storage bar background, neutral badge tint.
+     Sits at exactly one step above --bg without introducing a new surface step. */
+  --rgba-overlay-sm: rgba(255,255,255,.06);
+
+  /* Accent (blue) chip background — keep, badge-tv, type pills, lib-pill.on.
+     Adopted DESIGN.md §2 "low-opacity background counterpart (0.10–0.22 alpha)"
+     for the accent/interactive semantic; .15 is the canonical mid-point. */
+  --rgba-accent-bg: rgba(41,151,255,.15);
+
+  /* Success (green) chip background — kept state, .btn--success, disk-badge.ok.
+     Same 0.10–0.22 rule; .14 chosen to match the primary button/badge usage. */
+  --rgba-success-bg: rgba(48,209,88,.14);
+
+  /* Danger (red) chip background — .btn--danger, status-scheduled, disk-badge.crit.
+     .12 is the canonical destructive chip background per existing usage. */
+  --rgba-danger-bg: rgba(255,69,58,.12);
+
+  /* Row gap shared by .setg-row, .settings-subrow, and .form-row. */
+  --gap-row: 20px;
 }
 

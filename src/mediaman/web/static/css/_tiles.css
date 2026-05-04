@@ -431,7 +431,7 @@
 }
 .sug-dl-btn:hover { background: var(--accent-hi); }
 .sug-dl-btn.state-ready,
-.sug-dl-btn.state-downloading { background: rgba(48,209,88,.14); color: var(--success); }
+.sug-dl-btn.state-downloading { background: var(--rgba-success-bg); color: var(--success); }
 .sug-dl-btn.state-queued { background: rgba(255,214,10,.14); color: var(--warning); }
 
 .inline-error {

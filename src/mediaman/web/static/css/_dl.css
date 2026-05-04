@@ -436,7 +436,7 @@
   display: inline-flex;
   padding: 3px 10px;
   border-radius: var(--r-pill);
-  background: rgba(255,255,255,.06);
+  background: var(--rgba-overlay-sm);
   color: var(--t2);
   font-size: 11px;
   font-weight: 500;
