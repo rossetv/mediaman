@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from mediaman.db.schema_definition import _SCHEMA, CUTOVER_VERSION
+from mediaman.db.schema_definition import _SCHEMA, CUTOVER_VERSION, DB_SCHEMA_VERSION
 
 
 class SchemaTooOldError(RuntimeError):
@@ -31,6 +31,16 @@ class SchemaTooOldError(RuntimeError):
     """
 
 
+class SchemaFromFutureError(RuntimeError):
+    """Raised when the database was written by a newer build of mediaman.
+
+    A version number above :data:`DB_SCHEMA_VERSION` means the database has
+    been opened by a newer release that may have added columns, triggers or
+    constraints this code does not know about. Refusing to start is safer
+    than silently corrupting data on the first write.
+    """
+
+
 def apply_migrations(conn: sqlite3.Connection) -> None:
     """Advance *conn* to :data:`~mediaman.db.schema_definition.DB_SCHEMA_VERSION`.
 
@@ -38,9 +48,11 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
 
     * **0** — fresh database; apply the full _SCHEMA DDL and stamp at
       CUTOVER_VERSION.
-    * **>= CUTOVER_VERSION** — already up to date; return immediately.
+    * **CUTOVER_VERSION .. DB_SCHEMA_VERSION** — already up to date; return.
     * **1 .. CUTOVER_VERSION - 1** — pre-squash database; raise
       :class:`SchemaTooOldError` with an actionable message.
+    * **> DB_SCHEMA_VERSION** — database came from a newer build; raise
+      :class:`SchemaFromFutureError` rather than silently accepting it.
     """
     current_version: int = conn.execute("PRAGMA user_version").fetchone()[0]
 
@@ -58,4 +70,13 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
             f"1.9.0 first, then this version."
         )
 
-    # current_version >= CUTOVER_VERSION — nothing to do.
+    if current_version > DB_SCHEMA_VERSION:
+        raise SchemaFromFutureError(
+            f"Database is at version {current_version}, newer than this "
+            f"build supports ({DB_SCHEMA_VERSION}). The database was likely "
+            f"opened by a newer release of mediaman; downgrading is not "
+            f"supported. Restore a backup compatible with this version or "
+            f"upgrade mediaman."
+        )
+
+    # CUTOVER_VERSION <= current_version <= DB_SCHEMA_VERSION — nothing to do.

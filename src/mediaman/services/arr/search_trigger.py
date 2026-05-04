@@ -110,10 +110,13 @@ def _jitter_for(dl_id: str, last_triggered_at: float) -> float:
     which calls into :class:`~mediaman.services.infra.backoff.ExponentialBackoff`'s
     deterministic-multiplier helper using the same seed.
 
-    Tests may patch either ``mediaman.services.arr.throttle._jitter_for`` or
-    ``mediaman.services.arr.search_trigger._jitter_for``.  ``_search_backoff_seconds``
-    resolves this name via the ``throttle`` module at call time (lazy import)
-    so that patching either path affects the backoff computation.
+    Tests must patch ``mediaman.services.arr.throttle._jitter_for`` —
+    not the ``search_trigger`` path.  ``_search_backoff_seconds`` looks
+    up ``_jitter_for`` exclusively via the ``throttle`` module at call
+    time (lazy import), so a patch on this module's own name would not
+    be observed by the production backoff computation.  The ``throttle``
+    module re-exports ``_jitter_for`` as an attribute, which monkeypatch
+    rebinds in place so the production call sees the patched value.
     """
     seed = f"{dl_id}|{last_triggered_at!r}".encode()
     return _SEARCH_BACKOFF._deterministic_multiplier(seed)
@@ -261,13 +264,22 @@ def get_search_info(dl_id: str) -> tuple[int, float]:
             return count, last
 
     # Cache miss — consult the DB. Best-effort: any failure (locked DB,
-    # missing table on a fresh install) returns the zero pair rather
-    # than raising, so a stalled connection never breaks the page.
+    # missing table on a fresh install, ``get_db()`` raising because the
+    # request context has gone away) returns the zero pair rather than
+    # raising, so a stalled connection never breaks the page. Logged at
+    # ``warning`` with ``exc_info`` so a silent class of failure can't
+    # masquerade as "no search has fired yet".
     try:
         from mediaman.db import get_db
 
         epoch, persisted_count = _load_throttle_from_db(get_db(), dl_id)
     except Exception:
+        logger.warning(
+            "arr_search_trigger.get_search_info: DB fallback failed for "
+            "dl_id=%s — reporting zero pair",
+            dl_id,
+            exc_info=True,
+        )
         return 0, 0.0
     if epoch == 0.0 and persisted_count == 0:
         return 0, 0.0

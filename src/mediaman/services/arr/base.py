@@ -364,7 +364,11 @@ class ArrClient(_ArrClientBase):
         """
         self._require_series("delete_series")
         sid = int(series_id)
-        self._delete(f"/api/v3/series/{sid}?deleteFiles=true&addImportListExclusion=true")
+        # ``self.spec.exclusion_param`` is the per-flavour spelling
+        # (``addImportListExclusion`` for Sonarr, ``addImportExclusion`` for
+        # Radarr).  Reading it through the spec keeps the spelling in one
+        # place — see :class:`mediaman.services.arr.spec.ArrSpec`.
+        self._delete(f"/api/v3/series/{sid}?deleteFiles=true&{self.spec.exclusion_param}=true")
 
     def has_remaining_files(self, series_id: int) -> bool:
         """Return True if the series still has any episode files on disk.
@@ -731,7 +735,9 @@ class ArrClient(_ArrClientBase):
         """
         self._require_movie("delete_movie")
         mid = int(movie_id)
-        self._delete(f"/api/v3/movie/{mid}?deleteFiles=true&addImportExclusion=true")
+        # ``self.spec.exclusion_param`` carries the per-flavour spelling —
+        # see :func:`delete_series` for the rationale.
+        self._delete(f"/api/v3/movie/{mid}?deleteFiles=true&{self.spec.exclusion_param}=true")
 
     def unmonitor_movie(self, movie_id: int, *, max_retries: int = 3) -> None:
         """Set ``monitored=False`` for *movie_id* in Radarr.

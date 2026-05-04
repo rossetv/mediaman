@@ -371,7 +371,15 @@ def migrate_legacy_ciphertexts(conn: sqlite3.Connection, secret_key: str) -> int
         try:
             raw = base64.urlsafe_b64decode(raw_ct)
         except Exception:
-            logger.warning("migrate_legacy_ciphertexts: skipping key=%s (bad base64)", key_name)
+            # Include exc_info — "bad base64" is a category, but the
+            # specific Exception subclass and message tell an operator
+            # whether they're looking at a corrupted row, an unexpected
+            # byte type from sqlite3, or something stranger.
+            logger.warning(
+                "migrate_legacy_ciphertexts: skipping key=%s (decode failed)",
+                key_name,
+                exc_info=True,
+            )
             continue
 
         # Check whether the row is already v2+AAD (happy path → skip).
@@ -413,7 +421,23 @@ def migrate_legacy_ciphertexts(conn: sqlite3.Connection, secret_key: str) -> int
         logger.info("migrate_legacy_ciphertexts: re-encrypted key=%s to v2+AAD", key_name)
 
     if migrated:
-        conn.commit()
+        # Guard the commit explicitly. A silently-failed commit produces a
+        # livelock: every restart re-runs the migration, attempts the same
+        # commit, fails the same way, and reports success without ever
+        # persisting the AAD-bound rows. Re-raise so the caller (typically
+        # bootstrap_crypto) can decide whether to abort startup or
+        # continue with rollback semantics.
+        try:
+            conn.commit()
+        except Exception:
+            logger.error(
+                "migrate_legacy_ciphertexts: commit failed after %d "
+                "re-encryptions — rows were NOT persisted; the migration "
+                "will be retried on next startup",
+                migrated,
+                exc_info=True,
+            )
+            raise
         try:
             from mediaman.audit import security_event
 

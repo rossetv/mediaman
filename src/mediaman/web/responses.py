@@ -43,7 +43,10 @@ def respond_ok(data: dict | None = None, *, status: int = 200) -> JSONResponse:
         A :class:`~fastapi.responses.JSONResponse` with the envelope body.
     """
     body: dict = {"ok": True}
-    if data:
+    if data is not None:
+        # ``is not None`` rather than truthy check — falsy-but-meaningful
+        # payloads like ``{"count": 0}`` or ``{"libraries": []}`` must not
+        # be silently dropped from the envelope.
         body.update(data)
     return JSONResponse(body, status_code=status)
 

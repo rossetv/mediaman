@@ -75,11 +75,18 @@
       if (e.target === modalEl) close();
     });
 
-    /* ── ESC key — fall back if ModalA11y isn't loaded ── */
+    /* ── ESC key — fall back if ModalA11y isn't loaded ──
+     * Only act on ESC when this specific modal is currently visible —
+     * avoids closing a hidden modal (wasteful) and avoids two
+     * setupDetail-managed modals on the same page from each handling
+     * every ESC press. */
     var _escHandler = null;
     if (!global.ModalA11y) {
       _escHandler = function (e) {
-        if (e.key === 'Escape') close();
+        if (e.key !== 'Escape') return;
+        if (!modalEl || modalEl.style.display === 'none') return;
+        if (modalEl.getAttribute('aria-hidden') === 'true') return;
+        close();
       };
       document.addEventListener('keydown', _escHandler);
     }

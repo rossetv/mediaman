@@ -232,11 +232,22 @@ class ScanEngine:
                 _phase_upsert_item(self._conn, f, self._arr_cache, f.media_type)
                 summary["synced"] += 1
             # Per-library orphan cleanup so an empty result on one
-            # library cannot wipe items belonging to another.
-            summary["removed"] += self._remove_orphaned_items(
-                seen_lib_keys,
-                _coerce_lib_ids([lib_id]),
-            )
+            # library cannot wipe items belonging to another.  A malformed
+            # ``lib_id`` (rare — would mean the Plex section tree contains
+            # a non-numeric key, which the API does not currently emit but
+            # could on a corrupted server) skips orphan removal for this
+            # library rather than crashing the whole sync.
+            try:
+                lib_set = _coerce_lib_ids([lib_id])
+            except ValueError:
+                logger.warning(
+                    "scanner.lib_sync.malformed_lib_id lib_id=%r — skipping "
+                    "orphan removal for this library",
+                    lib_id,
+                )
+                self._conn.commit()
+                continue
+            summary["removed"] += self._remove_orphaned_items(seen_lib_keys, lib_set)
             self._conn.commit()
 
         logger.info(
@@ -314,7 +325,15 @@ class ScanEngine:
             logger.info("engine.run_scan.dry_run skipping orphan removal")
         else:
             for lib_id, seen in seen_by_lib.items():
-                lib_set = _coerce_lib_ids([lib_id])
+                try:
+                    lib_set = _coerce_lib_ids([lib_id])
+                except ValueError:
+                    logger.warning(
+                        "scanner.run_scan.malformed_lib_id lib_id=%r — "
+                        "skipping orphan removal for this library",
+                        lib_id,
+                    )
+                    continue
                 summary["removed"] += self._remove_orphaned_items(seen, lib_set)
             self._conn.commit()
 
