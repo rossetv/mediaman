@@ -1,14 +1,37 @@
-"""Library query helpers — fetch and shape media_items from SQLite."""
+"""Library page routes.
+
+Handles the browser-facing GET /library page.  All JSON API endpoints
+(``/api/library``, ``/api/media/…``) live in the sibling module
+:mod:`mediaman.web.routes.library_api`.
+
+Query helpers (``fetch_library``, ``fetch_stats``, private helpers) and
+the shared constants (``_VALID_SORTS``, ``_VALID_TYPES``,
+``TV_SEASON_TYPES``, etc.) are defined inline here rather than in a
+separate ``_query`` sub-module; they were split only because the old
+package had five files.  The private names remain importable under their
+original ``mediaman.web.routes.library._query`` path via the
+``_query`` attribute shim at the bottom of this file so existing tests
+that import directly from that path continue to work.
+"""
 
 from __future__ import annotations
 
 import sqlite3
 from datetime import UTC, datetime, timedelta
 
+from fastapi import APIRouter, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.responses import Response
+
+from mediaman.auth.middleware import resolve_page_session
 from mediaman.services.infra.format import days_ago, format_bytes
 from mediaman.services.infra.settings_reader import get_int_setting
 from mediaman.services.infra.time import parse_iso_utc
 from mediaman.web.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED
+
+# ---------------------------------------------------------------------------
+# Shared constants — used by both this module and library_api.
+# ---------------------------------------------------------------------------
 
 _VALID_SORTS = {
     "added_desc",
@@ -22,18 +45,21 @@ _VALID_SORTS = {
 }
 _VALID_TYPES = {"movie", "tv", "anime", "kept", "stale"}
 
-# Hard cap on the user-supplied search term applied to the LIKE filter
-# (finding 14). Without this an attacker could submit a multi-megabyte
-# string and force SQLite to do a slow scan against every title and
-# show_title row. 200 chars is well above any realistic title length.
+# Hard cap on the user-supplied search term applied to the LIKE filter.
+# Without this an attacker could submit a multi-megabyte string and force
+# SQLite to do a slow scan against every title and show_title row.
+# 200 chars is well above any realistic title length.
 _MAX_SEARCH_TERM_LEN = 200
 
 # Canonical media_type values that represent a TV / anime *season* row.
-# Used by the type filter, the display CTE, and the kept route — keeping
-# a single list prevents the three from drifting (finding 34).
 TV_SEASON_TYPES: tuple[str, ...] = ("tv_season", "tv", "season")
 ANIME_SEASON_TYPES: tuple[str, ...] = ("anime_season", "anime")
 ALL_SEASON_TYPES: tuple[str, ...] = TV_SEASON_TYPES + ANIME_SEASON_TYPES
+
+
+# ---------------------------------------------------------------------------
+# Private query helpers
+# ---------------------------------------------------------------------------
 
 
 def _days_ago(dt_str: str | None) -> str:
@@ -89,10 +115,10 @@ def fetch_library(
     params: list[object] = []
 
     if q:
-        # Cap the LIKE term before escaping (finding 14) — escaping
-        # before truncation would let metacharacters at position
-        # _MAX_SEARCH_TERM_LEN-1 split mid-escape and produce a
-        # malformed pattern. Truncate raw, then escape.
+        # Cap the LIKE term before escaping — escaping before truncation
+        # would let metacharacters at position _MAX_SEARCH_TERM_LEN-1
+        # split mid-escape and produce a malformed pattern.  Truncate raw,
+        # then escape.
         q = q[:_MAX_SEARCH_TERM_LEN]
         where_clauses.append("(title LIKE ? ESCAPE '\\' OR show_title LIKE ? ESCAPE '\\')")
         q_escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -137,17 +163,6 @@ def fetch_library(
     }
     order = _CTE_SORT.get(sort, _CTE_SORT["added_desc"])
 
-    # Performance note (finding 15): the per-row ``EXISTS(...)`` against
-    # ``scheduled_actions(media_item_id, token_used)`` and ``kept_shows
-    # (show_rating_key)`` benefits from indexes. Adding them lives in
-    # ``db/schema.py``, which this wave does NOT touch — flagged here
-    # so a follow-up commit can land the indexes:
-    #   CREATE INDEX IF NOT EXISTS idx_sa_mid_token
-    #     ON scheduled_actions(media_item_id, token_used);
-    #   CREATE INDEX IF NOT EXISTS idx_ks_rk
-    #     ON kept_shows(show_rating_key);
-    # The query as-written still works correctly without them; it just
-    # falls back to a sequential scan on large libraries.
     cte_sql = f"""
     WITH filtered AS (
         SELECT * FROM media_items {where_sql}
@@ -301,11 +316,11 @@ def fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
     """Return counts and stale count for the library stats bar.
 
     The TV/anime totals use the same grouping definition as
-    :func:`fetch_library`'s display_items CTE — ``COALESCE(show_rating_key,
-    show_title)`` (finding 16). When a show has NULL in both columns
-    SQLite's ``COUNT(DISTINCT NULL)`` returned 0 while the CTE's
-    ``GROUP BY NULL`` collapsed every such row into a single group of 1,
-    so the two queries reported different totals on the same data.
+    :func:`fetch_library`'s display_items CTE —
+    ``COALESCE(show_rating_key, show_title)``.  When a show has NULL in
+    both columns SQLite's ``COUNT(DISTINCT NULL)`` returned 0 while the
+    CTE's ``GROUP BY NULL`` collapsed every such row into a single group
+    of 1, so the two queries reported different totals on the same data.
 
     Wrapping the count in a sub-select with ``GROUP BY`` (instead of
     ``COUNT(DISTINCT ...)``) makes the NULL behaviour match: NULL is a
@@ -365,3 +380,88 @@ def fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
         "total": total,
         "total_size": total_size,
     }
+
+
+# ---------------------------------------------------------------------------
+# Page route
+# ---------------------------------------------------------------------------
+
+router = APIRouter()
+
+
+@router.get("/library", response_class=HTMLResponse)
+def library_page(
+    request: Request,
+    q: str = "",
+    type: str = "",
+    sort: str = "added_desc",
+    page: int = Query(default=1, ge=1, le=100_000),
+    per_page: int = Query(default=20, ge=1, le=100),
+) -> Response:
+    """Render the library page.  Redirects to /login if the session is invalid."""
+    resolved = resolve_page_session(request)
+    if isinstance(resolved, RedirectResponse):
+        return resolved
+    username, conn = resolved
+
+    # Sort/type silently reset to defaults — these are vocabulary fields and an
+    # unknown value is treated as "no filter" rather than an outright error.
+    sort = sort if sort in _VALID_SORTS else "added_desc"
+    media_type = type if type in _VALID_TYPES else ""
+
+    items, total = fetch_library(
+        conn, q=q, media_type=media_type, sort=sort, page=page, per_page=per_page
+    )
+    stats = fetch_stats(conn)
+
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page_start = (page - 1) * per_page + 1 if total else 0
+    page_end = min(page * per_page, total)
+
+    templates = request.app.state.templates
+    return templates.TemplateResponse(
+        request,
+        "library.html",
+        {
+            "username": username,
+            "nav_active": "library",
+            "items": items,
+            "stats": stats,
+            "q": q,
+            "current_type": media_type,
+            "current_sort": sort,
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "total_pages": total_pages,
+            "page_start": page_start,
+            "page_end": page_end,
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Compatibility shim — tests that were written against the old package
+# structure import from ``mediaman.web.routes.library._query``.  Expose a
+# ``_query`` attribute on this module so those imports continue to work
+# without needing to migrate every test.
+# ---------------------------------------------------------------------------
+
+import types as _types  # noqa: E402
+
+_query = _types.ModuleType("mediaman.web.routes.library._query")
+_query._VALID_SORTS = _VALID_SORTS  # type: ignore[attr-defined]
+_query._VALID_TYPES = _VALID_TYPES  # type: ignore[attr-defined]
+_query._MAX_SEARCH_TERM_LEN = _MAX_SEARCH_TERM_LEN  # type: ignore[attr-defined]
+_query.TV_SEASON_TYPES = TV_SEASON_TYPES  # type: ignore[attr-defined]
+_query.ANIME_SEASON_TYPES = ANIME_SEASON_TYPES  # type: ignore[attr-defined]
+_query.ALL_SEASON_TYPES = ALL_SEASON_TYPES  # type: ignore[attr-defined]
+_query._days_ago = _days_ago  # type: ignore[attr-defined]
+_query._type_css = _type_css  # type: ignore[attr-defined]
+_query._protection_label = _protection_label  # type: ignore[attr-defined]
+_query.fetch_library = fetch_library  # type: ignore[attr-defined]
+_query.fetch_stats = fetch_stats  # type: ignore[attr-defined]
+
+import sys as _sys  # noqa: E402
+
+_sys.modules.setdefault("mediaman.web.routes.library._query", _query)
