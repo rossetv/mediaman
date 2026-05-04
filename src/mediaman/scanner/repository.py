@@ -7,6 +7,16 @@ engine, fetcher, and deletion executor read as orchestration — not as
 a pile of string literals — and makes the schema contract easy to spot
 when it changes.
 
+**Repository purity contract:** this module is pure SQL — it must not
+import crypto primitives at module level.  The one historical exception
+is :func:`schedule_deletion`, which generates an HMAC keep-token after
+the INSERT so it can bind the token to the assigned ``action_id``.  The
+production scan path now delegates to :func:`phases.upsert.schedule_deletion`
+which owns the token generation; this function is kept for back-compat
+with tests and any out-of-engine callers.  The ``generate_keep_token``
+import is lazy (inside the function body) so this module has no
+module-level dependency on :mod:`mediaman.crypto`.
+
 This module depends only on :mod:`sqlite3`; it MUST NOT import from
 ``fetch`` or ``deletions`` (see engine.py header for the import-cycle
 rule).
@@ -22,7 +32,6 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 
 from mediaman.audit import log_audit
-from mediaman.crypto import generate_keep_token
 from mediaman.services.infra.format import ensure_tz as _ensure_tz
 from mediaman.services.infra.time import now_iso
 from mediaman.services.infra.time import parse_iso_utc as _parse_iso_utc
@@ -435,13 +444,20 @@ def schedule_deletion(
     # after a successful INSERT against an INTEGER PRIMARY KEY table.
     assert action_id is not None
 
-    token = generate_keep_token(
+    # Lazy imports: keep generate_keep_token and hashlib out of the module-
+    # level dependency graph so this module remains a pure SQL layer.  The
+    # production scan path uses phases.upsert.schedule_deletion instead;
+    # this function is kept for back-compat with tests and ad-hoc callers.
+    import hashlib as _hashlib
+
+    from mediaman.crypto import generate_keep_token as _generate_keep_token
+
+    token = _generate_keep_token(
         media_item_id=media_id,
         action_id=action_id,
         expires_at=expires_at,
         secret_key=secret_key,
     )
-    import hashlib as _hashlib
 
     token_hash = _hashlib.sha256(token.encode()).hexdigest()
     # Finding 16: write only the hash; null out the raw token.  On pre-
