@@ -155,8 +155,7 @@ class TestScrubFilterAttach:
         ScrubFilter.attach(logger_name, secrets=["dummy-secret-xyz"])
         after = len(target.filters)
         assert after >= before + 1 or any(
-            isinstance(f, ScrubFilter) and "dummy-secret-xyz" in f._secrets
-            for f in target.filters
+            isinstance(f, ScrubFilter) and "dummy-secret-xyz" in f._secrets for f in target.filters
         )
         # Cleanup — remove any filter we added so other tests aren't affected.
         target.filters = [
