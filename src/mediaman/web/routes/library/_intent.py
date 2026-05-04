@@ -26,6 +26,7 @@ from mediaman.audit import log_audit
 from mediaman.auth.middleware import get_current_admin
 from mediaman.auth.rate_limit import ActionRateLimiter
 from mediaman.db import get_db
+from mediaman.web.responses import respond_err, respond_ok
 
 logger = logging.getLogger("mediaman")
 
@@ -182,9 +183,8 @@ def api_media_delete(
 
     if not _DELETE_LIMITER.check(username):
         logger.warning("media.delete_throttled user=%s", username)
-        return JSONResponse(
-            {"error": "Too many delete operations — slow down"},
-            status_code=429,
+        return respond_err(
+            "too_many_requests", status=429, message="Too many delete operations — slow down"
         )
     conn = get_db()
 
@@ -202,7 +202,7 @@ def api_media_delete(
             # valid; 403 is uniform across "row is missing" and
             # "row exists but the actor isn't the owner" (auth has
             # already been confirmed by the dependency above).
-            return JSONResponse({"error": "Forbidden"}, status_code=403)
+            return respond_err("forbidden", status=403)
         snapshot = {
             "title": row["title"],
             "media_type": row["media_type"],
@@ -257,12 +257,10 @@ def api_media_delete(
                         logger.warning(
                             "Radarr delete failed for '%s': %s", title, exc, exc_info=True
                         )
-                        return JSONResponse(
-                            {
-                                "ok": False,
-                                "error": "Upstream Radarr delete failed — DB row preserved",
-                            },
-                            status_code=502,
+                        return respond_err(
+                            "upstream_delete_failed",
+                            status=502,
+                            message="Upstream Radarr delete failed — DB row preserved",
                         )
             else:
                 # No external call to make → no recovery scenario, so
@@ -300,12 +298,10 @@ def api_media_delete(
                         logger.warning(
                             "Sonarr delete failed for '%s': %s", title, exc, exc_info=True
                         )
-                        return JSONResponse(
-                            {
-                                "ok": False,
-                                "error": "Upstream Sonarr delete failed — DB row preserved",
-                            },
-                            status_code=502,
+                        return respond_err(
+                            "upstream_delete_failed",
+                            status=502,
+                            message="Upstream Sonarr delete failed — DB row preserved",
                         )
             # If no sid/season_num, skip the placeholder intent (finding 13).
 
@@ -334,4 +330,4 @@ def api_media_delete(
     if intent_id is not None:
         _complete_delete_intent(conn, intent_id)
     logger.info("Deleted %s (%s) — %s by %s", media_id, title, snapshot["file_path"], username)
-    return JSONResponse({"ok": True, "id": media_id})
+    return respond_ok({"id": media_id})

@@ -463,7 +463,7 @@ class TestDownloadStatusAPI:
                 r = client.get("/api/download/status?service=radarr&tmdb_id=1")
 
             assert r.status_code == 429
-            assert "too many" in r.json().get("error", "").lower()
+            assert r.json().get("error") == "too_many_requests"
         finally:
             # Leave the limiter clean so later tests aren't poisoned.
             download_mod._DOWNLOAD_STATUS_LIMITER._attempts.clear()

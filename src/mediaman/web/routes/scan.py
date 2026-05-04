@@ -24,6 +24,7 @@ from mediaman.db import (
 from mediaman.services.infra.rate_limits import (
     SCAN_TRIGGER_LIMITER as _SCAN_TRIGGER_LIMITER,
 )
+from mediaman.web.responses import respond_err, respond_ok
 
 logger = logging.getLogger("mediaman")
 
@@ -51,9 +52,11 @@ def trigger_scan(
     """
     if not _SCAN_TRIGGER_LIMITER.check(admin):
         logger.warning("scan.trigger_throttled user=%s", admin)
-        return JSONResponse(
-            {"status": "throttled", "error": "Too many scan triggers — slow down"},
-            status_code=429,
+        return respond_err(
+            "too_many_requests",
+            status=429,
+            message="Too many scan triggers — slow down",
+            status_detail="throttled",
         )
 
     conn = get_db()
@@ -139,9 +142,8 @@ def clear_scheduled(
     """
     if not _SCAN_TRIGGER_LIMITER.check(admin):
         logger.warning("scan.clear_throttled user=%s", admin)
-        return JSONResponse(
-            {"ok": False, "error": "Too many scan triggers — slow down"},
-            status_code=429,
+        return respond_err(
+            "too_many_requests", status=429, message="Too many scan triggers — slow down"
         )
     conn = get_db()
     try:
@@ -167,7 +169,7 @@ def clear_scheduled(
             raise
     except Exception:
         logger.exception("scan.clear failed user=%s", admin)
-        return JSONResponse({"ok": False, "error": "Internal error"}, status_code=500)
+        return respond_err("internal_error", status=500)
     logger.info("Cleared %d scheduled deletions by %s", cleared, admin)
     return {"ok": True, "cleared": cleared}
 
@@ -182,9 +184,8 @@ def api_library_sync(request: Request, admin: str = Depends(get_current_admin)) 
 
     if not _SCAN_TRIGGER_LIMITER.check(admin):
         logger.warning("library.sync_throttled user=%s", admin)
-        return JSONResponse(
-            {"ok": False, "error": "Too many sync triggers — slow down"},
-            status_code=429,
+        return respond_err(
+            "too_many_requests", status=429, message="Too many sync triggers — slow down"
         )
 
     conn = get_db()
@@ -198,7 +199,7 @@ def api_library_sync(request: Request, admin: str = Depends(get_current_admin)) 
             ip=get_client_ip(request),
             detail={"synced": result.get("synced", 0)},
         )
-        return JSONResponse({"ok": True, "synced": result.get("synced", 0)})
+        return respond_ok({"synced": result.get("synced", 0)})
     except Exception as exc:
         logger.warning("Library sync failed: %s", exc)
         security_event(
@@ -208,4 +209,4 @@ def api_library_sync(request: Request, admin: str = Depends(get_current_admin)) 
             ip=get_client_ip(request),
             detail={"error": str(exc)[:200]},
         )
-        return JSONResponse({"ok": False, "error": "Library sync failed"})
+        return respond_err("sync_failed", status=200, message="Library sync failed")

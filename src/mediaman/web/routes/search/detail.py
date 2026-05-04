@@ -30,6 +30,7 @@ from mediaman.services.arr.state import (
 from mediaman.services.infra.http_client import SafeHTTPError
 from mediaman.services.media_meta.omdb import fetch_ratings
 from mediaman.services.media_meta.tmdb import TmdbClient
+from mediaman.web.responses import respond_err
 
 from ._enrichment import _BACKDROP_BASE, _PROFILE_BASE, _poster_url
 
@@ -148,11 +149,11 @@ def api_detail(
     secret_key = request.app.state.config.secret_key
     client = TmdbClient.from_db(conn, secret_key)
     if client is None:
-        return JSONResponse({"error": "TMDB not configured"}, status_code=502)
+        return respond_err("tmdb_not_configured", status=502)
 
     raw_data = client.details(media_type, tmdb_id)
     if raw_data is None:
-        return JSONResponse({"error": "TMDB request failed"}, status_code=502)
+        return respond_err("tmdb_request_failed", status=502)
     # The TMDB client returns a generic ``dict[str, object]`` so callers
     # widen here to ``Any`` for ergonomic access to the well-known fields
     # below; values are still validated/coerced before use.

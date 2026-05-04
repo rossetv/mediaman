@@ -26,6 +26,7 @@ from mediaman.services.infra.rate_limits import (
     SUBSCRIBER_WRITE_LIMITER as _SUBSCRIBER_WRITE_LIMITER,
 )
 from mediaman.services.infra.time import now_iso
+from mediaman.web.responses import respond_err, respond_ok
 
 
 class _SendNewsletterBody(BaseModel):
@@ -120,13 +121,12 @@ def api_add_subscriber(
     """
     if not _SUBSCRIBER_WRITE_LIMITER.check(username):
         logger.warning("subscriber.add_throttled user=%s", username)
-        return JSONResponse(
-            {"error": "Too many subscriber changes — slow down"},
-            status_code=429,
+        return respond_err(
+            "too_many_requests", status=429, message="Too many subscriber changes — slow down"
         )
     email = email.strip().lower()
     if not _validate_email(email):
-        return JSONResponse({"error": "Invalid email address"}, status_code=422)
+        return respond_err("invalid_email", status=422, message="Invalid email address")
 
     conn = get_db()
     now = now_iso()
@@ -138,7 +138,9 @@ def api_add_subscriber(
             ).fetchone()
             if existing:
                 conn.execute("ROLLBACK")
-                return JSONResponse({"error": "Email already subscribed"}, status_code=409)
+                return respond_err(
+                    "already_subscribed", status=409, message="Email already subscribed"
+                )
             try:
                 conn.execute(
                     "INSERT INTO subscribers (email, active, created_at) VALUES (?, 1, ?)",
@@ -149,14 +151,16 @@ def api_add_subscriber(
                 # 409. Without this, both racers passed the SELECT,
                 # one INSERT succeeded, the other returned a 500.
                 conn.execute("ROLLBACK")
-                return JSONResponse({"error": "Email already subscribed"}, status_code=409)
+                return respond_err(
+                    "already_subscribed", status=409, message="Email already subscribed"
+                )
             conn.execute("COMMIT")
         except Exception:
             conn.execute("ROLLBACK")
             raise
     except Exception:
         logger.exception("subscriber.add failed user=%s", username)
-        return JSONResponse({"error": "Internal error"}, status_code=500)
+        return respond_err("internal_error", status=500)
 
     masked = _mask_email_log(email)
     logger.info("Subscriber added: %s by %s", masked, username)
@@ -167,7 +171,7 @@ def api_add_subscriber(
         ip=get_client_ip(request),
         detail={"email": masked},
     )
-    return JSONResponse({"ok": True, "email": email}, status_code=201)
+    return respond_ok({"email": email}, status=201)
 
 
 @router.delete("/api/subscribers/{subscriber_id}")
@@ -184,14 +188,13 @@ def api_remove_subscriber(
     """
     if not _SUBSCRIBER_WRITE_LIMITER.check(username):
         logger.warning("subscriber.remove_throttled user=%s", username)
-        return JSONResponse(
-            {"error": "Too many subscriber changes — slow down"},
-            status_code=429,
+        return respond_err(
+            "too_many_requests", status=429, message="Too many subscriber changes — slow down"
         )
     conn = get_db()
     row = conn.execute("SELECT email FROM subscribers WHERE id = ?", (subscriber_id,)).fetchone()
     if row is None:
-        return JSONResponse({"error": "Subscriber not found"}, status_code=404)
+        return respond_err("not_found", status=404, message="Subscriber not found")
 
     conn.execute("DELETE FROM subscribers WHERE id = ?", (subscriber_id,))
     conn.commit()
@@ -205,7 +208,7 @@ def api_remove_subscriber(
         ip=get_client_ip(request),
         detail={"id": subscriber_id, "email": masked},
     )
-    return JSONResponse({"ok": True})
+    return respond_ok()
 
 
 @router.post("/api/newsletter/send")
@@ -229,15 +232,14 @@ def api_send_newsletter(
 
     if not _NEWSLETTER_LIMITER.check(admin):
         logger.warning("newsletter.send_throttled user=%s", admin)
-        return JSONResponse(
-            {"ok": False, "error": "Newsletter send is rate-limited"},
-            status_code=429,
+        return respond_err(
+            "too_many_requests", status=429, message="Newsletter send is rate-limited"
         )
 
     raw_recipients = body.recipients
 
     if not isinstance(raw_recipients, list) or not raw_recipients:
-        return JSONResponse({"ok": False, "error": "No recipients selected"}, status_code=400)
+        return respond_err("no_recipients", status=400, message="No recipients selected")
 
     config = request.app.state.config
 
@@ -246,7 +248,7 @@ def api_send_newsletter(
     # an open relay for the configured Mailgun domain.
     requested = {str(r).lower().strip() for r in raw_recipients if isinstance(r, str)}
     if not requested:
-        return JSONResponse({"ok": False, "error": "No valid recipients"}, status_code=400)
+        return respond_err("no_valid_recipients", status=400, message="No valid recipients")
 
     placeholders = ",".join("?" * len(requested))
     # ``subscribers.email`` is normalised to lowercase on write (M14)
@@ -283,9 +285,8 @@ def api_send_newsletter(
             admin,
             rejected,
         )
-        return JSONResponse(
-            {"ok": False, "error": "No matching active subscribers"},
-            status_code=400,
+        return respond_err(
+            "no_valid_recipients", status=400, message="No matching active subscribers"
         )
 
     try:
@@ -308,10 +309,10 @@ def api_send_newsletter(
             ip=get_client_ip(request),
             detail={"sent_to": len(recipients), "rejected": rejected},
         )
-        return JSONResponse({"ok": True, "sent_to": len(recipients)})
+        return respond_ok({"sent_to": len(recipients)})
     except Exception as exc:
         logger.warning("Manual newsletter send failed: %s", exc)
-        return JSONResponse({"ok": False, "error": "Newsletter send failed"}, status_code=502)
+        return respond_err("send_failed", status=502, message="Newsletter send failed")
 
 
 # ---------------------------------------------------------------------------

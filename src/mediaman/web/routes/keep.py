@@ -41,6 +41,7 @@ from mediaman.services.scheduled_actions import (
     token_hash,
 )
 from mediaman.web.models import VALID_KEEP_DURATIONS
+from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes._helpers import is_admin as _is_admin
 
 router = APIRouter()
@@ -244,31 +245,31 @@ def keep_forever(
     config = request.app.state.config
 
     if not _KEEP_POST_LIMITER.check(get_client_ip(request)):
-        return JSONResponse({"error": "Too many requests"}, status_code=429)
+        return respond_err("too_many_requests", status=429)
     if len(token) > 4096:
-        return JSONResponse({"error": "invalid_or_expired"}, status_code=400)
+        return respond_err("invalid_or_expired", status=400)
 
     verified = lookup_verified_action(conn, token, config.secret_key)
     if verified is None:
-        return JSONResponse({"error": "invalid_or_expired"}, status_code=400)
+        return respond_err("invalid_or_expired", status=400)
 
     now = datetime.now(UTC)
 
     # Check replay first so replays get 409, not 400.
     if not mark_token_consumed(conn, token, now):
         conn.commit()
-        return JSONResponse({"error": "already_processed"}, status_code=409)
+        return respond_err("already_processed", status=409)
 
     if not is_pending_unexpired(verified, now):
         conn.rollback()
-        return JSONResponse({"error": "invalid_or_expired"}, status_code=400)
+        return respond_err("invalid_or_expired", status=400)
 
     rowcount = apply_keep_forever(conn, action_id=verified["id"], now=now)
     if rowcount == 0:
         conn.commit()
-        return JSONResponse({"error": "already_processed"}, status_code=409)
+        return respond_err("already_processed", status=409)
 
     log_audit(conn, verified["media_item_id"], "snoozed", "Kept forever (admin)")
     conn.commit()
 
-    return JSONResponse({"ok": True, "state": "protected_forever"})
+    return respond_ok({"state": "protected_forever"})

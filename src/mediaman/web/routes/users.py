@@ -44,6 +44,7 @@ from mediaman.auth.session import (
     list_users,
 )
 from mediaman.db import get_db
+from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes._helpers import set_session_cookie
 
 logger = logging.getLogger("mediaman")
@@ -116,13 +117,11 @@ def _unauthorised_reauth() -> JSONResponse:
     exact same shape — the front-end can key off ``reauth_required: true``
     to prompt the user.
     """
-    return JSONResponse(
-        {
-            "ok": False,
-            "error": "Recent password re-authentication required",
-            "reauth_required": True,
-        },
-        status_code=403,
+    return respond_err(
+        "reauth_required",
+        status=403,
+        message="Recent password re-authentication required",
+        reauth_required=True,
     )
 
 
@@ -149,9 +148,8 @@ def api_create_user(
     """
     if not _USER_CREATE_LIMITER.check(admin):
         logger.warning("user.create_throttled actor=%s", admin)
-        return JSONResponse(
-            {"ok": False, "error": "Too many user-creation attempts — slow down"},
-            status_code=429,
+        return respond_err(
+            "too_many_requests", status=429, message="Too many user-creation attempts — slow down"
         )
 
     conn = get_db()
@@ -163,22 +161,19 @@ def api_create_user(
     password = body.password
 
     if not username or len(username) < 3 or len(username) > 64:
-        return JSONResponse(
-            {"ok": False, "error": "Username must be between 3 and 64 characters"},
-            status_code=400,
+        return respond_err(
+            "invalid_username", status=400, message="Username must be between 3 and 64 characters"
         )
 
     from mediaman.auth.password_policy import password_issues
 
     issues = password_issues(password, username=username)
     if issues:
-        return JSONResponse(
-            {
-                "ok": False,
-                "error": "Password does not meet the strength policy",
-                "issues": issues,
-            },
-            status_code=400,
+        return respond_err(
+            "weak_password",
+            status=400,
+            message="Password does not meet the strength policy",
+            issues=issues,
         )
 
     # Audit fail-closed: write the audit row and the create_user mutation
@@ -194,15 +189,14 @@ def api_create_user(
             audit_ip=get_client_ip(request),
         )
     except ValueError as e:
-        return JSONResponse({"ok": False, "error": str(e)}, status_code=409)
+        return respond_err(str(e), status=409)
     except Exception:
         logger.exception("user.create failed actor=%s username=%s", admin, username)
-        return JSONResponse(
-            {"ok": False, "error": "Internal error during user creation"},
-            status_code=500,
+        return respond_err(
+            "internal_error", status=500, message="Internal error during user creation"
         )
     logger.info("user.created actor=%s new_user=%s", admin, username)
-    return JSONResponse({"ok": True, "username": username})
+    return respond_ok({"username": username})
 
 
 @router.delete("/api/users/{user_id}")
@@ -224,12 +218,10 @@ def api_delete_user(
     # Reject any attempt to pass the password via query string — it leaks
     # into access logs and server-side request recording.
     if "confirm_password" in request.query_params:
-        return JSONResponse(
-            {
-                "ok": False,
-                "error": "confirm_password must be sent via X-Confirm-Password header, not the query string",
-            },
-            status_code=400,
+        return respond_err(
+            "use_header",
+            status=400,
+            message="confirm_password must be sent via X-Confirm-Password header, not the query string",
         )
 
     conn = get_db()
@@ -243,9 +235,8 @@ def api_delete_user(
             ip=client_ip,
             detail={"target_id": user_id},
         )
-        return JSONResponse(
-            {"ok": False, "error": "Too many user-management operations"},
-            status_code=429,
+        return respond_err(
+            "too_many_requests", status=429, message="Too many user-management operations"
         )
     pw = x_confirm_password or ""
     # ``verify_reauth_password`` feeds wrong-password attempts into the
@@ -261,9 +252,8 @@ def api_delete_user(
             ip=client_ip,
             detail={"target_id": user_id},
         )
-        return JSONResponse(
-            {"ok": False, "error": "Password confirmation required"},
-            status_code=403,
+        return respond_err(
+            "password_required", status=403, message="Password confirmation required"
         )
     try:
         deleted = delete_user(
@@ -275,15 +265,14 @@ def api_delete_user(
         )
     except Exception:
         logger.exception("user.delete failed actor=%s target_id=%d", admin, user_id)
-        return JSONResponse(
-            {"ok": False, "error": "Internal error during user deletion"},
-            status_code=500,
+        return respond_err(
+            "internal_error", status=500, message="Internal error during user deletion"
         )
     if deleted:
         logger.info("user.deleted actor=%s target_id=%d", admin, user_id)
-        return JSONResponse({"ok": True})
-    return JSONResponse(
-        {"ok": False, "error": "Cannot delete yourself or user not found"}, status_code=400
+        return respond_ok()
+    return respond_err(
+        "cannot_delete", status=400, message="Cannot delete yourself or user not found"
     )
 
 
@@ -308,9 +297,8 @@ def api_unlock_user(
     avoid leaking which IDs exist.
     """
     if not _USER_MGMT_LIMITER.check(admin):
-        return JSONResponse(
-            {"ok": False, "error": "Too many user-management operations"},
-            status_code=429,
+        return respond_err(
+            "too_many_requests", status=429, message="Too many user-management operations"
         )
     conn = get_db()
     if not has_recent_reauth(conn, session_token, admin):
@@ -322,16 +310,10 @@ def api_unlock_user(
         (user_id,),
     ).fetchone()
     if row is None:
-        return JSONResponse(
-            {"ok": False, "error": "User not found"},
-            status_code=404,
-        )
+        return respond_err("not_found", status=404, message="User not found")
     target_username = row["username"]
     if target_username == admin:
-        return JSONResponse(
-            {"ok": False, "error": "Cannot unlock yourself"},
-            status_code=400,
-        )
+        return respond_err("cannot_unlock_self", status=400, message="Cannot unlock yourself")
 
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -354,12 +336,9 @@ def api_unlock_user(
             raise
     except Exception:
         logger.exception("user.unlock failed actor=%s target_id=%d", admin, user_id)
-        return JSONResponse(
-            {"ok": False, "error": "Internal error during unlock"},
-            status_code=500,
-        )
+        return respond_err("internal_error", status=500, message="Internal error during unlock")
     logger.info("user.unlocked actor=%s target=%s had_lock=%s", admin, target_username, cleared)
-    return JSONResponse({"ok": True, "had_lock": cleared})
+    return respond_ok({"had_lock": cleared})
 
 
 @router.post("/api/users/change-password")
@@ -381,37 +360,32 @@ def api_change_password(
     request_ip = get_client_ip(request)
     if not _PASSWORD_CHANGE_LIMITER.check(admin):
         logger.warning("password.change_throttled actor=%s scope=actor", admin)
-        return JSONResponse(
-            {"ok": False, "error": "Too many password-change attempts — slow down"},
-            status_code=429,
+        return respond_err(
+            "too_many_requests", status=429, message="Too many password-change attempts — slow down"
         )
     if not _PASSWORD_CHANGE_IP_LIMITER.check(request_ip):
         logger.warning("password.change_throttled actor=%s scope=ip ip=%s", admin, request_ip)
-        return JSONResponse(
-            {"ok": False, "error": "Too many password-change attempts — slow down"},
-            status_code=429,
+        return respond_err(
+            "too_many_requests", status=429, message="Too many password-change attempts — slow down"
         )
 
     old_password = body.old_password
     new_password = body.new_password
 
     if new_password == old_password:
-        return JSONResponse(
-            {"ok": False, "error": "New password must differ from the old password"},
-            status_code=400,
+        return respond_err(
+            "same_password", status=400, message="New password must differ from the old password"
         )
 
     from mediaman.auth.password_policy import password_issues
 
     issues = password_issues(new_password, username=admin)
     if issues:
-        return JSONResponse(
-            {
-                "ok": False,
-                "error": "Password does not meet the strength policy",
-                "issues": issues,
-            },
-            status_code=400,
+        return respond_err(
+            "weak_password",
+            status=400,
+            message="Password does not meet the strength policy",
+            issues=issues,
         )
 
     conn = get_db()
@@ -436,9 +410,7 @@ def api_change_password(
         )
         from mediaman.web.routes.auth import is_request_secure
 
-        response = JSONResponse(
-            {"ok": True, "message": "Password changed. You will be re-authenticated."}
-        )
+        response = respond_ok({"message": "Password changed. You will be re-authenticated."})
         set_session_cookie(response, new_token, secure=is_request_secure(request))
         return response
     logger.warning("password.change_rejected user=%s reason=wrong_old_password", admin)
@@ -449,7 +421,7 @@ def api_change_password(
         ip=client_ip,
         detail={"reason": "wrong_old_password"},
     )
-    return JSONResponse({"ok": False, "error": "Current password is incorrect"}, status_code=403)
+    return respond_err("wrong_password", status=403, message="Current password is incorrect")
 
 
 @router.post("/api/auth/reauth")
@@ -474,16 +446,15 @@ def api_reauth(
     """
     if not _REAUTH_LIMITER.check(admin):
         logger.warning("reauth.throttled actor=%s", admin)
-        return JSONResponse(
-            {"ok": False, "error": "Too many reauth attempts — slow down"},
-            status_code=429,
+        return respond_err(
+            "too_many_requests", status=429, message="Too many reauth attempts — slow down"
         )
     conn = get_db()
     if not session_token:
         # Belt-and-braces: get_current_admin would already have raised if
         # the token was missing, but guard anyway so we never persist a
         # ticket against an empty key.
-        return JSONResponse({"ok": False, "error": "Not authenticated"}, status_code=401)
+        return respond_err("not_authenticated", status=401)
 
     if not verify_reauth_password(conn, admin, body.password):
         logger.warning("reauth.failed actor=%s ip=%s", admin, get_client_ip(request))
@@ -493,10 +464,7 @@ def api_reauth(
             actor=admin,
             ip=get_client_ip(request),
         )
-        return JSONResponse(
-            {"ok": False, "error": "Password is incorrect"},
-            status_code=403,
-        )
+        return respond_err("wrong_password", status=403, message="Password is incorrect")
 
     grant_recent_reauth(conn, session_token, admin)
     logger.info("reauth.granted actor=%s ip=%s", admin, get_client_ip(request))
@@ -507,12 +475,7 @@ def api_reauth(
         ip=get_client_ip(request),
         detail={"window_seconds": reauth_window_seconds()},
     )
-    return JSONResponse(
-        {
-            "ok": True,
-            "expires_in_seconds": reauth_window_seconds(),
-        }
-    )
+    return respond_ok({"expires_in_seconds": reauth_window_seconds()})
 
 
 #: Keys returned to the client by :func:`api_list_sessions`.
@@ -543,9 +506,8 @@ def api_list_sessions(admin: str = Depends(get_current_admin)) -> Response:
     """
     if not _SESSIONS_LIST_LIMITER.check(admin):
         logger.warning("session.list_throttled actor=%s", admin)
-        return JSONResponse(
-            {"ok": False, "error": "Too many session-list requests — slow down"},
-            status_code=429,
+        return respond_err(
+            "too_many_requests", status=429, message="Too many session-list requests — slow down"
         )
     conn = get_db()
     safe = [
@@ -584,9 +546,8 @@ def api_revoke_other_sessions(
     )
     from mediaman.web.routes.auth import is_request_secure
 
-    response = JSONResponse(
+    response = respond_ok(
         {
-            "ok": True,
             "revoked": destroyed,
             "message": "Other sessions revoked. You are now logged in with a fresh token.",
         }

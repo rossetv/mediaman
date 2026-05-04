@@ -9,7 +9,7 @@ import re as _re
 from functools import lru_cache
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.responses import Response
 
 from mediaman.audit import security_event
@@ -29,6 +29,7 @@ from mediaman.auth.session import (
     validate_session,
 )
 from mediaman.db import get_db
+from mediaman.web.responses import respond_err
 from mediaman.web.routes._helpers import set_session_cookie
 
 logger = logging.getLogger("mediaman")
@@ -305,7 +306,7 @@ def logout(request: Request) -> Response:
     """
     token = request.cookies.get("session_token")
     if not token:
-        return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+        return respond_err("not_authenticated", status=401)
     conn = get_db()
     user_agent = request.headers.get("user-agent", "")
     client_ip = get_client_ip(request)
@@ -322,7 +323,7 @@ def logout(request: Request) -> Response:
         # subsequent request.  Unauthenticated CSRF still hits the
         # earlier branch (no token at all), so this only fires for the
         # legitimate "expired session" case.
-        stale_response = JSONResponse({"detail": "Not authenticated"}, status_code=401)
+        stale_response = respond_err("not_authenticated", status=401)
         _clear_session_cookie(stale_response, secure=secure)
         return stale_response
     destroy_session(conn, token)

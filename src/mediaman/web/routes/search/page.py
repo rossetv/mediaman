@@ -24,6 +24,7 @@ from starlette.responses import Response
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.db import get_db
 from mediaman.services.media_meta.tmdb import TmdbClient
+from mediaman.web.responses import respond_err
 
 from ._enrichment import (
     _DISCOVER_TMDB_TTL_SECONDS,
@@ -62,9 +63,8 @@ def search_page(request: Request) -> Response:
 def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
     if not _QUERY_LIMITER.check(admin):
         logger.warning("search.query_throttled user=%s", admin)
-        return JSONResponse(
-            {"error": "Too many search requests — slow down"},
-            status_code=429,
+        return respond_err(
+            "too_many_requests", status=429, message="Too many search requests — slow down"
         )
     if len(q) < 2:
         return JSONResponse({"results": []})
@@ -72,7 +72,7 @@ def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)
     conn = get_db()
     client = TmdbClient.from_db(conn, request.app.state.config.secret_key)
     if client is None:
-        return JSONResponse({"error": "TMDB not configured"}, status_code=502)
+        return respond_err("tmdb_not_configured", status=502)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         f1 = pool.submit(client.search_multi_paged, q, 1)
@@ -81,7 +81,7 @@ def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)
         page2 = f2.result()
 
     if not page1 and not page2:
-        return JSONResponse({"error": "TMDB request failed"}, status_code=502)
+        return respond_err("tmdb_request_failed", status=502)
 
     raw = page1 + page2
     shaped = [s for s in (_normalise_tmdb_item(x) for x in raw) if s is not None][:40]
@@ -94,14 +94,13 @@ def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)
 def api_discover(request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
     if not _QUERY_LIMITER.check(admin):
         logger.warning("search.discover_throttled user=%s", admin)
-        return JSONResponse(
-            {"error": "Too many discover requests — slow down"},
-            status_code=429,
+        return respond_err(
+            "too_many_requests", status=429, message="Too many discover requests — slow down"
         )
     conn = get_db()
     client = TmdbClient.from_db(conn, request.app.state.config.secret_key)
     if client is None:
-        return JSONResponse({"error": "TMDB not configured"}, status_code=502)
+        return respond_err("tmdb_not_configured", status=502)
 
     def _fetch_cached(shelf_key, fetch_fn, inject_media_type, page):
         cache_key = f"{shelf_key}?page={page}"

@@ -25,6 +25,7 @@ from mediaman.services.infra.format import media_type_badge
 from mediaman.services.infra.time import now_iso
 from mediaman.services.scheduled_actions import format_expiry
 from mediaman.web.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
+from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes._helpers import is_admin as _is_admin
 
 # Canonical list of TV / anime season media_type values, shared with the
@@ -213,9 +214,8 @@ def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)
     """
     if not _UNPROTECT_LIMITER.check(username):
         logger.warning("media.unprotect_throttled user=%s", username)
-        return JSONResponse(
-            {"error": "Too many unprotect operations — slow down"},
-            status_code=429,
+        return respond_err(
+            "too_many_requests", status=429, message="Too many unprotect operations — slow down"
         )
 
     conn = get_db()
@@ -230,7 +230,7 @@ def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)
     ).fetchone()
 
     if row is None:
-        return JSONResponse({"error": "No active protection found"}, status_code=404)
+        return respond_err("not_found", status=404, message="No active protection found")
 
     conn.execute("DELETE FROM scheduled_actions WHERE id = ?", (row["id"],))
     log_audit(
@@ -243,7 +243,7 @@ def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)
     conn.commit()
 
     logger.info("Unprotected media_item_id=%s by %s", media_item_id, username)
-    return JSONResponse({"ok": True})
+    return respond_ok()
 
 
 @router.get("/api/show/{show_rating_key}/seasons")
@@ -335,10 +335,10 @@ def api_keep_show(
     season_ids = body.season_ids
 
     if not season_ids:
-        return JSONResponse({"ok": False, "error": "No seasons selected"}, status_code=400)
+        return respond_err("no_seasons", status=400, message="No seasons selected")
 
     if duration not in VALID_KEEP_DURATIONS:
-        return JSONResponse({"ok": False, "error": "Invalid duration"}, status_code=400)
+        return respond_err("invalid_duration", status=400)
 
     # Guard against IDOR — every season_id must actually belong to this
     # show. We used to fall back to matching by ``show_title`` when the
@@ -355,7 +355,7 @@ def api_keep_show(
             admin,
             err,
         )
-        return JSONResponse({"ok": False, "error": err or "Unknown show"}, status_code=409)
+        return respond_err(err or "unknown_show", status=409)
 
     placeholders = ",".join("?" * len(season_ids))
     owned = conn.execute(
@@ -381,8 +381,8 @@ def api_keep_show(
                     resolved_key,
                     [r["id"] for r in unkeyed],
                 )
-        return JSONResponse(
-            {"ok": False, "error": "Seasons do not belong to this show"}, status_code=400
+        return respond_err(
+            "seasons_not_owned", status=400, message="Seasons do not belong to this show"
         )
 
     days = VALID_KEEP_DURATIONS.get(duration)
@@ -444,7 +444,7 @@ def api_keep_show(
     conn.commit()
 
     logger.info("Kept show %s (%s) — %s by %s", resolved_key, show_title, duration, admin)
-    return JSONResponse({"ok": True})
+    return respond_ok()
 
 
 @router.post("/api/show/{show_rating_key}/remove")
@@ -453,9 +453,10 @@ def api_remove_show_keep(
 ) -> JSONResponse:
     """Remove a show-level keep rule. Individual season keeps are not affected."""
     if not _REMOVE_SHOW_KEEP_LIMITER.check(admin):
-        return JSONResponse(
-            {"ok": False, "error": "Too many remove-show-keep requests; try again shortly."},
-            status_code=429,
+        return respond_err(
+            "too_many_requests",
+            status=429,
+            message="Too many remove-show-keep requests; try again shortly.",
         )
     conn = get_db()
     row = conn.execute(
@@ -464,7 +465,7 @@ def api_remove_show_keep(
     ).fetchone()
 
     if row is None:
-        return JSONResponse({"ok": False, "error": "No show-level keep found"}, status_code=404)
+        return respond_err("not_found", status=404, message="No show-level keep found")
 
     conn.execute("DELETE FROM kept_shows WHERE id = ?", (row["id"],))
     log_audit(
@@ -477,7 +478,7 @@ def api_remove_show_keep(
     conn.commit()
 
     logger.info("Removed show keep for %s by %s", show_rating_key, admin)
-    return JSONResponse({"ok": True})
+    return respond_ok()
 
 
 # ---------------------------------------------------------------------------

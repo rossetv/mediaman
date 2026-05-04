@@ -97,7 +97,7 @@ class TestApiUnprotect:
         client = _auth_client(app, conn)
         resp = client.post("/api/media/m1/unprotect")
         assert resp.status_code == 404
-        assert "No active protection found" in resp.json()["error"]
+        assert resp.json()["error"] == "not_found"
 
     def test_unprotect_happy_path(self, db_path, secret_key):
         conn = init_db(str(db_path))
