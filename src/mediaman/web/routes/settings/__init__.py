@@ -406,7 +406,15 @@ def api_test_service(
     """
     tester = _SERVICE_TESTERS.get(service)
     if tester is None:
-        return JSONResponse({"ok": False, "error": f"Unknown service: {service}"}, status_code=400)
+        # Use the canonical envelope: ``error`` is the machine-readable
+        # code, the human-readable name of the unknown service goes in
+        # ``message`` so a frontend can surface it without parsing the
+        # error code.
+        return respond_err(
+            "unknown_service",
+            status=400,
+            message=f"Unknown service: {service!r}",
+        )
 
     cached = _cache_get(service)
     if cached is not None:

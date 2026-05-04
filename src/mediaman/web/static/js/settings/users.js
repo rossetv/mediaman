@@ -24,6 +24,34 @@
   window.MM = window.MM || {};
   MM.settings = MM.settings || {};
 
+  /**
+   * Render an APIError into an inline-form-msg element.
+   * Surfaces the human-readable .message and, when present, the per-rule
+   * .issues array as a bulleted list (used by the password-policy
+   * validator on the server).
+   */
+  function renderApiError(target, err) {
+    if (!target) return;
+    var msg = (err && err.message) || 'Failed';
+    var issues = err && err.issues;
+    if (issues && issues.length) {
+      target.textContent = '';
+      var p = document.createElement('div');
+      p.textContent = msg;
+      target.appendChild(p);
+      var ul = document.createElement('ul');
+      ul.className = 'inline-form-issues';
+      issues.forEach(function (item) {
+        var li = document.createElement('li');
+        li.textContent = String(item);
+        ul.appendChild(li);
+      });
+      target.appendChild(ul);
+    } else {
+      target.textContent = msg;
+    }
+  }
+
   MM.settings.users = {
 
     init: function () {
@@ -291,10 +319,7 @@
           .catch(function (err) {
             btnSubmitAddUser.disabled = false;
             createResult.className = 'inline-form-msg err';
-            // MM.api rejects with an APIError whose .message is the server's error string.
-            createResult.textContent = (err && err.message) || 'Failed';
-            // TODO: surface data.issues list if the backend sends one — MM.api
-            // currently discards it (APIError carries only .error/.message).
+            renderApiError(createResult, err);
           });
       });
 
@@ -353,7 +378,7 @@
           .catch(function (err) {
             btnSubmitPw.disabled = false;
             pwResult.className = 'inline-form-msg err';
-            pwResult.textContent = (err && err.message) || 'Failed';
+            renderApiError(pwResult, err);
           });
       });
 

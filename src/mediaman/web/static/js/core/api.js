@@ -30,12 +30,21 @@
 
   global.MM = global.MM || {};
 
-  /* ── APIError ── */
-  function APIError(error, message, status) {
+  /* ── APIError ──
+   *
+   * Three fields, three roles:
+   *   .error    — machine-readable code (used by callers in switch statements)
+   *   .message  — human-readable prose (used in toasts / inline error text)
+   *   .issues   — optional structured per-rule failures (e.g. password-policy)
+   *
+   * Callers should prefer .message for display and .error for branching.
+   */
+  function APIError(error, message, status, issues) {
     this.name = 'APIError';
     this.error = error || 'unknown_error';
     this.message = message || error || 'API request failed';
     this.status = status || 0;
+    this.issues = issues || null;
     if (Error.captureStackTrace) Error.captureStackTrace(this, APIError);
   }
   APIError.prototype = Object.create(Error.prototype);
@@ -75,16 +84,21 @@
         /* Non-JSON body (e.g. a 204 No Content). */
         return {};
       }).then(function (data) {
+        /* Prefer the server's human-readable .message over the machine code
+         * when surfacing an error message to the user; fall back through
+         * .error → resp.statusText → "HTTP <status>". The .issues array (if
+         * present) is forwarded so the UI can render per-rule failures. */
         if (!resp.ok) {
           var errCode = (data && data.error) || ('http_' + status);
-          var errMsg = (data && data.error) || resp.statusText || ('HTTP ' + status);
-          throw new APIError(errCode, errMsg, status);
+          var errMsg = (data && data.message) || (data && data.error) ||
+                        resp.statusText || ('HTTP ' + status);
+          throw new APIError(errCode, errMsg, status, data && data.issues);
         }
         /* Honour the `{"ok": false}` envelope this codebase uses. */
         if (data && data.ok === false) {
           var envCode = data.error || 'request_failed';
-          var envMsg = data.error || 'Request failed';
-          throw new APIError(envCode, envMsg, status);
+          var envMsg = data.message || data.error || 'Request failed';
+          throw new APIError(envCode, envMsg, status, data.issues);
         }
         return data;
       });

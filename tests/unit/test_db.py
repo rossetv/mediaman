@@ -9,6 +9,7 @@ import pytest
 from mediaman.db import (
     CUTOVER_VERSION,
     DB_SCHEMA_VERSION,
+    SchemaFromFutureError,
     SchemaTooOldError,
     close_db,
     get_db,
@@ -827,3 +828,27 @@ class TestMigrationSquash:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
         assert version == CUTOVER_VERSION
         conn.close()
+
+    def test_db_from_future_raises(self, tmp_path):
+        """A database stamped above DB_SCHEMA_VERSION must refuse to start.
+
+        The most likely cause is a downgrade or a backup restored from a
+        newer release; silently accepting it would let the app come up
+        "healthy" and then corrupt data on the first write to a column the
+        old code does not know about.
+        """
+        future_version = DB_SCHEMA_VERSION + 1
+        conn = sqlite3.connect(str(tmp_path / "future.db"))
+        conn.execute(f"PRAGMA user_version={future_version}")
+        conn.commit()
+        conn.close()
+
+        conn = sqlite3.connect(str(tmp_path / "future.db"))
+        conn.row_factory = sqlite3.Row
+        with pytest.raises(SchemaFromFutureError) as exc_info:
+            apply_migrations(conn)
+        conn.close()
+
+        msg = str(exc_info.value)
+        assert str(future_version) in msg
+        assert str(DB_SCHEMA_VERSION) in msg
