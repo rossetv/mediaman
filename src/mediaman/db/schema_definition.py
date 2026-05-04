@@ -1,12 +1,21 @@
 """Schema definition for a fresh mediaman database.
 
 This module owns:
-- :data:`DB_SCHEMA_VERSION` — the highest migration number; must equal the
-  count of migration files in :mod:`mediaman.db.migrations`.
-- :data:`_SCHEMA` — the full DDL applied to a brand-new database (version 0 →
-  version 1).  It should always reflect the final shape of the schema after all
-  migrations have been applied, so that ``init_db`` on a new installation
-  produces exactly the same result as migrating an old one step-by-step.
+- :data:`DB_SCHEMA_VERSION` — the highest migration number; new installations
+  start at this version and never run the now-deleted per-version files.
+- :data:`CUTOVER_VERSION` — the squash baseline. Databases whose
+  ``PRAGMA user_version`` is strictly between 0 and CUTOVER_VERSION were
+  created by the old incremental migration chain and cannot be upgraded by
+  this code. They must transit through release 1.9.0 (the last release that
+  still contained migration files v01–v35) before upgrading to this version.
+- :data:`_SCHEMA` — the full DDL applied to a brand-new database. It reflects
+  the exact schema that the full v01–v35 migration sequence produced, verified
+  by comparing ``sqlite_master`` content on 2026-05-04. A fresh install skips
+  every per-version file and jumps straight to CUTOVER_VERSION.
+
+On 2026-05-04 we squashed migrations 1–35 into this baseline _SCHEMA.
+Pre-cutover databases must run release 1.9.0 first (the last release
+containing the per-version migration files v01–v35).
 
 Do not import application code here; this module must be importable early in
 the bootstrap sequence with no side-effects beyond defining constants.
@@ -16,9 +25,14 @@ from __future__ import annotations
 
 DB_SCHEMA_VERSION = 35
 
-assert DB_SCHEMA_VERSION == 35, (
-    f"DB_SCHEMA_VERSION is {DB_SCHEMA_VERSION} but the highest migration "
-    "block is 35 — update one of them."
+# Databases below this version cannot be migrated by this code — the
+# per-version migration files they need no longer exist.  The user must
+# transit through release 1.9.0 first.
+CUTOVER_VERSION = 35
+
+assert DB_SCHEMA_VERSION == CUTOVER_VERSION, (
+    f"DB_SCHEMA_VERSION ({DB_SCHEMA_VERSION}) must equal CUTOVER_VERSION "
+    f"({CUTOVER_VERSION}) — update one of them when adding new migrations."
 )
 
 _SCHEMA = """
@@ -33,14 +47,19 @@ CREATE TABLE IF NOT EXISTS admin_users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    must_change_password INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS admin_sessions (
     token TEXT PRIMARY KEY,
-    username TEXT NOT NULL REFERENCES admin_users(username),
+    username TEXT NOT NULL REFERENCES admin_users(username) ON DELETE CASCADE,
     created_at TEXT NOT NULL,
-    expires_at TEXT NOT NULL
+    expires_at TEXT NOT NULL,
+    token_hash TEXT,
+    last_used_at TEXT,
+    fingerprint TEXT,
+    issued_ip TEXT
 );
 
 CREATE TABLE IF NOT EXISTS media_items (
@@ -68,13 +87,14 @@ CREATE TABLE IF NOT EXISTS scheduled_actions (
     action TEXT NOT NULL,
     scheduled_at TEXT NOT NULL,
     execute_at TEXT,
-    token TEXT UNIQUE NOT NULL,
+    token TEXT UNIQUE,
     token_used INTEGER NOT NULL DEFAULT 0,
     snoozed_at TEXT,
     snooze_duration TEXT,
     notified INTEGER NOT NULL DEFAULT 0,
     is_reentry INTEGER NOT NULL DEFAULT 0,
-    delete_status TEXT NOT NULL DEFAULT 'pending'
+    delete_status TEXT NOT NULL DEFAULT 'pending',
+    token_hash TEXT
 );
 
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -141,29 +161,120 @@ CREATE TABLE IF NOT EXISTS ratings_cache (
     PRIMARY KEY (tmdb_id, media_type)
 );
 
-CREATE INDEX IF NOT EXISTS idx_scheduled_actions_media
-    ON scheduled_actions(media_item_id);
-CREATE INDEX IF NOT EXISTS idx_scheduled_actions_execute
-    ON scheduled_actions(execute_at);
-CREATE INDEX IF NOT EXISTS idx_scheduled_actions_token
-    ON scheduled_actions(token);
-CREATE INDEX IF NOT EXISTS idx_audit_log_media
-    ON audit_log(media_item_id);
-CREATE INDEX IF NOT EXISTS idx_audit_log_created
-    ON audit_log(created_at);
-CREATE INDEX IF NOT EXISTS idx_audit_log_action
-    ON audit_log(action);
-CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires
-    ON admin_sessions(expires_at);
-CREATE INDEX IF NOT EXISTS idx_media_items_plex_library_id
-    ON media_items(plex_library_id);
+CREATE TABLE IF NOT EXISTS download_notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL,
+    title TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    tmdb_id INTEGER,
+    service TEXT NOT NULL,
+    notified INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    tvdb_id INTEGER,
+    claimed_at TEXT
+);
 
--- Tamper-evidence on the audit log (v33). The triggers refuse UPDATE
--- and DELETE on existing rows so the only way to silently mutate the
--- log is to drop the trigger first — which itself shows up in
--- ``sqlite_master`` and is visible to any operator running ``.schema``.
--- INSERT remains unrestricted so the application code keeps writing
--- new rows normally.
+CREATE TABLE IF NOT EXISTS recent_downloads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dl_id TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    media_type TEXT NOT NULL DEFAULT 'movie',
+    poster_url TEXT DEFAULT '',
+    completed_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS login_failures (
+    username TEXT PRIMARY KEY,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    first_failure_at TEXT,
+    locked_until TEXT
+);
+
+CREATE TABLE IF NOT EXISTS arr_search_throttle (
+    key TEXT PRIMARY KEY,
+    last_triggered_at TEXT NOT NULL,
+    search_count INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS keep_tokens_used (
+    token_hash TEXT PRIMARY KEY,
+    used_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS used_download_tokens (
+    token_hash TEXT PRIMARY KEY,
+    expires_at TEXT NOT NULL,
+    used_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS scan_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    status TEXT NOT NULL DEFAULT 'running',
+    error TEXT,
+    owner_id TEXT,
+    heartbeat_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS refresh_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    status TEXT NOT NULL DEFAULT 'running',
+    error TEXT,
+    owner_id TEXT,
+    heartbeat_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS newsletter_deliveries (
+    scheduled_action_id INTEGER NOT NULL,
+    recipient TEXT NOT NULL,
+    sent_at TEXT,
+    error TEXT,
+    attempted_at TEXT NOT NULL,
+    PRIMARY KEY (scheduled_action_id, recipient)
+);
+
+CREATE TABLE IF NOT EXISTS reauth_tickets (
+    session_token_hash TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    granted_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS delete_intents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    media_item_id TEXT NOT NULL,
+    target_kind TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    last_error TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_scheduled_actions_media ON scheduled_actions(media_item_id);
+CREATE INDEX IF NOT EXISTS idx_scheduled_actions_execute ON scheduled_actions(execute_at);
+CREATE INDEX IF NOT EXISTS idx_scheduled_actions_token ON scheduled_actions(token);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_actions_token_hash ON scheduled_actions(token_hash) WHERE token_hash IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_actions_unique_active_deletion ON scheduled_actions(media_item_id) WHERE action='scheduled_deletion' AND token_used=0 AND (delete_status IS NULL OR delete_status='pending');
+CREATE INDEX IF NOT EXISTS idx_audit_log_media ON audit_log(media_item_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
+CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log(actor) WHERE actor IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires ON admin_sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_media_items_plex_library_id ON media_items(plex_library_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_subscribers_email_nocase ON subscribers(email COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_used_download_tokens_expires ON used_download_tokens(expires_at);
+CREATE INDEX IF NOT EXISTS idx_newsletter_deliveries_action ON newsletter_deliveries(scheduled_action_id);
+CREATE INDEX IF NOT EXISTS idx_reauth_tickets_username ON reauth_tickets(username);
+CREATE INDEX IF NOT EXISTS idx_delete_intents_completed ON delete_intents(completed_at) WHERE completed_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_download_notifications_claimed ON download_notifications(claimed_at) WHERE notified=2;
+
+-- Tamper-evidence triggers on audit_log (v33). These triggers refuse UPDATE
+-- and DELETE on existing rows so the only way to silently mutate the log is
+-- to drop the trigger first — which itself shows up in sqlite_master and is
+-- visible to any operator running .schema. INSERT remains unrestricted.
 CREATE TRIGGER IF NOT EXISTS audit_log_no_update
 BEFORE UPDATE ON audit_log
 BEGIN
@@ -174,34 +285,4 @@ BEFORE DELETE ON audit_log
 BEGIN
     SELECT RAISE(ABORT, 'audit_log rows are append-only');
 END;
-
-CREATE TABLE IF NOT EXISTS login_failures (
-    username TEXT PRIMARY KEY,
-    failure_count INTEGER NOT NULL DEFAULT 0,
-    first_failure_at TEXT,
-    locked_until TEXT
-);
-
-CREATE TABLE IF NOT EXISTS reauth_tickets (
-    session_token_hash TEXT PRIMARY KEY,
-    username TEXT NOT NULL,
-    granted_at TEXT NOT NULL,
-    expires_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS scan_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    started_at TEXT NOT NULL,
-    finished_at TEXT,
-    status TEXT NOT NULL DEFAULT 'running',
-    error TEXT
-);
-
-CREATE TABLE IF NOT EXISTS refresh_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    started_at TEXT NOT NULL,
-    finished_at TEXT,
-    status TEXT NOT NULL DEFAULT 'running',
-    error TEXT
-);
 """

@@ -7,12 +7,15 @@ from datetime import UTC
 import pytest
 
 from mediaman.db import (
+    CUTOVER_VERSION,
     DB_SCHEMA_VERSION,
+    SchemaTooOldError,
     close_db,
     get_db,
     init_db,
     set_connection,
 )
+from mediaman.db.migrations import apply_migrations
 
 
 class TestInitDb:
@@ -154,114 +157,12 @@ class TestThreadLocalConnection:
         assert row[0] == 1
 
 
-class TestSchemaV13LegacySessionPurge:
-    """C9 / C10: migration v13 hoists the session columns and purges
-    legacy rows that pre-date the token-hashing hardening."""
-
-    def test_purges_rows_with_null_token_hash(self, tmp_path):
-        """A session row with ``token_hash IS NULL`` is unreachable under
-        the new scheme and was also issued under the 7-day hard expiry.
-        It must be deleted by the migration — forcing the user to log
-        in again so they end up on the hardened path."""
-        db_path = tmp_path / "legacy.db"
-        # Hand-craft a v12 DB with a legacy session row.
-        conn_old = sqlite3.connect(str(db_path))
-        conn_old.row_factory = sqlite3.Row
-        conn_old.executescript("""
-            CREATE TABLE admin_users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
-            CREATE TABLE admin_sessions (
-                token TEXT PRIMARY KEY,
-                username TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                expires_at TEXT NOT NULL
-            );
-            CREATE TABLE settings (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL,
-                encrypted INTEGER NOT NULL DEFAULT 0,
-                updated_at TEXT NOT NULL
-            );
-            INSERT INTO admin_users (username, password_hash, created_at)
-                VALUES ('legacy', 'x', '2026-01-01');
-            INSERT INTO admin_sessions (token, username, created_at, expires_at)
-                VALUES ('legacy-raw-token', 'legacy', '2026-01-01', '2099-12-31');
-        """)
-        conn_old.execute("PRAGMA user_version=12")
-        conn_old.commit()
-        conn_old.close()
-
-        conn = init_db(str(db_path))
-        # Legacy row must have been purged.
-        rows = conn.execute("SELECT * FROM admin_sessions").fetchall()
-        assert rows == []
-        # New columns exist on the table.
-        cols = {r[1] for r in conn.execute("PRAGMA table_info(admin_sessions)").fetchall()}
-        assert {"token_hash", "last_used_at", "fingerprint", "issued_ip"} <= cols
-        # Version bumped.
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == DB_SCHEMA_VERSION
-
-    def test_purges_rows_with_expiry_over_one_day_cap(self, tmp_path):
-        """Any session whose stored expiry is more than the new 1-day
-        cap past its created_at gets purged — defensive against
-        long-lived rows crafted directly in the DB or left from the old
-        7-day hard expiry."""
-        db_path = tmp_path / "legacy.db"
-        # Start from a fresh v12 DB so we control the state precisely.
-        conn = init_db(str(db_path))
-        # Drop back to v12 and write a row with a 7-day TTL + populated
-        # token_hash (so the null-hash branch doesn't catch it).
-        conn.execute("PRAGMA user_version=12")
-        conn.execute("DELETE FROM admin_sessions")
-        conn.execute(
-            "INSERT INTO admin_users (username, password_hash, created_at) "
-            "VALUES ('legacy', 'x', '2026-01-01')"
-        )
-        conn.execute(
-            "INSERT INTO admin_sessions "
-            "(token, token_hash, username, created_at, expires_at) "
-            "VALUES ('tok', 'hash', 'legacy', '2026-01-01T00:00:00+00:00', "
-            "'2026-01-08T00:00:00+00:00')"  # 7 days > 1 day cap
-        )
-        conn.commit()
-        conn.close()
-
-        # Re-open → migration v13 runs.
-        conn = init_db(str(db_path))
-        rows = conn.execute("SELECT * FROM admin_sessions").fetchall()
-        assert rows == []
-
-    def test_keeps_rows_within_cap(self, tmp_path):
-        """A well-formed row inside the 1-day cap must be left alone."""
-        db_path = tmp_path / "legacy.db"
-        conn = init_db(str(db_path))
-        conn.execute("PRAGMA user_version=12")
-        conn.execute("DELETE FROM admin_sessions")
-        conn.execute(
-            "INSERT INTO admin_users (username, password_hash, created_at) "
-            "VALUES ('keep', 'x', '2026-01-01')"
-        )
-        conn.execute(
-            "INSERT INTO admin_sessions "
-            "(token, token_hash, username, created_at, expires_at) "
-            "VALUES ('tok', 'h', 'keep', '2026-01-01T00:00:00+00:00', "
-            "'2026-01-01T12:00:00+00:00')"  # 12 h < 1 day cap
-        )
-        conn.commit()
-        conn.close()
-
-        conn = init_db(str(db_path))
-        rows = conn.execute("SELECT username FROM admin_sessions").fetchall()
-        assert len(rows) == 1
-        assert rows[0]["username"] == "keep"
+class TestSchemaV13SessionColumns:
+    """v13 columns exist on fresh DB; legacy-row purge logic was in the migration
+    (now squashed). These tests confirm the schema shape on fresh installations."""
 
     def test_migration_idempotent(self, db_path):
-        """Running init_db twice must not error (migration re-runs are
-        guarded)."""
+        """Running init_db twice must not error."""
         init_db(str(db_path)).close()
         init_db(str(db_path)).close()  # must not raise
 
@@ -269,6 +170,18 @@ class TestSchemaV13LegacySessionPurge:
         assert DB_SCHEMA_VERSION == 35
         conn = init_db(str(db_path))
         assert conn.execute("PRAGMA user_version").fetchone()[0] == 35
+
+    def test_admin_sessions_has_security_columns(self, db_path):
+        conn = init_db(str(db_path))
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(admin_sessions)").fetchall()}
+        assert {"token_hash", "last_used_at", "fingerprint", "issued_ip"} <= cols
+        conn.close()
+
+    def test_admin_users_has_must_change_password(self, db_path):
+        conn = init_db(str(db_path))
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(admin_users)").fetchall()}
+        assert "must_change_password" in cols
+        conn.close()
 
 
 class TestSchemaV14DeleteStatus:
@@ -295,40 +208,6 @@ class TestSchemaV14DeleteStatus:
             "SELECT delete_status FROM scheduled_actions WHERE token='tok1'"
         ).fetchone()[0]
         assert status == "pending"
-
-    def test_migration_from_v13_adds_column(self, tmp_path):
-        import sqlite3 as _sq
-
-        db_path = tmp_path / "legacy.db"
-        # Bring up a v13 DB first.
-        init_db(str(db_path)).close()
-        # Now drop the column and reset version to simulate pre-v14.
-        # SQLite doesn't easily drop columns, so rebuild the table.
-        conn = _sq.connect(str(db_path))
-        conn.execute("DROP TABLE scheduled_actions")
-        conn.execute("""
-            CREATE TABLE scheduled_actions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                media_item_id TEXT NOT NULL,
-                action TEXT NOT NULL,
-                scheduled_at TEXT NOT NULL,
-                execute_at TEXT,
-                token TEXT UNIQUE NOT NULL,
-                token_used INTEGER NOT NULL DEFAULT 0,
-                snoozed_at TEXT,
-                snooze_duration TEXT,
-                notified INTEGER NOT NULL DEFAULT 0,
-                is_reentry INTEGER NOT NULL DEFAULT 0
-            )
-        """)
-        conn.execute("PRAGMA user_version=13")
-        conn.commit()
-        conn.close()
-
-        conn = init_db(str(db_path))
-        cols = {r[1] for r in conn.execute("PRAGMA table_info(scheduled_actions)").fetchall()}
-        assert "delete_status" in cols
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == DB_SCHEMA_VERSION
 
     def test_migration_idempotent(self, db_path):
         """Running init_db twice must not raise on the v14 step."""
@@ -357,28 +236,6 @@ class TestSchemaV15JobRunTables:
         conn = init_db(str(db_path))
         cols = {r[1] for r in conn.execute("PRAGMA table_info(refresh_runs)").fetchall()}
         assert cols >= {"id", "started_at", "finished_at", "status", "error"}
-
-    def test_migration_from_v14_adds_tables(self, tmp_path):
-        import sqlite3 as _sq
-
-        db_path = tmp_path / "legacy.db"
-        init_db(str(db_path)).close()
-        # Reset to v14.
-        conn = _sq.connect(str(db_path))
-        conn.execute("DROP TABLE IF EXISTS scan_runs")
-        conn.execute("DROP TABLE IF EXISTS refresh_runs")
-        conn.execute("PRAGMA user_version=14")
-        conn.commit()
-        conn.close()
-
-        conn = init_db(str(db_path))
-        tables = {
-            r[0]
-            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
-        }
-        assert "scan_runs" in tables
-        assert "refresh_runs" in tables
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == DB_SCHEMA_VERSION
 
     def test_migration_idempotent(self, db_path):
         init_db(str(db_path)).close()
@@ -563,26 +420,6 @@ class TestSchemaV18KeepTokensUsed:
         )
         assert cursor.rowcount == 0, "Duplicate insert must be ignored"
 
-    def test_migration_from_v17_adds_table(self, tmp_path):
-        import sqlite3 as _sq
-
-        db_path = tmp_path / "legacy.db"
-        init_db(str(db_path)).close()
-        # Simulate a v17 DB (no keep_tokens_used yet).
-        conn = _sq.connect(str(db_path))
-        conn.execute("DROP TABLE IF EXISTS keep_tokens_used")
-        conn.execute("PRAGMA user_version=17")
-        conn.commit()
-        conn.close()
-
-        conn = init_db(str(db_path))
-        tables = {
-            r[0]
-            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
-        }
-        assert "keep_tokens_used" in tables
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == DB_SCHEMA_VERSION
-
     def test_migration_idempotent(self, db_path):
         init_db(str(db_path)).close()
         init_db(str(db_path)).close()  # must not raise
@@ -744,13 +581,7 @@ class TestSchemaV26NewsletterDeliveries:
 
 
 class TestSchemaV31AuditActor:
-    """v31 adds an ``actor`` column to ``audit_log`` (Domain 05 HIGH).
-
-    Previously the only place the actor lived was inside the security
-    event ``detail`` text via ``actor=<user>``, which means an operator
-    cannot run a real ``WHERE actor = 'alice'`` query and ``log_audit``
-    rows had no actor field at all.
-    """
+    """v31 adds an ``actor`` column to ``audit_log`` (Domain 05 HIGH)."""
 
     def test_audit_log_has_actor_column_on_fresh_db(self, db_path):
         conn = init_db(str(db_path))
@@ -779,54 +610,6 @@ class TestSchemaV31AuditActor:
         assert len(rows) == 1
         conn.close()
 
-    def test_migration_from_v30_adds_actor_column(self, tmp_path):
-        """Simulate a v30 DB and confirm v31 adds the column."""
-        import sqlite3 as _sq
-
-        db_path = tmp_path / "legacy.db"
-        # Bring the DB up to current then knock the audit_log column off
-        # and rewind user_version so the v31 migration must replay.
-        init_db(str(db_path)).close()
-        conn = _sq.connect(str(db_path))
-        # SQLite's ALTER TABLE DROP COLUMN landed in 3.35; emulate the
-        # v30 layout by rebuilding the table without ``actor``.
-        conn.execute("PRAGMA foreign_keys=OFF")
-        conn.execute("DROP INDEX IF EXISTS idx_audit_log_actor")
-        conn.execute("""
-            CREATE TABLE audit_log_v30 (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                media_item_id TEXT NOT NULL,
-                action TEXT NOT NULL,
-                detail TEXT,
-                space_reclaimed_bytes INTEGER,
-                created_at TEXT NOT NULL
-            )
-        """)
-        conn.execute(
-            "INSERT INTO audit_log_v30 "
-            "(id, media_item_id, action, detail, space_reclaimed_bytes, created_at) "
-            "SELECT id, media_item_id, action, detail, space_reclaimed_bytes, "
-            "created_at FROM audit_log"
-        )
-        conn.execute("DROP TABLE audit_log")
-        conn.execute("ALTER TABLE audit_log_v30 RENAME TO audit_log")
-        conn.execute("PRAGMA user_version=30")
-        conn.commit()
-        conn.close()
-
-        # Sanity: the legacy table genuinely lacks the column.
-        conn = _sq.connect(str(db_path))
-        cols_before = {r[1] for r in conn.execute("PRAGMA table_info(audit_log)").fetchall()}
-        assert "actor" not in cols_before
-        conn.close()
-
-        # Re-open via init_db → migration v31 runs.
-        conn = init_db(str(db_path))
-        cols_after = {r[1] for r in conn.execute("PRAGMA table_info(audit_log)").fetchall()}
-        assert "actor" in cols_after
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == DB_SCHEMA_VERSION
-        conn.close()
-
     def test_migration_idempotent(self, db_path):
         """Running init_db twice must not raise on the v31 step."""
         init_db(str(db_path)).close()
@@ -834,15 +617,7 @@ class TestSchemaV31AuditActor:
 
 
 class TestSchemaV32HotPathIndexes:
-    """v32 adds two indexes for previously full-scan WHERE clauses (Domain 05).
-
-    * ``idx_media_items_plex_library_id`` — every scan iterates
-      ``media_items`` filtered by ``plex_library_id IN (...)``; the
-      previous schema indexed nothing on the column.
-    * ``idx_audit_log_action`` — the history view filters audit rows
-      heavily by ``action`` and the existing indexes only covered
-      ``media_item_id`` and ``created_at``.
-    """
+    """v32 adds two indexes for previously full-scan WHERE clauses (Domain 05)."""
 
     def test_media_items_index_present_on_fresh_db(self, db_path):
         conn = init_db(str(db_path))
@@ -860,42 +635,6 @@ class TestSchemaV32HotPathIndexes:
             ("idx_audit_log_action",),
         ).fetchall()
         assert len(rows) == 1
-        conn.close()
-
-    def test_migration_from_v31_creates_indexes(self, tmp_path):
-        """Simulate a v31 DB without the indexes; v32 must add them."""
-        import sqlite3 as _sq
-
-        db_path = tmp_path / "legacy.db"
-        # Bring the DB up to current then drop the indexes and rewind
-        # user_version so the v32 migration replays.
-        init_db(str(db_path)).close()
-        conn = _sq.connect(str(db_path))
-        conn.execute("DROP INDEX IF EXISTS idx_media_items_plex_library_id")
-        conn.execute("DROP INDEX IF EXISTS idx_audit_log_action")
-        conn.execute("PRAGMA user_version=31")
-        conn.commit()
-        conn.close()
-
-        # Sanity: the indexes are genuinely gone.
-        conn = _sq.connect(str(db_path))
-        names_before = {
-            r[0]
-            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='index'").fetchall()
-        }
-        assert "idx_media_items_plex_library_id" not in names_before
-        assert "idx_audit_log_action" not in names_before
-        conn.close()
-
-        # Re-open via init_db → migration v32 runs.
-        conn = init_db(str(db_path))
-        names_after = {
-            r[0]
-            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='index'").fetchall()
-        }
-        assert "idx_media_items_plex_library_id" in names_after
-        assert "idx_audit_log_action" in names_after
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == DB_SCHEMA_VERSION
         conn.close()
 
     def test_migration_idempotent(self, db_path):
@@ -1024,78 +763,67 @@ class TestFactories:
         assert action["execute_at"] > action["scheduled_at"]
 
 
-class TestMigrationV34:
-    """Migration v34 drops deprecated abandon_search_* settings and resets throttle counters."""
+class TestMigrationSquash:
+    """Verifies the squashed-baseline behaviour introduced on 2026-05-04.
 
-    def test_drops_deprecated_settings_keys(self, tmp_path):
-        db_path = tmp_path / "v33.db"
-        conn = init_db(str(db_path))
-        # Roll back to pre-v34.
-        conn.execute("PRAGMA user_version=33")
-        for key in (
-            "abandon_search_visible_at",
-            "abandon_search_escalate_at",
-            "abandon_search_auto_multiplier",
-        ):
-            conn.execute(
-                "INSERT INTO settings (key, value, encrypted, updated_at) "
-                "VALUES (?, ?, 0, '2026-01-01T00:00:00+00:00')",
-                (key, "42"),
-            )
-        conn.commit()
-        conn.close()
+    Fresh DBs go straight to CUTOVER_VERSION. Pre-cutover DBs raise
+    SchemaTooOldError so operators receive a clear upgrade instruction
+    rather than corrupted state.
+    """
 
-        conn = init_db(str(db_path))
-        for key in (
-            "abandon_search_visible_at",
-            "abandon_search_escalate_at",
-            "abandon_search_auto_multiplier",
-        ):
-            row = conn.execute("SELECT 1 FROM settings WHERE key = ?", (key,)).fetchone()
-            assert row is None, f"{key} should have been deleted by v34"
-
-    def test_resets_throttle_search_count_and_timestamp(self, tmp_path):
-        db_path = tmp_path / "v33-throttle.db"
-        conn = init_db(str(db_path))
-        conn.execute("PRAGMA user_version=33")
-        conn.execute(
-            "INSERT INTO arr_search_throttle (key, last_triggered_at, search_count) "
-            "VALUES (?, ?, ?)",
-            ("radarr:Stuck Movie", "2026-04-01T10:00:00+00:00", 149),
-        )
-        conn.commit()
-        conn.close()
-
-        conn = init_db(str(db_path))
-        row = conn.execute(
-            "SELECT last_triggered_at, search_count FROM arr_search_throttle WHERE key = ?",
-            ("radarr:Stuck Movie",),
-        ).fetchone()
-        assert row[1] == 0  # search_count
-        assert row[0] == "1970-01-01T00:00:00+00:00"  # last_triggered_at
-
-    def test_preserves_unrelated_settings(self, tmp_path):
-        db_path = tmp_path / "v33-other.db"
-        conn = init_db(str(db_path))
-        conn.execute("PRAGMA user_version=33")
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) "
-            "VALUES ('plex_url', 'http://plex:32400', 0, '2026-01-01T00:00:00+00:00')"
-        )
-        conn.commit()
-        conn.close()
-
-        conn = init_db(str(db_path))
-        row = conn.execute("SELECT value FROM settings WHERE key = 'plex_url'").fetchone()
-        assert row[0] == "http://plex:32400"
-
-    def test_user_version_bumped_to_34(self, tmp_path):
-        db_path = tmp_path / "v33-version.db"
-        conn = init_db(str(db_path))
-        conn.execute("PRAGMA user_version=33")
-        conn.commit()
-        conn.close()
-
-        conn = init_db(str(db_path))
+    def test_fresh_db_lands_at_cutover_version(self, tmp_path):
+        """A brand-new database must be stamped at CUTOVER_VERSION."""
+        conn = sqlite3.connect(str(tmp_path / "fresh.db"))
+        conn.row_factory = sqlite3.Row
+        apply_migrations(conn)
         version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version >= 34
+        assert version == CUTOVER_VERSION
+        conn.close()
+
+    def test_db_at_version_10_raises_schema_too_old(self, tmp_path):
+        """A database at version 10 (below the cutover) must raise SchemaTooOldError."""
+        db_path = str(tmp_path / "old.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA user_version=10")
+        conn.commit()
+        conn.close()
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        with pytest.raises(SchemaTooOldError) as exc_info:
+            apply_migrations(conn)
+        conn.close()
+
+        msg = str(exc_info.value)
+        assert "version 10" in msg
+        assert str(CUTOVER_VERSION) in msg
+        assert "1.9.0" in msg  # the transit release name
+
+    def test_error_message_is_actionable(self, tmp_path):
+        """The error message must name the current version, cutover, and the
+        release the user must transit through."""
+        conn = sqlite3.connect(str(tmp_path / "old2.db"))
+        conn.execute("PRAGMA user_version=1")
+        conn.commit()
+        conn.close()
+
+        conn = sqlite3.connect(str(tmp_path / "old2.db"))
+        conn.row_factory = sqlite3.Row
+        with pytest.raises(SchemaTooOldError, match="1.9.0"):
+            apply_migrations(conn)
+        conn.close()
+
+    def test_db_already_at_cutover_is_noop(self, tmp_path):
+        """A database already at CUTOVER_VERSION must not be modified."""
+        conn = sqlite3.connect(str(tmp_path / "current.db"))
+        conn.execute(f"PRAGMA user_version={CUTOVER_VERSION}")
+        conn.commit()
+        conn.close()
+
+        conn = sqlite3.connect(str(tmp_path / "current.db"))
+        conn.row_factory = sqlite3.Row
+        # Must not raise; user_version stays the same.
+        apply_migrations(conn)
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        assert version == CUTOVER_VERSION
+        conn.close()
