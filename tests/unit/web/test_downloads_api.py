@@ -1778,6 +1778,43 @@ class TestAbandonEndpoint:
         assert body["ok"] is True
         assert body["abandoned"]["kind"] == "series"
 
+    def test_upcoming_series_dispatches_to_abandon_series(self, db_path, secret_key, monkeypatch):
+        """Upcoming series in the "Coming soon" list → abandon_series, no seasons body needed."""
+        called = {}
+
+        def fake_abandon_series(conn, sk, *, series_id, dl_id):
+            called["series_id"] = series_id
+            called["dl_id"] = dl_id
+            from mediaman.services.downloads.abandon import AbandonResult
+
+            return AbandonResult(kind="series", succeeded=[1, 2], dl_id=dl_id)
+
+        monkeypatch.setattr("mediaman.web.routes.downloads.abandon_series", fake_abandon_series)
+        monkeypatch.setattr(
+            "mediaman.web.routes.downloads.build_downloads_response",
+            lambda c, sk: {"queue": [], "hero": None, "upcoming": [], "recent": []},
+        )
+        monkeypatch.setattr(
+            "mediaman.web.routes.downloads._lookup_dl_item",
+            lambda c, sk, dl_id: {
+                "kind": "series",
+                "arr_id": 7,
+                "state": "upcoming",
+                "dl_id": dl_id,
+            },
+        )
+
+        client = self._make_client(db_path, secret_key)
+        resp = client.post(
+            "/api/downloads/sonarr%3AFutureShow/abandon",
+            json={},  # no seasons body
+        )
+        assert resp.status_code == 200
+        assert called == {"series_id": 7, "dl_id": "sonarr:FutureShow"}
+        body = resp.json()
+        assert body["ok"] is True
+        assert body["abandoned"]["kind"] == "series"
+
     def test_unknown_dl_id_returns_404(self, db_path, secret_key, monkeypatch):
         """POST for a dl_id not in the queue → 404."""
         monkeypatch.setattr(

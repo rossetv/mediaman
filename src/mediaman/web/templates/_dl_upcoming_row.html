@@ -1,6 +1,6 @@
 {# Compact row for an unreleased item — poster, title, release label.
-   Context: item (dict with id, title, poster_url, release_label). #}
-<div class="dl-compact-row dl-row dl-upcoming-row dl-card-enter" data-dl-id="{{ item.id }}">
+   Context: item (dict with id, title, poster_url, release_label, media_type). #}
+<div class="dl-compact-row dl-row dl-upcoming-row dl-row--has-abandon dl-card-enter" data-dl-id="{{ item.id }}">
   <div class="dl-compact-poster dl-row-poster">
     {% if item.poster_url %}<img src="{{ item.poster_url }}" alt="">{% endif %}
   </div>
@@ -11,4 +11,18 @@
     </div>
   </div>
   <span class="pill pill--neutral">Scheduled</span>
+  <div class="dl-row-abandon">
+    <button type="button"
+            class="btn btn--icon btn--ghost"
+            data-abandon-trigger
+            data-abandon-upcoming="1"
+            data-dl-id="{{ item.id }}"
+            data-kind="{{ 'series' if item.media_type != 'movie' else 'movie' }}"
+            data-title="{{ item.title }}"
+            data-stuck-seasons="[]"
+            aria-label="Stop tracking"
+            title="Stop tracking">
+      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
 </div>

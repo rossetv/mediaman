@@ -69,6 +69,62 @@ def abandon_movie(
     return AbandonResult(kind="movie", succeeded=[0], dl_id=dl_id)
 
 
+def abandon_series(
+    conn: sqlite3.Connection,
+    secret_key: str,
+    *,
+    series_id: int,
+    dl_id: str,
+) -> AbandonResult:
+    """Unmonitor every monitored season of *series_id* in Sonarr.
+
+    Used when the user stops tracking a not-yet-released series from the
+    "Coming soon" list — there are no per-season stuck-search rows to
+    pick from, so we unmonitor the whole show. Already-unmonitored
+    seasons are skipped. If the series payload cannot be fetched the
+    failure is signalled with the literal token ``0`` in ``failed``.
+    """
+    raw_client = build_arr_client(conn, "sonarr", secret_key)
+    if raw_client is None:
+        logger.warning("abandon_series: no sonarr client available for %s", dl_id)
+        return AbandonResult(kind="series", failed=[0], dl_id=dl_id)
+    client = cast(SonarrClient, raw_client)
+    try:
+        series = client.get_series_by_id(series_id)
+    except Exception:
+        logger.warning("abandon_series: get_series_by_id failed for %s", dl_id, exc_info=True)
+        return AbandonResult(kind="series", failed=[0], dl_id=dl_id)
+
+    seasons_raw = series.get("seasons") if isinstance(series, dict) else None
+    monitored_seasons: list[int] = []
+    if isinstance(seasons_raw, list):
+        for s in seasons_raw:
+            if (
+                isinstance(s, dict)
+                and s.get("monitored")
+                and isinstance(s.get("seasonNumber"), int)
+            ):
+                monitored_seasons.append(s["seasonNumber"])
+
+    if not monitored_seasons:
+        # Nothing left to unmonitor — treat as success.
+        clear_throttle(conn, dl_id)
+        logger.info(
+            "abandon_series: no monitored seasons for series_id=%s dl_id=%s",
+            series_id,
+            dl_id,
+        )
+        return AbandonResult(kind="series", succeeded=[], dl_id=dl_id)
+
+    return abandon_seasons(
+        conn,
+        secret_key,
+        series_id=series_id,
+        season_numbers=monitored_seasons,
+        dl_id=dl_id,
+    )
+
+
 def abandon_seasons(
     conn: sqlite3.Connection,
     secret_key: str,
