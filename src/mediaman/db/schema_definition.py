@@ -26,17 +26,27 @@ from __future__ import annotations
 DB_SCHEMA_VERSION = 35
 
 # Databases below this version cannot be migrated by this code — the
-# per-version migration files they need no longer exist.  The user must
-# transit through release 1.9.0 first.
-CUTOVER_VERSION = 35
+# per-version migration files they need (v01..v33) no longer exist.
+# Operators on a pre-cutover database must transit through release 1.8.x
+# (the last release that still contained the per-version migration files)
+# before upgrading to this version.
+#
+# CUTOVER_VERSION == 34 because v34 is the schema baseline _SCHEMA reflects.
+# Migrations that ship in this release or later (currently just v35, the
+# AES-v1 sunset marker) are walked from CUTOVER_VERSION up to
+# DB_SCHEMA_VERSION via the small registry in migrations/__init__.py.
+CUTOVER_VERSION = 34
 
-if DB_SCHEMA_VERSION != CUTOVER_VERSION:
+if DB_SCHEMA_VERSION < CUTOVER_VERSION:
     # Use a real ``raise`` rather than ``assert`` — Python with ``-O`` strips
     # asserts and this invariant is the only thing that prevents a future
-    # migration from silently breaking the cutover guard in apply_migrations.
+    # release from accidentally setting DB_SCHEMA_VERSION below the squash
+    # baseline.  ``DB_SCHEMA_VERSION >= CUTOVER_VERSION`` must hold so the
+    # post-cutover registry has a non-empty range to walk.
     raise RuntimeError(
-        f"DB_SCHEMA_VERSION ({DB_SCHEMA_VERSION}) must equal CUTOVER_VERSION "
-        f"({CUTOVER_VERSION}) — update one of them when adding new migrations."
+        f"DB_SCHEMA_VERSION ({DB_SCHEMA_VERSION}) must be >= CUTOVER_VERSION "
+        f"({CUTOVER_VERSION}). Update DB_SCHEMA_VERSION when adding new "
+        f"post-cutover migrations."
     )
 
 _SCHEMA = """
