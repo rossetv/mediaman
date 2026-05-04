@@ -1172,11 +1172,17 @@ class TestAutoAbandonAuditLog:
 class TestSearchBackoff:
     """Unit tests for the deterministic exponential backoff helper."""
 
+    def _no_jitter(self, monkeypatch):
+        """Neutralise jitter by fixing the deterministic multiplier to 1.0."""
+        from mediaman.services.arr import throttle
+
+        monkeypatch.setattr(throttle._SEARCH_BACKOFF, "_deterministic_multiplier", lambda seed: 1.0)
+
     def test_zero_count_returns_base_two_minutes(self, monkeypatch):
         """search_count=0 yields exactly 120 s when jitter is fixed at 1.0."""
         from mediaman.services.arr.throttle import _search_backoff_seconds
 
-        monkeypatch.setattr("mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0)
+        self._no_jitter(monkeypatch)
         assert _search_backoff_seconds(0, "radarr:Foo", 0.0) == 120.0
 
     @pytest.mark.parametrize(
@@ -1198,7 +1204,7 @@ class TestSearchBackoff:
         """The unjittered curve doubles each step from 2 m up to but excluding the cap."""
         from mediaman.services.arr.throttle import _search_backoff_seconds
 
-        monkeypatch.setattr("mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0)
+        self._no_jitter(monkeypatch)
         assert _search_backoff_seconds(count, "radarr:Foo", 1.0) == expected_minutes * 60
 
     @pytest.mark.parametrize("count", [11, 12, 50, 200])
@@ -1206,38 +1212,40 @@ class TestSearchBackoff:
         """Above n=10 the unjittered value clamps to exactly 86_400 s."""
         from mediaman.services.arr.throttle import _search_backoff_seconds
 
-        monkeypatch.setattr("mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0)
+        self._no_jitter(monkeypatch)
         assert _search_backoff_seconds(count, "radarr:Foo", 1.0) == 86_400.0
 
     def test_negative_count_treated_as_zero(self, monkeypatch):
         """Defensive: a stray negative count returns the base interval."""
         from mediaman.services.arr.throttle import _search_backoff_seconds
 
-        monkeypatch.setattr("mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0)
+        self._no_jitter(monkeypatch)
         assert _search_backoff_seconds(-5, "radarr:Foo", 1.0) == 120.0
 
     def test_jitter_deterministic_per_fire(self):
-        """Same (dl_id, last_triggered_at) returns the same multiplier across calls."""
-        from mediaman.services.arr.throttle import _jitter_for
+        """Same seed bytes return the same multiplier across calls."""
+        from mediaman.services.arr import throttle
 
-        a = _jitter_for("radarr:Foo", 1700000000.0)
-        b = _jitter_for("radarr:Foo", 1700000000.0)
+        seed = f"radarr:Foo|{1700000000.0!r}".encode()
+        a = throttle._SEARCH_BACKOFF._deterministic_multiplier(seed)
+        b = throttle._SEARCH_BACKOFF._deterministic_multiplier(seed)
         assert a == b
 
     def test_jitter_different_for_different_seeds(self):
         """Distinct (dl_id, last) pairs roll different multipliers (sample test)."""
-        from mediaman.services.arr.throttle import _jitter_for
+        from mediaman.services.arr import throttle
 
-        seeds = [(f"radarr:Item{i}", 1700000000.0 + i) for i in range(50)]
-        multipliers = {_jitter_for(d, t) for d, t in seeds}
+        seeds = [f"radarr:Item{i}|{(1700000000.0 + i)!r}".encode() for i in range(50)]
+        multipliers = {throttle._SEARCH_BACKOFF._deterministic_multiplier(s) for s in seeds}
         assert len(multipliers) > 30
 
     def test_jitter_within_band(self):
         """All multipliers stay in [0.9, 1.1] across a large sample."""
-        from mediaman.services.arr.throttle import _jitter_for
+        from mediaman.services.arr import throttle
 
         for i in range(1000):
-            m = _jitter_for(f"radarr:Item{i}", 1.0 + i * 7.31)
+            seed = f"radarr:Item{i}|{(1.0 + i * 7.31)!r}".encode()
+            m = throttle._SEARCH_BACKOFF._deterministic_multiplier(seed)
             assert 0.9 <= m <= 1.1
 
     def test_real_jitter_applied_to_curve(self):
