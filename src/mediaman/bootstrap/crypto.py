@@ -35,9 +35,21 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
     """
     canary_ok = False
     try:
-        from mediaman.crypto import canary_check
+        from mediaman.crypto import canary_check, migrate_legacy_ciphertexts
 
         canary_ok = bool(canary_check(app.state.db, config.secret_key))
+        if canary_ok:
+            # Migration v35: re-encrypt any legacy v1 or no-AAD v2 settings
+            # ciphertexts to v2+AAD. Safe to call on every startup — already-
+            # migrated rows are skipped. Errors are logged but do not abort
+            # startup: a failed re-encrypt leaves the row readable via the
+            # no-AAD fallback in decrypt_value until the next boot.
+            try:
+                n = migrate_legacy_ciphertexts(app.state.db, config.secret_key)
+                if n:
+                    logger.info("bootstrap_crypto: migrated %d legacy settings row(s) to v2+AAD", n)
+            except Exception:
+                logger.exception("bootstrap_crypto: migrate_legacy_ciphertexts failed (non-fatal)")
     except Exception:
         logger.exception("AES canary check failed unexpectedly")
         canary_ok = False

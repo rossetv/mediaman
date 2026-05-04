@@ -17,6 +17,7 @@ from .aes import (
     canary_check,
     decrypt_value,
     encrypt_value,
+    migrate_legacy_ciphertexts,
     # Used by config.py
     _secret_key_looks_strong,
     # Used by tests (test-only concession — these are internal implementation details)
@@ -48,7 +49,6 @@ from .tokens import (
 
 __all__ = [
     "_derive_aes_key_hkdf",
-    "_derive_aes_key_legacy",
     "_load_or_create_salt",
     "_secret_key_looks_strong",
     "canary_check",
@@ -60,6 +60,7 @@ __all__ = [
     "generate_poster_token",
     "generate_session_token",
     "generate_unsubscribe_token",
+    "migrate_legacy_ciphertexts",
     "sign_poster_url",
     "validate_download_token",
     "validate_keep_token",
