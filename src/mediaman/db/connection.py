@@ -2,12 +2,25 @@
 
 Split from the original monolithic ``db.py`` (R5). Schema DDL and
 migrations live in :mod:`mediaman.db.schema`.
+
+Connection lifecycle
+--------------------
+The bootstrap thread calls :func:`set_connection` early in startup, registering
+the connection it opened (via :func:`init_db`) as the owning-thread connection.
+Subsequent threads call :func:`get_db`, which lazily opens a fresh per-thread
+connection configured via :func:`_configure_connection` — the owning-thread
+connection takes precedence when the calling thread matches, and the thread-local
+connection serves all other callers.  :func:`open_thread_connection` is the
+explicit escape hatch for callers that need a brand-new, fully configured
+connection outside the lazy-open mechanism.
 """
 
 from __future__ import annotations
 
 import contextlib
 import logging
+import os
+import socket
 import sqlite3
 import threading
 from datetime import UTC, datetime, timedelta
@@ -147,6 +160,9 @@ def close_db() -> None:
 # considered crashed and no longer blocks new runs.
 _JOB_HEARTBEAT_INTERVAL_SECONDS = 60
 _JOB_HEARTBEAT_STALE_SECONDS = 5 * 60
+assert _JOB_HEARTBEAT_INTERVAL_SECONDS < _JOB_HEARTBEAT_STALE_SECONDS, (
+    "heartbeat interval must be shorter than the stale threshold"
+)
 
 # Allow-list of job-run table names. Used to guard the internal helpers
 # below so a future caller cannot accidentally interpolate
@@ -166,11 +182,8 @@ def _job_owner_id() -> str:
     when deciding whether to start a new run because the heartbeat is
     already an unforgeable liveness signal.
     """
-    import os
-    import socket as _sock
-
     try:
-        host = _sock.gethostname()
+        host = socket.gethostname()
     except Exception:
         host = "unknown"
     return f"{host}:{os.getpid()}"

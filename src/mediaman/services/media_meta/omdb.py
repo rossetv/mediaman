@@ -16,19 +16,21 @@ Logging note
 The OMDb REST API only accepts the API key as a query string parameter.
 ``urllib3`` logs request URLs at DEBUG, so the key would otherwise leak
 into ``mediaman.log`` in any deployment that enables DEBUG-level
-logging.  We install a logging filter on the urllib3 connection logger
-that scrubs ``apikey=`` from messages before they're emitted.
+logging.  We attach a :class:`~mediaman.services.infra.scrub_filter.ScrubFilter`
+to the urllib3 connection logger and the mediaman logger at the point
+where the API key is first resolved, scrubbing the raw key value from
+any log record before it is emitted.
 """
 
 from __future__ import annotations
 
 import logging
-import re
 import sqlite3
 
 import requests
 
 from mediaman.services.infra.http_client import SafeHTTPClient, SafeHTTPError
+from mediaman.services.infra.scrub_filter import ScrubFilter
 from mediaman.services.infra.settings_reader import get_string_setting
 
 #: Base URL for the OMDb REST API.
@@ -44,46 +46,24 @@ _OMDB_CLIENT = SafeHTTPClient(OMDB_API_BASE_URL, session=_OMDB_SESSION)
 logger = logging.getLogger("mediaman")
 
 
-# ---------------------------------------------------------------------------
-# Scrub ``apikey=`` from any urllib3/requests log messages so a DEBUG-level
-# logging configuration cannot leak the key into the on-disk log.
-# ---------------------------------------------------------------------------
-_APIKEY_QS_RE = re.compile(r"apikey=[^&\s'\"]*", re.IGNORECASE)
+def _attach_scrub_filters(api_key: str) -> None:
+    """Attach :class:`~mediaman.services.infra.scrub_filter.ScrubFilter` instances
+    for *api_key* to the loggers that may emit URLs containing it.
 
+    Called once per resolved key inside :func:`fetch_ratings`.  The attach is
+    idempotent — repeated calls with the same key do not stack filters.
 
-class _ScrubApiKeyFilter(logging.Filter):
-    """Logging filter that replaces ``apikey=<value>`` with ``apikey=<redacted>``.
+    Loggers covered:
 
-    Attached to the ``urllib3.connectionpool`` logger at module import.
-    DEBUG log records on that logger include the full request URL, which
-    on OMDb means the key.  The filter rewrites the message in place so
-    nothing downstream (file handler, syslog) sees the secret.
+    * ``urllib3.connectionpool`` — logs the full request URL at DEBUG, which
+      would otherwise expose ``apikey=<value>``.
+    * ``mediaman`` — catches any caller that stringifies a
+      :class:`~mediaman.services.infra.http_client.SafeHTTPError` carrying
+      the constructed URL.
     """
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        try:
-            if isinstance(record.msg, str) and "apikey=" in record.msg.lower():
-                record.msg = _APIKEY_QS_RE.sub("apikey=<redacted>", record.msg)
-            if record.args and isinstance(record.args, tuple):
-                record.args = tuple(
-                    _APIKEY_QS_RE.sub("apikey=<redacted>", a) if isinstance(a, str) else a
-                    for a in record.args
-                )
-        except Exception:
-            # A logging filter that raises would silence the log entirely —
-            # drop quietly and let the (possibly unscrubbed) record through.
-            return True
-        return True
-
-
-# Attach to the urllib3 connection-pool logger (where the request URL is
-# logged at DEBUG) and to ``mediaman`` itself for any caller that ever
-# stringifies a SafeHTTPError carrying the URL.  The filter is idempotent
-# — repeated module imports won't double-attach because ``addFilter``
-# silently no-ops on an already-present instance reference.
-_omdb_apikey_filter = _ScrubApiKeyFilter()
-logging.getLogger("urllib3.connectionpool").addFilter(_omdb_apikey_filter)
-logger.addFilter(_omdb_apikey_filter)
+    secrets = [api_key]
+    ScrubFilter.attach("urllib3.connectionpool", secrets=secrets)
+    ScrubFilter.attach("mediaman", secrets=secrets)
 
 
 def get_omdb_key(conn: sqlite3.Connection, secret_key: str) -> str | None:
@@ -132,6 +112,9 @@ def fetch_ratings(
         omdb_key = get_omdb_key(conn, secret_key)
     if not omdb_key:
         return {}
+
+    # Attach log scrubbing for this key value before any network call.
+    _attach_scrub_filters(omdb_key)
 
     params: dict[str, object] = {
         "apikey": omdb_key,

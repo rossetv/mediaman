@@ -1,24 +1,32 @@
-"""Security event audit log.
+"""Security event and media-action audit log.
 
-Writes structured records to the existing ``audit_log`` table with a
-dedicated ``sec:`` prefix on the ``action`` column so they're easy to
-query separately from media actions. Records carry actor username,
-client IP, and a short detail string. These events are the trail an
-operator uses to reconstruct what a compromised session did.
+Writes structured records to the ``audit_log`` table. Two distinct write
+families exist:
 
-Two write paths exist:
+**Media-action auditing** (:func:`log_audit`)
+    Records deletions, snoozes, and other media-item mutations.  The
+    ``space_reclaimed_bytes`` column is ``NULL`` when no space was freed.
 
-* :func:`security_event` — best-effort write that swallows exceptions.
-  Suitable for events whose ABSENCE from the log is not by itself a
-  security incident (login.success, session.destroy, etc.).
-* :func:`security_event_or_raise` — fail-closed write that re-raises
-  on failure and intentionally does NOT call ``conn.commit()`` so the
-  caller can hold the write inside a wider ``BEGIN ... COMMIT``
-  transaction. Privilege-establishing mutations (admin create / delete,
-  password change, sensitive settings, lockout / unlock) MUST use this
-  variant — if the audit row cannot be persisted the mutation must be
-  rolled back so we never have a "the change happened but no one knows"
-  situation.
+**Security-event auditing** (:func:`security_event`, :func:`security_event_or_raise`)
+    Records authentication and privilege events with a ``sec:`` prefix on
+    the ``action`` column so they are easy to filter independently of media
+    actions.
+
+Transaction-ownership semantics
+--------------------------------
+None of the functions in this module call ``conn.commit()``.  This is
+deliberate: the audit row must land in the *same* transaction as the
+business mutation it records.  Callers are responsible for committing
+(or rolling back) after both the business row and the audit row have been
+written.  If the audit INSERT fails and the caller is using
+:func:`security_event_or_raise`, the exception propagates so the caller's
+transaction is aborted — ensuring we never have a "the mutation happened
+but no one knows" situation.
+
+The sole exception is :func:`security_event` (best-effort path), which
+*does* call ``conn.commit()`` after the INSERT because it is used for
+low-stakes events (login.success, session.destroy) that are not part of a
+wider transaction.
 """
 
 from __future__ import annotations
@@ -61,21 +69,12 @@ def log_audit(
     committing in their own transaction so the audit row and the business
     row land in the same commit.
     """
-    now = now_iso()
-    if space_bytes is not None:
-        conn.execute(
-            "INSERT INTO audit_log "
-            "(media_item_id, action, detail, space_reclaimed_bytes, created_at, actor) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (media_item_id, action, detail, space_bytes, now, actor),
-        )
-    else:
-        conn.execute(
-            "INSERT INTO audit_log "
-            "(media_item_id, action, detail, created_at, actor) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (media_item_id, action, detail, now, actor),
-        )
+    conn.execute(
+        "INSERT INTO audit_log "
+        "(media_item_id, action, detail, space_reclaimed_bytes, created_at, actor) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (media_item_id, action, detail, space_bytes, now_iso(), actor),
+    )
 
 
 def _format_security_body(actor: str, ip: str, detail: dict | str | None) -> str:
@@ -91,6 +90,29 @@ def _format_security_body(actor: str, ip: str, detail: dict | str | None) -> str
         detail_str = str(detail or "")
     prefix = f"actor={actor or '-'} ip={ip or '-'}"
     return f"{prefix} {detail_str}" if detail_str else prefix
+
+
+def _insert_security_event(
+    conn: sqlite3.Connection,
+    *,
+    event: str,
+    actor: str,
+    ip: str,
+    detail: dict | str | None,
+) -> None:
+    """Execute the ``audit_log`` INSERT for a security event.
+
+    Shared by :func:`security_event` and :func:`security_event_or_raise`.
+    Does not commit and does not catch exceptions — both of those
+    concerns belong to the caller.
+    """
+    body = _format_security_body(actor, ip, detail)
+    conn.execute(
+        "INSERT INTO audit_log "
+        "(media_item_id, action, detail, created_at, actor) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("_security", f"sec:{event}", body, now_iso(), actor),
+    )
 
 
 def security_event(
@@ -120,13 +142,7 @@ def security_event(
     behaviour for high-impact mutations.
     """
     try:
-        body = _format_security_body(actor, ip, detail)
-        conn.execute(
-            "INSERT INTO audit_log "
-            "(media_item_id, action, detail, created_at, actor) "
-            "VALUES (?, ?, ?, ?, ?)",
-            ("_security", f"sec:{event}", body, now_iso(), actor),
-        )
+        _insert_security_event(conn, event=event, actor=actor, ip=ip, detail=detail)
         conn.commit()
     except Exception:  # pragma: no cover — never break flow on log failure
         logger.exception("security_event write failed event=%s", event)
@@ -155,10 +171,4 @@ def security_event_or_raise(
     lockout / unlock — where a "the mutation succeeded but no audit
     trail exists" outcome is itself a security incident.
     """
-    body = _format_security_body(actor, ip, detail)
-    conn.execute(
-        "INSERT INTO audit_log "
-        "(media_item_id, action, detail, created_at, actor) "
-        "VALUES (?, ?, ?, ?, ?)",
-        ("_security", f"sec:{event}", body, now_iso(), actor),
-    )
+    _insert_security_event(conn, event=event, actor=actor, ip=ip, detail=detail)
