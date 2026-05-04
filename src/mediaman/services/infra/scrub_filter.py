@@ -13,7 +13,7 @@ Usage::
 from __future__ import annotations
 
 import logging
-from typing import Iterable
+from collections.abc import Iterable
 
 
 class ScrubFilter(logging.Filter):
@@ -60,15 +60,14 @@ class ScrubFilter(logging.Filter):
             if record.args:
                 if isinstance(record.args, tuple):
                     record.args = tuple(
-                        self._scrub(a) if isinstance(a, str) else a
-                        for a in record.args
+                        self._scrub(a) if isinstance(a, str) else a for a in record.args
                     )
                 elif isinstance(record.args, dict):
                     record.args = {
                         k: self._scrub(v) if isinstance(v, str) else v
                         for k, v in record.args.items()
                     }
-        except Exception:  # noqa: BLE001
+        except Exception:
             # A filter that raises silences the log record entirely.
             # Swallow all errors and let the (possibly unscrubbed) record
             # through rather than breaking application logging.
@@ -95,7 +94,7 @@ class ScrubFilter(logging.Filter):
         logger_name: str,
         secrets: Iterable[str],
         replacement: str = "***REDACTED***",
-    ) -> "ScrubFilter":
+    ) -> ScrubFilter:
         """Add a :class:`ScrubFilter` to the named logger, deduplicating on attach.
 
         If a :class:`ScrubFilter` covering the same set of secrets and

@@ -52,6 +52,7 @@ from mediaman.services.infra.http_client import (
     SafeHTTPError,
     pin_dns_for_request,
 )
+from mediaman.services.infra.scrub_filter import ScrubFilter
 from mediaman.services.infra.url_safety import resolve_safe_outbound_url
 from mediaman.services.media_meta.anime_detect import is_anime as _is_anime_show
 
@@ -387,6 +388,13 @@ class PlexClient:
                 "metadata endpoint."
             )
 
+        # Attach log scrubbing for the token so it is never emitted in
+        # DEBUG output from urllib3, requests, or mediaman itself.
+        # Idempotent — safe to call at construction time; repeated calls
+        # with the same token do not stack filters.
+        ScrubFilter.attach("urllib3.connectionpool", secrets=[token])
+        ScrubFilter.attach("mediaman", secrets=[token])
+
         # Hardened session for everything plexapi does internally —
         # library enumeration, section scanning, raw queries. Without
         # this, plexapi's own ``requests.Session`` would not enforce
@@ -561,7 +569,7 @@ class PlexClient:
                     "plex.user_ratings.filter_unsupported section=%s — falling back to "
                     "full enumeration: %s",
                     section.title,
-                    _scrub_plex_token(str(exc)),
+                    str(exc),
                 )
                 items = section.all()
             entry_type: Literal["movie", "tv"] = "movie" if section.type == "movie" else "tv"
