@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import shutil
 import sqlite3
 import threading
 from typing import TYPE_CHECKING, NamedTuple, TypedDict, cast
@@ -24,7 +25,6 @@ from mediaman.services.arr.build import (
     build_sonarr_from_db as _build_sonarr,
 )
 from mediaman.services.infra.settings_reader import get_int_setting as _get_int_setting
-from mediaman.services.infra.storage import get_disk_usage
 
 if TYPE_CHECKING:
     from mediaman.services.media_meta.plex import PlexClient
@@ -167,9 +167,9 @@ def _filter_libraries_by_disk(
             continue
 
         try:
-            usage = get_disk_usage(cfg["path"])
-            total = usage["total_bytes"]
-            used = usage["used_bytes"]
+            usage = shutil.disk_usage(cfg["path"])
+            total = usage.total
+            used = usage.used
             current_pct = (used / total * 100) if total > 0 else 0
         except OSError:
             logger.warning(
