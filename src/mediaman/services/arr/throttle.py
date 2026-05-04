@@ -78,6 +78,19 @@ _SEARCH_BACKOFF = ExponentialBackoff(
 _STRANDED_THROTTLE_TTL_SECONDS = 90 * 24 * 60 * 60  # 90 days
 
 
+def _jitter_for(dl_id: str, last_triggered_at: float) -> float:
+    """Return the deterministic ±10% jitter multiplier for *(dl_id, last_triggered_at)*.
+
+    Kept as a thin shim so existing tests can ``monkeypatch`` it to
+    pin the multiplier to a constant when asserting on the unjittered
+    backoff curve.  Production code routes through ``_SEARCH_BACKOFF.delay``,
+    which calls into :class:`~mediaman.services.infra.backoff.ExponentialBackoff`'s
+    deterministic-multiplier helper using the same seed.
+    """
+    seed = f"{dl_id}|{last_triggered_at!r}".encode()
+    return _SEARCH_BACKOFF._deterministic_multiplier(seed)
+
+
 def _search_backoff_seconds(search_count: int, dl_id: str, last_triggered_at: float) -> float:
     """Return the wait in seconds before the next fire is allowed.
 
@@ -90,9 +103,14 @@ def _search_backoff_seconds(search_count: int, dl_id: str, last_triggered_at: fl
     produces a consistent representation across platforms and Python versions,
     unlike bare ``str(float)``.  See :class:`~mediaman.services.infra.backoff.ExponentialBackoff`
     for why determinism is load-bearing here.
+
+    Routes the multiplier through the module-level :func:`_jitter_for`
+    shim so test monkeypatches on that name continue to override the
+    multiplier as before.
     """
-    seed = f"{dl_id}|{last_triggered_at!r}".encode()
-    return _SEARCH_BACKOFF.delay(max(search_count, 0), seed=seed)
+    n = max(search_count, 0)
+    base = min(_SEARCH_BACKOFF_BASE_SECONDS * 2 ** max(n - 1, 0), _SEARCH_BACKOFF_MAX_SECONDS)
+    return min(base * _jitter_for(dl_id, last_triggered_at), _SEARCH_BACKOFF_MAX_SECONDS)
 
 
 def reset_search_triggers() -> None:
