@@ -93,16 +93,13 @@ def get_setting(
             # row swap (moving a ciphertext from one key to another)
             # fails authentication instead of silently succeeding.
             # ``decrypt_value`` falls back to no-AAD on InvalidTag so
-            # pre-AAD ciphertexts still read; passing ``settings_key``
-            # asks ``decrypt_value`` to re-encrypt the row with AAD on
-            # the next no-AAD success so the legacy fallback gradually
-            # disappears as settings are read in production.
+            # any pre-AAD v2 rows that haven't been upgraded by
+            # migrate_legacy_ciphertexts (migration v35) still read.
             val = decrypt_value(
                 val,
                 secret_key,
                 conn=conn,
                 aad=key.encode(),
-                settings_key=key,
             )
         except (sqlite3.OperationalError, sqlite3.DatabaseError, InvalidTag, ValueError):
             # Narrow exception list:
@@ -228,7 +225,6 @@ def get_string_setting_strict(
                 secret_key,
                 conn=conn,
                 aad=key.encode(),
-                settings_key=key,
             )
         except (sqlite3.OperationalError, sqlite3.DatabaseError, InvalidTag, ValueError) as exc:
             # Same narrow list as :func:`get_setting`. Anything outside
