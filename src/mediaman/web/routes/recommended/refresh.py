@@ -110,16 +110,31 @@ def api_refresh_recommendations(
                 count = refresh_recommendations(
                     thread_conn, plex_client, manual=True, secret_key=thread_secret_key
                 )
-                result = {"ok": True, "count": count}
-                # Finding 29: cooldown only counts on success — a
-                # failure must not lock the user out for 24h. Record
-                # the timestamp here, after the work returned without
-                # raising.
-                record_manual_refresh(thread_conn, datetime.now(UTC))
-                manual_refresh_recorded = True
+                if count > 0:
+                    result = {"ok": True, "count": count}
+                    # Finding 29: cooldown only counts on success — a
+                    # failure must not lock the user out for 24h. Record
+                    # the timestamp here, after the work returned without
+                    # raising.
+                    record_manual_refresh(thread_conn, datetime.now(UTC))
+                    manual_refresh_recorded = True
+                    finish_refresh_run(thread_conn, run_id, "done")
+                else:
+                    # Zero rows generated means OpenAI returned nothing
+                    # usable (quota, key, network, or web-search batch
+                    # rejected). Treat as failure: don't burn the 24h
+                    # cooldown, surface a real error so the user can retry.
+                    result = {
+                        "ok": False,
+                        "error": (
+                            "OpenAI returned no recommendations. Check the OpenAI "
+                            "API key, quota, and server logs, then try again."
+                        ),
+                    }
+                    finish_refresh_run(thread_conn, run_id, "error", "no recommendations generated")
             else:
                 result = {"ok": False, "error": "Plex not configured"}
-            finish_refresh_run(thread_conn, run_id, "done")
+                finish_refresh_run(thread_conn, run_id, "done")
         except Exception as exc:
             logger.exception("Background recommendation refresh failed")
             result = {"ok": False, "error": "Recommendation refresh failed"}
