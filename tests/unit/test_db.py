@@ -772,13 +772,18 @@ class TestMigrationSquash:
     rather than corrupted state.
     """
 
-    def test_fresh_db_lands_at_cutover_version(self, tmp_path):
-        """A brand-new database must be stamped at CUTOVER_VERSION."""
+    def test_fresh_db_lands_at_current_schema_version(self, tmp_path):
+        """A brand-new database must be stamped at DB_SCHEMA_VERSION.
+
+        ``_SCHEMA`` already reflects every post-cutover migration's
+        resulting shape, so a fresh DB skips the registry walk and is
+        stamped at the latest version directly.
+        """
         conn = sqlite3.connect(str(tmp_path / "fresh.db"))
         conn.row_factory = sqlite3.Row
         apply_migrations(conn)
         version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == CUTOVER_VERSION
+        assert version == DB_SCHEMA_VERSION
         conn.close()
 
     def test_db_at_version_10_raises_schema_too_old(self, tmp_path):
@@ -798,7 +803,7 @@ class TestMigrationSquash:
         msg = str(exc_info.value)
         assert "version 10" in msg
         assert str(CUTOVER_VERSION) in msg
-        assert "1.9.0" in msg  # the transit release name
+        assert "1.8.x" in msg  # the transit release name
 
     def test_error_message_is_actionable(self, tmp_path):
         """The error message must name the current version, cutover, and the
@@ -810,14 +815,39 @@ class TestMigrationSquash:
 
         conn = sqlite3.connect(str(tmp_path / "old2.db"))
         conn.row_factory = sqlite3.Row
-        with pytest.raises(SchemaTooOldError, match="1.9.0"):
+        with pytest.raises(SchemaTooOldError, match="1.8.x"):
             apply_migrations(conn)
         conn.close()
 
-    def test_db_already_at_cutover_is_noop(self, tmp_path):
-        """A database already at CUTOVER_VERSION must not be modified."""
-        conn = sqlite3.connect(str(tmp_path / "current.db"))
+    def test_db_at_cutover_advances_to_current(self, tmp_path):
+        """A DB at exactly CUTOVER_VERSION walks the post-cutover registry.
+
+        The user's existing v34 deployment lands here on first boot of the
+        post-squash release: v35 is a no-op DDL marker that bumps user_version
+        and lets bootstrap_crypto's migrate_legacy_ciphertexts run.
+        """
+        db_path = str(tmp_path / "cutover.db")
+        conn = sqlite3.connect(db_path)
+        # Lay down the baseline schema so the connection has the tables
+        # the post-cutover migrations may need.
+        from mediaman.db.schema_definition import _SCHEMA
+
+        conn.executescript(_SCHEMA)
         conn.execute(f"PRAGMA user_version={CUTOVER_VERSION}")
+        conn.commit()
+        conn.close()
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        apply_migrations(conn)
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        assert version == DB_SCHEMA_VERSION
+        conn.close()
+
+    def test_db_at_current_schema_version_is_noop(self, tmp_path):
+        """A database already at DB_SCHEMA_VERSION must not be modified."""
+        conn = sqlite3.connect(str(tmp_path / "current.db"))
+        conn.execute(f"PRAGMA user_version={DB_SCHEMA_VERSION}")
         conn.commit()
         conn.close()
 
@@ -826,7 +856,7 @@ class TestMigrationSquash:
         # Must not raise; user_version stays the same.
         apply_migrations(conn)
         version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == CUTOVER_VERSION
+        assert version == DB_SCHEMA_VERSION
         conn.close()
 
     def test_db_from_future_raises(self, tmp_path):
