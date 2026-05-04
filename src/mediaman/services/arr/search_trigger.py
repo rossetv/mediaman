@@ -1,97 +1,379 @@
-"""Auto-trigger Radarr/Sonarr searches for stalled monitored items.
+"""Throttle state, persistence, and trigger-decision logic for auto-triggered Arr searches.
 
-This module owns the trigger-decision state machine — the per-item
-locking discipline, the reservation-token rollback semantics, and the
-periodic scheduler-driven sweep that pokes Radarr/Sonarr for everything
-they've been told to monitor but haven't matched an NZB for.
+This module is the single home for everything that governs whether and when
+mediaman pokes Radarr/Sonarr to search for a stalled monitored item.  It was
+previously split across :mod:`mediaman.services.arr.throttle` (state and
+persistence) and this file (decision logic), with a messy re-export dance to
+keep callers and tests happy.  The split is now gone; everything lives here.
 
-After the Wave 4-8 hardening pass this file became a 500-line
-mishmash of state, persistence, decision logic and policy. The split:
+What this module owns:
 
-* :mod:`mediaman.services.arr.throttle` — module globals, DB read/write,
-  ``get_search_info`` / ``clear_throttle`` / ``reset_search_triggers`` /
-  ``reconcile_stranded_throttle``.
-* :mod:`mediaman.services.arr.auto_abandon` — the escalate-then-abandon
-  policy and its per-fire audit emission.
-* This module — :func:`maybe_trigger_search`, the partial-missing pass,
-  and :func:`trigger_pending_searches`.
+* Module-level in-memory state dicts and the lock guarding them.
+* Per-item and per-arr-instance backoff configuration and helpers.
+* SQLite persistence to/from the ``arr_search_throttle`` table.
+* The reconciliation pass that reaps stranded rows after a TTL.
+* Inspection / reset helpers used by the UI and tests.
+* :func:`maybe_trigger_search` — the reservation-token locking discipline
+  and the per-item throttle gate.
+* :func:`trigger_pending_searches` — the scheduler-driven sweep.
+* :func:`_trigger_sonarr_partial_missing` — the second pass for series with
+  partial episode coverage.
 
-The split is purely organisational — no behavioural change. Every
-public name that used to live here is re-exported below so external
-callers (especially ``bootstrap/scheduling.py`` and
-``services/downloads/download_queue/__init__.py``) and tests that
-monkeypatch via ``mediaman.services.arr.search_trigger.<name>`` see no
-change. Private names (``_last_search_trigger``, ``_state_lock``,
-``_load_throttle_from_db`` etc.) are also re-exported for the same
-reason.
+:mod:`mediaman.services.arr.throttle` is kept as a back-compat re-export
+shim so callers and tests that import from that path continue to work.
 """
 
 from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 import time
 import uuid
+from datetime import UTC
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from mediaman.services.arr.fetcher import ArrCard
 
-from mediaman.audit import security_event
 from mediaman.services.arr.auto_abandon import maybe_auto_abandon
 from mediaman.services.arr.build import build_arr_client
 from mediaman.services.arr.fetcher import fetch_arr_queue
-from mediaman.services.arr.throttle import (
-    _PER_ARR_THROTTLE_SECONDS,
-    _SEARCH_STALE_SECONDS,
-    _STRANDED_THROTTLE_TTL_SECONDS,
-    _arr_throttle_key,
-    _last_search_trigger,
-    _last_search_trigger_by_arr,
-    _load_throttle_from_db,
-    _reservation_tokens,
-    _save_trigger_to_db,
-    _search_backoff_seconds,
-    _search_count,
-    _state_lock,
-    clear_throttle,
-    get_search_info,
-    reconcile_stranded_throttle,
-    reset_search_triggers,
-)
-from mediaman.services.infra.settings_reader import get_int_setting
+from mediaman.services.infra.backoff import ExponentialBackoff
 
 logger = logging.getLogger("mediaman")
 
-__all__ = [  # noqa: RUF022 — grouped by public/private; sorting would obscure that.
-    # Public API consumed by other modules and tests.
-    "build_arr_client",
-    "clear_throttle",
-    "fetch_arr_queue",
-    "get_int_setting",
-    "get_search_info",
-    "maybe_auto_abandon",
-    "maybe_trigger_search",
-    "reconcile_stranded_throttle",
-    "reset_search_triggers",
-    "security_event",
-    "trigger_pending_searches",
-    # Private re-exports (tests reach into these — rather than break the
-    # tests, the split preserves the same import path).
-    "_arr_throttle_key",
-    "_last_search_trigger",
-    "_last_search_trigger_by_arr",
-    "_load_throttle_from_db",
-    "_reservation_tokens",
-    "_save_trigger_to_db",
-    "_search_backoff_seconds",
-    "_search_count",
-    "_state_lock",
-    "_SEARCH_STALE_SECONDS",
-    "_PER_ARR_THROTTLE_SECONDS",
-    "_STRANDED_THROTTLE_TTL_SECONDS",
-    "_trigger_sonarr_partial_missing",
-]
+
+# ---- Persisted/in-memory throttle state ----
+
+# Maps dl_id -> epoch seconds of last trigger.
+_last_search_trigger: dict[str, float] = {}
+
+# Parallel map: dl_id -> number of times we've triggered a search for this
+# item since process start. Powers the "Searched N times" UI hint so users
+# can see mediaman is actually poking Radarr/Sonarr rather than idling.
+_search_count: dict[str, int] = {}
+
+# Tokens identifying the current owner of each dl_id's reservation. The
+# token is generated under the lock when a worker reserves the slot and
+# checked again on rollback so a sibling worker overwriting the slot in
+# the meantime cannot have its work undone (Domain-06 #8).
+_reservation_tokens: dict[str, str] = {}
+
+# Stable composite-key throttle indexed by ``f"{service}:#{arr_id}"``.
+# The ``dl_id``-based throttle in ``_last_search_trigger`` collapses
+# under a Sonarr/Radarr title rename (the title-derived dl_id changes),
+# but ``arr_id`` is stable. ``maybe_trigger_search`` mirrors every
+# successful trigger here so a renamed series can't bypass the throttle
+# by producing a fresh title-derived dl_id (Domain-06 #11).
+_last_search_trigger_by_arr: dict[str, float] = {}
+
+# Lock guarding _last_search_trigger, _search_count, _reservation_tokens,
+# and _last_search_trigger_by_arr.
+_state_lock = threading.Lock()
+
+
+# ---- Backoff configuration ----
+
+_SEARCH_STALE_SECONDS = 5 * 60  # trigger if item has been searching > 5 min
+
+# Per-arr-instance serialiser: don't fire more than one search per Radarr/Sonarr
+# instance within this window, regardless of how many items are eligible. Caps
+# fan-out to the indexer when many stuck items contend at the same moment.
+_PER_ARR_THROTTLE_SECONDS = 15 * 60
+
+# Per-item exponential backoff. interval(n) = base * 2^max(n-1, 0), clamped.
+# n is the number of fires already completed for this dl_id; the gate uses it
+# to compute the wait until the next allowed fire.
+_SEARCH_BACKOFF_BASE_SECONDS = 120  # 2 min
+_SEARCH_BACKOFF_MAX_SECONDS = 86_400  # 24 h cap
+_SEARCH_BACKOFF_JITTER = 0.1  # ±10% multiplicative jitter
+
+_SEARCH_BACKOFF = ExponentialBackoff(
+    _SEARCH_BACKOFF_BASE_SECONDS,
+    _SEARCH_BACKOFF_MAX_SECONDS,
+    jitter=_SEARCH_BACKOFF_JITTER,
+)
+
+_STRANDED_THROTTLE_TTL_SECONDS = 90 * 24 * 60 * 60  # 90 days
+
+
+# ---- Internal helpers ----
+
+
+def _jitter_for(dl_id: str, last_triggered_at: float) -> float:
+    """Return the deterministic ±10% jitter multiplier for *(dl_id, last_triggered_at)*.
+
+    Kept as a thin shim so existing tests can ``monkeypatch`` it to
+    pin the multiplier to a constant when asserting on the unjittered
+    backoff curve.  Production code routes through ``_SEARCH_BACKOFF.delay``,
+    which calls into :class:`~mediaman.services.infra.backoff.ExponentialBackoff`'s
+    deterministic-multiplier helper using the same seed.
+
+    Tests may patch either ``mediaman.services.arr.throttle._jitter_for`` or
+    ``mediaman.services.arr.search_trigger._jitter_for``.  ``_search_backoff_seconds``
+    resolves this name via the ``throttle`` module at call time (lazy import)
+    so that patching either path affects the backoff computation.
+    """
+    seed = f"{dl_id}|{last_triggered_at!r}".encode()
+    return _SEARCH_BACKOFF._deterministic_multiplier(seed)
+
+
+def _search_backoff_seconds(search_count: int, dl_id: str, last_triggered_at: float) -> float:
+    """Return the wait in seconds before the next fire is allowed.
+
+    *search_count* is the number of fires already completed for *dl_id*.
+    The result is the jittered interval that gates the next fire after
+    *last_triggered_at*.
+
+    The seed encodes ``(dl_id, last_triggered_at)`` — the ``!r`` formatting
+    of the float is deliberate and part of the determinism contract: it
+    produces a consistent representation across platforms and Python versions,
+    unlike bare ``str(float)``.  See :class:`~mediaman.services.infra.backoff.ExponentialBackoff`
+    for why determinism is load-bearing here.
+
+    Routes the multiplier through the ``throttle`` module's ``_jitter_for``
+    attribute (lazy import) so that test monkeypatches on
+    ``mediaman.services.arr.throttle._jitter_for`` continue to override
+    the multiplier as expected.
+    """
+    import mediaman.services.arr.throttle as _throttle
+
+    n = max(search_count, 0)
+    base = min(_SEARCH_BACKOFF_BASE_SECONDS * 2 ** max(n - 1, 0), _SEARCH_BACKOFF_MAX_SECONDS)
+    return min(base * _throttle._jitter_for(dl_id, last_triggered_at), _SEARCH_BACKOFF_MAX_SECONDS)
+
+
+def _arr_throttle_key(service: str, arr_id: int) -> str:
+    """Return the stable arr-id-based throttle key.
+
+    Used as a parallel index to ``_last_search_trigger`` (which is keyed
+    by ``dl_id``). The ``dl_id`` collapses under a title rename;
+    the arr-id key does not. ``maybe_trigger_search`` updates both, so
+    any path that has access to ``(service, arr_id)`` can dedupe even
+    if the title has changed since the last trigger (Domain-06 #11).
+    """
+    return f"{service}:#{arr_id}"
+
+
+# ---- Persistence ----
+
+
+def _load_throttle_from_db(conn: sqlite3.Connection, dl_id: str) -> tuple[float, int]:
+    """Return ``(last_triggered_epoch, search_count)`` for *dl_id*.
+
+    Reads from the ``arr_search_throttle`` table.  Returns ``(0.0, 0)``
+    when the table or row doesn't exist yet (pre-migration DBs during
+    startup, or items mediaman has never poked).
+
+    Exception policy (Domain-06 #9): only ``sqlite3.OperationalError``
+    and ``sqlite3.DatabaseError`` are swallowed — those genuinely
+    represent transient or pre-migration states where ``(0.0, 0)`` is
+    the correct fallback. A broader ``except Exception`` previously
+    masked schema/migration faults too, silently disabling the
+    throttle by reporting "never triggered" for every dl_id.  Any other
+    exception (e.g. a coding bug in the parser) now propagates so the
+    caller sees the real failure.
+    """
+    try:
+        row = conn.execute(
+            "SELECT last_triggered_at, search_count FROM arr_search_throttle WHERE key=?",
+            (dl_id,),
+        ).fetchone()
+        if row is None:
+            return 0.0, 0
+        from mediaman.services.infra.time import parse_iso_utc
+
+        dt = parse_iso_utc(row[0])
+        epoch = dt.timestamp() if dt is not None else 0.0
+        count = int(row[1] or 0)
+        return epoch, count
+    except (sqlite3.OperationalError, sqlite3.DatabaseError) as exc:
+        # Transient or pre-migration state — fall back to "never
+        # triggered" so the throttle warm-up doesn't fail loudly the
+        # first time a fresh DB is brought up.
+        logger.warning(
+            "arr_search_trigger: throttle load fell back to zeros for %s: %s",
+            dl_id,
+            exc,
+        )
+        return 0.0, 0
+
+
+def _save_trigger_to_db(conn: sqlite3.Connection, dl_id: str, epoch: float, count: int) -> None:
+    """Persist *epoch* and *count* for *dl_id*.
+
+    Uses ``INSERT OR REPLACE`` so the upsert is idempotent.  Failures are
+    logged and swallowed — the in-memory state is still correct even when
+    the write fails (e.g. DB locked briefly).
+    """
+    try:
+        from datetime import datetime
+
+        ts = datetime.fromtimestamp(epoch, tz=UTC).isoformat()
+        conn.execute(
+            "INSERT OR REPLACE INTO arr_search_throttle "
+            "(key, last_triggered_at, search_count) VALUES (?, ?, ?)",
+            (dl_id, ts, count),
+        )
+        conn.commit()
+    except Exception:
+        logger.warning(
+            "arr_search_trigger: failed to persist throttle for %s", dl_id, exc_info=True
+        )
+
+
+def get_search_info(dl_id: str) -> tuple[int, float]:
+    """Return ``(count, last_epoch_seconds)`` for a dl_id.
+
+    Reads the in-memory cache first and falls back to the persisted
+    ``arr_search_throttle`` row when the cache is empty for *dl_id*.
+    The DB read warms the cache so subsequent calls in this worker stay
+    in-memory.
+
+    Falling back to the DB is essential under multi-worker deployments:
+    only the worker that fires the search bumps its own in-memory
+    counter, but the persisted row is shared. Without the fallback, the
+    Downloads page flickers between "Searched N×" and "Added X days
+    ago, waiting for first search" as poll requests bounce across
+    workers — same flicker happens to a single worker after a restart
+    until it next fires a search.
+
+    ``(0, 0.0)`` is only returned when nothing is in memory AND nothing
+    is in the DB.
+
+    Connection caveat (Domain-06 #13): the DB-fallback branch calls
+    ``mediaman.db.get_db()`` rather than reusing the connection passed
+    in by the caller — because this entry point takes only a ``dl_id``
+    string and doesn't have a connection in scope. ``get_db()`` returns
+    the request-local connection from the FastAPI middleware, which is
+    a DIFFERENT SQLite connection from the one the background scheduler
+    thread holds when it persists throttle writes. SQLite's WAL mode
+    handles cross-connection visibility, so committed writes from the
+    scheduler are immediately visible here, but the two connections
+    are not the same — anyone modifying this code should be aware that
+    transactions started by the caller are NOT in scope here.
+    """
+    with _state_lock:
+        count = _search_count.get(dl_id, 0)
+        last = _last_search_trigger.get(dl_id, 0.0)
+        if count > 0 or last > 0:
+            return count, last
+
+    # Cache miss — consult the DB. Best-effort: any failure (locked DB,
+    # missing table on a fresh install) returns the zero pair rather
+    # than raising, so a stalled connection never breaks the page.
+    try:
+        from mediaman.db import get_db
+
+        epoch, persisted_count = _load_throttle_from_db(get_db(), dl_id)
+    except Exception:
+        return 0, 0.0
+    if epoch == 0.0 and persisted_count == 0:
+        return 0, 0.0
+
+    with _state_lock:
+        # Warm the cache, but never let a DB read clobber a higher
+        # in-memory count (which means this worker has fired a search
+        # since the row was last persisted).
+        if dl_id not in _last_search_trigger:
+            _last_search_trigger[dl_id] = epoch
+        if persisted_count > _search_count.get(dl_id, 0):
+            _search_count[dl_id] = persisted_count
+        return (
+            _search_count.get(dl_id, 0),
+            _last_search_trigger.get(dl_id, 0.0),
+        )
+
+
+def reconcile_stranded_throttle(
+    conn: sqlite3.Connection,
+    *,
+    ttl_seconds: int = _STRANDED_THROTTLE_TTL_SECONDS,
+) -> int:
+    """Delete ``arr_search_throttle`` rows older than *ttl_seconds*.
+
+    Domain-06 #10. Rows in ``arr_search_throttle`` accumulate forever
+    when an item is deleted from Radarr/Sonarr — nothing else
+    references the row, but ``clear_throttle`` is only called by the
+    abandon flow. Operators who delete items directly via the
+    Radarr/Sonarr UI never trip that path, so the table grows
+    monotonically.
+
+    The reconciliation rule is age-based: if a row hasn't been touched
+    in ``ttl_seconds`` (default 90 days), the item is either deleted
+    or so deeply forgotten that resetting its search-count is the
+    desired behaviour.  Active items are re-triggered well inside the
+    15-minute throttle window, so their ``last_triggered_at`` updates
+    constantly and they're never reaped.
+
+    Designed to be called once on startup; a stalled DB returns 0
+    rather than raising so a slow disk doesn't break boot.
+
+    Args:
+        conn: Open SQLite connection.
+        ttl_seconds: Cutoff age in seconds. Rows whose
+            ``last_triggered_at`` is older than ``now - ttl_seconds``
+            are deleted.
+
+    Returns:
+        Number of rows deleted.
+    """
+    from datetime import datetime, timedelta
+
+    cutoff = (datetime.now(UTC) - timedelta(seconds=ttl_seconds)).isoformat()
+    try:
+        cur = conn.execute(
+            "DELETE FROM arr_search_throttle WHERE last_triggered_at < ?",
+            (cutoff,),
+        )
+        conn.commit()
+    except (sqlite3.OperationalError, sqlite3.DatabaseError):
+        logger.warning(
+            "arr_search_trigger: failed to reconcile stranded throttle rows",
+            exc_info=True,
+        )
+        return 0
+
+    deleted = cur.rowcount or 0
+    if deleted:
+        logger.info(
+            "arr_search_trigger.reconcile deleted=%d cutoff=%s",
+            deleted,
+            cutoff,
+        )
+    return deleted
+
+
+def clear_throttle(conn: sqlite3.Connection, dl_id: str) -> None:
+    """Forget every trace of *dl_id* from the search-throttle subsystem.
+
+    Removes the persisted ``arr_search_throttle`` row and drops the entry
+    from both in-memory caches.  Used by the abandon flow so a future
+    re-monitor starts a fresh search-count rather than inheriting a stale
+    "Searched 52×" hint.
+
+    Idempotent: calling on a key that was never seen is a no-op.
+    """
+    with _state_lock:
+        _last_search_trigger.pop(dl_id, None)
+        _search_count.pop(dl_id, None)
+    try:
+        conn.execute("DELETE FROM arr_search_throttle WHERE key=?", (dl_id,))
+        conn.commit()
+    except Exception:
+        logger.warning("arr_search_trigger: failed to clear throttle for %s", dl_id, exc_info=True)
+
+
+def reset_search_triggers() -> None:
+    """Clear the in-memory search-trigger snapshot. Used by tests."""
+    _last_search_trigger.clear()
+    _search_count.clear()
+    _reservation_tokens.clear()
+    _last_search_trigger_by_arr.clear()
+
+
+# ---- Public API: trigger decision ----
 
 
 def maybe_trigger_search(
