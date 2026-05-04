@@ -3,139 +3,138 @@
 [![CI](https://github.com/rossetv/mediaman/actions/workflows/ci.yml/badge.svg)](https://github.com/rossetv/mediaman/actions/workflows/ci.yml)
 [![Docker Pulls](https://img.shields.io/docker/pulls/rossetv/mediaman)](https://hub.docker.com/r/rossetv/mediaman)
 
-Self-hosted media lifecycle management for Plex. Scans selected libraries for stale media, schedules deletion with a grace period, emails subscribers a weekly newsletter with "keep" links, and provides an admin web UI for browsing, protecting, and recovering items. Integrates with Sonarr, Radarr, NZBGet, Mailgun, TMDB, and OMDb.
+Self-hosted media lifecycle management for a Plex library. mediaman scans the libraries you point it at, schedules stale items for deletion behind a grace period, emails subscribers a newsletter with one-click "keep" links, and exposes a web UI for browsing the library, searching for new content via Sonarr/Radarr, watching the NZBGet queue, and recovering items.
 
-## Architecture
+Integrates with **Plex**, **Sonarr**, **Radarr**, **NZBGet**, **Mailgun**, **TMDB**, **OMDb**, and (optionally) **OpenAI** for recommendations.
+
+## How it fits together
 
 ```
 Browser / email client
         │
         ▼
-  FastAPI web UI  ──── SQLite (encrypted settings, sessions, audit log)
+  FastAPI web UI ── SQLite (encrypted settings, sessions, audit log,
+        │            scheduled deletions, used-token store, …)
         │
-        ├── Plex API (PlexAPI)
-        ├── Sonarr / Radarr REST API
-        ├── NZBGet XML-RPC
-        ├── TMDB / OMDb APIs
-        ├── Mailgun API (newsletter)
-        └── OpenAI API (recommendations, optional)
+        ├── Plex API           (PlexAPI)
+        ├── Sonarr / Radarr    (REST)
+        ├── NZBGet             (XML-RPC)
+        ├── TMDB / OMDb        (metadata, posters)
+        ├── Mailgun            (newsletter delivery)
+        └── OpenAI             (recommendations, optional)
 ```
 
-All integration credentials are stored **encrypted at rest** (AES-256-GCM, key derived via HKDF-SHA256 from `MEDIAMAN_SECRET_KEY`). The only secret you manage directly is `MEDIAMAN_SECRET_KEY`.
+Every integration credential is stored encrypted at rest (AES-256-GCM, key derived via HKDF-SHA256 from `MEDIAMAN_SECRET_KEY`). The only secret you manage directly is `MEDIAMAN_SECRET_KEY`; everything else lives in the DB and is configured through the web UI.
 
 ## Features
 
-- Weekly (or on-demand) scans of Plex libraries
-- Configurable cleanup rules: minimum age, watch-inactivity threshold, grace period
-- Dry-run mode
-- HTML email newsletters with per-item "keep" links (anonymous 7/30/90-day snoozes, admin "forever" protection)
-- Web UI for browsing the library, managing downloads (NZBGet queue), viewing audit history, managing subscribers, and configuring settings
-- All integration credentials stored encrypted at rest (AES-256-GCM)
-- Sessions: bcrypt-hashed passwords, HTTP-only Secure cookies, rate-limited login
+- Scheduled (or on-demand) scans across selected Plex libraries.
+- Per-rule cleanup policy: minimum age, watch-inactivity threshold, grace period; dry-run mode.
+- HTML newsletter with HMAC-signed, single-use **keep** links — anonymous 7/30/90-day snoozes, admin "forever" protection.
+- Library browser with detail panes, scheduled-deletion overrides, manual delete-with-Radarr/Sonarr-cleanup, and a kept-items view.
+- Search → download flow against Sonarr/Radarr with NZBGet queue visibility, auto-abandon for stalled jobs, and one-shot signed download confirmation links.
+- Recommendations page (OpenAI-backed) with per-user refresh.
+- Admin user management (multi-admin), forced password change, bcrypt hashing, rate-limited login.
+- Subscriber management for the newsletter.
+- Audit history of scans, deletions, keeps, and admin actions.
 
 ## Quick start (Docker)
 
-1. Build the image:
-   ```
+1. **Build the image:**
+   ```bash
    docker compose build
    ```
-2. Create an `.env` file (see `.env.example`) and **replace `MEDIAMAN_SECRET_KEY`** with a value from:
-   ```
+2. **Create `.env`** (copy `.env.example`) and replace `MEDIAMAN_SECRET_KEY` with a real value:
+   ```bash
    python -c "import secrets; print(secrets.token_hex(32))"
    ```
-3. Set the media path in `docker-compose.yml` — find the line with `/path/to/your/media` and replace it with the actual path on your host. The default mount is **read-only** (`:ro`); only add `:rw` for roots listed in `MEDIAMAN_DELETE_ROOTS`.
-4. Create the data directory owned by uid 1000 (the mediaman container user), then start:
-   ```
+   The startup entropy check rejects the placeholder.
+3. **Mount your media.** In `docker-compose.yml`, replace `/path/to/your/media` with the host path. The default mount is **read-only** (`:ro`); only switch a root to `:rw` if you intend mediaman to delete from it (and list it in `MEDIAMAN_DELETE_ROOTS`).
+4. **Prepare the data directory** (uid 1000 is hard-coded in the image) and start:
+   ```bash
    mkdir -p data && chown 1000:1000 data
    docker compose up -d
    ```
-5. Create the first admin user. The command prompts for both username and password interactively (use `-it` so the prompt is wired up):
-   ```
+5. **Create the first admin user.** Interactive (prompts for username and password):
+   ```bash
    docker compose exec -it mediaman mediaman-create-user
    ```
-   For non-interactive provisioning, pipe the password via stdin (avoids leaking it through shell history or the process table):
+   Non-interactive (avoids leaking the password through history or the process table):
+   ```bash
+   printf '%s' "$ADMIN_PW" | docker compose exec -T mediaman \
+     mediaman-create-user --username admin --password-stdin
    ```
-   printf '%s' "$ADMIN_PW" | docker compose exec -T mediaman mediaman-create-user --username admin --password-stdin
-   ```
-6. Open the web UI (default port 8282) and complete setup in Settings.
-
-## Running
-
-**Single-worker only.** Run mediaman with a single Uvicorn worker:
-
-```
-mediaman
-```
-
-or, if invoking uvicorn directly:
-
-```
-uvicorn mediaman.main:app --workers 1
-```
-
-> **Important:** do not use `--workers N` with N > 1. The token blacklist used
-> by download links is stored in process memory. With multiple workers, a token
-> consumed by worker A is invisible to worker B, allowing replay attacks on
-> download tokens. Multi-worker support requires a shared backend store and is
-> tracked as a known limitation (see `_USED_TOKENS` in `web/routes/download.py`).
+6. **Open the UI** on `http://<host>:8282` and finish configuration in **Settings**.
 
 ## Configuration
 
-All service credentials (Plex, Sonarr, Radarr, NZBGet, Mailgun, TMDB, OMDb, OpenAI) are configured via the web UI and stored encrypted. Bootstrap environment variables are the only things needed before first start:
+Service credentials (Plex, Sonarr, Radarr, NZBGet, Mailgun, TMDB, OMDb, OpenAI) are configured through the web UI and stored encrypted. The only environment variables you need are bootstrap concerns:
 
 | Variable | Required | Default | Purpose |
-|----------|----------|---------|---------|
-| `MEDIAMAN_SECRET_KEY` | **Yes** | — | Master key for encrypting stored credentials and signing tokens. Must be strong (>=64 hex chars). |
-| `MEDIAMAN_PORT` | No | `8282` | Web server port. |
-| `MEDIAMAN_DATA_DIR` | No | `/data` | Directory for the SQLite database. |
-| `MEDIAMAN_BIND_HOST` | No | auto | Host address uvicorn binds to. Defaults to `0.0.0.0` inside Docker (the published port is the only inbound route) and `127.0.0.1` on bare metal. Set explicitly to override either default. |
-| `MEDIAMAN_TRUSTED_PROXIES` | No | (empty) | Comma-separated list of trusted reverse-proxy IPs or CIDRs; required if you sit behind a reverse proxy and rely on `X-Forwarded-For` / `X-Forwarded-Proto`. Wildcard values (`*`, `0.0.0.0/0`, `::/0`) are rejected with a CRITICAL log line — they would let any peer set `X-Forwarded-For` and bypass per-IP rate limits. |
-| `MEDIAMAN_DELETE_ROOTS` | No | (empty) | Colon-separated list of allowed filesystem roots for deletion (e.g. `/media:/media2`). **Required for deletion to work** — mediaman fails closed if unset. |
-| `TZ` | No | `UTC` | Timezone used by the scheduler. |
+|---|---|---|---|
+| `MEDIAMAN_SECRET_KEY` | **yes** | — | Master key for encryption and token signing. Must be ≥ 64 hex chars (or ≥ 43 URL-safe base64). |
+| `MEDIAMAN_PORT` | no | `8282` | Web server port. |
+| `MEDIAMAN_DATA_DIR` | no | `/data` | Directory for the SQLite database. |
+| `MEDIAMAN_BIND_HOST` | no | auto | Defaults to `0.0.0.0` inside Docker, `127.0.0.1` on bare metal. Set explicitly to override. |
+| `MEDIAMAN_TRUSTED_PROXIES` | no | (empty) | Comma-separated reverse-proxy IPs/CIDRs. Required for `X-Forwarded-For` / `X-Forwarded-Proto` to be honoured. Wildcards (`*`, `0.0.0.0/0`, `::/0`) are rejected with a CRITICAL log line — they would let any peer spoof the source IP and bypass per-IP rate limits. |
+| `MEDIAMAN_DELETE_ROOTS` | no\* | (empty) | Colon-separated allow-list of filesystem roots mediaman may delete from (`/media:/media2`). Deletion **fails closed** if unset. Legacy `,` separator still accepted with a deprecation warning. |
+| `TZ` | no | `UTC` | Scheduler timezone (any IANA name). |
 
-See `.env.example` for a starter file.
+\* Required if you want deletion to actually do anything.
+
+See `.env.example` for the starter file.
+
+## Running
+
+mediaman is **single-worker**. Multi-worker uvicorn is rejected at startup.
+
+```
+mediaman                                # production entry point (uvicorn under the hood)
+uvicorn mediaman.main:app --workers 1   # equivalent
+```
+
+Setting `MEDIAMAN_WORKERS`, `UVICORN_WORKERS`, or `WORKERS` to anything > 1 raises `RuntimeError`. Several invariants assume one process: the APScheduler instance, the per-IP login/rate-limit buckets, and the Sonarr/Radarr search-trigger throttle. (The download-token replay store moved to SQLite — that part *is* worker-safe — but the rest is not.) For HA, run multiple replicas behind a reverse proxy with sticky-or-shared session storage rather than scaling workers in one process.
+
+### Health probes
+
+- `GET /healthz` — liveness; 200 whenever the event loop is responsive.
+- `GET /readyz` — readiness; 200 only when the scheduler started cleanly **and** the crypto canary decrypts. 503 with a JSON body explaining which subsystem is down.
 
 ## Security
 
-- Admin sessions use 256-bit random tokens, HTTP-only Secure SameSite=Strict cookies.
-- Passwords are bcrypt-hashed (cost factor 12) with constant-time compare and a dummy hash on missing users to prevent username enumeration.
-- Stored integration credentials are encrypted with AES-256-GCM, key derived via HKDF-SHA256 with a per-install salt.
-- "Keep" email links are HMAC-SHA256-signed and single-use.
-- Deletion paths are validated against an explicit allow-list before `shutil.rmtree` — deletion fails closed if `MEDIAMAN_DELETE_ROOTS` is unset.
-- Rate-limited login attempts per source IP.
-- Security headers applied globally (CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, HSTS).
+- Sessions: 256-bit random tokens, HTTP-only Secure SameSite=Strict cookies.
+- Passwords: bcrypt cost 12, constant-time compare, dummy hash on missing user (no enumeration).
+- Login: per-IP rate limits; lockout window on repeated failure.
+- Stored integration credentials: AES-256-GCM with a per-install salt; HKDF-SHA256 from `MEDIAMAN_SECRET_KEY`.
+- Newsletter keep-links: HMAC-SHA256-signed, single-use (replay-protected via SQLite `keep_tokens_used`).
+- Download confirmation links: HMAC-signed, single-use, persisted in SQLite (`used_download_tokens`).
+- Deletion paths: validated against `MEDIAMAN_DELETE_ROOTS` before `shutil.rmtree`; fails closed if unset.
+- Security headers applied globally: CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, HSTS.
+- Container hardened: non-root uid 1000, all caps dropped, `no-new-privileges`, `mem_limit: 1g`, `cpus: 1.0`.
 
 **Known limitations:**
 
-- CSP includes `'unsafe-inline'` for scripts and styles. Nonce-based CSP is tracked as a planned improvement.
-- TMDB poster images load from `image.tmdb.org` via the browser, which means TMDB can infer which titles subscribers viewed. This is documented as a known trade-off.
-- The token blacklist for download links is in-process memory only; do not run multiple workers (see the Running section above).
+- CSP currently includes `'unsafe-inline'` for scripts and styles. Nonce-based CSP is planned.
+- TMDB poster images are loaded directly from `image.tmdb.org` by the browser, so TMDB sees which titles a subscriber's session viewed. Documented trade-off; proxy-through-mediaman is a deliberate non-feature for bandwidth reasons.
+- Single-worker only (see Running).
 
-Report security issues privately via [GitHub's private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability) — please do not open a public issue.
+Vulnerability reports: see [`SECURITY.md`](SECURITY.md). Please use GitHub's private vulnerability reporting; do not open a public issue.
 
 ## Operations
 
 ### Backups
 
-mediaman uses SQLite in WAL mode. A live database consists of up to three files:
+mediaman uses SQLite in WAL mode, so a live database is up to three files (`mediaman.db`, `mediaman.db-wal`, `mediaman.db-shm`).
 
-```
-/data/mediaman.db
-/data/mediaman.db-wal     # write-ahead log (may be absent if fully checkpointed)
-/data/mediaman.db-shm     # shared-memory index (accompanies -wal)
-```
-
-**Recommended approach — online backup with `sqlite3`:**
+**Recommended — online backup (app keeps running):**
 
 ```bash
 sqlite3 /data/mediaman.db ".backup /backup/mediaman-$(date +%Y%m%d%H%M%S).db"
 ```
 
-The `.backup` command uses the SQLite online-backup API. It works while the application is running, produces a consistent snapshot, and automatically checkpoints the WAL first. The resulting file is a single self-contained database; no `-wal` or `-shm` companions are needed.
+The output is a single self-contained `.db` file; no `-wal`/`-shm` companions needed.
 
-**Alternative — file copy after checkpoint:**
-
-If you prefer `cp` or `rsync`, stop the application first (or pause writes), then copy all three files together:
+**Alternative — file copy (stop the app first):**
 
 ```bash
 docker compose stop mediaman
@@ -143,59 +142,73 @@ cp /data/mediaman.db /data/mediaman.db-wal /data/mediaman.db-shm /backup/
 docker compose start mediaman
 ```
 
-Copying only the `.db` file while the application is running and the WAL has not been checkpointed will produce an inconsistent backup.
+Copying only `.db` while the app is running and the WAL has not been checkpointed will give you an inconsistent backup.
+
+### Upgrades
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+Schema migrations run automatically on startup. On cold start mediaman also reconciles two stranded-state cases: pending delete intents that crashed mid-way through the Radarr/Sonarr call, and download notifications that were claimed but never sent. Both are idempotent.
 
 ## Development
 
-mediaman targets Python 3.12 (see `.python-version`).
+mediaman targets Python **3.12** (`.python-version`).
 
-```
+```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pre-commit install   # optional but recommended; runs ruff on staged files
+pre-commit install   # optional — runs ruff on staged files
 ```
 
-CI rejects PRs that fail any of these gates. The `Makefile` wraps the
-canonical incantations:
+CI gates (all enforced on PR):
+
+| Job | Command |
+|---|---|
+| Tests + coverage floor | `pytest -q --cov=mediaman` (floor in `pyproject.toml`) |
+| Lint | `ruff check .` |
+| Format | `ruff format --check .` |
+| Types | `mypy src/mediaman` |
+| Security scan | `bandit -r src/ -c bandit.yaml -ll` |
+| Dependency audit | `pip-audit -r requirements.lock --require-hashes` |
+| Lock-file freshness | regenerated lock must equal committed `requirements.lock` |
+| Docker build | multi-stage, digest-pinned base image |
+
+The `Makefile` wraps the dev-loop subset:
 
 ```
-make test        # pytest -q
-make lint        # ruff check
-make format      # ruff format (rewrites files)
-make typecheck   # mypy
+make test         # pytest -q
+make lint         # ruff check
+make format       # ruff format (rewrites)
+make typecheck    # mypy
+make check        # lint + format-check + typecheck + test (pre-push smoke)
+make clean        # remove .coverage, __pycache__, .pytest_cache, .ruff_cache, .mypy_cache
 ```
-
-Or run the full pre-push smoke test in one go:
-
-```
-make check       # lint + format-check + typecheck + test
-```
-
-If you'd rather invoke the tools directly:
-
-```
-ruff check .
-ruff format --check .
-mypy src
-pytest -q
-```
-
-`make clean` clears local `.coverage`, `__pycache__`, `.pytest_cache`,
-`.ruff_cache`, and `.mypy_cache`. Run it after `pytest --cov` if you don't
-want coverage data lingering in your working tree.
 
 Run the server locally:
-```
+
+```bash
 MEDIAMAN_SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32))") \
   MEDIAMAN_DATA_DIR=./data \
   MEDIAMAN_BIND_HOST=127.0.0.1 \
   mediaman
 ```
 
-Contributors: see [`CONTRIBUTING.md`](CONTRIBUTING.md) for branch / commit /
-PR conventions, and [`SECURITY.md`](SECURITY.md) for how to report
-vulnerabilities privately.
+Regenerate the locked dependency set after editing `pyproject.toml`:
+
+```bash
+bash scripts/pin-lock.sh
+```
+
+(Runs `pip-compile --generate-hashes --allow-unsafe --strip-extras` inside a `python:3.12-slim` container so the result is reproducible across hosts.)
+
+## Further reading
+
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — branch / commit / PR conventions.
+- [`SECURITY.md`](SECURITY.md) — how to report a vulnerability privately.
+- [`DESIGN.md`](DESIGN.md) — architecture notes, scanner internals, threat model.
 
 ## Licence
 
-MIT. See `LICENSE`.
+MIT. See [`LICENSE`](LICENSE).
