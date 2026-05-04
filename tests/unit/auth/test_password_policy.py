@@ -65,7 +65,10 @@ class TestPasswordIssues:
         assert password_issues("aaaaaaaaaaaa", username="alice")
 
     def test_common_password_rejected(self):
-        assert password_issues("Password123!", username="alice")
+        # "g00dpa$$w0rd" is in the NCSC top-100k list. The 4-class form below
+        # passes length/unique/diversity/sequential checks, so any failure
+        # must come from the common-password lookup specifically.
+        assert password_issues("g00dPa$$w0rD", username="alice")
 
     def test_contains_username(self):
         issues = password_issues("aliceWasHere99!", username="alice")
