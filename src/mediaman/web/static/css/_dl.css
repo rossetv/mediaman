@@ -616,6 +616,9 @@
   z-index: 2;
 }
 .dl-row--has-abandon .dl-compact-right { padding-right: 38px; }
+/* Upcoming rows have no .dl-compact-right; pad the row itself so the
+   "Scheduled" pill doesn't sit underneath the abandon button. */
+.dl-upcoming-row.dl-row--has-abandon { padding-right: 44px; }
 
 /* Multi-season picker inside the confirm modal — list of toggle rows. */
 .dl-abandon-list {

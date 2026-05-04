@@ -432,11 +432,11 @@
   /* ── Build upcoming row element ── */
   function buildUpcomingRow(item) {
     var row = document.createElement('div');
-    row.className = 'dl-compact-row dl-upcoming-row dl-card-enter';
+    row.className = 'dl-compact-row dl-row dl-upcoming-row dl-row--has-abandon dl-card-enter';
     row.setAttribute('data-dl-id', item.id);
 
     var poster = document.createElement('div');
-    poster.className = 'dl-compact-poster';
+    poster.className = 'dl-compact-poster dl-row-poster';
     if (item.poster_url) {
       var img = document.createElement('img');
       img.src = item.poster_url;
@@ -446,24 +446,51 @@
     row.appendChild(poster);
 
     var info = document.createElement('div');
-    info.className = 'dl-compact-info';
+    info.className = 'dl-compact-info dl-row-info';
 
     var title = document.createElement('div');
-    title.className = 'dl-compact-title';
+    title.className = 'dl-compact-title dl-row-title';
     title.textContent = item.title;
     info.appendChild(title);
 
     var meta = document.createElement('div');
-    meta.className = 'dl-compact-meta';
+    meta.className = 'dl-compact-meta dl-row-meta';
     var pill = document.createElement('span');
-    pill.className = 'dl-state-pill dl-state-upcoming';
+    pill.className = 'dl-state-pill dl-state-pill--xs dl-state-upcoming';
     pill.setAttribute('data-v', 'release-label');
-    pill.style.fontSize = '9px';
     pill.textContent = item.release_label || '';
     meta.appendChild(pill);
     info.appendChild(meta);
 
     row.appendChild(info);
+
+    var scheduled = document.createElement('span');
+    scheduled.className = 'pill pill--neutral';
+    scheduled.textContent = 'Scheduled';
+    row.appendChild(scheduled);
+
+    var abandonWrap = document.createElement('div');
+    abandonWrap.className = 'dl-row-abandon';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn--icon btn--ghost';
+    btn.setAttribute('data-abandon-trigger', '');
+    btn.setAttribute('data-abandon-upcoming', '1');
+    btn.setAttribute('data-dl-id', item.id);
+    btn.setAttribute('data-kind', item.media_type === 'movie' ? 'movie' : 'series');
+    btn.setAttribute('data-title', item.title || '');
+    btn.setAttribute('data-stuck-seasons', '[]');
+    btn.setAttribute('aria-label', 'Stop tracking');
+    btn.setAttribute('title', 'Stop tracking');
+    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M6 6l12 12M18 6L6 18');
+    svg.appendChild(path);
+    btn.appendChild(svg);
+    abandonWrap.appendChild(btn);
+    row.appendChild(abandonWrap);
+
     return row;
   }
 

@@ -15,6 +15,7 @@ from mediaman.services.downloads.abandon import (
     AbandonResult,
     abandon_movie,
     abandon_seasons,
+    abandon_series,
 )
 
 
@@ -151,3 +152,63 @@ class TestAbandonSeasons:
                 season_numbers=[],
                 dl_id="sonarr:X",
             )
+
+
+class TestAbandonSeries:
+    def test_unmonitors_every_monitored_season(self, db_conn, monkeypatch):
+        """Coming-soon series → all monitored seasons get unmonitored."""
+        client = MagicMock()
+        client.get_series_by_id.return_value = {
+            "id": 7,
+            "seasons": [
+                {"seasonNumber": 0, "monitored": False},
+                {"seasonNumber": 1, "monitored": True},
+                {"seasonNumber": 2, "monitored": True},
+            ],
+        }
+        monkeypatch.setattr(
+            "mediaman.services.downloads.abandon.build_arr_client",
+            lambda c, svc, sk: client if svc == "sonarr" else None,
+        )
+
+        result = abandon_series(
+            db_conn,
+            "secret",
+            series_id=7,
+            dl_id="sonarr:Future Show",
+        )
+
+        client.get_series_by_id.assert_called_once_with(7)
+        assert client.unmonitor_season.call_args_list == [((7, 1),), ((7, 2),)]
+        assert sorted(result.succeeded) == [1, 2]
+        assert result.failed == []
+
+    def test_no_monitored_seasons_is_a_noop_success(self, db_conn, monkeypatch):
+        """Series already fully unmonitored → success, no calls made."""
+        client = MagicMock()
+        client.get_series_by_id.return_value = {
+            "id": 7,
+            "seasons": [{"seasonNumber": 1, "monitored": False}],
+        }
+        monkeypatch.setattr(
+            "mediaman.services.downloads.abandon.build_arr_client",
+            lambda c, svc, sk: client if svc == "sonarr" else None,
+        )
+
+        result = abandon_series(db_conn, "secret", series_id=7, dl_id="sonarr:Done")
+
+        client.unmonitor_season.assert_not_called()
+        assert result.succeeded == [] and result.failed == []
+
+    def test_get_series_failure_returns_failed(self, db_conn, monkeypatch):
+        client = MagicMock()
+        client.get_series_by_id.side_effect = RuntimeError("sonarr down")
+        monkeypatch.setattr(
+            "mediaman.services.downloads.abandon.build_arr_client",
+            lambda c, svc, sk: client if svc == "sonarr" else None,
+        )
+
+        result = abandon_series(db_conn, "secret", series_id=7, dl_id="sonarr:Boom")
+
+        assert result.failed == [0]
+        client.unmonitor_season.assert_not_called()
