@@ -24,6 +24,7 @@ from mediaman.db import (
 from mediaman.services.infra.rate_limits import (
     SCAN_TRIGGER_LIMITER as _SCAN_TRIGGER_LIMITER,
 )
+from mediaman.services.rate_limit import rate_limit
 from mediaman.web.responses import respond_err, respond_ok
 
 logger = logging.getLogger("mediaman")
@@ -32,6 +33,7 @@ router = APIRouter()
 
 
 @router.post("/api/scan/trigger", response_model=None)
+@rate_limit(_SCAN_TRIGGER_LIMITER, key="actor")
 def trigger_scan(
     request: Request, admin: str = Depends(get_current_admin)
 ) -> Response | dict[str, object]:
@@ -50,15 +52,6 @@ def trigger_scan(
     Audit-logged via ``security_event(scan.triggered)`` so a compromised
     admin account cannot silently drive scan activity.
     """
-    if not _SCAN_TRIGGER_LIMITER.check(admin):
-        logger.warning("scan.trigger_throttled user=%s", admin)
-        return respond_err(
-            "too_many_requests",
-            status=429,
-            message="Too many scan triggers — slow down",
-            status_detail="throttled",
-        )
-
     conn = get_db()
     run_id = start_scan_run(conn)
     if run_id is None:
