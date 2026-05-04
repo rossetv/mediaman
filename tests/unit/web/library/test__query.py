@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from mediaman.db import init_db, set_connection
-from mediaman.web.routes.library._query import (
+from mediaman.web.routes.library import (
     _protection_label,
     _type_css,
     fetch_library,

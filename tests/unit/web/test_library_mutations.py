@@ -12,13 +12,15 @@ from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
 from mediaman.web.routes.library import router as library_router
-from mediaman.web.routes.library.api import _DELETE_LIMITER, _KEEP_LIMITER
+from mediaman.web.routes.library_api import _DELETE_LIMITER, _KEEP_LIMITER
+from mediaman.web.routes.library_api import router as library_api_router
 
 
 def _make_app(conn, secret_key: str) -> FastAPI:
     """Build a minimal FastAPI app wired to *conn* for testing."""
     app = FastAPI()
     app.include_router(library_router)
+    app.include_router(library_api_router)
     app.state.config = Config(secret_key=secret_key)
     app.state.db = conn
     set_connection(conn)
@@ -101,7 +103,7 @@ class TestMediaDelete:
         mock_radarr = MagicMock()
 
         with patch(
-            "mediaman.web.routes.library.api.build_radarr_from_db", return_value=mock_radarr
+            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
         ):
             resp = client.post("/api/media/m1/delete")
 
@@ -126,7 +128,7 @@ class TestMediaDelete:
         mock_radarr = MagicMock()
 
         with patch(
-            "mediaman.web.routes.library.api.build_radarr_from_db", return_value=mock_radarr
+            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
         ):
             resp = client.post("/api/media/m1/delete")
 
@@ -147,7 +149,7 @@ class TestMediaDelete:
         mock_sonarr.has_remaining_files.return_value = True  # series still has other seasons
 
         with patch(
-            "mediaman.web.routes.library.api.build_sonarr_from_db", return_value=mock_sonarr
+            "mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr
         ):
             resp = client.post("/api/media/s1/delete")
 
@@ -176,7 +178,7 @@ class TestMediaDelete:
 
         mock_radarr = MagicMock()
         with patch(
-            "mediaman.web.routes.library.api.build_radarr_from_db", return_value=mock_radarr
+            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
         ):
             resp = client.post("/api/media/m1/delete")
 
@@ -204,7 +206,7 @@ class TestMediaDeleteTransactional:
         mock_radarr.delete_movie.side_effect = RuntimeError("Radarr exploded")
 
         with patch(
-            "mediaman.web.routes.library.api.build_radarr_from_db", return_value=mock_radarr
+            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
         ):
             resp = client.post("/api/media/m1/delete")
 
@@ -230,7 +232,7 @@ class TestMediaDeleteTransactional:
         mock_radarr.delete_movie.side_effect = http_err
 
         with patch(
-            "mediaman.web.routes.library.api.build_radarr_from_db", return_value=mock_radarr
+            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
         ):
             resp = client.post("/api/media/m1/delete")
 
@@ -249,7 +251,7 @@ class TestMediaDeleteTransactional:
         mock_radarr.delete_movie.side_effect = [RuntimeError("first fails"), None]
 
         with patch(
-            "mediaman.web.routes.library.api.build_radarr_from_db", return_value=mock_radarr
+            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
         ):
             first = client.post("/api/media/m1/delete")
             assert first.status_code == 502
@@ -379,7 +381,7 @@ class TestMediaRedownload:
         mock_radarr.add_movie.return_value = None
 
         with patch(
-            "mediaman.web.routes.library.api.build_radarr_from_db", return_value=mock_radarr
+            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
         ):
             resp = client.post(
                 "/api/media/redownload",
@@ -409,8 +411,8 @@ class TestMediaRedownload:
         mock_sonarr.add_series.return_value = None
 
         with (
-            patch("mediaman.web.routes.library.api.build_radarr_from_db", return_value=mock_radarr),
-            patch("mediaman.web.routes.library.api.build_sonarr_from_db", return_value=mock_sonarr),
+            patch("mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr),
+            patch("mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr),
         ):
             resp = client.post(
                 "/api/media/redownload",
@@ -443,7 +445,7 @@ class TestMediaRedownload:
             {"tmdbId": 7, "title": "Completely Different", "year": 1999},
         ]
         with patch(
-            "mediaman.web.routes.library.api.build_radarr_from_db", return_value=mock_radarr
+            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
         ):
             resp = client.post(
                 "/api/media/redownload",
@@ -467,8 +469,8 @@ class TestMediaRedownload:
         mock_sonarr = MagicMock()
         mock_sonarr.lookup_by_term.return_value = []
         with (
-            patch("mediaman.web.routes.library.api.build_radarr_from_db", return_value=mock_radarr),
-            patch("mediaman.web.routes.library.api.build_sonarr_from_db", return_value=mock_sonarr),
+            patch("mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr),
+            patch("mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr),
         ):
             resp = client.post(
                 "/api/media/redownload",
@@ -494,8 +496,8 @@ class TestMediaRedownload:
         mock_sonarr = MagicMock()
         mock_sonarr.lookup_by_term.return_value = []
         with (
-            patch("mediaman.web.routes.library.api.build_radarr_from_db", return_value=mock_radarr),
-            patch("mediaman.web.routes.library.api.build_sonarr_from_db", return_value=mock_sonarr),
+            patch("mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr),
+            patch("mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr),
         ):
             client.post(
                 "/api/media/redownload",
@@ -602,7 +604,7 @@ class TestRedownloadSafeHTTPError:
         )
 
         with patch(
-            "mediaman.web.routes.library.api.build_radarr_from_db", return_value=mock_radarr
+            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
         ):
             resp = client.post("/api/media/redownload", json={"title": "Dune", "tmdb_id": 42})
 
@@ -626,7 +628,7 @@ class TestRedownloadSafeHTTPError:
         )
 
         with patch(
-            "mediaman.web.routes.library.api.build_radarr_from_db", return_value=mock_radarr
+            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
         ):
             resp = client.post("/api/media/redownload", json={"title": "Dune", "tmdb_id": 42})
 
@@ -655,8 +657,8 @@ class TestRedownloadSafeHTTPError:
         )
 
         with (
-            patch("mediaman.web.routes.library.api.build_radarr_from_db", return_value=mock_radarr),
-            patch("mediaman.web.routes.library.api.build_sonarr_from_db", return_value=mock_sonarr),
+            patch("mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr),
+            patch("mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr),
         ):
             resp = client.post("/api/media/redownload", json={"title": "Severance", "tvdb_id": 999})
 
@@ -687,8 +689,8 @@ class TestRedownloadTitleCap:
         mock_sonarr.lookup_by_term.return_value = []
 
         with (
-            patch("mediaman.web.routes.library.api.build_radarr_from_db", return_value=mock_radarr),
-            patch("mediaman.web.routes.library.api.build_sonarr_from_db", return_value=mock_sonarr),
+            patch("mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr),
+            patch("mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr),
         ):
             resp = client.post(
                 "/api/media/redownload",

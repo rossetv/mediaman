@@ -16,12 +16,12 @@ from fastapi.testclient import TestClient
 from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
-from mediaman.web.routes.library.api import (
+from mediaman.web.routes.library_api import (
     _DELETE_LIMITER,
     _KEEP_LIMITER,
     _pick_lookup_match,
 )
-from mediaman.web.routes.library.api import (
+from mediaman.web.routes.library_api import (
     router as api_router,
 )
 

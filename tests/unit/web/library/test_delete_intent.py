@@ -12,17 +12,19 @@ from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
 from mediaman.web.routes.library import router as library_router
-from mediaman.web.routes.library.api import (
+from mediaman.web.routes.library_api import (
     _DELETE_LIMITER,
     _complete_delete_intent,
     _record_delete_intent,
     reconcile_pending_delete_intents,
 )
+from mediaman.web.routes.library_api import router as library_api_router
 
 
 def _make_app(conn, secret_key: str) -> FastAPI:
     app = FastAPI()
     app.include_router(library_router)
+    app.include_router(library_api_router)
     app.state.config = Config(secret_key=secret_key)
     app.state.db = conn
     set_connection(conn)
@@ -91,7 +93,7 @@ class TestDeleteIntentPersistence:
         mock_radarr = MagicMock()
 
         with patch(
-            "mediaman.web.routes.library.api.build_radarr_from_db", return_value=mock_radarr
+            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
         ):
             resp = client.post("/api/media/m1/delete")
 
@@ -114,7 +116,7 @@ class TestDeleteIntentPersistence:
 
         mock_radarr = MagicMock()
         with patch(
-            "mediaman.web.routes.library.api.build_radarr_from_db", return_value=mock_radarr
+            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
         ):
             resp = client.post("/api/media/m1/delete")
 
@@ -135,7 +137,7 @@ class TestDeleteIntentPersistence:
         mock_radarr.delete_movie.side_effect = RuntimeError("Radarr down")
 
         with patch(
-            "mediaman.web.routes.library.api.build_radarr_from_db", return_value=mock_radarr
+            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
         ):
             resp = client.post("/api/media/m1/delete")
 

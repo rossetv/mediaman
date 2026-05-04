@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
-from mediaman.web.routes.library.pages import router as pages_router
+from mediaman.web.routes.library import router as pages_router
 
 
 def _make_app(conn, secret_key: str) -> FastAPI:
