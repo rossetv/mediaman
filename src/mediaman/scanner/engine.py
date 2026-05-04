@@ -344,6 +344,16 @@ class ScanEngine:
         if self._dry_run:
             logger.info("engine.run_scan.dry_run skipping newsletter + recommendations refresh")
         else:
+            # Refresh AI recommendations BEFORE sending the newsletter so the
+            # email reflects this week's picks rather than last week's stale
+            # batch.  The newsletter's recommendation cards are loaded from the
+            # ``suggestions`` table that ``_refresh_recommendations`` rewrites.
+            if _get_bool_setting(self._conn, "suggestions_enabled", default=True):
+                try:
+                    _refresh_recommendations(self._conn, self._plex, secret_key=self._secret_key)
+                except Exception:
+                    logger.exception("Recommendation generation failed — scan results unaffected")
+
             try:
                 _send_newsletter(
                     conn=self._conn,
@@ -353,13 +363,6 @@ class ScanEngine:
                 )
             except Exception:
                 logger.exception("Newsletter sending failed — scan results unaffected")
-
-            # Refresh AI recommendations if enabled.
-            if _get_bool_setting(self._conn, "suggestions_enabled", default=True):
-                try:
-                    _refresh_recommendations(self._conn, self._plex, secret_key=self._secret_key)
-                except Exception:
-                    logger.exception("Recommendation generation failed — scan results unaffected")
 
         return summary
 
