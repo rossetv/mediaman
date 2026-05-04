@@ -31,6 +31,12 @@ _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS = 10 * 3600  # 10 h
 # added_at get unmonitored automatically.
 _AUTO_ABANDON_AFTER_SECONDS = 14 * 86_400  # 14 d
 
+# Refuse to abandon anything whose release date isn't at least this far in
+# the past. Coming-soon items naturally have no copies on indexers; movies
+# released a week ago might still be propagating. Only items released
+# meaningfully long ago should ever count as "stuck" rather than "fresh".
+_AUTO_ABANDON_RELEASE_GRACE_SECONDS = 30 * 86_400  # 30 d
+
 
 def maybe_auto_abandon(
     conn: sqlite3.Connection,
@@ -47,11 +53,37 @@ def maybe_auto_abandon(
     queue are skipped — Sonarr only knows about specials there, and we
     never want to auto-unmonitor specials.
 
+    Release-date guard: items the user can see in the "Coming soon" section
+    (``is_upcoming``) and items whose release is too recent to plausibly
+    have stalled (``released_at`` within
+    :data:`_AUTO_ABANDON_RELEASE_GRACE_SECONDS`) are never abandoned. When
+    the release date is unknown (``released_at`` is 0) we also skip — we'd
+    rather leave a search running than mistakenly bin a coming-soon item
+    whose Radarr/Sonarr metadata simply hasn't filled in dates yet.
+
     Abandons via the same service entry-points the manual button uses, so
     semantics (throttle clear, partial-failure behaviour, logging) are
     identical.
     """
     if not get_bool_setting(conn, "auto_abandon_enabled", default=False):
+        return
+    if item.get("is_upcoming"):
+        # Movies/series the user sees under "Coming soon" — Radarr/Sonarr
+        # correctly won't find indexer matches yet, and abandoning them
+        # would silently unmonitor something the user is actively waiting
+        # for.
+        return
+    released_at = item.get("released_at") or 0.0
+    if released_at <= 0.0:
+        # Release date unknown — be conservative and never abandon. The
+        # alternative (assuming "released long ago") would mistakenly
+        # unmonitor coming-soon entries whose dates haven't been filled
+        # in by metadata providers yet.
+        return
+    if now - released_at < _AUTO_ABANDON_RELEASE_GRACE_SECONDS:
+        # Too fresh: NZBs/torrents may still be propagating. Auto-abandon
+        # is meant to clean up genuinely stuck items, not bin recent
+        # releases that just haven't surfaced yet.
         return
     added_at = item.get("added_at") or 0.0
     if added_at <= 0.0:

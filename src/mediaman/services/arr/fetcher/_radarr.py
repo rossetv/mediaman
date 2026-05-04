@@ -12,7 +12,11 @@ from mediaman.services.arr.fetcher._base import (
 
 if TYPE_CHECKING:
     from mediaman.services.arr.radarr import RadarrClient
-from mediaman.services.downloads.download_format import classify_movie_upcoming, extract_poster_url
+from mediaman.services.downloads.download_format import (
+    classify_movie_upcoming,
+    compute_movie_released_at,
+    extract_poster_url,
+)
 from mediaman.services.infra.time import parse_iso_utc
 
 
@@ -31,6 +35,7 @@ def _make_radarr_card(
     arr_id: int = 0,
     title_slug: str = "",
     added_at: float = 0.0,
+    released_at: float = 0.0,
     release_names: list[str] | None = None,
 ) -> ArrCard:
     """Build a Radarr movie card.  Shim — delegates to :func:`make_arr_card`."""
@@ -50,6 +55,7 @@ def _make_radarr_card(
         arr_id=arr_id,
         title_slug=title_slug,
         added_at=added_at,
+        released_at=released_at,
         release_names=release_names,
     )
 
@@ -105,6 +111,7 @@ def fetch_radarr_queue(client: RadarrClient) -> list[ArrCard]:
             continue
 
         is_upcoming, release_label = classify_movie_upcoming(movie)
+        released_at = compute_movie_released_at(movie)
 
         added_at = 0.0
         added_dt = parse_iso_utc(movie.get("added", ""))
@@ -120,6 +127,7 @@ def fetch_radarr_queue(client: RadarrClient) -> list[ArrCard]:
                 arr_id=movie.get("id", 0),
                 title_slug=movie.get("titleSlug", ""),
                 added_at=added_at,
+                released_at=released_at,
                 is_upcoming=is_upcoming,
                 release_label=release_label,
             )
