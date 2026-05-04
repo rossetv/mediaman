@@ -184,6 +184,49 @@ class TestRefreshRateLimit:
         assert body["manual_refresh_available"] is True
         assert "cooldown_seconds" not in body
 
+    def test_zero_recommendations_does_not_record_cooldown(self, authed_client, app):
+        """If OpenAI returns nothing usable, the worker must NOT burn the
+        24h cooldown — otherwise the user is locked out for a day despite
+        no actual refresh having happened. The status endpoint must also
+        surface the failure so the UI can show a real error."""
+        import time
+
+        conn = app.state.db
+
+        # No prior refresh recorded — first call should be allowed through.
+        # Stub Plex (so build_plex_from_db returns truthy) and stub
+        # refresh_recommendations to return 0 (simulating empty OpenAI output).
+        with (
+            patch(
+                "mediaman.web.routes.recommended.refresh.build_plex_from_db",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "mediaman.web.routes.recommended.refresh.refresh_recommendations",
+                return_value=0,
+            ),
+        ):
+            resp = authed_client.post("/api/recommended/refresh")
+            assert resp.status_code == 200
+            assert resp.json().get("status") == "started"
+
+            # Wait for the background worker to finish (it's a daemon
+            # thread; poll the status endpoint).
+            for _ in range(50):
+                st = authed_client.get("/api/recommended/refresh/status").json()
+                if st.get("status") == "done":
+                    break
+                time.sleep(0.05)
+            else:
+                pytest.fail("Background refresh did not complete in time")
+
+        assert st["status"] == "done"
+        assert st["result"]["ok"] is False
+        assert "no recommendations" in st["result"]["error"].lower()
+        # Crucially: cooldown must NOT have been set.
+        assert st["manual_refresh_available"] is True
+        assert _throttle.last_manual_refresh(conn) is None
+
 
 # ---------------------------------------------------------------------------
 # C38 — rate limit on /api/recommended/{id}/download
