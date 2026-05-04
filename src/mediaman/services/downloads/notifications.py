@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from mediaman.services.downloads.download_format import extract_poster_url
+from mediaman.services.infra.backoff import ExponentialBackoff
 from mediaman.services.infra.time import now_iso
 
 logger = logging.getLogger("mediaman")
@@ -69,6 +70,7 @@ def _get_notification_template():
 # ---------------------------------------------------------------------------
 _BACKOFF_BASE_SECONDS = 60.0  # first retry waits 1 minute
 _BACKOFF_MAX_SECONDS = 1800.0  # cap at 30 minutes
+_NOTIFY_BACKOFF = ExponentialBackoff(_BACKOFF_BASE_SECONDS, _BACKOFF_MAX_SECONDS)
 _backoff_state: dict[int, tuple[int, datetime]] = {}
 
 
@@ -85,7 +87,7 @@ def _record_arr_failure(row_id: int, now: datetime) -> None:
     """Bump the backoff counter for *row_id* and schedule the next retry."""
     attempts, _next = _backoff_state.get(row_id, (0, now))
     attempts += 1
-    delay = min(_BACKOFF_BASE_SECONDS * (2 ** (attempts - 1)), _BACKOFF_MAX_SECONDS)
+    delay = _NOTIFY_BACKOFF.delay(attempts)
     _backoff_state[row_id] = (attempts, now + timedelta(seconds=delay))
 
 

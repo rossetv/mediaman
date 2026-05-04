@@ -40,7 +40,7 @@ from mediaman.scanner.fetch import PlexFetcher, _PlexItemFetch
 from mediaman.scanner.movies import evaluate_movie
 from mediaman.scanner.tv import evaluate_season
 from mediaman.services.infra.format import ensure_tz as _ensure_tz
-from mediaman.services.infra.format import parse_iso_utc as _parse_iso_utc
+from mediaman.services.infra.time import parse_iso_utc as _parse_iso_utc
 from mediaman.services.infra.settings_reader import get_bool_setting as _get_bool_setting
 from mediaman.services.infra.storage import delete_path  # re-exported for back-compat
 from mediaman.services.mail.newsletter import send_newsletter as _send_newsletter

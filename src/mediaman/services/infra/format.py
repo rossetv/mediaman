@@ -11,6 +11,10 @@ import json
 import re
 from datetime import UTC, datetime
 
+# parse_iso_utc has moved to mediaman.services.infra.time; re-exported here
+# for backwards compatibility so existing callers need not change their imports.
+from mediaman.services.infra.time import parse_iso_utc as parse_iso_utc
+
 # ---------------------------------------------------------------------------
 # Audit-log detail parsers — shared by dashboard and newsletter.
 # ---------------------------------------------------------------------------
@@ -97,44 +101,6 @@ def format_bytes(n: int | None) -> str:
             value = n / threshold
             return f"{value:.1f} {unit}" if value < 100 else f"{value:.0f} {unit}"
     return f"{n} B"
-
-
-def parse_iso_utc(value: str | None) -> datetime | None:
-    """Parse an ISO-8601 string and return a timezone-aware UTC datetime.
-
-    Tolerates the trailing ``Z`` Zulu marker and fractional-second
-    suffixes longer than 6 digits (sometimes emitted by .NET clients).
-    Returns ``None`` for empty or unparseable inputs.
-    """
-    if not value:
-        return None
-    s = str(value).strip()
-    if not s:
-        return None
-    if s.endswith("Z"):
-        s = s[:-1] + "+00:00"
-    # Truncate sub-millisecond precision to fit Python's parser.
-    if "." in s:
-        head, _, rest = s.partition(".")
-        # Separate the fractional-seconds part from any timezone suffix.
-        tz_idx = len(rest)
-        for sep in ("+", "-", "Z"):
-            i = rest.find(sep)
-            if i != -1:
-                tz_idx = min(tz_idx, i)
-        frac, suffix = rest[:tz_idx], rest[tz_idx:]
-        s = f"{head}.{frac[:6]}{suffix}"
-    try:
-        dt = datetime.fromisoformat(s)
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        # Naive datetimes are assumed to represent UTC — this matches the
-        # behaviour of Radarr/Sonarr/Plex which emit UTC timestamps but
-        # sometimes omit the offset marker.  Callers that have an
-        # authoritative non-UTC offset should convert before calling.
-        dt = dt.replace(tzinfo=UTC)
-    return dt
 
 
 #: English month names — used to keep formatted dates locale-stable

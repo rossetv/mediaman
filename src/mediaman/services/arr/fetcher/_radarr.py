@@ -13,7 +13,7 @@ from mediaman.services.arr.fetcher._base import (
 if TYPE_CHECKING:
     from mediaman.services.arr.radarr import RadarrClient
 from mediaman.services.downloads.download_format import classify_movie_upcoming, extract_poster_url
-from mediaman.services.infra.format import parse_iso_utc
+from mediaman.services.infra.time import parse_iso_utc
 
 
 def _make_radarr_card(

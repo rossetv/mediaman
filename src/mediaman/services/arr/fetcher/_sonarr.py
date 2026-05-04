@@ -22,7 +22,8 @@ from mediaman.services.downloads.download_format import (
     extract_poster_url,
     format_episode_label,
 )
-from mediaman.services.infra.format import format_bytes, parse_iso_utc
+from mediaman.services.infra.format import format_bytes
+from mediaman.services.infra.time import parse_iso_utc
 
 # Cluster-key separator. Chosen as NUL (``\x00``) because it cannot
 # legally appear in a downloadId, series title, or episode label coming

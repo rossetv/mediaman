@@ -20,6 +20,13 @@ from typing import TypedDict
 
 from mediaman.auth._token_hashing import hash_token as _hash_token
 from mediaman.crypto import generate_session_token
+from mediaman.services.infra.format import parse_iso_utc as _parse_iso_aware
+
+# ``_parse_iso_aware`` is now an alias for the canonical
+# :func:`mediaman.services.infra.format.parse_iso_utc`. The forensic
+# ``_parse_last_used`` below stays bespoke because it must log a warning
+# when a stored timestamp is corrupt — a side effect the generic parser
+# deliberately does not perform.
 
 logger = logging.getLogger("mediaman")
 
@@ -206,33 +213,6 @@ def _parse_last_used(raw: str | None, username: str) -> datetime | None:
             raw,
         )
         return None
-
-
-def _parse_iso_aware(raw: str | None) -> datetime | None:
-    """Parse an ISO-8601 timestamp into a tz-aware ``datetime``.
-
-    Used to compare ``expires_at`` cells against ``now`` without
-    relying on lexicographic ordering of ISO-8601 strings — the
-    string-compare ordering only holds when every row was written with
-    a byte-for-byte identical format (e.g. all ``+00:00`` or all
-    ``Z``), which is fragile across migrations.
-
-    Returns ``None`` when the cell is empty or unparseable.  Callers
-    treat a ``None`` parse the same as "no expiry stored" so a corrupt
-    timestamp does not silently expire a session via
-    string-comparison.
-    """
-    if not raw:
-        return None
-    try:
-        dt = datetime.fromisoformat(raw)
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        # Treat naive timestamps as UTC — every code path in this
-        # module writes UTC ISO strings via ``datetime.now(timezone.utc)``.
-        dt = dt.replace(tzinfo=UTC)
-    return dt
 
 
 def _exec_with_commit(conn: sqlite3.Connection, sql: str, params: tuple) -> None:
