@@ -663,6 +663,7 @@ select.inp,
   background: var(--s1);
   border: 1px solid var(--hair);
   border-radius: var(--r-lg);
+  overflow: hidden;
 }
 .lib-header {
   display: grid;
@@ -691,7 +692,6 @@ select.inp,
   transition: background .15s;
 }
 .lib-row:hover { background: var(--s2); }
-.lib-row:last-child { border-bottom: 0; border-bottom-left-radius: var(--r-lg); border-bottom-right-radius: var(--r-lg); }
 .lib-row-protected { background: rgba(48,209,88,.04); }
 
 .lib-title-col { min-width: 0; }
