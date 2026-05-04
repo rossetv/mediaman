@@ -98,9 +98,9 @@ img.deleted-thumb { width: 100%; height: 100%; object-fit: cover; display: block
   margin-bottom: 18px;
 }
 .status-pill .status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-.status-scheduled { background: rgba(255,69,58,.12); color: var(--danger); }
+.status-scheduled { background: var(--rgba-danger-bg); color: var(--danger); }
 .status-protected { background: rgba(48,209,88,.12); color: var(--success); }
-.status-expired   { background: rgba(255,255,255,.06); color: var(--t3); }
+.status-expired   { background: var(--rgba-overlay-sm); color: var(--t3); }
 .dot-danger  { background: var(--danger) !important; }
 .dot-success { background: var(--success) !important; }
 .dot-muted   { background: var(--t4) !important; }
@@ -141,7 +141,7 @@ img.deleted-thumb { width: 100%; height: 100%; object-fit: cover; display: block
   gap: 6px;
   margin-bottom: 12px;
 }
-.meta-pill.never-watched { background: rgba(255,69,58,.12); color: var(--danger); }
+.meta-pill.never-watched { background: var(--rgba-danger-bg); color: var(--danger); }
 .meta-pill.size { background: var(--s3); color: var(--t2); }
 
 .info-box {
