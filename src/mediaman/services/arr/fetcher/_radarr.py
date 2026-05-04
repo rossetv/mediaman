@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 from mediaman.services.arr.fetcher._base import (
     ArrCard,
-    _format_size_fields,
     _iter_still_searching,
+    make_arr_card,
 )
 
 if TYPE_CHECKING:
@@ -33,20 +33,16 @@ def _make_radarr_card(
     added_at: float = 0.0,
     release_names: list[str] | None = None,
 ) -> ArrCard:
-    """Build a Radarr movie card with all required fields populated."""
-    size_str, done_str = _format_size_fields(size, sizeleft)
-    return ArrCard(
-        kind="movie",
-        dl_id="radarr:" + title,
-        title=title,
+    """Build a Radarr movie card.  Shim — delegates to :func:`make_arr_card`."""
+    return make_arr_card(
+        "movie",
+        title,
         source="Radarr",
-        poster_url=poster_url,
         year=year,
+        poster_url=poster_url,
         progress=progress,
         size=size,
         sizeleft=sizeleft,
-        size_str=size_str,
-        done_str=done_str,
         timeleft=timeleft,
         status=status,
         is_upcoming=is_upcoming,
@@ -54,7 +50,7 @@ def _make_radarr_card(
         arr_id=arr_id,
         title_slug=title_slug,
         added_at=added_at,
-        release_names=release_names if release_names is not None else [],
+        release_names=release_names,
     )
 
 

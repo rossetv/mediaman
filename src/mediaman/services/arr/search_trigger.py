@@ -495,7 +495,7 @@ def maybe_trigger_search(
         # the count update done inside the finally block (line below); keeping
         # the value inline avoids shadowing the ``new_count: int | None``
         # declaration the lock-protected commit path relies on.
-        from mediaman.services.downloads.download_queue._deep_links import (
+        from mediaman.services.downloads.download_queue.classify import (
             _format_next_attempt,
         )
 

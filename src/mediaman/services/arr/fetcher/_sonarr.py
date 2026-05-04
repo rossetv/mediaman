@@ -10,8 +10,8 @@ import requests
 from mediaman.services.arr.fetcher._base import (
     ArrCard,
     ArrEpisodeEntry,
-    _format_size_fields,
     _iter_still_searching,
+    make_arr_card,
 )
 from mediaman.services.infra.http_client import SafeHTTPError
 
@@ -53,29 +53,25 @@ def _make_sonarr_card(
     release_label: str = "",
     release_names: list[str] | None = None,
 ) -> ArrCard:
-    """Build a Sonarr series card with all required fields populated."""
-    size_str, done_str = _format_size_fields(size, sizeleft)
-    return ArrCard(
-        kind="series",
-        dl_id="sonarr:" + title,
-        title=title,
+    """Build a Sonarr series card.  Shim — delegates to :func:`make_arr_card`."""
+    return make_arr_card(
+        "series",
+        title,
         source="Sonarr",
-        poster_url=poster_url,
         year=year,
-        episodes=episodes if episodes is not None else [],
+        poster_url=poster_url,
+        episodes=episodes,
         episode_count=episode_count,
         downloading_count=downloading_count,
         progress=progress,
         size=size,
         sizeleft=sizeleft,
-        size_str=size_str,
-        done_str=done_str,
         arr_id=arr_id,
         title_slug=title_slug,
         added_at=added_at,
         is_upcoming=is_upcoming,
         release_label=release_label,
-        release_names=release_names if release_names is not None else [],
+        release_names=release_names,
     )
 
 

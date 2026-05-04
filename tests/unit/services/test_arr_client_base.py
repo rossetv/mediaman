@@ -2,12 +2,18 @@
 
 import pytest
 
-from mediaman.services.arr.base import ArrClient
+from mediaman.services.arr.base import _ArrClientBase
 from mediaman.services.infra.http_client import SafeHTTPError
 
 
-class _TestClient(ArrClient):
-    """Minimal concrete subclass for testing ArrClient directly."""
+class _TestClient(_ArrClientBase):
+    """Minimal concrete subclass for testing the HTTP plumbing directly.
+
+    Uses :class:`_ArrClientBase` rather than the public spec-driven
+    :class:`ArrClient` so the tests cover only the shared HTTP layer
+    (``_get``/``_put``/``_post``/``_delete`` + lookup helpers) without
+    needing to thread an :class:`ArrSpec` through every fixture.
+    """
 
 
 @pytest.fixture
@@ -91,9 +97,9 @@ class TestLastError:
 
     def test_last_error_initially_none(self):
         """last_error is None before any call is made."""
-        from mediaman.services.arr.base import ArrClient
+        from mediaman.services.arr.base import _ArrClientBase
 
-        class TC(ArrClient):
+        class TC(_ArrClientBase):
             pass
 
         c = TC("http://arr.local", "key")
@@ -101,9 +107,9 @@ class TestLastError:
 
     def test_split_timeout_applied(self):
         """SafeHTTPClient is configured with the split connect/read timeout."""
-        from mediaman.services.arr.base import _ARR_TIMEOUT, ArrClient
+        from mediaman.services.arr.base import _ARR_TIMEOUT, _ArrClientBase
 
-        class TC(ArrClient):
+        class TC(_ArrClientBase):
             pass
 
         c = TC("http://arr.local", "key")
