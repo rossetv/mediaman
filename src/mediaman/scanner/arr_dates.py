@@ -30,6 +30,11 @@ def _parse_arr_iso(value: str) -> datetime | None:
     if the value is unparseable so the caller can fall back to a "keep
     whatever's already cached" path rather than substituting the wrong
     most-recent date.
+
+    Kept bespoke rather than delegating to
+    :func:`mediaman.services.infra.time.parse_iso_utc` because Arr APIs
+    sometimes emit naive timestamps that the caller wants to keep naive
+    for date-comparison logic — the canonical parser always attaches UTC.
     """
     if not value:
         return None

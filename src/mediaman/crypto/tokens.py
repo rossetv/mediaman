@@ -1,8 +1,22 @@
 """HMAC-SHA256 signed, time-limited tokens.
 
-Each token type (``keep``, ``download``, ``unsubscribe``, ``poster``,
-``poll``) derives a per-purpose sub-key via
-``HMAC-SHA256(secret, info)``. This prevents cross-token confusion.
+Tokens are HMAC-signed, per-purpose domain-separated, and time-limited.
+Each token type derives a per-purpose sub-key via
+``HMAC-SHA256(secret, info)``, preventing cross-token confusion.
+
+Architecture
+------------
+A :class:`TokenSpec` captures everything that makes a token type unique:
+the purpose label (used for HKDF-style domain separation) and the default
+TTL.  Module-level constants (``KEEP``, ``DOWNLOAD``, etc.) provide the
+canonical spec for every existing token type.
+
+:class:`Tokens` provides ``issue(spec, payload)`` and ``verify(spec, raw)``
+— thin wrappers around the private ``_encode_signed`` / ``_validate_signed``
+functions which stay private.
+
+Adding a new token type requires one ``TokenSpec`` constant plus, if a
+call-site signature must be preserved, one thin shim function.
 """
 
 from __future__ import annotations
@@ -16,6 +30,8 @@ import logging
 import secrets
 import threading
 import time
+from dataclasses import dataclass
+from datetime import timedelta
 from typing import TypedDict, cast
 
 logger = logging.getLogger("mediaman")
@@ -242,6 +258,77 @@ def _encode_signed(payload: dict, secret_key: str, purpose: bytes) -> str:
     return f"{payload_b64}.{sig_b64}"
 
 
+# ---------------------------------------------------------------------------
+# TokenSpec — one per token type.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TokenSpec:
+    """Immutable descriptor for one token type.
+
+    Attributes
+    ----------
+    purpose:
+        Byte-string used as the HKDF-style domain-separation label when
+        deriving the per-purpose HMAC sub-key.  Must be globally unique
+        across all token types in this codebase.
+    ttl:
+        Default time-to-live.  Use ``timedelta(0)`` for token types whose
+        expiry is set explicitly by the caller (e.g. ``KEEP``, where the
+        caller already holds a pre-computed ``expires_at`` timestamp).
+    """
+
+    purpose: bytes
+    ttl: timedelta
+
+
+# Canonical spec constants — one per token type.
+KEEP = TokenSpec(purpose=_TOKEN_PURPOSE_KEEP, ttl=timedelta(0))
+"""Keep-link token.  Expiry is supplied by the caller as ``expires_at``."""
+
+DOWNLOAD = TokenSpec(purpose=_TOKEN_PURPOSE_DOWNLOAD, ttl=timedelta(days=14))
+"""Download-CTA token.  Default TTL: 14 days."""
+
+UNSUBSCRIBE = TokenSpec(purpose=_TOKEN_PURPOSE_UNSUBSCRIBE, ttl=timedelta(days=180))
+"""Unsubscribe-link token.  Default TTL: 180 days."""
+
+POSTER = TokenSpec(purpose=_TOKEN_PURPOSE_POSTER, ttl=timedelta(days=180))
+"""Poster-access token.  Default TTL: 180 days."""
+
+POLL = TokenSpec(purpose=_TOKEN_PURPOSE_POLL, ttl=timedelta(seconds=600))
+"""Short-lived polling-capability token.  Default TTL: 600 seconds."""
+
+
+# ---------------------------------------------------------------------------
+# Tokens — generic issue / verify façade.
+# ---------------------------------------------------------------------------
+
+
+class Tokens:
+    """Generic issue / verify façade over the private signing primitives.
+
+    All methods are static; the class is a namespace rather than a stateful
+    object.  Callers that want a typed return value should use the thin
+    public shims (``generate_*`` / ``validate_*``) defined below.
+    """
+
+    @staticmethod
+    def issue(spec: TokenSpec, payload: dict, secret_key: str) -> str:
+        """Sign *payload* with *spec*'s purpose label and return the token string."""
+        return _encode_signed(payload, secret_key, spec.purpose)
+
+    @staticmethod
+    def verify(spec: TokenSpec, token: str, secret_key: str) -> TokenPayload | None:
+        """Verify *token* against *spec*; return the payload or ``None`` on failure."""
+        return _validate_signed(token, secret_key, spec.purpose)
+
+
+# ---------------------------------------------------------------------------
+# Public shims — preserve existing call-site signatures exactly.
+# ---------------------------------------------------------------------------
+
+
 def generate_keep_token(
     *,
     media_item_id: str,
@@ -249,14 +336,14 @@ def generate_keep_token(
     expires_at: int,
     secret_key: str,
 ) -> str:
-    """Generate an HMAC-SHA256-signed keep token for email "Keep" links."""
+    """Issue a keep-token for *media_item_id* with a caller-supplied expiry."""
     payload = {"media_item_id": media_item_id, "action_id": action_id, "exp": expires_at}
-    return _encode_signed(payload, secret_key, _TOKEN_PURPOSE_KEEP)
+    return Tokens.issue(KEEP, payload, secret_key)
 
 
 def validate_keep_token(token: str, secret_key: str) -> KeepTokenPayload | None:
     """Validate and decode a keep token produced by :func:`generate_keep_token`."""
-    result = _validate_signed(token, secret_key, _TOKEN_PURPOSE_KEEP)
+    result = Tokens.verify(KEEP, token, secret_key)
     return cast(KeepTokenPayload, result) if result is not None else None
 
 
@@ -271,7 +358,7 @@ def generate_download_token(
     secret_key: str,
     ttl_days: int = 14,
 ) -> str:
-    """Generate an HMAC-SHA256-signed download token for email download CTAs.
+    """Issue a download-token for *email* with the standard 14-day TTL.
 
     .. warning::
 
@@ -300,12 +387,12 @@ def generate_download_token(
         "sid": recommendation_id,
         "exp": exp,
     }
-    return _encode_signed(payload, secret_key, _TOKEN_PURPOSE_DOWNLOAD)
+    return Tokens.issue(DOWNLOAD, payload, secret_key)
 
 
 def validate_download_token(token: str, secret_key: str) -> DownloadTokenPayload | None:
     """Validate and decode a download token produced by :func:`generate_download_token`."""
-    result = _validate_signed(token, secret_key, _TOKEN_PURPOSE_DOWNLOAD)
+    result = Tokens.verify(DOWNLOAD, token, secret_key)
     return cast(DownloadTokenPayload, result) if result is not None else None
 
 
@@ -315,10 +402,10 @@ def generate_unsubscribe_token(
     secret_key: str,
     ttl_days: int = 180,
 ) -> str:
-    """Generate a domain-separated unsubscribe token."""
+    """Issue an unsubscribe-token for *email* with the standard 180-day TTL."""
     exp = int(time.time()) + ttl_days * 86400
     payload = {"email": email.lower(), "exp": exp}
-    return _encode_signed(payload, secret_key, _TOKEN_PURPOSE_UNSUBSCRIBE)
+    return Tokens.issue(UNSUBSCRIBE, payload, secret_key)
 
 
 def validate_unsubscribe_token(token: str, secret_key: str) -> UnsubscribeTokenPayload | None:
@@ -328,15 +415,15 @@ def validate_unsubscribe_token(token: str, secret_key: str) -> UnsubscribeTokenP
     invalid, expired, or tampered.  Callers are responsible for checking
     that ``payload["email"]`` matches the expected address.
     """
-    result = _validate_signed(token, secret_key, _TOKEN_PURPOSE_UNSUBSCRIBE)
+    result = Tokens.verify(UNSUBSCRIBE, token, secret_key)
     return cast(UnsubscribeTokenPayload, result) if result is not None else None
 
 
 def generate_poster_token(*, rating_key: str, secret_key: str, ttl_days: int = 180) -> str:
-    """Generate an HMAC token authorising access to a specific rating-key poster."""
+    """Issue a poster-access token for *rating_key* with the standard 180-day TTL."""
     exp = int(time.time()) + ttl_days * 86400
     payload = {"rk": rating_key, "exp": exp}
-    return _encode_signed(payload, secret_key, _TOKEN_PURPOSE_POSTER)
+    return Tokens.issue(POSTER, payload, secret_key)
 
 
 def validate_poster_token(token: str, secret_key: str) -> PosterTokenPayload | None:
@@ -346,7 +433,7 @@ def validate_poster_token(token: str, secret_key: str) -> PosterTokenPayload | N
     invalid, expired, or tampered.  Callers should verify ``payload["rk"]``
     matches the expected ``rating_key``.
     """
-    result = _validate_signed(token, secret_key, _TOKEN_PURPOSE_POSTER)
+    result = Tokens.verify(POSTER, token, secret_key)
     return cast(PosterTokenPayload, result) if result is not None else None
 
 
@@ -364,7 +451,7 @@ def generate_poll_token(
     secret_key: str,
     ttl_seconds: int = 600,
 ) -> str:
-    """Generate a short-lived HMAC-signed polling-capability token.
+    """Issue a short-lived polling-capability token with the standard 600-second TTL.
 
     The payload includes a random ``nonce`` purely to keep distinct
     issued tokens distinct on the wire — it is **not** a replay
@@ -382,7 +469,7 @@ def generate_poll_token(
         "nonce": secrets.token_hex(8),
         "exp": exp,
     }
-    return _encode_signed(payload, secret_key, _TOKEN_PURPOSE_POLL)
+    return Tokens.issue(POLL, payload, secret_key)
 
 
 def validate_poll_token(token: str, secret_key: str) -> PollTokenPayload | None:
@@ -392,7 +479,7 @@ def validate_poll_token(token: str, secret_key: str) -> PollTokenPayload | None:
     invalid, expired, or tampered.  Callers should verify ``payload["svc"]``
     and ``payload["tmdb"]`` match the expected service and TMDB ID.
     """
-    result = _validate_signed(token, secret_key, _TOKEN_PURPOSE_POLL)
+    result = Tokens.verify(POLL, token, secret_key)
     return cast(PollTokenPayload, result) if result is not None else None
 
 
