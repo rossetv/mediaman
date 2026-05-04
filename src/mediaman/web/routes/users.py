@@ -44,6 +44,7 @@ from mediaman.auth.session import (
     list_users,
 )
 from mediaman.db import get_db
+from mediaman.services.rate_limit import rate_limit
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes._helpers import set_session_cookie
 
@@ -133,6 +134,7 @@ def api_list_users(admin: str = Depends(get_current_admin)) -> dict[str, object]
 
 
 @router.post("/api/users")
+@rate_limit(_USER_CREATE_LIMITER, key="actor")
 def api_create_user(
     request: Request,
     body: _CreateUserBody,
@@ -146,12 +148,6 @@ def api_create_user(
     stolen session cookie cannot mint a permanent admin account that
     survives session rotation.
     """
-    if not _USER_CREATE_LIMITER.check(admin):
-        logger.warning("user.create_throttled actor=%s", admin)
-        return respond_err(
-            "too_many_requests", status=429, message="Too many user-creation attempts — slow down"
-        )
-
     conn = get_db()
     if not has_recent_reauth(conn, session_token, admin):
         logger.warning("user.create_rejected actor=%s reason=reauth_required", admin)
@@ -425,6 +421,7 @@ def api_change_password(
 
 
 @router.post("/api/auth/reauth")
+@rate_limit(_REAUTH_LIMITER, key="actor")
 def api_reauth(
     request: Request,
     body: _ReauthBody,
@@ -444,11 +441,6 @@ def api_reauth(
     namespace so a stolen session cookie cannot turn this endpoint into
     an offline-style password oracle.
     """
-    if not _REAUTH_LIMITER.check(admin):
-        logger.warning("reauth.throttled actor=%s", admin)
-        return respond_err(
-            "too_many_requests", status=429, message="Too many reauth attempts — slow down"
-        )
     conn = get_db()
     if not session_token:
         # Belt-and-braces: get_current_admin would already have raised if
@@ -491,7 +483,8 @@ _SESSION_SAFE_KEYS = ("created_at", "expires_at", "last_used_at")
 
 
 @router.get("/api/users/sessions")
-def api_list_sessions(admin: str = Depends(get_current_admin)) -> Response:
+@rate_limit(_SESSIONS_LIST_LIMITER, key="actor")
+def api_list_sessions(request: Request, admin: str = Depends(get_current_admin)) -> Response:
     """List active sessions for the current admin.
 
     Returns timestamp metadata only — never raw tokens, IPs, or
@@ -504,11 +497,6 @@ def api_list_sessions(admin: str = Depends(get_current_admin)) -> Response:
     thief cannot poll this to detect the moment the legitimate user
     signs in.
     """
-    if not _SESSIONS_LIST_LIMITER.check(admin):
-        logger.warning("session.list_throttled actor=%s", admin)
-        return respond_err(
-            "too_many_requests", status=429, message="Too many session-list requests — slow down"
-        )
     conn = get_db()
     safe = [
         {key: row.get(key) for key in _SESSION_SAFE_KEYS} for row in list_sessions_for(conn, admin)
