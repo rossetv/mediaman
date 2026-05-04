@@ -30,10 +30,14 @@ DB_SCHEMA_VERSION = 35
 # transit through release 1.9.0 first.
 CUTOVER_VERSION = 35
 
-assert DB_SCHEMA_VERSION == CUTOVER_VERSION, (
-    f"DB_SCHEMA_VERSION ({DB_SCHEMA_VERSION}) must equal CUTOVER_VERSION "
-    f"({CUTOVER_VERSION}) — update one of them when adding new migrations."
-)
+if DB_SCHEMA_VERSION != CUTOVER_VERSION:
+    # Use a real ``raise`` rather than ``assert`` — Python with ``-O`` strips
+    # asserts and this invariant is the only thing that prevents a future
+    # migration from silently breaking the cutover guard in apply_migrations.
+    raise RuntimeError(
+        f"DB_SCHEMA_VERSION ({DB_SCHEMA_VERSION}) must equal CUTOVER_VERSION "
+        f"({CUTOVER_VERSION}) — update one of them when adding new migrations."
+    )
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (
