@@ -19,12 +19,12 @@ backwards compatibility with callers and tests that import from there.
 
 from __future__ import annotations
 
-import hashlib
 import logging
-import random
 import sqlite3
 import threading
 from datetime import UTC
+
+from mediaman.services.infra.backoff import ExponentialBackoff
 
 logger = logging.getLogger("mediaman")
 
@@ -69,24 +69,13 @@ _SEARCH_BACKOFF_BASE_SECONDS = 120  # 2 min
 _SEARCH_BACKOFF_MAX_SECONDS = 86_400  # 24 h cap
 _SEARCH_BACKOFF_JITTER = 0.1  # ±10% multiplicative jitter
 
+_SEARCH_BACKOFF = ExponentialBackoff(
+    _SEARCH_BACKOFF_BASE_SECONDS,
+    _SEARCH_BACKOFF_MAX_SECONDS,
+    jitter=_SEARCH_BACKOFF_JITTER,
+)
+
 _STRANDED_THROTTLE_TTL_SECONDS = 90 * 24 * 60 * 60  # 90 days
-
-
-def _jitter_for(dl_id: str, last_triggered_at: float) -> float:
-    """Return a deterministic ±10% multiplier for *(dl_id, last_triggered_at)*.
-
-    Determinism matters because the backoff gate is checked on every
-    ``/api/downloads`` poll. A fresh random roll on each call would let a
-    search through whenever a low multiplier was rolled, defeating the
-    rate limit. Seeding from a blake2b digest of ``(dl_id, last_triggered_at)``
-    keeps the multiplier stable across polls and across processes — unlike
-    ``hash()``, which is salted by ``PYTHONHASHSEED`` and produces different
-    values in different interpreter instances.
-    """
-    blob = f"{dl_id}|{last_triggered_at!r}".encode()
-    seed = int.from_bytes(hashlib.blake2b(blob, digest_size=4).digest(), "big")
-    rng = random.Random(seed)
-    return rng.uniform(1.0 - _SEARCH_BACKOFF_JITTER, 1.0 + _SEARCH_BACKOFF_JITTER)
 
 
 def _search_backoff_seconds(search_count: int, dl_id: str, last_triggered_at: float) -> float:
@@ -95,15 +84,15 @@ def _search_backoff_seconds(search_count: int, dl_id: str, last_triggered_at: fl
     *search_count* is the number of fires already completed for *dl_id*.
     The result is the jittered interval that gates the next fire after
     *last_triggered_at*.
+
+    The seed encodes ``(dl_id, last_triggered_at)`` — the ``!r`` formatting
+    of the float is deliberate and part of the determinism contract: it
+    produces a consistent representation across platforms and Python versions,
+    unlike bare ``str(float)``.  See :class:`~mediaman.services.infra.backoff.ExponentialBackoff`
+    for why determinism is load-bearing here.
     """
-    n = max(search_count, 0)
-    base = min(
-        _SEARCH_BACKOFF_BASE_SECONDS * 2 ** max(n - 1, 0),
-        _SEARCH_BACKOFF_MAX_SECONDS,
-    )
-    # Clamp after applying jitter so a +10% multiplier at the cap (86 400 s)
-    # never produces a value above the displayed "~24h" ceiling.
-    return min(base * _jitter_for(dl_id, last_triggered_at), _SEARCH_BACKOFF_MAX_SECONDS)
+    seed = f"{dl_id}|{last_triggered_at!r}".encode()
+    return _SEARCH_BACKOFF.delay(max(search_count, 0), seed=seed)
 
 
 def reset_search_triggers() -> None:
@@ -149,7 +138,7 @@ def _load_throttle_from_db(conn: sqlite3.Connection, dl_id: str) -> tuple[float,
         ).fetchone()
         if row is None:
             return 0.0, 0
-        from mediaman.services.infra.format import parse_iso_utc
+        from mediaman.services.infra.time import parse_iso_utc
 
         dt = parse_iso_utc(row[0])
         epoch = dt.timestamp() if dt is not None else 0.0
