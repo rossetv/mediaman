@@ -60,18 +60,8 @@
 <script src="/static/js/settings/integrations.js" defer></script>
 <script src="/static/js/settings/users.js" defer></script>
 <script src="/static/js/settings/newsletter.js" defer></script>
-<script>
-  // Inline scripts run synchronously during parsing; the deferred module
-  // scripts above haven't executed yet. Wire up DOMContentLoaded so that
-  // by the time it fires, all defer'd scripts have run and MM.settings.*
-  // are available.
-  document.addEventListener('DOMContentLoaded', function () {
-    MM.settings.general.init();
-    MM.settings.integrations.init();
-    MM.settings.users.init();
-    MM.settings.newsletter.init();
-  });
-</script>
-{# Back-compat shim — see settings.js for explanation. #}
+{# Page bootstrap — wires DOMContentLoaded → MM.settings.<area>.init().
+   Lives in an external file because the strict script-src CSP rejects
+   page-level inline <script> without a nonce. #}
 <script src="/static/js/settings.js" defer></script>
 {% endblock %}
