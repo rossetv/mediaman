@@ -720,6 +720,10 @@ class TestReconcileStrandedThrottle:
 # ---------------------------------------------------------------------------
 
 _OVER_THRESHOLD = _time.time() - 20 * 86_400  # 20 days ago — always over 14 d threshold
+# Released a year ago — always past the 30 d release-grace window so the
+# tests below exercise the 14 d "stuck searching" threshold rather than
+# accidentally tripping the upcoming/recent-release skips.
+_OLD_RELEASE = _time.time() - 365 * 86_400
 
 
 class TestAutoAbandon:
@@ -743,7 +747,13 @@ class TestAutoAbandon:
         maybe_auto_abandon(
             db_conn,
             "secret",
-            item={"kind": "movie", "dl_id": "radarr:X", "arr_id": 1, "added_at": _OVER_THRESHOLD},
+            item={
+                "kind": "movie",
+                "dl_id": "radarr:X",
+                "arr_id": 1,
+                "added_at": _OVER_THRESHOLD,
+                "released_at": _OLD_RELEASE,
+            },
             now=now,
         )
         assert called["abandon_movie"] == 0
@@ -769,7 +779,13 @@ class TestAutoAbandon:
         maybe_auto_abandon(
             db_conn,
             "secret",
-            item={"kind": "movie", "dl_id": "radarr:X", "arr_id": 42, "added_at": _OVER_THRESHOLD},
+            item={
+                "kind": "movie",
+                "dl_id": "radarr:X",
+                "arr_id": 42,
+                "added_at": _OVER_THRESHOLD,
+                "released_at": _OLD_RELEASE,
+            },
             now=now,
         )
         assert called == {"arr_id": 42, "dl_id": "radarr:X"}
@@ -795,7 +811,13 @@ class TestAutoAbandon:
         maybe_auto_abandon(
             db_conn,
             "secret",
-            item={"kind": "movie", "dl_id": "radarr:X", "arr_id": 1, "added_at": under_threshold},
+            item={
+                "kind": "movie",
+                "dl_id": "radarr:X",
+                "arr_id": 1,
+                "added_at": under_threshold,
+                "released_at": _OLD_RELEASE,
+            },
             now=now,
         )
         assert called["n"] == 0
@@ -827,6 +849,7 @@ class TestAutoAbandon:
                 "dl_id": "sonarr:X",
                 "arr_id": 7,
                 "added_at": _OVER_THRESHOLD,
+                "released_at": _OLD_RELEASE,
                 "episodes": [
                     {"season_number": 21},
                     {"season_number": 21},
@@ -871,6 +894,7 @@ class TestAutoAbandon:
                 "dl_id": "sonarr:Specials",
                 "arr_id": 7,
                 "added_at": _OVER_THRESHOLD,
+                "released_at": _OLD_RELEASE,
                 "episodes": [
                     {"season_number": 0},
                     {"season_number": 0},
@@ -907,6 +931,7 @@ class TestAutoAbandon:
                 "dl_id": "sonarr:Mixed",
                 "arr_id": 7,
                 "added_at": _OVER_THRESHOLD,
+                "released_at": _OLD_RELEASE,
                 "episodes": [
                     {"season_number": 0},  # special — must be excluded
                     {"season_number": 1},
@@ -943,6 +968,7 @@ class TestAutoAbandon:
                 "dl_id": "sonarr:X",
                 "arr_id": 7,
                 "added_at": _OVER_THRESHOLD,
+                "released_at": _OLD_RELEASE,
                 "episodes": [],
             },
             now=now,
@@ -994,6 +1020,7 @@ class TestAutoAbandonAuditLog:
                 "dl_id": "radarr:Dune",
                 "arr_id": 42,
                 "added_at": _OVER_THRESHOLD,
+                "released_at": _OLD_RELEASE,
             },
             now=now,
         )
@@ -1036,6 +1063,7 @@ class TestAutoAbandonAuditLog:
                 "dl_id": "sonarr:Foundation",
                 "arr_id": 7,
                 "added_at": _OVER_THRESHOLD,
+                "released_at": _OLD_RELEASE,
                 "episodes": [
                     {"season_number": 1},
                     {"season_number": 2},
@@ -1069,7 +1097,13 @@ class TestAutoAbandonAuditLog:
         maybe_auto_abandon(
             db_conn,
             "secret",
-            item={"kind": "movie", "dl_id": "radarr:X", "arr_id": 1, "added_at": _OVER_THRESHOLD},
+            item={
+                "kind": "movie",
+                "dl_id": "radarr:X",
+                "arr_id": 1,
+                "added_at": _OVER_THRESHOLD,
+                "released_at": _OLD_RELEASE,
+            },
             now=now,
         )
 
@@ -1091,7 +1125,13 @@ class TestAutoAbandonAuditLog:
         maybe_auto_abandon(
             db_conn,
             "secret",
-            item={"kind": "movie", "dl_id": "radarr:X", "arr_id": 1, "added_at": under_threshold},
+            item={
+                "kind": "movie",
+                "dl_id": "radarr:X",
+                "arr_id": 1,
+                "added_at": under_threshold,
+                "released_at": _OLD_RELEASE,
+            },
             now=now,
         )
 
@@ -1117,6 +1157,7 @@ class TestAutoAbandonAuditLog:
                 "dl_id": "sonarr:X",
                 "arr_id": 7,
                 "added_at": _OVER_THRESHOLD,
+                "released_at": _OLD_RELEASE,
                 "episodes": [],
             },
             now=now,
@@ -1153,6 +1194,7 @@ class TestAutoAbandonAuditLog:
                     "dl_id": "radarr:Y",
                     "arr_id": 42,
                     "added_at": _OVER_THRESHOLD,
+                    "released_at": _OLD_RELEASE,
                 },
                 now=now,
             )

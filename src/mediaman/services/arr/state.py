@@ -84,6 +84,13 @@ def compute_download_state(media_type: str, tmdb_id: int, caches: ArrCaches) -> 
             return ACTION_IN_LIBRARY
         if tmdb_id in caches["radarr_queue_tmdb_ids"]:
             return ACTION_DOWNLOADING
+        # An unmonitored Radarr entry is the residue of a previous abandon
+        # (manual or auto). Reporting it as ``queued`` would surface a
+        # disabled "Queued" button that wedges the user — they can't
+        # re-download a movie they abandoned. Treat it as untracked here
+        # and let the search/download endpoint re-monitor on click.
+        if not movie.get("monitored", True):
+            return None
         return ACTION_QUEUED
 
     series = caches["sonarr_series"].get(tmdb_id)

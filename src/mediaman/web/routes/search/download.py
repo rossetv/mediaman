@@ -179,12 +179,37 @@ def api_download(
         if not radarr:
             return JSONResponse({"ok": False, "error": "Radarr not configured"}, status_code=503)
         try:
-            if radarr.get_movie_by_tmdb(body.tmdb_id):
-                return JSONResponse(
-                    {"ok": False, "error": f"'{body.title}' is already in your library"},
-                    status_code=409,
-                )
-            radarr.add_movie(body.tmdb_id, body.title)
+            existing_movie = radarr.get_movie_by_tmdb(body.tmdb_id)
+            if existing_movie is not None:
+                # The movie is in Radarr's library. Two sub-cases:
+                #
+                # * Monitored — genuinely already tracked. Reject so a
+                #   double-click doesn't churn the existing entry.
+                # * Unmonitored — the residue of a manual or auto abandon.
+                #   Reusing the same entry by re-monitoring + re-searching
+                #   is what the user meant when they pressed Download
+                #   again. Without this branch they were wedged: the
+                #   search button showed "Queued" and the API rejected
+                #   their click with 409.
+                if existing_movie.get("monitored"):
+                    return JSONResponse(
+                        {"ok": False, "error": f"'{body.title}' is already in your library"},
+                        status_code=409,
+                    )
+                movie_id_raw = existing_movie.get("id")
+                if not isinstance(movie_id_raw, int) or movie_id_raw <= 0:
+                    logger.warning(
+                        "search.download: unmonitored radarr entry has bad id=%r for tmdb=%s",
+                        movie_id_raw,
+                        body.tmdb_id,
+                    )
+                    return JSONResponse(
+                        {"ok": False, "error": "Radarr entry is in an unexpected state"},
+                        status_code=502,
+                    )
+                radarr.remonitor_movie(movie_id_raw)
+            else:
+                radarr.add_movie(body.tmdb_id, body.title)
         except (SafeHTTPError, _requests.RequestException, ValueError):
             # Narrow exception list (finding 6): SafeHTTPError covers
             # Radarr's non-2xx responses, RequestException covers
