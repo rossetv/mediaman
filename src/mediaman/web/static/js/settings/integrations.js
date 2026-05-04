@@ -117,7 +117,18 @@
             .then(function (data) {
               self.setConnStatus(c.service, data.ok ? 'ok' : 'err', data.ok ? 'Connected' : (data.error || 'Error'));
             })
-            .catch(function () { self.setConnStatus(c.service, 'err', 'Connection failed'); });
+            .catch(function (err) {
+              // err is an APIError with .status, .message, .error. 429 is the
+              // common case here (the 8-service auto-test trivially blows the
+              // per-admin burst cap on quick reloads); show that distinctly so
+              // the user sees the actual reason instead of a generic failure.
+              var label;
+              if (err && err.status === 429)         label = 'Rate limited';
+              else if (err && err.message)           label = err.message;
+              else if (err && err.error)             label = err.error;
+              else                                   label = 'Connection failed';
+              self.setConnStatus(c.service, 'err', label);
+            });
         });
       }
       autoTest();

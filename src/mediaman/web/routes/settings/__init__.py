@@ -50,7 +50,6 @@ from mediaman.services.infra.time import now_iso
 from mediaman.services.infra.url_safety import (
     is_safe_outbound_url as is_safe_outbound_url,  # re-exported for patch targets
 )
-from mediaman.services.rate_limit import rate_limit
 from mediaman.web.models import SettingsUpdate
 from mediaman.web.responses import respond_err, respond_ok
 
@@ -381,7 +380,6 @@ def api_update_settings(
 
 
 @router.post("/api/settings/test/{service}")
-@rate_limit(_SETTINGS_TEST_LIMITER, key="actor")
 def api_test_service(
     service: str, request: Request, admin: str = Depends(get_current_admin)
 ) -> JSONResponse:
@@ -394,7 +392,10 @@ def api_test_service(
     Constraints layered on top of the dispatch:
 
     * Per-admin rate limit (10/min, 60/day) — without it a logged-in
-      attacker could chain test calls to flood Plex / Mailgun.
+      attacker could chain test calls to flood Plex / Mailgun. The
+      limit guards real tester invocations only; cache-served replies
+      bypass it so a settings page reload (8 services × cache hit) does
+      not eat the whole budget on the second visit.
     * Decryption is restricted to the keys this tester actually needs
       (see :data:`_SERVICE_TESTER_KEYS`).  The previous code decrypted
       every secret in the DB on every test, which is a needless plain-
@@ -419,6 +420,17 @@ def api_test_service(
     cached = _cache_get(service)
     if cached is not None:
         return JSONResponse(cached)
+
+    # Rate limit only the genuine tester invocation. Cache hits above
+    # are cheap and must not consume budget — otherwise a normal page
+    # reload exhausts the per-minute cap before the user does anything.
+    if not _SETTINGS_TEST_LIMITER.check(admin):
+        logger.warning("rate_limit.throttled scope=actor actor=%s", admin)
+        return respond_err(
+            "too_many_requests",
+            status=429,
+            message="Too many requests — slow down",
+        )
 
     conn = get_db()
     config = request.app.state.config
