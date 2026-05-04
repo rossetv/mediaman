@@ -4,6 +4,24 @@ Keeps the Plex token out of the frontend. Posters are cached to
 ``MEDIAMAN_DATA_DIR/poster_cache/`` on first fetch and served from
 disk on subsequent requests, avoiding repeated round-trips to Plex.
 
+Package layout
+--------------
+``poster/cache.py``
+    Filesystem helpers: path computation, atomic read/write, sidecar mime
+    persistence.  No outbound HTTP.
+
+``poster/fetch.py``
+    Pure validation and normalisation helpers: rating-key validation,
+    mime coercion.  No I/O.
+
+``poster/__init__.py`` (this module)
+    All FastAPI route handlers and the outbound HTTP fetch logic (Plex
+    thumb + Radarr/Sonarr fallback), plus the LRU cache sweep.  The
+    module-level names that tests patch (``_POSTER_HTTP``,
+    ``is_safe_outbound_url``, ``build_radarr_from_db``, ``os``) are
+    defined here so ``patch("mediaman.web.routes.poster.<name>")`` works
+    correctly.
+
 Access control
 --------------
 
@@ -23,7 +41,6 @@ oracle to enumerate the user's library rating keys.
 
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import logging
 import os
@@ -51,6 +68,20 @@ from mediaman.services.infra.rate_limits import (
     POSTER_PUBLIC_LIMITER as _POSTER_PUBLIC_LIMITER,
 )
 from mediaman.services.infra.url_safety import is_safe_outbound_url
+
+# Import pure helpers from submodules.
+from mediaman.web.routes.poster.cache import (
+    read_sidecar_mime as _read_sidecar_mime,
+)
+from mediaman.web.routes.poster.cache import (
+    write_sidecar_mime as _write_sidecar_mime,
+)
+from mediaman.web.routes.poster.fetch import (
+    safe_mime as _safe_mime_impl,
+)
+from mediaman.web.routes.poster.fetch import (
+    validate_rating_key as _validate_rating_key_impl,
+)
 
 # Remote poster fetches get a tight 3 s read timeout and 4 MiB cap — a
 # poster that doesn't download in 3 s is broken, and real posters run
@@ -88,10 +119,7 @@ _CACHE_GC_RECHECK_EVERY = 50
 _cache_gc_lock = threading.Lock()
 _cache_gc_counter = 0
 
-# Only these mime types are ever served back to the client. Everything
-# else is normalised down to image/jpeg so a malicious CDN cannot
-# serve ``Content-Type: text/html`` through the proxy and land a
-# stored-XSS-via-poster primitive.
+# Only these mime types are ever served back to the client.
 _ALLOWED_IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
 # SSRF allow-list for Radarr/Sonarr remote poster fetches.
@@ -115,63 +143,16 @@ def _get_cache_dir(data_dir: str) -> Path:
     per-request calls cheap (a module-level attribute check rather than a
     filesystem stat) while remaining safe if called before startup completes
     in tests or CLI contexts.
+
+    State is managed via the module-level ``_cache_dir`` attribute so that
+    test fixtures can reset it between runs via
+    ``poster_mod._cache_dir = None``.
     """
     global _cache_dir
     if _cache_dir is None:
         _cache_dir = Path(data_dir) / "poster_cache"
         _cache_dir.mkdir(parents=True, exist_ok=True)
     return _cache_dir
-
-
-def _read_sidecar_mime(cache_path: Path) -> str:
-    """Return the mime type recorded for a cached poster, or ``image/jpeg``.
-
-    The original implementation always served ``image/jpeg`` for cache
-    hits regardless of the actual stored format. Under ``X-Content-Type-
-    Options: nosniff`` that broke PNG/WebP — the browser would refuse to
-    render the image because the bytes did not match the advertised
-    type. We now persist the upstream mime in a ``.mime`` sidecar file
-    next to the cached image and read it on hit.
-
-    Falls back to ``image/jpeg`` if the sidecar is missing (legacy
-    entries written before this change), unparseable, or names a mime
-    that's not in :data:`_ALLOWED_IMAGE_MIMES` — never trust the
-    sidecar's content as-is.
-    """
-    sidecar = cache_path.with_suffix(cache_path.suffix + ".mime")
-    try:
-        raw = sidecar.read_text(encoding="ascii", errors="ignore").strip()
-    except OSError:
-        return "image/jpeg"
-    if not raw or len(raw) > 64:
-        return "image/jpeg"
-    if raw not in _ALLOWED_IMAGE_MIMES:
-        return "image/jpeg"
-    return raw
-
-
-def _write_sidecar_mime(cache_path: Path, mime: str) -> None:
-    """Atomically persist the served mime alongside *cache_path*.
-
-    Mirrors the temp-file + os.replace pattern used for the image
-    bytes. Failure is non-fatal: if the sidecar can't be written, the
-    next read falls back to ``image/jpeg``, which is the safe default.
-    """
-    sidecar = cache_path.with_suffix(cache_path.suffix + ".mime")
-    safe = mime if mime in _ALLOWED_IMAGE_MIMES else "image/jpeg"
-    tmp_name: str | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            dir=cache_path.parent, delete=False, suffix=".mime.tmp"
-        ) as tmp:
-            tmp.write(safe.encode("ascii"))
-            tmp_name = tmp.name
-        os.replace(tmp_name, sidecar)
-    except OSError:
-        logger.debug("Sidecar mime write failed for %s", cache_path, exc_info=True)
-        if tmp_name and os.path.exists(tmp_name):
-            with contextlib.suppress(OSError):
-                os.remove(tmp_name)
 
 
 def _maybe_sweep_cache(cache_dir: Path) -> None:
@@ -244,7 +225,7 @@ def _maybe_sweep_cache(cache_dir: Path) -> None:
 
 
 def _is_allowed_poster_host(url: str) -> bool:
-    """Return True only for HTTPS URLs pointing at a trusted image CDN.
+    """Return ``True`` only for HTTPS URLs pointing at a trusted image CDN.
 
     Performs exact hostname matching against ``_POSTER_ALLOWED_HOSTS`` —
     no subdomain wildcards — so a DNS-rebind via ``evil.image.tmdb.org``
@@ -282,18 +263,21 @@ def _is_allowed_poster_host(url: str) -> bool:
 def _safe_mime(remote_type: str | None) -> str:
     """Coerce a remote ``Content-Type`` into a safe served mime.
 
-    If the remote response claims a type we know is image-shaped, pass
-    it through. Otherwise default to ``image/jpeg`` — the caller only
-    ever sets this for payloads we fetched from a trusted image CDN
-    or the Plex thumb endpoint, so type confusion is not a real risk
-    but XSS-via-content-type absolutely is.
+    Delegates to :func:`~.fetch.safe_mime`.  Kept as a module-level name
+    here so that ``patch("mediaman.web.routes.poster._safe_mime", ...)``
+    works correctly in tests.
     """
-    if not remote_type:
-        return "image/jpeg"
-    base = remote_type.split(";", 1)[0].strip().lower()
-    if base in _ALLOWED_IMAGE_MIMES:
-        return base
-    return "image/jpeg"
+    return _safe_mime_impl(remote_type)
+
+
+def _validate_rating_key(rating_key: str) -> bool:
+    """Return ``True`` if rating_key is a valid Plex rating key (digits only).
+
+    Delegates to :func:`~.fetch.validate_rating_key`.  Kept as a module-level
+    name here so that imports and patches against ``mediaman.web.routes.poster``
+    resolve correctly.
+    """
+    return _validate_rating_key_impl(rating_key)
 
 
 def _fetch_arr_poster(
@@ -422,11 +406,6 @@ def _sanitise_plex_url(raw: str | None) -> str | None:
     if parsed.port is not None:
         authority = f"{authority}:{parsed.port}"
     return f"{parsed.scheme.lower()}://{authority}"
-
-
-def _validate_rating_key(rating_key: str) -> bool:
-    """Return True if rating_key is a valid Plex rating key (digits only)."""
-    return bool(rating_key) and rating_key.isdigit() and len(rating_key) <= 12
 
 
 @router.get("/api/poster/{rating_key}")
