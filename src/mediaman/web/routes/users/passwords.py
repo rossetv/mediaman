@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from mediaman.audit import security_event
 from mediaman.auth.middleware import get_current_admin
 from mediaman.auth.rate_limit import get_client_ip
-from mediaman.auth.session import change_password
+from mediaman.auth.session import change_password, create_session
 from mediaman.db import get_db
 from mediaman.web.models.users import ChangePasswordBody
 from mediaman.web.responses import respond_err, respond_ok
@@ -89,7 +89,6 @@ def api_change_password(
         audit_event="password.changed",
     ):
         # Create a new session since the old ones were invalidated.
-        from mediaman.auth.session import create_session
         from mediaman.web.routes.auth import is_request_secure
 
         new_token = create_session(
