@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<!--
+  core/_self_test.html — offline smoke test for the MM core modules.
+
+  Open this file directly in a browser (file:// is fine — no server needed).
+  Each assertion is logged to the console and displayed on the page.
+  A green result means the namespace and its expected keys are all present.
+
+  This file is NOT shipped as part of any page; it exists purely as a
+  development-time sanity check.
+-->
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8">
+  <title>MM core self-test</title>
+  <style>
+    body { font-family: monospace; padding: 1rem; background: #111; color: #eee; }
+    .pass { color: #30d158; }
+    .fail { color: #ff453a; }
+    h1 { font-size: 1rem; margin-bottom: 1rem; color: #aaa; }
+  </style>
+</head>
+<body>
+<h1>MM core — namespace smoke test</h1>
+<pre id="out"></pre>
+
+<!-- Load the four core modules in dependency order. -->
+<script src="api.js"></script>
+<script src="dom.js"></script>
+<script src="modal.js"></script>
+<script src="tiles.js"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  var out = document.getElementById('out');
+  var passed = 0;
+  var failed = 0;
+
+  function assert(label, condition) {
+    var line = document.createElement('div');
+    if (condition) {
+      line.className = 'pass';
+      line.textContent = '✓  ' + label;
+      passed++;
+    } else {
+      line.className = 'fail';
+      line.textContent = '✗  ' + label;
+      failed++;
+    }
+    out.appendChild(line);
+  }
+
+  /* ── MM global ── */
+  assert('window.MM exists',             typeof window.MM === 'object');
+
+  /* ── MM.api ── */
+  assert('MM.api exists',                typeof window.MM.api === 'object');
+  assert('MM.api.get is a function',     typeof window.MM.api.get === 'function');
+  assert('MM.api.post is a function',    typeof window.MM.api.post === 'function');
+  assert('MM.api.put is a function',     typeof window.MM.api.put === 'function');
+  assert('MM.api.patch is a function',   typeof window.MM.api.patch === 'function');
+  assert('MM.api.delete is a function',  typeof window.MM.api.delete === 'function');
+  assert('MM.api.APIError is a function', typeof window.MM.api.APIError === 'function');
+
+  /* APIError instance shape */
+  var err = new window.MM.api.APIError('test_code', 'Test message', 404);
+  assert('APIError.error field set',     err.error === 'test_code');
+  assert('APIError.message field set',   err.message === 'Test message');
+  assert('APIError.status field set',    err.status === 404);
+  assert('APIError is instanceof Error', err instanceof Error);
+
+  /* ── MM.dom ── */
+  assert('MM.dom exists',                    typeof window.MM.dom === 'object');
+  assert('MM.dom.q is a function',           typeof window.MM.dom.q === 'function');
+  assert('MM.dom.qa is a function',          typeof window.MM.dom.qa === 'function');
+  assert('MM.dom.setText is a function',     typeof window.MM.dom.setText === 'function');
+  assert('MM.dom.findByAttr is a function',  typeof window.MM.dom.findByAttr === 'function');
+  assert('MM.dom.on is a function',          typeof window.MM.dom.on === 'function');
+  assert('MM.dom.delegate is a function',    typeof window.MM.dom.delegate === 'function');
+
+  /* MM.dom.q / MM.dom.qa smoke */
+  assert('MM.dom.q finds <pre>',    window.MM.dom.q('pre') !== null);
+  assert('MM.dom.qa returns Array', Array.isArray(window.MM.dom.qa('div')));
+
+  /* MM.dom.setText no-op on matching content */
+  var el = document.createElement('span');
+  el.textContent = 'hello';
+  window.MM.dom.setText(el, 'hello');
+  assert('MM.dom.setText no-op when unchanged', el.textContent === 'hello');
+  window.MM.dom.setText(el, 'world');
+  assert('MM.dom.setText writes when changed',  el.textContent === 'world');
+
+  /* ── MM.modal ── */
+  assert('MM.modal exists',                      typeof window.MM.modal === 'object');
+  assert('MM.modal.setupDetail is a function',   typeof window.MM.modal.setupDetail === 'function');
+
+  /* setupDetail returns { open, close } */
+  var fakeModal = document.createElement('div');
+  fakeModal.id = 'test-modal';
+  document.body.appendChild(fakeModal);
+  var handles = window.MM.modal.setupDetail(fakeModal, {});
+  assert('setupDetail returns object',            typeof handles === 'object');
+  assert('handles.open is a function',            typeof handles.open === 'function');
+  assert('handles.close is a function',           typeof handles.close === 'function');
+  document.body.removeChild(fakeModal);
+
+  /* ── MM.tiles ── */
+  assert('MM.tiles exists',              typeof window.MM.tiles === 'object');
+  assert('MM.tiles.render is a function', typeof window.MM.tiles.render === 'function');
+
+  /* tiles.render produces poster-card children */
+  var grid = document.createElement('div');
+  window.MM.tiles.render(grid, [
+    { tmdb_id: 1, title: 'Test Film', media_type: 'movie', year: 2024 },
+    { tmdb_id: 2, title: 'Test Show', media_type: 'tv',    year: 2023,
+      rating: '7.5', rt_rating: '85%', download_state: 'queued' },
+  ], {});
+  assert('tiles.render produces 2 cards',
+    grid.querySelectorAll('.poster-card').length === 2);
+  assert('tiles.render sets data-type',
+    grid.querySelector('.poster-card').dataset.type === 'movie');
+  assert('tiles.render sets poster-empty for missing poster',
+    grid.querySelector('.poster-card .poster-empty') !== null);
+  assert('tiles.render renders state badge',
+    grid.querySelectorAll('.poster-state').length === 1);
+  assert('tiles.render renders rating chips',
+    grid.querySelectorAll('.poster-chips').length === 1);
+
+  /* ── Summary ── */
+  var summary = document.createElement('div');
+  summary.style.marginTop = '1rem';
+  summary.className = failed > 0 ? 'fail' : 'pass';
+  summary.textContent = passed + ' passed, ' + failed + ' failed.';
+  out.appendChild(summary);
+})();
+</script>
+</body>
+</html>

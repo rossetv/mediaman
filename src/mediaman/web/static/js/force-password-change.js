@@ -3,13 +3,22 @@
  *
  * Extracted from force_password_change.html so the inline <script> can
  * be removed and the page-level CSP can drop 'unsafe-inline' once every
- * template has migrated. The file is self-contained (no imports).
+ * template has migrated.
+ *
+ * Requires: core/api.js (MM.api), core/dom.js (MM.dom).
  *
  * The current username is read from a JSON island (#fpc-bootstrap) so
  * no server-side string is interpolated into JavaScript.
  */
 (function () {
   'use strict';
+
+  var _dom = (window.MM && window.MM.dom) || null;
+
+  /* Helper: querySelector with optional MM.dom shortcut. */
+  function _q(sel, ctx) {
+    return _dom ? _dom.q(sel, ctx) : (ctx || document).querySelector(sel);
+  }
 
   var newPw     = document.getElementById('new_password');
   var confirmPw = document.getElementById('confirm_password');
@@ -18,10 +27,10 @@
   var matchEl   = document.getElementById('pw-match');
   if (!newPw || !confirmPw || !fill || !label || !matchEl) return;
 
-  var ckLength   = document.querySelector('.fpc-checklist li[data-rule="length"]');
-  var ckClasses  = document.querySelector('.fpc-checklist li[data-rule="classes"]');
-  var ckUsername = document.querySelector('.fpc-checklist li[data-rule="username"]');
-  var ckUnique   = document.querySelector('.fpc-checklist li[data-rule="unique"]');
+  var ckLength   = _q('.fpc-checklist li[data-rule="length"]');
+  var ckClasses  = _q('.fpc-checklist li[data-rule="classes"]');
+  var ckUsername = _q('.fpc-checklist li[data-rule="username"]');
+  var ckUnique   = _q('.fpc-checklist li[data-rule="unique"]');
 
   // Read the current username from the server-rendered JSON island so
   // nothing is interpolated into a script tag.
@@ -127,8 +136,13 @@
   if (signOutLink) {
     signOutLink.addEventListener('click', function (e) {
       e.preventDefault();
-      fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
-        .finally(function () { window.location.href = '/login'; });
+      /* Use MM.api.post if available; raw fetch as a fallback so this page
+         continues to work even if core/api.js was not loaded for some reason. */
+      var api = window.MM && window.MM.api;
+      var logout = api
+        ? api.post('/api/auth/logout').catch(function () {})
+        : fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
+      logout.finally(function () { window.location.href = '/login'; });
     });
   }
 })();
