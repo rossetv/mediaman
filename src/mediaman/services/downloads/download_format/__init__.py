@@ -8,6 +8,8 @@ build_item`` continue to work without modification.
 from mediaman.services.downloads.download_format._classify import (
     classify_movie_upcoming,
     classify_series_upcoming,
+    compute_movie_released_at,
+    compute_series_released_at,
     extract_poster_url,
     map_arr_status,
     map_episode_state,
@@ -36,6 +38,8 @@ __all__ = [
     "build_item",
     "classify_movie_upcoming",
     "classify_series_upcoming",
+    "compute_movie_released_at",
+    "compute_series_released_at",
     # Classification
     "extract_poster_url",
     "format_episode_label",

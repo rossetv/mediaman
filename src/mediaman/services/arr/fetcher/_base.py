@@ -139,6 +139,11 @@ class ArrCard(BaseArrCard, total=False):
     arr_id: int
     title_slug: str
     added_at: float
+    # Earliest known release-date epoch (movies) or latest past airing epoch
+    # (series). 0.0 means "release date unknown" — auto-abandon treats that
+    # as a hard skip so it never abandons something whose age it can't
+    # reason about.
+    released_at: float
     release_names: list[str]
     # Series-only fields
     episodes: list[ArrEpisodeEntry]
@@ -167,6 +172,7 @@ def make_arr_card(
     arr_id: int = 0,
     title_slug: str = "",
     added_at: float = 0.0,
+    released_at: float = 0.0,
     release_names: list[str] | None = None,
 ) -> ArrCard:
     """Build a download card for either a Radarr movie or a Sonarr series.
@@ -202,6 +208,7 @@ def make_arr_card(
         arr_id=arr_id,
         title_slug=title_slug,
         added_at=added_at,
+        released_at=released_at,
         release_names=release_names if release_names is not None else [],
     )
     if kind == "series":

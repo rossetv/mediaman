@@ -472,7 +472,11 @@ class TestDownloadEndpoint:
     @patch("mediaman.web.routes.search.download.build_radarr_from_db")
     def test_movie_already_in_radarr_blocked(self, mock_build_radarr, authed_client):
         radarr = MagicMock()
-        radarr.get_movie_by_tmdb.return_value = {"id": 1, "tmdbId": 438631}
+        radarr.get_movie_by_tmdb.return_value = {
+            "id": 1,
+            "tmdbId": 438631,
+            "monitored": True,
+        }
         mock_build_radarr.return_value = radarr
         resp = authed_client.post(
             "/api/search/download",
@@ -485,6 +489,37 @@ class TestDownloadEndpoint:
         assert resp.status_code == 409
         assert resp.json()["ok"] is False
         assert "already" in resp.json()["error"].lower()
+        radarr.add_movie.assert_not_called()
+        radarr.remonitor_movie.assert_not_called()
+
+    @patch("mediaman.web.routes.search.download.build_radarr_from_db")
+    def test_movie_unmonitored_in_radarr_remonitors(self, mock_build_radarr, authed_client):
+        """Re-pressing Download on an abandoned movie remonitors it.
+
+        Regression: after auto-abandon, the search modal showed a
+        disabled "Queued" button and the API rejected the click with
+        409 — the user couldn't re-download a movie they had abandoned.
+        Now the endpoint detects the unmonitored entry and calls
+        ``remonitor_movie`` (which also triggers a fresh search).
+        """
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {
+            "id": 77,
+            "tmdbId": 438631,
+            "monitored": False,
+        }
+        mock_build_radarr.return_value = radarr
+        resp = authed_client.post(
+            "/api/search/download",
+            json={
+                "media_type": "movie",
+                "tmdb_id": 438631,
+                "title": "Dune",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        radarr.remonitor_movie.assert_called_once_with(77)
         radarr.add_movie.assert_not_called()
 
     @patch("mediaman.web.routes.search.download.build_sonarr_from_db")
