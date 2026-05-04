@@ -1,4 +1,32 @@
 /* =============================================================
+   ROW PRIMITIVE INVENTORY
+   Three classes handle the canonical horizontal label/control row layout.
+   All share --gap-row (20 px) except .form-row which uses 14 px because it
+   sits inside a card body where tighter spacing is intentional.
+
+   Canonical: .setg-row   — label + control, 1fr auto columns, 16 px × 20 px padding.
+   Alias:     .settings-subrow — same columns and --gap-row; no padding (parent card
+              provides it). Use inside .setg-card bodies.
+   Related:   .form-row   — two-column grid (2fr auto on ≥ 640 px), gap 14 px. Used for
+              label + input + submit groups. Wider gap would misalign the inline button.
+
+   Do NOT create a fourth variant — extend one of these or add a modifier instead.
+   ============================================================= */
+
+/* =============================================================
+   FLEX UTILITIES
+   Minimal display-flex helpers. Add these to elements in templates rather
+   than writing inline styles or duplicating flex rules across components.
+   These are intentionally narrow — do not expand this set without a second
+   concrete use case. Gaps are pinned to the standard 8 px spacing scale.
+   ============================================================= */
+.flex     { display: flex; }
+.flex-col { flex-direction: column; }
+.gap-sm   { gap: 8px; }
+.gap-md   { gap: 16px; }
+.gap-lg   { gap: 24px; }
+
+/* =============================================================
    2. RESET & BASE
    ============================================================= */
 *,
@@ -284,7 +312,7 @@ img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
   border-radius: var(--r-pill);
   overflow: hidden;
   display: flex;
-  background: rgba(255,255,255,.06);
+  background: var(--rgba-overlay-sm);
   margin-bottom: 18px;
 }
 .storage-bar .seg,
@@ -498,7 +526,7 @@ select.inp,
   background: transparent;
   transition: background .15s, color .15s;
 }
-.secret-toggle:hover { color: var(--t1); background: rgba(255,255,255,.06); }
+.secret-toggle:hover { color: var(--t1); background: var(--rgba-overlay-sm); }
 
 .threshold-row {
   display: grid;
@@ -1088,7 +1116,7 @@ select.inp,
 .btn-download:disabled { opacity: .55; cursor: not-allowed; }
 .btn-download.ready,
 .btn-download.queued {
-  background: rgba(48,209,88,.14);
+  background: var(--rgba-success-bg);
   color: var(--success);
 }
 .btn-download.queued { background: rgba(255,214,10,.14); color: var(--warning); }
@@ -1404,7 +1432,7 @@ select.inp,
 
 .fpc-meter {
   height: 4px;
-  background: rgba(255,255,255,.06);
+  background: var(--rgba-overlay-sm);
   border-radius: var(--r-pill);
   overflow: hidden;
   margin-top: 6px;
