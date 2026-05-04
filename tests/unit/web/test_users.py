@@ -122,7 +122,7 @@ class TestCreateUser:
         client = _auth_client(app, conn)
         resp = client.post("/api/users", json={"username": "ab", "password": "ValidPass!99"})
         assert resp.status_code == 400
-        assert "3 and 64 characters" in resp.json()["error"]
+        assert resp.json()["error"] == "invalid_username"
 
     def test_create_user_long_username_returns_400(self, db_path, secret_key):
         conn = init_db(str(db_path))
@@ -194,7 +194,7 @@ class TestDeleteUser:
         other_id = _make_second_user(conn)
         resp = client.delete(f"/api/users/{other_id}")
         assert resp.status_code == 403
-        assert "Password confirmation required" in resp.json()["error"]
+        assert resp.json()["error"] == "password_required"
 
     def test_delete_user_wrong_password_returns_403(self, db_path, secret_key):
         conn = init_db(str(db_path))
@@ -220,7 +220,7 @@ class TestDeleteUser:
             f"/api/users/{other_id}?confirm_password=password1234",
         )
         assert resp.status_code == 400
-        assert "query string" in resp.json()["error"].lower()
+        assert resp.json()["error"] == "use_header"
 
 
 class TestChangePassword:
@@ -254,7 +254,7 @@ class TestChangePassword:
             json={"old_password": "wrongpassword", "new_password": "NewStrongPass!99"},
         )
         assert resp.status_code == 403
-        assert "Current password is incorrect" in resp.json()["error"]
+        assert resp.json()["error"] == "wrong_password"
 
     def test_change_password_same_as_old_returns_400(self, db_path, secret_key):
         conn = init_db(str(db_path))
@@ -265,7 +265,7 @@ class TestChangePassword:
             json={"old_password": "password1234", "new_password": "password1234"},
         )
         assert resp.status_code == 400
-        assert "New password must differ" in resp.json()["error"]
+        assert resp.json()["error"] == "same_password"
 
     def test_change_password_weak_new_returns_400(self, db_path, secret_key):
         conn = init_db(str(db_path))

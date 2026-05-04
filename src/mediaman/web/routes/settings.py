@@ -5,6 +5,7 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import logging
+import shutil
 import sqlite3
 import threading
 import time
@@ -31,10 +32,10 @@ from mediaman.services.infra.rate_limits import (
     SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER,
 )
 from mediaman.services.infra.settings_reader import ConfigDecryptError
-from mediaman.services.infra.storage import get_disk_usage
 from mediaman.services.infra.time import now_iso
 from mediaman.services.infra.url_safety import is_safe_outbound_url
 from mediaman.web.models import _API_KEY_RE, SettingsUpdate
+from mediaman.web.responses import respond_err, respond_ok
 
 logger = logging.getLogger("mediaman")
 
@@ -328,7 +329,7 @@ def api_get_settings(request: Request, admin: str = Depends(get_current_admin)) 
         # Defensive — we filtered encrypted keys out. If this ever
         # fires, surface a 500 rather than silently shipping partial
         # data to the UI.
-        return JSONResponse({"error": "Failed to load settings"}, status_code=500)
+        return respond_err("settings_decrypt_failed", status=500)
     settings = _mask_encrypted_keys(plain, encrypted_keys)
     return JSONResponse(settings)
 
@@ -390,15 +391,16 @@ def _validate_url_fields(body: dict) -> JSONResponse | None:
         if body.get(url_key):
             candidate = str(body[url_key]).strip()
             if len(candidate) > 2048:
-                return JSONResponse({"error": f"{url_key} too long"}, status_code=400)
+                return respond_err("url_too_long", status=400, message=f"{url_key} too long")
             try:
                 parsed = _urlparse(candidate)
             except ValueError:
                 parsed = None
             if not parsed or parsed.scheme not in ("http", "https") or not parsed.netloc:
-                return JSONResponse(
-                    {"error": f"{url_key} must be an http(s) URL"},
-                    status_code=400,
+                return respond_err(
+                    "invalid_url",
+                    status=400,
+                    message=f"{url_key} must be an http(s) URL",
                 )
             if not is_safe_outbound_url(candidate):
                 logger.warning(
@@ -406,9 +408,10 @@ def _validate_url_fields(body: dict) -> JSONResponse | None:
                     url_key,
                     _scrub_url_for_log(candidate),
                 )
-                return JSONResponse(
-                    {"error": f"{url_key} points at a blocked address"},
-                    status_code=400,
+                return respond_err(
+                    "ssrf_blocked",
+                    status=400,
+                    message=f"{url_key} points at a blocked address",
                 )
     return None
 
@@ -448,9 +451,8 @@ def api_update_settings(
             ip=get_client_ip(request),
             detail={"keys": sorted(k for k in body_dict if k in _ALL_KEYS)},
         )
-        return JSONResponse(
-            {"error": "Too many settings changes — slow down"},
-            status_code=429,
+        return respond_err(
+            "too_many_requests", status=429, message="Too many settings changes — slow down"
         )
     config = request.app.state.config
     now = now_iso()
@@ -462,12 +464,11 @@ def api_update_settings(
     sensitive_write = _touches_sensitive_keys(body_dict)
     if sensitive_write and not has_recent_reauth(conn, session_token, admin):
         logger.warning("settings.write_rejected user=%s reason=reauth_required", admin)
-        return JSONResponse(
-            {
-                "error": "Recent password re-authentication required for sensitive settings",
-                "reauth_required": True,
-            },
-            status_code=403,
+        return respond_err(
+            "reauth_required",
+            status=403,
+            message="Recent password re-authentication required for sensitive settings",
+            reauth_required=True,
         )
 
     written = sorted(k for k in body_dict if k in _ALL_KEYS)
@@ -534,12 +535,11 @@ def api_update_settings(
             raise
     except Exception:
         logger.exception("settings.write failed user=%s", admin)
-        return JSONResponse(
-            {"error": "Internal error during settings write"},
-            status_code=500,
+        return respond_err(
+            "internal_error", status=500, message="Internal error during settings write"
         )
     _invalidate_test_cache_for_keys(set(written))
-    return JSONResponse({"status": "saved", "written": written, "ignored": ignored})
+    return respond_ok({"status": "saved", "written": written, "ignored": ignored})
 
 
 def _safe_http_error_to_response(exc: SafeHTTPError) -> JSONResponse:
@@ -834,12 +834,19 @@ def api_plex_libraries(request: Request, admin: str = Depends(get_current_admin)
     try:
         client = build_plex_from_db(conn, config.secret_key)
         if client is None:
-            return JSONResponse({"libraries": [], "error": "Plex URL and token are not configured"})
+            return respond_err(
+                "plex_not_configured",
+                status=200,
+                message="Plex URL and token are not configured",
+                libraries=[],
+            )
         libraries = client.get_libraries()
         return JSONResponse({"libraries": libraries})
     except Exception as exc:
         logger.warning("Failed to fetch Plex libraries: %s", exc)
-        return JSONResponse({"libraries": [], "error": "Failed to fetch Plex libraries"})
+        return respond_err(
+            "fetch_failed", status=200, message="Failed to fetch Plex libraries", libraries=[]
+        )
 
 
 @router.get("/api/settings/disk-usage")
@@ -848,30 +855,30 @@ def api_disk_usage(
 ) -> JSONResponse:
     """Return disk usage stats for a whitelisted filesystem path."""
     if not path:
-        return JSONResponse({"error": "path parameter is required"}, status_code=400)
+        return respond_err("path_required", status=400, message="path parameter is required")
     if len(path) > 4096:
-        return JSONResponse({"error": "path too long"}, status_code=400)
+        return respond_err("path_too_long", status=400)
 
     roots = disk_usage_allowed_roots()
     resolved = resolve_safe_path(path, roots)
     if resolved is None:
-        return JSONResponse({"error": "not_found"}, status_code=404)
+        return respond_err("not_found", status=404)
 
     try:
-        usage = get_disk_usage(str(resolved))
-        total = usage["total_bytes"]
-        used = usage["used_bytes"]
+        usage = shutil.disk_usage(str(resolved))
+        total = usage.total
+        used = usage.used
         pct = round(used / total * 100, 1) if total > 0 else 0.0
         return JSONResponse(
             {
                 "total_bytes": total,
                 "used_bytes": used,
-                "free_bytes": usage["free_bytes"],
+                "free_bytes": usage.free,
                 "usage_pct": pct,
             }
         )
     except FileNotFoundError:
-        return JSONResponse({"error": "not_found"}, status_code=404)
+        return respond_err("not_found", status=404)
     except Exception as exc:
         logger.warning("Failed to read disk usage for %s: %s", resolved, exc)
-        return JSONResponse({"error": "Failed to read disk usage"})
+        return respond_err("fetch_failed", message="Failed to read disk usage")

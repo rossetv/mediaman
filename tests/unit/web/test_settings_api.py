@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from datetime import UTC
 from unittest.mock import MagicMock, patch
 
@@ -152,7 +153,7 @@ class TestPlexLibrariesEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         assert data["libraries"] == []
-        assert "Failed to fetch Plex libraries" in data["error"]
+        assert data["error"] == "fetch_failed"
 
     def test_requires_auth(self, conn, secret_key):
         """Unauthenticated request is rejected with 401."""
@@ -170,10 +171,10 @@ class TestDiskUsageAPI:
         app = _make_app(conn, secret_key)
         client = _auth_client(app, conn)
 
-        fake_usage = {"total_bytes": 1000, "used_bytes": 400, "free_bytes": 600}
+        fake_usage = type(shutil.disk_usage("/"))(1000, 400, 600)
 
         with patch(
-            "mediaman.web.routes.settings.get_disk_usage",
+            "mediaman.web.routes.settings.shutil.disk_usage",
             return_value=fake_usage,
         ):
             resp = client.get("/api/settings/disk-usage?path=/media/movies")
@@ -212,7 +213,7 @@ class TestDiskUsageAPI:
         client = _auth_client(app, conn)
 
         with patch(
-            "mediaman.web.routes.settings.get_disk_usage",
+            "mediaman.web.routes.settings.shutil.disk_usage",
             side_effect=FileNotFoundError("not found"),
         ):
             resp = client.get("/api/settings/disk-usage?path=/nonexistent-but-allowed")
