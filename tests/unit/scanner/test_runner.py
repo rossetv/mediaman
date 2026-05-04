@@ -1,12 +1,20 @@
 """Tests for run_scan_from_db disk-threshold filtering logic."""
 
 import json
+import shutil
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from mediaman.db import init_db
+
+# Capture the namedtuple type ``shutil.disk_usage`` returns ONCE at import
+# time. Calling ``shutil.disk_usage(path)`` from inside a side_effect would
+# recurse into the patched mock and raise ``OSError`` for any path the
+# fake table doesn't recognise, exercising the fail-open path instead of
+# the threshold logic the test wants to assert.
+_DiskUsage = type(shutil.disk_usage("/"))
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -75,12 +83,14 @@ class TestDiskThresholdFiltering:
                 # 38% used — below 80% threshold
                 total = 1_000_000_000_000
                 used = int(total * 0.38)
-                return {"total_bytes": total, "used_bytes": used, "free_bytes": total - used}
+                free = total - used
+                return _DiskUsage(total, used, free)
             if path == "/tv":
                 # 85% used — above 80% threshold
                 total = 1_000_000_000_000
                 used = int(total * 0.85)
-                return {"total_bytes": total, "used_bytes": used, "free_bytes": total - used}
+                free = total - used
+                return _DiskUsage(total, used, free)
             raise FileNotFoundError(path)
 
         with (
@@ -89,7 +99,7 @@ class TestDiskThresholdFiltering:
                 return_value=_make_plex_mock(plex_libs),
             ),
             patch("mediaman.scanner.engine.ScanEngine", return_value=engine_instance) as MockEngine,
-            patch("mediaman.scanner.runner.get_disk_usage", side_effect=fake_disk_usage),
+            patch("mediaman.scanner.runner.shutil.disk_usage", side_effect=fake_disk_usage),
             patch("mediaman.crypto.decrypt_value", return_value="fake-token"),
         ):
             from mediaman.scanner.runner import run_scan_from_db
@@ -124,7 +134,8 @@ class TestDiskThresholdFiltering:
             # Both well below threshold — they'd be skipped without the bypass
             total = 1_000_000_000_000
             used = int(total * 0.10)
-            return {"total_bytes": total, "used_bytes": used, "free_bytes": total - used}
+            free = total - used
+            return _DiskUsage(total, used, free)
 
         with (
             patch(
@@ -132,7 +143,7 @@ class TestDiskThresholdFiltering:
                 return_value=_make_plex_mock(plex_libs),
             ),
             patch("mediaman.scanner.engine.ScanEngine", return_value=engine_instance) as MockEngine,
-            patch("mediaman.scanner.runner.get_disk_usage", side_effect=fake_disk_usage),
+            patch("mediaman.scanner.runner.shutil.disk_usage", side_effect=fake_disk_usage),
             patch("mediaman.crypto.decrypt_value", return_value="fake-token"),
         ):
             from mediaman.scanner.runner import run_scan_from_db
@@ -162,14 +173,14 @@ class TestDiskThresholdFiltering:
                 return_value=_make_plex_mock(plex_libs),
             ),
             patch("mediaman.scanner.engine.ScanEngine", return_value=engine_instance) as MockEngine,
-            patch("mediaman.scanner.runner.get_disk_usage") as mock_disk,
+            patch("mediaman.scanner.runner.shutil.disk_usage") as mock_disk,
             patch("mediaman.crypto.decrypt_value", return_value="fake-token"),
         ):
             from mediaman.scanner.runner import run_scan_from_db
 
             run_scan_from_db(conn, "test-secret")
 
-        # get_disk_usage should not have been called — threshold=0 short-circuits
+        # shutil.disk_usage should not have been called — threshold=0 short-circuits
         mock_disk.assert_not_called()
         call_kwargs = MockEngine.call_args.kwargs
         assert call_kwargs["library_ids"] == ["1"]
@@ -195,7 +206,7 @@ class TestDiskThresholdFiltering:
             ),
             patch("mediaman.scanner.engine.ScanEngine", return_value=engine_instance) as MockEngine,
             patch(
-                "mediaman.scanner.runner.get_disk_usage",
+                "mediaman.scanner.runner.shutil.disk_usage",
                 side_effect=FileNotFoundError("/nonexistent"),
             ),
             patch("mediaman.crypto.decrypt_value", return_value="fake-token"),
@@ -224,7 +235,7 @@ class TestDiskThresholdFiltering:
                 return_value=_make_plex_mock(plex_libs),
             ),
             patch("mediaman.scanner.engine.ScanEngine", return_value=engine_instance) as MockEngine,
-            patch("mediaman.scanner.runner.get_disk_usage") as mock_disk,
+            patch("mediaman.scanner.runner.shutil.disk_usage") as mock_disk,
             patch("mediaman.crypto.decrypt_value", return_value="fake-token"),
         ):
             from mediaman.scanner.runner import run_scan_from_db
