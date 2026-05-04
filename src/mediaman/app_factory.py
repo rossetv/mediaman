@@ -477,7 +477,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # between the external Radarr/Sonarr call and the local DB cleanup.
     # Idempotent — safe to run on every cold start.
     try:
-        from mediaman.web.routes.library.api import reconcile_pending_delete_intents
+        from mediaman.web.routes.library_api import reconcile_pending_delete_intents
 
         reconciled = reconcile_pending_delete_intents()
         if reconciled:
@@ -536,6 +536,7 @@ def create_app() -> FastAPI:
     from mediaman.web.routes.keep import router as keep_router
     from mediaman.web.routes.kept import router as kept_router
     from mediaman.web.routes.library import router as library_router
+    from mediaman.web.routes.library_api import router as library_api_router
     from mediaman.web.routes.poster import router as poster_router
     from mediaman.web.routes.recommended import router as recommended_router
     from mediaman.web.routes.scan import router as scan_router
@@ -552,6 +553,7 @@ def create_app() -> FastAPI:
     app.include_router(history_router)
     app.include_router(keep_router)
     app.include_router(library_router)
+    app.include_router(library_api_router)
     app.include_router(poster_router)
     app.include_router(kept_router)
     app.include_router(scan_router)
