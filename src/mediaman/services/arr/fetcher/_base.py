@@ -1,4 +1,10 @@
-"""Shared types and helpers for the arr_fetcher package."""
+"""Shared types, helpers, and card factory for the arr_fetcher package.
+
+The :func:`make_arr_card` factory replaces the separate ``_make_sonarr_card``
+and ``_make_radarr_card`` functions that used to live in the per-service
+fetcher modules.  The old names remain as one-line shims in those modules so
+existing callers continue to work.
+"""
 
 from __future__ import annotations
 
@@ -139,3 +145,67 @@ class ArrCard(BaseArrCard, total=False):
     episode_count: int
     downloading_count: int
     has_pack: bool
+
+
+def make_arr_card(
+    kind: str,
+    title: str,
+    *,
+    source: str,
+    year: int | None = None,
+    poster_url: str = "",
+    episodes: list[ArrEpisodeEntry] | None = None,
+    episode_count: int = 0,
+    downloading_count: int = 0,
+    progress: int = 0,
+    size: int = 0,
+    sizeleft: int = 0,
+    timeleft: str = "",
+    status: str = "searching",
+    is_upcoming: bool = False,
+    release_label: str = "",
+    arr_id: int = 0,
+    title_slug: str = "",
+    added_at: float = 0.0,
+    release_names: list[str] | None = None,
+) -> ArrCard:
+    """Build a download card for either a Radarr movie or a Sonarr series.
+
+    This is the single card factory that replaces the former
+    ``_make_radarr_card`` and ``_make_sonarr_card`` helpers.  Those
+    functions remain as one-line shims in their respective modules.
+
+    :param kind: ``"movie"`` or ``"series"``.
+    :param title: Display title of the item.
+    :param source: Human-readable service label, e.g. ``"Radarr"`` or
+        ``"Sonarr"``.  Used in the ``source`` field and to prefix ``dl_id``.
+    :param episodes: Episode entries — only meaningful for series cards.
+    """
+    size_str, done_str = _format_size_fields(size, sizeleft)
+    dl_id = source.lower() + ":" + title
+    card = ArrCard(
+        kind=kind,
+        dl_id=dl_id,
+        title=title,
+        source=source,
+        poster_url=poster_url,
+        year=year,
+        progress=progress,
+        size=size,
+        sizeleft=sizeleft,
+        size_str=size_str,
+        done_str=done_str,
+        timeleft=timeleft,
+        status=status,
+        is_upcoming=is_upcoming,
+        release_label=release_label,
+        arr_id=arr_id,
+        title_slug=title_slug,
+        added_at=added_at,
+        release_names=release_names if release_names is not None else [],
+    )
+    if kind == "series":
+        card["episodes"] = episodes if episodes is not None else []
+        card["episode_count"] = episode_count
+        card["downloading_count"] = downloading_count
+    return card
