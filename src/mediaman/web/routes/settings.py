@@ -34,6 +34,7 @@ from mediaman.services.infra.rate_limits import (
 from mediaman.services.infra.settings_reader import ConfigDecryptError
 from mediaman.services.infra.time import now_iso
 from mediaman.services.infra.url_safety import is_safe_outbound_url
+from mediaman.services.rate_limit import rate_limit
 from mediaman.web.models import _API_KEY_RE, SettingsUpdate
 from mediaman.web.responses import respond_err, respond_ok
 
@@ -749,6 +750,7 @@ def _invalidate_test_cache_for_keys(written_keys: set[str]) -> None:
 
 
 @router.post("/api/settings/test/{service}")
+@rate_limit(_SETTINGS_TEST_LIMITER, key="actor")
 def api_test_service(
     service: str, request: Request, admin: str = Depends(get_current_admin)
 ) -> JSONResponse:
@@ -773,13 +775,6 @@ def api_test_service(
     cached = _cache_get(service)
     if cached is not None:
         return JSONResponse(cached)
-
-    if not _SETTINGS_TEST_LIMITER.check(admin):
-        logger.warning("settings.test_throttled user=%s service=%s", admin, service)
-        return JSONResponse(
-            {"ok": False, "error": "Too many service tests — slow down"},
-            status_code=429,
-        )
 
     conn = get_db()
     config = request.app.state.config
