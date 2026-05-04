@@ -692,7 +692,6 @@ select.inp,
 }
 .lib-row:hover { background: var(--s2); }
 .lib-row:last-child { border-bottom: 0; border-bottom-left-radius: var(--r-lg); border-bottom-right-radius: var(--r-lg); }
-.lib-row:last-child { border-bottom: 0; }
 .lib-row-protected { background: rgba(48,209,88,.04); }
 
 .lib-title-col { min-width: 0; }
