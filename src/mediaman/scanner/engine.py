@@ -2,11 +2,11 @@
 
 For each configured library the engine:
 
-1. Fetches all items from Plex (via :mod:`fetch`).
-2. Upserts each item into ``media_items`` (via :mod:`repository`).
+1. Fetches all items from Plex (via :mod:`phases.fetch`).
+2. Upserts each item into ``media_items`` (via :mod:`phases.upsert`).
 3. Skips items that are protected (forever or active snooze).
 4. Skips items already awaiting deletion.
-5. Evaluates eligibility via ``evaluate_movie`` / ``evaluate_season``.
+5. Evaluates eligibility via :mod:`phases.evaluate`.
 6. Schedules eligible items: inserts into ``scheduled_actions`` with an
    HMAC token and marks re-entries where a prior snooze has expired.
 7. Writes an ``audit_log`` entry for every scheduled action.
@@ -37,8 +37,10 @@ from mediaman.scanner.deletions import (
     _recover_stuck_deletions,
 )
 from mediaman.scanner.fetch import PlexFetcher, _PlexItemFetch
-from mediaman.scanner.movies import evaluate_movie
-from mediaman.scanner.tv import evaluate_season
+from mediaman.scanner.phases.delete import remove_orphans
+from mediaman.scanner.phases.evaluate import evaluate_movie_item, evaluate_season_item
+from mediaman.scanner.phases.upsert import schedule_deletion as _phase_schedule_deletion
+from mediaman.scanner.phases.upsert import upsert_item as _phase_upsert_item
 from mediaman.services.infra.format import ensure_tz as _ensure_tz
 from mediaman.services.infra.settings_reader import get_bool_setting as _get_bool_setting
 from mediaman.services.infra.storage import delete_path  # re-exported for back-compat
@@ -60,31 +62,22 @@ __all__ = [
 
 
 def _coerce_lib_ids(raw: Iterable[str]) -> set[int]:
-    """Coerce an iterable of library ID strings to a set of ints, skipping invalid values.
+    """Coerce an iterable of library ID strings to a set of ints.
 
-    Malformed settings values (e.g. ``"all"``, empty strings) are silently
-    skipped with a warning so a single bad entry cannot abort orphan cleanup
-    for every other library.
+    Raises:
+        ValueError: If any entry cannot be coerced to an integer.  A
+            malformed library ID (e.g. ``"all"``, an empty string) is a
+            configuration error that would produce a silently-incomplete
+            scan; surfacing it as an exception at the boundary is
+            preferable to a warning that may go unnoticed.
     """
     result: set[int] = set()
     for lib_id in raw:
         try:
             result.add(int(lib_id))
         except (ValueError, TypeError):
-            logger.warning(
-                "Ignoring non-integer library id %r in orphan cleanup",
-                lib_id,
-            )
+            raise ValueError(f"malformed library id: {lib_id!r}") from None
     return result
-
-
-# Orphan-removal safeguards (C31). A scan that finds zero items against
-# a previously-populated library is almost always a Plex auth hiccup,
-# not a genuine mass-deletion. Refuse to treat such a result as
-# authoritative.
-_MIN_ITEMS_TO_TRUST = 5
-_MIN_ITEMS_FOR_RATIO_CHECK = 50
-_MIN_RATIO_TO_TRUST = 0.10
 
 
 class ScanEngine:
@@ -236,11 +229,7 @@ class ScanEngine:
             fetches = per_lib_fetches.get(lib_id, [])
             seen_lib_keys: set[str] = {f.item["plex_rating_key"] for f in fetches}
             for f in fetches:
-                self._upsert_media_item(f.item, f.library_id, f.media_type)
-                if f.watch_history:
-                    repository.update_last_watched(
-                        self._conn, f.item["plex_rating_key"], f.watch_history
-                    )
+                _phase_upsert_item(self._conn, f, self._arr_cache, f.media_type)
                 summary["synced"] += 1
             # Per-library orphan cleanup so an empty result on one
             # library cannot wipe items belonging to another.
@@ -431,7 +420,7 @@ class ScanEngine:
         as the TV show-kept check).
 
         Args:
-            fetched: Pre-fetched items from :meth:`_fetch_library_items`.
+            fetched: Pre-fetched items from the fetch phase.
             media_type_fn: Callable that returns the media_type string
                 for a :class:`_PlexItemFetch` record.
             evaluate_fn: Callable ``(fetch, added_at, watch_history) ->
@@ -441,8 +430,8 @@ class ScanEngine:
                 evaluation).
             item_label: Human-readable label used in exception log
                 messages (e.g. ``"Movie"`` or ``"TV"``).
-            library_id: Plex section ID — passed through to
-                :meth:`_upsert_media_item`.
+            library_id: Plex section ID — passed through to the upsert
+                phase.
             summary: Mutable summary counter dict (``scanned``,
                 ``scheduled``, ``skipped``, ``errors``).
             seen_keys: If provided, the item's Plex rating key is added
@@ -456,7 +445,7 @@ class ScanEngine:
                 media_id = item["plex_rating_key"]
                 if seen_keys is not None:
                     seen_keys.add(media_id)
-                self._upsert_media_item(item, library_id, media_type_fn(f))
+                _phase_upsert_item(self._conn, f, self._arr_cache, media_type_fn(f))
                 repository.update_last_watched(self._conn, media_id, watch_history)
 
                 if repository.is_protected(self._conn, media_id):
@@ -484,7 +473,7 @@ class ScanEngine:
                         summary["scheduled"] += 1
                     else:
                         is_reentry = repository.has_expired_snooze(self._conn, media_id)
-                        repository.schedule_deletion(
+                        _phase_schedule_deletion(
                             self._conn,
                             media_id=media_id,
                             is_reentry=is_reentry,
@@ -517,9 +506,10 @@ class ScanEngine:
             added_at: Any,
             watch_history: list[dict[str, object]],
         ) -> str | None:
-            return evaluate_movie(
-                added_at=added_at,
-                watch_history=watch_history,
+            return evaluate_movie_item(
+                f,
+                added_at,
+                watch_history,
                 min_age_days=self._min_age_days,
                 inactivity_days=self._inactivity_days,
             )
@@ -543,22 +533,16 @@ class ScanEngine:
         # Phase 1: network fetch (see :meth:`sync_library`).
         fetched = self._fetcher.fetch_library_items(library_id)
 
-        # The show-kept check is TV-specific; returning None from
-        # evaluate_fn signals the skeleton to count this item as skipped
-        # without scheduling.
         def _evaluate(
             f: _PlexItemFetch,
             added_at: Any,
             watch_history: list[dict[str, object]],
         ) -> str | None:
-            season = f.item
-            if repository.is_show_kept(self._conn, season.get("show_rating_key")):
-                return None  # signals early skip to _scan_items
-            return evaluate_season(
-                added_at=added_at,
-                episode_count=season.get("episode_count", 0),
-                watch_history=watch_history,
-                has_future_episodes=False,
+            return evaluate_season_item(
+                f,
+                added_at,
+                watch_history,
+                conn=self._conn,
                 min_age_days=self._min_age_days,
                 inactivity_days=self._inactivity_days,
             )
@@ -580,74 +564,11 @@ class ScanEngine:
     ) -> int:
         """Remove ``media_items`` whose ``plex_rating_key`` is gone from Plex.
 
-        Only considers items belonging to libraries that were
-        successfully scanned (so we don't accidentally delete items from
-        a library that was unreachable during this sync).
-
-        Fail-closed safeguards against a Plex auth hiccup returning zero
-        items and wiping every kept-state / snooze row:
-
-        * If the scan found fewer than ``_MIN_ITEMS_TO_TRUST`` items in
-          total across the scanned libraries, we refuse to treat the
-          result as authoritative and skip orphan removal.
-        * If the scan found less than ``_MIN_RATIO_TO_TRUST`` (10 %) of
-          the items we had on record for those libraries, likewise.
-
-        In both cases a warning is logged with the exact numbers so an
-        admin can investigate and, if the result really was correct,
-        reconcile manually.
+        Delegates to :func:`phases.delete.remove_orphans` which owns the
+        fail-closed safeguard logic (C31). Only considers items belonging
+        to libraries that were successfully scanned.
         """
-        if not scanned_libs:
-            return 0
-
-        previous_count = repository.count_items_in_libraries(self._conn, list(scanned_libs))
-        current_count = len(seen_keys)
-
-        # Hard floor: fewer than this many items makes the scan look
-        # like a failure mode (e.g. Plex auth hiccup returning empty).
-        if current_count < _MIN_ITEMS_TO_TRUST and previous_count >= _MIN_ITEMS_TO_TRUST:
-            logger.warning(
-                "engine.orphan_guard.skip reason=below_min_items "
-                "current=%d previous=%d threshold=%d scanned_libs=%s — "
-                "refusing to remove orphans; admin must verify and "
-                "reconcile manually if this is correct.",
-                current_count,
-                previous_count,
-                _MIN_ITEMS_TO_TRUST,
-                sorted(scanned_libs),
-            )
-            return 0
-
-        # Fractional floor: a huge drop between runs is also suspicious.
-        if (
-            previous_count > _MIN_ITEMS_FOR_RATIO_CHECK
-            and current_count < previous_count * _MIN_RATIO_TO_TRUST
-        ):
-            logger.warning(
-                "engine.orphan_guard.skip reason=below_ratio "
-                "current=%d previous=%d ratio=%.3f min_ratio=%.2f "
-                "scanned_libs=%s — refusing to remove orphans; admin "
-                "must verify and reconcile manually if this is correct.",
-                current_count,
-                previous_count,
-                (current_count / previous_count) if previous_count else 0.0,
-                _MIN_RATIO_TO_TRUST,
-                sorted(scanned_libs),
-            )
-            return 0
-
-        all_ids = repository.fetch_ids_in_libraries(self._conn, list(scanned_libs))
-        orphan_ids = [i for i in all_ids if i not in seen_keys]
-
-        if not orphan_ids:
-            return 0
-
-        repository.delete_media_items(self._conn, orphan_ids)
-        logger.info(
-            "Removed %d orphaned media items no longer in Plex",
-            len(orphan_ids),
-        )
-        return len(orphan_ids)
+        return remove_orphans(self._conn, seen_keys, scanned_libs)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -661,9 +582,8 @@ class ScanEngine:
     ) -> None:
         """Insert or update a media item record.
 
-        Kept as a method (not inlined) because it accesses ``self._arr_cache``
-        before delegating to :func:`repository.upsert_media_item` — it is not
-        a pure pass-through.
+        Back-compat shim used by :meth:`sync_library`.  New code in the
+        scan loop delegates directly to :func:`phases.upsert.upsert_item`.
         """
         self._arr_cache.ensure_loaded()
         file_path = item.get("file_path") or ""
