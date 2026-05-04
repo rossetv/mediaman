@@ -1,4 +1,12 @@
-"""Deep-link and search-hint helpers for the downloads queue."""
+"""State-derivation helpers for the downloads queue.
+
+WHAT: Builds human-readable search-hint copy ("Searched 3× · next attempt in ~4h"),
+      renders countdown bands, and constructs deep-link URLs into Radarr/Sonarr.
+
+WHY: These helpers sit between raw timestamp/count data and the UI strings that
+     represent item state — they are independent of queue orchestration and item
+     building, so isolating them here keeps the other modules focused.
+"""
 
 from __future__ import annotations
 
