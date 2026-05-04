@@ -1,17 +1,17 @@
-# Design System Inspiration of Apple
+# Design System Inspiration of MediaMan
 
 ## 1. Visual Theme & Atmosphere
 
-Apple's website is a masterclass in controlled drama — vast expanses of pure black and near-white serve as cinematic backdrops for products that are photographed as if they were sculptures in a gallery. The design philosophy is reductive to its core: every pixel exists in service of the product, and the interface itself retreats until it becomes invisible. This is not minimalism as aesthetic preference; it is minimalism as reverence for the object.
+MediaMan's website is a masterclass in controlled drama — vast expanses of pure black and near-white serve as cinematic backdrops for products that are photographed as if they were sculptures in a gallery. The design philosophy is reductive to its core: every pixel exists in service of the product, and the interface itself retreats until it becomes invisible. This is not minimalism as aesthetic preference; it is minimalism as reverence for the object.
 
-The typography anchors everything. San Francisco (SF Pro Display for large sizes, SF Pro Text for body) is Apple's proprietary typeface, engineered with optical sizing that automatically adjusts letterforms depending on point size. At display sizes (56px), weight 600 with a tight line-height of 1.07 and subtle negative letter-spacing (-0.28px) creates headlines that feel machined rather than typeset — precise, confident, and unapologetically direct. At body sizes (17px), the tracking loosens slightly (-0.374px) and line-height opens to 1.47, creating a reading rhythm that is comfortable without ever feeling slack.
+The typography anchors everything. San Francisco (SF Pro Display for large sizes, SF Pro Text for body) is MediaMan's proprietary typeface, engineered with optical sizing that automatically adjusts letterforms depending on point size. At display sizes (56px), weight 600 with a tight line-height of 1.07 and subtle negative letter-spacing (-0.28px) creates headlines that feel machined rather than typeset — precise, confident, and unapologetically direct. At body sizes (17px), the tracking loosens slightly (-0.374px) and line-height opens to 1.47, creating a reading rhythm that is comfortable without ever feeling slack.
 
-The color story is starkly binary. Product sections alternate between pure black (`#000000`) backgrounds with white text and light gray (`#f5f5f7`) backgrounds with near-black text (`#1d1d1f`). This creates a cinematic pacing — dark sections feel immersive and premium, light sections feel open and informational. The only chromatic accent is Apple Blue (`#0071e3`), reserved exclusively for interactive elements: links, buttons, and focus states. This singular accent color in a sea of neutrals gives every clickable element unmistakable visibility.
+The color story is starkly binary. Product sections alternate between pure black (`#000000`) backgrounds with white text and light gray (`#f5f5f7`) backgrounds with near-black text (`#1d1d1f`). This creates a cinematic pacing — dark sections feel immersive and premium, light sections feel open and informational. The only chromatic accent is MediaMan Blue (`#0071e3`), reserved exclusively for interactive elements: links, buttons, and focus states. This singular accent color in a sea of neutrals gives every clickable element unmistakable visibility.
 
 **Key Characteristics:**
 - SF Pro Display/Text with optical sizing — letterforms adapt automatically to size context
 - Binary light/dark section rhythm: black (`#000000`) alternating with light gray (`#f5f5f7`)
-- Single accent color: Apple Blue (`#0071e3`) reserved exclusively for interactive elements
+- Single accent color: MediaMan Blue (`#0071e3`) reserved exclusively for interactive elements
 - Product-as-hero photography on solid color fields — no gradients, no textures, no distractions
 - Extremely tight headline line-heights (1.07-1.14) creating compressed, billboard-like impact
 - Full-width section layout with centered content — the viewport IS the canvas
@@ -26,8 +26,8 @@ The color story is starkly binary. Product sections alternate between pure black
 - **Near Black** (`#1d1d1f`): Primary text on light backgrounds, dark button fills. Slightly warmer than pure black for comfortable reading.
 
 ### Interactive
-- **Apple Blue** (`#0071e3`): `--sk-focus-color`, primary CTA backgrounds, focus rings. The ONLY chromatic color in the interface.
-- **Link Blue** (`#0066cc`): `--sk-body-link-color`, inline text links. Slightly darker than Apple Blue for text-level readability.
+- **MediaMan Blue** (`#0071e3`): `--sk-focus-color`, primary CTA backgrounds, focus rings. The ONLY chromatic color in the interface.
+- **Link Blue** (`#0066cc`): `--sk-body-link-color`, inline text links. Slightly darker than MediaMan Blue for text-level readability.
 - **Bright Blue** (`#2997ff`): Links on dark backgrounds. Higher luminance for contrast on black sections.
 
 ### Text
@@ -77,13 +77,13 @@ There is **one** allowed shadow token. Every elevated element uses it; bespoke s
   rgba(0,0,0,.3) 0 6px 20px -8px;
 ```
 
-Two stacked layers — a wide diffused base and a tight contact shadow — produce the cinematic Apple-TV poster lift. Used by `.dl-hero`, `.modal-sheet`, `.login-card`, `.keep-container`, `.tile:hover .tile-poster`, and any popover that needs to read above the page surface.
+Two stacked layers — a wide diffused base and a tight contact shadow — produce the cinematic MediaMan-TV poster lift. Used by `.dl-hero`, `.modal-sheet`, `.login-card`, `.keep-container`, `.tile:hover .tile-poster`, and any popover that needs to read above the page surface.
 
-The previous `rgba(0, 0, 0, 0.22) 3px 5px 30px 0px` value (apple.com marketing site) is retired; Mediaman's dark, poster-heavy surfaces need a deeper drop.
+The previous `rgba(0, 0, 0, 0.22) 3px 5px 30px 0px` value (mediaman marketing site) is retired; Mediaman's dark, poster-heavy surfaces need a deeper drop.
 
 ### Semantic Palette (Mediaman extension)
 
-apple.com's marketing site is a billboard for physical products and its single-accent rule works because product state doesn't need to be signalled at a glance. Mediaman is a state-heavy media manager — downloading, queued, stale, protected, scheduled-for-deletion — and needs a small functional palette. Scope is strictly limited: **badges, tags, dots, state pills, storage-bar segments and non-destructive category tints.** Never on CTAs, headings, page backgrounds or structural surfaces. Apple Blue remains the sole accent for interactive elements.
+mediaman's marketing site is a billboard for physical products and its single-accent rule works because product state doesn't need to be signalled at a glance. Mediaman is a state-heavy media manager — downloading, queued, stale, protected, scheduled-for-deletion — and needs a small functional palette. Scope is strictly limited: **badges, tags, dots, state pills, storage-bar segments and non-destructive category tints.** Never on CTAs, headings, page backgrounds or structural surfaces. MediaMan Blue remains the sole accent for interactive elements.
 
 - **Success Green** (`#30d158`): Kept / protected / complete states; `.status-protected`, `.conn-ok`, keep-forever option.
 - **Warning Yellow** (`#ffd60a`): Queued / snoozed states; rating pills (IMDB).
@@ -125,7 +125,7 @@ Each tint has a low-opacity background counterpart (0.10–0.22 alpha) so the la
 ### Principles
 - **Optical sizing as philosophy**: SF Pro automatically switches between Display and Text optical sizes. Display versions have wider letter spacing and thinner strokes optimized for large sizes; Text versions are tighter and sturdier for small sizes. This means the font literally changes its DNA based on context.
 - **Weight restraint**: The scale spans 300 (light) to 700 (bold) but most text lives at 400 (regular) and 600 (semibold). Weight 300 appears only on large decorative text. Weight 700 is rare, used only for bold card titles.
-- **Negative tracking at all sizes**: Unlike most systems that only track headlines, Apple applies subtle negative letter-spacing even at body sizes (-0.374px at 17px, -0.224px at 14px, -0.12px at 12px). This creates universally tight, efficient text.
+- **Negative tracking at all sizes**: Unlike most systems that only track headlines, MediaMan applies subtle negative letter-spacing even at body sizes (-0.374px at 17px, -0.224px at 14px, -0.12px at 12px). This creates universally tight, efficient text.
 - **Uppercase micro-label exception**: Negative tracking is the rule for mixed-case text. For all-caps micro-labels (10–13px, typically section eyebrows like "STORAGE" or "EPISODES"), SF Pro is designed to track open. Positive tracking in the 0.3–1.2 px range is permitted **only** on genuinely all-caps micro-labels. Mixed-case at any size stays negative.
 - **Extreme line-height range**: Headlines compress to 1.07 while body text opens to 1.47, and some button contexts stretch to 2.41. This dramatic range creates clear visual hierarchy through rhythm alone.
 
@@ -173,7 +173,7 @@ Anything that doesn't already have a primitive **must** be added to this layer r
 ### Buttons
 
 **Primary Blue (CTA)**
-- Background: `#0071e3` (Apple Blue)
+- Background: `#0071e3` (MediaMan Blue)
 - Text: `#ffffff`
 - Padding: 8px 15px
 - Radius: 8px
@@ -199,7 +199,7 @@ Anything that doesn't already have a primitive **must** be added to this layer r
 - Border: 1px solid `#0066cc`
 - Font: SF Pro Text, 14px-17px
 - Hover: underline decoration
-- Use: "Learn more" and "Shop" links — the signature Apple inline CTA
+- Use: "Learn more" and "Shop" links — the signature MediaMan inline CTA
 
 **Filter / Search Button**
 - Background: `#fafafc`
@@ -220,7 +220,7 @@ Anything that doesn't already have a primitive **must** be added to this layer r
 
 ### Cards & Containers
 - Background: `#f5f5f7` (light) or `#272729`-`#2a2a2d` (dark)
-- Border: none (borders are rare in Apple's system)
+- Border: none (borders are rare in MediaMan's system)
 - Radius: 5px-8px
 - Shadow: `rgba(0, 0, 0, 0.22) 3px 5px 30px 0px` for elevated product cards
 - Content: centered, generous padding
@@ -286,16 +286,16 @@ Glass spec — both `.nav-glass` and `.nav-topbar` use:
 
 ### Whitespace Philosophy
 - **Cinematic breathing room**: Each product section occupies a full viewport height (or close to it). The whitespace between products is not empty — it is the pause between scenes in a film.
-- **Vertical rhythm through color blocks**: Rather than using spacing alone to separate sections, Apple uses alternating background colors (black, `#f5f5f7`, white). Each color change signals a new "scene."
+- **Vertical rhythm through color blocks**: Rather than using spacing alone to separate sections, MediaMan uses alternating background colors (black, `#f5f5f7`, white). Each color change signals a new "scene."
 - **Compression within, expansion between**: Text blocks are tightly set (negative letter-spacing, tight line-heights) while the space surrounding them is vast. This creates a tension between density and openness.
 
 ### Dark-only variant (Mediaman)
 
-Mediaman is a media management tool, not a marketing site. It follows the **Apple TV / Apple Music / System Settings** model — dark-only, high-contrast, cinematic — rather than the apple.com marketing-site alternation. The cinematic rhythm rule therefore does NOT apply: there is no light `#f5f5f7` counterpart. Instead, rhythm comes from:
+Mediaman is a media management tool, not a marketing site. It follows the **MediaMan TV / MediaMan Music / System Settings** model — dark-only, high-contrast, cinematic — rather than the mediaman marketing-site alternation. The cinematic rhythm rule therefore does NOT apply: there is no light `#f5f5f7` counterpart. Instead, rhythm comes from:
 
 1. **Surface elevation** — `#000` body → `#1d1d1f` surface → `#2a2a2d` surface-2 → `#323236` surface-3.
 2. **Hairline dividers** at `rgba(255,255,255,0.06)` between sections where colour contrast alone is insufficient.
-3. **Vertical spacing** (`--space-section: clamp(32px, 6vw, 80px)`) carries the pause-between-scenes role that alternating colour blocks play on apple.com.
+3. **Vertical spacing** (`--space-section: clamp(32px, 6vw, 80px)`) carries the pause-between-scenes role that alternating colour blocks play on mediaman.
 
 Cards and containers therefore sit on a dark surface and may use a 1 px hairline border at `rgba(255,255,255,0.06)` when adjacent to a same-coloured parent. Prefer surface-colour contrast; use a hairline only when the two surfaces would otherwise be indistinguishable.
 
@@ -324,7 +324,7 @@ Tokens (`:root` in `style.css`):
 | Media Control | `rgba(210, 210, 215, 0.64)` background with scale transforms | Play/pause buttons, carousel controls |
 | Focus (Accessibility) | `2px solid #0071e3` outline | Keyboard focus on all interactive elements |
 
-**Shadow Philosophy**: Apple uses shadow extremely sparingly. The primary shadow (`3px 5px 30px` with 0.22 opacity) is soft, wide, and offset — mimicking a diffused studio light casting a natural shadow beneath a physical object. This reinforces the "product as physical sculpture" metaphor. Most elements have NO shadow at all; elevation comes from background color contrast (dark card on darker background, or light card on slightly different gray).
+**Shadow Philosophy**: MediaMan uses shadow extremely sparingly. The primary shadow (`3px 5px 30px` with 0.22 opacity) is soft, wide, and offset — mimicking a diffused studio light casting a natural shadow beneath a physical object. This reinforces the "product as physical sculpture" metaphor. Most elements have NO shadow at all; elevation comes from background color contrast (dark card on darker background, or light card on slightly different gray).
 
 ### Decorative Depth
 - Navigation glass: the translucent, blurred navigation bar is the most recognizable depth element, creating a sense of floating UI above scrolling content
@@ -335,25 +335,25 @@ Tokens (`:root` in `style.css`):
 
 ### Do
 - Use SF Pro Display at 20px+ and SF Pro Text below 20px — respect the optical sizing boundary
-- Apply negative letter-spacing at all text sizes (not just headlines) — Apple tracks tight universally
-- Use Apple Blue (`#0071e3`) ONLY for interactive elements — it must be the singular accent
+- Apply negative letter-spacing at all text sizes (not just headlines) — MediaMan tracks tight universally
+- Use MediaMan Blue (`#0071e3`) ONLY for interactive elements — it must be the singular accent
 - Alternate between black and light gray (`#f5f5f7`) section backgrounds for cinematic rhythm
-- Use 980px pill radius for CTA links — the signature Apple link shape
+- Use 980px pill radius for CTA links — the signature MediaMan link shape
 - Keep product imagery on solid-color fields with no competing visual elements
 - Use the translucent dark glass (`rgba(0,0,0,0.8)` + blur) for sticky navigation
-- Compress headline line-heights to 1.07-1.14 — Apple headlines are famously tight
+- Compress headline line-heights to 1.07-1.14 — MediaMan headlines are famously tight
 
 ### Don't
-- Don't introduce additional accent colors beyond Apple Blue and the sanctioned semantic palette (§2 Semantic Palette); never extend the palette to CTAs, headings, or structural surfaces
-- Don't use heavy shadows or multiple shadow layers — Apple's shadow system is one soft diffused shadow or nothing. Use the `--shadow-card` token; never invent a bespoke shadow.
+- Don't introduce additional accent colors beyond MediaMan Blue and the sanctioned semantic palette (§2 Semantic Palette); never extend the palette to CTAs, headings, or structural surfaces
+- Don't use heavy shadows or multiple shadow layers — MediaMan's shadow system is one soft diffused shadow or nothing. Use the `--shadow-card` token; never invent a bespoke shadow.
 - Don't use borders on cards or containers as a decorative device. The dark-only variant permits a 1 px hairline at `rgba(255,255,255,0.06)` only when adjacent surfaces would otherwise be indistinguishable (see §5 Dark-only variant).
 - Don't apply wide letter-spacing to SF Pro mixed-case text — it is designed to run tight at every size. Positive tracking is permitted only on all-caps micro-labels (§3 uppercase exception).
 - Don't use weight 800 or 900 — the maximum is 700 (bold), and even that is rare. At 20px+ (Display sizes) weight should be 400 or 600, never 700.
 - Don't add textures, patterns, or gradients to UI backgrounds — solid colors only. Gradient scrims OVER media imagery (posters, hero backdrops) are permitted since they sit over photography, not over UI chrome.
-- Don't make the navigation opaque — the glass blur effect is essential to the Apple UI identity. The translucent nav must be `rgba(0,0,0,0.8)` with `backdrop-filter: saturate(180%) blur(20px)`; do not vary opacity between top-nav surfaces.
-- Don't center-align body text — Apple body copy is left-aligned; only headlines center
+- Don't make the navigation opaque — the glass blur effect is essential to the MediaMan UI identity. The translucent nav must be `rgba(0,0,0,0.8)` with `backdrop-filter: saturate(180%) blur(20px)`; do not vary opacity between top-nav surfaces.
+- Don't center-align body text — MediaMan body copy is left-aligned; only headlines center
 - Don't use rounded corners larger than 12px on rectangular elements (980px is for pills; 20px top radii are permitted on bottom/top sheet surfaces only).
-- Don't layer a box-shadow glow ring on focused inputs — the global 2 px solid Apple Blue outline (`:focus-visible`) is the focus treatment everywhere. No exceptions.
+- Don't layer a box-shadow glow ring on focused inputs — the global 2 px solid MediaMan Blue outline (`:focus-visible`) is the focus treatment everywhere. No exceptions.
 
 ## 8. Responsive Behavior
 
@@ -385,7 +385,7 @@ All media queries use **mobile-first** `min-width`. The descriptive table above 
 - Navigation links: 48px height with adequate spacing
 - Media controls: 50% radius circular buttons, minimum 44x44px
 - "Learn more" pills: generous padding for comfortable tapping
-- Interactive elements below `--bp-md` (filter pills, sort headers, tab-bar tabs, modal close, form inputs, nav more-sheet rows) must meet a minimum 44 × 44 px hit area per Apple HIG.
+- Interactive elements below `--bp-md` (filter pills, sort headers, tab-bar tabs, modal close, form inputs, nav more-sheet rows) must meet a minimum 44 × 44 px hit area per MediaMan HIG.
 
 ### Collapsing Strategy
 - Hero headlines: 56px Display → 40px → 28px on mobile, maintaining tight line-height proportionally
@@ -405,7 +405,7 @@ All media queries use **mobile-first** `min-width`. The descriptive table above 
 ## 9. Agent Prompt Guide
 
 ### Quick Color Reference
-- Primary CTA: Apple Blue (`#0071e3`)
+- Primary CTA: MediaMan Blue (`#0071e3`)
 - Page background (light): `#f5f5f7`
 - Page background (dark): `#000000`
 - Heading text (light): `#1d1d1f`
@@ -417,18 +417,18 @@ All media queries use **mobile-first** `min-width`. The descriptive table above 
 - Card shadow: `rgba(0, 0, 0, 0.22) 3px 5px 30px 0px`
 
 ### Example Component Prompts
-- "Create a hero section on black background. Headline at 56px SF Pro Display weight 600, line-height 1.07, letter-spacing -0.28px, color white. One-line subtitle at 21px SF Pro Display weight 400, line-height 1.19, color white. Two pill CTAs: 'Learn more' (transparent bg, white text, 1px solid white border, 980px radius) and 'Buy' (Apple Blue #0071e3 bg, white text, 8px radius, 8px 15px padding)."
+- "Create a hero section on black background. Headline at 56px SF Pro Display weight 600, line-height 1.07, letter-spacing -0.28px, color white. One-line subtitle at 21px SF Pro Display weight 400, line-height 1.19, color white. Two pill CTAs: 'Learn more' (transparent bg, white text, 1px solid white border, 980px radius) and 'Buy' (MediaMan Blue #0071e3 bg, white text, 8px radius, 8px 15px padding)."
 - "Design a product card: #f5f5f7 background, 8px border-radius, no border, no shadow. Product image top 60% of card on solid background. Title at 28px SF Pro Display weight 400, letter-spacing 0.196px, line-height 1.14. Description at 14px SF Pro Text weight 400, color rgba(0,0,0,0.8). 'Learn more' and 'Shop' links in #0066cc at 14px."
-- "Build the Apple navigation: sticky, 48px height, background rgba(0,0,0,0.8) with backdrop-filter: saturate(180%) blur(20px). Links at 12px SF Pro Text weight 400, white text. Apple logo left, links centered, search and bag icons right."
+- "Build the MediaMan navigation: sticky, 48px height, background rgba(0,0,0,0.8) with backdrop-filter: saturate(180%) blur(20px). Links at 12px SF Pro Text weight 400, white text. MediaMan logo left, links centered, search and bag icons right."
 - "Create an alternating section layout: first section black bg with white text and centered product image, second section #f5f5f7 bg with #1d1d1f text. Each section near full-viewport height with 56px headline and two pill CTAs below."
 - "Design a 'Learn more' link: text #0066cc on light bg or #2997ff on dark bg, 14px SF Pro Text, underline on hover. After the text, include a right-arrow chevron character (>). Wrap in a container with 980px border-radius for pill shape when used as a standalone CTA."
 
 ### Iteration Guide
-1. Every interactive element gets Apple Blue (`#0071e3`) — no other accent colors
+1. Every interactive element gets MediaMan Blue (`#0071e3`) — no other accent colors
 2. Section backgrounds alternate: black for immersive moments, `#f5f5f7` for informational moments
 3. Typography optical sizing: SF Pro Display at 20px+, SF Pro Text below — never mix
 4. Negative letter-spacing at all sizes: -0.28px at 56px, -0.374px at 17px, -0.224px at 14px, -0.12px at 12px
-5. The navigation glass effect (translucent dark + blur) is non-negotiable — it defines the Apple web experience
+5. The navigation glass effect (translucent dark + blur) is non-negotiable — it defines the MediaMan web experience
 6. Products always appear on solid color fields — never on gradients, textures, or lifestyle backgrounds in hero modules
 7. Shadow is rare and always soft: `3px 5px 30px 0.22 opacity` or nothing at all
-8. Pill CTAs use 980px radius — this creates the signature Apple rounded-rectangle-that-looks-like-a-capsule shape
+8. Pill CTAs use 980px radius — this creates the signature MediaMan rounded-rectangle-that-looks-like-a-capsule shape
