@@ -28,6 +28,7 @@ from mediaman.services.downloads.download_format._types import DownloadItem
 from mediaman.services.downloads.download_queue import build_episode_dicts
 from mediaman.services.infra.format import format_bytes
 from mediaman.services.infra.http_client import SafeHTTPError
+from mediaman.web.responses import respond_err
 
 logger = logging.getLogger("mediaman")
 
@@ -415,7 +416,7 @@ def download_status(
     config = request.app.state.config
 
     if not _DOWNLOAD_STATUS_LIMITER.check(get_client_ip(request)):
-        return JSONResponse({"error": "Too many requests"}, status_code=429)
+        return respond_err("too_many_requests", status=429)
 
     if not admin:
         # Finding 14: unauthenticated polling must use a short-lived
@@ -435,7 +436,7 @@ def download_status(
                 authenticated = True
 
         if not authenticated:
-            return JSONResponse({"error": "Not authenticated"}, status_code=401)
+            return respond_err("not_authenticated", status=401)
 
     conn = get_db()
 

@@ -34,6 +34,7 @@ from mediaman.auth.rate_limit import ActionRateLimiter
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.web.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
+from mediaman.web.responses import respond_err, respond_ok
 
 from ._intent import (
     _DELETE_LIMITER,
@@ -105,19 +106,18 @@ def api_media_keep(
     """Apply protection to a media item."""
     if not _KEEP_LIMITER.check(username):
         logger.warning("media.keep_throttled user=%s", username)
-        return JSONResponse(
-            {"error": "Too many keep operations — slow down"},
-            status_code=429,
+        return respond_err(
+            "too_many_requests", status=429, message="Too many keep operations — slow down"
         )
 
     conn = get_db()
 
     if duration not in VALID_KEEP_DURATIONS:
-        return JSONResponse({"error": "Invalid duration"}, status_code=400)
+        return respond_err("invalid_duration", status=400)
 
     row = conn.execute("SELECT id FROM media_items WHERE id = ?", (media_id,)).fetchone()
     if row is None:
-        return JSONResponse({"error": "Not found"}, status_code=404)
+        return respond_err("not_found", status=404)
 
     now = datetime.now(UTC)
 
@@ -177,7 +177,7 @@ def api_media_keep(
     conn.commit()
     logger.info("Media item %s protected for %s by %s", media_id, snooze_label, username)
 
-    return JSONResponse({"ok": True, "id": media_id, "duration": snooze_label})
+    return respond_ok({"id": media_id, "duration": snooze_label})
 
 
 # Re-exported names. Listed explicitly so static analysis is happy and
