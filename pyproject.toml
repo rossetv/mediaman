@@ -74,7 +74,7 @@ mediaman-create-user = "mediaman.auth.cli:create_user_cli"
 where = ["src"]
 
 [tool.setuptools.package-data]
-mediaman = ["web/templates/**/*.html", "web/static/**/*", "auth/data/*.txt", "py.typed"]
+mediaman = ["web/templates/**/*.html", "web/static/**/*", "web/auth/data/*.txt", "py.typed"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
