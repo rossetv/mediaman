@@ -1,4 +1,34 @@
-"""FastAPI auth dependencies."""
+"""FastAPI authentication dependency functions.
+
+Relocated from ``mediaman.auth.middleware`` to ``mediaman.web.auth.middleware``
+during the Ring-2 restructure.  Back-compat re-exports remain in
+:mod:`mediaman.auth.middleware` so existing imports continue to work.
+
+Exports four FastAPI/callable dependency functions that all callers should
+prefer over raw ``validate_session`` calls — they guarantee fingerprint
+binding (User-Agent + client IP) is consistently applied:
+
+:func:`get_current_admin`
+    Strict dependency: returns the username string or raises ``401``.
+    Use in endpoints that must be authenticated.
+
+:func:`get_optional_admin`
+    Soft dependency: returns username or ``None``, never raises.
+    Use in endpoints that adjust their response for authenticated
+    vs. anonymous visitors (e.g. HTMX partials with extra controls).
+
+:func:`get_optional_admin_from_token`
+    Non-FastAPI variant of the above; accepts a raw token string and
+    an optional :class:`starlette.requests.Request`.  Used in routes
+    that extract the cookie manually before the dependency injection
+    layer runs.
+
+:func:`resolve_page_session`
+    Page-route helper that returns ``(username, conn)`` on success or a
+    ``RedirectResponse("/login", 302)`` for unauthenticated callers.
+    Replaces the repetitive cookie → ``validate_session`` → redirect
+    pattern that previously appeared verbatim in every page handler.
+"""
 
 from __future__ import annotations
 

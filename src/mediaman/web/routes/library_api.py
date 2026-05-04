@@ -50,12 +50,18 @@ router = APIRouter()
 # Rate limiters
 # ---------------------------------------------------------------------------
 
+# Per-admin cap on keep/unkeep toggles.  These are cheap DB writes with no
+# downstream Arr round-trip, so a generous burst cap is fine: 60 per minute
+# / 500 per day per actor.
 _KEEP_LIMITER = ActionRateLimiter(
     max_in_window=60,
     window_seconds=60,
     max_per_day=500,
 )
 
+# Per-admin cap on delete triggers.  Each call initiates an Arr delete which
+# may trigger a rename/move on disk; tighter than keep: 20 per minute /
+# 300 per day per actor.
 _DELETE_LIMITER = ActionRateLimiter(
     max_in_window=20,
     window_seconds=60,
