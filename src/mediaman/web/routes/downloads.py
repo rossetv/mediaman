@@ -17,7 +17,7 @@ from starlette.responses import Response
 
 from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.db import get_db
-from mediaman.services.downloads.abandon import abandon_movie, abandon_seasons
+from mediaman.services.downloads.abandon import abandon_movie, abandon_seasons, abandon_series
 from mediaman.services.downloads.download_queue import build_downloads_response
 
 router = APIRouter()
@@ -105,6 +105,10 @@ def downloads_abandon(
 
     if item.get("kind") == "movie":
         result = abandon_movie(conn, secret_key, arr_id=arr_id, dl_id=dl_id)
+    elif item.get("state") == "upcoming":
+        # "Coming soon" series have no stuck-season rows; the user wants to
+        # stop tracking the whole show, so unmonitor every monitored season.
+        result = abandon_series(conn, secret_key, series_id=arr_id, dl_id=dl_id)
     else:
         if not body.seasons:
             raise HTTPException(

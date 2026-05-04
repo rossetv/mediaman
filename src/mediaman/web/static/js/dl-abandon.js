@@ -28,30 +28,36 @@
   var confirmBtn  = _q('[data-abandon-confirm]', modal);
   var confirmLabel = _q('[data-confirm-label]', confirmBtn);
 
-  var current = null;  // { dlId, kind, title, stuckSeasons }
+  var current = null;  // { dlId, kind, title, stuckSeasons, upcoming }
 
   function open(trigger) {
     var dlId = trigger.dataset.dlId;
     var kind = trigger.dataset.kind || 'movie';
     var title = trigger.dataset.title || '';
+    var upcoming = trigger.dataset.abandonUpcoming === '1';
     var stuck = [];
     try {
       stuck = JSON.parse(trigger.dataset.stuckSeasons || '[]');
     } catch (e) { stuck = []; }
 
-    current = { dlId: dlId, kind: kind, title: title, stuckSeasons: stuck };
+    current = { dlId: dlId, kind: kind, title: title, stuckSeasons: stuck, upcoming: upcoming };
 
-    titleEl.textContent = 'Abandon search for ' + title + '?';
+    titleEl.textContent = upcoming
+      ? 'Stop tracking ' + title + '?'
+      : 'Abandon search for ' + title + '?';
 
     while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
 
-    if (kind === 'movie' || stuck.length <= 1) {
-      copyEl.textContent =
-        'Mediaman will stop poking Radarr/Sonarr and the item will be ' +
-        'unmonitored. It stays in your library so you can re-monitor any ' +
-        'time — nothing is deleted from disk.';
+    if (upcoming || kind === 'movie' || stuck.length <= 1) {
+      copyEl.textContent = upcoming
+        ? 'It hasn’t been released yet. Mediaman will unmonitor it in ' +
+          'Radarr/Sonarr so it won’t be picked up when it lands. It stays ' +
+          'in your library — re-monitor any time to start tracking again.'
+        : 'Mediaman will stop poking Radarr/Sonarr and the item will be ' +
+          'unmonitored. It stays in your library so you can re-monitor any ' +
+          'time — nothing is deleted from disk.';
       listEl.style.display = 'none';
-      confirmLabel.textContent = 'Abandon';
+      confirmLabel.textContent = upcoming ? 'Stop tracking' : 'Abandon';
       confirmBtn.setAttribute('aria-disabled', 'false');
     } else {
       copyEl.textContent =
@@ -136,7 +142,7 @@
     if (confirmBtn.getAttribute('aria-disabled') === 'true') return;
 
     var seasons = [];
-    if (current.kind === 'series') {
+    if (current.kind === 'series' && !current.upcoming) {
       if (current.stuckSeasons.length === 1) {
         seasons = [current.stuckSeasons[0].number];
       } else {
