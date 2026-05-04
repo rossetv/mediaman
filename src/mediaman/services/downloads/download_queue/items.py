@@ -1,11 +1,21 @@
-"""Download-card item builders for matched and unmatched arr entries."""
+"""Download-card item builders and NZBGet matching helpers.
+
+WHAT: Builds individual download-card items (matched and unmatched Arr entries),
+      maps episode data to display dicts, and tests NZBGet titles against Arr
+      candidates. Also defines the ``DownloadsResponse`` TypedDict that is the
+      return type of the orchestrator.
+
+WHY: Item construction and NZBGet matching are tightly coupled — both operate on
+     the same ArrCard/NZB pair — but are entirely independent of the queue
+     orchestration lifecycle. Keeping them here lets queue.py stay thin.
+"""
 
 from __future__ import annotations
 
 import logging
 import time
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 
 from mediaman.services.arr.fetcher._base import ArrCard, ArrEpisodeEntry
 from mediaman.services.downloads.download_format import (
@@ -18,6 +28,41 @@ from mediaman.services.downloads.download_format._types import DownloadItem
 from mediaman.services.infra.format import format_bytes
 
 logger = logging.getLogger("mediaman")
+
+
+# ---------------------------------------------------------------------------
+# Response TypedDict
+# ---------------------------------------------------------------------------
+
+
+class DownloadsResponse(TypedDict):
+    """Return type for :func:`~mediaman.services.downloads.download_queue.queue.build_downloads_response`."""
+
+    hero: dict[str, object] | None
+    queue: list[dict[str, object]]
+    upcoming: list[dict[str, object]]
+    recent: list[dict[str, object]]
+
+
+# ---------------------------------------------------------------------------
+# NZBGet matching
+# ---------------------------------------------------------------------------
+
+
+def nzb_matches_arr(nzb_t_norm: str, arr_candidates: list[str]) -> bool:
+    """Return True if *nzb_t_norm* matches any candidate in *arr_candidates*.
+
+    Performs a bidirectional substring test so both "married at first sight
+    au" ⊂ longer NZB titles and the reverse work correctly.  *arr_candidates*
+    is a list of normalised strings built from the arr item's primary title
+    and any release names Sonarr/Radarr recorded.
+    """
+    return any(cand in nzb_t_norm or nzb_t_norm in cand for cand in arr_candidates)
+
+
+# ---------------------------------------------------------------------------
+# Episode helpers
+# ---------------------------------------------------------------------------
 
 
 def _stuck_seasons_from_episodes(
@@ -54,6 +99,11 @@ def build_episode_dicts(
         }
         for e in eps_raw
     ]
+
+
+# ---------------------------------------------------------------------------
+# Item builders
+# ---------------------------------------------------------------------------
 
 
 def build_matched_item(

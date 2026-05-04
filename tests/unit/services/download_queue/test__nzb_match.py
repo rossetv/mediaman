@@ -1,8 +1,8 @@
-"""Tests for mediaman.services.downloads.download_queue._nzb_match."""
+"""Tests for mediaman.services.downloads.download_queue.items.nzb_matches_arr."""
 
 from __future__ import annotations
 
-from mediaman.services.downloads.download_queue._nzb_match import nzb_matches_arr
+from mediaman.services.downloads.download_queue.items import nzb_matches_arr
 
 
 class TestNzbMatchesArr:

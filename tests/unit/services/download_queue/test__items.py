@@ -1,4 +1,4 @@
-"""Tests for mediaman.services.downloads.download_queue._items."""
+"""Tests for mediaman.services.downloads.download_queue.items."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from mediaman.services.arr.fetcher._radarr import _make_radarr_card
 from mediaman.services.arr.fetcher._sonarr import _make_sonarr_card
-from mediaman.services.downloads.download_queue._items import (
+from mediaman.services.downloads.download_queue.items import (
     build_episode_dicts,
     build_matched_item,
     build_unmatched_arr_item,
