@@ -8,19 +8,25 @@
 // assign innerHTML — even though the only dynamic values are ints from
 // our own server, treating them as untrusted in the DOM layer makes
 // future additions safe by default.
+//
+// Requires: core/api.js (MM.api), core/dom.js (MM.dom).
 
 (function () {
   'use strict';
 
+  var _q = (window.MM && window.MM.dom)
+    ? function (sel, ctx) { return window.MM.dom.q(sel, ctx); }
+    : function (sel, ctx) { return (ctx || document).querySelector(sel); };
+
   var modal = document.getElementById('abandon-modal');
   if (!modal) return;
 
-  var titleEl = document.getElementById('abandon-modal-title');
-  var copyEl = document.getElementById('abandon-modal-copy');
-  var listEl = document.getElementById('abandon-season-list');
-  var cancelBtn = modal.querySelector('[data-abandon-cancel]');
-  var confirmBtn = modal.querySelector('[data-abandon-confirm]');
-  var confirmLabel = confirmBtn.querySelector('[data-confirm-label]');
+  var titleEl     = document.getElementById('abandon-modal-title');
+  var copyEl      = document.getElementById('abandon-modal-copy');
+  var listEl      = document.getElementById('abandon-season-list');
+  var cancelBtn   = _q('[data-abandon-cancel]', modal);
+  var confirmBtn  = _q('[data-abandon-confirm]', modal);
+  var confirmLabel = _q('[data-confirm-label]', confirmBtn);
 
   var current = null;  // { dlId, kind, title, stuckSeasons }
 
@@ -139,30 +145,35 @@
     }
 
     confirmBtn.setAttribute('aria-disabled', 'true');
-    fetch(
-      '/api/downloads/' + encodeURIComponent(current.dlId) + '/abandon',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ seasons: seasons }),
-        credentials: 'same-origin',
-      }
-    ).then(function (r) {
-      if (!r.ok) {
-        if (window.mediamanToast) {
-          window.mediamanToast(
-            'Couldn’t abandon: ' + r.status, { kind: 'error' }
-          );
-        } else {
-          console.error('abandon failed', r.status);
-        }
-        confirmBtn.setAttribute('aria-disabled', 'false');
-        return;
-      }
+
+    var endpoint = '/api/downloads/' + encodeURIComponent(current.dlId) + '/abandon';
+    var api = window.MM && window.MM.api;
+
+    var request = api
+      ? api.post(endpoint, { seasons: seasons })
+      : fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ seasons: seasons }),
+          credentials: 'same-origin',
+        }).then(function (r) {
+          if (!r.ok) {
+            return Promise.reject(new Error('HTTP ' + r.status));
+          }
+          return r.json();
+        });
+
+    request.then(function () {
       close();
       document.dispatchEvent(new CustomEvent('mediaman:downloads:refresh'));
-    }).catch(function (e) {
-      console.error(e);
+    }).catch(function (err) {
+      if (window.mediamanToast) {
+        window.mediamanToast(
+          'Couldn’t abandon: ' + (err.message || err), { kind: 'error' }
+        );
+      } else {
+        console.error('abandon failed', err);
+      }
       confirmBtn.setAttribute('aria-disabled', 'false');
     });
   }
