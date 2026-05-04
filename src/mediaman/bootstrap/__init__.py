@@ -1,13 +1,22 @@
-"""Application bootstrap helpers — split from ``main.py::lifespan`` (R23).
+"""Back-compat shim — the real bootstrap logic now lives in :mod:`mediaman.app_factory`.
 
-Each submodule exposes a ``bootstrap_*`` helper that ``main.lifespan``
-calls in order. Keeping them here means the lifespan function remains a
-slim orchestrator without inline DB / crypto / scheduling logic.
+This package is kept so that existing import paths continue to work:
+
+.. code-block:: python
+
+    from mediaman.bootstrap import bootstrap_db, bootstrap_crypto, ...
+    from mediaman.bootstrap.db import DataDirNotWritableError
+    from mediaman.bootstrap.scheduling import _validate_scan_time, ...
+
+All names are re-exported unchanged from their new homes.
+
+``shutdown_scheduling`` is sourced from the :mod:`.scheduling` shim
+(not directly from ``app_factory``) so that test monkeypatches on
+``mediaman.bootstrap.scheduling._SHUTDOWN_TIMEOUT_SECONDS`` are respected.
 """
 
-from .crypto import bootstrap_crypto
-from .db import bootstrap_db
-from .scheduling import bootstrap_scheduling, shutdown_scheduling
+from mediaman.app_factory import bootstrap_crypto, bootstrap_db, bootstrap_scheduling
+from mediaman.bootstrap.scheduling import shutdown_scheduling
 
 __all__ = [
     "bootstrap_crypto",
