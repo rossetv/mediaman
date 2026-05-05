@@ -56,9 +56,9 @@ from mediaman.web.routes.library_api.delete_intents import (
 )
 from mediaman.web.routes.library_api.redownload import (
     _REDOWNLOAD_TITLE_SIMILARITY,
-    _RedownloadRequest,
     _pick_lookup_match,
     _redownload_audit_id,
+    _RedownloadRequest,
 )
 
 logger = logging.getLogger("mediaman")

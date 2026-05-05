@@ -143,6 +143,7 @@ if _secure_cookie_override() == "false":
 
 @router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request) -> HTMLResponse:
+    """Render the login form (HTML)."""
     templates = request.app.state.templates
     return templates.TemplateResponse(request, "login.html", {"error": None})
 
@@ -153,6 +154,10 @@ def login_submit(
     username: str = Form(...),
     password: str = Form(...),
 ) -> Response:
+    """Authenticate a username/password submission, applying per-IP and per-username rate limits before touching the credential check.
+
+    On success, issues a session cookie and redirects to the post-login destination; on failure, re-renders the form with a generic error to avoid leaking which field was wrong.
+    """
     client_ip = get_client_ip(request)
     if not _limiter.check(client_ip):
         templates = request.app.state.templates

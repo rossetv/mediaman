@@ -39,11 +39,10 @@ def trigger_scan(
     """Trigger a manual scan. Returns immediately; scan runs in background thread.
 
     Spawns a heartbeat thread alongside the scan worker so the
-    ``scan_runs`` lease is renewed every minute (D05 finding 9). The
-    previous code only renewed via the manual scan thread itself, so a
-    long Plex / *arr round-trip would let the lease lapse and a
-    competing cron scan would (correctly) consider the row stale and
-    fire a duplicate run.
+    ``scan_runs`` lease is renewed every minute. The previous code only
+    renewed via the manual scan thread itself, so a long Plex / *arr
+    round-trip would let the lease lapse and a competing cron scan would
+    (correctly) consider the row stale and fire a duplicate run.
 
     Rate-limited per-admin (3/min, 20/day) so a leaked session cookie
     cannot be used to chain scans against Plex / Sonarr / Radarr.

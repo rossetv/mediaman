@@ -11,6 +11,7 @@ from mediaman.services.arr.fetcher._base import (
     ArrCard,
     ArrEpisodeEntry,
     _iter_still_searching,
+    clamp_progress,
     make_arr_card,
 )
 from mediaman.services.infra.http_client import SafeHTTPError
@@ -159,9 +160,7 @@ def _finalise_card_aggregates(
         e["is_pack_episode"] = k is not None and cluster_counts.get(k, 0) > 1
 
     downloading = sum(1 for e in eps if e["progress"] > 0)
-    overall_pct = (
-        max(0, min(100, round((1 - total_left / max(total_size, 1)) * 100))) if total_size else 0
-    )
+    overall_pct = clamp_progress(total_size, total_left)
     card["episode_count"] = len(eps)
     card["downloading_count"] = downloading
     card["progress"] = overall_pct
@@ -213,7 +212,7 @@ def fetch_sonarr_queue(client: SonarrClient) -> list[ArrCard]:
         # Clamp to [0, 100]: Sonarr can briefly report ``sizeleft > size``
         # while a torrent re-downloads, which would otherwise produce a
         # negative percentage and break progress bars.
-        progress = max(0, min(100, round((1 - sizeleft / max(size, 1)) * 100))) if size else 0
+        progress = clamp_progress(size, sizeleft)
         status = q.get("status") or q.get("trackedDownloadStatus") or "queued"
 
         season_num = episode.get("seasonNumber")
@@ -238,8 +237,10 @@ def fetch_sonarr_queue(client: SonarrClient) -> list[ArrCard]:
         if series_id not in series_map:
             poster_url = extract_poster_url(series.get("images"))
             s_title = series.get("title") or "Unknown"
-            series_map[series_id] = _make_sonarr_card(
+            series_map[series_id] = make_arr_card(
+                "series",
                 s_title,
+                source="Sonarr",
                 year=series.get("year"),
                 poster_url=poster_url,
             )
@@ -299,8 +300,10 @@ def fetch_sonarr_queue(client: SonarrClient) -> list[ArrCard]:
         poster_url = extract_poster_url(series.get("images"))
 
         items.append(
-            _make_sonarr_card(
+            make_arr_card(
+                "series",
                 s_title,
+                source="Sonarr",
                 poster_url=poster_url,
                 arr_id=series_id,
                 title_slug=series.get("titleSlug", ""),

@@ -24,16 +24,16 @@ from mediaman.web.models import ACTION_SCHEDULED_DELETION
 # ---------------------------------------------------------------------------
 
 # Bounded scan size so the dashboard render doesn't degenerate into a
-# long table walk on a heavy audit_log (finding 20). 5 batches × 50
-# rows = 250 candidates is enough headroom for any realistic mix of
-# re-downloaded and orphan-titled deletions.
+# long table walk on a heavy audit_log. 5 batches × 50 rows = 250
+# candidates is enough headroom for any realistic mix of re-downloaded
+# and orphan-titled deletions.
 _RECENT_DELETED_BATCH = 50
 _RECENT_DELETED_MAX_BATCHES = 5
 
-# Cache window for the disk-usage stat (finding 21). statvfs() is cheap
-# but a busy dashboard on a slow filesystem could still spend tens of
-# milliseconds per render hitting it; 30s is well below the granularity
-# at which a user notices stale "free space" numbers.
+# Cache window for the disk-usage stat. statvfs() is cheap but a busy
+# dashboard on a slow filesystem could still spend tens of milliseconds
+# per render hitting it; 30s is well below the granularity at which a
+# user notices stale "free space" numbers.
 _DISK_USAGE_CACHE_TTL = 30.0
 _disk_usage_cache: dict[str, tuple[float, dict[str, int]]] = {}
 _disk_usage_cache_lock = threading.Lock()
@@ -110,12 +110,11 @@ def _build_redownload_index(
     """Return ``by_title_lower`` mapping of re-download timestamps.
 
     The audit_log ``media_item_id`` column carries different content
-    depending on the action (finding 18):
+    depending on the action:
 
     * ``deleted`` rows: a stable UUID matching ``media_items.id``.
-    * ``re_downloaded`` rows written before finding 10's fix: the
-      free-text resolved title.
-    * ``re_downloaded`` rows written after finding 10's fix: a stable
+    * ``re_downloaded`` rows written before a fix: the free-text resolved title.
+    * ``re_downloaded`` rows written after the fix: a stable
       ``tmdb:<id>`` / ``tvdb:<id>`` / ``imdb:<id>`` token.
     * ``downloaded`` rows: usually the title (legacy behaviour
       preserved by the recommendations pipeline).
@@ -160,9 +159,7 @@ def _was_redownloaded_after(
     per deletion row.
     """
     last_redownload = by_title_lower.get(title.lower())
-    if last_redownload and last_redownload > deletion_created_at:
-        return True
-    return False
+    return bool(last_redownload and last_redownload > deletion_created_at)
 
 
 def _fetch_recently_deleted(
@@ -172,9 +169,9 @@ def _fetch_recently_deleted(
 
     Skips deletions that have a more-recent re-download. The earlier
     implementation issued a single ``LIMIT 20`` query and post-filtered;
-    when most rows had a re-download the result was short of 10 with
-    no retry (finding 20). Now we page through audit_log in batches
-    until we have 10 unfiltered items or hit a hard cap.
+    when most rows had a re-download the result was short of 10 with no
+    retry. Now we page through audit_log in batches until we have 10
+    unfiltered items or hit a hard cap.
     """
     from mediaman.web.routes.dashboard._poster_fanout import _fill_tmdb_posters
 

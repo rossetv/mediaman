@@ -106,7 +106,7 @@ def refresh_recommendations(
     inserted = 0
     for s in all_recommendations:
         # Validate title and reason once more at write time — enrichment may have
-        # modified fields, and this is the last gate before persistence (finding 38).
+        # modified fields, and this is the last gate before persistence.
         title = _validate_llm_string(str(s.get("title") or ""), _LLM_TITLE_MAX_LEN, "title")
         if not title:
             logger.warning(

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from mediaman.services.arr.fetcher._base import (
     ArrCard,
     _iter_still_searching,
+    clamp_progress,
     make_arr_card,
 )
 
@@ -75,14 +76,16 @@ def fetch_radarr_queue(client: RadarrClient) -> list[ArrCard]:
         # Clamp to [0, 100]: Radarr can briefly report ``sizeleft > size`` while
         # a torrent re-downloads or pads, which would otherwise produce a
         # negative percentage and break progress bars.
-        progress = max(0, min(100, round((1 - sizeleft / max(size, 1)) * 100))) if size else 0
+        progress = clamp_progress(size, sizeleft)
         status = q.get("status") or q.get("trackedDownloadStatus") or "queued"
         poster_url = extract_poster_url(movie.get("images"))
         m_title = movie.get("title") or q.get("title") or "Unknown"
         release_name = q.get("title") or ""
         items.append(
-            _make_radarr_card(
+            make_arr_card(
+                "movie",
                 m_title,
+                source="Radarr",
                 year=movie.get("year"),
                 poster_url=poster_url,
                 progress=progress,
@@ -121,8 +124,10 @@ def fetch_radarr_queue(client: RadarrClient) -> list[ArrCard]:
         poster_url = extract_poster_url(movie.get("images"))
 
         items.append(
-            _make_radarr_card(
+            make_arr_card(
+                "movie",
                 m_title,
+                source="Radarr",
                 poster_url=poster_url,
                 arr_id=movie.get("id", 0),
                 title_slug=movie.get("titleSlug", ""),

@@ -29,9 +29,9 @@ from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes._helpers import is_admin as _is_admin
 
 # Canonical list of TV / anime season media_type values, shared with the
-# library type filter (finding 34). Keeping the list co-located with
-# library/_query.py would create a circular import; instead we redeclare
-# the same tuple here and rely on the unit test to detect drift.
+# library type filter. Keeping the list co-located with library/_query.py
+# would create a circular import; instead we redeclare the same tuple here
+# and rely on the unit test to detect drift.
 _TV_SEASON_TYPES: tuple[str, ...] = ("tv_season", "tv", "season")
 _ANIME_SEASON_TYPES: tuple[str, ...] = ("anime_season", "anime")
 _ALL_SEASON_TYPES: tuple[str, ...] = _TV_SEASON_TYPES + _ANIME_SEASON_TYPES
@@ -73,19 +73,18 @@ def _resolve_show_rating_key(
 class _KeepShowBody(BaseModel):
     """Body shape for POST /api/show/{show_rating_key}/keep.
 
-    ``season_ids`` is capped at 50 entries (finding 32) — generous for
-    even the longest series but tight enough to refuse a flood payload.
-    A 50-element list × 36 chars per UUID is ~1.8 KB, well within
-    reasonable JSON body limits.
+    ``season_ids`` is capped at 50 entries — generous for even the longest
+    series but tight enough to refuse a flood payload. A 50-element list ×
+    36 chars per UUID is ~1.8 KB, well within reasonable JSON body limits.
     """
 
     duration: str = "forever"
     season_ids: list[str] = Field(default_factory=list, max_length=50)
 
 
-# Per-admin cap on /api/media/{id}/unprotect (finding 30) — matches the
-# /keep limiter on the library side so an admin can't strip protection
-# rapidly via a script while the partner /keep endpoint is throttled.
+# Per-admin cap on /api/media/{id}/unprotect — matches the /keep limiter
+# on the library side so an admin can't strip protection rapidly via a
+# script while the partner /keep endpoint is throttled.
 _UNPROTECT_LIMITER = ActionRateLimiter(
     max_in_window=60,
     window_seconds=60,
@@ -208,9 +207,9 @@ def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)
     """Remove protection from a media item.
 
     Deletes the scheduled_actions entry (protected_forever or snoozed) and
-    logs the action to audit_log. Rate-limited (finding 30) to match the
-    keep limiter — without this, an admin could script-strip protections
-    far faster than they could re-apply them.
+    logs the action to audit_log. Rate-limited to match the keep limiter —
+    without this, an admin could script-strip protections far faster than
+    they could re-apply them.
     """
     if not _UNPROTECT_LIMITER.check(username):
         logger.warning("media.unprotect_throttled user=%s", username)
@@ -254,10 +253,9 @@ def api_show_seasons(
 
     Looks up by show_rating_key only. The previous implementation fell
     back to matching by show_title via the ``title`` query parameter
-    when the rating-key lookup was empty — that branch is removed
-    (finding 31) because an admin could probe arbitrary titles to
-    enumerate which shows existed in the library, and two distinct
-    shows sharing a title would collide.
+    when the rating-key lookup was empty — that branch is removed because
+    an admin could probe arbitrary titles to enumerate which shows existed
+    in the library, and two distinct shows sharing a title would collide.
     """
     conn = get_db()
     rows = conn.execute(
@@ -395,11 +393,11 @@ def api_keep_show(
         action = ACTION_SNOOZED
         execute_at = (now + timedelta(days=days)).isoformat() if days else None
 
-    # Use the *resolved* key for every subsequent DB lookup (finding 33).
-    # The unverified path parameter was being used for both the
-    # title-row lookup and the kept_shows insert, which meant a request
-    # with a slightly different cased key could land on the wrong show
-    # row even after _resolve_show_rating_key approved it.
+    # Use the *resolved* key for every subsequent DB lookup. The unverified
+    # path parameter was being used for both the title-row lookup and the
+    # kept_shows insert, which meant a request with a slightly different
+    # cased key could land on the wrong show row even after
+    # _resolve_show_rating_key approved it.
     title_row = conn.execute(
         "SELECT show_title FROM media_items WHERE show_rating_key = ? LIMIT 1",
         (resolved_key,),

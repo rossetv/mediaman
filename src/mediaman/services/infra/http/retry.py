@@ -104,8 +104,6 @@ def _retry_after_seconds(value: str | None) -> float | None:
         target = email.utils.parsedate_to_datetime(raw)
     except (TypeError, ValueError):
         return None
-    if target is None:
-        return None
     # ``parsedate_to_datetime`` returns naive on missing offsets — normalise.
     now = datetime.now(UTC)
     if target.tzinfo is None:
@@ -157,7 +155,14 @@ def dispatch_loop(
     attempts: int,
     make_error: Callable[..., Exception],
 ) -> requests.Response:
-    """Inner dispatch + retry loop.
+    """Issue an HTTP request with transient-failure retry and backoff.
+
+    Issues a single HTTP request and retries on transient failures: transport errors
+    (timeout, connection reset, SSL errors), and HTTP status codes 429, 502, 503, 504.
+    Retry policy: up to three total attempts (initial plus two retries), with exponential
+    backoff and jitter between attempts (0.5s, 1.0s by default). Honour Retry-After
+    headers on 429/503 responses, parsing both delta-seconds and HTTP-date forms,
+    capped to 60 seconds to prevent unbounded delays.
 
     Args:
         dispatch_fn: Zero-arg callable that issues a single HTTP request and
@@ -172,6 +177,12 @@ def dispatch_loop(
         make_error: Factory that produces a ``SafeHTTPError``-style exception
             given ``(status_code, body_snippet, url)`` keyword args.  Kept as
             a callable to avoid a circular import with :mod:`.client`.
+
+    Returns:
+        The final :class:`requests.Response` on success (2xx status code).
+
+    Raises:
+        Exception: Produced by *make_error* on non-2xx final status or transport error.
     """
     last_exc: Exception | None = None
     last_status: int | None = None

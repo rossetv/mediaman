@@ -37,6 +37,7 @@ def _resolve_safe_outbound_url(url: str, *, strict_egress: bool | None = None):
     )
     return fn(url, strict_egress=strict_egress)
 
+
 # Matches X-Plex-Token query parameter values so they can be redacted from
 # exception messages and log lines before they propagate.
 _PLEX_TOKEN_RE = _re.compile(r"(X-Plex-Token=)[^&\s\"'>]+", _re.IGNORECASE)

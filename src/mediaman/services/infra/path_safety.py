@@ -28,7 +28,7 @@ def parse_delete_roots_env(env_val: str) -> list[str]:
     the env var was set but yielded no usable paths.
 
     This function is the single source of truth for separator handling so that
-    the disk-usage path and the deletion path both behave identically (finding 31).
+    the disk-usage path and the deletion path both behave identically.
     Callers in ``scanner/repository.py`` should be migrated to use this helper;
     a follow-up commit on ``scanner/repository.py`` is needed by the orchestrator.
     """
@@ -109,7 +109,7 @@ def resolve_safe_path(raw: str, roots: list[Path]) -> Path | None:
     """
     try:
         candidate = Path(raw)
-        abs_candidate = Path(os.path.abspath(str(candidate)))
+        abs_candidate = candidate.absolute()
     except (OSError, ValueError):
         return None
 

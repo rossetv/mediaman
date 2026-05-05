@@ -41,6 +41,7 @@ oracle to enumerate the user's library rating keys.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import os
@@ -541,11 +542,9 @@ def proxy_poster(
         _maybe_sweep_cache(cache_dir)
     except OSError:
         logger.warning("Poster cache write failed for %s", rating_key, exc_info=True)
-        if tmp_name and os.path.exists(tmp_name):
-            try:
+        if tmp_name:
+            with contextlib.suppress(OSError):
                 os.remove(tmp_name)
-            except OSError:
-                logger.debug("Failed to remove orphan temp %s", tmp_name, exc_info=True)
 
     return Response(
         content=content,

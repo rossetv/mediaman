@@ -12,7 +12,6 @@ from starlette.responses import Response
 from mediaman.core.format import format_bytes
 from mediaman.db import get_db
 from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
-
 from mediaman.web.routes.dashboard._data import (
     _DISK_USAGE_CACHE_TTL,
     _RECENT_DELETED_BATCH,
@@ -159,11 +158,12 @@ def api_dashboard_reclaimed_chart(username: str = Depends(get_current_admin)) ->
 
 
 __all__ = [
-    "router",
-    # _data re-exports
     "_DISK_USAGE_CACHE_TTL",
+    "_POSTER_FANOUT_BUDGET_SECONDS",
+    "_POSTER_FANOUT_WORKERS",
     "_RECENT_DELETED_BATCH",
     "_RECENT_DELETED_MAX_BATCHES",
+    "_TMDB_POSTER_BASE_URL",
     "_build_redownload_index",
     "_cached_disk_usage",
     "_days_until",
@@ -172,11 +172,8 @@ __all__ = [
     "_fetch_recently_deleted",
     "_fetch_scheduled",
     "_fetch_storage_stats",
-    "_was_redownloaded_after",
-    # _poster_fanout re-exports
-    "_POSTER_FANOUT_BUDGET_SECONDS",
-    "_POSTER_FANOUT_WORKERS",
-    "_TMDB_POSTER_BASE_URL",
     "_fill_tmdb_posters",
     "_get_poster_executor",
+    "_was_redownloaded_after",
+    "router",
 ]

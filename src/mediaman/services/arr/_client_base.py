@@ -11,7 +11,8 @@ that lives alongside it.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, cast
+from collections.abc import Callable
+from typing import Any, cast
 
 import requests
 from requests import RequestException
@@ -315,8 +316,7 @@ class _ArrClientBase:
                 if attempt + 1 >= max_retries:
                     raise
                 logger.warning(
-                    "%s: PUT failed for %s "
-                    "(attempt %d/%d) — re-reading and retrying",
+                    "%s: PUT failed for %s (attempt %d/%d) — re-reading and retrying",
                     log_prefix,
                     log_id,
                     attempt + 1,

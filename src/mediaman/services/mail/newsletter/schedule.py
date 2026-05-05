@@ -99,7 +99,7 @@ def _mark_notified(
     active_recipients: list[str] | None = None,
 ) -> None:
     """Mark scheduled action rows as notified=1, but only when every active
-    recipient has been delivered to (finding 23).
+    recipient has been delivered to.
 
     Asserts all ids are integers before building the parameterised query so a
     non-integer id (e.g. from a corrupt row) surfaces as a clear error rather

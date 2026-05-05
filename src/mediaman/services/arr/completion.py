@@ -147,15 +147,15 @@ def record_verified_completions(
         nonlocal _sonarr_by_id, _sonarr_by_title
         if _sonarr_by_id is not None:
             return
-        by_id_s: dict[int, dict] = {}
-        by_title_s: dict[str, dict] = {}
+        by_id: dict[int, dict] = {}
+        by_title: dict[str, dict] = {}
         client = build_client(conn, "sonarr")
         for s in client.get_series() if client else []:
             if tid := s.get("tmdbId"):
-                by_id_s[int(tid)] = s
+                by_id[int(tid)] = s
             if t := (s.get("title") or ""):
-                by_title_s[t] = s
-        _sonarr_by_id, _sonarr_by_title = by_id_s, by_title_s
+                by_title[t] = s
+        _sonarr_by_id, _sonarr_by_title = by_id, by_title
 
     # Collect verified rows first; commit once at the end to avoid N fsyncs.
     to_insert: list[tuple] = []

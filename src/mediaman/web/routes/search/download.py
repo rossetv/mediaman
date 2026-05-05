@@ -28,7 +28,7 @@ from mediaman.web.auth.middleware import get_current_admin
 logger = logging.getLogger("mediaman")
 
 # ---------------------------------------------------------------------------
-# Rate limiters for POST /api/search/download (finding 33)
+# Rate limiters for POST /api/search/download
 # ---------------------------------------------------------------------------
 
 # Per-admin burst limiter: 20 downloads per minute, 200 per day.
@@ -44,8 +44,7 @@ _DOWNLOAD_IP_LIMITER = RateLimiter(max_attempts=30, window_seconds=60)
 # Duplicate-request suppression: block identical (username, tmdb_id, media_type, seasons)
 # submissions within a short window to prevent accidental double-clicks from adding
 # duplicates. The season set is included in the dedup key so a TV submission for
-# seasons {1,2} does not block a follow-up submission for season {3} on the same
-# series (finding 5).
+# seasons {1,2} does not block a follow-up submission for season {3} on the same series.
 _DOWNLOAD_DEDUP_WINDOW_SECONDS = 10.0
 _download_dedup: dict[tuple[str, int, str, str], float] = {}
 _download_dedup_lock = threading.Lock()
@@ -93,7 +92,7 @@ def _is_duplicate_download(
 
 
 class _DownloadRequest(BaseModel):
-    """Body schema for ``POST /api/search/download`` (finding 3).
+    """Body schema for ``POST /api/search/download``.
 
     ``extra="forbid"`` means an unknown key from the client raises HTTP 422
     rather than being silently ignored. ``media_type`` is constrained to
@@ -117,7 +116,7 @@ class _DownloadRequest(BaseModel):
 # notification subsystem treats this as an opaque identifier (it does
 # not actually attempt SMTP delivery to a non-email value), but the
 # coupling is documented here so a future schema migration to a real
-# email column does not quietly leave this call site stale (finding 7).
+# email column does not quietly leave this call site stale.
 def _resolve_admin_email(admin: str) -> str:
     """Return the notification identifier for *admin*.
 
@@ -152,7 +151,7 @@ def api_download(
         )
 
     # Duplicate-request suppression: same (admin, tmdb_id, media_type, seasons)
-    # within the dedup window indicates a double-click or replay (finding 5).
+    # within the dedup window indicates a double-click or replay.
     seasons_token = _seasons_dedup_token(body.monitored_seasons, body.search_seasons)
     if _is_duplicate_download(admin, body.tmdb_id, body.media_type, seasons_token):
         logger.info(
@@ -171,7 +170,7 @@ def api_download(
     secret_key = request.app.state.config.secret_key
 
     # Notification recipient: see ``_resolve_admin_email`` for the
-    # rationale on re-using the admin username (finding 7).
+    # rationale on re-using the admin username.
     notify_email = _resolve_admin_email(admin)
 
     if body.media_type == "movie":
@@ -211,11 +210,10 @@ def api_download(
             else:
                 radarr.add_movie(body.tmdb_id, body.title)
         except (SafeHTTPError, _requests.RequestException, ValueError):
-            # Narrow exception list (finding 6): SafeHTTPError covers
-            # Radarr's non-2xx responses, RequestException covers
-            # transport failures, ValueError covers add_movie's own
-            # ``tmdb_id <= 0`` guard. A bare ``except Exception`` would
-            # silently swallow programming bugs.
+            # Narrow exception list: SafeHTTPError covers Radarr's non-2xx
+            # responses, RequestException covers transport failures, ValueError
+            # covers add_movie's own ``tmdb_id <= 0`` guard. A bare ``except
+            # Exception`` would silently swallow programming bugs.
             logger.exception("Failed to add movie")
             return JSONResponse({"ok": False, "error": "Failed to add to Radarr"}, status_code=502)
         _record_dn(
@@ -262,7 +260,7 @@ def api_download(
             status_code=409,
         )
 
-    if body.search_seasons is not None and len(body.search_seasons) == 0:
+    if body.search_seasons is not None and not body.search_seasons:
         return JSONResponse({"ok": False, "error": "Pick at least one season"}, status_code=400)
 
     try:

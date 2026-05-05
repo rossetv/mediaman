@@ -153,9 +153,9 @@ def close_db() -> None:
             _thread_local.conn = None
 
 
-# Heartbeat lease (finding 9): a running job renews its ``heartbeat_at``
-# column at least once per :data:`_JOB_HEARTBEAT_INTERVAL_SECONDS`. A row
-# whose heartbeat (or, for legacy rows that pre-date migration 24, whose
+# Heartbeat lease: a running job renews its ``heartbeat_at`` column at
+# least once per :data:`_JOB_HEARTBEAT_INTERVAL_SECONDS`. A row whose
+# heartbeat (or, for legacy rows that pre-date migration 24, whose
 # ``started_at``) is older than :data:`_JOB_HEARTBEAT_STALE_SECONDS` is
 # considered crashed and no longer blocks new runs.
 _JOB_HEARTBEAT_INTERVAL_SECONDS = 60

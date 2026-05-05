@@ -57,10 +57,9 @@ def _record_delivery_attempt(
     The newsletter previously flagged each scheduled item as ``notified=1``
     after the first successful Mailgun call. With multiple subscribers a
     later send failure would silently drop notifications for everyone
-    after the first success — finding 23. We now record one row per
-    scheduled-item × recipient pair so the orchestrating function can
-    decide whether to mark the item done only when *every* recipient has
-    been served.
+    after the first success. We now record one row per scheduled-item ×
+    recipient pair so the orchestrating function can decide whether to
+    mark the item done only when *every* recipient has been served.
 
     Best-effort: a row that cannot be persisted is logged but does not
     break the send loop.
@@ -116,9 +115,8 @@ def _send_to_recipients(
     Each recipient gets a unique unsubscribe URL and per-item download tokens.
 
     When *conn* is provided we also persist a per-recipient delivery
-    record for every scheduled item — finding 23. The orchestrator then
-    only flips ``notified=1`` for items where every active recipient
-    has succeeded.
+    record for every scheduled item. The orchestrator then only flips
+    ``notified=1`` for items where every active recipient has succeeded.
     """
     scheduled_action_ids = [
         int(item["_action_id"]) for item in scheduled_items if item.get("_action_id") is not None

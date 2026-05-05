@@ -40,6 +40,7 @@ be invoked.  The same applies to ``resolve_safe_outbound_url``.
 
 from __future__ import annotations
 
+import contextlib
 import json as _json
 import logging
 import sys
@@ -414,21 +415,13 @@ class SafeHTTPClient:
                 expected_content_type=expected_content_type,
             )
 
-        if hostname and pinned_ip:
-            with pin(hostname, pinned_ip):
-                return dispatch_loop(
-                    dispatch_fn=_dispatch_fn,
-                    read_fn=_read_fn,
-                    method=method,
-                    url=url,
-                    attempts=attempts,
-                    make_error=SafeHTTPError,
-                )
-        return dispatch_loop(
-            dispatch_fn=_dispatch_fn,
-            read_fn=_read_fn,
-            method=method,
-            url=url,
-            attempts=attempts,
-            make_error=SafeHTTPError,
-        )
+        ctx = pin(hostname, pinned_ip) if (hostname and pinned_ip) else contextlib.nullcontext()
+        with ctx:
+            return dispatch_loop(
+                dispatch_fn=_dispatch_fn,
+                read_fn=_read_fn,
+                method=method,
+                url=url,
+                attempts=attempts,
+                make_error=SafeHTTPError,
+            )

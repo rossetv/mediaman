@@ -1,8 +1,8 @@
 """Pydantic models for web API request/response validation.
 
-Historically this lived in a single ``models.py`` module.  It was split
-into a package as the surface grew (Domain-04 hardening pushed
-``SettingsUpdate`` past 200 LOC on its own).  All public symbols are
+Historically this lived in a single ``models.py`` module. It was split
+into a package as the surface grew due to hardening requirements pushing
+``SettingsUpdate`` past 200 LOC on its own. All public symbols are
 re-exported from this package's ``__init__`` so that
 ``from mediaman.web.models import X`` continues to work for every
 caller — see ``tests/unit/web/test_models_hardening.py`` and the

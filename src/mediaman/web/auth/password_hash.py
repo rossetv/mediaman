@@ -79,8 +79,6 @@ _LOG_FIELD_RE = _re.compile(r"[^A-Za-z0-9._@\-]")
 
 def _sanitise_log_field(value: str, limit: int = 64) -> str:
     """Strip non-safe characters from *value* and truncate to *limit*."""
-    if value is None:
-        return ""
     truncated = len(value) > limit
     sanitised = _LOG_FIELD_RE.sub("", value)[:limit]
     return sanitised + "..." if truncated else sanitised

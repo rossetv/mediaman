@@ -130,9 +130,8 @@ def maybe_auto_abandon(
 
     # Filter season 0 (specials): Sonarr uses S00 for specials, and
     # ``abandon_seasons`` would otherwise unmonitor every special when
-    # all queue rows happen to be specials (Domain-06 #12). Specials
-    # are typically opt-in monitored separately — we never want to
-    # auto-unmonitor them.
+    # all queue rows happen to be specials. Specials are typically opt-in
+    # monitored separately — we never want to auto-unmonitor them.
     seasons = sorted(
         {
             int(ep.get("season_number") or 0)

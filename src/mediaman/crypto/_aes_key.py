@@ -50,6 +50,7 @@ _MIN_URLSAFE_UNIQUE = 18
 # Key-strength heuristic
 # ---------------------------------------------------------------------------
 
+
 def _secret_key_looks_strong(secret: str) -> bool:
     """Return True if *secret* meets the minimum-entropy bar for ``MEDIAMAN_SECRET_KEY``.
 
@@ -89,6 +90,7 @@ def _secret_key_looks_strong(secret: str) -> bool:
 # ---------------------------------------------------------------------------
 # HKDF key derivation
 # ---------------------------------------------------------------------------
+
 
 def _derive_aes_key_hkdf(secret_key: str, salt: bytes) -> bytes:
     """Derive a 256-bit AES key via HKDF-SHA256(secret, salt, info)."""
@@ -141,6 +143,7 @@ def _salt_cache_pop(cache_key: str) -> None:
 # DB path helper
 # ---------------------------------------------------------------------------
 
+
 def _db_path(conn: sqlite3.Connection) -> str:
     """Return the absolute path of the primary database attached to *conn*."""
     row = conn.execute("PRAGMA database_list").fetchone()
@@ -150,6 +153,7 @@ def _db_path(conn: sqlite3.Connection) -> str:
 # ---------------------------------------------------------------------------
 # Salt persistence
 # ---------------------------------------------------------------------------
+
 
 def _load_or_create_salt(conn: sqlite3.Connection) -> bytes:
     """Read the per-install HKDF salt from the DB, creating it if absent.

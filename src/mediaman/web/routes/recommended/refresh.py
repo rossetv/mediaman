@@ -35,11 +35,10 @@ logger = logging.getLogger("mediaman")
 
 router = APIRouter()
 
-# Shared state for the background worker (finding 28). The
-# ``_refresh_result`` dict is mutated by the background thread and read
-# by the polling endpoint; without a lock the read could observe a
-# half-built dict mid-assignment. The lock is fine-grained — held only
-# for the swap, not for the work itself.
+# Shared state for the background worker. The ``_refresh_result`` dict is
+# mutated by the background thread and read by the polling endpoint;
+# without a lock the read could observe a half-built dict mid-assignment.
+# The lock is fine-grained — held only for the swap, not for the work itself.
 _refresh_result: dict[str, object] | None = None
 _refresh_result_lock = threading.Lock()
 

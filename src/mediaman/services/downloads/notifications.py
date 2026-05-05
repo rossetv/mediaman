@@ -352,23 +352,20 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
 
 
 __all__ = [
-    # concern 1 — claim/release/reconcile (re-exported from _notification_claims)
     "STRANDED_CLAIM_GRACE_SECONDS",
-    "_claim_pending_notifications",
-    "_release_claim",
-    "_release_claims_bulk",
-    "reconcile_stranded_notifications",
-    # concern 2 — backoff state (re-exported from _notification_backoff)
     "_BACKOFF_BASE_SECONDS",
     "_BACKOFF_MAX_SECONDS",
     "_NOTIFY_BACKOFF",
     "_backoff_state",
+    "_claim_pending_notifications",
     "_clear_backoff",
+    "_get_notification_template",
     "_is_backed_off",
     "_record_arr_failure",
-    # concern 3 — orchestration (defined here)
-    "_get_notification_template",
+    "_release_claim",
+    "_release_claims_bulk",
     "_sonarr_has_files",
     "check_download_notifications",
+    "reconcile_stranded_notifications",
     "record_download_notification",
 ]

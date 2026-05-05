@@ -47,9 +47,9 @@ logger = logging.getLogger("mediaman")
 # directly from ``mediaman.services.arr.base`` continue to work unchanged.
 __all__ = [
     "_ARR_TIMEOUT",
+    "ArrClient",
     "ArrKindMismatch",
     "_ArrClientBase",
-    "ArrClient",
 ]
 
 

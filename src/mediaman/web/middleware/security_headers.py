@@ -35,7 +35,7 @@ from starlette.responses import Response
 # that genuinely has to stay inline must add
 # ``nonce="{{ request.state.csp_nonce }}"`` to the tag.
 #
-# - ``img-src`` is an allowlist of known image CDNs (finding 20):
+# - ``img-src`` is an allowlist of known image CDNs:
 #   * 'self'           — /api/poster proxy + static assets
 #   * data: blob:      — inline data URIs and object URLs used by JS
 #   * image.tmdb.org   — TMDB poster/backdrop images

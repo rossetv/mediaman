@@ -1,9 +1,9 @@
 """Shared types, helpers, and card factory for the arr_fetcher package.
 
-The :func:`make_arr_card` factory replaces the separate ``_make_sonarr_card``
-and ``_make_radarr_card`` functions that used to live in the per-service
-fetcher modules.  The old names remain as one-line shims in those modules so
-existing callers continue to work.
+The :func:`make_arr_card` factory is the single card constructor used by both
+the Radarr and Sonarr fetcher modules.  ``_make_radarr_card`` and
+``_make_sonarr_card`` remain as one-line shims in those modules so that
+existing test imports continue to work.
 """
 
 from __future__ import annotations
@@ -43,6 +43,17 @@ def _iter_still_searching[T](
         yield from fetch_items()
     except (requests.RequestException, SafeHTTPError):
         logger.warning("Failed to check %s for searching items", service_label, exc_info=True)
+
+
+def clamp_progress(size: int, sizeleft: int) -> int:
+    """Compute integer progress percentage from size/sizeleft, clamped to [0, 100].
+
+    Returns 0 when ``size`` is 0 (avoids division by zero and meaningless 100% on
+    empty payloads).
+    """
+    if not size:
+        return 0
+    return max(0, min(100, round((1 - sizeleft / size) * 100)))
 
 
 def _format_size_fields(size: int, sizeleft: int) -> tuple[str, str]:
@@ -177,9 +188,9 @@ def make_arr_card(
 ) -> ArrCard:
     """Build a download card for either a Radarr movie or a Sonarr series.
 
-    This is the single card factory that replaces the former
-    ``_make_radarr_card`` and ``_make_sonarr_card`` helpers.  Those
-    functions remain as one-line shims in their respective modules.
+    This is the single card factory used directly by both fetcher modules.
+    ``_make_radarr_card`` and ``_make_sonarr_card`` remain as one-line shims
+    in their respective modules for test-import compatibility.
 
     :param kind: ``"movie"`` or ``"series"``.
     :param title: Display title of the item.

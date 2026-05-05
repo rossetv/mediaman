@@ -192,7 +192,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.exception("delete-intent reconciliation failed at startup; continuing")
 
     # Reconcile download_notifications rows stranded at notified=2 by a
-    # crashed worker (H-5 — finding 22 follow-up).
+    # crashed worker.
     try:
         from mediaman.services.downloads.notifications import (
             reconcile_stranded_notifications,

@@ -121,12 +121,12 @@ def _annotate_states(results: list[dict], request: Request) -> None:
             r["download_state"] = compute_download_state(r["media_type"], r["tmdb_id"], caches)
 
 
-# Wall-clock budget for the parallel ratings-enrichment fan-out (finding 4).
-# The previous code passed ``timeout=None`` to ``as_completed`` so a single
-# stuck future blocked the whole iterator until ``fut.result(timeout=3)``
-# fired — but ``as_completed`` doesn't yield until the future is ready, so
-# that inner timeout was effectively dead code. The right place to bound
-# the wall-clock cost is on ``as_completed`` itself.
+# Wall-clock budget for the parallel ratings-enrichment fan-out. The previous
+# code passed ``timeout=None`` to ``as_completed`` so a single stuck future
+# blocked the whole iterator until ``fut.result(timeout=3)`` fired — but
+# ``as_completed`` doesn't yield until the future is ready, so that inner
+# timeout was effectively dead code. The right place to bound the wall-clock
+# cost is on ``as_completed`` itself.
 _ENRICH_BUDGET_SECONDS = 6.0
 
 
@@ -175,7 +175,7 @@ def _enrich_ratings(results: list[dict], request: Request) -> None:
         return
 
     # Read the OMDb key in the request thread — SQLite connections must not
-    # cross thread boundaries (finding 32).
+    # cross thread boundaries.
     resolved_omdb_key = get_omdb_key(conn, secret_key)
 
     def fetch(key_group):

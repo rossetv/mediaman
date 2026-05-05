@@ -34,9 +34,9 @@ from mediaman.web.auth._token_hashing import hash_token as _hash_token
 # ``session_store._fingerprint_mode`` / ``session_store._client_fingerprint``
 # continue to intercept calls made inside this module.
 __all__ = [
-    "_fingerprint_mode",
-    "_client_fingerprint",
     "_SESSION_TOKEN_RE",
+    "_client_fingerprint",
+    "_fingerprint_mode",
 ]
 
 logger = logging.getLogger("mediaman")
@@ -171,7 +171,7 @@ def _delete_session_with_commit(conn: sqlite3.Connection, token_hash: str) -> No
     was gone but the ticket survived — a stolen cookie + ticket pair
     would remain replayable for the rest of the ticket's TTL even
     though the legitimate session had been killed by idle expiry or
-    fingerprint mismatch (H-4 + audit).
+    fingerprint mismatch.
 
     The reauth-side delete is best-effort: if the
     ``revoke_reauth_by_hash`` helper itself raises (e.g. table
@@ -208,9 +208,8 @@ def _cleanup_expired_with_commit(conn: sqlite3.Connection, now_iso: str) -> None
     """Sweep expired session rows inside a short write transaction.
 
     The matching reauth tickets are also swept so the table cannot grow
-    indefinitely with rows whose owning session is gone (H-4).  The
-    reauth sweep is best-effort — a failure here never aborts the
-    session sweep.
+    indefinitely with rows whose owning session is gone. The reauth sweep
+    is best-effort — a failure here never aborts the session sweep.
     """
     _exec_with_commit(
         conn,
@@ -361,7 +360,7 @@ def destroy_session(
     Also revokes the matching reauth ticket — without that, a stolen
     session cookie plus a freshly granted reauth ticket would remain
     replayable for the rest of the ticket's TTL after the legitimate
-    user has logged out (H-4).
+    user has logged out.
 
     The username lookup, session delete, and reauth-ticket delete are
     wrapped in a single ``BEGIN IMMEDIATE`` transaction so a failure
@@ -404,10 +403,10 @@ def destroy_session(
 def destroy_all_sessions_for(conn: sqlite3.Connection, username: str) -> int:
     """Delete every session belonging to *username*. Returns rows affected.
 
-    Also revokes every reauth ticket owned by *username* (H-4) so a bulk
-    session purge — typically driven by a forced password change or admin
-    action — does not leave stale tickets that an attacker holding a
-    related cookie could replay.
+    Also revokes every reauth ticket owned by *username* so a bulk session
+    purge — typically driven by a forced password change or admin action —
+    does not leave stale tickets that an attacker holding a related cookie
+    could replay.
     """
     cur = conn.execute("DELETE FROM admin_sessions WHERE username = ?", (username,))
     conn.commit()

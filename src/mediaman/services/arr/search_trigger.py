@@ -33,16 +33,16 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from mediaman.services.arr.fetcher import ArrCard
 
-from mediaman.services.arr._throttle_persistence import (
+from mediaman.services.arr._throttle_persistence import (  # noqa: F401
+    _STRANDED_THROTTLE_TTL_SECONDS,
     _load_throttle_from_db,
     _save_trigger_to_db,
-    _STRANDED_THROTTLE_TTL_SECONDS,
     clear_throttle,
     get_search_info,
     reconcile_stranded_throttle,
     reset_search_triggers,
 )
-from mediaman.services.arr._throttle_state import (
+from mediaman.services.arr._throttle_state import (  # noqa: F401
     _SEARCH_BACKOFF,
     _SEARCH_BACKOFF_BASE_SECONDS,
     _SEARCH_BACKOFF_JITTER,

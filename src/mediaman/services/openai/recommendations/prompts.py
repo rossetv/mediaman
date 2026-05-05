@@ -37,13 +37,13 @@ _SAFE_CATEGORY_PREFIXES = frozenset(
     }
 )
 
-# Maximum title length accepted from LLM output (finding 38).
+# Maximum title length accepted from LLM output.
 _LLM_TITLE_MAX_LEN = 200
 
 # Maximum reason length accepted from LLM output.
 _LLM_REASON_MAX_LEN = 1000
 
-# Patterns that strongly suggest prompt injection in LLM output (finding 38).
+# Patterns that strongly suggest prompt injection in LLM output.
 # These are conservative checks — false positives block a recommendation, but
 # that is far preferable to persisting injected content into future prompts.
 _INJECTION_PATTERNS = re.compile(

@@ -11,7 +11,7 @@ the existing reconcile-on-startup story).
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from mediaman.core.backoff import ExponentialBackoff
 

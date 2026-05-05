@@ -42,8 +42,8 @@ from mediaman.scanner.repository.media_items import (
     upsert_media_item,
 )
 from mediaman.scanner.repository.scheduled_actions import (
-    DELETION_ACTION,
     _TOKEN_TTL_DAYS,
+    DELETION_ACTION,
     _is_show_kept_pure,
     cleanup_expired_show_snoozes,
     cleanup_expired_snoozes,
@@ -60,28 +60,24 @@ from mediaman.scanner.repository.scheduled_actions import (
 from mediaman.scanner.repository.settings import read_delete_allowed_roots_setting
 
 __all__ = [
-    # media_items
-    "upsert_media_item",
-    "update_last_watched",
-    "count_items_in_libraries",
-    "fetch_ids_in_libraries",
-    "delete_media_items",
-    # scheduled_actions — reads
-    "is_protected",
-    "is_already_scheduled",
-    "has_expired_snooze",
-    "_is_show_kept_pure",
-    "cleanup_expired_show_snoozes",
-    "is_show_kept",
-    # scheduled_actions — mutations
-    "schedule_deletion",
-    "fetch_stuck_deletions",
-    "fetch_pending_deletions",
-    "mark_delete_status",
-    "delete_scheduled_action",
-    "cleanup_expired_snoozes",
     "DELETION_ACTION",
     "_TOKEN_TTL_DAYS",
-    # settings
+    "_is_show_kept_pure",
+    "cleanup_expired_show_snoozes",
+    "cleanup_expired_snoozes",
+    "count_items_in_libraries",
+    "delete_media_items",
+    "delete_scheduled_action",
+    "fetch_ids_in_libraries",
+    "fetch_pending_deletions",
+    "fetch_stuck_deletions",
+    "has_expired_snooze",
+    "is_already_scheduled",
+    "is_protected",
+    "is_show_kept",
+    "mark_delete_status",
     "read_delete_allowed_roots_setting",
+    "schedule_deletion",
+    "update_last_watched",
+    "upsert_media_item",
 ]

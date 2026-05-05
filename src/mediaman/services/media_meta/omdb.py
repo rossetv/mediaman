@@ -70,7 +70,7 @@ def get_omdb_key(conn: sqlite3.Connection, secret_key: str) -> str | None:
     """Return the OMDb API key from settings, or ``None`` if not configured.
 
     Read this in the *request thread* before dispatching to a thread pool —
-    SQLite connections must not cross thread boundaries (finding 32).
+    SQLite connections must not cross thread boundaries.
 
     Delegates to :func:`~mediaman.services.infra.settings_reader.get_string_setting`
     so the decrypt-and-unwrap logic is not duplicated here.

@@ -133,14 +133,14 @@ def validate_sync_interval(s: str) -> int:
 
 
 def enforce_single_worker() -> None:
-    """Refuse to start under multi-worker uvicorn (finding 3).
+    """Refuse to start under multi-worker uvicorn.
 
     Several invariants in mediaman assume a single process holds the
     SQLite connection: the APScheduler instance, the in-memory rate
     limits, and the search-trigger throttle would all duplicate or race
-    if a second worker booted up. Token replay (finding 2) is now backed
-    by SQLite and would survive, but the rest is not yet ready for
-    horizontal scale, so we fail loudly instead of degrading silently.
+    if a second worker booted up. Token replay is now backed by SQLite
+    and would survive, but the rest is not yet ready for horizontal scale,
+    so we fail loudly instead of degrading silently.
 
     Reads ``MEDIAMAN_WORKERS`` and the legacy ``WORKERS`` env var so an
     operator who exports either by accident sees an immediate error
