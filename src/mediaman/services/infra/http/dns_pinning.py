@@ -45,7 +45,7 @@ import threading
 
 logger = logging.getLogger("mediaman")
 
-_HTTP_CLIENT_MODULE = "mediaman.services.infra.http_client"
+_HTTP_CLIENT_MODULE = "mediaman.services.infra.http.dns_pinning"
 
 # ---------------------------------------------------------------------------
 # Module-level singletons

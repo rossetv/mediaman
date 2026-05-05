@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests as http_requests
 
-from mediaman.services.infra.http_client import SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.media_meta import plex as plex_module
 from mediaman.services.media_meta.plex import (
     PlexClient,
@@ -569,7 +569,7 @@ class TestSafePlexSession:
         """The validated IP must be pinned for the duration of the request."""
         import socket as _socket
 
-        from mediaman.services.infra import http_client as _http_client
+        from mediaman.services.infra.http import dns_pinning as _dns_pinning
 
         monkeypatch.setattr(
             plex_module,
@@ -577,7 +577,7 @@ class TestSafePlexSession:
             lambda url, strict_egress=None: (True, "pinme.example", "203.0.113.42"),
         )
         # Ensure the global pin hook is active.
-        monkeypatch.setattr(_socket, "getaddrinfo", _http_client._patched_getaddrinfo)
+        monkeypatch.setattr(_socket, "getaddrinfo", _dns_pinning._patched_getaddrinfo)
 
         captured: dict = {}
 

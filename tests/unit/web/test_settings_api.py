@@ -526,7 +526,7 @@ class TestApiTestServiceOpenAiTmdbOmdb:
         mock_resp._content_consumed = True
         mock_resp.headers = {}
 
-        with patch("mediaman.services.infra.http_client._dispatch", return_value=mock_resp):
+        with patch("mediaman.services.infra.http.client._dispatch", return_value=mock_resp):
             resp = client.post("/api/settings/test/openai")
 
         assert resp.json()["ok"] is True
@@ -538,10 +538,10 @@ class TestApiTestServiceOpenAiTmdbOmdb:
 
         from unittest.mock import patch
 
-        from mediaman.services.infra.http_client import SafeHTTPError
+        from mediaman.services.infra.http import SafeHTTPError
 
         with patch(
-            "mediaman.services.infra.http_client._dispatch",
+            "mediaman.services.infra.http.client._dispatch",
             side_effect=SafeHTTPError(401, "Unauthorized", "https://api.openai.com/v1/models"),
         ):
             resp = client.post("/api/settings/test/openai")
@@ -557,10 +557,10 @@ class TestApiTestServiceOpenAiTmdbOmdb:
 
         from unittest.mock import patch
 
-        from mediaman.services.infra.http_client import SafeHTTPError
+        from mediaman.services.infra.http import SafeHTTPError
 
         with patch(
-            "mediaman.services.infra.http_client._dispatch",
+            "mediaman.services.infra.http.client._dispatch",
             side_effect=SafeHTTPError(
                 0, "transport error: ConnectionError", "https://api.openai.com/v1/models"
             ),
@@ -578,10 +578,10 @@ class TestApiTestServiceOpenAiTmdbOmdb:
 
         from unittest.mock import patch
 
-        from mediaman.services.infra.http_client import SafeHTTPError
+        from mediaman.services.infra.http import SafeHTTPError
 
         with patch(
-            "mediaman.services.infra.http_client._dispatch",
+            "mediaman.services.infra.http.client._dispatch",
             side_effect=SafeHTTPError(
                 0, "refused by SSRF guard", "https://api.openai.com/v1/models"
             ),
@@ -684,7 +684,7 @@ class TestSettingsTestServiceScopedDecryption:
 
         # Stub the actual SafeHTTP call so we don't hit the network.
         with patch(
-            "mediaman.services.infra.http_client._dispatch",
+            "mediaman.services.infra.http.client._dispatch",
             return_value=MagicMock(status_code=200, headers={}, content=b"{}"),
         ):
             resp = client.post("/api/settings/test/openai")

@@ -16,7 +16,7 @@ from mediaman.crypto import generate_poll_token, validate_download_token
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.notifications import record_download_notification
-from mediaman.services.infra.http_client import SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 
 from ._tokens import _mark_token_used, _unmark_token_used

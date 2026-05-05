@@ -14,12 +14,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from mediaman.services.infra import http_client
-from mediaman.services.infra.http_client import (
+from mediaman.services.infra.http import (
     _BODY_SNIPPET_BYTES,
     SafeHTTPClient,
     SafeHTTPError,
     pin_dns_for_request,
+)
+from mediaman.services.infra.http import (
+    client as http_client,
+)
+from mediaman.services.infra.http import (
+    dns_pinning as _dns_pinning,
 )
 
 
@@ -418,7 +423,7 @@ class TestDNSPinning:
         the pinned IP regardless of any subsequent change in DNS state."""
         # The autouse fixture replaces socket.getaddrinfo for the test —
         # to test the pin we restore the patched version explicitly.
-        monkeypatch.setattr(socket, "getaddrinfo", http_client._patched_getaddrinfo)
+        monkeypatch.setattr(socket, "getaddrinfo", _dns_pinning._patched_getaddrinfo)
 
         with pin_dns_for_request("rebind.example.test", "203.0.113.5"):
             results = socket.getaddrinfo("rebind.example.test", 443)
@@ -430,7 +435,7 @@ class TestDNSPinning:
     def test_pin_context_pops_after_exit(self, monkeypatch):
         """After the context exits, an unrelated lookup falls through to
         the real resolver — pins must NOT persist."""
-        monkeypatch.setattr(socket, "getaddrinfo", http_client._patched_getaddrinfo)
+        monkeypatch.setattr(socket, "getaddrinfo", _dns_pinning._patched_getaddrinfo)
 
         # Patch the captured original so we can detect a fall-through call.
         called: list = []
@@ -439,7 +444,7 @@ class TestDNSPinning:
             called.append(a)
             return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("1.2.3.4", 0))]
 
-        monkeypatch.setattr(http_client, "_ORIG_GETADDRINFO", fake_real)
+        monkeypatch.setattr(_dns_pinning, "_ORIG_GETADDRINFO", fake_real)
 
         with pin_dns_for_request("only-during.example.test", "203.0.113.5"):
             # During context, no fall-through.
@@ -457,7 +462,7 @@ class TestDNSPinning:
         otherwise see each other's pinned addresses and either fail or,
         worse, reach an address that was never validated for them.
         """
-        monkeypatch.setattr(socket, "getaddrinfo", http_client._patched_getaddrinfo)
+        monkeypatch.setattr(socket, "getaddrinfo", _dns_pinning._patched_getaddrinfo)
         # No fall-through — record only pinned answers.
         observed: dict[str, str | None] = {}
         barrier = threading.Barrier(2)
@@ -483,7 +488,7 @@ class TestDNSPinning:
         # Replace the real resolver with a sentinel so B's lookup yields
         # something distinguishable from A's pin.
         monkeypatch.setattr(
-            http_client,
+            _dns_pinning,
             "_ORIG_GETADDRINFO",
             lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("198.51.100.99", 0))],
         )
@@ -509,7 +514,7 @@ class TestDNSPinning:
             lambda url, strict_egress=None: (True, "host.example.test", "203.0.113.7"),
         )
         # Make sure the global patch is active.
-        monkeypatch.setattr(socket, "getaddrinfo", http_client._patched_getaddrinfo)
+        monkeypatch.setattr(socket, "getaddrinfo", _dns_pinning._patched_getaddrinfo)
 
         captured: dict = {}
 
@@ -534,11 +539,11 @@ class TestDNSPinning:
             "resolve_safe_outbound_url",
             lambda url, strict_egress=None: (True, "vanish.example.test", "203.0.113.8"),
         )
-        monkeypatch.setattr(socket, "getaddrinfo", http_client._patched_getaddrinfo)
+        monkeypatch.setattr(socket, "getaddrinfo", _dns_pinning._patched_getaddrinfo)
 
         # Real resolver returns a sentinel.
         monkeypatch.setattr(
-            http_client,
+            _dns_pinning,
             "_ORIG_GETADDRINFO",
             lambda *a, **kw: [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("198.51.100.42", 0))],
         )
@@ -570,12 +575,12 @@ class TestDNSPinning:
             # Literal IP path: hostname is the IP and the pin is itself.
             lambda url, strict_egress=None: (True, "192.0.2.1", "192.0.2.1"),
         )
-        monkeypatch.setattr(socket, "getaddrinfo", http_client._patched_getaddrinfo)
+        monkeypatch.setattr(socket, "getaddrinfo", _dns_pinning._patched_getaddrinfo)
 
         captured: dict = {}
 
         def spy_dispatch(caller, method, url, **kwargs):
-            captured["pins"] = dict(getattr(http_client._DNS_PIN_LOCAL, "pins", {}) or {})
+            captured["pins"] = dict(getattr(_dns_pinning._DNS_PIN_LOCAL, "pins", {}) or {})
             return _response(status=200, body=b"{}")
 
         monkeypatch.setattr(http_client, "_dispatch", spy_dispatch)
@@ -590,7 +595,7 @@ class TestDNSPinning:
         Synthesising a record with the wrong family hands the connection
         layer a tuple it cannot actually use.
         """
-        monkeypatch.setattr(socket, "getaddrinfo", http_client._patched_getaddrinfo)
+        monkeypatch.setattr(socket, "getaddrinfo", _dns_pinning._patched_getaddrinfo)
 
         with pin_dns_for_request("v4only.example.test", "203.0.113.5"):
             ans = socket.getaddrinfo("v4only.example.test", 80, socket.AF_INET6)
@@ -621,7 +626,7 @@ class TestDNSPinning:
         monkeypatch.setattr(http_client, "_dispatch", lambda *a, **kw: _response(body=b"{}"))
 
         # Tamper with the resolver — replace it with a no-op stub.
-        original_patched = http_client._patched_getaddrinfo
+        original_patched = _dns_pinning._patched_getaddrinfo
         rogue = lambda *a, **kw: []  # noqa: E731
         socket.getaddrinfo = rogue
         try:
@@ -650,12 +655,12 @@ class TestDNSPinning:
             "resolve_safe_outbound_url",
             lambda url, strict_egress=None: (True, "rebind.example.test", "93.184.216.34"),
         )
-        monkeypatch.setattr(socket, "getaddrinfo", http_client._patched_getaddrinfo)
+        monkeypatch.setattr(socket, "getaddrinfo", _dns_pinning._patched_getaddrinfo)
 
         # Simulate a rebinder: post-validation DNS would return a
         # metadata IP. The pin must defeat that.
         monkeypatch.setattr(
-            http_client,
+            _dns_pinning,
             "_ORIG_GETADDRINFO",
             lambda host, port, *a, **kw: [
                 (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("169.254.169.254", port or 0))

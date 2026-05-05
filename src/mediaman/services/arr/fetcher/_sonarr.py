@@ -14,7 +14,7 @@ from mediaman.services.arr.fetcher._base import (
     clamp_progress,
     make_arr_card,
 )
-from mediaman.services.infra.http_client import SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPError
 
 if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient

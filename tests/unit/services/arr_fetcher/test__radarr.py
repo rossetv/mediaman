@@ -215,7 +215,7 @@ class TestFetchRadarrQueueSearching:
         responses, which propagated past the ``except`` and discarded
         every already-collected queue card.
         """
-        from mediaman.services.infra.http_client import SafeHTTPError
+        from mediaman.services.infra.http import SafeHTTPError
 
         client = MagicMock()
         client.get_queue.return_value = [_queue_item("Dune")]

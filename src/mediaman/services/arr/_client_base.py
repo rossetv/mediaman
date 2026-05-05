@@ -17,7 +17,7 @@ from typing import Any, cast
 import requests
 from requests import RequestException
 
-from mediaman.services.infra.http_client import SafeHTTPClient, SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
 
 #: Split timeout: 5 s to establish a TCP connection, 30 s to read the body.
 #: Radarr/Sonarr responses are usually under 1 s on the LAN; the 30 s read

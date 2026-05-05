@@ -27,7 +27,7 @@ from mediaman.services.arr.state import (
     compute_download_state,
 )
 from mediaman.services.downloads.download_format import build_item
-from mediaman.services.infra.http_client import SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.media_meta.item_enrichment import enrich_redownload_item
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 

@@ -1,6 +1,6 @@
 import pytest
 
-from mediaman.services.infra.http_client import SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.mail.mailgun import (
     MailgunClient,
     _retry_with_jitter,

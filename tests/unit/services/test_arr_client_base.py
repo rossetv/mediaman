@@ -3,7 +3,7 @@
 import pytest
 
 from mediaman.services.arr.base import _ArrClientBase
-from mediaman.services.infra.http_client import SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPError
 
 
 class _TestClient(_ArrClientBase):

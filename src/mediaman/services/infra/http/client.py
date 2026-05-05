@@ -44,20 +44,23 @@ import contextlib
 import json as _json
 import logging
 import sys
+import time  # noqa: F401 — tests patch http.client.time.sleep via monkeypatch
 from typing import Any
 
 import requests
 
-from mediaman.core.url_safety import (
-    resolve_safe_outbound_url as _resolve_safe_outbound_url,
-)
+from mediaman.core.url_safety import resolve_safe_outbound_url as _resolve_safe_outbound_url
 from mediaman.services.infra.http.dns_pinning import ensure_hook_installed, pin
 from mediaman.services.infra.http.retry import _RETRY_BACKOFFS, dispatch_loop
 from mediaman.services.infra.http.streaming import _read_capped
 
 logger = logging.getLogger("mediaman")
 
-_HTTP_CLIENT_MODULE = "mediaman.services.infra.http_client"
+# Public alias so tests can monkeypatch ``http.client.resolve_safe_outbound_url``
+# and have ``_request`` pick up the patched version via sys.modules lookup.
+resolve_safe_outbound_url = _resolve_safe_outbound_url
+
+_HTTP_CLIENT_MODULE = "mediaman.services.infra.http.client"
 
 # ---------------------------------------------------------------------------
 # Module-level constants

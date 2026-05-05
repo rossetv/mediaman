@@ -86,13 +86,11 @@ def _jitter_for(dl_id: str, last_triggered_at: float) -> float:
     which calls into :class:`~mediaman.services.infra.backoff.ExponentialBackoff`'s
     deterministic-multiplier helper using the same seed.
 
-    Tests must patch ``mediaman.services.arr.throttle._jitter_for`` —
-    not the ``search_trigger`` path.  ``_search_backoff_seconds`` looks
-    up ``_jitter_for`` exclusively via the ``throttle`` module at call
-    time (lazy import), so a patch on this module's own name would not
-    be observed by the production backoff computation.  The ``throttle``
-    module re-exports ``_jitter_for`` as an attribute, which monkeypatch
-    rebinds in place so the production call sees the patched value.
+    Tests patch ``mediaman.services.arr._throttle_state._jitter_for``
+    (or ``mediaman.services.arr.search_trigger._jitter_for``).
+    ``_search_backoff_seconds`` resolves ``_jitter_for`` from this
+    module's globals at call time, so a monkeypatch on this name is
+    picked up by the production backoff computation.
     """
     seed = f"{dl_id}|{last_triggered_at!r}".encode()
     return _SEARCH_BACKOFF._deterministic_multiplier(seed)
@@ -111,16 +109,14 @@ def _search_backoff_seconds(search_count: int, dl_id: str, last_triggered_at: fl
     unlike bare ``str(float)``.  See :class:`~mediaman.services.infra.backoff.ExponentialBackoff`
     for why determinism is load-bearing here.
 
-    Routes the multiplier through the ``throttle`` module's ``_jitter_for``
-    attribute (lazy import) so that test monkeypatches on
-    ``mediaman.services.arr.throttle._jitter_for`` continue to override
-    the multiplier as expected.
+    Routes the multiplier through the module-level ``_jitter_for`` name so
+    that test monkeypatches on
+    ``mediaman.services.arr._throttle_state._jitter_for`` override the
+    multiplier as expected.
     """
-    import mediaman.services.arr.throttle as _throttle
-
     n = max(search_count, 0)
     base = min(_SEARCH_BACKOFF_BASE_SECONDS * 2 ** max(n - 1, 0), _SEARCH_BACKOFF_MAX_SECONDS)
-    return min(base * _throttle._jitter_for(dl_id, last_triggered_at), _SEARCH_BACKOFF_MAX_SECONDS)
+    return min(base * _jitter_for(dl_id, last_triggered_at), _SEARCH_BACKOFF_MAX_SECONDS)
 
 
 def _arr_throttle_key(service: str, arr_id: int) -> str:

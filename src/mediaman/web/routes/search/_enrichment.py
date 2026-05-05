@@ -30,7 +30,7 @@ from mediaman.services.arr.state import (
     build_sonarr_cache,
     compute_download_state,
 )
-from mediaman.services.infra.http_client import SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.media_meta.omdb import fetch_ratings, get_omdb_key
 from mediaman.services.rate_limit import ActionRateLimiter
 

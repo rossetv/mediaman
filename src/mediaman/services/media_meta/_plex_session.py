@@ -9,7 +9,7 @@ from typing import Any
 import requests as http_requests
 
 from mediaman.core.url_safety import resolve_safe_outbound_url as _resolve_safe_outbound_url_default
-from mediaman.services.infra.http_client import (
+from mediaman.services.infra.http import (
     SafeHTTPError,
     pin_dns_for_request,
 )

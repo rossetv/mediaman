@@ -36,7 +36,7 @@ from mediaman.services.arr._client_base import (
     _ArrClientBase,
 )
 from mediaman.services.arr.spec import ArrSpec
-from mediaman.services.infra.http_client import SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPError
 
 logger = logging.getLogger("mediaman")
 

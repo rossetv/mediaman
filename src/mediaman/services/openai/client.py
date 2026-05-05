@@ -19,7 +19,7 @@ import sqlite3
 
 import requests
 
-from mediaman.services.infra.http_client import SafeHTTPClient, SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
 
 # Module-level client so the connection pool is shared across calls.
 # Connect timeout: 5 s.  Read timeout: 30 s — the 90 s default was blocking

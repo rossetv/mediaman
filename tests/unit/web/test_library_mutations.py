@@ -592,7 +592,7 @@ class TestRedownloadSafeHTTPError:
 
     def test_radarr_409_safe_http_error_returns_already_exists(self, db_path, secret_key):
         """A 409 SafeHTTPError from Radarr returns the 'already exists in Radarr' message."""
-        from mediaman.services.infra.http_client import SafeHTTPError
+        from mediaman.services.infra.http import SafeHTTPError
 
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key)
@@ -616,7 +616,7 @@ class TestRedownloadSafeHTTPError:
 
     def test_radarr_422_safe_http_error_returns_already_exists(self, db_path, secret_key):
         """A 422 SafeHTTPError from Radarr is treated identically to 409."""
-        from mediaman.services.infra.http_client import SafeHTTPError
+        from mediaman.services.infra.http import SafeHTTPError
 
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key)
@@ -640,7 +640,7 @@ class TestRedownloadSafeHTTPError:
 
     def test_sonarr_409_safe_http_error_returns_already_exists(self, db_path, secret_key):
         """A 409 SafeHTTPError from Sonarr returns the 'already exists in Sonarr' message."""
-        from mediaman.services.infra.http_client import SafeHTTPError
+        from mediaman.services.infra.http import SafeHTTPError
 
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key)

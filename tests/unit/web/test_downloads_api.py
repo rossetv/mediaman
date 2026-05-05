@@ -503,7 +503,7 @@ class TestDownloadStatusAPI:
     def test_status_safehttperror_returns_unknown_not_500(self, db_path, secret_key):
         """A SafeHTTPError from an Arr 5xx must surface as the 'unknown' state,
         not propagate as an unhandled exception → HTTP 500 to the client."""
-        from mediaman.services.infra.http_client import SafeHTTPError
+        from mediaman.services.infra.http import SafeHTTPError
 
         conn = init_db(str(db_path))
         app = _make_download_app(conn, secret_key)
@@ -927,7 +927,9 @@ class TestSearchTriggerThrottle:
             lambda c, sk: None,
         )
         # Pin jitter so the gate is exactly 120 s, not [108, 132].
-        monkeypatch.setattr("mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0)
+        monkeypatch.setattr(
+            "mediaman.services.arr._throttle_state._jitter_for", lambda dl_id, last: 1.0
+        )
 
         import time
 
@@ -959,7 +961,9 @@ class TestSearchTriggerThrottle:
             "mediaman.services.arr.search_trigger.build_sonarr_from_db",
             lambda c, sk: None,
         )
-        monkeypatch.setattr("mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0)
+        monkeypatch.setattr(
+            "mediaman.services.arr._throttle_state._jitter_for", lambda dl_id, last: 1.0
+        )
 
         from mediaman.services.arr import search_trigger as st
 

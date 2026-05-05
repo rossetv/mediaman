@@ -51,7 +51,7 @@ with _warnings.catch_warnings():
 
 from mediaman.core.scrub_filter import ScrubFilter
 from mediaman.core.url_safety import resolve_safe_outbound_url
-from mediaman.services.infra.http_client import (
+from mediaman.services.infra.http import (
     SafeHTTPClient,
     SafeHTTPError,
 )

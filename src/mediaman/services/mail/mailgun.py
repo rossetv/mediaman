@@ -10,7 +10,7 @@ from collections.abc import Callable
 
 import requests
 
-from mediaman.services.infra.http_client import SafeHTTPClient, SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
 
 logger = logging.getLogger("mediaman")
 

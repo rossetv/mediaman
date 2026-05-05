@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from mediaman.services.infra.http_client import SafeHTTPClient
+from mediaman.services.infra.http import SafeHTTPClient
 
 logger = logging.getLogger("mediaman")
 
