@@ -39,7 +39,7 @@ from starlette.responses import RedirectResponse
 
 from mediaman.db import get_db
 from mediaman.services.rate_limit import get_client_ip
-from mediaman.web.auth.session import validate_session
+from mediaman.web.auth.session_store import validate_session
 
 # Alias for the resolve_page_session return union, used for type annotations at call sites.
 PageSession = tuple[str, sqlite3.Connection] | RedirectResponse

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from mediaman.services.arr.fetcher._radarr import _make_radarr_card, fetch_radarr_queue
+from mediaman.services.arr.fetcher._base import make_arr_card
+from mediaman.services.arr.fetcher._radarr import fetch_radarr_queue
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -49,28 +50,28 @@ def _queue_item(
 
 class TestMakeRadarrCard:
     def test_kind_is_movie(self):
-        card = _make_radarr_card("Dune")
+        card = make_arr_card("movie", "Dune", source="Radarr")
         assert card["kind"] == "movie"
 
     def test_source_is_radarr(self):
-        card = _make_radarr_card("Dune")
+        card = make_arr_card("movie", "Dune", source="Radarr")
         assert card["source"] == "Radarr"
 
     def test_dl_id_contains_title(self):
-        card = _make_radarr_card("Dune")
+        card = make_arr_card("movie", "Dune", source="Radarr")
         assert "Dune" in card["dl_id"]
 
     def test_size_strings_populated(self):
-        card = _make_radarr_card("Oppenheimer", size=4_000_000_000, sizeleft=2_000_000_000)
+        card = make_arr_card("movie", "Oppenheimer", source="Radarr", size=4_000_000_000, sizeleft=2_000_000_000)
         assert card["size_str"]
         assert card["done_str"]
 
     def test_release_names_defaults_to_empty_list(self):
-        card = _make_radarr_card("Dune")
+        card = make_arr_card("movie", "Dune", source="Radarr")
         assert card["release_names"] == []
 
     def test_is_upcoming_defaults_false(self):
-        card = _make_radarr_card("Dune")
+        card = make_arr_card("movie", "Dune", source="Radarr")
         assert card["is_upcoming"] is False
 
 

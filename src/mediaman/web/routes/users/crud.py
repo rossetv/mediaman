@@ -20,8 +20,8 @@ from mediaman.db import get_db
 from mediaman.services.rate_limit import get_client_ip, rate_limit
 from mediaman.web.auth.login_lockout import admin_unlock
 from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.password_hash import create_user, delete_user, list_users
 from mediaman.web.auth.reauth import has_recent_reauth, verify_reauth_password
-from mediaman.web.auth.session import create_user, delete_user, list_users
 from mediaman.web.models.users import CreateUserBody
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.users.rate_limits import _USER_CREATE_LIMITER, _USER_MGMT_LIMITER

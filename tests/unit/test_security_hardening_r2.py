@@ -256,7 +256,8 @@ class TestSessionFingerprint:
         return init_db(str(tmp_path / "mm.db"))
 
     def test_fingerprint_rejects_different_client(self, tmp_path):
-        from mediaman.web.auth.session import create_session, create_user, validate_session
+        from mediaman.web.auth.password_hash import create_user
+        from mediaman.web.auth.session_store import create_session, validate_session
 
         conn = self._conn(tmp_path)
         create_user(conn, "alice", "test-password-long-enough", enforce_policy=False)
@@ -291,7 +292,8 @@ class TestSessionFingerprint:
 
     def test_unbound_session_works_without_fingerprint(self, tmp_path):
         """Sessions created with no UA/IP (CLI, tests, legacy) are unbound."""
-        from mediaman.web.auth.session import create_session, create_user, validate_session
+        from mediaman.web.auth.password_hash import create_user
+        from mediaman.web.auth.session_store import create_session, validate_session
 
         conn = self._conn(tmp_path)
         create_user(conn, "bob", "test-password-long-enough", enforce_policy=False)
@@ -310,7 +312,8 @@ class TestSessionFingerprint:
 
     def test_token_stored_as_hash(self, tmp_path):
         """Raw token must not be the primary key — token_hash is stored."""
-        from mediaman.web.auth.session import create_session, create_user
+        from mediaman.web.auth.password_hash import create_user
+        from mediaman.web.auth.session_store import create_session
 
         conn = self._conn(tmp_path)
         create_user(conn, "carol", "test-password-long-enough", enforce_policy=False)
@@ -331,7 +334,8 @@ class TestSessionFingerprint:
 class TestSessionIdleTimeout:
     def test_idle_session_expires(self, tmp_path):
         from mediaman.db import init_db
-        from mediaman.web.auth.session import create_session, create_user, validate_session
+        from mediaman.web.auth.password_hash import create_user
+        from mediaman.web.auth.session_store import create_session, validate_session
 
         conn = init_db(str(tmp_path / "mm.db"))
         create_user(conn, "dan", "test-password-long-enough", enforce_policy=False)

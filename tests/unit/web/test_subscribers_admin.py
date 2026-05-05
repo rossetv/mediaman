@@ -14,7 +14,8 @@ from fastapi.testclient import TestClient
 
 from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
-from mediaman.web.auth.session import create_session, create_user
+from mediaman.web.auth.password_hash import create_user
+from mediaman.web.auth.session_store import create_session
 
 
 @pytest.fixture

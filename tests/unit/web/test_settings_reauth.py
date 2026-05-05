@@ -17,7 +17,8 @@ from mediaman.services.infra.rate_limits import (
     SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER,
 )
 from mediaman.web.auth.reauth import grant_recent_reauth
-from mediaman.web.auth.session import create_session, create_user
+from mediaman.web.auth.password_hash import create_user
+from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.settings import SECRET_FIELDS, SENSITIVE_KEYS, router
 
 

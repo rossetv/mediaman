@@ -5,13 +5,15 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from mediaman.db import init_db
-from mediaman.web.auth.session import (
+from mediaman.web.auth.password_hash import (
     authenticate,
-    create_session,
     create_user,
     delete_user,
-    destroy_session,
     list_users,
+)
+from mediaman.web.auth.session_store import (
+    create_session,
+    destroy_session,
     validate_session,
 )
 
@@ -79,7 +81,7 @@ class TestSessions:
         """Hard expiry must match the ``max_age=86400`` (1 day) on the
         session cookie. A stolen raw token should not keep working after
         the browser has dropped the cookie."""
-        from mediaman.web.auth import session as session_mod
+        from mediaman.web.auth import session_store as session_mod
 
         assert session_mod._HARD_EXPIRY_DAYS == 1
 
@@ -267,7 +269,7 @@ class TestChangePasswordDoesNotLockSelf:
 
     def test_repeated_wrong_old_password_does_not_lock(self, conn):
         from mediaman.web.auth.login_lockout import check_lockout
-        from mediaman.web.auth.session import change_password
+        from mediaman.web.auth.password_hash import change_password
 
         create_user(conn, "alice", "correct-password-123", enforce_policy=False)
         for _ in range(10):
@@ -291,7 +293,7 @@ class TestChangePasswordDoesNotLockSelf:
         assert check_lockout(conn, "alice") is False
 
     def test_successful_change_still_clears_counter(self, conn):
-        from mediaman.web.auth.session import authenticate, change_password
+        from mediaman.web.auth.password_hash import authenticate, change_password
 
         create_user(conn, "alice", "correct-password-123", enforce_policy=False)
         # Poison the counter via the real login path.

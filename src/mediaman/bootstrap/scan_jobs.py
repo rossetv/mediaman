@@ -136,7 +136,7 @@ def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
         # Reconcile any rows left in the 'deleting' state by a previous
         # crash — safe even if no scan runs this boot.
         try:
-            from mediaman.scanner.engine import _recover_stuck_deletions
+            from mediaman.scanner.deletions import _recover_stuck_deletions
 
             _recover_stuck_deletions(conn)
             _stuck_deletion_failures = 0

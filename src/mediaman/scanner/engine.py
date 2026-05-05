@@ -36,15 +36,13 @@ from mediaman.scanner.arr_dates import ArrDateCache
 from mediaman.scanner.deletions import (
     DeletionExecutor,
     DeletionResult,
-    _recover_stuck_deletions,
 )
 from mediaman.scanner.fetch import PlexFetcher, _PlexItemFetch
 from mediaman.scanner.phases.delete import remove_orphans
-from mediaman.scanner.phases.evaluate import evaluate_movie_item, evaluate_season_item
+from mediaman.scanner.phases.evaluate import evaluate_movie, evaluate_season
 from mediaman.scanner.phases.upsert import schedule_deletion as _phase_schedule_deletion
 from mediaman.scanner.phases.upsert import upsert_item as _phase_upsert_item
 from mediaman.services.infra.settings_reader import get_bool_setting as _get_bool_setting
-from mediaman.services.infra.storage import delete_path  # re-exported for back-compat
 from mediaman.services.mail.newsletter import send_newsletter as _send_newsletter
 from mediaman.services.openai.recommendations.persist import (
     refresh_recommendations as _refresh_recommendations,
@@ -52,13 +50,7 @@ from mediaman.services.openai.recommendations.persist import (
 
 logger = logging.getLogger("mediaman")
 
-# Back-compat: callers historically imported these from engine.
-__all__ = [
-    "ScanEngine",
-    "_PlexItemFetch",
-    "_recover_stuck_deletions",
-    "delete_path",
-]
+__all__ = ["ScanEngine"]
 
 
 def _coerce_lib_ids(raw: Iterable[str]) -> set[int]:
@@ -100,16 +92,8 @@ class ScanEngine:
             changes are written**: ``schedule_deletion`` is skipped, orphan
             removal is skipped, the newsletter is not sent, recommendations
             are not refreshed, and the on-disk rm + ``cleanup_expired_snoozes``
-            in the deletion executor are also skipped (delegated to
-            ``skip_rmtree`` below). Use this for "what would happen"
-            previews. Defaults to False.
-        skip_rmtree: When True, prevents the deletion executor from
-            invoking ``delete_path`` (the on-disk rm) but allows every
-            other write — schedule_deletion, orphan cleanup, newsletter,
-            and audit logging still run. ``dry_run=True`` implies
-            ``skip_rmtree=True``. Use ``skip_rmtree`` directly when you
-            want the narrower "no rm" behaviour without disabling the
-            rest of the pipeline. Defaults to False.
+            in the deletion executor are also skipped. Use this for
+            "what would happen" previews. Defaults to False.
     """
 
     def __init__(
@@ -125,7 +109,6 @@ class ScanEngine:
         inactivity_days: int = 30,
         grace_days: int = 14,
         dry_run: bool = False,
-        skip_rmtree: bool = False,
         sonarr_client: Any = None,
         radarr_client: Any = None,
     ) -> None:
@@ -139,9 +122,6 @@ class ScanEngine:
         self._inactivity_days = inactivity_days
         self._grace_days = grace_days
         self._dry_run = dry_run
-        # dry_run implies skip_rmtree — a true preview cannot perform
-        # on-disk deletions either.
-        self._skip_rmtree = bool(skip_rmtree or dry_run)
         self._sonarr = sonarr_client
         self._radarr = radarr_client
 
@@ -156,27 +136,16 @@ class ScanEngine:
         )
         self._deletions = DeletionExecutor(
             conn=conn,
-            dry_run=self._skip_rmtree,
+            dry_run=dry_run,
             cleanup_snoozes=not dry_run,
             sonarr_client=sonarr_client,
             radarr_client=radarr_client,
         )
 
-    # ------------------------------------------------------------------
-    # Back-compat shims — keep the pre-split private API importable so
-    # the rest of the codebase (and tests) keep working without a
-    # behavioural change.
-    # ------------------------------------------------------------------
-
     def _load_delete_allowed_roots(self) -> list[str]:
         return repository.read_delete_allowed_roots_setting(self._conn)
 
     def _ensure_arr_dates(self) -> None:
-        self._arr_cache.ensure_loaded()
-
-    def _build_arr_date_cache(self) -> None:  # pragma: no cover — compat shim
-        # Forces a (re)load. Only used as an explicit helper in tests.
-        self._arr_cache.reset()
         self._arr_cache.ensure_loaded()
 
     @property
@@ -528,10 +497,9 @@ class ScanEngine:
             added_at: Any,
             watch_history: list[dict[str, object]],
         ) -> str | None:
-            return evaluate_movie_item(
-                f,
-                added_at,
-                watch_history,
+            return evaluate_movie(
+                added_at=added_at,
+                watch_history=watch_history,
                 min_age_days=self._min_age_days,
                 inactivity_days=self._inactivity_days,
             )
@@ -560,11 +528,14 @@ class ScanEngine:
             added_at: Any,
             watch_history: list[dict[str, object]],
         ) -> str | None:
-            return evaluate_season_item(
-                f,
-                added_at,
-                watch_history,
-                conn=self._conn,
+            season = f.item
+            if repository.is_show_kept(self._conn, season.get("show_rating_key")):
+                return None  # show is protected; skip all its seasons
+            return evaluate_season(
+                added_at=added_at,
+                episode_count=season.get("episode_count", 0),
+                watch_history=watch_history,
+                has_future_episodes=False,
                 min_age_days=self._min_age_days,
                 inactivity_days=self._inactivity_days,
             )
@@ -591,31 +562,3 @@ class ScanEngine:
         to libraries that were successfully scanned.
         """
         return remove_orphans(self._conn, seen_keys, scanned_libs)
-
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
-    def _upsert_media_item(
-        self,
-        item: dict[str, object],
-        library_id: str,
-        media_type: str,
-    ) -> None:
-        """Insert or update a media item record.
-
-        Back-compat shim used by :meth:`sync_library`.  New code in the
-        scan loop delegates directly to :func:`phases.upsert.upsert_item`.
-        """
-        self._arr_cache.ensure_loaded()
-        file_path = item.get("file_path") or ""
-        if not isinstance(file_path, str):
-            file_path = ""
-        arr_date = self._arr_cache.get(file_path)
-        repository.upsert_media_item(
-            self._conn,
-            item=item,
-            library_id=library_id,
-            media_type=media_type,
-            arr_date=arr_date,
-        )

@@ -13,7 +13,7 @@ from mediaman.web.auth.login_lockout import (
     record_failure,
     record_success,
 )
-from mediaman.web.auth.session import authenticate, create_user
+from mediaman.web.auth.password_hash import authenticate, create_user
 
 
 @pytest.fixture

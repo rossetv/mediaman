@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from mediaman.services.arr.fetcher._base import make_arr_card
 from mediaman.services.arr.fetcher._sonarr import (
     _aggregate_pack_episodes,
-    _make_sonarr_card,
     fetch_sonarr_queue,
 )
 
@@ -55,23 +55,23 @@ def _queue_ep(
 
 class TestMakeSonarrCard:
     def test_kind_is_series(self):
-        card = _make_sonarr_card("Breaking Bad")
+        card = make_arr_card("series", "Breaking Bad", source="Sonarr")
         assert card["kind"] == "series"
 
     def test_source_is_sonarr(self):
-        card = _make_sonarr_card("Breaking Bad")
+        card = make_arr_card("series", "Breaking Bad", source="Sonarr")
         assert card["source"] == "Sonarr"
 
     def test_dl_id_contains_title(self):
-        card = _make_sonarr_card("Breaking Bad")
+        card = make_arr_card("series", "Breaking Bad", source="Sonarr")
         assert "Breaking Bad" in card["dl_id"]
 
     def test_episodes_defaults_to_empty_list(self):
-        card = _make_sonarr_card("Chernobyl")
+        card = make_arr_card("series", "Chernobyl", source="Sonarr")
         assert card["episodes"] == []
 
     def test_release_names_defaults_to_empty_list(self):
-        card = _make_sonarr_card("Silo")
+        card = make_arr_card("series", "Silo", source="Sonarr")
         assert card["release_names"] == []
 
 
@@ -82,7 +82,7 @@ class TestMakeSonarrCard:
 
 class TestAggregatePackEpisodes:
     def _card_with_eps(self, eps):
-        card = _make_sonarr_card("Test Show", episodes=eps)
+        card = make_arr_card("series", "Test Show", source="Sonarr", episodes=eps)
         return card
 
     def test_individual_episodes_not_flagged_as_pack(self):
@@ -354,7 +354,7 @@ class TestProgressClamp:
                 "download_id": "x1",
             }
         ]
-        card = _make_sonarr_card("Test", episodes=eps)
+        card = make_arr_card("series", "Test", source="Sonarr", episodes=eps)
         _aggregate_pack_episodes(card, card_series_id=1)
         assert card["progress"] == 0
 
@@ -392,7 +392,7 @@ class TestClusterKeyTitleColon:
                 "download_id": "",
             },
         ]
-        card = _make_sonarr_card("Star Trek: Picard", episodes=eps)
+        card = make_arr_card("series", "Star Trek: Picard", source="Sonarr", episodes=eps)
         _aggregate_pack_episodes(card, card_series_id=42)
         # Distinct labels → distinct keys → not a pack, sizes summed.
         assert all(e["is_pack_episode"] is False for e in card["episodes"])

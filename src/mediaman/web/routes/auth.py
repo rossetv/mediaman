@@ -19,14 +19,16 @@ from mediaman.services.rate_limit import (
     peer_is_trusted,
     trusted_proxies,
 )
-from mediaman.web.auth.password_hash import _sanitise_log_field
-from mediaman.web.auth.password_policy import is_strong
-from mediaman.web.auth.session import (
+from mediaman.web.auth.password_hash import (
+    _sanitise_log_field,
     authenticate,
-    create_session,
-    destroy_session,
     set_must_change_password,
     user_must_change_password,
+)
+from mediaman.web.auth.password_policy import is_strong
+from mediaman.web.auth.session_store import (
+    create_session,
+    destroy_session,
     validate_session,
 )
 from mediaman.web.responses import respond_err

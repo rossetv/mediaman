@@ -64,10 +64,8 @@ class ForcePasswordChangeMiddleware(BaseHTTPMiddleware):
         try:
             from mediaman.db import get_db
             from mediaman.services.rate_limit import get_client_ip
-            from mediaman.web.auth.session import (
-                user_must_change_password,
-                validate_session,
-            )
+            from mediaman.web.auth.password_hash import user_must_change_password
+            from mediaman.web.auth.session_store import validate_session
         except Exception:
             return await call_next(request)
 

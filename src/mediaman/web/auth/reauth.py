@@ -138,7 +138,7 @@ def require_reauth(conn: sqlite3.Connection, admin: str, password: str) -> bool:
     """
     if not password:
         return False
-    from mediaman.web.auth.session import authenticate
+    from mediaman.web.auth.password_hash import authenticate
 
     return authenticate(conn, admin, password, record_failures=False)
 
@@ -180,7 +180,7 @@ def verify_reauth_password(
         record_failure,
         record_success,
     )
-    from mediaman.web.auth.session import authenticate
+    from mediaman.web.auth.password_hash import authenticate
 
     namespace = f"{REAUTH_LOCKOUT_PREFIX}{admin}"
 

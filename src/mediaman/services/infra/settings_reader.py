@@ -28,9 +28,6 @@ class ConfigDecryptError(Exception):
     present but key is wrong" should catch this exception separately from a
     ``None``/default return.
 
-    Defined at module top so :func:`get_setting` can raise it before
-    :func:`get_string_setting_strict` is defined further down.
-
     :param key: the settings-table key that failed to decrypt.
     :param cause: the underlying exception from the crypto layer.
     """
@@ -187,53 +184,3 @@ def get_string_setting(
     if value is None:
         return default
     return str(value) if not isinstance(value, str) else value
-
-
-def get_string_setting_strict(
-    conn: sqlite3.Connection,
-    key: str,
-    *,
-    secret_key: str | None = None,
-) -> str | None:
-    """Return a string setting, distinguishing *missing* from *undecryptable*.
-
-    Unlike :func:`get_string_setting`, this function raises
-    :exc:`ConfigDecryptError` instead of returning the ``default`` when the
-    setting row is present but cannot be decrypted.  This lets callers show
-    the user a meaningful error banner rather than silently acting as if the
-    setting was never saved.
-
-    Returns ``None`` when:
-    - the key is absent from the ``settings`` table, or
-    - the row value is empty/``None``, or
-    - the row is marked encrypted but no ``secret_key`` was provided.
-
-    Raises :exc:`ConfigDecryptError` when the row is encrypted, a
-    ``secret_key`` is provided, but decryption fails (e.g. rotated key).
-    """
-    row = conn.execute("SELECT value, encrypted FROM settings WHERE key=?", (key,)).fetchone()
-    if row is None or row["value"] in (None, ""):
-        return None
-
-    val = row["value"]
-    if row["encrypted"]:
-        if not secret_key:
-            return None
-        try:
-            val = decrypt_value(
-                val,
-                secret_key,
-                conn=conn,
-                aad=key.encode(),
-            )
-        except (sqlite3.OperationalError, sqlite3.DatabaseError, InvalidTag, ValueError) as exc:
-            # Same narrow list as :func:`get_setting`. Anything outside
-            # this set is a programmer error and should surface as the
-            # original exception type rather than be re-wrapped here.
-            raise ConfigDecryptError(key, exc) from exc
-
-    try:
-        parsed = json.loads(val)
-        return str(parsed) if not isinstance(parsed, str) else parsed
-    except (TypeError, ValueError):
-        return val

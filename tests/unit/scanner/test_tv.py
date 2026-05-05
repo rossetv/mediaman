@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from mediaman.scanner.tv import evaluate_season
+from mediaman.scanner.phases.evaluate import evaluate_season
 
 
 def _now():

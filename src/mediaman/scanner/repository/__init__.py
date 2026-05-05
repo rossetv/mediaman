@@ -20,14 +20,9 @@ when it changes.
   ``read_delete_allowed_roots_setting``.
 
 **Repository purity contract:** this package is pure SQL — it must not
-import crypto primitives at module level.  The one historical exception
-is :func:`schedule_deletion`, which generates an HMAC keep-token after
-the INSERT so it can bind the token to the assigned ``action_id``.  The
-production scan path now delegates to :func:`phases.upsert.schedule_deletion`
-which owns the token generation; this function is kept for back-compat
-with tests and any out-of-engine callers.  The ``generate_keep_token``
-import is lazy (inside the function body) so this package has no
-module-level dependency on :mod:`mediaman.crypto`.
+import crypto primitives at module level.  Token generation lives in
+:func:`phases.upsert.schedule_deletion` which owns the HMAC keep-token
+logic; this package has no dependency on :mod:`mediaman.crypto`.
 
 This package depends only on :mod:`sqlite3`; it MUST NOT import from
 ``fetch`` or ``deletions`` (see engine.py header for the import-cycle
@@ -55,7 +50,6 @@ from mediaman.scanner.repository.scheduled_actions import (
     is_protected,
     is_show_kept,
     mark_delete_status,
-    schedule_deletion,
 )
 from mediaman.scanner.repository.settings import read_delete_allowed_roots_setting
 
@@ -77,7 +71,6 @@ __all__ = [
     "is_show_kept",
     "mark_delete_status",
     "read_delete_allowed_roots_setting",
-    "schedule_deletion",
     "update_last_watched",
     "upsert_media_item",
 ]

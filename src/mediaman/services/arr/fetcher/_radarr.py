@@ -21,46 +21,6 @@ from mediaman.services.downloads.download_format import (
 )
 
 
-def _make_radarr_card(
-    title: str,
-    *,
-    year: int | None = None,
-    poster_url: str = "",
-    progress: int = 0,
-    size: int = 0,
-    sizeleft: int = 0,
-    timeleft: str = "",
-    status: str = "searching",
-    is_upcoming: bool = False,
-    release_label: str = "",
-    arr_id: int = 0,
-    title_slug: str = "",
-    added_at: float = 0.0,
-    released_at: float = 0.0,
-    release_names: list[str] | None = None,
-) -> ArrCard:
-    """Build a Radarr movie card.  Shim — delegates to :func:`make_arr_card`."""
-    return make_arr_card(
-        "movie",
-        title,
-        source="Radarr",
-        year=year,
-        poster_url=poster_url,
-        progress=progress,
-        size=size,
-        sizeleft=sizeleft,
-        timeleft=timeleft,
-        status=status,
-        is_upcoming=is_upcoming,
-        release_label=release_label,
-        arr_id=arr_id,
-        title_slug=title_slug,
-        added_at=added_at,
-        released_at=released_at,
-        release_names=release_names,
-    )
-
-
 def fetch_radarr_queue(client: RadarrClient) -> list[ArrCard]:
     """Build Radarr download cards from an already-constructed client.
 

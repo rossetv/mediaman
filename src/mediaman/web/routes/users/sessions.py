@@ -19,7 +19,7 @@ from mediaman.db import get_db
 from mediaman.services.rate_limit import get_client_ip, rate_limit
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.reauth import revoke_all_reauth_for, revoke_reauth
-from mediaman.web.auth.session import (
+from mediaman.web.auth.session_store import (
     create_session,
     destroy_all_sessions_for,
     list_sessions_for,

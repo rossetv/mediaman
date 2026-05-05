@@ -1,7 +1,8 @@
 """SQLite connection management and job-run helpers.
 
 Split from the original monolithic ``db.py`` (R5). Schema DDL and
-migrations live in :mod:`mediaman.db.schema`.
+migrations live in :mod:`mediaman.db.schema_definition` and
+:mod:`mediaman.db.migrations`.
 
 Connection lifecycle
 --------------------
@@ -27,7 +28,7 @@ from datetime import UTC, datetime, timedelta
 
 from mediaman.core.time import now_iso
 
-from .schema import apply_migrations
+from .migrations import apply_migrations
 
 logger = logging.getLogger("mediaman")
 

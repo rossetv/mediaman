@@ -13,25 +13,9 @@ from mediaman.core.format import format_bytes
 from mediaman.db import get_db
 from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.web.routes.dashboard._data import (
-    _DISK_USAGE_CACHE_TTL,
-    _RECENT_DELETED_BATCH,
-    _RECENT_DELETED_MAX_BATCHES,
-    _build_redownload_index,
-    _cached_disk_usage,
-    _days_until,
-    _disk_usage_cache,
-    _disk_usage_cache_lock,
     _fetch_recently_deleted,
     _fetch_scheduled,
     _fetch_storage_stats,
-    _was_redownloaded_after,
-)
-from mediaman.web.routes.dashboard._poster_fanout import (
-    _POSTER_FANOUT_BUDGET_SECONDS,
-    _POSTER_FANOUT_WORKERS,
-    _TMDB_POSTER_BASE_URL,
-    _fill_tmdb_posters,
-    _get_poster_executor,
 )
 
 logger = logging.getLogger("mediaman")
@@ -158,22 +142,5 @@ def api_dashboard_reclaimed_chart(username: str = Depends(get_current_admin)) ->
 
 
 __all__ = [
-    "_DISK_USAGE_CACHE_TTL",
-    "_POSTER_FANOUT_BUDGET_SECONDS",
-    "_POSTER_FANOUT_WORKERS",
-    "_RECENT_DELETED_BATCH",
-    "_RECENT_DELETED_MAX_BATCHES",
-    "_TMDB_POSTER_BASE_URL",
-    "_build_redownload_index",
-    "_cached_disk_usage",
-    "_days_until",
-    "_disk_usage_cache",
-    "_disk_usage_cache_lock",
-    "_fetch_recently_deleted",
-    "_fetch_scheduled",
-    "_fetch_storage_stats",
-    "_fill_tmdb_posters",
-    "_get_poster_executor",
-    "_was_redownloaded_after",
     "router",
 ]

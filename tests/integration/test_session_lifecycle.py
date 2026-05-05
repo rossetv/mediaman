@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
-from mediaman.web.auth.session import create_user
+from mediaman.web.auth.password_hash import create_user
 from mediaman.web.routes.auth import router as auth_router
 from mediaman.web.routes.downloads import router as downloads_router
 

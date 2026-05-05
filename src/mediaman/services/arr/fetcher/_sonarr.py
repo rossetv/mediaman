@@ -37,48 +37,6 @@ _CLUSTER_SEP = "\x00"
 logger = logging.getLogger("mediaman")
 
 
-def _make_sonarr_card(
-    title: str,
-    *,
-    year: int | None = None,
-    poster_url: str = "",
-    episodes: list[ArrEpisodeEntry] | None = None,
-    episode_count: int = 0,
-    downloading_count: int = 0,
-    progress: int = 0,
-    size: int = 0,
-    sizeleft: int = 0,
-    arr_id: int = 0,
-    title_slug: str = "",
-    added_at: float = 0.0,
-    released_at: float = 0.0,
-    is_upcoming: bool = False,
-    release_label: str = "",
-    release_names: list[str] | None = None,
-) -> ArrCard:
-    """Build a Sonarr series card.  Shim — delegates to :func:`make_arr_card`."""
-    return make_arr_card(
-        "series",
-        title,
-        source="Sonarr",
-        year=year,
-        poster_url=poster_url,
-        episodes=episodes,
-        episode_count=episode_count,
-        downloading_count=downloading_count,
-        progress=progress,
-        size=size,
-        sizeleft=sizeleft,
-        arr_id=arr_id,
-        title_slug=title_slug,
-        added_at=added_at,
-        released_at=released_at,
-        is_upcoming=is_upcoming,
-        release_label=release_label,
-        release_names=release_names,
-    )
-
-
 def _compute_cluster_keys(eps: list[ArrEpisodeEntry], card_series_id: int) -> list[str | None]:
     """Return a parallel list of cluster keys, one entry per episode in *eps*.
 

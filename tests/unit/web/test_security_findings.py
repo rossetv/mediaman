@@ -498,7 +498,7 @@ class TestFinding16KeepTokenHash:
 
     def test_schedule_deletion_writes_token_hash(self, conn):
         """schedule_deletion must write token_hash to the row."""
-        from mediaman.scanner.repository import schedule_deletion
+        from mediaman.scanner.phases.upsert import schedule_deletion
 
         _insert_media_item(conn)
         schedule_deletion(
@@ -616,7 +616,7 @@ class TestFinding34DashboardRedownload:
 
     def test_dashboard_item_includes_media_type(self, conn, tmp_path):
         """_fetch_recently_deleted must populate media_type in the returned dict."""
-        from mediaman.web.routes.dashboard import _fetch_recently_deleted
+        from mediaman.web.routes.dashboard._data import _fetch_recently_deleted
 
         conn.execute(
             "INSERT INTO media_items "

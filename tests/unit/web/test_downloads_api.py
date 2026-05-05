@@ -297,7 +297,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from mediaman.config import Config  # noqa: E402
 from mediaman.db import set_connection  # noqa: E402
-from mediaman.web.auth.session import create_session, create_user  # noqa: E402
+from mediaman.web.auth.password_hash import create_user
+from mediaman.web.auth.session_store import create_session  # noqa: E402
 from mediaman.web.routes.download import router as download_router  # noqa: E402
 
 

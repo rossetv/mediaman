@@ -9,7 +9,8 @@ from fastapi.testclient import TestClient
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
 from mediaman.web.auth.reauth import grant_recent_reauth
-from mediaman.web.auth.session import authenticate, create_session, create_user
+from mediaman.web.auth.password_hash import authenticate, create_user
+from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.users import (
     _PASSWORD_CHANGE_IP_LIMITER,
     _PASSWORD_CHANGE_LIMITER,

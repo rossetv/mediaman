@@ -186,7 +186,7 @@ class TestForceChangeFlag:
     def test_weak_password_flags_account(self, tmp_path):
         import bcrypt
 
-        from mediaman.web.auth.session import (
+        from mediaman.web.auth.password_hash import (
             user_must_change_password,
         )
 
@@ -206,7 +206,7 @@ class TestForceChangeFlag:
 
         # Simulate login_submit flipping the flag after auth success.
         from mediaman.web.auth.password_policy import is_strong
-        from mediaman.web.auth.session import authenticate, set_must_change_password
+        from mediaman.web.auth.password_hash import authenticate, set_must_change_password
 
         assert authenticate(conn, "legacy", weak)
         assert not is_strong(weak, username="legacy")
@@ -216,7 +216,7 @@ class TestForceChangeFlag:
 
     def test_strong_password_does_not_flag(self, tmp_path):
         conn = self._conn(tmp_path)
-        from mediaman.web.auth.session import create_user, user_must_change_password
+        from mediaman.web.auth.password_hash import create_user, user_must_change_password
 
         create_user(conn, "alice", "Correct-Horse-9-Battery!")
         assert user_must_change_password(conn, "alice") is False
@@ -261,11 +261,11 @@ class TestForcePasswordChangePage:
         client, conn = self._client(tmp_path, secret_key=secret_key, monkeypatch=monkeypatch)
 
         # Set up user + mark must_change_password
-        from mediaman.web.auth.session import (
-            create_session,
+        from mediaman.web.auth.password_hash import (
             create_user,
             set_must_change_password,
         )
+        from mediaman.web.auth.session_store import create_session
 
         create_user(conn, "alice", "Correct-Horse-9-Battery!")
         set_must_change_password(conn, "alice", True)
@@ -287,11 +287,11 @@ class TestForcePasswordChangePage:
     def test_force_change_page_renders(self, tmp_path, secret_key, monkeypatch):
         client, conn = self._client(tmp_path, secret_key=secret_key, monkeypatch=monkeypatch)
 
-        from mediaman.web.auth.session import (
-            create_session,
+        from mediaman.web.auth.password_hash import (
             create_user,
             set_must_change_password,
         )
+        from mediaman.web.auth.session_store import create_session
 
         create_user(conn, "alice", "Correct-Horse-9-Battery!")
         set_must_change_password(conn, "alice", True)
@@ -312,11 +312,11 @@ class TestForcePasswordChangePage:
     def test_force_change_rejects_weak_new_password(self, tmp_path, secret_key, monkeypatch):
         client, conn = self._client(tmp_path, secret_key=secret_key, monkeypatch=monkeypatch)
 
-        from mediaman.web.auth.session import (
-            create_session,
+        from mediaman.web.auth.password_hash import (
             create_user,
             set_must_change_password,
         )
+        from mediaman.web.auth.session_store import create_session
 
         old = "Correct-Horse-9-Battery!"
         create_user(conn, "alice", old)
@@ -348,12 +348,12 @@ class TestForcePasswordChangePage:
     def test_force_change_accepts_strong_new_password(self, tmp_path, secret_key, monkeypatch):
         client, conn = self._client(tmp_path, secret_key=secret_key, monkeypatch=monkeypatch)
 
-        from mediaman.web.auth.session import (
-            create_session,
+        from mediaman.web.auth.password_hash import (
             create_user,
             set_must_change_password,
             user_must_change_password,
         )
+        from mediaman.web.auth.session_store import create_session
 
         old = "Correct-Horse-9-Battery!"
         new = "Zeppelin-9000-Antelope-Parade!"

@@ -53,14 +53,3 @@ def is_admin(request: Request) -> bool:
         get_optional_admin_from_token(request.cookies.get("session_token"), request=request)
         is not None
     )
-
-
-# `fail()` lived here as an attempt at a unified error envelope but was
-# never adopted by any route — handlers continued to construct ad-hoc
-# JSONResponse bodies. Domain 12 flagged the dead code; rather than
-# touch ~27 call sites plus the tests that assert their existing shapes
-# (a high-risk change for cosmetic gain), the helper was deleted along
-# with its test class. If a future refactor wants a unified envelope,
-# pick one of the existing shapes (``{"ok": False, "error": "..."}``
-# is the most common) and codemod every call site rather than adding
-# another competing helper.

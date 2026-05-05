@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import logging
-import secrets
 import sqlite3
-from datetime import UTC, datetime, timedelta
 
-from mediaman.audit import log_audit
 from mediaman.core.time import now_iso
 
 logger = logging.getLogger("mediaman")
@@ -179,112 +176,6 @@ def is_show_kept(conn: sqlite3.Connection, show_rating_key: str | None) -> bool:
 # ---------------------------------------------------------------------------
 # scheduled_actions — mutations
 # ---------------------------------------------------------------------------
-
-
-def schedule_deletion(
-    conn: sqlite3.Connection,
-    *,
-    media_id: str,
-    is_reentry: bool,
-    grace_days: int,
-    secret_key: str,
-) -> str:
-    """Insert a scheduled_deletion row and write an audit entry.
-
-    Returns the literal ``"scheduled"`` on success, or ``"skipped"`` when
-    a concurrent scanner has already inserted an active deletion for the
-    same ``media_id`` (the migration-25 partial unique index raises
-    ``IntegrityError``). The skipped path is the desired outcome — the
-    other run already lined the deletion up — so we swallow the error
-    and report it as a clean skip rather than letting it bubble up as a
-    500.
-
-    Uses a unique random placeholder token for the initial insert so
-    the ``token`` unique index can't collide between concurrent scheduler
-    runs, then swaps in the real HMAC-signed keep token once we know the
-    row id.
-    """
-    now = datetime.now(UTC)
-    execute_at = now + timedelta(days=grace_days)
-    expires_at = int((now + timedelta(days=_TOKEN_TTL_DAYS)).timestamp())
-
-    # Finding 16: use a placeholder for the initial insert (satisfies
-    # any remaining NOT NULL constraint on legacy schemas before migration 28).
-    # After migration 28 the token column is nullable so this placeholder
-    # is only needed as a uniqueness sentinel.
-    placeholder = f"pending-{secrets.token_urlsafe(16)}"
-
-    try:
-        cursor = conn.execute(
-            """
-            INSERT INTO scheduled_actions
-                (media_item_id, action, scheduled_at, execute_at, token, token_used, is_reentry)
-            VALUES (?, ?, ?, ?, ?, 0, ?)
-            """,
-            (
-                media_id,
-                DELETION_ACTION,
-                now.isoformat(),
-                execute_at.isoformat(),
-                placeholder,
-                1 if is_reentry else 0,
-            ),
-        )
-    except sqlite3.IntegrityError:
-        # Either the partial unique index ``idx_scheduled_actions_unique_active_deletion``
-        # (migration 25) already has an active pending deletion for this
-        # item, or the rare ``token``/``token_hash`` placeholder collision
-        # tripped a unique index. Both cases mean "another concurrent run
-        # already covered this item" — there's nothing more to do.
-        logger.info(
-            "repository.schedule_deletion.skip media_id=%s reason=integrity_error",
-            media_id,
-        )
-        return "skipped"
-    action_id = cursor.lastrowid
-    # ``lastrowid`` is typed as ``int | None``; SQLite always populates it
-    # after a successful INSERT against an INTEGER PRIMARY KEY table.
-    assert action_id is not None
-
-    # Lazy imports: keep generate_keep_token and hashlib out of the module-
-    # level dependency graph so this module remains a pure SQL layer.  The
-    # production scan path uses phases.upsert.schedule_deletion instead;
-    # this function is kept for back-compat with tests and ad-hoc callers.
-    import hashlib as _hashlib
-
-    from mediaman.crypto import generate_keep_token as _generate_keep_token
-
-    token = _generate_keep_token(
-        media_item_id=media_id,
-        action_id=action_id,
-        expires_at=expires_at,
-        secret_key=secret_key,
-    )
-
-    token_hash = _hashlib.sha256(token.encode()).hexdigest()
-    # Finding 16: write only the hash; null out the raw token.  On pre-
-    # migration-28 schemas the token column is NOT NULL, so we write the
-    # hash and leave the placeholder in place — migration 28 will clear it.
-    # On migration-28+ schemas (token is nullable) we clear the raw token.
-    try:
-        conn.execute(
-            "UPDATE scheduled_actions SET token_hash = ?, token = NULL WHERE id = ?",
-            (token_hash, action_id),
-        )
-    except Exception:
-        # Pre-migration-28: token column is NOT NULL; just write the hash.
-        conn.execute(
-            "UPDATE scheduled_actions SET token_hash = ? WHERE id = ?",
-            (token_hash, action_id),
-        )
-
-    log_audit(
-        conn,
-        media_id,
-        DELETION_ACTION,
-        "scheduled by scan engine" + (" (re-entry)" if is_reentry else ""),
-    )
-    return "scheduled"
 
 
 def fetch_stuck_deletions(conn: sqlite3.Connection) -> list[sqlite3.Row]:

@@ -23,7 +23,8 @@ from mediaman.web.auth.reauth import (
     grant_recent_reauth,
     has_recent_reauth,
 )
-from mediaman.web.auth.session import create_session, create_user
+from mediaman.web.auth.password_hash import create_user
+from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.users import (
     _PASSWORD_CHANGE_LIMITER,
     _REAUTH_LIMITER,
