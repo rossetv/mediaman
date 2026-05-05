@@ -16,9 +16,6 @@ This module provides two classes:
   this class; kind-specific ones raise :exc:`ArrKindMismatch` when called on
   the wrong variant.
 
-Back-compat subclasses in ``sonarr.py`` and ``radarr.py`` pre-bind the
-appropriate spec so existing callers need no changes.
-
 All outbound calls route through :class:`SafeHTTPClient` for SSRF
 re-validation, size capping, redirect refusal, and retry/backoff on
 transient errors (429/502/503/504 on GETs; see :class:`SafeHTTPClient`).
@@ -65,10 +62,6 @@ class ArrClient(_ArrClientBase):
     Methods that are specific to one service kind raise
     :exc:`ArrKindMismatch` when called on the wrong variant, e.g. calling
     :meth:`delete_episode_files` on a Radarr client.
-
-    Existing callers that import ``SonarrClient`` or ``RadarrClient`` from
-    their respective modules continue to work unchanged — those modules
-    provide thin back-compat subclasses that pre-bind the appropriate spec.
     """
 
     def __init__(self, spec: ArrSpec, url: str, api_key: str):
@@ -142,21 +135,16 @@ class ArrClient(_ArrClientBase):
     def delete_series(self, series_id: int) -> None:
         """Delete a series from Sonarr, its files, and add to exclusion list.
 
-        Defensively coerces ``series_id`` to ``int`` at the boundary even
-        though the type hint already forces it — a future caller passing
-        a string would otherwise allow URL-extension (e.g. an id like
-        ``"1?evil=…"`` would tack arbitrary query parameters onto the
-        DELETE).  The cast raises :exc:`ValueError` on malformed input.
-
         Raises :exc:`ArrKindMismatch` when called on a Radarr client.
         """
         self._require_series("delete_series")
-        sid = int(series_id)
         # ``self.spec.exclusion_param`` is the per-flavour spelling
         # (``addImportListExclusion`` for Sonarr, ``addImportExclusion`` for
         # Radarr).  Reading it through the spec keeps the spelling in one
         # place — see :class:`mediaman.services.arr.spec.ArrSpec`.
-        self._delete(f"/api/v3/series/{sid}?deleteFiles=true&{self.spec.exclusion_param}=true")
+        self._delete(
+            f"/api/v3/series/{series_id}?deleteFiles=true&{self.spec.exclusion_param}=true"
+        )
 
     def has_remaining_files(self, series_id: int) -> bool:
         """Return True if the series still has any episode files on disk.
@@ -496,17 +484,12 @@ class ArrClient(_ArrClientBase):
     def delete_movie(self, movie_id: int) -> None:
         """Delete a movie from Radarr and its files from disk.
 
-        Defensively coerces ``movie_id`` to ``int`` at the boundary so a
-        malformed caller (e.g. one passing ``"1?evil=…"`` as a string)
-        cannot tack arbitrary query parameters onto the DELETE.
-
         Raises :exc:`ArrKindMismatch` when called on a Sonarr client.
         """
         self._require_movie("delete_movie")
-        mid = int(movie_id)
         # ``self.spec.exclusion_param`` carries the per-flavour spelling —
         # see :func:`delete_series` for the rationale.
-        self._delete(f"/api/v3/movie/{mid}?deleteFiles=true&{self.spec.exclusion_param}=true")
+        self._delete(f"/api/v3/movie/{movie_id}?deleteFiles=true&{self.spec.exclusion_param}=true")
 
     def unmonitor_movie(self, movie_id: int, *, max_retries: int = 3) -> None:
         """Set ``monitored=False`` for *movie_id* in Radarr.

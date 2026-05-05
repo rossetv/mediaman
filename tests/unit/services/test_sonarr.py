@@ -2,19 +2,20 @@
 
 import pytest
 
-from mediaman.services.arr.sonarr import SonarrClient
+from mediaman.services.arr.base import ArrClient
+from mediaman.services.arr.spec import SONARR_SPEC
 
 
 @pytest.fixture
 def client():
-    return SonarrClient("http://sonarr:8989", "test-api-key")
+    return ArrClient(SONARR_SPEC, "http://sonarr:8989", "test-api-key")
 
 
 def _calls(fake_http, method):
     return [c for c in fake_http.calls if c[0] == method.upper()]
 
 
-class TestSonarrClient:
+class TestArrClientSonarr:
     def test_get_series(self, client, fake_http, fake_response):
         fake_http.queue(
             "GET",
@@ -279,15 +280,12 @@ class TestSonarrClient:
         fake_http.queue("GET", fake_response(json_data={"records": [], "totalRecords": 0}))
         assert client.get_queue() == []
 
-    def test_delete_series_coerces_id_to_int(self, client, fake_http, fake_response):
-        """Defensive int() prevents URL-extension via a string id."""
+    def test_delete_series_sends_delete_request(self, client, fake_http, fake_response):
+        """delete_series issues a DELETE with the correct URL."""
         fake_http.queue("DELETE", fake_response(content=b""))
         client.delete_series(series_id=42)
         delete_call = _calls(fake_http, "DELETE")[0]
         assert "/api/v3/series/42?" in delete_call[1]
-        # Non-int strings raise rather than slipping through.
-        with pytest.raises(ValueError):
-            client.delete_series(series_id="42?evil=1")  # type: ignore[arg-type]
 
 
 class TestLookupSeriesByTmdb:

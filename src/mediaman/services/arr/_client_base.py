@@ -113,7 +113,6 @@ class _ArrClientBase:
         The query term ``tmdb:<id>`` is appended automatically.
         """
         result = self._get(f"{endpoint}?term=tmdb:{tmdb_id}") or []
-        assert isinstance(result, list)
         return cast(list[dict[str, Any]], result)
 
     def lookup_by_tvdb_id(self, tvdb_id: int, *, endpoint: str) -> list[dict[str, Any]]:
@@ -124,7 +123,6 @@ class _ArrClientBase:
         The query term ``tvdb:<id>`` is appended automatically.
         """
         result = self._get(f"{endpoint}?term=tvdb:{tvdb_id}") or []
-        assert isinstance(result, list)
         return cast(list[dict[str, Any]], result)
 
     def lookup_by_imdb_id(self, imdb_id: str, *, endpoint: str) -> list[dict[str, Any]]:
@@ -134,7 +132,6 @@ class _ArrClientBase:
         ``imdb:<id>`` is appended automatically.
         """
         result = self._get(f"{endpoint}?term=imdb:{imdb_id}") or []
-        assert isinstance(result, list)
         return cast(list[dict[str, Any]], result)
 
     def lookup_by_term(self, term: str, *, endpoint: str) -> list[dict[str, Any]]:
@@ -144,7 +141,6 @@ class _ArrClientBase:
         spaces or special characters.
         """
         result = self._get(f"{endpoint}?term={term}") or []
-        assert isinstance(result, list)
         return cast(list[dict[str, Any]], result)
 
     def get_release(self, item_id: int, *, endpoint: str) -> dict | None:

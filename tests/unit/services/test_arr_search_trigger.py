@@ -57,8 +57,12 @@ class TestGetSearchInfo:
         conn = MagicMock()
 
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         item = {
@@ -131,8 +135,12 @@ class TestResetSearchTriggers:
         conn = MagicMock()
 
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         item = {
@@ -172,8 +180,12 @@ class TestTriggerSonarrPartialMissing:
         }
 
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: mock_sonarr if svc == "sonarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: None,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: mock_sonarr,
         )
 
         calls: list[tuple] = []
@@ -217,8 +229,12 @@ class TestTriggerSonarrPartialMissing:
         # the main path so the arr-id-stable throttle gets populated.
         sonarr_client = MagicMock()
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: sonarr_client if svc == "sonarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: None,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: sonarr_client,
         )
 
         item_old = {
@@ -242,12 +258,16 @@ class TestTriggerSonarrPartialMissing:
         )
 
     def test_no_client_returns_without_error(self, monkeypatch):
-        """If build_arr_client returns None for sonarr, function exits cleanly."""
+        """If the Sonarr builder returns None, the function exits cleanly."""
         conn = MagicMock()
 
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: None,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         calls: list = []
@@ -336,8 +356,12 @@ class TestThrottleDbPersistence:
         """After maybe_trigger_search fires, the DB row is written."""
         mock_radarr = MagicMock()
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
         item = {
             "kind": "movie",
@@ -361,8 +385,12 @@ class TestThrottleDbPersistence:
         mock_radarr = MagicMock()
         mock_radarr.search_movie.side_effect = lambda _: calls.append("searched")
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         item = {
@@ -386,8 +414,12 @@ class TestThrottleDbPersistence:
         """
         mock_radarr = MagicMock()
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         # Simulate: process previously fired 5 searches, last one was
@@ -480,8 +512,12 @@ class TestLockReleasedDuringNetwork:
         client.search_movie.side_effect = slow_search_movie
 
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: client if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: client,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         def asserter():
@@ -522,8 +558,12 @@ class TestLockReleasedDuringNetwork:
         client = MagicMock()
         client.search_movie.side_effect = RuntimeError("Radarr down")
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: client if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: client,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         item = {
@@ -563,8 +603,12 @@ class TestLockReleasedDuringNetwork:
         # Failure path so the rollback branch fires.
         client = MagicMock()
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: client if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: client,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         # Simulate a sibling stamping its own reservation between phase 1
@@ -622,8 +666,12 @@ class TestLockReleasedDuringNetwork:
         # measures phase 0 + phase 1.
         client = MagicMock()
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: client if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: client,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         item = {

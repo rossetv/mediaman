@@ -205,8 +205,8 @@ class TestForceChangeFlag:
         conn.commit()
 
         # Simulate login_submit flipping the flag after auth success.
-        from mediaman.web.auth.password_policy import is_strong
         from mediaman.web.auth.password_hash import authenticate, set_must_change_password
+        from mediaman.web.auth.password_policy import is_strong
 
         assert authenticate(conn, "legacy", weak)
         assert not is_strong(weak, username="legacy")

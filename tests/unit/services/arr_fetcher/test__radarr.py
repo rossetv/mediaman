@@ -62,7 +62,9 @@ class TestMakeRadarrCard:
         assert "Dune" in card["dl_id"]
 
     def test_size_strings_populated(self):
-        card = make_arr_card("movie", "Oppenheimer", source="Radarr", size=4_000_000_000, sizeleft=2_000_000_000)
+        card = make_arr_card(
+            "movie", "Oppenheimer", source="Radarr", size=4_000_000_000, sizeleft=2_000_000_000
+        )
         assert card["size_str"]
         assert card["done_str"]
 

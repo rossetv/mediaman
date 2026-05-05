@@ -297,7 +297,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from mediaman.config import Config  # noqa: E402
 from mediaman.db import set_connection  # noqa: E402
-from mediaman.web.auth.password_hash import create_user
+from mediaman.web.auth.password_hash import create_user  # noqa: E402
 from mediaman.web.auth.session_store import create_session  # noqa: E402
 from mediaman.web.routes.download import router as download_router  # noqa: E402
 
@@ -821,8 +821,8 @@ class TestGetArrQueueEnrichment:
         return conn
 
     def _patched_arr_queue(self, conn, mock_client):
-        """Run _get_arr_queue with RadarrClient patched."""
-        with patch("mediaman.services.arr.radarr.RadarrClient", return_value=mock_client):
+        """Run _get_arr_queue with build_radarr_from_db patched."""
+        with patch("mediaman.services.arr.build.build_radarr_from_db", return_value=mock_client):
             return _get_arr_queue(conn, "test-secret-key-for-unit-tests-only")
 
     def test_upcoming_movie_is_included_regardless_of_added_date(self):
@@ -890,10 +890,14 @@ class TestSearchTriggerThrottle:
         mock_radarr = MagicMock()
         conn = MagicMock()
 
-        def fake_build(c, svc, sk):
-            return mock_radarr if svc == "radarr" else None
-
-        monkeypatch.setattr("mediaman.services.arr.search_trigger.build_arr_client", fake_build)
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
+        )
 
         import time
 
@@ -915,8 +919,12 @@ class TestSearchTriggerThrottle:
         # Make the DB appear empty so no persisted count inflates previous_count.
         conn.execute.return_value.fetchone.return_value = None
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
         # Pin jitter so the gate is exactly 120 s, not [108, 132].
         monkeypatch.setattr("mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0)
@@ -944,8 +952,12 @@ class TestSearchTriggerThrottle:
         # Make the DB appear empty so no persisted count inflates previous_count.
         conn.execute.return_value.fetchone.return_value = None
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
         monkeypatch.setattr("mediaman.services.arr.throttle._jitter_for", lambda dl_id, last: 1.0)
 
@@ -984,8 +996,12 @@ class TestSearchTriggerThrottle:
         conn = MagicMock()
 
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         import time
@@ -1005,8 +1021,12 @@ class TestSearchTriggerThrottle:
         conn = MagicMock()
 
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         import time
@@ -1026,8 +1046,12 @@ class TestSearchTriggerThrottle:
         conn = MagicMock()
 
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         import time
@@ -1047,8 +1071,12 @@ class TestSearchTriggerThrottle:
         conn = MagicMock()
 
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: mock_sonarr if svc == "sonarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: None,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: mock_sonarr,
         )
 
         import time
@@ -1069,8 +1097,12 @@ class TestSearchTriggerThrottle:
         conn = MagicMock()
 
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         import time
@@ -1623,8 +1655,12 @@ class TestTriggerPendingSearches:
         monkeypatch.setattr("mediaman.services.arr.search_trigger.fetch_arr_queue", boom)
         # Sonarr pass still runs — stub it out so the test is deterministic.
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: None,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
         called = []
         monkeypatch.setattr(
@@ -1663,8 +1699,12 @@ class TestTriggerPendingSearches:
             2: "Partial Show",
         }
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: mock_sonarr if svc == "sonarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: None,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: mock_sonarr,
         )
 
         calls: list[tuple] = []
@@ -1685,8 +1725,12 @@ class TestTriggerPendingSearches:
             lambda c, _sk: [],
         )
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: None,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
         calls = []
         monkeypatch.setattr(

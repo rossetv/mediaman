@@ -10,8 +10,14 @@ import pytest
 
 from mediaman.validators import (
     validate_scan_day as _validate_scan_day,
+)
+from mediaman.validators import (
     validate_scan_time as _validate_scan_time,
+)
+from mediaman.validators import (
     validate_scan_timezone as _validate_scan_timezone,
+)
+from mediaman.validators import (
     validate_sync_interval as _validate_sync_interval,
 )
 

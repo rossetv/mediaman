@@ -12,7 +12,7 @@ from mediaman.services.arr.fetcher._base import (
 )
 
 if TYPE_CHECKING:
-    from mediaman.services.arr.radarr import RadarrClient
+    from mediaman.services.arr.base import ArrClient
 from mediaman.core.time import parse_iso_utc
 from mediaman.services.downloads.download_format import (
     classify_movie_upcoming,
@@ -21,7 +21,7 @@ from mediaman.services.downloads.download_format import (
 )
 
 
-def fetch_radarr_queue(client: RadarrClient) -> list[ArrCard]:
+def fetch_radarr_queue(client: ArrClient) -> list[ArrCard]:
     """Build Radarr download cards from an already-constructed client.
 
     Returns cards for queue entries plus monitored movies still searching.

@@ -94,9 +94,6 @@ class TestEnrichWithTmdbIds:
             {"id": 7, "tmdbId": 438631, "title": "Dune"},
         ]
 
-        def build_arr_client(conn, service, secret_key):
-            return mock_radarr if service == "radarr" else None
-
         current_map: dict[str, dict[str, object]] = {
             "radarr:Dune": {
                 "id": "radarr:Dune",
@@ -107,8 +104,8 @@ class TestEnrichWithTmdbIds:
         }
 
         with patch(
-            "mediaman.services.arr.build.build_arr_client",
-            side_effect=build_arr_client,
+            "mediaman.services.arr.build.build_radarr_from_db",
+            return_value=mock_radarr,
         ):
             dq._enrich_with_tmdb_ids(MagicMock(), current_map, secret_key="x")
 
@@ -124,9 +121,6 @@ class TestEnrichWithTmdbIds:
             {"id": 9, "tmdbId": 95057, "title": "Severance"},
         ]
 
-        def build_arr_client(conn, service, secret_key):
-            return mock_sonarr if service == "sonarr" else None
-
         current_map: dict[str, dict[str, object]] = {
             "sonarr:Severance": {
                 "id": "sonarr:Severance",
@@ -137,34 +131,24 @@ class TestEnrichWithTmdbIds:
         }
 
         with patch(
-            "mediaman.services.arr.build.build_arr_client",
-            side_effect=build_arr_client,
+            "mediaman.services.arr.build.build_sonarr_from_db",
+            return_value=mock_sonarr,
         ):
             dq._enrich_with_tmdb_ids(MagicMock(), current_map, secret_key="x")
 
         assert current_map["sonarr:Severance"]["tmdb_id"] == 95057
 
     def test_no_arr_entries_skips_lookup(self):
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
 
         import mediaman.services.downloads.download_queue as dq
-
-        mock_radarr = MagicMock()
-        mock_radarr.get_movies.side_effect = AssertionError("no arr entries — should not call")
-
-        def build_arr_client(conn, service, secret_key):
-            return mock_radarr if service == "radarr" else None
 
         current_map: dict[str, dict[str, object]] = {
             "nzbget:foo": {"id": "nzbget:foo", "title": "Manual NZB", "kind": "movie"},
         }
 
-        with patch(
-            "mediaman.services.arr.build.build_arr_client",
-            side_effect=build_arr_client,
-        ):
-            # Must not raise — lookup is skipped because no arr-prefixed entries.
-            dq._enrich_with_tmdb_ids(MagicMock(), current_map, secret_key="x")
+        # Must not raise — lookup is skipped because no arr-prefixed entries.
+        dq._enrich_with_tmdb_ids(MagicMock(), current_map, secret_key="x")
         assert "tmdb_id" not in current_map["nzbget:foo"]
 
     def test_lookup_failure_does_not_raise(self):
@@ -176,9 +160,6 @@ class TestEnrichWithTmdbIds:
         mock_radarr = MagicMock()
         mock_radarr.get_movies.side_effect = ConnectionError("boom")
 
-        def build_arr_client(conn, service, secret_key):
-            return mock_radarr if service == "radarr" else None
-
         current_map: dict[str, dict[str, object]] = {
             "radarr:Dune": {
                 "id": "radarr:Dune",
@@ -188,8 +169,8 @@ class TestEnrichWithTmdbIds:
             }
         }
         with patch(
-            "mediaman.services.arr.build.build_arr_client",
-            side_effect=build_arr_client,
+            "mediaman.services.arr.build.build_radarr_from_db",
+            return_value=mock_radarr,
         ):
             dq._enrich_with_tmdb_ids(MagicMock(), current_map, secret_key="x")
         # Tmdb_id stays absent on failure — caller falls back to title-only matching.

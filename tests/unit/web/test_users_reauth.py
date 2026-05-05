@@ -18,12 +18,12 @@ from fastapi.testclient import TestClient
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
 from mediaman.web.auth.login_lockout import check_lockout, record_failure
+from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.reauth import (
     REAUTH_LOCKOUT_PREFIX,
     grant_recent_reauth,
     has_recent_reauth,
 )
-from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.users import (
     _PASSWORD_CHANGE_LIMITER,

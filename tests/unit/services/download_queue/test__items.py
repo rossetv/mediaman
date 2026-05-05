@@ -120,7 +120,12 @@ class TestBuildMatchedItemSeries:
         assert item["media_type"] == "series"
 
     def test_episodes_populated(self):
-        arr = make_arr_card("series", "Breaking Bad", source="Sonarr", episodes=[_ep_entry(), _ep_entry(label="S01E02")])
+        arr = make_arr_card(
+            "series",
+            "Breaking Bad",
+            source="Sonarr",
+            episodes=[_ep_entry(), _ep_entry(label="S01E02")],
+        )
         item = build_matched_item(arr, _nzb(), state="downloading", eta="", download_rate=0)
         assert len(item["episodes"]) == 2
 
@@ -257,7 +262,10 @@ class TestStuckSeasons:
 
     @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
     def test_series_groups_episodes_by_season(self, _mock_search):
-        arr = make_arr_card("series", "Breaking Bad", source="Sonarr",
+        arr = make_arr_card(
+            "series",
+            "Breaking Bad",
+            source="Sonarr",
             episodes=[
                 _ep_with_season("S21E01", 21),
                 _ep_with_season("S21E02", 21),

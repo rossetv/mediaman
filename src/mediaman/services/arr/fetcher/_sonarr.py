@@ -17,7 +17,7 @@ from mediaman.services.arr.fetcher._base import (
 from mediaman.services.infra.http_client import SafeHTTPError
 
 if TYPE_CHECKING:
-    from mediaman.services.arr.sonarr import SonarrClient
+    from mediaman.services.arr.base import ArrClient
 from mediaman.core.format import format_bytes
 from mediaman.core.time import parse_iso_utc
 from mediaman.services.downloads.download_format import (
@@ -150,7 +150,7 @@ def _aggregate_pack_episodes(card: ArrCard, card_series_id: int) -> None:
     _finalise_card_aggregates(card, eps, cluster_keys, cluster_counts, total_size, total_left)
 
 
-def fetch_sonarr_queue(client: SonarrClient) -> list[ArrCard]:
+def fetch_sonarr_queue(client: ArrClient) -> list[ArrCard]:
     """Build Sonarr download cards from an already-constructed client.
 
     Groups queue episodes by series into one card each, then appends

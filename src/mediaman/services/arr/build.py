@@ -16,8 +16,7 @@ from typing import TYPE_CHECKING
 from mediaman.services.infra.settings_reader import get_string_setting
 
 if TYPE_CHECKING:
-    from mediaman.services.arr.radarr import RadarrClient
-    from mediaman.services.arr.sonarr import SonarrClient
+    from mediaman.services.arr.base import ArrClient
     from mediaman.services.downloads.nzbget import NzbgetClient
     from mediaman.services.media_meta.plex import PlexClient
 
@@ -41,45 +40,30 @@ def _read_arr_credentials(
     return url, key
 
 
-def build_radarr_from_db(conn: sqlite3.Connection, secret_key: str) -> RadarrClient | None:
-    """Return a ``RadarrClient`` or ``None`` if Radarr isn't configured.
+def build_radarr_from_db(conn: sqlite3.Connection, secret_key: str) -> ArrClient | None:
+    """Return an ``ArrClient`` configured for Radarr, or ``None`` if Radarr isn't configured.
 
     Looks up ``radarr_url`` / ``radarr_api_key`` and, if both are set,
-    returns a constructed client. Import of ``RadarrClient`` is deferred
-    so the services layer doesn't pay its cost when Radarr is disabled.
+    returns a constructed client.
     """
     creds = _read_arr_credentials(conn, "radarr", secret_key)
     if creds is None:
         return None
-    from mediaman.services.arr.radarr import RadarrClient
+    from mediaman.services.arr.base import ArrClient
+    from mediaman.services.arr.spec import RADARR_SPEC
 
-    return RadarrClient(*creds)
+    return ArrClient(RADARR_SPEC, *creds)
 
 
-def build_sonarr_from_db(conn: sqlite3.Connection, secret_key: str) -> SonarrClient | None:
-    """Return a ``SonarrClient`` or ``None`` if Sonarr isn't configured."""
+def build_sonarr_from_db(conn: sqlite3.Connection, secret_key: str) -> ArrClient | None:
+    """Return an ``ArrClient`` configured for Sonarr, or ``None`` if Sonarr isn't configured."""
     creds = _read_arr_credentials(conn, "sonarr", secret_key)
     if creds is None:
         return None
-    from mediaman.services.arr.sonarr import SonarrClient
+    from mediaman.services.arr.base import ArrClient
+    from mediaman.services.arr.spec import SONARR_SPEC
 
-    return SonarrClient(*creds)
-
-
-def build_arr_client(
-    conn: sqlite3.Connection,
-    service: str,
-    secret_key: str,
-) -> RadarrClient | SonarrClient | None:
-    """Build a Radarr or Sonarr client from DB settings. Returns None if unconfigured.
-
-    ``secret_key`` is required to decrypt the stored API key.
-    """
-    if service == "radarr":
-        return build_radarr_from_db(conn, secret_key)
-    if service == "sonarr":
-        return build_sonarr_from_db(conn, secret_key)
-    return None
+    return ArrClient(SONARR_SPEC, *creds)
 
 
 def build_plex_from_db(conn: sqlite3.Connection, secret_key: str) -> PlexClient | None:

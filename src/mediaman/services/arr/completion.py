@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from collections.abc import Callable
 from typing import Any, NotRequired, TypedDict, cast
 
 from mediaman.services.arr.fetcher import ArrCard
@@ -102,7 +101,7 @@ def cleanup_recent_downloads(conn: sqlite3.Connection) -> int:
 def record_verified_completions(
     conn: sqlite3.Connection,
     completed: list[CompletedItem],
-    build_client: Callable[[sqlite3.Connection, str], Any],
+    secret_key: str,
 ) -> None:
     """Record completed downloads in recent_downloads, skipping unverified items.
 
@@ -120,6 +119,8 @@ def record_verified_completions(
     propagates ``tmdb_id`` from the queue snapshot (D6 fix), the fallback
     becomes vanishingly rare.
     """
+    from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
+
     # Fetch Radarr/Sonarr libraries once per call and index by tmdbId + title.
     # None signals "not yet fetched"; an empty dict means "fetched, nothing found".
     _radarr_by_id: dict[int, dict] | None = None
@@ -135,7 +136,7 @@ def record_verified_completions(
         # _radarr_by_id stays None so the next item retries (matching original behaviour).
         by_id: dict[int, dict] = {}
         by_title: dict[str, dict] = {}
-        client = build_client(conn, "radarr")
+        client = build_radarr_from_db(conn, secret_key)
         for m in client.get_movies() if client else []:
             if tid := m.get("tmdbId"):
                 by_id[int(tid)] = m
@@ -149,7 +150,7 @@ def record_verified_completions(
             return
         by_id: dict[int, dict] = {}
         by_title: dict[str, dict] = {}
-        client = build_client(conn, "sonarr")
+        client = build_sonarr_from_db(conn, secret_key)
         for s in client.get_series() if client else []:
             if tid := s.get("tmdbId"):
                 by_id[int(tid)] = s
@@ -240,7 +241,7 @@ def fetch_and_sync_recent_downloads(
     conn: sqlite3.Connection,
     active_ids: set[str],
     active_titles: set[str],
-    build_client: Callable[[sqlite3.Connection, str], Any],
+    secret_key: str,
 ) -> list[RecentDownloadItem]:
     """Return recent downloads (last 7 days), excluding anything active.
 
@@ -248,6 +249,8 @@ def fetch_and_sync_recent_downloads(
     (e.g. Radarr re-grabbed after a bad release) and backfills missing poster
     URLs via Radarr/Sonarr.
     """
+    from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
+
     recent_rows = conn.execute(
         "SELECT id, dl_id, title, media_type, poster_url, completed_at"
         " FROM recent_downloads"
@@ -265,7 +268,11 @@ def fetch_and_sync_recent_downloads(
         if cache is None:
             cache = {}
             try:
-                client = build_client(conn, service)
+                client = (
+                    build_radarr_from_db(conn, secret_key)
+                    if service == "radarr"
+                    else build_sonarr_from_db(conn, secret_key)
+                )
                 if client:
                     entries = client.get_movies() if service == "radarr" else client.get_series()
                     for e in entries:

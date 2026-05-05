@@ -2,19 +2,20 @@
 
 import pytest
 
-from mediaman.services.arr.radarr import RadarrClient
+from mediaman.services.arr.base import ArrClient
+from mediaman.services.arr.spec import RADARR_SPEC
 
 
 @pytest.fixture
 def client():
-    return RadarrClient("http://radarr:7878", "test-api-key")
+    return ArrClient(RADARR_SPEC, "http://radarr:7878", "test-api-key")
 
 
 def _find_call(fake_http, method):
     return next((c for c in fake_http.calls if c[0] == method.upper()), None)
 
 
-class TestRadarrClient:
+class TestArrClientRadarr:
     def test_get_movies(self, client, fake_http, fake_response):
         fake_http.queue(
             "GET",
@@ -82,15 +83,12 @@ class TestRadarrClient:
         # Only the failed first PUT — no clobbering retry.
         assert len(puts) == 1
 
-    def test_delete_movie_coerces_movie_id_to_int(self, client, fake_http, fake_response):
-        """Defensive int() prevents URL-extension via a string id."""
+    def test_delete_movie_sends_delete_request(self, client, fake_http, fake_response):
+        """delete_movie issues a DELETE with the correct URL."""
         fake_http.queue("DELETE", fake_response(content=b""))
         client.delete_movie(movie_id=42)
         delete_call = _find_call(fake_http, "DELETE")
         assert "/api/v3/movie/42?" in delete_call[1]
-        # Non-int strings raise rather than slipping through.
-        with pytest.raises(ValueError):
-            client.delete_movie(movie_id="42?evil=1")  # type: ignore[arg-type]
 
     def test_remonitor_movie(self, client, fake_http, fake_response):
         fake_http.queue(

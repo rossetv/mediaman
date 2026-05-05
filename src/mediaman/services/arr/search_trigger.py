@@ -57,7 +57,7 @@ from mediaman.services.arr._throttle_state import (  # noqa: F401
     _state_lock,
 )
 from mediaman.services.arr.auto_abandon import maybe_auto_abandon
-from mediaman.services.arr.build import build_arr_client
+from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.fetcher import fetch_arr_queue
 
 logger = logging.getLogger("mediaman")
@@ -180,19 +180,16 @@ def maybe_trigger_search(
     # Phase 2: outside the lock, do the network call.
     triggered = False
     try:
-        client = build_arr_client(conn, service, secret_key)
+        builders = {"radarr": build_radarr_from_db, "sonarr": build_sonarr_from_db}
+        client = builders[service](conn, secret_key)
         if client is None:
             return
-        # ``service`` is paired with ``kind`` above (radarr↔movie, sonarr↔series),
-        # so ``build_arr_client`` returns the matching subtype — narrow with cast
-        # since mypy can't track the relationship.
-        from mediaman.services.arr.radarr import RadarrClient
-        from mediaman.services.arr.sonarr import SonarrClient
+        from mediaman.services.arr.base import ArrClient
 
         if kind == "movie":
-            cast(RadarrClient, client).search_movie(arr_id)
+            cast(ArrClient, client).search_movie(arr_id)
         else:
-            cast(SonarrClient, client).search_series(arr_id)
+            cast(ArrClient, client).search_series(arr_id)
         triggered = True
         # Late import: ``_deep_links`` lives in the ``download_queue`` package
         # whose ``__init__`` imports ``maybe_trigger_search`` from this module,
@@ -314,13 +311,13 @@ def _trigger_sonarr_partial_missing(
     ``arr_id``, and reuses the ``sonarr:{title}`` dl_id format so the
     per-item throttle recognises the same series across passes.
     """
-    from mediaman.services.arr.sonarr import SonarrClient
+    from mediaman.services.arr.base import ArrClient
 
-    client = build_arr_client(conn, "sonarr", secret_key)
+    client = build_sonarr_from_db(conn, secret_key)
     if client is None:
         return
-    # ``service="sonarr"`` always yields a SonarrClient; narrow for mypy.
-    sonarr_client = cast(SonarrClient, client)
+    # ``build_sonarr_from_db`` always yields an ArrClient with SONARR_SPEC; narrow for mypy.
+    sonarr_client = cast(ArrClient, client)
 
     already_poked = {
         item.get("arr_id")

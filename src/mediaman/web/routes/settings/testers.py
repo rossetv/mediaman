@@ -179,26 +179,28 @@ def test_plex(settings: dict[str, object]) -> JSONResponse:
 @_register("sonarr")
 def test_sonarr(settings: dict[str, object]) -> JSONResponse:
     """Test connectivity to Sonarr using the configured URL and API key."""
-    from mediaman.services.arr.sonarr import SonarrClient
+    from mediaman.services.arr.base import ArrClient
+    from mediaman.services.arr.spec import SONARR_SPEC
 
     return _test_connection_service(
         settings,
         required_keys={"url": "sonarr_url", "api_key": "sonarr_api_key"},
         required_msg="Sonarr URL and API key are required",
-        make_client=lambda v: SonarrClient(v["url"], v["api_key"]),
+        make_client=lambda v: ArrClient(SONARR_SPEC, v["url"], v["api_key"]),
     )
 
 
 @_register("radarr")
 def test_radarr(settings: dict[str, object]) -> JSONResponse:
     """Test connectivity to Radarr using the configured URL and API key."""
-    from mediaman.services.arr.radarr import RadarrClient
+    from mediaman.services.arr.base import ArrClient
+    from mediaman.services.arr.spec import RADARR_SPEC
 
     return _test_connection_service(
         settings,
         required_keys={"url": "radarr_url", "api_key": "radarr_api_key"},
         required_msg="Radarr URL and API key are required",
-        make_client=lambda v: RadarrClient(v["url"], v["api_key"]),
+        make_client=lambda v: ArrClient(RADARR_SPEC, v["url"], v["api_key"]),
     )
 
 
