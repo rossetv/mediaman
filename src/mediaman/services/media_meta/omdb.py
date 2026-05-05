@@ -58,7 +58,7 @@ def _attach_scrub_filters(api_key: str) -> None:
     * ``urllib3.connectionpool`` — logs the full request URL at DEBUG, which
       would otherwise expose ``apikey=<value>``.
     * ``mediaman`` — catches any caller that stringifies a
-      :class:`~mediaman.services.infra.http_client.SafeHTTPError` carrying
+      :class:`~mediaman.services.infra.http.client.SafeHTTPError` carrying
       the constructed URL.
     """
     secrets = [api_key]

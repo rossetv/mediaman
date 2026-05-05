@@ -1,16 +1,15 @@
 """Throttle state, persistence, and trigger-decision logic for auto-triggered Arr searches.
 
 This module is the single home for everything that governs whether and when
-mediaman pokes Radarr/Sonarr to search for a stalled monitored item.  It was
-previously split across :mod:`mediaman.services.arr.throttle` (state and
-persistence) and this file (decision logic), with a messy re-export dance to
-keep callers and tests happy after the original split.
+mediaman pokes Radarr/Sonarr to search for a stalled monitored item.
 
 What this module owns:
 
-* Module-level in-memory state dicts and the lock guarding them.
+* Module-level in-memory state dicts and the lock guarding them
+  (sourced from :mod:`mediaman.services.arr._throttle_state`).
 * Per-item and per-arr-instance backoff configuration and helpers.
-* SQLite persistence to/from the ``arr_search_throttle`` table.
+* SQLite persistence to/from the ``arr_search_throttle`` table
+  (sourced from :mod:`mediaman.services.arr._throttle_persistence`).
 * The reconciliation pass that reaps stranded rows after a TTL.
 * Inspection / reset helpers used by the UI and tests.
 * :func:`maybe_trigger_search` — the reservation-token locking discipline
@@ -19,8 +18,9 @@ What this module owns:
 * :func:`_trigger_sonarr_partial_missing` — the second pass for series with
   partial episode coverage.
 
-:mod:`mediaman.services.arr.throttle` is kept as a back-compat re-export
-shim so callers and tests that import from that path continue to work.
+State and persistence helpers are re-exported here at module level so that
+``mediaman.services.arr.search_trigger.<helper>`` remains a stable patch
+target for tests; production calls in this file resolve them as bare names.
 """
 
 from __future__ import annotations

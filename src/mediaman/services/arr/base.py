@@ -444,7 +444,7 @@ class ArrClient(_ArrClientBase):
         Returns the first match or ``None`` if the upstream API returns an
         empty list (series genuinely not found in Sonarr's metadata provider).
 
-        Network failures (:exc:`~mediaman.services.infra.http_client.SafeHTTPError`,
+        Network failures (:exc:`~mediaman.services.infra.http.client.SafeHTTPError`,
         :exc:`~requests.RequestException`) are allowed to propagate so callers
         can distinguish "not found" from "call failed".
 

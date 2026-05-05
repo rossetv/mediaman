@@ -7,9 +7,8 @@ in-memory state.  All mutable in-memory state is imported from
 the same dicts and lock object.
 
 All names in this module are re-exported verbatim from
-:mod:`mediaman.services.arr.search_trigger` and
-:mod:`mediaman.services.arr.throttle` so existing import paths and test
-monkeypatch targets continue to work.
+:mod:`mediaman.services.arr.search_trigger` so existing import paths
+and test monkeypatch targets continue to work.
 """
 
 from __future__ import annotations

@@ -9,6 +9,14 @@
 > errors designed at the same time as the success path. When two of those tug against
 > each other, the values in [§1](#1-philosophy) decide.
 
+> **Aspirational, not retrospective.** These guidelines describe the target state.
+> The current codebase has known carve-outs — most notably a handful of files that
+> still exceed the 500-line ceiling ([§3.1](#31-file-size)) and a tail of functions
+> that exceed the 60-line ceiling ([§3.2](#32-function-size)). Those are tracked as
+> ongoing work; new code must conform from day one, and changes that extend an
+> existing carve-out are blocked. Apply the rules to every PR; reduce the carve-out
+> set over time.
+
 ## TL;DR — the ten rules most often violated
 
 1. Use the shared HTTP client; no new `requests.get` outside

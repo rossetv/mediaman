@@ -17,9 +17,8 @@ State summary:
 * ``_state_lock`` — threading.Lock guarding all four dicts above.
 
 All names in this module are re-exported verbatim from
-:mod:`mediaman.services.arr.search_trigger` and
-:mod:`mediaman.services.arr.throttle` so existing import paths and test
-monkeypatch targets continue to work.
+:mod:`mediaman.services.arr.search_trigger` so existing import paths
+and test monkeypatch targets continue to work.
 """
 
 from __future__ import annotations
@@ -86,11 +85,13 @@ def _jitter_for(dl_id: str, last_triggered_at: float) -> float:
     which calls into :class:`~mediaman.services.infra.backoff.ExponentialBackoff`'s
     deterministic-multiplier helper using the same seed.
 
-    Tests patch ``mediaman.services.arr._throttle_state._jitter_for``
-    (or ``mediaman.services.arr.search_trigger._jitter_for``).
+    Tests patch ``mediaman.services.arr._throttle_state._jitter_for``.
     ``_search_backoff_seconds`` resolves ``_jitter_for`` from this
-    module's globals at call time, so a monkeypatch on this name is
-    picked up by the production backoff computation.
+    module's globals at call time, so the monkeypatch on this name is
+    picked up by the production backoff computation. (Patching the
+    re-export at ``mediaman.services.arr.search_trigger._jitter_for``
+    has no effect on production behaviour, since ``search_trigger``
+    does not call ``_jitter_for`` directly.)
     """
     seed = f"{dl_id}|{last_triggered_at!r}".encode()
     return _SEARCH_BACKOFF._deterministic_multiplier(seed)
