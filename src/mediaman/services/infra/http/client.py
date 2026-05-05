@@ -47,12 +47,12 @@ from typing import Any
 
 import requests
 
+from mediaman.core.url_safety import (
+    resolve_safe_outbound_url as _resolve_safe_outbound_url,
+)
 from mediaman.services.infra.http.dns_pinning import ensure_hook_installed, pin
 from mediaman.services.infra.http.retry import _RETRY_BACKOFFS, dispatch_loop
 from mediaman.services.infra.http.streaming import _read_capped
-from mediaman.services.infra.url_safety import (
-    resolve_safe_outbound_url as _resolve_safe_outbound_url,
-)
 
 logger = logging.getLogger("mediaman")
 

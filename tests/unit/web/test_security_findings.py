@@ -16,11 +16,11 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.testclient import TestClient
 
-from mediaman.auth.middleware import get_current_admin, get_optional_admin
 from mediaman.config import Config
 from mediaman.crypto import generate_download_token, generate_keep_token, generate_poll_token
 from mediaman.db import init_db, set_connection
 from mediaman.web import register_security_middleware
+from mediaman.web.auth.middleware import get_current_admin, get_optional_admin
 from mediaman.web.routes.download import status as _status_module
 from mediaman.web.routes.keep import find_active_keep_action_by_id_and_token
 from mediaman.web.routes.keep import router as keep_router

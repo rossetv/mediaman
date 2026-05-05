@@ -6,14 +6,14 @@ import time
 
 import pytest
 
-from mediaman.auth.rate_limit import (
+from mediaman.services.rate_limit import (
     ActionRateLimiter,
     RateLimiter,
     get_client_ip,
     trusted_proxies,
 )
-from mediaman.auth.rate_limit import ip_resolver as ip_resolver_module
-from mediaman.auth.rate_limit.ip_resolver import (
+from mediaman.services.rate_limit import ip_resolver as ip_resolver_module
+from mediaman.services.rate_limit.ip_resolver import (
     clear_cache,
     cloudflare_proxies,
 )
@@ -91,7 +91,7 @@ class TestRateLimiterEviction:
 
     def test_lru_bucket_evicted_when_cap_hit(self, monkeypatch):
         """Filling beyond _MAX_BUCKETS evicts the LEAST-recently-used bucket."""
-        from mediaman.auth.rate_limit import limiters as limiters_module
+        from mediaman.services.rate_limit import limiters as limiters_module
 
         monkeypatch.setattr(limiters_module, "_MAX_BUCKETS", 3)
         limiter = RateLimiter(max_attempts=10, window_seconds=60)
@@ -109,7 +109,7 @@ class TestRateLimiterEviction:
 
     def test_recent_access_promotes_bucket(self, monkeypatch):
         """A bucket touched most recently must NOT be the next eviction target."""
-        from mediaman.auth.rate_limit import limiters as limiters_module
+        from mediaman.services.rate_limit import limiters as limiters_module
 
         monkeypatch.setattr(limiters_module, "_MAX_BUCKETS", 3)
         limiter = RateLimiter(max_attempts=10, window_seconds=60)

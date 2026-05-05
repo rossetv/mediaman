@@ -15,7 +15,6 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
-from mediaman.auth.middleware import get_current_admin
 from mediaman.db import (
     finish_refresh_run,
     get_db,
@@ -30,6 +29,7 @@ from mediaman.services.openai.recommendations.throttle import (
     record_manual_refresh,
     refresh_cooldown_remaining,
 )
+from mediaman.web.auth.middleware import get_current_admin
 
 logger = logging.getLogger("mediaman")
 

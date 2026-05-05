@@ -23,7 +23,7 @@ import logging
 import sqlite3
 from datetime import UTC, datetime
 
-from mediaman.services.infra.format import format_day_month as _format_day_month
+from mediaman.core.format import format_day_month as _format_day_month
 
 from .enrich import _annotate_rec_download_states
 from .recipients import _load_recipients, _send_to_recipients

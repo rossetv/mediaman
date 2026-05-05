@@ -11,7 +11,6 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.responses import Response
 
-from mediaman.auth.middleware import resolve_page_session
 from mediaman.services.arr.state import (
     LazyArrClients,
     RadarrCaches,
@@ -22,6 +21,7 @@ from mediaman.services.arr.state import (
 )
 from mediaman.services.infra.settings_reader import get_bool_setting
 from mediaman.services.openai.recommendations.throttle import refresh_cooldown_remaining
+from mediaman.web.auth.middleware import resolve_page_session
 
 from ._query import fetch_recommendations
 

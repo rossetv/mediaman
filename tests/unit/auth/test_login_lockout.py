@@ -6,14 +6,14 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from mediaman.auth.login_lockout import (
+from mediaman.db import init_db
+from mediaman.web.auth.login_lockout import (
     admin_unlock,
     check_lockout,
     record_failure,
     record_success,
 )
-from mediaman.auth.session import authenticate, create_user
-from mediaman.db import init_db
+from mediaman.web.auth.session import authenticate, create_user
 
 
 @pytest.fixture

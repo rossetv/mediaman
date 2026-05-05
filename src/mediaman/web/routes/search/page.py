@@ -21,9 +21,9 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.responses import Response
 
-from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.db import get_db
 from mediaman.services.media_meta.tmdb import TmdbClient
+from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.web.responses import respond_err
 
 from ._enrichment import (

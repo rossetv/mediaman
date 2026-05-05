@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from mediaman.services.infra.format import format_day_month
-from mediaman.services.infra.time import parse_iso_utc
+from mediaman.core.format import format_day_month
+from mediaman.core.time import parse_iso_utc
 
 # Maximum number of years into the future that a release date is trusted.
 # TMDB sometimes stores year 9999 for unreleased titles — such values should

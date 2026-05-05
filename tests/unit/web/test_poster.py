@@ -269,7 +269,7 @@ class TestPosterEndpointAuth:
         """A logged-in admin need not attach ?sig=... — the session is enough."""
         client, conn = self._build_test_app(tmp_path, self._KEY)
 
-        from mediaman.auth.session import create_session, create_user
+        from mediaman.web.auth.session import create_session, create_user
 
         create_user(conn, "admin", "long-enough-test-password-please", enforce_policy=False)
         token = create_session(conn, "admin")
@@ -288,7 +288,7 @@ class TestPosterEndpointAuth:
         """Admin + bad rating key returns 404."""
         client, conn = self._build_test_app(tmp_path, self._KEY, stub_cache=False)
 
-        from mediaman.auth.session import create_session, create_user
+        from mediaman.web.auth.session import create_session, create_user
 
         create_user(conn, "admin", "long-enough-test-password-please", enforce_policy=False)
         token = create_session(conn, "admin")
@@ -668,8 +668,8 @@ class TestPosterPublicRateLimit:
 
     def test_admin_bypasses_ip_cap(self, tmp_path):
         client, _ = self._setup(tmp_path)
-        from mediaman.auth.session import create_session, create_user
         from mediaman.db import get_db
+        from mediaman.web.auth.session import create_session, create_user
 
         conn = get_db()
         create_user(conn, "admin", "long-enough-test-password-please", enforce_policy=False)

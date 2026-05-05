@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from mediaman.services.infra.format import ensure_tz as _ensure_tz
+from mediaman.core.format import ensure_tz as _ensure_tz
 
 logger = logging.getLogger("mediaman")
 

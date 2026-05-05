@@ -213,8 +213,8 @@ def add_unmatched_nzb_items(
     download_rate: int,
 ) -> None:
     """Append unmatched NZBGet entries (manual grabs with no arr card) to *items* in place."""
+    from mediaman.core.format import format_bytes
     from mediaman.services.downloads.download_format import build_item, format_eta, map_state
-    from mediaman.services.infra.format import format_bytes
 
     for nzb in nzb_parsed:
         if nzb["_matched"]:

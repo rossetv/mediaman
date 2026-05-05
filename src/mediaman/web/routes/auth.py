@@ -12,14 +12,16 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.responses import Response
 
 from mediaman.audit import security_event
-from mediaman.auth.password_policy import is_strong
-from mediaman.auth.rate_limit import (
+from mediaman.db import get_db
+from mediaman.services.rate_limit import (
     RateLimiter,
     get_client_ip,
     peer_is_trusted,
     trusted_proxies,
 )
-from mediaman.auth.session import (
+from mediaman.web.auth.password_hash import _sanitise_log_field
+from mediaman.web.auth.password_policy import is_strong
+from mediaman.web.auth.session import (
     authenticate,
     create_session,
     destroy_session,
@@ -27,8 +29,6 @@ from mediaman.auth.session import (
     user_must_change_password,
     validate_session,
 )
-from mediaman.db import get_db
-from mediaman.web.auth.password_hash import _sanitise_log_field
 from mediaman.web.responses import respond_err
 from mediaman.web.routes._helpers import set_session_cookie
 

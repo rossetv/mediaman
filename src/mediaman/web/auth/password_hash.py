@@ -43,7 +43,7 @@ from typing import TypedDict
 
 import bcrypt
 
-from mediaman.services.infra.time import now_iso
+from mediaman.core.time import now_iso
 
 logger = logging.getLogger("mediaman")
 

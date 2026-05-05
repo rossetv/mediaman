@@ -18,8 +18,8 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import TypedDict
 
+from mediaman.core.time import parse_iso_utc as _parse_iso_aware
 from mediaman.crypto import generate_session_token
-from mediaman.services.infra.format import parse_iso_utc as _parse_iso_aware
 from mediaman.web.auth._token_hashing import hash_token as _hash_token
 
 # ``_parse_iso_aware`` is now an alias for the canonical

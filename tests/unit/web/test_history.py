@@ -7,9 +7,9 @@ from datetime import UTC, datetime
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
+from mediaman.web.auth.session import create_session, create_user
 from mediaman.web.routes.history import _PER_PAGE_DEFAULT, _PER_PAGE_MAX
 from mediaman.web.routes.history import router as history_router
 
@@ -208,7 +208,7 @@ class TestHistoryPageClamp:
         return app
 
     def test_page_clamped_to_total_pages(self, db_path):
-        from mediaman.auth.session import create_session, create_user
+        from mediaman.web.auth.session import create_session, create_user
 
         conn = init_db(str(db_path))
         create_user(conn, "admin", "password1234", enforce_policy=False)
@@ -229,7 +229,7 @@ class TestHistoryPageClamp:
         assert "total_pages=1" in resp.text
 
     def test_negative_page_clamped_to_one(self, db_path):
-        from mediaman.auth.session import create_session, create_user
+        from mediaman.web.auth.session import create_session, create_user
 
         conn = init_db(str(db_path))
         create_user(conn, "admin", "password1234", enforce_policy=False)

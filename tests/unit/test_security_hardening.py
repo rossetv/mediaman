@@ -128,7 +128,7 @@ class TestXffRightmostWalk:
     def test_attacker_cannot_spoof_leftmost_xff(self, monkeypatch):
         """Right-to-left walk ignores an attacker-prepended leftmost entry."""
         monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
-        from mediaman.auth.rate_limit import get_client_ip
+        from mediaman.services.rate_limit import get_client_ip
 
         class FakeRequest:
             headers = {"x-forwarded-for": "1.2.3.4, 198.51.100.7, 10.0.0.1"}
@@ -141,7 +141,7 @@ class TestXffRightmostWalk:
     def test_all_trusted_falls_back_to_peer(self, monkeypatch):
         """If every XFF entry is a trusted proxy, fall back to the direct peer."""
         monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
-        from mediaman.auth.rate_limit import get_client_ip
+        from mediaman.services.rate_limit import get_client_ip
 
         class FakeRequest:
             headers = {"x-forwarded-for": "10.0.0.1, 10.0.0.2"}

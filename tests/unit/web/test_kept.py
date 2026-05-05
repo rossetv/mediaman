@@ -7,9 +7,9 @@ from datetime import UTC, datetime
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
+from mediaman.web.auth.session import create_session, create_user
 from mediaman.web.routes.kept import router as kept_router
 
 

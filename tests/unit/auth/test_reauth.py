@@ -7,8 +7,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from mediaman.auth.password_hash import create_user
-from mediaman.auth.reauth import (
+from mediaman.db import init_db
+from mediaman.web.auth.password_hash import create_user
+from mediaman.web.auth.reauth import (
     REAUTH_LOCKOUT_PREFIX,
     cleanup_expired_reauth,
     grant_recent_reauth,
@@ -19,8 +20,7 @@ from mediaman.auth.reauth import (
     revoke_reauth_by_hash,
     verify_reauth_password,
 )
-from mediaman.auth.session_store import _hash_token
-from mediaman.db import init_db
+from mediaman.web.auth.session_store import _hash_token
 
 
 @pytest.fixture

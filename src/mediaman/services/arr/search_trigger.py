@@ -36,10 +36,10 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from mediaman.services.arr.fetcher import ArrCard
 
+from mediaman.core.backoff import ExponentialBackoff
 from mediaman.services.arr.auto_abandon import maybe_auto_abandon
 from mediaman.services.arr.build import build_arr_client
 from mediaman.services.arr.fetcher import fetch_arr_queue
-from mediaman.services.infra.backoff import ExponentialBackoff
 
 logger = logging.getLogger("mediaman")
 
@@ -185,7 +185,7 @@ def _load_throttle_from_db(conn: sqlite3.Connection, dl_id: str) -> tuple[float,
         ).fetchone()
         if row is None:
             return 0.0, 0
-        from mediaman.services.infra.time import parse_iso_utc
+        from mediaman.core.time import parse_iso_utc
 
         dt = parse_iso_utc(row[0])
         epoch = dt.timestamp() if dt is not None else 0.0

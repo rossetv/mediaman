@@ -39,7 +39,7 @@ def app(db_path, secret_key):
 
 @pytest.fixture
 def authed_client(app):
-    from mediaman.auth.session import create_session, create_user
+    from mediaman.web.auth.session import create_session, create_user
 
     conn = app.state.db
     create_user(conn, "testadmin", "testpass123", enforce_policy=False)

@@ -15,7 +15,6 @@ import requests
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
-from mediaman.auth.rate_limit import RateLimiter, get_client_ip
 from mediaman.crypto import generate_poll_token, validate_download_token
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
@@ -30,6 +29,7 @@ from mediaman.services.arr.state import (
 from mediaman.services.downloads.download_format import build_item
 from mediaman.services.infra.http_client import SafeHTTPError
 from mediaman.services.media_meta.item_enrichment import enrich_redownload_item
+from mediaman.services.rate_limit import RateLimiter, get_client_ip
 
 # YouTube video IDs are exactly 11 URL-safe base64 characters.
 _YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")

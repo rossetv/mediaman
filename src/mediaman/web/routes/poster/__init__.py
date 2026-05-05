@@ -53,8 +53,7 @@ import requests
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 
-from mediaman.auth.middleware import get_optional_admin
-from mediaman.auth.rate_limit import get_client_ip
+from mediaman.core.url_safety import is_safe_outbound_url
 from mediaman.crypto import (
     decrypt_value,
     sign_poster_url,  # noqa: F401 — re-exported for web/templates + tests
@@ -67,7 +66,8 @@ from mediaman.services.infra.http_client import SafeHTTPClient, SafeHTTPError
 from mediaman.services.infra.rate_limits import (
     POSTER_PUBLIC_LIMITER as _POSTER_PUBLIC_LIMITER,
 )
-from mediaman.services.infra.url_safety import is_safe_outbound_url
+from mediaman.services.rate_limit import get_client_ip
+from mediaman.web.auth.middleware import get_optional_admin
 
 # Import pure helpers from submodules.
 from mediaman.web.routes.poster.cache import (

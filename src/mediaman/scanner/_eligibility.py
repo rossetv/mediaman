@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from mediaman.services.infra.format import ensure_tz as _ensure_tz
+from mediaman.core.format import ensure_tz as _ensure_tz
 
 
 def check_age(added_at: datetime, min_age_days: int) -> bool:

@@ -12,8 +12,7 @@ import requests
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
-from mediaman.auth.middleware import get_optional_admin
-from mediaman.auth.rate_limit import RateLimiter, get_client_ip
+from mediaman.core.format import format_bytes
 from mediaman.crypto import validate_poll_token
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
@@ -26,8 +25,9 @@ from mediaman.services.downloads.download_format import (
 )
 from mediaman.services.downloads.download_format._types import DownloadItem
 from mediaman.services.downloads.download_queue import build_episode_dicts
-from mediaman.services.infra.format import format_bytes
 from mediaman.services.infra.http_client import SafeHTTPError
+from mediaman.services.rate_limit import RateLimiter, get_client_ip
+from mediaman.web.auth.middleware import get_optional_admin
 from mediaman.web.responses import respond_err
 
 logger = logging.getLogger("mediaman")

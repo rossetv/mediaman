@@ -58,7 +58,7 @@ def _format_size_fields(size: int, sizeleft: int) -> tuple[str, str]:
     Returns:
         A ``(size_str, done_str)`` tuple, each a human-readable byte string.
     """
-    from mediaman.services.infra.format import format_bytes
+    from mediaman.core.format import format_bytes
 
     return format_bytes(size), format_bytes(size - sizeleft)
 

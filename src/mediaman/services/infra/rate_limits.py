@@ -7,7 +7,7 @@ parameters that silently diverge over time.
 
 from __future__ import annotations
 
-from mediaman.auth.rate_limit import ActionRateLimiter, RateLimiter
+from mediaman.services.rate_limit import ActionRateLimiter, RateLimiter
 
 # Newsletter send limiter — shared by subscribers.py (/api/newsletter/send).
 # 3 sends per 5 minutes per admin, 10 per day.

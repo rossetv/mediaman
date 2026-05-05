@@ -13,15 +13,14 @@ from fastapi import APIRouter, Cookie, Depends, Request
 from fastapi.responses import JSONResponse
 
 from mediaman.audit import security_event
-from mediaman.auth.middleware import get_current_admin
-from mediaman.auth.rate_limit import get_client_ip
-from mediaman.auth.reauth import (
+from mediaman.db import get_db
+from mediaman.services.rate_limit import get_client_ip, rate_limit
+from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.reauth import (
     grant_recent_reauth,
     reauth_window_seconds,
     verify_reauth_password,
 )
-from mediaman.db import get_db
-from mediaman.services.rate_limit import rate_limit
 from mediaman.web.models.users import ReauthBody
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.users.rate_limits import _REAUTH_LIMITER

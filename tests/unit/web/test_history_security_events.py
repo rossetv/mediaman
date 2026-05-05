@@ -17,9 +17,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from mediaman.audit import security_event
-from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
+from mediaman.web.auth.session import create_session, create_user
 from mediaman.web.routes.history import router as history_router
 
 

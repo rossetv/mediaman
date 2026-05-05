@@ -222,7 +222,7 @@ def generate_trending(
     now = datetime.now(UTC)
     last_week_end = now - timedelta(days=now.weekday() + 1)
     last_week_start = last_week_end - timedelta(days=6)
-    from mediaman.services.infra.format import format_day_month as _fmt_dm
+    from mediaman.core.format import format_day_month as _fmt_dm
 
     week_str = f"{_fmt_dm(last_week_start)}–{_fmt_dm(last_week_end, long_month=True)}"
 

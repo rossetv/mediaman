@@ -47,13 +47,13 @@ with _warnings.catch_warnings():
     )
     defusedxml.defuse_stdlib()
 
+from mediaman.core.scrub_filter import ScrubFilter
+from mediaman.core.url_safety import resolve_safe_outbound_url
 from mediaman.services.infra.http_client import (
     SafeHTTPClient,
     SafeHTTPError,
     pin_dns_for_request,
 )
-from mediaman.services.infra.scrub_filter import ScrubFilter
-from mediaman.services.infra.url_safety import resolve_safe_outbound_url
 from mediaman.services.media_meta.anime_detect import is_anime as _is_anime_show
 
 _logger = _logging.getLogger("mediaman")

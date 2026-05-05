@@ -21,6 +21,7 @@ so that monkeypatching this module's namespace takes effect correctly.
 
 import time  # noqa: F401 — tests patch http_client.time.sleep
 
+from mediaman.core.url_safety import resolve_safe_outbound_url  # noqa: F401
 from mediaman.services.infra.http import *  # noqa: F403
 from mediaman.services.infra.http.client import (  # noqa: F401
     _DEFAULT_MAX_BYTES,
@@ -52,4 +53,3 @@ from mediaman.services.infra.http.streaming import (  # noqa: F401
     _read_capped,
     _SizeCapExceeded,
 )
-from mediaman.services.infra.url_safety import resolve_safe_outbound_url  # noqa: F401

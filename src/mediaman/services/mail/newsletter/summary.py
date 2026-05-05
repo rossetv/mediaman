@@ -6,9 +6,9 @@ import logging
 import sqlite3
 from datetime import datetime, timedelta
 
+from mediaman.core.format import rk_from_audit_detail as _extract_rk_from_detail
+from mediaman.core.format import title_from_audit_detail as _extract_title_from_detail
 from mediaman.crypto import sign_poster_url
-from mediaman.services.infra.format import rk_from_audit_detail as _extract_rk_from_detail
-from mediaman.services.infra.format import title_from_audit_detail as _extract_title_from_detail
 
 from ._time import _parse_days_ago
 

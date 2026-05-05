@@ -51,7 +51,7 @@ import logging
 import sqlite3
 from datetime import UTC, datetime, timedelta
 
-from mediaman.services.infra.format import parse_iso_utc as _parse_iso
+from mediaman.core.time import parse_iso_utc as _parse_iso
 
 logger = logging.getLogger("mediaman")
 

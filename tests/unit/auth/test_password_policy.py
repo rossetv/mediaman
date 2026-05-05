@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mediaman.auth.password_policy import (
+from mediaman.web.auth.password_policy import (
     is_strong,
     password_issues,
     policy_summary,
@@ -13,25 +13,25 @@ class TestCommonPasswordsDataFile:
     """H5: common passwords are loaded from the data file, not an inline tuple."""
 
     def test_common_passwords_is_frozenset(self):
-        from mediaman.auth.password_policy import _COMMON_PASSWORDS
+        from mediaman.web.auth.password_policy import _COMMON_PASSWORDS
 
         assert isinstance(_COMMON_PASSWORDS, frozenset)
 
     def test_common_passwords_non_empty(self):
-        from mediaman.auth.password_policy import _COMMON_PASSWORDS
+        from mediaman.web.auth.password_policy import _COMMON_PASSWORDS
 
         assert len(_COMMON_PASSWORDS) > 50
 
     def test_no_duplicates(self):
         """Deduplication is guaranteed because we load into a set before frozenset."""
-        from mediaman.auth.password_policy import _COMMON_PASSWORDS
+        from mediaman.web.auth.password_policy import _COMMON_PASSWORDS
 
         # Duplicate check is trivially true for a set, but verify
         # that the canonical entries are all lowercase.
         assert all(entry == entry.lower() for entry in _COMMON_PASSWORDS)
 
     def test_known_entries_present(self):
-        from mediaman.auth.password_policy import _COMMON_PASSWORDS
+        from mediaman.web.auth.password_policy import _COMMON_PASSWORDS
 
         for expected in ("password", "trustno1", "qwerty", "admin", "letmein"):
             assert expected in _COMMON_PASSWORDS
@@ -43,6 +43,7 @@ class TestCommonPasswordsDataFile:
             Path(__file__).parent.parent.parent.parent
             / "src"
             / "mediaman"
+            / "web"
             / "auth"
             / "data"
             / "common_passwords.txt"
@@ -120,7 +121,7 @@ class TestPasswordMaxLength:
         assert any("too long" in issue.lower() for issue in issues)
 
     def test_just_over_cap_rejected(self):
-        from mediaman.auth.password_policy import MAX_BYTES
+        from mediaman.web.auth.password_policy import MAX_BYTES
 
         too_long = "A" * (MAX_BYTES + 1)
         issues = password_issues(too_long, username="alice")
@@ -130,7 +131,7 @@ class TestPasswordMaxLength:
         """A password right at the cap should be evaluated by the
         normal rules (and likely fail other checks like class
         diversity), not short-circuited as 'too long'."""
-        from mediaman.auth.password_policy import MAX_BYTES
+        from mediaman.web.auth.password_policy import MAX_BYTES
 
         at_cap = "A" * MAX_BYTES
         issues = password_issues(at_cap, username="alice")
@@ -185,7 +186,7 @@ class TestForceChangeFlag:
     def test_weak_password_flags_account(self, tmp_path):
         import bcrypt
 
-        from mediaman.auth.session import (
+        from mediaman.web.auth.session import (
             user_must_change_password,
         )
 
@@ -204,8 +205,8 @@ class TestForceChangeFlag:
         conn.commit()
 
         # Simulate login_submit flipping the flag after auth success.
-        from mediaman.auth.password_policy import is_strong
-        from mediaman.auth.session import authenticate, set_must_change_password
+        from mediaman.web.auth.password_policy import is_strong
+        from mediaman.web.auth.session import authenticate, set_must_change_password
 
         assert authenticate(conn, "legacy", weak)
         assert not is_strong(weak, username="legacy")
@@ -215,7 +216,7 @@ class TestForceChangeFlag:
 
     def test_strong_password_does_not_flag(self, tmp_path):
         conn = self._conn(tmp_path)
-        from mediaman.auth.session import create_user, user_must_change_password
+        from mediaman.web.auth.session import create_user, user_must_change_password
 
         create_user(conn, "alice", "Correct-Horse-9-Battery!")
         assert user_must_change_password(conn, "alice") is False
@@ -260,7 +261,7 @@ class TestForcePasswordChangePage:
         client, conn = self._client(tmp_path, secret_key=secret_key, monkeypatch=monkeypatch)
 
         # Set up user + mark must_change_password
-        from mediaman.auth.session import (
+        from mediaman.web.auth.session import (
             create_session,
             create_user,
             set_must_change_password,
@@ -286,7 +287,7 @@ class TestForcePasswordChangePage:
     def test_force_change_page_renders(self, tmp_path, secret_key, monkeypatch):
         client, conn = self._client(tmp_path, secret_key=secret_key, monkeypatch=monkeypatch)
 
-        from mediaman.auth.session import (
+        from mediaman.web.auth.session import (
             create_session,
             create_user,
             set_must_change_password,
@@ -311,7 +312,7 @@ class TestForcePasswordChangePage:
     def test_force_change_rejects_weak_new_password(self, tmp_path, secret_key, monkeypatch):
         client, conn = self._client(tmp_path, secret_key=secret_key, monkeypatch=monkeypatch)
 
-        from mediaman.auth.session import (
+        from mediaman.web.auth.session import (
             create_session,
             create_user,
             set_must_change_password,
@@ -347,7 +348,7 @@ class TestForcePasswordChangePage:
     def test_force_change_accepts_strong_new_password(self, tmp_path, secret_key, monkeypatch):
         client, conn = self._client(tmp_path, secret_key=secret_key, monkeypatch=monkeypatch)
 
-        from mediaman.auth.session import (
+        from mediaman.web.auth.session import (
             create_session,
             create_user,
             set_must_change_password,

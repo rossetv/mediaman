@@ -32,8 +32,8 @@ import sqlite3
 from fastapi import HTTPException, Request
 from starlette.responses import RedirectResponse
 
-from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.config import Config
+from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
 
 
 def get_config(request: Request) -> Config:

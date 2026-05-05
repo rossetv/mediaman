@@ -26,9 +26,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.responses import Response
 
 from mediaman.audit import log_audit
-from mediaman.auth.middleware import get_current_admin
-from mediaman.auth.rate_limit import RateLimiter, get_client_ip
 from mediaman.db import get_db
+from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.services.scheduled_actions import (
     apply_keep_forever,
     apply_keep_snooze,
@@ -40,6 +39,7 @@ from mediaman.services.scheduled_actions import (
     parse_execute_at,
     token_hash,
 )
+from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.models import VALID_KEEP_DURATIONS
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes._helpers import is_admin as _is_admin

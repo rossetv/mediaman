@@ -47,7 +47,7 @@ def is_admin(request: Request) -> bool:
     ``mediaman.auth.middleware.get_optional_admin_from_token`` take effect
     at call time rather than at module-load time.
     """
-    from mediaman.auth.middleware import get_optional_admin_from_token
+    from mediaman.web.auth.middleware import get_optional_admin_from_token
 
     return (
         get_optional_admin_from_token(request.cookies.get("session_token"), request=request)

@@ -25,7 +25,7 @@ import sqlite3
 import threading
 from datetime import UTC, datetime, timedelta
 
-from mediaman.services.infra.time import now_iso
+from mediaman.core.time import now_iso
 
 from .schema import apply_migrations
 

@@ -29,6 +29,8 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import Any
 
+from mediaman.core.format import ensure_tz as _ensure_tz
+from mediaman.core.time import parse_iso_utc as _parse_iso_utc
 from mediaman.scanner import repository
 from mediaman.scanner.arr_dates import ArrDateCache
 from mediaman.scanner.deletions import (
@@ -41,10 +43,8 @@ from mediaman.scanner.phases.delete import remove_orphans
 from mediaman.scanner.phases.evaluate import evaluate_movie_item, evaluate_season_item
 from mediaman.scanner.phases.upsert import schedule_deletion as _phase_schedule_deletion
 from mediaman.scanner.phases.upsert import upsert_item as _phase_upsert_item
-from mediaman.services.infra.format import ensure_tz as _ensure_tz
 from mediaman.services.infra.settings_reader import get_bool_setting as _get_bool_setting
 from mediaman.services.infra.storage import delete_path  # re-exported for back-compat
-from mediaman.services.infra.time import parse_iso_utc as _parse_iso_utc
 from mediaman.services.mail.newsletter import send_newsletter as _send_newsletter
 from mediaman.services.openai.recommendations.persist import (
     refresh_recommendations as _refresh_recommendations,

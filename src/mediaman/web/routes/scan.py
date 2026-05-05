@@ -11,8 +11,6 @@ from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
 from mediaman.audit import security_event, security_event_or_raise
-from mediaman.auth.middleware import get_current_admin
-from mediaman.auth.rate_limit import get_client_ip
 from mediaman.db import (
     finish_scan_run,
     get_db,
@@ -24,7 +22,8 @@ from mediaman.db import (
 from mediaman.services.infra.rate_limits import (
     SCAN_TRIGGER_LIMITER as _SCAN_TRIGGER_LIMITER,
 )
-from mediaman.services.rate_limit import rate_limit
+from mediaman.services.rate_limit import get_client_ip, rate_limit
+from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.responses import respond_err, respond_ok
 
 logger = logging.getLogger("mediaman")

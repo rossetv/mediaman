@@ -16,7 +16,6 @@ import requests as _requests
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from mediaman.auth.middleware import get_current_admin
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
@@ -30,6 +29,7 @@ from mediaman.services.arr.state import (
 from mediaman.services.infra.http_client import SafeHTTPError
 from mediaman.services.media_meta.omdb import fetch_ratings
 from mediaman.services.media_meta.tmdb import TmdbClient
+from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.responses import respond_err
 
 from ._enrichment import _BACKDROP_BASE, _PROFILE_BASE, _poster_url

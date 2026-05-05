@@ -27,7 +27,7 @@ def cli_main() -> None:
     """CLI entry point — run the server or handle subcommands."""
     if len(sys.argv) > 1 and sys.argv[1] == "create-user":
         sys.argv = sys.argv[1:]
-        from mediaman.auth.cli import create_user_cli
+        from mediaman.web.auth.cli import create_user_cli
 
         create_user_cli()
         return

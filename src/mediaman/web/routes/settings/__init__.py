@@ -37,19 +37,19 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.responses import Response
 
 from mediaman.audit import security_event, security_event_or_raise
-from mediaman.auth.middleware import get_current_admin, resolve_page_session
-from mediaman.auth.rate_limit import get_client_ip
-from mediaman.auth.reauth import has_recent_reauth
+from mediaman.core.time import now_iso
+from mediaman.core.url_safety import (
+    is_safe_outbound_url as is_safe_outbound_url,  # re-exported for patch targets
+)
 from mediaman.crypto import decrypt_value, encrypt_value
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_plex_from_db
 from mediaman.services.infra.rate_limits import SETTINGS_TEST_LIMITER as _SETTINGS_TEST_LIMITER
 from mediaman.services.infra.rate_limits import SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER
 from mediaman.services.infra.settings_reader import ConfigDecryptError
-from mediaman.services.infra.time import now_iso
-from mediaman.services.infra.url_safety import (
-    is_safe_outbound_url as is_safe_outbound_url,  # re-exported for patch targets
-)
+from mediaman.services.rate_limit import get_client_ip
+from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
+from mediaman.web.auth.reauth import has_recent_reauth
 from mediaman.web.models import SettingsUpdate
 from mediaman.web.responses import respond_err, respond_ok
 

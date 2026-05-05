@@ -295,9 +295,9 @@ from unittest.mock import MagicMock, patch  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from mediaman.auth.session import create_session, create_user  # noqa: E402
 from mediaman.config import Config  # noqa: E402
 from mediaman.db import set_connection  # noqa: E402
+from mediaman.web.auth.session import create_session, create_user  # noqa: E402
 from mediaman.web.routes.download import router as download_router  # noqa: E402
 
 

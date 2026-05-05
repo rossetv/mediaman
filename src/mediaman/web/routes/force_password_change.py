@@ -28,11 +28,11 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.responses import Response
 
 from mediaman.audit import security_event
-from mediaman.auth.middleware import resolve_page_session
-from mediaman.auth.password_policy import password_issues, policy_summary
-from mediaman.auth.rate_limit import ActionRateLimiter, get_client_ip
-from mediaman.auth.session import change_password
 from mediaman.db import get_db
+from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
+from mediaman.web.auth.middleware import resolve_page_session
+from mediaman.web.auth.password_policy import password_issues, policy_summary
+from mediaman.web.auth.session import change_password
 from mediaman.web.routes._helpers import set_session_cookie
 
 logger = logging.getLogger("mediaman")
@@ -167,7 +167,7 @@ def force_change_submit(
     # change_password invalidates every session for the user; we need
     # to issue a fresh one so the admin lands on the dashboard logged
     # in under the new credential.
-    from mediaman.auth.session import create_session  # deferred: patched in tests
+    from mediaman.web.auth.session import create_session  # deferred: patched in tests
 
     new_token = create_session(
         conn,

@@ -9,9 +9,9 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.responses import Response
 
-from mediaman.auth.middleware import get_current_admin, resolve_page_session
+from mediaman.core.format import format_bytes
 from mediaman.db import get_db
-from mediaman.services.infra.format import format_bytes
+from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.web.models import ACTION_PROTECTED_FOREVER, ACTION_SCHEDULED_DELETION, ACTION_SNOOZED
 
 logger = logging.getLogger("mediaman")

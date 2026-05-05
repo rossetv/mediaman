@@ -33,7 +33,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from mediaman.services.infra.time import now_iso as _now_iso
+from mediaman.core.time import now_iso as _now_iso
 
 logger = logging.getLogger("mediaman")
 

@@ -29,8 +29,8 @@ import sqlite3
 
 import requests
 
+from mediaman.core.scrub_filter import ScrubFilter
 from mediaman.services.infra.http_client import SafeHTTPClient, SafeHTTPError
-from mediaman.services.infra.scrub_filter import ScrubFilter
 from mediaman.services.infra.settings_reader import get_string_setting
 
 #: Base URL for the OMDb REST API.

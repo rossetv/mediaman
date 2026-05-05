@@ -8,9 +8,9 @@ from unittest.mock import MagicMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
+from mediaman.web.auth.session import create_session, create_user
 from mediaman.web.routes.library import router as library_router
 from mediaman.web.routes.library_api import _DELETE_LIMITER, _KEEP_LIMITER
 from mediaman.web.routes.library_api import router as library_api_router

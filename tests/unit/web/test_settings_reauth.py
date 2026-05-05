@@ -11,13 +11,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mediaman.auth.reauth import grant_recent_reauth
-from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
 from mediaman.services.infra.rate_limits import (
     SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER,
 )
+from mediaman.web.auth.reauth import grant_recent_reauth
+from mediaman.web.auth.session import create_session, create_user
 from mediaman.web.routes.settings import SECRET_FIELDS, SENSITIVE_KEYS, router
 
 
