@@ -1,4 +1,13 @@
-"""Library JSON API endpoints.
+"""Library JSON API endpoints — package root.
+
+Package layout:
+
+* :mod:`~mediaman.web.routes.library_api.delete_intents` — delete-intent
+  durability helpers (record / complete / fail / reconcile).
+* :mod:`~mediaman.web.routes.library_api.redownload` — redownload request
+  schema, lookup matching, and audit-ID generation.
+* This module (``__init__``) — rate-limiter constants, route handlers, and
+  re-exports of the above for backwards-compatible imports.
 
 Handles all ``/api/library`` and ``/api/media/…`` JSON routes:
 
@@ -19,16 +28,13 @@ have been updated to patch ``mediaman.web.routes.library_api.build_radarr_from_d
 from __future__ import annotations
 
 import contextlib
-import difflib
 import logging
 import secrets
-import sqlite3
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote as _url_quote
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
 
 from mediaman.audit import log_audit
 from mediaman.db import get_db
@@ -40,6 +46,20 @@ from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.library import _VALID_SORTS, _VALID_TYPES, fetch_library
+
+# Re-exports for backwards-compatible imports
+from mediaman.web.routes.library_api.delete_intents import (
+    _complete_delete_intent,
+    _fail_delete_intent,
+    _record_delete_intent,
+    reconcile_pending_delete_intents,
+)
+from mediaman.web.routes.library_api.redownload import (
+    _REDOWNLOAD_TITLE_SIMILARITY,
+    _RedownloadRequest,
+    _pick_lookup_match,
+    _redownload_audit_id,
+)
 
 logger = logging.getLogger("mediaman")
 
@@ -76,248 +96,6 @@ _REDOWNLOAD_LIMITER = ActionRateLimiter(
     window_seconds=60,
     max_per_day=200,
 )
-
-# Minimum title similarity accepted for a title+year fuzzy match.
-_REDOWNLOAD_TITLE_SIMILARITY = 0.9
-
-
-# ---------------------------------------------------------------------------
-# Redownload request schema
-# ---------------------------------------------------------------------------
-
-
-class _RedownloadRequest(BaseModel):
-    """Body schema for ``POST /api/media/redownload``.
-
-    ``extra="forbid"`` rejects unknown keys with HTTP 422 instead of
-    silently ignoring them.  The title is bounded at 4096 chars so an
-    over-length payload is refused at the wire layer; the handler further
-    truncates to 256 chars (matching the historic behaviour) so existing
-    clients that send slightly over-length titles continue to work.
-    Sane integer bounds are applied on the ID fields so an attacker cannot
-    smuggle in a negative or wildly large value.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    title: str = Field(default="", max_length=4096)
-    year: int | None = Field(default=None, ge=1850, le=2200)
-    tmdb_id: int | None = Field(default=None, ge=1)
-    tvdb_id: int | None = Field(default=None, ge=1)
-    imdb_id: str | None = Field(default=None, max_length=32)
-
-
-# ---------------------------------------------------------------------------
-# Delete-intent helpers
-# ---------------------------------------------------------------------------
-
-
-def _record_delete_intent(
-    conn: sqlite3.Connection,
-    media_item_id: str,
-    target_kind: str,
-    target_id: str,
-) -> int:
-    """Insert a delete intent row and return its ``id``.
-
-    Must be called *before* the external Radarr/Sonarr delete so that a
-    crash between the external call and the local DB cleanup can be
-    detected and reconciled on startup via
-    :func:`reconcile_pending_delete_intents`.
-    """
-    now = datetime.now(UTC).isoformat()
-    cur = conn.execute(
-        "INSERT INTO delete_intents "
-        "(media_item_id, target_kind, target_id, started_at) "
-        "VALUES (?, ?, ?, ?)",
-        (media_item_id, target_kind, str(target_id), now),
-    )
-    conn.commit()
-    return cur.lastrowid  # type: ignore[return-value]
-
-
-def _complete_delete_intent(conn: sqlite3.Connection, intent_id: int) -> None:
-    """Mark a delete intent as successfully completed."""
-    conn.execute(
-        "UPDATE delete_intents SET completed_at = ? WHERE id = ?",
-        (datetime.now(UTC).isoformat(), intent_id),
-    )
-    conn.commit()
-
-
-def _fail_delete_intent(conn: sqlite3.Connection, intent_id: int, error: str) -> None:
-    """Record the last error on a delete intent (intent remains pending)."""
-    conn.execute(
-        "UPDATE delete_intents SET last_error = ? WHERE id = ?",
-        (str(error)[:2000], intent_id),
-    )
-    conn.commit()
-
-
-def reconcile_pending_delete_intents() -> int:
-    """Find unresolved delete intents and attempt to complete their cleanup.
-
-    This function is exposed for wiring into bootstrap / startup.  It does
-    not run automatically — call it from ``main.py`` or the bootstrap module
-    at process start-up.
-
-    Returns the number of intents resolved during this call.
-    """
-    conn = get_db()
-    pending = conn.execute(
-        "SELECT id, media_item_id, target_kind, target_id "
-        "FROM delete_intents WHERE completed_at IS NULL"
-    ).fetchall()
-
-    resolved = 0
-    for row in pending:
-        intent_id = row["id"]
-        media_item_id = row["media_item_id"]
-
-        # If the media_items row is already gone the external call must have
-        # succeeded — just mark the intent complete.
-        item_exists = conn.execute(
-            "SELECT id FROM media_items WHERE id = ?", (media_item_id,)
-        ).fetchone()
-        if item_exists is None:
-            _complete_delete_intent(conn, intent_id)
-            resolved += 1
-            logger.info(
-                "delete_intent.reconciled intent_id=%s media_id=%s reason=already_gone",
-                intent_id,
-                media_item_id,
-            )
-            continue
-
-        # Media row still exists — clean it up idempotently.
-        try:
-            conn.execute("BEGIN IMMEDIATE")
-            log_audit(conn, media_item_id, "deleted", "Reconciled by startup cleanup")
-            conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_item_id,))
-            conn.execute("DELETE FROM media_items WHERE id = ?", (media_item_id,))
-            conn.execute("COMMIT")
-            _complete_delete_intent(conn, intent_id)
-            resolved += 1
-            logger.info(
-                "delete_intent.reconciled intent_id=%s media_id=%s reason=cleanup_on_startup",
-                intent_id,
-                media_item_id,
-            )
-        except Exception as exc:
-            with contextlib.suppress(Exception):
-                conn.execute("ROLLBACK")
-            _fail_delete_intent(conn, intent_id, str(exc))
-            logger.warning(
-                "delete_intent.reconcile_failed intent_id=%s media_id=%s error=%s",
-                intent_id,
-                media_item_id,
-                exc,
-                exc_info=True,
-            )
-
-    return resolved
-
-
-# ---------------------------------------------------------------------------
-# Redownload helpers
-# ---------------------------------------------------------------------------
-
-
-def _pick_lookup_match(
-    lookup: list[dict[str, object]],
-    *,
-    title: str,
-    year: int | None,
-    tmdb_id: int | None,
-    tvdb_id: int | None,
-    imdb_id: str | None,
-    id_keys: tuple[str, ...],
-) -> tuple[dict[str, object] | None, str | None]:
-    """Return (entry, error) for a Radarr/Sonarr lookup response."""
-    if not lookup:
-        return None, "No lookup results"
-
-    wanted_ids: dict[str, object] = {}
-    if tmdb_id is not None:
-        wanted_ids["tmdbId"] = tmdb_id
-    if tvdb_id is not None:
-        wanted_ids["tvdbId"] = tvdb_id
-    if imdb_id:
-        wanted_ids["imdbId"] = imdb_id
-
-    if wanted_ids:
-        hits = []
-        for entry in lookup:
-            for key, wanted in wanted_ids.items():
-                got = entry.get(key)
-                if got is None or wanted is None:
-                    continue
-                if str(got).strip().lower() == str(wanted).strip().lower():
-                    hits.append(entry)
-                    break
-        if len(hits) == 1:
-            return hits[0], None
-        if len(hits) > 1:
-            return None, "Ambiguous ID match"
-        return None, "Supplied ID did not match any lookup result"
-
-    if not title:
-        return None, "No title for fuzzy match"
-
-    def _norm(s: str) -> str:
-        return s.strip().lower()
-
-    target = _norm(title)
-    scored: list[tuple[float, dict[str, object]]] = []
-    for entry in lookup:
-        cand_title = _norm(str(entry.get("title") or ""))
-        if not cand_title:
-            continue
-        ratio = difflib.SequenceMatcher(None, target, cand_title).ratio()
-        scored.append((ratio, entry))
-    if not scored:
-        return None, "No titled lookup results"
-    scored.sort(key=lambda t: t[0], reverse=True)
-    best_score, best = scored[0]
-    if best_score < _REDOWNLOAD_TITLE_SIMILARITY:
-        return None, "No confident title match"
-    if year is None or best.get("year") != year:
-        return None, "Year mismatch or missing"
-    close = [
-        entry
-        for score, entry in scored
-        if score >= _REDOWNLOAD_TITLE_SIMILARITY and entry.get("year") == year
-    ]
-    if len(close) > 1:
-        return None, "Ambiguous title+year match"
-    return best, None
-
-
-def _redownload_audit_id(
-    *,
-    media_type: str,
-    tmdb_id: int | None,
-    tvdb_id: int | None,
-    imdb_id: str | None,
-) -> str:
-    """Pick a stable audit-log ``media_item_id`` for a redownload.
-
-    Prefer the most stable identifier available: ``tmdb:<id>`` for movies
-    and TV (TMDB IDs are universal across both Arrs); ``tvdb:<id>`` if
-    Sonarr only knew the show by TVDB; finally ``imdb:<id>`` as a last
-    resort.  Each prefix makes the column self-describing instead of an
-    opaque integer the dashboard might accidentally match against
-    unrelated UUIDs.
-    """
-    if tmdb_id is not None:
-        return f"tmdb:{tmdb_id}"
-    if tvdb_id is not None:
-        return f"tvdb:{tvdb_id}"
-    if imdb_id:
-        return f"imdb:{imdb_id}"
-    # Should never happen — caller guarantees at least one stable id is
-    # present before we reach here.
-    return f"redownload:{media_type}"
 
 
 # ---------------------------------------------------------------------------

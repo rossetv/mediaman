@@ -1,4 +1,4 @@
-"""Back-compat shim — scheduling bootstrap logic lives in :mod:`mediaman.app_factory`.
+"""Back-compat shim — scheduling bootstrap logic now lives in :mod:`mediaman.bootstrap.scan_jobs`.
 
 This module re-exports the public API so existing imports such as::
 
@@ -20,7 +20,7 @@ can be tested in isolation) and are aliased here under their legacy
 underscore-prefixed names so tests need no changes.
 
 ``shutdown_scheduling`` is defined here (not re-exported from
-``app_factory``) so that test monkeypatches of
+``scan_jobs``) so that test monkeypatches of
 ``_SHUTDOWN_TIMEOUT_SECONDS`` in this module's namespace are respected
 by the function — Python function globals are bound to the module where
 the function is *defined*, not where it is *imported*.
@@ -32,7 +32,7 @@ import contextlib
 import logging
 import threading
 
-from mediaman.app_factory import (
+from mediaman.bootstrap.scan_jobs import (
     _run_library_sync_job,
     _run_scheduled_scan,
     bootstrap_scheduling,
@@ -52,7 +52,7 @@ from mediaman.validators import (
 
 logger = logging.getLogger("mediaman")
 
-# Bounded wait at shutdown — mirrored from app_factory so test
+# Bounded wait at shutdown — mirrored from scan_jobs so test
 # monkeypatches on ``mediaman.bootstrap.scheduling._SHUTDOWN_TIMEOUT_SECONDS``
 # are seen by the :func:`shutdown_scheduling` defined below.
 _SHUTDOWN_TIMEOUT_SECONDS = 30
@@ -69,7 +69,7 @@ def shutdown_scheduling() -> None:
 
     Delegates to :mod:`mediaman.scanner.scheduler` and joins for at most
     :data:`_SHUTDOWN_TIMEOUT_SECONDS`. Defined here (not re-exported from
-    ``app_factory``) so test overrides of ``_SHUTDOWN_TIMEOUT_SECONDS``
+    ``scan_jobs``) so test overrides of ``_SHUTDOWN_TIMEOUT_SECONDS``
     in this module's namespace are respected.
 
     Safe to call even when the scheduler was never started.

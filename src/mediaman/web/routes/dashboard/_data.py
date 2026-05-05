@@ -1,19 +1,11 @@
-"""Dashboard page and supporting JSON API endpoints."""
+"""Data-fetching helpers for the dashboard page."""
 
 from __future__ import annotations
 
-import logging
 import sqlite3
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
-from functools import lru_cache
-from typing import cast
-
-from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from starlette.responses import Response
 
 from mediaman.core.format import (
     days_ago,
@@ -23,23 +15,28 @@ from mediaman.core.format import (
     title_from_audit_detail,
 )
 from mediaman.core.time import parse_iso_utc
-from mediaman.db import get_db
 from mediaman.services.infra.settings_reader import get_media_path as _get_media_path
 from mediaman.services.infra.storage import get_aggregate_disk_usage
-from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.web.models import ACTION_SCHEDULED_DELETION
-
-logger = logging.getLogger("mediaman")
-
-router = APIRouter()
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-#: TMDB poster image base URL — w200 thumbnail size used for dashboard tiles.
-#: Callers elsewhere that use w300 keep their own URL deliberately distinct.
-_TMDB_POSTER_BASE_URL = "https://image.tmdb.org/t/p/w200"
+# Bounded scan size so the dashboard render doesn't degenerate into a
+# long table walk on a heavy audit_log (finding 20). 5 batches × 50
+# rows = 250 candidates is enough headroom for any realistic mix of
+# re-downloaded and orphan-titled deletions.
+_RECENT_DELETED_BATCH = 50
+_RECENT_DELETED_MAX_BATCHES = 5
+
+# Cache window for the disk-usage stat (finding 21). statvfs() is cheap
+# but a busy dashboard on a slow filesystem could still spend tens of
+# milliseconds per render hitting it; 30s is well below the granularity
+# at which a user notices stale "free space" numbers.
+_DISK_USAGE_CACHE_TTL = 30.0
+_disk_usage_cache: dict[str, tuple[float, dict[str, int]]] = {}
+_disk_usage_cache_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -109,8 +106,8 @@ def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
 
 def _build_redownload_index(
     conn: sqlite3.Connection,
-) -> tuple[dict[str, str], dict[int, str]]:
-    """Return ``(by_title_lower, by_tmdb_id)`` of re-download timestamps.
+) -> dict[str, str]:
+    """Return ``by_title_lower`` mapping of re-download timestamps.
 
     The audit_log ``media_item_id`` column carries different content
     depending on the action (finding 18):
@@ -123,13 +120,12 @@ def _build_redownload_index(
     * ``downloaded`` rows: usually the title (legacy behaviour
       preserved by the recommendations pipeline).
 
-    To stay correct across the migration window we build two indexes
-    and let callers consult whichever lines up with the data they
-    have. Title matches stay lower-cased; tmdb_id keys are integers
-    parsed out of the ``tmdb:`` prefix.
+    To stay correct across the migration window we build a title-keyed
+    index. Title matches stay lower-cased. When the deletion row carries
+    a tmdb_id we can also consult the redownload index by tmdb_id; for
+    now we only match on title.
     """
     by_title_lower: dict[str, str] = {}
-    by_tmdb_id: dict[int, str] = {}
     rows = conn.execute(
         "SELECT media_item_id, created_at FROM audit_log "
         "WHERE action IN ('re_downloaded', 'downloaded')"
@@ -137,14 +133,8 @@ def _build_redownload_index(
     for rd in rows:
         raw = rd["media_item_id"] or ""
         ts = rd["created_at"]
-        if raw.startswith("tmdb:"):
-            try:
-                tmdb_id = int(raw.split(":", 1)[1])
-            except ValueError:
-                continue
-            prev = by_tmdb_id.get(tmdb_id)
-            if prev is None or ts > prev:
-                by_tmdb_id[tmdb_id] = ts
+        # Skip prefixed tokens (tmdb:/tvdb:/imdb:) — no title match possible.
+        if ":" in raw:
             continue
         # Legacy / non-prefixed rows — treat the whole string as a
         # title. Lower-case so "Dune" matches "dune".
@@ -154,7 +144,7 @@ def _build_redownload_index(
         prev_t = by_title_lower.get(key)
         if prev_t is None or ts > prev_t:
             by_title_lower[key] = ts
-    return by_title_lower, by_tmdb_id
+    return by_title_lower
 
 
 def _was_redownloaded_after(
@@ -162,30 +152,17 @@ def _was_redownloaded_after(
     *,
     title: str,
     by_title_lower: dict[str, str],
-    by_tmdb_id: dict[int, str],
 ) -> bool:
     """Return True if a re-download for *title* happened after *deletion_created_at*.
 
-    Looks up the title-keyed index; the tmdb-keyed lookup is reserved
-    for a future schema addition that surfaces tmdb_id on the deletion
-    row. The two indexes are passed explicitly so callers can build
-    them once per page render rather than rebuilding them per deletion
-    row.
+    Looks up the title-keyed index. The index is passed explicitly so
+    callers can build it once per page render rather than rebuilding it
+    per deletion row.
     """
     last_redownload = by_title_lower.get(title.lower())
     if last_redownload and last_redownload > deletion_created_at:
         return True
-    # Future: when the deletion row carries a tmdb_id, consult by_tmdb_id.
-    _ = by_tmdb_id  # currently unused; kept for the migration target.
     return False
-
-
-# Bounded scan size so the dashboard render doesn't degenerate into a
-# long table walk on a heavy audit_log (finding 20). 5 batches × 50
-# rows = 250 candidates is enough headroom for any realistic mix of
-# re-downloaded and orphan-titled deletions.
-_RECENT_DELETED_BATCH = 50
-_RECENT_DELETED_MAX_BATCHES = 5
 
 
 def _fetch_recently_deleted(
@@ -199,7 +176,9 @@ def _fetch_recently_deleted(
     no retry (finding 20). Now we page through audit_log in batches
     until we have 10 unfiltered items or hit a hard cap.
     """
-    by_title_lower, by_tmdb_id = _build_redownload_index(conn)
+    from mediaman.web.routes.dashboard._poster_fanout import _fill_tmdb_posters
+
+    by_title_lower = _build_redownload_index(conn)
 
     items: list[dict[str, object]] = []
     titles_needing_poster: list[tuple[int, str]] = []
@@ -238,11 +217,12 @@ def _fetch_recently_deleted(
             title = r["title"]
             if not title:
                 title = title_from_audit_detail(r["detail"])
+            # When the deletion row carries a tmdb_id we can also consult the redownload index
+            # by tmdb_id; for now we only match on title.
             if _was_redownloaded_after(
                 r["created_at"],
                 title=title,
                 by_title_lower=by_title_lower,
-                by_tmdb_id=by_tmdb_id,
             ):
                 continue
 
@@ -273,97 +253,6 @@ def _fetch_recently_deleted(
         _fill_tmdb_posters(conn, items, titles_needing_poster, secret_key)
 
     return items
-
-
-# Outer wall-clock budget for the parallel poster fan-out (finding 19).
-# 5s timeout × 10 misses serially produced a 50s page render in the
-# worst case. Now we fan out to a small thread pool and bound the
-# whole batch to 6s; anything slower drops to "" so the page still
-# renders promptly.
-_POSTER_FANOUT_BUDGET_SECONDS = 6.0
-_POSTER_FANOUT_WORKERS = 4
-
-
-@lru_cache(maxsize=1)
-def _get_poster_executor() -> ThreadPoolExecutor:
-    """Return the shared poster-fanout executor (lazy)."""
-    return ThreadPoolExecutor(
-        max_workers=_POSTER_FANOUT_WORKERS,
-        thread_name_prefix="dashboard_poster",
-    )
-
-
-def _fill_tmdb_posters(
-    conn: sqlite3.Connection,
-    items: list[dict[str, object]],
-    needed: list[tuple[int, str]],
-    secret_key: str,
-) -> None:
-    """Look up TMDB poster URLs for deleted items missing a Plex poster.
-
-    Parallelised across a small worker pool with an outer wall-clock
-    budget (finding 19) — the previous sequential implementation could
-    sit on a flaky TMDB for 5s × 10 misses = 50s before the page
-    rendered. Deduplication by title is preserved so repeated entries
-    (e.g. multiple "Barbie" deletions) only trigger one API call.
-
-    ``secret_key`` is threaded in from the request handler to avoid
-    redundant ``load_config()`` calls per request (H25).
-    """
-    from mediaman.services.media_meta.tmdb import TmdbClient
-
-    client = TmdbClient.from_db(conn, secret_key, timeout=5.0)
-    if client is None:
-        return
-
-    # Collect each unique title once; preserve the (idx, title)
-    # reverse mapping so we can write the result back to the right
-    # rows after the futures resolve.
-    unique_titles: dict[str, list[int]] = {}
-    for idx, title in needed:
-        unique_titles.setdefault(title, []).append(idx)
-
-    if not unique_titles:
-        return
-
-    def _lookup(title: str) -> tuple[str, str]:
-        try:
-            best = client.search_multi(title)
-        except Exception:
-            logger.debug("dashboard.poster_lookup_failed title=%r", title, exc_info=True)
-            return title, ""
-        if best and best.get("poster_path"):
-            return title, f"{_TMDB_POSTER_BASE_URL}{best['poster_path']}"
-        return title, ""
-
-    pool = _get_poster_executor()
-    futures = {pool.submit(_lookup, title): title for title in unique_titles}
-    try:
-        for fut in as_completed(futures, timeout=_POSTER_FANOUT_BUDGET_SECONDS):
-            try:
-                title, url = fut.result()
-            except Exception:
-                continue
-            if not url:
-                continue
-            for idx in unique_titles.get(title, []):
-                items[idx]["poster_url"] = url
-    except TimeoutError:
-        logger.debug(
-            "dashboard.poster_fanout_timeout budget=%.1fs (%d/%d done)",
-            _POSTER_FANOUT_BUDGET_SECONDS,
-            sum(1 for f in futures if f.done()),
-            len(futures),
-        )
-
-
-# Cache window for the disk-usage stat (finding 21). statvfs() is cheap
-# but a busy dashboard on a slow filesystem could still spend tens of
-# milliseconds per render hitting it; 30s is well below the granularity
-# at which a user notices stale "free space" numbers.
-_DISK_USAGE_CACHE_TTL = 30.0
-_disk_usage_cache: dict[str, tuple[float, dict[str, int]]] = {}
-_disk_usage_cache_lock = threading.Lock()
 
 
 def _cached_disk_usage(media_path: str) -> dict[str, int]:
@@ -435,122 +324,3 @@ def _fetch_storage_stats(conn: sqlite3.Connection) -> dict[str, object]:
         "anime_pct": pct(anime_bytes),
         "other_pct": pct(other_bytes),
     }
-
-
-# ---------------------------------------------------------------------------
-# Page route
-# ---------------------------------------------------------------------------
-
-
-@router.get("/", response_class=HTMLResponse)
-def dashboard_page(request: Request) -> Response:
-    """Render the admin dashboard. Redirects to /login if session is invalid."""
-    resolved = resolve_page_session(request)
-    if isinstance(resolved, RedirectResponse):
-        return resolved
-    username, conn = resolved
-
-    config = request.app.state.config
-    scheduled_items = _fetch_scheduled(conn)
-    recently_deleted = _fetch_recently_deleted(conn, config.secret_key)
-    storage = _fetch_storage_stats(conn)
-
-    # Aggregate totals for section subtitles
-    scheduled_count = len(scheduled_items)
-    scheduled_size = format_bytes(
-        sum(cast(int, i["file_size_bytes"] or 0) for i in scheduled_items)
-    )
-
-    # SUM always returns a row; value is NULL when audit_log is empty.
-    reclaimed_total_row = conn.execute(
-        "SELECT SUM(space_reclaimed_bytes) AS total FROM audit_log WHERE action='deleted'"
-    ).fetchone()
-    reclaimed_total = format_bytes(reclaimed_total_row["total"] or 0)
-
-    templates = request.app.state.templates
-    return templates.TemplateResponse(
-        request,
-        "dashboard.html",
-        {
-            "username": username,
-            "nav_active": "dashboard",
-            "storage": storage,
-            "scheduled_items": scheduled_items,
-            "scheduled_count": scheduled_count,
-            "scheduled_size": scheduled_size,
-            "recently_deleted": recently_deleted,
-            "reclaimed_total": reclaimed_total,
-        },
-    )
-
-
-# ---------------------------------------------------------------------------
-# JSON API endpoints
-# ---------------------------------------------------------------------------
-
-
-@router.get("/api/dashboard/stats")
-def api_dashboard_stats(username: str = Depends(get_current_admin)) -> JSONResponse:
-    """Return storage usage and reclaimed-space totals as JSON."""
-    conn = get_db()
-    storage = _fetch_storage_stats(conn)
-
-    row = conn.execute(
-        "SELECT SUM(space_reclaimed_bytes) AS total FROM audit_log WHERE action='deleted'"
-    ).fetchone()
-    reclaimed_bytes = row["total"] or 0
-
-    return JSONResponse(
-        {
-            "storage": storage,
-            "reclaimed_total_bytes": reclaimed_bytes,
-            "reclaimed_total": format_bytes(reclaimed_bytes),
-        }
-    )
-
-
-@router.get("/api/dashboard/scheduled")
-def api_dashboard_scheduled(username: str = Depends(get_current_admin)) -> JSONResponse:
-    """Return scheduled-deletion items as JSON."""
-    conn = get_db()
-    return JSONResponse({"items": _fetch_scheduled(conn)})
-
-
-@router.get("/api/dashboard/deleted")
-def api_dashboard_deleted(
-    request: Request, username: str = Depends(get_current_admin)
-) -> JSONResponse:
-    """Return recently deleted items from audit_log as JSON."""
-    conn = get_db()
-    secret_key = request.app.state.config.secret_key
-    return JSONResponse({"items": _fetch_recently_deleted(conn, secret_key)})
-
-
-@router.get("/api/dashboard/reclaimed-chart")
-def api_dashboard_reclaimed_chart(username: str = Depends(get_current_admin)) -> JSONResponse:
-    """Return weekly reclaimed-space aggregates grouped by ISO week.
-
-    Each row: { week: 'YYYY-WNN', reclaimed_bytes: int, reclaimed: str }
-    """
-    conn = get_db()
-    rows = conn.execute("""
-        SELECT
-            strftime('%Y-W%W', created_at) AS week,
-            SUM(space_reclaimed_bytes)     AS reclaimed_bytes
-        FROM audit_log
-        WHERE action = 'deleted'
-          AND space_reclaimed_bytes IS NOT NULL
-        GROUP BY week
-        ORDER BY week DESC
-        LIMIT 12
-    """).fetchall()
-
-    data = [
-        {
-            "week": r["week"],
-            "reclaimed_bytes": r["reclaimed_bytes"] or 0,
-            "reclaimed": format_bytes(r["reclaimed_bytes"] or 0),
-        }
-        for r in rows
-    ]
-    return JSONResponse({"weeks": data})

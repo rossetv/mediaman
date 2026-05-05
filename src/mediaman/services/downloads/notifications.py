@@ -7,24 +7,30 @@ called frequently (once per library sync) so users get timely alerts.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import sqlite3
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
-from mediaman.core.backoff import ExponentialBackoff
-from mediaman.core.time import now_iso
+from mediaman.services.downloads._notification_backoff import (
+    _BACKOFF_BASE_SECONDS,
+    _BACKOFF_MAX_SECONDS,
+    _NOTIFY_BACKOFF,
+    _backoff_state,
+    _clear_backoff,
+    _is_backed_off,
+    _record_arr_failure,
+)
+from mediaman.services.downloads._notification_claims import (
+    STRANDED_CLAIM_GRACE_SECONDS,
+    _claim_pending_notifications,
+    _release_claim,
+    _release_claims_bulk,
+    reconcile_stranded_notifications,
+)
 from mediaman.services.downloads.download_format import extract_poster_url
 
 logger = logging.getLogger("mediaman")
-
-#: How long an in-flight claim is allowed before reconcile treats the row as
-#: stranded by a crashed worker (H-5).  Generous enough to outlast the
-#: slowest legitimate notify pipeline (Mailgun retries, slow SMTP), short
-#: enough that a stranded row is recovered on the next service restart
-#: rather than waiting for the operator to notice.
-STRANDED_CLAIM_GRACE_SECONDS = 3600
 
 
 # ---------------------------------------------------------------------------
@@ -57,45 +63,6 @@ def _get_notification_template():
     return _NOTIFICATION_TEMPLATE
 
 
-# ---------------------------------------------------------------------------
-# In-process backoff for transient *arr outages.
-#
-# When Radarr/Sonarr is unreachable (or returns ready=False) the original
-# loop claimed every pending row, found nothing ready, and released — once
-# per scheduler tick. With a sticky outage and N pending rows that's N×
-# claim/release cycles per minute for nothing. We keep an in-memory
-# ``next_retry_at`` per row id and skip the row while its backoff is
-# active.  The state is process-local — a restart wipes it (which matches
-# our existing reconcile-on-startup story).
-# ---------------------------------------------------------------------------
-_BACKOFF_BASE_SECONDS = 60.0  # first retry waits 1 minute
-_BACKOFF_MAX_SECONDS = 1800.0  # cap at 30 minutes
-_NOTIFY_BACKOFF = ExponentialBackoff(_BACKOFF_BASE_SECONDS, _BACKOFF_MAX_SECONDS)
-_backoff_state: dict[int, tuple[int, datetime]] = {}
-
-
-def _is_backed_off(row_id: int, now: datetime) -> bool:
-    """Return True if *row_id* should be skipped this tick due to backoff."""
-    record = _backoff_state.get(row_id)
-    if record is None:
-        return False
-    _attempts, next_retry_at = record
-    return now < next_retry_at
-
-
-def _record_arr_failure(row_id: int, now: datetime) -> None:
-    """Bump the backoff counter for *row_id* and schedule the next retry."""
-    attempts, _next = _backoff_state.get(row_id, (0, now))
-    attempts += 1
-    delay = _NOTIFY_BACKOFF.delay(attempts)
-    _backoff_state[row_id] = (attempts, now + timedelta(seconds=delay))
-
-
-def _clear_backoff(row_id: int) -> None:
-    """Forget the backoff record for *row_id* once it has cleared."""
-    _backoff_state.pop(row_id, None)
-
-
 def record_download_notification(
     conn: sqlite3.Connection,
     *,
@@ -117,6 +84,8 @@ def record_download_notification(
 
     Does **not** call ``conn.commit()`` — callers manage their own transactions.
     """
+    from mediaman.core.time import now_iso
+
     now = now_iso()
     conn.execute(
         "INSERT INTO download_notifications "
@@ -140,153 +109,25 @@ def _sonarr_has_files(client, *, tvdb_id: int | None, tmdb_id: int | None) -> bo
     return False
 
 
-def _claim_pending_notifications(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Atomically claim every un-notified notification row.
-
-    Uses ``UPDATE ... WHERE notified=0 RETURNING`` so a sibling worker
-    (or a re-entrant scheduler tick — finding 22) cannot pick up the
-    same row a second time. SQLite has supported the RETURNING clause
-    since 3.35, which is comfortably older than the project's
-    ``sqlite3`` floor.
-
-    Returns the claimed rows in the same shape the previous SELECT
-    returned, so the caller's row-handling code stays unchanged. On a
-    SQLite build without RETURNING we fall back to the old
-    SELECT-then-UPDATE flow inside an IMMEDIATE transaction so the
-    write lock blocks any concurrent claim.
-    """
-    claim_iso = now_iso()
-    try:
-        rows = conn.execute(
-            "UPDATE download_notifications SET notified=2, claimed_at=? "
-            "WHERE notified=0 "
-            "RETURNING id, email, title, media_type, tmdb_id, tvdb_id, service",
-            (claim_iso,),
-        ).fetchall()
-        conn.commit()
-        return rows
-    except sqlite3.OperationalError:
-        # Older SQLite without RETURNING — fall back to lock-then-claim.
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            rows = conn.execute(
-                "SELECT id, email, title, media_type, tmdb_id, tvdb_id, service "
-                "FROM download_notifications WHERE notified=0"
-            ).fetchall()
-            if rows:
-                ids = [r["id"] for r in rows]
-                placeholders = ",".join("?" * len(ids))
-                conn.execute(
-                    f"UPDATE download_notifications SET notified=2, claimed_at=? WHERE id IN ({placeholders})",
-                    (claim_iso, *ids),
-                )
-            conn.execute("COMMIT")
-            return rows
-        except Exception:
-            with contextlib.suppress(Exception):
-                conn.execute("ROLLBACK")
-            raise
-
-
-def _release_claim(conn: sqlite3.Connection, row_id: int) -> None:
-    """Roll a claimed row back to ``notified=0`` so a future tick can retry.
-
-    Used when the early-bail conditions inside :func:`check_download_notifications`
-    fail (e.g. Mailgun later turns out to be unreachable for a specific
-    item) — without this the row would stay stuck at ``notified=2``
-    indefinitely.
-
-    Clears ``claimed_at`` along with the status so a subsequent reconcile
-    sweep does not see a phantom in-flight stamp on a row that is queued.
-    """
-    try:
-        conn.execute(
-            "UPDATE download_notifications SET notified=0, claimed_at=NULL WHERE id=?",
-            (row_id,),
-        )
-        conn.commit()
-    except Exception:
-        logger.warning("failed to release notification claim id=%s", row_id, exc_info=True)
-
-
-def _release_claims_bulk(conn: sqlite3.Connection, row_ids: list[int]) -> None:
-    """Roll many claimed rows back to ``notified=0`` in a single statement.
-
-    The per-row :func:`_release_claim` ran one ``UPDATE`` + one
-    ``COMMIT`` per stranded row.  When Mailgun is unconfigured every
-    pending row goes through the release path on every tick — that's N
-    fsyncs per scheduler poke. This helper does the same work in a
-    single statement and a single commit.
-
-    Skips silently when ``row_ids`` is empty so callers can pipe the
-    "claimed" list straight in.
-    """
-    if not row_ids:
-        return
-    try:
-        placeholders = ",".join("?" * len(row_ids))
-        conn.execute(
-            f"UPDATE download_notifications SET notified=0, claimed_at=NULL "
-            f"WHERE id IN ({placeholders})",
-            row_ids,
-        )
-        conn.commit()
-    except Exception:
-        logger.warning(
-            "failed to bulk-release notification claims (n=%d)", len(row_ids), exc_info=True
-        )
-
-
-def reconcile_stranded_notifications(
-    conn: sqlite3.Connection,
-    *,
-    grace_seconds: int = STRANDED_CLAIM_GRACE_SECONDS,
-) -> int:
-    """Reset rows stranded at ``notified=2`` after a crashed worker (H-5).
-
-    The atomic claim added for finding 22 prevents two workers from sending
-    the same notification, but it does so by flipping ``notified=0 → 2``
-    *before* the actual mail attempt.  An OOM, container restart, or
-    SIGKILL between the claim and the send leaves rows pinned at
-    ``notified=2`` forever — the in-process release path inside the
-    sender loop only fires on Python exceptions.
-
-    Call this once on startup (the FastAPI lifespan does so).  Rows whose
-    ``claimed_at`` is older than *grace_seconds* are reset back to
-    ``notified=0`` with ``claimed_at`` cleared so the next scheduler tick
-    picks them up.  Returns the number of rows reset.
-
-    *grace_seconds* is generous enough that a legitimate slow Mailgun
-    pipeline isn't reaped — it is only ever observed by the next process
-    after a restart, by which point the previous in-flight call is gone.
-    """
-    cutoff = (datetime.now(UTC) - timedelta(seconds=grace_seconds)).isoformat()
-    cur = conn.execute(
-        "UPDATE download_notifications "
-        "SET notified=0, claimed_at=NULL "
-        "WHERE notified=2 "
-        "  AND (claimed_at IS NULL OR claimed_at < ?)",
-        (cutoff,),
-    )
-    conn.commit()
-    reset = cur.rowcount or 0
-    if reset:
-        logger.info("notifications.reconcile reset=%d cutoff=%s", reset, cutoff)
-    return reset
-
-
 def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> None:
     """Send completion emails for downloads that are now available in Plex.
 
     Queries ``download_notifications`` for un-notified rows, claims them
-    atomically (finding 22), checks whether the item now has a file in
-    Radarr/Sonarr, and sends a simple email via Mailgun if so. Marks the
-    row as ``notified=1`` after a successful send; rolls back to 0 if
-    the item isn't actually ready yet so a future scheduler tick can
-    retry.
+    atomically so concurrent scheduler ticks cannot pick up the same row,
+    checks whether the item now has a file in Radarr/Sonarr, and sends a
+    simple email via Mailgun if so. Marks the row as ``notified=1`` after a
+    successful send; rolls back to ``notified=0`` if the item isn't actually
+    ready yet so a future scheduler tick can retry.
 
     This is designed to be called from the library sync job so it runs
     frequently enough that users get a timely notification.
+
+    Pipeline:
+    1. Reset stranded ``notified=2`` rows whose claim has expired.
+    2. Atomically claim un-notified rows (set ``notified=2``, stamp ``claimed_at``).
+    3. For each claimed row, check Plex availability via Sonarr/Radarr.
+    4. Send the email via Mailgun.
+    5. On success, mark ``notified=1``; on failure, release the claim back to ``notified=0``.
     """
     from mediaman.services.arr.state import LazyArrClients
     from mediaman.services.infra.settings_reader import get_string_setting
@@ -508,3 +349,26 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
             # otherwise a transient Mailgun outage strands the row at
             # ``notified=2`` forever.
             _release_claim(conn, row_id)
+
+
+__all__ = [
+    # concern 1 — claim/release/reconcile (re-exported from _notification_claims)
+    "STRANDED_CLAIM_GRACE_SECONDS",
+    "_claim_pending_notifications",
+    "_release_claim",
+    "_release_claims_bulk",
+    "reconcile_stranded_notifications",
+    # concern 2 — backoff state (re-exported from _notification_backoff)
+    "_BACKOFF_BASE_SECONDS",
+    "_BACKOFF_MAX_SECONDS",
+    "_NOTIFY_BACKOFF",
+    "_backoff_state",
+    "_clear_backoff",
+    "_is_backed_off",
+    "_record_arr_failure",
+    # concern 3 — orchestration (defined here)
+    "_get_notification_template",
+    "_sonarr_has_files",
+    "check_download_notifications",
+    "record_download_notification",
+]

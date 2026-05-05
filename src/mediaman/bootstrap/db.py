@@ -1,4 +1,4 @@
-"""Back-compat shim — DB bootstrap logic lives in :mod:`mediaman.app_factory`.
+"""Back-compat shim — DB bootstrap logic now lives in :mod:`mediaman.bootstrap.data_dir`.
 
 This module re-exports the public API so existing imports such as::
 
@@ -13,11 +13,11 @@ continue to work without change.
 
 import tempfile  # kept for test monkeypatching: patch.object(bootstrap_db_mod.tempfile, ...)
 
-from mediaman.app_factory import (
+from mediaman.app_factory import bootstrap_db
+from mediaman.bootstrap.data_dir import (
     DataDirNotWritableError,
     _assert_data_dir_writable,
     _remediation_for,
-    bootstrap_db,
 )
 
 __all__ = [
