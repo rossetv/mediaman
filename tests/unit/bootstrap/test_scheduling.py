@@ -214,7 +214,13 @@ class TestShutdownScheduling:
         # should still return — abandoning the worker — within the bounded
         # timeout, not block forever.
         def slow_stop():
-            time.sleep(60)
+            import threading
+
+            # Block without consuming real wall-clock time at the test's
+            # expense.  The production code's bounded join(timeout=0.2)
+            # will return; this thread exits after 10 s at the latest so
+            # it does not leak across the entire test session.
+            threading.Event().wait(timeout=10)
 
         import mediaman.scanner.scheduler as _sched
 

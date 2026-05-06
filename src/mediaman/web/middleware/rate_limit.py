@@ -1,5 +1,15 @@
 """``@rate_limit`` decorator for FastAPI route handlers.
 
+Moved from ``mediaman.services.rate_limit.decorator`` because the decorator
+is inherently FastAPI-coupled: it extracts the ``Request`` object from the
+handler's arguments and calls ``mediaman.web.responses.respond_err`` to
+return a 429 JSON response.  Placing it in ``services/`` violated the
+rule that services may not import from ``web/``.
+
+The non-FastAPI building blocks (``RateLimiter``, ``ActionRateLimiter``,
+``get_client_ip``) remain in :mod:`mediaman.services.rate_limit` where they
+can be used without any web-layer dependency.
+
 Wraps an endpoint function so that a limiter check runs before the
 handler body, returning a 429 response immediately when throttled.  This
 eliminates the repetitive boilerplate:

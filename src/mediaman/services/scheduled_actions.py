@@ -20,12 +20,12 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 
 from mediaman.core.format import format_day_month
-from mediaman.crypto import validate_keep_token
-from mediaman.web.models import (
+from mediaman.core.scheduled_action_kinds import (
     ACTION_PROTECTED_FOREVER,
     ACTION_SCHEDULED_DELETION,
     ACTION_SNOOZED,
 )
+from mediaman.crypto import validate_keep_token
 
 __all__ = [
     "apply_keep_forever",

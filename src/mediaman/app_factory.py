@@ -110,16 +110,53 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
     """
     canary_ok = False
     try:
+        from mediaman.audit import security_event
         from mediaman.crypto import canary_check, migrate_legacy_ciphertexts
 
-        canary_ok = bool(canary_check(app.state.db, config.secret_key))
+        db = app.state.db
+
+        def _on_canary_failure(reason: str) -> None:
+            """Best-effort audit-log a canary failure.
+
+            The canary fires before the audit table is guaranteed to exist on
+            fresh-DB bootstrap, so any failure in the audit path is logged and
+            swallowed — the security verdict (False) is what matters; the audit
+            row is the cherry on top.
+            """
+            try:
+                security_event(
+                    db,
+                    event="aes.canary_failed",
+                    actor="",
+                    ip="",
+                    detail={"reason": reason},
+                )
+            except Exception:  # pragma: no cover
+                logger.exception("aes.canary_failed audit write failed reason=%s", reason)
+
+        def _on_migration_complete(migrated_count: int) -> None:
+            """Best-effort audit-log after a successful v35 migration commit."""
+            try:
+                security_event(
+                    db,
+                    event="aes.v35_migration_complete",
+                    actor="",
+                    ip="",
+                    detail={"migrated_count": migrated_count},
+                )
+            except Exception:  # pragma: no cover
+                logger.exception("aes.v35_migration_complete audit write failed")
+
+        canary_ok = bool(canary_check(db, config.secret_key, on_failure=_on_canary_failure))
         if canary_ok:
             # Migration v35: re-encrypt any legacy v1 or no-AAD v2 settings
             # ciphertexts to v2+AAD. Safe to call on every startup —
             # already-migrated rows are skipped. Errors are logged but do
             # not abort startup.
             try:
-                n = migrate_legacy_ciphertexts(app.state.db, config.secret_key)
+                n = migrate_legacy_ciphertexts(
+                    db, config.secret_key, on_complete=_on_migration_complete
+                )
                 if n:
                     logger.info("bootstrap_crypto: migrated %d legacy settings row(s) to v2+AAD", n)
             except Exception:

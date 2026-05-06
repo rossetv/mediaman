@@ -19,11 +19,12 @@ from mediaman.db import (
     open_thread_connection,
     start_scan_run,
 )
-from mediaman.services.infra.rate_limits import (
+from mediaman.services.rate_limit import get_client_ip
+from mediaman.services.rate_limit.instances import (
     SCAN_TRIGGER_LIMITER as _SCAN_TRIGGER_LIMITER,
 )
-from mediaman.services.rate_limit import get_client_ip, rate_limit
 from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.responses import respond_err, respond_ok
 
 logger = logging.getLogger("mediaman")

@@ -64,10 +64,10 @@ from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.download_format import extract_poster_url
 from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
-from mediaman.services.infra.rate_limits import (
+from mediaman.services.rate_limit import get_client_ip
+from mediaman.services.rate_limit.instances import (
     POSTER_PUBLIC_LIMITER as _POSTER_PUBLIC_LIMITER,
 )
-from mediaman.services.rate_limit import get_client_ip
 from mediaman.web.auth.middleware import get_optional_admin
 
 # Import pure helpers from submodules.
@@ -118,6 +118,10 @@ _CACHE_GC_RECHECK_EVERY = 50
 # walk the directory. Lock is best-effort — if it cannot be acquired
 # without blocking, the request skips the GC and serves immediately.
 _cache_gc_lock = threading.Lock()
+# rationale: _cache_gc_counter is incremented from the FastAPI thread pool
+# (multiple concurrent poster requests); the dedicated lock guards the
+# read-modify-write so no increments are lost to a torn update.
+_cache_gc_counter_lock = threading.Lock()
 _cache_gc_counter = 0
 
 # Only these mime types are ever served back to the client.
@@ -171,9 +175,10 @@ def _maybe_sweep_cache(cache_dir: Path) -> None:
     expensive walk only runs once per ~50 cache misses.
     """
     global _cache_gc_counter
-    _cache_gc_counter += 1
-    if _cache_gc_counter < _CACHE_GC_RECHECK_EVERY:
-        return
+    with _cache_gc_counter_lock:
+        _cache_gc_counter += 1
+        if _cache_gc_counter < _CACHE_GC_RECHECK_EVERY:
+            return
     if not _cache_gc_lock.acquire(blocking=False):
         return
     _cache_gc_counter = 0

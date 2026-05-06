@@ -208,15 +208,19 @@ class TestUnsubscribeToken:
         # Token is valid but the email claim doesn't match "other@y.com".
         assert payload is None or payload.get("email", "").lower() != "other@y.com"
 
-    def test_expired_token_rejected(self):
+    def test_expired_token_rejected(self, monkeypatch):
         from mediaman.crypto import (
             generate_unsubscribe_token,
             validate_unsubscribe_token,
         )
+        from mediaman.crypto import tokens as _tokens_mod
+
+        fake_clock = [1_000_000.0]
+        monkeypatch.setattr(_tokens_mod.time, "time", lambda: fake_clock[0])
 
         token = generate_unsubscribe_token(email="x@y.com", secret_key=_KEY, ttl_days=0)
-        # ttl_days=0 means exp=now → validates the equality with <
-        time.sleep(0.01)
+        # ttl_days=0 means exp=int(T)+0; advance the clock past T so exp < time.time()
+        fake_clock[0] += 1.0
         assert validate_unsubscribe_token(token, _KEY) is None
 
 

@@ -190,13 +190,14 @@ class TestRefreshRateLimit:
         24h cooldown — otherwise the user is locked out for a day despite
         no actual refresh having happened. The status endpoint must also
         surface the failure so the UI can show a real error."""
-        import time
+        import threading
 
         conn = app.state.db
 
         # No prior refresh recorded — first call should be allowed through.
         # Stub Plex (so build_plex_from_db returns truthy) and stub
         # refresh_recommendations to return 0 (simulating empty OpenAI output).
+        _done = threading.Event()
         with (
             patch(
                 "mediaman.web.routes.recommended.refresh.build_plex_from_db",
@@ -211,13 +212,14 @@ class TestRefreshRateLimit:
             assert resp.status_code == 200
             assert resp.json().get("status") == "started"
 
-            # Wait for the background worker to finish (it's a daemon
-            # thread; poll the status endpoint).
-            for _ in range(50):
+            # Wait for the background worker to finish (it's a daemon thread).
+            # Poll the status endpoint; each HTTP round-trip yields the GIL so
+            # the worker thread can make progress without any real sleep.
+            for _ in range(500):
                 st = authed_client.get("/api/recommended/refresh/status").json()
                 if st.get("status") == "done":
+                    _done.set()
                     break
-                time.sleep(0.05)
             else:
                 pytest.fail("Background refresh did not complete in time")
 

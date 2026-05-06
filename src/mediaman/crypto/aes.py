@@ -23,6 +23,7 @@ format with version-prefix byte. Migration is one-way via
 from __future__ import annotations
 
 import base64
+import collections.abc
 import logging
 import secrets
 import sqlite3
@@ -158,8 +159,28 @@ def decrypt_value(
     raise InvalidTag()
 
 
-def canary_check(conn: sqlite3.Connection, secret_key: str) -> bool:
-    """Verify the AES key can decrypt a stored canary value."""
+def canary_check(
+    conn: sqlite3.Connection,
+    secret_key: str,
+    *,
+    on_failure: collections.abc.Callable[[str], None] | None = None,
+) -> bool:
+    """Verify the AES key can decrypt a stored canary value.
+
+    Args:
+        conn:       Open SQLite connection.
+        secret_key: Master ``MEDIAMAN_SECRET_KEY``.
+        on_failure: Optional callback invoked with the failure-reason string
+                    when the check fails.  The caller (typically
+                    ``bootstrap_crypto`` in ``app_factory``) passes a closure
+                    that writes a ``security_event`` audit row.  Keeping the
+                    audit-write out of ``crypto/`` preserves the leaf-package
+                    invariant (§2.2): ``crypto/`` must not import from
+                    ``mediaman.audit``.
+
+    Returns:
+        ``True`` on success, ``False`` on any failure.
+    """
     row = conn.execute("SELECT value FROM settings WHERE key=?", (_CANARY_SETTING_KEY,)).fetchone()
 
     if row is None or not row["value"]:
@@ -173,7 +194,7 @@ def canary_check(conn: sqlite3.Connection, secret_key: str) -> bool:
                 "possible database tampering. Refusing to re-seed the "
                 "canary; investigate the DB before restarting."
             )
-            _audit_canary_failure(conn, reason="canary_missing_with_encrypted_rows")
+            _invoke_on_failure(on_failure, "canary_missing_with_encrypted_rows")
             return False
 
         ciphertext = encrypt_value(
@@ -207,7 +228,7 @@ def canary_check(conn: sqlite3.Connection, secret_key: str) -> bool:
         cache_key = _db_path(conn)
         if cache_key:
             _salt_cache_pop(cache_key)
-        _audit_canary_failure(conn, reason="canary_decrypt_invalid_tag")
+        _invoke_on_failure(on_failure, "canary_decrypt_invalid_tag")
         return False
 
     if decrypted != _CANARY_PLAINTEXT:
@@ -219,31 +240,23 @@ def canary_check(conn: sqlite3.Connection, secret_key: str) -> bool:
         cache_key = _db_path(conn)
         if cache_key:
             _salt_cache_pop(cache_key)
-        _audit_canary_failure(conn, reason="canary_plaintext_mismatch")
+        _invoke_on_failure(on_failure, "canary_plaintext_mismatch")
         return False
 
     return True
 
 
-def _audit_canary_failure(conn: sqlite3.Connection, *, reason: str) -> None:
-    """Best-effort audit-log a canary failure when a *conn* is available.
+def _invoke_on_failure(
+    on_failure: collections.abc.Callable[[str], None] | None, reason: str
+) -> None:
+    """Safely invoke *on_failure* (the caller-supplied audit callback).
 
-    The canary fires before the audit table is guaranteed to exist on
-    fresh-DB bootstrap, so any failure in the audit path is logged and
-    swallowed — the security verdict (False) is what matters; the audit
-    row is the cherry on top.
+    Swallows all exceptions so a broken audit path never overrides the
+    security verdict returned to the caller.
     """
-    if conn is None:
+    if on_failure is None:
         return
     try:
-        from mediaman.audit import security_event
-
-        security_event(
-            conn,
-            event="aes.canary_failed",
-            actor="",
-            ip="",
-            detail={"reason": reason},
-        )
-    except Exception:  # pragma: no cover — never break the read on audit failure
-        logger.exception("aes.canary_failed audit write failed reason=%s", reason)
+        on_failure(reason)
+    except Exception:  # pragma: no cover — never break the canary check on audit failure
+        logger.exception("canary on_failure callback raised reason=%s", reason)

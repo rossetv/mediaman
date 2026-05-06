@@ -11,7 +11,7 @@ def _reset_poster_module_state():
     """Reset poster.py module-level state between tests so suite
     ordering does not cause spurious failures (cache dir, GC counter,
     public-IP rate limiter)."""
-    from mediaman.services.infra.rate_limits import POSTER_PUBLIC_LIMITER
+    from mediaman.services.rate_limit.instances import POSTER_PUBLIC_LIMITER
     from mediaman.web.routes import poster as poster_mod
 
     poster_mod._cache_dir = None
@@ -628,7 +628,7 @@ class TestPosterPublicRateLimit:
 
         from mediaman.config import load_config
         from mediaman.db import init_db, set_connection
-        from mediaman.services.infra.rate_limits import POSTER_PUBLIC_LIMITER
+        from mediaman.services.rate_limit.instances import POSTER_PUBLIC_LIMITER
         from mediaman.web.routes.poster import router
 
         POSTER_PUBLIC_LIMITER.reset()
@@ -703,7 +703,7 @@ class TestPosterCacheSidecarMime:
 
         from mediaman.config import load_config
         from mediaman.db import init_db, set_connection
-        from mediaman.services.infra.rate_limits import POSTER_PUBLIC_LIMITER
+        from mediaman.services.rate_limit.instances import POSTER_PUBLIC_LIMITER
         from mediaman.web.routes.poster import router
 
         POSTER_PUBLIC_LIMITER.reset()
@@ -897,7 +897,7 @@ class TestPosterTempCleanupOnFailure:
 
         poster_mod._cache_dir = None
 
-        from mediaman.services.infra.rate_limits import POSTER_PUBLIC_LIMITER
+        from mediaman.services.rate_limit.instances import POSTER_PUBLIC_LIMITER
 
         POSTER_PUBLIC_LIMITER.reset()
 

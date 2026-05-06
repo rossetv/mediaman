@@ -6,7 +6,6 @@ helpers.
 """
 
 import hashlib
-import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -596,26 +595,36 @@ class TestCleanupThrottleStampedAfterCompletion:
         # known state.
         monkeypatch.setattr(session_store, "_last_cleanup_at", 0.0)
 
-        # Pretend the cleanup itself takes a measurable sliver of
-        # wall-clock time so we can distinguish "stamped at entry"
-        # from "stamped at exit".
+        # Use a fake monotonic clock that we advance explicitly inside
+        # slow_cleanup, so we never sleep for real.
+        # All callers — both test code and session_store production code —
+        # go through session_store.time.monotonic (via the patched binding).
+        fake_clock = [1000.0]
+
+        def fake_monotonic() -> float:
+            return fake_clock[0]
+
+        monkeypatch.setattr(session_store.time, "monotonic", fake_monotonic)
+
+        # Pretend the cleanup itself takes a measurable sliver of time so
+        # we can distinguish "stamped at entry" from "stamped at exit".
         original_cleanup = session_store._cleanup_expired_with_commit
 
         def slow_cleanup(*args, **kwargs):
             original_cleanup(*args, **kwargs)
-            time.sleep(0.05)  # 50 ms of synthetic work after the SQL.
+            fake_clock[0] += 0.1  # advance the fake clock by 100 ms — no real sleep
 
         monkeypatch.setattr(session_store, "_cleanup_expired_with_commit", slow_cleanup)
 
         token = create_session(conn, "alice")
-        before = time.monotonic()
+        before = fake_monotonic()  # == 1000.0 (entry clock value)
         assert validate_session(conn, token) == "alice"
-        after = time.monotonic()
+        after = fake_monotonic()  # == 1000.1 (clock advanced inside slow_cleanup)
 
-        # The post-cleanup timestamp must lie at or after ``before + 0.05``.
+        # The post-cleanup timestamp must lie at or after before + 0.05.
         # If the bug were still present, ``_last_cleanup_at`` would equal
-        # the value of ``time.monotonic()`` BEFORE the 50 ms sleep, i.e.
-        # before + 0 (effectively).
+        # the value of ``time.monotonic()`` BEFORE slow_cleanup ran, i.e.
+        # 1000.0, not 1000.1.
         assert session_store._last_cleanup_at >= before + 0.04
         assert session_store._last_cleanup_at <= after + 0.001
 

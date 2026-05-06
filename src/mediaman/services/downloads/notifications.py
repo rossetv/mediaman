@@ -33,6 +33,21 @@ from mediaman.services.downloads.download_format import extract_poster_url
 logger = logging.getLogger("mediaman")
 
 
+def _mask_email(email: str) -> str:
+    """Return a masked representation of *email* for log output.
+
+    Exposes only the first character of the local part plus the total length,
+    e.g. ``"a...@example.com (len=17)"``.  The domain is retained so operators
+    can still triage delivery failures without exposing the full address.
+    """
+    try:
+        local, domain = email.split("@", 1)
+    except ValueError:
+        return f"(len={len(email)})"
+    first = local[0] if local else "?"
+    return f"{first}...@{domain} (len={len(email)})"
+
+
 # ---------------------------------------------------------------------------
 # Module-cached Jinja environment.
 #
@@ -335,7 +350,7 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
             # Successful send — drop any backoff state we may have built
             # up for this row during a previous outage.
             _clear_backoff(int(row_id))
-            logger.info("Download notification sent to %s for '%s'", email, title)
+            logger.info("Download notification sent to %s for '%s'", _mask_email(email), title)
 
         except Exception:
             logger.exception(

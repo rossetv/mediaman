@@ -21,7 +21,7 @@ def _reset_scan_trigger_limiter():
     """Reset the per-admin scan-trigger limiter so suite ordering does
     not cause the second / third test in a class to hit the daily cap.
     """
-    from mediaman.services.infra.rate_limits import SCAN_TRIGGER_LIMITER
+    from mediaman.services.rate_limit.instances import SCAN_TRIGGER_LIMITER
 
     SCAN_TRIGGER_LIMITER.reset()
     yield

@@ -16,7 +16,7 @@ from starlette.responses import Response
 
 from mediaman.audit import security_event
 from mediaman.db import get_db
-from mediaman.services.rate_limit import get_client_ip, rate_limit
+from mediaman.services.rate_limit import get_client_ip
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.reauth import revoke_all_reauth_for, revoke_reauth
 from mediaman.web.auth.session_store import (
@@ -24,6 +24,7 @@ from mediaman.web.auth.session_store import (
     destroy_all_sessions_for,
     list_sessions_for,
 )
+from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.responses import respond_ok
 from mediaman.web.routes._helpers import set_session_cookie
 from mediaman.web.routes.users.rate_limits import _SESSIONS_LIST_LIMITER

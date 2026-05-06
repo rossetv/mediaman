@@ -267,14 +267,20 @@ def api_show_seasons(
 
     show_title = rows[0]["show_title"] if rows else ""
 
+    # rationale: batched IN-clause replaces N+1 query
+    ids = [r["id"] for r in rows]
+    kept_set: set[int] = set()
+    if ids:
+        placeholders = ",".join("?" * len(ids))
+        kept_rows = conn.execute(
+            f"SELECT media_item_id FROM scheduled_actions WHERE media_item_id IN ({placeholders}) "
+            "AND action IN ('protected_forever', 'snoozed') AND token_used = 0",
+            ids,
+        ).fetchall()
+        kept_set = {kr["media_item_id"] for kr in kept_rows}
+
     seasons = []
     for r in rows:
-        kept_row = conn.execute(
-            "SELECT id FROM scheduled_actions WHERE media_item_id = ? "
-            "AND action IN ('protected_forever', 'snoozed') AND token_used = 0",
-            (r["id"],),
-        ).fetchone()
-
         # Format last watched for display
         lw = r["last_watched_at"]
         last_watched = None
@@ -299,7 +305,7 @@ def api_show_seasons(
                 "id": r["id"],
                 "season_number": r["season_number"],
                 "title": r["title"],
-                "kept": kept_row is not None,
+                "kept": r["id"] in kept_set,
                 "file_size": _format_bytes(size_bytes),
                 "file_size_bytes": size_bytes,
                 "last_watched": last_watched,
@@ -412,25 +418,47 @@ def api_keep_show(
         (resolved_key, show_title, action, execute_at, duration, now.isoformat()),
     )
 
-    for sid in season_ids:
-        existing = conn.execute(
-            "SELECT id FROM scheduled_actions WHERE media_item_id = ? AND token_used = 0",
-            (sid,),
-        ).fetchone()
-        token = secrets.token_urlsafe(32)
-        if existing:
-            conn.execute(
-                "UPDATE scheduled_actions SET action = ?, execute_at = ?, "
-                "snoozed_at = ?, snooze_duration = ? WHERE id = ?",
-                (action, execute_at, now.isoformat(), duration, existing["id"]),
-            )
-        else:
-            conn.execute(
-                "INSERT INTO scheduled_actions "
-                "(media_item_id, action, scheduled_at, execute_at, token, token_used, snoozed_at, snooze_duration) "
-                "VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
-                (sid, action, now.isoformat(), execute_at, token, now.isoformat(), duration),
-            )
+    # rationale: batched IN-clause replaces N+1 query
+    existing_by_season: dict[str, int] = {}
+    if season_ids:
+        placeholders = ",".join("?" * len(season_ids))
+        existing_rows = conn.execute(
+            f"SELECT id, media_item_id FROM scheduled_actions "
+            f"WHERE media_item_id IN ({placeholders}) AND token_used = 0",
+            season_ids,
+        ).fetchall()
+        existing_by_season = {str(er["media_item_id"]): er["id"] for er in existing_rows}
+
+    to_update = [
+        (action, execute_at, now.isoformat(), duration, existing_by_season[sid])
+        for sid in season_ids
+        if sid in existing_by_season
+    ]
+    to_insert = [
+        (
+            sid,
+            action,
+            now.isoformat(),
+            execute_at,
+            secrets.token_urlsafe(32),
+            now.isoformat(),
+            duration,
+        )
+        for sid in season_ids
+        if sid not in existing_by_season
+    ]
+
+    conn.executemany(
+        "UPDATE scheduled_actions SET action = ?, execute_at = ?, "
+        "snoozed_at = ?, snooze_duration = ? WHERE id = ?",
+        to_update,
+    )
+    conn.executemany(
+        "INSERT INTO scheduled_actions "
+        "(media_item_id, action, scheduled_at, execute_at, token, token_used, snoozed_at, snooze_duration) "
+        "VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
+        to_insert,
+    )
 
     log_audit(
         conn,

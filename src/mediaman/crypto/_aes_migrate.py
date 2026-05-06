@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import collections.abc
 import logging
 import sqlite3
 
@@ -49,7 +50,12 @@ def _decrypt_v1_raw(raw: bytes, secret_key: str) -> str:
     return aesgcm.decrypt(nonce, ciphertext, None).decode()
 
 
-def migrate_legacy_ciphertexts(conn: sqlite3.Connection, secret_key: str) -> int:
+def migrate_legacy_ciphertexts(
+    conn: sqlite3.Connection,
+    secret_key: str,
+    *,
+    on_complete: collections.abc.Callable[[int], None] | None = None,
+) -> int:
     """Re-encrypt all legacy settings ciphertexts to v2 (AAD-bound).
 
     This is the migration v35 worker. It is called once at startup by the
@@ -65,6 +71,17 @@ def migrate_legacy_ciphertexts(conn: sqlite3.Connection, secret_key: str) -> int
     * **v2 no-AAD rows** — HKDF key, ``0x02`` prefix, but encrypted
       before AAD binding was introduced. They decrypt but are not row-bound;
       this migration re-encrypts them with the setting key as AAD.
+
+    Args:
+        conn:        Open SQLite connection.
+        secret_key:  Master ``MEDIAMAN_SECRET_KEY``.
+        on_complete: Optional callback invoked with the number of re-encrypted
+                     rows after a successful commit.  The caller (typically
+                     ``bootstrap_crypto`` in ``app_factory``) passes a closure
+                     that writes a ``security_event`` audit row.  Keeping the
+                     audit-write out of ``crypto/`` preserves the leaf-package
+                     invariant (§2.2): ``crypto/`` must not import from
+                     ``mediaman.audit``.
 
     Returns:
         Number of rows that were re-encrypted (0 if nothing to do).
@@ -163,17 +180,10 @@ def migrate_legacy_ciphertexts(conn: sqlite3.Connection, secret_key: str) -> int
                 exc_info=True,
             )
             raise
-        try:
-            from mediaman.audit import security_event
-
-            security_event(
-                conn,
-                event="aes.v35_migration_complete",
-                actor="",
-                ip="",
-                detail={"migrated_count": migrated},
-            )
-        except Exception:  # pragma: no cover — never block on audit failure
-            logger.exception("aes.v35_migration_complete audit write failed")
+        if on_complete is not None:
+            try:
+                on_complete(migrated)
+            except Exception:  # pragma: no cover — never block on audit failure
+                logger.exception("aes.v35_migration_complete on_complete callback failed")
 
     return migrated

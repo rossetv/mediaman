@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
-from mediaman.services.infra.rate_limits import (
+from mediaman.services.rate_limit.instances import (
     SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER,
 )
 from mediaman.web.auth.password_hash import create_user

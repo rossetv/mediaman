@@ -44,10 +44,10 @@ from mediaman.core.url_safety import (
 from mediaman.crypto import decrypt_value, encrypt_value
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_plex_from_db
-from mediaman.services.infra.rate_limits import SETTINGS_TEST_LIMITER as _SETTINGS_TEST_LIMITER
-from mediaman.services.infra.rate_limits import SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER
 from mediaman.services.infra.settings_reader import ConfigDecryptError
 from mediaman.services.rate_limit import get_client_ip
+from mediaman.services.rate_limit.instances import SETTINGS_TEST_LIMITER as _SETTINGS_TEST_LIMITER
+from mediaman.services.rate_limit.instances import SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER
 from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.web.auth.reauth import has_recent_reauth
 from mediaman.web.models import SettingsUpdate

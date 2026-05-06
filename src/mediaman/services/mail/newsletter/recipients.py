@@ -200,7 +200,7 @@ def _send_to_recipients(
                     error=None,
                 )
         except Exception as exc:
-            logger.exception("Newsletter send failed for %s — continuing", email)
+            logger.exception("Newsletter send failed for %s — continuing", _mask_email(email))
             if conn is not None:
                 _record_delivery_attempt(
                     conn,

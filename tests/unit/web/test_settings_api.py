@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from mediaman.config import Config
 from mediaman.crypto import encrypt_value
 from mediaman.db import init_db, set_connection
-from mediaman.services.infra.rate_limits import (
+from mediaman.services.rate_limit.instances import (
     SETTINGS_TEST_LIMITER,
     SETTINGS_WRITE_LIMITER,
 )
@@ -619,12 +619,16 @@ class TestSettingsTestServiceTimeout:
     Plex cannot pin the request thread for 35+ seconds."""
 
     def test_long_running_tester_returns_timeout(self, conn, secret_key, monkeypatch):
-        import time
+        import threading
 
         from mediaman.web.routes import settings as settings_module
 
         def slow_tester(_settings):
-            time.sleep(2.0)
+            # Block long enough that the production timeout (0.1 s) fires
+            # before this returns, but exit promptly so the ThreadPoolExecutor
+            # shutdown does not stall the test.  0.3 s is 3× the cap —
+            # generous margin without adding real wall-clock cost.
+            threading.Event().wait(timeout=0.3)
             from fastapi.responses import JSONResponse
 
             return JSONResponse({"ok": True})

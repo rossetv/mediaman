@@ -6,7 +6,6 @@ sweep that resets rows left stuck at ``notified=2`` by a crashed worker.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import sqlite3
 from datetime import UTC, datetime, timedelta
@@ -65,8 +64,12 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[sqlite3.Row]:
             conn.execute("COMMIT")
             return rows
         except Exception:
-            with contextlib.suppress(Exception):
+            # rationale: roll back the in-flight claim transaction before propagating;
+            # rollback failures are logged but never mask the original exception.
+            try:
                 conn.execute("ROLLBACK")
+            except sqlite3.Error:
+                logger.debug("rollback after claim failure raised", exc_info=True)
             raise
 
 

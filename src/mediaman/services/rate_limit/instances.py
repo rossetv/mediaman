@@ -3,11 +3,15 @@
 Centralising these here prevents the same limiter being declared twice
 (once in subscribers.py, once in settings.py) with potentially different
 parameters that silently diverge over time.
+
+Previously lived in ``mediaman.services.infra.rate_limits``.  Moved here
+so that the ``infra`` sub-package does not import from a sibling
+(``services.rate_limit``), violating the intra-services import rules.
 """
 
 from __future__ import annotations
 
-from mediaman.services.rate_limit import ActionRateLimiter, RateLimiter
+from mediaman.services.rate_limit.limiters import ActionRateLimiter, RateLimiter
 
 # Newsletter send limiter — shared by subscribers.py (/api/newsletter/send).
 # 3 sends per 5 minutes per admin, 10 per day.
@@ -43,3 +47,12 @@ SCAN_TRIGGER_LIMITER = ActionRateLimiter(max_in_window=3, window_seconds=60, max
 # per /24 (IPv4) or /64 (IPv6) bucket so a leaked URL cannot be used as
 # a bandwidth-amplification vector against the proxy.
 POSTER_PUBLIC_LIMITER = RateLimiter(max_attempts=60, window_seconds=60)
+
+__all__ = [
+    "NEWSLETTER_LIMITER",
+    "POSTER_PUBLIC_LIMITER",
+    "SCAN_TRIGGER_LIMITER",
+    "SETTINGS_TEST_LIMITER",
+    "SETTINGS_WRITE_LIMITER",
+    "SUBSCRIBER_WRITE_LIMITER",
+]

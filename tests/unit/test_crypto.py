@@ -1,6 +1,7 @@
 """Tests for encryption and token signing."""
 
 import base64
+import contextlib
 import hashlib
 import secrets
 import sqlite3
@@ -10,6 +11,7 @@ import pytest
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from mediaman.audit import security_event
 from mediaman.crypto import (
     _derive_aes_key_hkdf,
     _load_or_create_salt,
@@ -22,6 +24,38 @@ from mediaman.crypto import (
     validate_keep_token,
 )
 from mediaman.db import init_db
+
+
+def _make_canary_audit_callback(conn: sqlite3.Connection):
+    """Return an ``on_failure`` callback that writes a canary-failed audit row."""
+
+    def _on_failure(reason: str) -> None:
+        with contextlib.suppress(Exception):
+            security_event(
+                conn,
+                event="aes.canary_failed",
+                actor="",
+                ip="",
+                detail={"reason": reason},
+            )
+
+    return _on_failure
+
+
+def _make_migration_audit_callback(conn: sqlite3.Connection):
+    """Return an ``on_complete`` callback that writes a migration-complete audit row."""
+
+    def _on_complete(migrated_count: int) -> None:
+        with contextlib.suppress(Exception):
+            security_event(
+                conn,
+                event="aes.v35_migration_complete",
+                actor="",
+                ip="",
+                detail={"migrated_count": migrated_count},
+            )
+
+    return _on_complete
 
 
 @pytest.fixture
@@ -589,7 +623,11 @@ class TestV35MigrateLegacyCiphertexts:
         )
         conn.commit()
 
-        migrate_legacy_ciphertexts(conn, secret_key)
+        # Pass the audit callback — audit writing was moved out of crypto/ to
+        # the caller layer to satisfy the §2.2 leaf-package invariant.
+        migrate_legacy_ciphertexts(
+            conn, secret_key, on_complete=_make_migration_audit_callback(conn)
+        )
 
         rows = conn.execute(
             "SELECT detail FROM audit_log WHERE action=?",
@@ -722,8 +760,14 @@ class TestCanaryFailureAudits:
 
     def test_canary_key_mismatch_writes_audit_row(self, conn, secret_key):
         canary_check(conn, secret_key)  # seed
-        # Fail with a different valid-shape key.
-        ok = canary_check(conn, "fedcba9876543210" * 4)
+        # Fail with a different valid-shape key; supply the audit callback so
+        # the failure reason is written to audit_log (audit writing was moved
+        # out of crypto/ to the caller layer — see §2.2 leaf-package rule).
+        ok = canary_check(
+            conn,
+            "fedcba9876543210" * 4,
+            on_failure=_make_canary_audit_callback(conn),
+        )
         assert ok is False
 
         rows = conn.execute(
@@ -743,7 +787,8 @@ class TestCanaryFailureAudits:
         )
         conn.commit()
 
-        ok = canary_check(conn, secret_key)
+        # Supply the audit callback — see §2.2 leaf-package rule.
+        ok = canary_check(conn, secret_key, on_failure=_make_canary_audit_callback(conn))
         assert ok is False
 
         rows = conn.execute(
