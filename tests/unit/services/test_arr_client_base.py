@@ -68,17 +68,17 @@ class TestDeleteMethod:
 class TestTestConnection:
     def test_test_connection_true(self, client, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data={"version": "5.0"}))
-        assert client.test_connection() is True
+        assert client.is_reachable() is True
 
     def test_test_connection_false_on_exception(self, client, fake_http):
         import requests
 
         fake_http.raise_on("GET", requests.ConnectionError("unreachable"))
-        assert client.test_connection() is False
+        assert client.is_reachable() is False
 
     def test_test_connection_false_on_http_error(self, client, fake_http, fake_response):
         fake_http.queue("GET", fake_response(status=401, text="nope"))
-        assert client.test_connection() is False
+        assert client.is_reachable() is False
 
 
 class TestConstructor:
@@ -107,14 +107,14 @@ class TestLastError:
 
     def test_split_timeout_applied(self):
         """SafeHTTPClient is configured with the split connect/read timeout."""
-        from mediaman.services.arr.base import _ARR_TIMEOUT, _ArrClientBase
+        from mediaman.services.arr.base import _ARR_TIMEOUT_SECONDS, _ArrClientBase
 
         class TC(_ArrClientBase):
             pass
 
         c = TC("http://arr.local", "key")
-        assert c._http._default_timeout == _ARR_TIMEOUT
-        assert _ARR_TIMEOUT == (5.0, 30.0)
+        assert c._http._default_timeout == _ARR_TIMEOUT_SECONDS
+        assert _ARR_TIMEOUT_SECONDS == (5.0, 30.0)
 
     def test_last_error_cleared_on_success(self, client, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data={"status": "ok"}))

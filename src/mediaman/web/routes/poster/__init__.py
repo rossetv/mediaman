@@ -78,10 +78,10 @@ from mediaman.web.routes.poster.cache import (
     write_sidecar_mime as _write_sidecar_mime,
 )
 from mediaman.web.routes.poster.fetch import (
-    safe_mime as _safe_mime_impl,
+    is_valid_rating_key as _validate_rating_key_impl,
 )
 from mediaman.web.routes.poster.fetch import (
-    validate_rating_key as _validate_rating_key_impl,
+    safe_mime as _safe_mime_impl,
 )
 
 # Remote poster fetches get a tight 3 s read timeout and 4 MiB cap — a
@@ -99,7 +99,7 @@ router = APIRouter()
 _cache_dir: Path | None = None  # populated on first request from app config
 
 # Cache posters for 7 days (response header) — browser won't re-request
-_CACHE_MAX_AGE = 7 * 24 * 60 * 60
+_CACHE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 
 # Soft cap for the on-disk poster cache. The directory was previously
 # unbounded — a long-lived install would let it grow until the data
@@ -279,7 +279,7 @@ def _safe_mime(remote_type: str | None) -> str:
 def _validate_rating_key(rating_key: str) -> bool:
     """Return ``True`` if rating_key is a valid Plex rating key (digits only).
 
-    Delegates to :func:`~.fetch.validate_rating_key`.  Kept as a module-level
+    Delegates to :func:`~.fetch.is_valid_rating_key`.  Kept as a module-level
     name here so that imports and patches against ``mediaman.web.routes.poster``
     resolve correctly.
     """
@@ -468,7 +468,7 @@ def proxy_poster(
         return Response(
             content=cached_path.read_bytes(),
             media_type=_read_sidecar_mime(cached_path),
-            headers={"Cache-Control": f"public, max-age={_CACHE_MAX_AGE}"},
+            headers={"Cache-Control": f"public, max-age={_CACHE_MAX_AGE_SECONDS}"},
         )
 
     # Cache miss — fetch from Plex
@@ -554,5 +554,5 @@ def proxy_poster(
     return Response(
         content=content,
         media_type=content_type,
-        headers={"Cache-Control": f"public, max-age={_CACHE_MAX_AGE}"},
+        headers={"Cache-Control": f"public, max-age={_CACHE_MAX_AGE_SECONDS}"},
     )

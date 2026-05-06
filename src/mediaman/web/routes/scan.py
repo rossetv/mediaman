@@ -90,6 +90,11 @@ def trigger_scan(
     heartbeat_thread.start()
 
     def run():
+        """Execute the scan in a background thread with its own DB connection.
+
+        Opens a fresh thread-local connection, invokes the full scan pipeline,
+        marks the run as done or errored, and always closes the connection on exit.
+        """
         thread_conn = open_thread_connection(db_path)
         try:
             from mediaman.scanner.runner import run_scan_from_db

@@ -86,7 +86,7 @@ def is_web_search_enabled(conn: sqlite3.Connection | None) -> bool:
     return get_bool_setting(conn, "openai_web_search_enabled", default=False)
 
 
-def validate_web_search_title(title: str) -> bool:
+def is_web_search_title_safe(title: str) -> bool:
     """Return True if *title* is safe to persist after a web-search response.
 
     Rejects the entire batch (caller must check the return value) if:
@@ -191,7 +191,7 @@ def call_openai(
         if web_search_active:
             for item in items:
                 title = str(item.get("title", ""))
-                if not validate_web_search_title(title):
+                if not is_web_search_title_safe(title):
                     logger.warning(
                         "Rejecting web-search recommendation batch — title failed safety check: %r",
                         title,

@@ -34,7 +34,7 @@ _RECENT_DELETED_MAX_BATCHES = 5
 # dashboard on a slow filesystem could still spend tens of milliseconds
 # per render hitting it; 30s is well below the granularity at which a
 # user notices stale "free space" numbers.
-_DISK_USAGE_CACHE_TTL = 30.0
+_DISK_USAGE_CACHE_TTL_SECONDS = 30.0
 _disk_usage_cache: dict[str, tuple[float, dict[str, int]]] = {}
 _disk_usage_cache_lock = threading.Lock()
 
@@ -262,7 +262,7 @@ def _cached_disk_usage(media_path: str) -> dict[str, int]:
     now = time.monotonic()
     with _disk_usage_cache_lock:
         entry = _disk_usage_cache.get(media_path)
-        if entry is not None and now - entry[0] < _DISK_USAGE_CACHE_TTL:
+        if entry is not None and now - entry[0] < _DISK_USAGE_CACHE_TTL_SECONDS:
             return entry[1]
     fresh = get_aggregate_disk_usage(media_path)
     with _disk_usage_cache_lock:

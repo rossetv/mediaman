@@ -47,6 +47,7 @@ class KeepRequest(BaseModel):
     @field_validator("duration")
     @classmethod
     def validate_duration(cls, v: str) -> str:
+        """Reject any ``duration`` value that is not in the ``VALID_KEEP_DURATIONS`` allowlist."""
         if v not in VALID_KEEP_DURATIONS:
             raise ValueError(f"Duration must be one of: {set(VALID_KEEP_DURATIONS)}")
         return v

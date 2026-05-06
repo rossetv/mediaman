@@ -227,6 +227,11 @@ def _radarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> D
     )
 
 
+# rationale: queue traversal, episode-file cross-reference, and status
+# classification are coupled — each queue item requires an episode-file lookup
+# to determine whether it is downloading, missing, or complete; splitting the
+# traversal from the classification would double the Sonarr API surface without
+# reducing the essential coupling.
 def _sonarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> DownloadItem:
     """Return the download-status item dict for a Sonarr series by TMDB ID."""
     client = build_sonarr_from_db(conn, secret_key)

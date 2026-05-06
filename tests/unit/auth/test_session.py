@@ -268,7 +268,7 @@ class TestChangePasswordDoesNotLockSelf:
     password form must not lock you out of your own account."""
 
     def test_repeated_wrong_old_password_does_not_lock(self, conn):
-        from mediaman.web.auth.login_lockout import check_lockout
+        from mediaman.web.auth.login_lockout import is_locked_out
         from mediaman.web.auth.password_hash import change_password
 
         create_user(conn, "alice", "correct-password-123", enforce_policy=False)
@@ -290,7 +290,7 @@ class TestChangePasswordDoesNotLockSelf:
             ("alice",),
         ).fetchone()
         assert row is None
-        assert check_lockout(conn, "alice") is False
+        assert is_locked_out(conn, "alice") is False
 
     def test_successful_change_still_clears_counter(self, conn):
         from mediaman.web.auth.password_hash import authenticate, change_password

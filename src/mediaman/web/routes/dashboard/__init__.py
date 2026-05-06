@@ -1,4 +1,17 @@
-"""Dashboard page and supporting JSON API endpoints."""
+"""Dashboard page and supporting JSON API endpoints.
+
+Owns the admin dashboard route (``GET /``) and four supporting JSON API
+routes: ``/api/dashboard/stats``, ``/api/dashboard/scheduled``,
+``/api/dashboard/deleted``, and ``/api/dashboard/reclaimed-chart``. Heavy
+data fetching is delegated to ``_data`` and ``_poster_fanout`` sub-modules so
+this file stays a thin routing layer.
+
+Allowed dependencies: ``mediaman.web.auth``, ``mediaman.db``,
+``mediaman.web.routes.dashboard._data``, ``mediaman.core.format``.
+
+Forbidden patterns: do not embed SQL here — all queries live in ``_data.py``
+so the dashboard page logic remains readable at a glance.
+"""
 
 from __future__ import annotations
 

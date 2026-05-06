@@ -51,7 +51,7 @@ def read_delete_allowed_roots_setting(
         if env_val:
             # Single source of truth lives in path_safety.parse_delete_roots_env
             # so the deletion path and the disk-usage path always agree on
-            # separator handling (finding 31).
+            # separator handling.
             from mediaman.services.infra.path_safety import parse_delete_roots_env
 
             roots = parse_delete_roots_env(env_val)

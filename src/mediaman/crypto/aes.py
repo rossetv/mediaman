@@ -159,7 +159,7 @@ def decrypt_value(
     raise InvalidTag()
 
 
-def canary_check(
+def is_canary_valid(
     conn: sqlite3.Connection,
     secret_key: str,
     *,

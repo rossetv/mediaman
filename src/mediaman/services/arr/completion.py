@@ -98,6 +98,10 @@ def cleanup_recent_downloads(conn: sqlite3.Connection) -> int:
     return cursor.rowcount
 
 
+# rationale: Arr library fetch, per-item cross-reference, and recent_downloads
+# upsert share a single DB connection; splitting the verification loop from the
+# upsert would require a second pass over the Arr library or threading the
+# library snapshot through a helper boundary without reducing complexity.
 def record_verified_completions(
     conn: sqlite3.Connection,
     completed: list[CompletedItem],

@@ -2,7 +2,7 @@
 
 import pytest
 
-from mediaman.services.arr.base import ArrClient
+from mediaman.services.arr.base import ArrClient, ArrConfigError
 from mediaman.services.arr.spec import SONARR_SPEC
 
 
@@ -177,13 +177,13 @@ class TestArrClientSonarr:
 
     def test_test_connection(self, client, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data={"version": "4.0"}))
-        assert client.test_connection() is True
+        assert client.is_reachable() is True
 
     def test_test_connection_failure(self, client, fake_http):
         import requests
 
         fake_http.raise_on("GET", requests.ConnectionError("Connection refused"))
-        assert client.test_connection() is False
+        assert client.is_reachable() is False
 
     def test_search_series_posts_seriessearch_command(self, client, fake_http, fake_response):
         fake_http.queue("POST", fake_response(status=201, json_data={}))
@@ -229,14 +229,14 @@ class TestArrClientSonarr:
     def test_add_series_raises_when_no_root_folder(self, client, fake_http, fake_response):
         """Empty rootfolder list now fails loudly instead of inventing /tv."""
         fake_http.queue("GET", fake_response(json_data=[]))
-        with pytest.raises(RuntimeError, match="no root folders configured"):
+        with pytest.raises(ArrConfigError, match="no root folders configured"):
             client.add_series(tvdb_id=1, title="Test")
 
     def test_add_series_raises_when_no_quality_profile(self, client, fake_http, fake_response):
         """Empty qualityprofile list now fails loudly rather than picking id=4."""
         fake_http.queue("GET", fake_response(json_data=[{"path": "/tv"}]))
         fake_http.queue("GET", fake_response(json_data=[]))
-        with pytest.raises(RuntimeError, match="no quality profiles configured"):
+        with pytest.raises(ArrConfigError, match="no quality profiles configured"):
             client.add_series(tvdb_id=1, title="Test")
 
     def test_add_series_rejects_non_positive_tvdb_id(self, client, fake_http):

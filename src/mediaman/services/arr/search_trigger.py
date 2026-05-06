@@ -76,6 +76,10 @@ _PER_ARR_THROTTLE_SECONDS = 15 * 60
 # ---- Public API: trigger decision ----
 
 
+# rationale: throttle check, Arr client construction, search dispatch, and
+# throttle-row write form an atomic guard — splitting the throttle read from
+# the search call would open a TOCTOU window where concurrent callers could
+# both pass the throttle check and both fire duplicate searches.
 def maybe_trigger_search(
     conn,
     item: dict,

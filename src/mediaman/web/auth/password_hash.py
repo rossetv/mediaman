@@ -30,6 +30,12 @@ symmetrically. A mismatch (pre-hash on set, raw on verify or vice
 versa) would lock everyone out.
 """
 
+# rationale: combines user CRUD (create, list, delete, change-password) with
+# bcrypt helpers because the helpers are intrinsic to each CRUD operation and
+# the test suite patches ``mediaman.web.auth.password_hash.bcrypt`` at module
+# scope — splitting bcrypt helpers into a separate file would move the patch
+# target and break all password tests without reducing complexity.
+
 from __future__ import annotations
 
 import base64
@@ -259,7 +265,7 @@ def authenticate(
     can deduce from response volume anyway.
     """
     from mediaman.web.auth.login_lockout import (
-        check_lockout,
+        is_locked_out,
         record_failure,
         record_success,
     )
@@ -277,7 +283,7 @@ def authenticate(
     # remain reachable (5 → 10 → 15 failures); see C6 in the lockout
     # tests. record_failure keeps acquiring the writer lock, which is
     # the price of the escalation property.
-    if check_lockout(conn, username):
+    if is_locked_out(conn, username):
         if record_failures:
             record_failure(conn, username)
         logger.warning("auth.account_locked user=%s reason=lockout_active", username)
@@ -304,6 +310,10 @@ def authenticate(
     return ok
 
 
+# rationale: verify old password, enforce policy, bcrypt the new one, write
+# the hash, rotate the session token, and write an audit row — all must happen
+# in a single DB transaction so a failure between the hash write and the audit
+# write cannot produce an audit-free password change.
 def change_password(
     conn: sqlite3.Connection,
     username: str,
@@ -347,7 +357,7 @@ def change_password(
     password change.
     """
     from mediaman.web.auth.login_lockout import (
-        check_lockout,
+        is_locked_out,
         record_failure,
         record_success,
     )
@@ -355,7 +365,7 @@ def change_password(
 
     namespace = f"{REAUTH_LOCKOUT_PREFIX}{username}" if username else ""
 
-    if namespace and check_lockout(conn, namespace):
+    if namespace and is_locked_out(conn, namespace):
         # Burn a constant-time bcrypt cycle so timing matches the
         # wrong-password path; bump the counter so a sustained attack
         # escalates the lock window.

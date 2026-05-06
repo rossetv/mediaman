@@ -23,13 +23,21 @@ from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
 #: Radarr/Sonarr responses are usually under 1 s on the LAN; the 30 s read
 #: budget covers the rare case of a large library dump (tens of thousands of
 #: items) on a slow NAS.
-_ARR_TIMEOUT: tuple[float, float] = (5.0, 30.0)
+_ARR_TIMEOUT_SECONDS: tuple[float, float] = (5.0, 30.0)
 
 logger = logging.getLogger("mediaman")
 
 
-class ArrKindMismatch(RuntimeError):
-    """Raised when a kind-specific method is called on the wrong :class:`~mediaman.services.arr.base.ArrClient` variant.
+class ArrError(Exception):
+    """Base for all Sonarr/Radarr-specific failures."""
+
+
+class ArrConfigError(ArrError):
+    """Raised when the *arr instance cannot be reached or is misconfigured (no root folder, no quality profile)."""
+
+
+class ArrKindMismatch(ArrError):
+    """Raised when a series-shaped operation is invoked on a Radarr client (or vice versa).
 
     For example, calling :meth:`~mediaman.services.arr.base.ArrClient.delete_episode_files` on a client
     built with :data:`~mediaman.services.arr.spec.RADARR_SPEC`
@@ -55,7 +63,7 @@ class _ArrClientBase:
         self._http = SafeHTTPClient(
             self._url,
             session=self._session,
-            default_timeout=_ARR_TIMEOUT,
+            default_timeout=_ARR_TIMEOUT_SECONDS,
         )
         #: Set to the error string of the last failed call; ``None`` on success.
         self.last_error: str | None = None
@@ -161,7 +169,7 @@ class _ArrClientBase:
         except RequestException:
             return None
 
-    def test_connection(self) -> bool:
+    def is_reachable(self) -> bool:
         """Return True if the service's /api/v3/system/status endpoint responds.
 
         Catches :exc:`SafeHTTPError` (non-2xx responses) and
@@ -207,13 +215,13 @@ class _ArrClientBase:
         result = self._get("/api/v3/rootfolder")
         root_folders = cast(list[dict[str, Any]], result) if isinstance(result, list) else []
         if not root_folders:
-            raise RuntimeError(
+            raise ArrConfigError(
                 f"{type(self).__name__}: no root folders configured — "
                 "set one in the service's UI before adding releases"
             )
         path = root_folders[0].get("path")
         if not isinstance(path, str) or not path:
-            raise RuntimeError(
+            raise ArrConfigError(
                 f"{type(self).__name__}: first root folder has no 'path' — "
                 "the service's response is malformed"
             )
@@ -235,7 +243,7 @@ class _ArrClientBase:
         profiles = cast(list[dict[str, Any]], result) if isinstance(result, list) else []
         ids = [int(p["id"]) for p in profiles if isinstance(p.get("id"), int)]
         if not ids:
-            raise RuntimeError(
+            raise ArrConfigError(
                 f"{type(self).__name__}: no quality profiles configured — "
                 "set one in the service's UI before adding releases"
             )
@@ -319,7 +327,7 @@ class _ArrClientBase:
                     max_retries,
                 )
                 last_observed = True
-        raise RuntimeError(
+        raise ArrError(
             f"{log_prefix}: gave up after {max_retries} retries for "
             f"{log_id} — concurrent writes kept interleaving"
         )

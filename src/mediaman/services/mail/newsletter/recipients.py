@@ -125,7 +125,7 @@ def _send_to_recipients(
     for email in recipient_emails:
         unsub_token = generate_unsubscribe_token(email=email, secret_key=secret_key)
         # The email is encoded inside the signed token — no need to expose it
-        # as a query parameter (finding 36).
+        # as a query parameter, which would leak PII into server logs.
         unsub_url = (
             f"{base_url}/unsubscribe?token={_url_quote(unsub_token, safe='')}" if base_url else ""
         )

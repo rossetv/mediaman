@@ -185,7 +185,7 @@ class MailgunClient:
         for recipient in recipients:
             self.send(to=recipient, subject=subject, html=html)
 
-    def test_connection(self) -> bool:
+    def is_reachable(self) -> bool:
         """Return True if either region reports the domain exists."""
         for base in (self._base, self._other_base()):
             try:

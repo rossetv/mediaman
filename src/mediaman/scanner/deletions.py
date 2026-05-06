@@ -85,6 +85,157 @@ def _recover_stuck_deletions(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _delete_file_on_disk(
+    conn: sqlite3.Connection,
+    row: sqlite3.Row,
+    allowed_roots: list[str],
+) -> bool:
+    """Attempt to delete the on-disk file; return True on success.
+
+    On any error the row is left in the appropriate state and False is
+    returned so the caller can ``continue`` to the next row.  All
+    try/except branches are contained here so no except clause is ever
+    stranded in a different scope from its try.
+    # rationale: four distinct exception types (ValueError, FileNotFoundError,
+    # PermissionError/OSError, Exception) each require different recovery
+    # actions; splitting by exception type would separate try from except.
+    """
+    try:
+        delete_path(row["file_path"], allowed_roots=allowed_roots)
+        return True
+    except ValueError as exc:
+        # Allowlist refusal: the path is wrong, but the action
+        # row is still valid — reset to pending so a later run
+        # (e.g. once the operator fixes the path) can retry.
+        logger.error(
+            "Refusing to delete '%s' — path is outside configured delete_allowed_roots: %s",
+            row["file_path"],
+            exc,
+        )
+        repository.mark_delete_status(conn, row["id"], "pending")
+        conn.commit()
+        return False
+    except FileNotFoundError as exc:
+        # The file vanished between fetch and rm — likely
+        # deleted out-of-band. The standard recovery path
+        # (_recover_stuck_deletions sees file absent → marks
+        # deleted) handles this cleanly on the next run, so
+        # leave the row in 'deleting' state. Treated as
+        # transient because the action row itself is still
+        # valid and a future run will reconcile it.
+        logger.info(
+            "engine.delete.file_missing id=%s path=%r — "
+            "leaving row in 'deleting' state; next run will "
+            "complete cleanup via _recover_stuck_deletions: %s",
+            row["id"],
+            row["file_path"],
+            exc,
+        )
+        return False
+    except (PermissionError, OSError) as exc:
+        # Likely permanent without operator intervention
+        # (read-only filesystem, ACL refusal, low-level I/O
+        # error, IsADirectoryError, etc.). Leave the row in
+        # 'deleting' state so a subsequent run can inspect via
+        # _recover_stuck_deletions (file present → reset to
+        # pending; file gone → mark deleted), and emit an
+        # explicit audit entry now so the failure is visible
+        # to the operator without waiting for the next scan.
+        logger.exception(
+            "engine.delete.permanent_failure id=%s path=%r — "
+            "leaving row in 'deleting' state for next run "
+            "to inspect (file may need manual intervention)",
+            row["id"],
+            row["file_path"],
+        )
+        log_audit(
+            conn,
+            row["media_item_id"],
+            "delete_failed_permanent",
+            f"Permanent delete error: {row['title']} — {exc.__class__.__name__}: {exc}",
+        )
+        conn.commit()
+        return False
+    except Exception as exc:
+        # Unexpected exception type. Log + audit and treat as
+        # permanent so the operator can investigate; leave the
+        # row in 'deleting' for recovery to reconcile.
+        logger.exception(
+            "engine.delete.unexpected_failure id=%s path=%r — "
+            "leaving row in 'deleting' state for next run to "
+            "inspect (programming error or unhandled exception)",
+            row["id"],
+            row["file_path"],
+        )
+        log_audit(
+            conn,
+            row["media_item_id"],
+            "delete_failed_permanent",
+            f"Unexpected delete error: {row['title']} — {exc.__class__.__name__}: {exc}",
+        )
+        conn.commit()
+        return False
+
+
+def _commit_deletion(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
+    """Write the audit entry, drop the scheduled_action row, and commit.
+
+    Called after a successful on-disk delete.  The commit closes the
+    write lock *before* the best-effort *arr unmonitor HTTP calls.
+    """
+    # Record the deletion and close the transaction *before* the
+    # Radarr/Sonarr unmonitor HTTP calls. The unmonitor is
+    # best-effort housekeeping — a failure (or slow response)
+    # must not keep the SQLite write lock open.
+    rk = row["plex_rating_key"]
+    detail = f"Deleted: {row['title']}" + (f" [rk:{rk}]" if rk else "")
+    log_audit(
+        conn,
+        row["media_item_id"],
+        "deleted",
+        detail,
+        space_bytes=row["file_size_bytes"],
+    )
+    repository.delete_scheduled_action(conn, row["id"])
+    conn.commit()
+
+
+def _unmonitor_arr(
+    row: sqlite3.Row,
+    radarr_client: Any,
+    sonarr_client: Any,
+) -> None:
+    """Send best-effort unmonitor calls to Radarr/Sonarr.
+
+    Failures are non-fatal: logged as warnings and swallowed so a
+    slow or unavailable *arr instance never blocks the deletion loop.
+    Must be called *after* the SQLite write lock has been released
+    (i.e. after ``_commit_deletion``).
+    """
+    # Unmonitor in *arr clients — failures are non-fatal and
+    # happen outside any open transaction.
+    if row["radarr_id"] and radarr_client:
+        try:
+            radarr_client.unmonitor_movie(row["radarr_id"])
+        except Exception:
+            logger.warning(
+                "Failed to unmonitor movie %s after deletion",
+                row["radarr_id"],
+                exc_info=True,
+            )
+
+    if row["sonarr_id"] and row["season_number"] is not None and sonarr_client:
+        try:
+            sonarr_client.unmonitor_season(row["sonarr_id"], row["season_number"])
+        except Exception:
+            logger.warning(
+                "Failed to unmonitor season %s of series %s after deletion",
+                row["season_number"],
+                row["sonarr_id"],
+                exc_info=True,
+            )
+
+
 class DeletionExecutor:
     """Executes pending deletions whose grace period has elapsed.
 
@@ -130,6 +281,17 @@ class DeletionExecutor:
         ``cleanup_snoozes`` was set to ``False`` at construction (D05
         finding 10) so a real dry-run preview never mutates
         ``scheduled_actions``.
+
+        # rationale: orchestrator — body is sequential phase calls plus
+        # the deletion loop; the loop counter state (deleted_count,
+        # reclaimed_bytes) spans all phases and ties them together.
+
+        Pipeline:
+        1. Load allowlist + recover stuck rows.
+        2. For each pending row in dry-run mode, write audit and skip.
+        3. For each live row: mark 'deleting', delete file on disk.
+        4. On success: commit deletion audit + drop action row.
+        5. Best-effort *arr unmonitor (outside any transaction).
         """
         now = datetime.now(UTC)
         deleted_count = 0
@@ -177,119 +339,11 @@ class DeletionExecutor:
             repository.mark_delete_status(self._conn, row["id"], "deleting")
             self._conn.commit()
 
-            try:
-                delete_path(row["file_path"], allowed_roots=allowed_roots)
-            except ValueError as exc:
-                # Allowlist refusal: the path is wrong, but the action
-                # row is still valid — reset to pending so a later run
-                # (e.g. once the operator fixes the path) can retry.
-                logger.error(
-                    "Refusing to delete '%s' — path is outside configured delete_allowed_roots: %s",
-                    row["file_path"],
-                    exc,
-                )
-                repository.mark_delete_status(self._conn, row["id"], "pending")
-                self._conn.commit()
-                continue
-            except FileNotFoundError as exc:
-                # The file vanished between fetch and rm — likely
-                # deleted out-of-band. The standard recovery path
-                # (_recover_stuck_deletions sees file absent → marks
-                # deleted) handles this cleanly on the next run, so
-                # leave the row in 'deleting' state. Treated as
-                # transient because the action row itself is still
-                # valid and a future run will reconcile it.
-                logger.info(
-                    "engine.delete.file_missing id=%s path=%r — "
-                    "leaving row in 'deleting' state; next run will "
-                    "complete cleanup via _recover_stuck_deletions: %s",
-                    row["id"],
-                    row["file_path"],
-                    exc,
-                )
-                continue
-            except (PermissionError, OSError) as exc:
-                # Likely permanent without operator intervention
-                # (read-only filesystem, ACL refusal, low-level I/O
-                # error, IsADirectoryError, etc.). Leave the row in
-                # 'deleting' state so a subsequent run can inspect via
-                # _recover_stuck_deletions (file present → reset to
-                # pending; file gone → mark deleted), and emit an
-                # explicit audit entry now so the failure is visible
-                # to the operator without waiting for the next scan.
-                logger.exception(
-                    "engine.delete.permanent_failure id=%s path=%r — "
-                    "leaving row in 'deleting' state for next run "
-                    "to inspect (file may need manual intervention)",
-                    row["id"],
-                    row["file_path"],
-                )
-                log_audit(
-                    self._conn,
-                    row["media_item_id"],
-                    "delete_failed_permanent",
-                    f"Permanent delete error: {row['title']} — {exc.__class__.__name__}: {exc}",
-                )
-                self._conn.commit()
-                continue
-            except Exception as exc:
-                # Unexpected exception type. Log + audit and treat as
-                # permanent so the operator can investigate; leave the
-                # row in 'deleting' for recovery to reconcile.
-                logger.exception(
-                    "engine.delete.unexpected_failure id=%s path=%r — "
-                    "leaving row in 'deleting' state for next run to "
-                    "inspect (programming error or unhandled exception)",
-                    row["id"],
-                    row["file_path"],
-                )
-                log_audit(
-                    self._conn,
-                    row["media_item_id"],
-                    "delete_failed_permanent",
-                    f"Unexpected delete error: {row['title']} — {exc.__class__.__name__}: {exc}",
-                )
-                self._conn.commit()
+            if not _delete_file_on_disk(self._conn, row, allowed_roots):
                 continue
 
-            # Record the deletion and close the transaction *before* the
-            # Radarr/Sonarr unmonitor HTTP calls. The unmonitor is
-            # best-effort housekeeping — a failure (or slow response)
-            # must not keep the SQLite write lock open.
-            rk = row["plex_rating_key"]
-            detail = f"Deleted: {row['title']}" + (f" [rk:{rk}]" if rk else "")
-            log_audit(
-                self._conn,
-                row["media_item_id"],
-                "deleted",
-                detail,
-                space_bytes=row["file_size_bytes"],
-            )
-            repository.delete_scheduled_action(self._conn, row["id"])
-            self._conn.commit()
-
-            # Unmonitor in *arr clients — failures are non-fatal and
-            # happen outside any open transaction.
-            if row["radarr_id"] and self._radarr:
-                try:
-                    self._radarr.unmonitor_movie(row["radarr_id"])
-                except Exception:
-                    logger.warning(
-                        "Failed to unmonitor movie %s after deletion",
-                        row["radarr_id"],
-                        exc_info=True,
-                    )
-
-            if row["sonarr_id"] and row["season_number"] is not None and self._sonarr:
-                try:
-                    self._sonarr.unmonitor_season(row["sonarr_id"], row["season_number"])
-                except Exception:
-                    logger.warning(
-                        "Failed to unmonitor season %s of series %s after deletion",
-                        row["season_number"],
-                        row["sonarr_id"],
-                        exc_info=True,
-                    )
+            _commit_deletion(self._conn, row)
+            _unmonitor_arr(row, self._radarr, self._sonarr)
 
             deleted_count += 1
             reclaimed_bytes += row["file_size_bytes"] or 0

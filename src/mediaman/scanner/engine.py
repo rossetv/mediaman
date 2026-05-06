@@ -21,6 +21,12 @@ Import-cycle rule: :mod:`repository` imports nothing from
 module orchestrates all three.
 """
 
+# rationale: scan orchestrator — the per-library fetch → upsert → evaluate →
+# schedule → commit sequence forms an atomic transaction discipline that must
+# not be scattered across files; splitting the inner steps would either break
+# the rollback guard around each library commit or force callers to manage
+# transaction boundaries themselves, which is harder to audit.
+
 from __future__ import annotations
 
 import logging
@@ -173,8 +179,8 @@ class ScanEngine:
         1. **Fetch phase** — pull every library's items and their watch
            history from Plex into an in-memory buffer. No DB writes.
         2. **Write phase** — UPSERTs with one ``commit()`` per library
-           (D05 finding 5) so the SQLite write lock is held only for
-           a single library's worth of writes at a time.
+           so the SQLite write lock is held only for a single library's
+           worth of writes at a time.
         """
         summary = {"synced": 0, "errors": 0, "removed": 0}
 
@@ -249,7 +255,8 @@ class ScanEngine:
             "removed": 0,
         }
         # Per-library accumulator so the orphan safeguard is evaluated
-        # against each library independently (D05 finding 7).
+        # against each library independently — a single library's empty
+        # result cannot wipe items belonging to another library.
         seen_by_lib: dict[str, set[str]] = {}
 
         for lib_id in self._library_ids:
@@ -282,10 +289,9 @@ class ScanEngine:
             else:
                 self._scan_movie_library(lib_id, summary, seen)
 
-            # Per-library commit (D05 finding 4 + 5): bound the SQLite
-            # write-lock duration so a SIGKILL mid-scan can only roll
-            # back the in-flight library, not every successful upsert
-            # from earlier libraries.
+            # Per-library commit: bound the SQLite write-lock duration so a
+            # SIGKILL mid-scan can only roll back the in-flight library, not
+            # every successful upsert from earlier libraries.
             self._conn.commit()
 
         # Per-library orphan cleanup so a single library's empty result

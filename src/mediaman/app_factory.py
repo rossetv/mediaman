@@ -30,6 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from mediaman.config import Config, ConfigError, load_config
+from mediaman.core.scrub_filter import install_root_filter
 
 logger = logging.getLogger("mediaman")
 
@@ -101,7 +102,7 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
     scheduler when the canary failed.
 
     The canary state is initialised to ``False`` and only flipped to
-    ``True`` after :func:`canary_check` returns a positive result. An
+    ``True`` after :func:`is_canary_valid` returns a positive result. An
     import failure or any other exception leaves the flag at its
     fail-closed default — without this, a partial import (e.g. a missing
     ``cryptography`` extension) would slip through with the optimistic
@@ -111,7 +112,7 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
     canary_ok = False
     try:
         from mediaman.audit import security_event
-        from mediaman.crypto import canary_check, migrate_legacy_ciphertexts
+        from mediaman.crypto import is_canary_valid, migrate_legacy_ciphertexts
 
         db = app.state.db
 
@@ -147,7 +148,7 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
             except Exception:  # pragma: no cover
                 logger.exception("aes.v35_migration_complete audit write failed")
 
-        canary_ok = bool(canary_check(db, config.secret_key, on_failure=_on_canary_failure))
+        canary_ok = bool(is_canary_valid(db, config.secret_key, on_failure=_on_canary_failure))
         if canary_ok:
             # Migration v35: re-encrypt any legacy v1 or no-AAD v2 settings
             # ciphertexts to v2+AAD. Safe to call on every startup —
@@ -198,6 +199,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except ConfigError as exc:
         logger.critical("Configuration error at startup: %s", exc)
         sys.exit(1)
+
+    # Install the root scrub filter on every handler of the mediaman logger.
+    # Secrets (OMDB key, Plex token) are runtime-resolved from the DB after
+    # bootstrap_db completes; callers register them via register_secret().
+    # Attaching to *handlers* rather than the logger itself ensures that any
+    # child logger (getLogger(__name__)) automatically inherits redaction
+    # regardless of the logger hierarchy depth.
+    install_root_filter()
 
     try:
         bootstrap_db(app, config)

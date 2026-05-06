@@ -208,6 +208,11 @@ def _submit_to_sonarr(payload: DownloadPayload) -> JSONResponse:
     )
 
 
+# rationale: HMAC token verification, scheduled-action lookup, Arr dispatch,
+# audit-log write, and scheduled-action completion form one CSRF-exempt flow
+# that touches a single DB connection in strict sequence — splitting the Arr
+# dispatch from the audit and completion steps would leave scheduled-action
+# rows open if the later writes fail.
 @router.post("/download/{token}")
 def download_submit(request: Request, token: str) -> JSONResponse:
     """Trigger a download via Radarr or Sonarr.

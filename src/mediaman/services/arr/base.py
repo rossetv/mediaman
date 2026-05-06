@@ -31,7 +31,9 @@ import logging
 from typing import Any, cast
 
 from mediaman.services.arr._client_base import (
-    _ARR_TIMEOUT,
+    _ARR_TIMEOUT_SECONDS,
+    ArrConfigError,
+    ArrError,
     ArrKindMismatch,
     _ArrClientBase,
 )
@@ -43,8 +45,10 @@ logger = logging.getLogger("mediaman")
 # Re-export for back-compat: tests and other callers that import these names
 # directly from ``mediaman.services.arr.base`` continue to work unchanged.
 __all__ = [
-    "_ARR_TIMEOUT",
+    "_ARR_TIMEOUT_SECONDS",
     "ArrClient",
+    "ArrConfigError",
+    "ArrError",
     "ArrKindMismatch",
     "_ArrClientBase",
 ]
@@ -370,7 +374,7 @@ class ArrClient(_ArrClientBase):
 
         lookup = cast(list[dict[str, Any]], self._get(f"/api/v3/series/lookup?term=tvdb:{tvdb_id}"))
         if not lookup:
-            raise RuntimeError(f"Sonarr lookup returned no results for tvdb:{tvdb_id}")
+            raise ArrConfigError(f"Sonarr lookup returned no results for tvdb:{tvdb_id}")
         meta = lookup[0]
 
         monitored_set = set(monitored_seasons)

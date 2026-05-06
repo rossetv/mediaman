@@ -190,7 +190,7 @@ class TmdbClient:
                 return
         logger.debug("TMDB %s failed: %s", label, exc)
 
-    def test_connection(self) -> bool:
+    def is_reachable(self) -> bool:
         """Return True if the TMDB API is reachable and the token is valid."""
         try:
             self._get("/configuration")

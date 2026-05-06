@@ -31,7 +31,7 @@ from mediaman.web.models import _API_KEY_RE
 class _ConnectionTestable(Protocol):
     """Any client exposing a no-argument ``test_connection()`` health probe."""
 
-    def test_connection(self) -> bool: ...
+    def is_reachable(self) -> bool: ...
 
 
 #: OpenAI models endpoint used by the connectivity test.
@@ -154,7 +154,7 @@ def _test_connection_service(
         resolved[arg_name] = value
     for arg_name, setting_name in (optional_keys or {}).items():
         resolved[arg_name] = str(settings.get(setting_name) or "")
-    ok = bool(make_client(resolved).test_connection())
+    ok = bool(make_client(resolved).is_reachable())
     return JSONResponse({"ok": True} if ok else {"ok": False, "error": "Connection failed"})
 
 

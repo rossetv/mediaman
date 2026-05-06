@@ -51,7 +51,7 @@ _PLEX_MAX_BYTES = 16 * 1024 * 1024
 #: 5 s connect matches mediaman's other clients; 30 s read is generous
 #: enough for a slow library scan but stops a slow-lorris stalling a
 #: worker indefinitely.
-_PLEX_TIMEOUT: tuple[float, float] = (5.0, 30.0)
+_PLEX_TIMEOUT_SECONDS: tuple[float, float] = (5.0, 30.0)
 
 
 def _scrub_plex_token(msg: str) -> str:
@@ -127,7 +127,7 @@ class _SafePlexSession(http_requests.Session):
         #    passing a tuple already is honoured untouched.
         timeout = kwargs.get("timeout")
         if timeout is None or isinstance(timeout, (int, float)):
-            kwargs["timeout"] = _PLEX_TIMEOUT
+            kwargs["timeout"] = _PLEX_TIMEOUT_SECONDS
 
         # 5. DNS pin + dispatch. The pin closes the rebind window
         #    between the SSRF check above and the actual connect.

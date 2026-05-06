@@ -24,6 +24,12 @@ Sub-modules
     URL-field validation helpers (_URL_FIELDS, validate_url_fields).
 """
 
+# rationale: package barrel + 6 route handlers + ``_load_settings``; the
+# ``_load_settings`` function is a monkeypatch target in tests so extracting
+# it would break the test suite's patching contract; the route handlers share
+# rate-limiter singletons and settings-loading state that make further
+# decomposition incremental rather than immediately safe.
+
 from __future__ import annotations
 
 import concurrent.futures
@@ -87,13 +93,13 @@ from mediaman.web.routes.settings.secrets import (
     encrypted_keys as _encrypted_keys,
 )
 from mediaman.web.routes.settings.secrets import (
+    has_sensitive_key_changes as _touches_sensitive_keys,
+)
+from mediaman.web.routes.settings.secrets import (
     mask_encrypted_keys as _mask_encrypted_keys,
 )
 from mediaman.web.routes.settings.secrets import (
     mask_secrets as _mask_secrets,  # noqa: F401 — kept for backward compat
-)
-from mediaman.web.routes.settings.secrets import (
-    touches_sensitive_keys as _touches_sensitive_keys,
 )
 from mediaman.web.routes.settings.testers import (
     SERVICE_TESTER_KEYS as _SERVICE_TESTER_KEYS,

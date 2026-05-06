@@ -101,14 +101,14 @@ def validate_scan_timezone(s: str) -> str:
         raise ValueError("scan_timezone must not be empty")
     try:
         from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-    except Exception:
+    except ImportError:
         # Standard library should always provide it; defer if unavailable.
         return raw
     try:
         ZoneInfo(raw)
     except ZoneInfoNotFoundError as exc:
         raise ValueError(f"scan_timezone {raw!r} is not a known IANA timezone") from exc
-    except Exception as exc:
+    except (KeyError, ValueError) as exc:
         raise ValueError(f"scan_timezone {raw!r} is invalid: {exc}") from exc
     return raw
 

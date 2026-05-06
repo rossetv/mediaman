@@ -422,7 +422,7 @@ class TestDeleteUserBruteForceLockout:
     def test_five_wrong_passwords_lock_the_namespace(self, db_path, secret_key):
         """Five wrong passwords trip the namespace lockout — even the
         right password is then refused for the lock duration."""
-        from mediaman.web.auth.login_lockout import check_lockout
+        from mediaman.web.auth.login_lockout import is_locked_out
         from mediaman.web.auth.reauth import REAUTH_LOCKOUT_PREFIX
 
         conn = init_db(str(db_path))
@@ -441,7 +441,7 @@ class TestDeleteUserBruteForceLockout:
             )
             assert resp.status_code == 403
 
-        assert check_lockout(conn, f"{REAUTH_LOCKOUT_PREFIX}admin") is True
+        assert is_locked_out(conn, f"{REAUTH_LOCKOUT_PREFIX}admin") is True
 
         # Even with the correct password the delete is now refused.
         _USER_MGMT_LIMITER.reset()

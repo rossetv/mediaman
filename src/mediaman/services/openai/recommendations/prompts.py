@@ -133,7 +133,7 @@ logger = logging.getLogger("mediaman")
 def _validate_llm_string(value: str, max_len: int, field: str) -> str | None:
     """Return *value* if it passes LLM-output validation, or ``None`` to reject.
 
-    Checks applied (finding 38):
+    Checks applied:
     * Strip and enforce maximum length.
     * Reject strings containing C0/C1 control characters.
     * Reject strings matching known prompt-injection patterns.
@@ -167,7 +167,7 @@ def _validate_llm_string(value: str, max_len: int, field: str) -> str | None:
 def parse_recommendations(items: list[dict], category: str) -> list[dict]:
     """Normalise and validate raw GPT recommendations.
 
-    Each item is validated against stricter rules (finding 38):
+    Each item is validated against stricter rules to prevent prompt-injection and control-character leakage:
 
     * Titles must be ≤ 200 characters, contain no control characters, and
       must not match known prompt-injection patterns.
@@ -229,7 +229,7 @@ def generate_trending(
     dedup_block = ""
     if previous_titles:
         # JSON-encode the list inside a clearly-marked untrusted-data block so
-        # the model cannot interpret any title as an instruction (finding 38).
+        # the model cannot interpret any title as an instruction (prompt-injection defence).
         encoded = json.dumps(_safe_previous_titles(previous_titles)[:100], ensure_ascii=False)
         dedup_block = (
             "\nDo NOT recommend any titles in the following list.\n"

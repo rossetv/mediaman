@@ -261,6 +261,11 @@ def delete_path(path: str, *, allowed_roots: list[str] | None = None) -> None:
     _safe_rmtree(p, resolved_roots, original_allowed_roots=allowed_roots)
 
 
+# rationale: symlink-resolution, containment check, recursive descent, and
+# deletion are interleaved so that each symlink decision is made atomically
+# with the stat that revealed it — splitting into pre-check and delete phases
+# would reintroduce the TOCTOU symlink-swap window this function was designed
+# to close.
 def _safe_rmtree(
     path: Path,
     allowed_roots: list[Path],

@@ -65,7 +65,7 @@ def _mask_email_log(email: str) -> str:
     """Return a masked email for log output (first char of local-part + domain + length).
 
     Avoids logging PII in plaintext while still giving operators enough
-    context to triage delivery issues (finding 36).
+    context to triage delivery issues without logging PII in plaintext.
     """
     try:
         local, domain = email.split("@", 1)
@@ -345,7 +345,7 @@ def unsubscribe_page(request: Request, token: str = "", email: str = "") -> HTML
     """Show unsubscribe confirmation page.
 
     Accepts ``?token=...`` only — the email address is derived from the
-    validated token payload (finding 36).  The legacy ``email=`` parameter
+    validated token payload — the email is not accepted from query parameters to avoid leaking PII in server logs.  The legacy ``email=`` parameter
     is accepted but ignored; the token is authoritative.
     """
     config = request.app.state.config
@@ -393,7 +393,7 @@ def unsubscribe_confirm(
     exemption.
 
     The email is derived from the validated token, not from form input
-    (finding 36).  The ``email`` form field is accepted for backwards
+    The ``email`` form field is accepted for backwards
     compatibility with the confirmation template but is not used for
     lookup or authorisation.
     """

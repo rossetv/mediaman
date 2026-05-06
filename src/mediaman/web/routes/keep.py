@@ -175,7 +175,7 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
         return HTMLResponse('{"error":"invalid_or_expired"}', status_code=400)
 
     # Reject unknown durations early; also reject "forever" — that lives on
-    # the admin-only endpoint (finding 12).
+    # the admin-only endpoint for privileged users only.
     if duration not in VALID_KEEP_DURATIONS or duration == "forever":
         return HTMLResponse('{"error":"invalid_or_expired"}', status_code=400)
 

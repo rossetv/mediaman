@@ -46,11 +46,11 @@ def reset_share_token_limiter() -> None:
     _SHARE_TOKEN_LIMITER.reset()
 
 
-# Default and maximum slice for /api/recommended pagination (finding 22).
-# A heavy backlog (months of refreshes × 4 batches × ~24 items) can balloon
-# to several hundred suggestions; serialising that into one JSON payload
-# blocks the page until the whole table is ready. The defaults here keep
-# the page fast and let an admin paginate explicitly via ?limit&?offset.
+# Default and maximum slice for /api/recommended pagination. A heavy backlog
+# (months of refreshes × 4 batches × ~24 items) can balloon to several hundred
+# suggestions; serialising that into one JSON payload blocks the page until the
+# whole table is ready. The defaults here keep the page fast and let an admin
+# paginate explicitly via ?limit&?offset.
 _RECOMMENDED_LIMIT_DEFAULT = 50
 _RECOMMENDED_LIMIT_MAX = 200
 
@@ -161,7 +161,7 @@ def api_share_token(
     )
 
 
-# Defence-in-depth title sanitiser (finding 23). The canonical place to
+# Defence-in-depth title sanitiser. The canonical place to
 # strip control characters is on persist (in
 # ``services/openai/recommendations/persist.py`` — out of this wave's
 # scope), but persisted rows from earlier OpenAI runs may still contain

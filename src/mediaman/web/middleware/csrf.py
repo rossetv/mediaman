@@ -166,6 +166,13 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:
+        """Enforce same-origin CSRF policy on state-changing requests.
+
+        Passes the request through unchanged for safe methods (GET, HEAD,
+        OPTIONS) and for CSRF-exempt routes. For all other requests it
+        compares the ``Origin`` or ``Referer`` header host against the
+        request host and rejects mismatches with a 403 response.
+        """
         if request.method not in _CSRF_PROTECTED_METHODS:
             return await call_next(request)
 

@@ -99,7 +99,7 @@ class NzbgetClient:
         result = self._call("listgroups")
         return result if isinstance(result, list) else []
 
-    def test_connection(self) -> bool:
+    def is_reachable(self) -> bool:
         """Return True if NZBGet is reachable and responding."""
         try:
             self.get_status()

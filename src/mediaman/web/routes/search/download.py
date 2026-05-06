@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from mediaman.db import get_db
+from mediaman.services.arr import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.notifications import record_download_notification as _record_dn
 from mediaman.services.infra.http import SafeHTTPError
@@ -129,6 +130,10 @@ def _resolve_admin_email(admin: str) -> str:
 router = APIRouter()
 
 
+# rationale: rate checks, Arr client construction, search lookup, download
+# token minting, and audit-log write share a single DB transaction — extracting
+# any branch would require passing the open connection and audit context through
+# the call boundary without reducing the actual lines of business logic.
 @router.post("/api/search/download")
 def api_download(
     body: _DownloadRequest, request: Request, admin: str = Depends(get_current_admin)
@@ -209,11 +214,12 @@ def api_download(
                 radarr.remonitor_movie(movie_id_raw)
             else:
                 radarr.add_movie(body.tmdb_id, body.title)
-        except (SafeHTTPError, _requests.RequestException, ValueError):
+        except (SafeHTTPError, _requests.RequestException, ValueError, ArrError):
             # Narrow exception list: SafeHTTPError covers Radarr's non-2xx
             # responses, RequestException covers transport failures, ValueError
-            # covers add_movie's own ``tmdb_id <= 0`` guard. A bare ``except
-            # Exception`` would silently swallow programming bugs.
+            # covers add_movie's own ``tmdb_id <= 0`` guard, ArrError covers
+            # configuration failures (e.g. no root folder configured). A bare
+            # ``except Exception`` would silently swallow programming bugs.
             logger.exception("Failed to add movie")
             return JSONResponse({"ok": False, "error": "Failed to add to Radarr"}, status_code=502)
         _record_dn(
@@ -273,7 +279,7 @@ def api_download(
                 body.monitored_seasons,
                 body.search_seasons or [],
             )
-    except (SafeHTTPError, _requests.RequestException, ValueError):
+    except (SafeHTTPError, _requests.RequestException, ValueError, ArrError):
         logger.exception("Failed to add series")
         return JSONResponse({"ok": False, "error": "Failed to add to Sonarr"}, status_code=502)
     _record_dn(

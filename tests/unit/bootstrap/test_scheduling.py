@@ -262,7 +262,7 @@ class TestBootstrapCryptoFailClosed:
         def boom(*_a, **_kw):
             raise RuntimeError("synthetic failure")
 
-        monkeypatch.setattr("mediaman.crypto.canary_check", boom)
+        monkeypatch.setattr("mediaman.crypto.is_canary_valid", boom)
 
         class _Cfg:
             secret_key = "0123456789abcdef" * 4

@@ -17,11 +17,10 @@ logger = logging.getLogger("mediaman")
 #: Callers elsewhere that use w300 keep their own URL deliberately distinct.
 _TMDB_POSTER_BASE_URL = "https://image.tmdb.org/t/p/w200"
 
-# Outer wall-clock budget for the parallel poster fan-out (finding 19).
+# Outer wall-clock budget for the parallel poster fan-out. Previously
 # 5s timeout × 10 misses serially produced a 50s page render in the
-# worst case. Now we fan out to a small thread pool and bound the
-# whole batch to 6s; anything slower drops to "" so the page still
-# renders promptly.
+# worst case. We fan out to a small thread pool and bound the whole
+# batch to 6s; anything slower drops to "" so the page still renders promptly.
 _POSTER_FANOUT_BUDGET_SECONDS = 6.0
 _POSTER_FANOUT_WORKERS = 4
 
@@ -48,9 +47,9 @@ def _fill_tmdb_posters(
     """Look up TMDB poster URLs for deleted items missing a Plex poster.
 
     Parallelised across a small worker pool with an outer wall-clock
-    budget (finding 19) — the previous sequential implementation could
-    sit on a flaky TMDB for 5s × 10 misses = 50s before the page
-    rendered. Deduplication by title is preserved so repeated entries
+    budget — the previous sequential implementation could sit on a flaky
+    TMDB for 5s × 10 misses = 50s before the page rendered. Deduplication
+    by title is preserved so repeated entries
     (e.g. multiple "Barbie" deletions) only trigger one API call.
 
     ``secret_key`` is threaded in from the request handler to avoid

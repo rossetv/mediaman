@@ -103,7 +103,7 @@ def _ensure_table(conn: sqlite3.Connection) -> None:
     )
 
 
-def check_lockout(conn: sqlite3.Connection, username: str) -> bool:
+def is_locked_out(conn: sqlite3.Connection, username: str) -> bool:
     """Return True if *username* is currently locked out.
 
     Does not mutate state. Intended to be called before the password

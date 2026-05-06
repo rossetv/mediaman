@@ -192,6 +192,10 @@ def _build_item_from_suggestion(
     return item
 
 
+# rationale: rate check, HMAC token verification, scheduled-action lookup,
+# Radarr/Sonarr metadata fetch, and template rendering are tightly sequenced
+# — each step uses the result of the previous one and the function must return
+# the same "expired" template for any failure to avoid leaking which step failed.
 @router.get("/download/{token}", response_class=HTMLResponse)
 def download_page(request: Request, token: str) -> HTMLResponse:
     """Render the download confirmation page."""

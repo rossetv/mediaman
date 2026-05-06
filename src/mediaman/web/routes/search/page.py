@@ -44,6 +44,7 @@ router = APIRouter()
 
 @router.get("/search", response_class=HTMLResponse)
 def search_page(request: Request) -> Response:
+    """Render the media search page. Redirects to /login if the session is invalid."""
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
@@ -61,6 +62,20 @@ def search_page(request: Request) -> Response:
 
 @router.get("/api/search")
 def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
+    """Search TMDB for movies and TV shows matching *q*.
+
+    Fetches pages 1 and 2 in parallel, normalises each result, annotates
+    download state, and enriches with OMDb ratings. Returns up to 40 results.
+
+    Args:
+        q: Search query (must be at least 2 characters).
+        request: Incoming FastAPI request (used to resolve app state).
+        admin: Authenticated admin username (rate-limit key).
+
+    Returns:
+        JSON with a ``results`` list, or an error response on rate-limit or
+        TMDB misconfiguration.
+    """
     if not _QUERY_LIMITER.check(admin):
         logger.warning("search.query_throttled user=%s", admin)
         return respond_err(
@@ -92,6 +107,17 @@ def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)
 
 @router.get("/api/search/discover")
 def api_discover(request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
+    """Return trending and popular shelves from TMDB for the discover view.
+
+    Fetches trending, popular movies, and popular TV pages in parallel across
+    a thread pool; results are TTL-cached per shelf key to avoid redundant TMDB
+    calls. Each shelf is normalised, state-annotated, and ratings-enriched before
+    being returned.
+
+    Returns:
+        JSON with ``trending``, ``popular_movies``, and ``popular_tv`` lists,
+        each capped at 21 items.
+    """
     if not _QUERY_LIMITER.check(admin):
         logger.warning("search.discover_throttled user=%s", admin)
         return respond_err(

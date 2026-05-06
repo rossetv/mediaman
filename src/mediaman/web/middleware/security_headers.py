@@ -175,6 +175,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:
+        """Attach security headers to every response and inject a per-request CSP nonce.
+
+        Generates a fresh ``secrets.token_urlsafe(16)`` nonce, stores it on
+        ``request.state.csp_nonce`` for use in Jinja templates, and weaves it
+        into the outbound ``Content-Security-Policy`` header. Also sets HSTS,
+        X-Frame-Options, X-Content-Type-Options, Referrer-Policy, and a
+        ``Cache-Control: no-store`` header on authenticated API responses to
+        prevent reverse-proxy caching of user data.
+        """
         # 16 random bytes → 22 base64url chars: enough entropy that an
         # attacker cannot brute-force the nonce within the lifetime of
         # a single response, but short enough not to bloat every inline

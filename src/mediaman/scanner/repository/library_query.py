@@ -102,15 +102,17 @@ def _protection_label(sa_action: str | None, sa_execute_at: str | None) -> str |
     return None
 
 
-def fetch_library(
+def _build_where_clause(
     conn: sqlite3.Connection,
-    q: str = "",
-    media_type: str = "",
-    sort: str = "added_desc",
-    page: int = 1,
-    per_page: int = 20,
-) -> tuple[list[dict[str, object]], int]:
-    """Query media_items and return (items, total_count)."""
+    q: str,
+    media_type: str,
+) -> tuple[str, list[object], bool]:
+    """Build the SQL WHERE clause and bind params from search/filter inputs.
+
+    Returns ``(where_sql, params, kept_filter)`` where ``kept_filter`` is
+    True when the caller requested the "kept" virtual type (handled as a
+    post-CTE filter rather than a media_type column match).
+    """
     where_clauses: list[str] = []
     params: list[object] = []
 
@@ -150,7 +152,17 @@ def fetch_library(
         params.extend(db_types)
 
     where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+    return where_sql, params, kept_filter
 
+
+def _build_cte_sql(where_sql: str, sort: str) -> tuple[str, str]:
+    """Build the CTE SQL block and the ORDER BY expression.
+
+    Returns ``(cte_sql, order_expr)`` where ``cte_sql`` ends just before the
+    final SELECT so callers can append their own SELECT clause.
+    # rationale: the CTE SQL literal is inherently multi-line; further
+    # splitting would produce helpers that are just string fragments.
+    """
     _CTE_SORT = {
         "added_desc": "added_at DESC",
         "added_asc": "added_at ASC",
@@ -209,7 +221,19 @@ def fetch_library(
         GROUP BY COALESCE(show_rating_key, show_title)
     )
     """
+    return cte_sql, order
 
+
+def _execute_paged_query(
+    conn: sqlite3.Connection,
+    cte_sql: str,
+    order: str,
+    params: list[object],
+    kept_filter: bool,
+    page: int,
+    per_page: int,
+) -> tuple[list[sqlite3.Row], int]:
+    """Execute the count + paginated SELECT and return (rows, total)."""
     kept_where = " WHERE is_kept = 1" if kept_filter else ""
 
     count_row = conn.execute(
@@ -224,7 +248,18 @@ def fetch_library(
         cte_sql + f"SELECT * FROM display_items{kept_where} ORDER BY {order} LIMIT ? OFFSET ?",
         [*params, per_page, offset],
     ).fetchall()
+    return rows, total
 
+
+def _fetch_protection_maps(
+    conn: sqlite3.Connection,
+    rows: list[sqlite3.Row],
+) -> tuple[dict[str, tuple[str, str | None]], dict[str, tuple[str, str | None]]]:
+    """Load scheduled_actions and kept_shows protection data for *rows*.
+
+    Returns ``(sa_map, ks_map)`` keyed by media_item_id and show_rating_key
+    respectively.  Both maps hold ``(action, execute_at)`` tuples.
+    """
     item_ids = [r["id"] for r in rows]
     show_rkeys = {r["show_rating_key"] for r in rows if r["show_rating_key"]}
 
@@ -252,6 +287,19 @@ def fetch_library(
         ).fetchall():
             ks_map[ks["show_rating_key"]] = (ks["action"], ks["execute_at"])
 
+    return sa_map, ks_map
+
+
+def _shape_rows(
+    rows: list[sqlite3.Row],
+    sa_map: dict[str, tuple[str, str | None]],
+    ks_map: dict[str, tuple[str, str | None]],
+) -> list[dict[str, object]]:
+    """Convert raw DB rows into display-ready dicts.
+
+    # rationale: single cohesive loop building one output dict per row;
+    # the 18-key output dict is the natural seam and cannot be split further.
+    """
     items = []
     for r in rows:
         display_type = r["display_type"]
@@ -308,7 +356,31 @@ def fetch_library(
                 "protection_label": protection_label,
             }
         )
+    return items
 
+
+def fetch_library(
+    conn: sqlite3.Connection,
+    q: str = "",
+    media_type: str = "",
+    sort: str = "added_desc",
+    page: int = 1,
+    per_page: int = 20,
+) -> tuple[list[dict[str, object]], int]:
+    """Query media_items and return (items, total_count).
+
+    Pipeline:
+    1. Build the WHERE clause from search/filter inputs.
+    2. Build the display CTE SQL and ORDER BY expression.
+    3. Execute the count + paginated SELECT.
+    4. Load scheduled_actions / kept_shows protection data.
+    5. Convert raw rows into display-ready dicts.
+    """
+    where_sql, params, kept_filter = _build_where_clause(conn, q, media_type)
+    cte_sql, order = _build_cte_sql(where_sql, sort)
+    rows, total = _execute_paged_query(conn, cte_sql, order, params, kept_filter, page, per_page)
+    sa_map, ks_map = _fetch_protection_maps(conn, rows)
+    items = _shape_rows(rows, sa_map, ks_map)
     return items, total
 
 

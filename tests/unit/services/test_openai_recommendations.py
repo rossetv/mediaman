@@ -26,7 +26,7 @@ openai_recommendations = types.SimpleNamespace(
     _get_openai_key=_openai_client_mod.get_openai_key,
     _get_openai_model=_openai_client_mod.get_openai_model,
     _is_web_search_enabled=_openai_client_mod.is_web_search_enabled,
-    _validate_web_search_title=_openai_client_mod.validate_web_search_title,
+    _is_web_search_title_safe=_openai_client_mod.is_web_search_title_safe,
     _sanitise_plex_string=_prompts_mod.sanitise_plex_string,
     _strip_season_suffix=_prompts_mod.strip_season_suffix,
     _PLEX_STRING_MAX_LEN=_prompts_mod._PLEX_STRING_MAX_LEN,
@@ -212,23 +212,23 @@ class TestWebSearchGating:
 
 
 class TestWebSearchTitleValidation:
-    """Tests for ``_validate_web_search_title`` and its enforcement in ``_call_openai``."""
+    """Tests for ``_is_web_search_title_safe`` and its enforcement in ``_call_openai``."""
 
     def test_clean_title_passes(self):
-        assert openai_recommendations._validate_web_search_title("Oppenheimer") is True
+        assert openai_recommendations._is_web_search_title_safe("Oppenheimer") is True
 
     def test_markdown_link_rejected(self):
-        assert openai_recommendations._validate_web_search_title("[Foo](http://evil.com)") is False
+        assert openai_recommendations._is_web_search_title_safe("[Foo](http://evil.com)") is False
 
     def test_embedded_url_rejected(self):
         assert (
-            openai_recommendations._validate_web_search_title("Title https://evil.com ignore")
+            openai_recommendations._is_web_search_title_safe("Title https://evil.com ignore")
             is False
         )
 
     def test_non_ascii_rejected(self):
         """Titles with non-ASCII characters fail the strict ASCII-only check."""
-        assert openai_recommendations._validate_web_search_title("Amélie") is False
+        assert openai_recommendations._is_web_search_title_safe("Amélie") is False
 
     def test_adversarial_batch_rejected(self, conn, monkeypatch, fake_http, fake_response):
         """When web search is active and a title fails validation, the whole batch is rejected."""

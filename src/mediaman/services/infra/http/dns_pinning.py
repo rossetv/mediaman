@@ -42,6 +42,7 @@ import logging
 import socket
 import sys
 import threading
+from collections.abc import Iterator
 
 logger = logging.getLogger("mediaman")
 
@@ -184,7 +185,7 @@ _install_dns_pin_hook()
 
 
 @contextlib.contextmanager
-def pin(hostname: str, ip: str):
+def pin(hostname: str, ip: str) -> Iterator[None]:
     """Pin DNS for *hostname* to *ip* for the duration of the ``with`` block.
 
     The pin is stored on a :class:`threading.local`, so other threads are

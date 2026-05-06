@@ -165,9 +165,11 @@ def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
         db_path = getattr(app.state, "db_path", None)
 
         def scan_callback() -> None:
+            """APScheduler callback: run the weekly scheduled scan in a worker thread."""
             _run_scheduled_scan(db_path, secret_key)
 
         def sync_callback() -> None:
+            """APScheduler callback: run the periodic library sync in a worker thread."""
             _run_library_sync_job(secret_key)
 
         sync_interval = validate_sync_interval(

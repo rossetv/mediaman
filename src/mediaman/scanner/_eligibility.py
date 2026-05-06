@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from mediaman.core.format import ensure_tz as _ensure_tz
 
 
-def check_age(added_at: datetime, min_age_days: int) -> bool:
+def is_old_enough(added_at: datetime, min_age_days: int) -> bool:
     """Return True if *added_at* is old enough to be eligible for deletion.
 
     An item whose ``added_at`` timestamp is less than *min_age_days* ago is
@@ -36,7 +36,7 @@ def check_age(added_at: datetime, min_age_days: int) -> bool:
     return (now - added_at).days >= min_age_days
 
 
-def check_inactivity(watch_history: list[dict[str, object]], inactivity_days: int) -> bool:
+def is_inactive(watch_history: list[dict[str, object]], inactivity_days: int) -> bool:
     """Return True if the item has been inactive long enough to be eligible.
 
     An item with no watch history at all is considered inactive (the

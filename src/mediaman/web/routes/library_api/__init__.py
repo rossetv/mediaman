@@ -25,6 +25,11 @@ previously patching ``mediaman.web.routes.library.api.build_radarr_from_db``
 have been updated to patch ``mediaman.web.routes.library_api.build_radarr_from_db``.
 """
 
+# rationale: package barrel + 4 route handlers (keep, delete, redownload, library
+# list); the handlers share rate-limiter singletons and re-export names that tests
+# patch at this module path — splitting further would scatter those patch targets
+# and break the test suite without reducing actual complexity.
+
 from __future__ import annotations
 
 import contextlib
@@ -220,6 +225,10 @@ def api_media_keep(
     return respond_ok({"id": media_id, "duration": snooze_label})
 
 
+# rationale: three-transaction layout (snapshot → Arr API call → completion)
+# must stay together so the delete-intent durability log is opened, updated,
+# and closed in the same code path — splitting would require passing the intent
+# ID across call boundaries and risk leaving orphaned intent rows on failure.
 @router.post("/api/media/{media_id}/delete")
 def api_media_delete(
     media_id: str,
@@ -385,6 +394,10 @@ def api_media_delete(
     return respond_ok({"id": media_id})
 
 
+# rationale: spans Radarr + Sonarr lookup, candidate matching, Arr
+# add-movie/add-series calls, and audit-log writes that all share a single DB
+# connection and must roll back together — splitting the branches into helpers
+# would require threading the connection and rollback state through every call.
 @router.post("/api/media/redownload")
 def api_media_redownload(
     request: Request,

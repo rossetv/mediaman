@@ -99,6 +99,13 @@ def api_refresh_recommendations(
     _secret_key = config.secret_key
 
     def run() -> None:
+        """Execute the recommendation refresh in a background thread.
+
+        Opens a dedicated thread-local DB connection, calls the refresh pipeline,
+        records the run result (done or error), and closes the connection on exit.
+        The cooldown timestamp is only recorded on a successful non-zero result to
+        avoid locking the user out after a transient OpenAI failure.
+        """
         thread_conn = open_thread_connection(_db_path)
         thread_secret_key = _secret_key
         result: dict[str, object]

@@ -6,6 +6,8 @@ lives in ``app_factory`` so this module stays a slim entry point that
 uvicorn and the ``mediaman`` console script target.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import sys

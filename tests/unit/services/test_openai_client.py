@@ -14,7 +14,7 @@ from mediaman.services.openai.client import (
     get_openai_key,
     get_openai_model,
     is_web_search_enabled,
-    validate_web_search_title,
+    is_web_search_title_safe,
 )
 
 # ---------------------------------------------------------------------------
@@ -94,31 +94,31 @@ class TestIsWebSearchEnabled:
 
 
 # ---------------------------------------------------------------------------
-# validate_web_search_title
+# is_web_search_title_safe
 # ---------------------------------------------------------------------------
 
 
 class TestValidateWebSearchTitle:
     def test_plain_ascii_title_is_valid(self):
-        assert validate_web_search_title("Inception") is True
+        assert is_web_search_title_safe("Inception") is True
 
     def test_title_with_punctuation_is_valid(self):
-        assert validate_web_search_title("The Dark Knight (2008)") is True
+        assert is_web_search_title_safe("The Dark Knight (2008)") is True
 
     def test_non_printable_ascii_rejected(self):
-        assert validate_web_search_title("Title\x01here") is False
+        assert is_web_search_title_safe("Title\x01here") is False
 
     def test_non_ascii_unicode_rejected(self):
-        assert validate_web_search_title("Títle with accent") is False
+        assert is_web_search_title_safe("Títle with accent") is False
 
     def test_markdown_link_rejected(self):
-        assert validate_web_search_title("[click me](http://evil.com)") is False
+        assert is_web_search_title_safe("[click me](http://evil.com)") is False
 
     def test_embedded_https_url_rejected(self):
-        assert validate_web_search_title("Dune https://evil.com") is False
+        assert is_web_search_title_safe("Dune https://evil.com") is False
 
     def test_embedded_http_url_rejected(self):
-        assert validate_web_search_title("Dune http://evil.com") is False
+        assert is_web_search_title_safe("Dune http://evil.com") is False
 
 
 # ---------------------------------------------------------------------------

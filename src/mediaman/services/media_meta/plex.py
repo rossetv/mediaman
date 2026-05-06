@@ -49,7 +49,7 @@ with _warnings.catch_warnings():
     )
     defusedxml.defuse_stdlib()
 
-from mediaman.core.scrub_filter import ScrubFilter
+from mediaman.core.scrub_filter import ScrubFilter, register_secret
 from mediaman.core.url_safety import resolve_safe_outbound_url
 from mediaman.services.infra.http import (
     SafeHTTPClient,
@@ -57,7 +57,7 @@ from mediaman.services.infra.http import (
 )
 from mediaman.services.media_meta._plex_session import (  # noqa: F401
     _PLEX_MAX_BYTES,
-    _PLEX_TIMEOUT,
+    _PLEX_TIMEOUT_SECONDS,
     _PLEX_TOKEN_RE,
     _PlexBodyTooLarge,
     _SafePlexSession,
@@ -121,7 +121,7 @@ class PlexClient:
         # Idempotent — safe to call at construction time; repeated calls
         # with the same token do not stack filters.
         ScrubFilter.attach("urllib3.connectionpool", secrets=[token])
-        ScrubFilter.attach("mediaman", secrets=[token])
+        register_secret(token)
 
         # Hardened session for everything plexapi does internally —
         # library enumeration, section scanning, raw queries. Without
@@ -313,7 +313,7 @@ class PlexClient:
                 )
         return rated
 
-    def test_connection(self) -> bool:
+    def is_reachable(self) -> bool:
         """Return True if the Plex server responds and lists at least one library.
 
         Catches :exc:`PlexApiException` (API-level errors from plexapi) and

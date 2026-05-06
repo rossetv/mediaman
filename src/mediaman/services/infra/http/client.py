@@ -69,7 +69,7 @@ _HTTP_CLIENT_MODULE = "mediaman.services.infra.http.client"
 #: Default per-call timeouts.  Connect is short — a TCP handshake that hasn't
 #: completed in 5 s means the target is unreachable.  Read is generous because
 #: OpenAI and TMDB occasionally take 20-30 s.
-_DEFAULT_TIMEOUT: tuple[float, float] = (5.0, 30.0)
+_DEFAULT_TIMEOUT_SECONDS: tuple[float, float] = (5.0, 30.0)
 
 #: Default response-size cap.  8 MiB is well above any sane JSON API payload
 #: but low enough that a pathological upstream cannot pin memory on a worker.
@@ -177,7 +177,7 @@ class SafeHTTPClient:
         base_url: str = "",
         *,
         session: requests.Session | None = None,
-        default_timeout: tuple[float, float] = _DEFAULT_TIMEOUT,
+        default_timeout: tuple[float, float] = _DEFAULT_TIMEOUT_SECONDS,
         default_max_bytes: int = _DEFAULT_MAX_BYTES,
         strict_egress: bool | None = None,
     ) -> None:
