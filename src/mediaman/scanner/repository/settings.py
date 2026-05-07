@@ -7,7 +7,7 @@ import logging
 import os
 import sqlite3
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def read_delete_allowed_roots_setting(

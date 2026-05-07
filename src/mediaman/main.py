@@ -22,7 +22,7 @@ from mediaman.validators import enforce_single_worker, sanitise_trusted_proxies
 _enforce_single_worker = enforce_single_worker
 _sanitise_trusted_proxies = sanitise_trusted_proxies
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def cli_main() -> None:

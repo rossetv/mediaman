@@ -30,7 +30,7 @@ from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.web.auth.middleware import get_optional_admin
 from mediaman.web.responses import respond_err
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

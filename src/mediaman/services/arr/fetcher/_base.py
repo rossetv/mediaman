@@ -17,7 +17,7 @@ import requests
 
 from mediaman.services.infra.http import SafeHTTPError
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def _iter_still_searching[T](

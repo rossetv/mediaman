@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from mediaman.services.downloads.nzbget import NzbgetClient
     from mediaman.services.media_meta.plex import PlexClient
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def _read_arr_credentials(

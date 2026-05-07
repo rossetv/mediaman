@@ -29,7 +29,7 @@ from mediaman.web.responses import respond_ok
 from mediaman.web.routes._helpers import set_session_cookie
 from mediaman.web.routes.users.rate_limits import _SESSIONS_LIST_LIMITER
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

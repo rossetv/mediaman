@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from apscheduler.schedulers.background import BackgroundScheduler
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 # Module-level scheduler reference. Mutation is guarded by ``_scheduler_lock``;
 # in practice ``start_scheduler`` and ``stop_scheduler`` are only ever called

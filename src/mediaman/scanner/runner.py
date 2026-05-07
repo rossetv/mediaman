@@ -74,7 +74,7 @@ class PlexClientBundle(NamedTuple):
     lib_titles: dict[str, str]
 
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 # Module-level Plex client cache. The previous code rebuilt PlexClient on

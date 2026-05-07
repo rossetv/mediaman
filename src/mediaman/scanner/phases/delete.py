@@ -14,7 +14,7 @@ import sqlite3
 
 from mediaman.scanner import repository
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 # Fail-closed safeguard thresholds for orphan detection (C31).
 # If the current scan found fewer items than this floor and the previous

@@ -25,7 +25,7 @@ from mediaman.services.arr._throttle_state import (
     _state_lock,
 )
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 _STRANDED_THROTTLE_TTL_SECONDS = 90 * 24 * 60 * 60  # 90 days
 

@@ -27,7 +27,7 @@ from mediaman.services.downloads.download_format import (
 )
 from mediaman.services.downloads.download_format._types import DownloadItem
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------

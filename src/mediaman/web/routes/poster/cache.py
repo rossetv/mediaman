@@ -35,7 +35,7 @@ import os
 import tempfile
 from pathlib import Path
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 # Only these mime types are ever served back to the client.  Everything
 # else is normalised down to ``image/jpeg`` so a malicious upstream CDN

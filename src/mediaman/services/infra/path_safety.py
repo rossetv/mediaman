@@ -13,7 +13,7 @@ import os
 import re
 from pathlib import Path
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def parse_delete_roots_env(env_val: str) -> list[str]:

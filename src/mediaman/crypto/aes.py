@@ -67,7 +67,7 @@ from ._aes_migrate import (  # noqa: F401
     migrate_legacy_ciphertexts,
 )
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def encrypt_value(

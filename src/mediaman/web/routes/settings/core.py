@@ -21,7 +21,7 @@ from fastapi.responses import JSONResponse
 from mediaman.core.url_safety import is_safe_outbound_url
 from mediaman.web.responses import respond_err
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 _URL_FIELDS: frozenset[str] = frozenset(
     {

@@ -32,7 +32,7 @@ from fastapi.templating import Jinja2Templates
 from mediaman.config import Config, ConfigError, load_config
 from mediaman.core.scrub_filter import install_root_filter
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 _STATIC_DIR = Path(__file__).parent / "web" / "static"
 _TEMPLATE_DIR = Path(__file__).parent / "web" / "templates"

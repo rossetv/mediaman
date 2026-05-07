@@ -26,7 +26,7 @@ from mediaman.web.routes.users.rate_limits import (
     _PASSWORD_CHANGE_LIMITER,
 )
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

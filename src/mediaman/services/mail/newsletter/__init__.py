@@ -31,7 +31,7 @@ from .render import _TEMPLATE_DIR, _build_subject, _get_jinja_env
 from .schedule import _load_scheduled_items, _mark_notified
 from .summary import _load_deleted_items, _load_recommendations, _load_storage_stats
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 class NewsletterConfigError(Exception):

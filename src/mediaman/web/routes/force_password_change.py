@@ -35,7 +35,7 @@ from mediaman.web.auth.password_hash import change_password
 from mediaman.web.auth.password_policy import password_issues, policy_summary
 from mediaman.web.routes._helpers import set_session_cookie
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

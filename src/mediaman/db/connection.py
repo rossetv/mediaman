@@ -30,7 +30,7 @@ from mediaman.core.time import now_iso
 
 from .migrations import apply_migrations
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def _configure_connection(conn: sqlite3.Connection) -> None:

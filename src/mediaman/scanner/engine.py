@@ -33,7 +33,11 @@ import logging
 import sqlite3
 from collections.abc import Callable, Iterable
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mediaman.services.arr.base import ArrClient
+    from mediaman.services.media_meta.plex import PlexClient
 
 from mediaman.core.format import ensure_tz as _ensure_tz
 from mediaman.core.time import parse_iso_utc as _parse_iso_utc
@@ -54,7 +58,7 @@ from mediaman.services.openai.recommendations.persist import (
     refresh_recommendations as _refresh_recommendations,
 )
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 __all__ = ["ScanEngine"]
 
@@ -106,7 +110,7 @@ class ScanEngine:
         self,
         *,
         conn: sqlite3.Connection,
-        plex_client: Any,
+        plex_client: PlexClient,
         library_ids: list[str],
         library_types: dict[str, str],
         library_titles: dict[str, str] | None = None,
@@ -115,8 +119,8 @@ class ScanEngine:
         inactivity_days: int = 30,
         grace_days: int = 14,
         dry_run: bool = False,
-        sonarr_client: Any = None,
-        radarr_client: Any = None,
+        sonarr_client: ArrClient | None = None,
+        radarr_client: ArrClient | None = None,
     ) -> None:
         self._conn = conn
         self._plex = plex_client
@@ -400,7 +404,7 @@ class ScanEngine:
         self,
         fetched: list[_PlexItemFetch],
         media_type_fn: Callable[[_PlexItemFetch], str],
-        evaluate_fn: Callable[[_PlexItemFetch, Any, list[dict[str, object]]], str | None],
+        evaluate_fn: Callable[[_PlexItemFetch, datetime, list[dict[str, object]]], str | None],
         item_label: str,
         library_id: str,
         summary: dict[str, int],
@@ -500,7 +504,7 @@ class ScanEngine:
 
         def _evaluate(
             f: _PlexItemFetch,
-            added_at: Any,
+            added_at: datetime,
             watch_history: list[dict[str, object]],
         ) -> str | None:
             return evaluate_movie(
@@ -531,7 +535,7 @@ class ScanEngine:
 
         def _evaluate(
             f: _PlexItemFetch,
-            added_at: Any,
+            added_at: datetime,
             watch_history: list[dict[str, object]],
         ) -> str | None:
             season = f.item

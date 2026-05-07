@@ -15,7 +15,7 @@ import sqlite3
 
 from mediaman.services.downloads.download_format import format_relative_time
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def build_search_hint(

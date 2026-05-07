@@ -41,7 +41,7 @@ from mediaman.services.infra.http.streaming import (
     _SizeCapExceeded,
 )
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Retry constants

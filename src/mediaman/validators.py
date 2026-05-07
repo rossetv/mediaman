@@ -26,7 +26,7 @@ import os
 import re
 from datetime import datetime
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 _SCAN_TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 

@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from typing import Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 from typing import cast as _cast
+
+if TYPE_CHECKING:
+    from mediaman.services.arr.base import ArrClient
 
 import requests as _requests
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -34,7 +37,7 @@ from mediaman.web.responses import respond_err
 
 from ._enrichment import _BACKDROP_BASE, _PROFILE_BASE, _poster_url
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -60,7 +63,7 @@ class _SonarrDetail(TypedDict):
 
 
 def _fetch_sonarr_series_detail(
-    tmdb_id: int, sonarr_cache: SonarrCaches, client: Any
+    tmdb_id: int, sonarr_cache: SonarrCaches, client: ArrClient | None
 ) -> _SonarrDetail:
     if not client:
         return {"tracked": False, "seasons_in_library": set()}
@@ -115,7 +118,7 @@ def _build_arr_caches(
     conn: sqlite3.Connection,
     secret_key: str,
     media_type: str,
-) -> tuple[RadarrCaches, SonarrCaches, object]:
+) -> tuple[RadarrCaches, SonarrCaches, ArrClient | None]:
     if media_type == "movie":
         try:
             radarr_cache = build_radarr_cache(build_radarr_from_db(conn, secret_key))

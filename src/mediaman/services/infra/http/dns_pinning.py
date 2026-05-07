@@ -44,7 +44,7 @@ import sys
 import threading
 from collections.abc import Iterator
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 _HTTP_CLIENT_MODULE = "mediaman.services.infra.http.dns_pinning"
 

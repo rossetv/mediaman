@@ -40,7 +40,7 @@ from mediaman.services.downloads.download_queue.items import (
     nzb_matches_arr,
 )
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def get_arr_base_urls(conn: sqlite3.Connection, secret_key: str) -> dict[str, str]:

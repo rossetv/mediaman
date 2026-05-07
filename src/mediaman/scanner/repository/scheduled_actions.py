@@ -7,7 +7,7 @@ import sqlite3
 
 from mediaman.core.time import now_iso
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 # The action that means deletion is already lined up.
 DELETION_ACTION = "scheduled_deletion"

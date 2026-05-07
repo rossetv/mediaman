@@ -34,7 +34,7 @@ from mediaman.web.auth.session_store import (
 from mediaman.web.responses import respond_err
 from mediaman.web.routes._helpers import set_session_cookie
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 # Login bucket: 5 attempts per 5 minutes per /24 IPv4 block (or /64 IPv6).

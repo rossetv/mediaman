@@ -1,6 +1,6 @@
 """Subscriber management API endpoints (admin only).
 
-No separate page — subscribers are managed from the Settings page.
+No separate page -- subscribers are managed from the Settings page.
 Provides list, add, and remove operations against the subscribers table.
 """
 
@@ -26,6 +26,16 @@ from mediaman.services.rate_limit.instances import (
     SUBSCRIBER_WRITE_LIMITER as _SUBSCRIBER_WRITE_LIMITER,
 )
 from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.repository.subscribers import (
+    add_subscriber,
+    deactivate_subscriber,
+    delete_subscriber,
+    fetch_active_subscribers_in,
+    find_subscriber_by_email,
+    find_subscriber_by_id,
+    find_subscriber_status_by_email,
+    list_subscribers,
+)
 from mediaman.web.responses import respond_err, respond_ok
 
 
@@ -35,7 +45,7 @@ class _SendNewsletterBody(BaseModel):
     recipients: list[str] = []
 
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -44,29 +54,17 @@ router = APIRouter()
 #: as a subscriber-membership oracle.
 _UNSUB_CONFIRMATION_MSG = "If that address was subscribed, it has now been removed."
 
-# Tighter than before: allows the standard local-part characters RFC 5322
-# permits in unquoted form, rejects whitespace and the ampersand/hash/
-# percent characters that cause URL mayhem if an operator ever imports a
-# subscriber list through a non-normalising path.
 _EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
 
-# Rate limiter for the public unsubscribe endpoint — 20 attempts per
-# minute per /24 (IPv4) or /64 (IPv6) bucket. Generous enough for a
-# real user who clicks through, tight enough to kill automated probing.
 _UNSUB_LIMITER = RateLimiter(max_attempts=20, window_seconds=60)
 
 
 def _validate_email(email: str) -> bool:
-    # Conservative regex — avoids heavy dependencies for a rarely-called admin helper.
     return bool(_EMAIL_RE.match(email.strip()))
 
 
 def _mask_email_log(email: str) -> str:
-    """Return a masked email for log output (first char of local-part + domain + length).
-
-    Avoids logging PII in plaintext while still giving operators enough
-    context to triage delivery issues without logging PII in plaintext.
-    """
+    """Return a masked email for log output (first char of local-part + domain + length)."""
     try:
         local, domain = email.split("@", 1)
     except ValueError:
@@ -75,28 +73,21 @@ def _mask_email_log(email: str) -> str:
     return f"{first}...@{domain} (len={len(email)})"
 
 
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
-
-
 @router.get("/api/subscribers")
 def api_list_subscribers(username: str = Depends(get_current_admin)) -> JSONResponse:
     """Return all subscribers as JSON."""
     conn = get_db()
-    rows = conn.execute(
-        "SELECT id, email, active, created_at FROM subscribers ORDER BY created_at ASC"
-    ).fetchall()
+    subs = list_subscribers(conn)
     return JSONResponse(
         {
             "subscribers": [
                 {
-                    "id": r["id"],
-                    "email": r["email"],
-                    "active": bool(r["active"]),
-                    "created_at": r["created_at"],
+                    "id": s.id,
+                    "email": s.email,
+                    "active": s.active,
+                    "created_at": s.created_at,
                 }
-                for r in rows
+                for s in subs
             ]
         }
     )
@@ -110,19 +101,14 @@ def api_add_subscriber(
 ) -> JSONResponse:
     """Add a new subscriber.
 
-    Validates email format, then inserts into subscribers. Returns 409 if
-    the address is already registered, 422 if the format is invalid.
-
-    The SELECT-then-INSERT path is wrapped in ``BEGIN IMMEDIATE`` so two
+    The SELECT-then-INSERT path is wrapped in BEGIN IMMEDIATE so two
     concurrent admin sessions adding the same email cannot both pass the
-    SELECT and then race on the INSERT — the loser hits the unique
-    constraint and is converted to a clean 409 instead of bubbling a 500
-    out of the IntegrityError.
+    SELECT and then race on the INSERT.
     """
     if not _SUBSCRIBER_WRITE_LIMITER.check(username):
         logger.warning("subscriber.add_throttled user=%s", username)
         return respond_err(
-            "too_many_requests", status=429, message="Too many subscriber changes — slow down"
+            "too_many_requests", status=429, message="Too many subscriber changes -- slow down"
         )
     email = email.strip().lower()
     if not _validate_email(email):
@@ -133,23 +119,15 @@ def api_add_subscriber(
     try:
         conn.execute("BEGIN IMMEDIATE")
         try:
-            existing = conn.execute(
-                "SELECT id FROM subscribers WHERE email = ?", (email,)
-            ).fetchone()
-            if existing:
+            existing_id = find_subscriber_by_email(conn, email)
+            if existing_id is not None:
                 conn.execute("ROLLBACK")
                 return respond_err(
                     "already_subscribed", status=409, message="Email already subscribed"
                 )
             try:
-                conn.execute(
-                    "INSERT INTO subscribers (email, active, created_at) VALUES (?, 1, ?)",
-                    (email, now),
-                )
+                add_subscriber(conn, email=email, now=now)
             except sqlite3.IntegrityError:
-                # Concurrent admin landed first — convert to a clean
-                # 409. Without this, both racers passed the SELECT,
-                # one INSERT succeeded, the other returned a 500.
                 conn.execute("ROLLBACK")
                 return respond_err(
                     "already_subscribed", status=409, message="Email already subscribed"
@@ -180,26 +158,21 @@ def api_remove_subscriber(
     subscriber_id: int,
     username: str = Depends(get_current_admin),
 ) -> JSONResponse:
-    """Remove a subscriber by ID.
-
-    Rate-limited per admin to bound abuse via a leaked session cookie,
-    and writes a security_event audit row so a compromised account
-    cannot silently churn the subscriber list.
-    """
+    """Remove a subscriber by ID."""
     if not _SUBSCRIBER_WRITE_LIMITER.check(username):
         logger.warning("subscriber.remove_throttled user=%s", username)
         return respond_err(
-            "too_many_requests", status=429, message="Too many subscriber changes — slow down"
+            "too_many_requests", status=429, message="Too many subscriber changes -- slow down"
         )
     conn = get_db()
-    row = conn.execute("SELECT email FROM subscribers WHERE id = ?", (subscriber_id,)).fetchone()
-    if row is None:
+    email = find_subscriber_by_id(conn, subscriber_id)
+    if email is None:
         return respond_err("not_found", status=404, message="Subscriber not found")
 
-    conn.execute("DELETE FROM subscribers WHERE id = ?", (subscriber_id,))
+    delete_subscriber(conn, subscriber_id)
     conn.commit()
 
-    masked = _mask_email_log(row["email"] or "")
+    masked = _mask_email_log(email or "")
     logger.info("Subscriber removed: %s by %s", masked, username)
     security_event(
         conn,
@@ -217,15 +190,7 @@ def api_send_newsletter(
     body: _SendNewsletterBody,
     admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
-    """Manually send the newsletter to selected recipients.
-
-    Expects JSON body: ``{"recipients": ["email@example.com", ...]}``.
-    The per-admin rate limiter is the safeguard against the endpoint
-    being abused to spam the subscriber list.
-
-    Sends the current newsletter (all active scheduled items) without marking
-    them as notified, so the regular scan newsletter still sends normally.
-    """
+    """Manually send the newsletter to selected recipients."""
     from mediaman.services.mail.newsletter import send_newsletter
 
     conn = get_db()
@@ -243,34 +208,15 @@ def api_send_newsletter(
 
     config = request.app.state.config
 
-    # Restrict the send list to addresses we actually know about and
-    # haven't unsubscribed — prevents the endpoint being weaponised as
-    # an open relay for the configured Mailgun domain.
     requested = {str(r).lower().strip() for r in raw_recipients if isinstance(r, str)}
     if not requested:
         return respond_err("no_valid_recipients", status=400, message="No valid recipients")
 
-    placeholders = ",".join("?" * len(requested))
-    # ``subscribers.email`` is normalised to lowercase on write (M14)
-    # and the column carries a UNIQUE INDEX with COLLATE NOCASE — no
-    # need for a function call here. Wrapping the column in lower()
-    # forced a full table scan and defeated the index, which on a
-    # large subscriber list became a measurable hot path.
-    allowed_rows = conn.execute(
-        f"SELECT email FROM subscribers WHERE active=1 AND email IN ({placeholders})",
-        tuple(requested),
-    ).fetchall()
+    allowed_emails = fetch_active_subscribers_in(conn, requested)
 
-    # Re-validate every recipient pulled from the DB before it hits the
-    # Mailgun SMTP headers. A malicious subscriber row containing CR/LF
-    # would let an attacker inject ``Bcc:`` or similar headers through
-    # the templated ``To:`` field. The add-subscriber path already runs
-    # ``_validate_email``, but a DB compromise or a historic row written
-    # before this check existed could still carry a CRLF payload.
     recipients: list[str] = []
     rejected = 0
-    for r in allowed_rows:
-        candidate = r["email"] or ""
+    for candidate in allowed_emails:
         if "\r" in candidate or "\n" in candidate:
             rejected += 1
             continue
@@ -315,11 +261,6 @@ def api_send_newsletter(
         return respond_err("send_failed", status=502, message="Newsletter send failed")
 
 
-# ---------------------------------------------------------------------------
-# Public unsubscribe (no login required — uses HMAC token)
-# ---------------------------------------------------------------------------
-
-
 def _render_result(
     request: Request, message: str, *, success: bool, status_code: int = 200
 ) -> HTMLResponse:
@@ -334,9 +275,7 @@ def _render_result(
 
 
 def _generic_invalid_response(request: Request) -> HTMLResponse:
-    """Return a uniform "invalid link" response so we don't leak
-    whether an email is subscribed, whether a token was syntactically
-    well-formed but wrong-signed, or whether it has expired."""
+    """Return a uniform invalid link response."""
     return _render_result(request, "This unsubscribe link is no longer valid.", success=False)
 
 
@@ -344,9 +283,8 @@ def _generic_invalid_response(request: Request) -> HTMLResponse:
 def unsubscribe_page(request: Request, token: str = "", email: str = "") -> HTMLResponse:
     """Show unsubscribe confirmation page.
 
-    Accepts ``?token=...`` only — the email address is derived from the
-    validated token payload — the email is not accepted from query parameters to avoid leaking PII in server logs.  The legacy ``email=`` parameter
-    is accepted but ignored; the token is authoritative.
+    Accepts token= only -- the email address is derived from the
+    validated token payload.
     """
     config = request.app.state.config
 
@@ -362,12 +300,10 @@ def unsubscribe_page(request: Request, token: str = "", email: str = "") -> HTML
     if payload is None:
         return _generic_invalid_response(request)
 
-    # Derive the email address from the validated token — never from the URL.
     email_from_token = payload.get("email", "").lower()
     if not email_from_token:
         return _generic_invalid_response(request)
 
-    # Show confirmation page
     templates = request.app.state.templates
     return templates.TemplateResponse(
         request,
@@ -387,15 +323,7 @@ def unsubscribe_confirm(
     CSRF-exempt: this route is HMAC-token-authenticated (the token rides
     in the form body) and gets submitted from email clients where the
     browser's Origin is whichever webmail host the recipient happens to
-    use.  The exemption is opt-in via the explicit
-    ``_CSRF_EXEMPT_ROUTES`` allowlist in :mod:`mediaman.web` — adding a
-    sibling ``POST /unsubscribe/...`` will NOT silently inherit the
-    exemption.
-
-    The email is derived from the validated token, not from form input
-    The ``email`` form field is accepted for backwards
-    compatibility with the confirmation template but is not used for
-    lookup or authorisation.
+    use.
     """
     config = request.app.state.config
 
@@ -411,25 +339,14 @@ def unsubscribe_confirm(
     if payload is None:
         return _generic_invalid_response(request)
 
-    # Always use the email from the token — never trust form/URL input.
     email_from_token = payload.get("email", "").lower()
     if not email_from_token:
         return _generic_invalid_response(request)
 
     conn = get_db()
-    # ``subscribers.email`` is normalised to lowercase on write (M14),
-    # so we look up directly by the column. Wrapping it in lower()
-    # forced a full table scan — the schema's UNIQUE INDEX with
-    # COLLATE NOCASE is sufficient.
-    row = conn.execute(
-        "SELECT id, active FROM subscribers WHERE email = ?", (email_from_token,)
-    ).fetchone()
+    sub_status = find_subscriber_status_by_email(conn, email_from_token)
 
-    # Return a uniform "you've been unsubscribed" response whether the
-    # email is present, already inactive, or absent — otherwise the
-    # endpoint becomes a subscriber-membership oracle. The logs retain
-    # the true state for operator debugging with masked addresses.
-    if row is None:
+    if sub_status is None:
         logger.info(
             "Unsubscribe link used for unknown email: %s", _mask_email_log(email_from_token)
         )
@@ -439,8 +356,9 @@ def unsubscribe_confirm(
             success=True,
         )
 
-    if row["active"]:
-        conn.execute("UPDATE subscribers SET active = 0 WHERE id = ?", (row["id"],))
+    sub_id, is_active = sub_status
+    if is_active:
+        deactivate_subscriber(conn, sub_id)
         conn.commit()
         logger.info("Unsubscribed via link: %s", _mask_email_log(email_from_token))
 

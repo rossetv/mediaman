@@ -27,6 +27,7 @@ from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.web.responses import respond_err
 
 from ._enrichment import (
+    _DISCOVER_CACHE_MAX_ENTRIES,
     _DISCOVER_TMDB_TTL_SECONDS,
     _MAX_QUERY_LEN,
     _QUERY_LIMITER,
@@ -37,7 +38,7 @@ from ._enrichment import (
     _normalise_tmdb_item,
 )
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -140,6 +141,11 @@ def api_discover(request: Request, admin: str = Depends(get_current_admin)) -> J
             for x in raw:
                 x["media_type"] = inject_media_type
         with _discover_cache_lock:
+            # rationale: bounded to prevent unbounded growth on malformed inputs;
+            # small clear-on-overflow is fine because TTL means stale entries
+            # refresh on next read.
+            if len(_discover_cache) >= _DISCOVER_CACHE_MAX_ENTRIES:
+                _discover_cache.clear()
             _discover_cache[cache_key] = (now, raw)
         return raw
 

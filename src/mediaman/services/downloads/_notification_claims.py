@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 
 from mediaman.core.time import now_iso
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 #: How long an in-flight claim is allowed before reconcile treats the row as
 #: stranded by a crashed worker.  Generous enough to outlast the slowest
@@ -48,8 +48,11 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         return rows
     except sqlite3.OperationalError:
         # Older SQLite without RETURNING — fall back to lock-then-claim.
-        conn.execute("BEGIN IMMEDIATE")
-        try:
+        # ``with conn:`` commits on normal exit and rolls back on exception;
+        # BEGIN IMMEDIATE here preserves write-lock semantics so a sibling
+        # worker cannot pick up the same rows concurrently.
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
             rows = conn.execute(
                 "SELECT id, email, title, media_type, tmdb_id, tvdb_id, service "
                 "FROM download_notifications WHERE notified=0"
@@ -61,16 +64,7 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[sqlite3.Row]:
                     f"UPDATE download_notifications SET notified=2, claimed_at=? WHERE id IN ({placeholders})",
                     (claim_iso, *ids),
                 )
-            conn.execute("COMMIT")
             return rows
-        except Exception:
-            # rationale: roll back the in-flight claim transaction before propagating;
-            # rollback failures are logged but never mask the original exception.
-            try:
-                conn.execute("ROLLBACK")
-            except sqlite3.Error:
-                logger.debug("rollback after claim failure raised", exc_info=True)
-            raise
 
 
 def _release_claim(conn: sqlite3.Connection, row_id: int) -> None:

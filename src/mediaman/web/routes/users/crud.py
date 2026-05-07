@@ -27,7 +27,7 @@ from mediaman.web.models.users import CreateUserBody
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.users.rate_limits import _USER_CREATE_LIMITER, _USER_MGMT_LIMITER
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

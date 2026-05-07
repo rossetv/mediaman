@@ -126,7 +126,7 @@ from mediaman.web.routes.settings.testers import (
 # Re-export the cache dict under the name tests import directly.
 TEST_CACHE = _TEST_CACHE
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

@@ -11,7 +11,10 @@ import logging
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from mediaman.services.arr.base import ArrClient
 
 from mediaman.services.downloads._notification_backoff import (
     _BACKOFF_BASE_SECONDS,
@@ -31,7 +34,7 @@ from mediaman.services.downloads._notification_claims import (
 )
 from mediaman.services.downloads.download_format import extract_poster_url
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def _mask_email(email: str) -> str:
@@ -111,7 +114,7 @@ def record_download_notification(
     )
 
 
-def _sonarr_has_files(client, *, tvdb_id: int | None, tmdb_id: int | None) -> bool:
+def _sonarr_has_files(client: ArrClient, *, tvdb_id: int | None, tmdb_id: int | None) -> bool:
     """Return True if the Sonarr series has at least one episode file.
 
     Matches by TVDB id first (authoritative for Sonarr), then falls back to

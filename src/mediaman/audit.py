@@ -37,7 +37,7 @@ import sqlite3
 
 from mediaman.core.time import now_iso
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def log_audit(

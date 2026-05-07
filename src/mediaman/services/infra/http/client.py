@@ -54,7 +54,7 @@ from mediaman.services.infra.http.dns_pinning import ensure_hook_installed, pin
 from mediaman.services.infra.http.retry import _RETRY_BACKOFFS, dispatch_loop
 from mediaman.services.infra.http.streaming import _read_capped
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 # Public alias so tests can monkeypatch ``http.client.resolve_safe_outbound_url``
 # and have ``_request`` pick up the patched version via sys.modules lookup.
@@ -161,6 +161,14 @@ def _dispatch(
 # ---------------------------------------------------------------------------
 # The client
 # ---------------------------------------------------------------------------
+
+
+# rationale: json/data/auth/caller mirror `requests.Session.request` and
+# `requests.adapters.HTTPAdapter` which themselves take `Any`. There is no
+# upstream stub for these parameters; tightening here would force callers
+# to cast or duplicate the request library's permissive contract.
+# The `params` dict is typed as `dict[str, Any]` for the same reason —
+# `requests` accepts values of any JSON-serialisable type for query params.
 
 
 class SafeHTTPClient:

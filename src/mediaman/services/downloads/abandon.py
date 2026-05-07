@@ -16,7 +16,7 @@ from mediaman.services.arr.base import ArrClient
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.search_trigger import clear_throttle
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 @dataclass

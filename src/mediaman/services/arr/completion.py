@@ -21,7 +21,7 @@ from mediaman.services.arr.fetcher import ArrCard
 from mediaman.services.arr.state import series_has_files
 from mediaman.services.downloads.download_format import extract_poster_url
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 class RecentDownloadItem(TypedDict):
@@ -98,10 +98,121 @@ def cleanup_recent_downloads(conn: sqlite3.Connection) -> int:
     return cursor.rowcount
 
 
-# rationale: Arr library fetch, per-item cross-reference, and recent_downloads
-# upsert share a single DB connection; splitting the verification loop from the
-# upsert would require a second pass over the Arr library or threading the
-# library snapshot through a helper boundary without reducing complexity.
+class _ArrLibraryIndex:
+    """Lazy-loaded, call-scoped index of Radarr/Sonarr libraries.
+
+    Fetches each service's library at most once per :func:`record_verified_completions`
+    call and indexes by tmdbId + title for O(1) lookups.  ``None`` signals
+    "not yet fetched"; an empty dict means "fetched, nothing found".
+    """
+
+    def __init__(self, conn: sqlite3.Connection, secret_key: str) -> None:
+        self._conn = conn
+        self._secret_key = secret_key
+        self.radarr_by_id: dict[int, dict] | None = None
+        self.radarr_by_title: dict[str, dict] | None = None
+        self.sonarr_by_id: dict[int, dict] | None = None
+        self.sonarr_by_title: dict[str, dict] | None = None
+
+    def ensure_radarr(self) -> None:
+        if self.radarr_by_id is not None:
+            return
+        from mediaman.services.arr.build import build_radarr_from_db
+
+        # Build indexes before marking as fetched — if get_movies() raises,
+        # radarr_by_id stays None so the next item retries (matching original behaviour).
+        by_id: dict[int, dict] = {}
+        by_title: dict[str, dict] = {}
+        client = build_radarr_from_db(self._conn, self._secret_key)
+        for m in client.get_movies() if client else []:
+            if tid := m.get("tmdbId"):
+                by_id[int(tid)] = m
+            if t := (m.get("title") or ""):
+                by_title[t] = m
+        self.radarr_by_id, self.radarr_by_title = by_id, by_title
+
+    def ensure_sonarr(self) -> None:
+        if self.sonarr_by_id is not None:
+            return
+        from mediaman.services.arr.build import build_sonarr_from_db
+
+        by_id: dict[int, dict] = {}
+        by_title: dict[str, dict] = {}
+        client = build_sonarr_from_db(self._conn, self._secret_key)
+        for s in client.get_series() if client else []:
+            if tid := s.get("tmdbId"):
+                by_id[int(tid)] = s
+            if t := (s.get("title") or ""):
+                by_title[t] = s
+        self.sonarr_by_id, self.sonarr_by_title = by_id, by_title
+
+
+def _check_item_verified(c: CompletedItem, idx: _ArrLibraryIndex) -> bool:
+    """Return True if the completed item is confirmed by Radarr/Sonarr (or is NZB-only).
+
+    Raises on fetch errors so the caller can log and skip the item.
+    """
+    dl_id = c["dl_id"]
+    title = c["title"]
+    if dl_id.startswith("radarr:"):
+        idx.ensure_radarr()
+        assert idx.radarr_by_id is not None
+        assert idx.radarr_by_title is not None
+        tmdb_id = c.get("tmdb_id")
+        movie = idx.radarr_by_id.get(int(tmdb_id)) if tmdb_id else None
+        if movie is None:
+            if not tmdb_id:
+                logger.warning(
+                    "record_verified_completions: no tmdb_id for %s "
+                    "(title=%r) — falling back to title-only match; "
+                    "two releases with the same title would be "
+                    "indistinguishable",
+                    dl_id,
+                    title,
+                )
+            movie = idx.radarr_by_title.get(title)
+        return movie is not None and bool(movie.get("hasFile"))
+    if dl_id.startswith("sonarr:"):
+        idx.ensure_sonarr()
+        assert idx.sonarr_by_id is not None
+        assert idx.sonarr_by_title is not None
+        tmdb_id = c.get("tmdb_id")
+        series = idx.sonarr_by_id.get(int(tmdb_id)) if tmdb_id else None
+        if series is None:
+            if not tmdb_id:
+                logger.warning(
+                    "record_verified_completions: no tmdb_id for %s "
+                    "(title=%r) — falling back to title-only match; "
+                    "two releases with the same title would be "
+                    "indistinguishable",
+                    dl_id,
+                    title,
+                )
+            series = idx.sonarr_by_title.get(title)
+        return series is not None and series_has_files(series)
+    # NZBGet-only items — no Arr verification possible
+    return True
+
+
+def _batch_insert_completions(conn: sqlite3.Connection, to_insert: list[tuple]) -> None:
+    """Insert verified completion rows in a single batch commit."""
+    if not to_insert:
+        return
+    try:
+        conn.executemany(
+            "INSERT OR IGNORE INTO recent_downloads "
+            "(dl_id, title, media_type, poster_url) VALUES (?, ?, ?, ?)",
+            to_insert,
+        )
+        conn.commit()
+    except Exception:
+        logger.warning(
+            "Failed to record %d completed download(s)",
+            len(to_insert),
+            exc_info=True,
+        )
+
+
 def record_verified_completions(
     conn: sqlite3.Connection,
     completed: list[CompletedItem],
@@ -123,122 +234,27 @@ def record_verified_completions(
     propagates ``tmdb_id`` from the queue snapshot (D6 fix), the fallback
     becomes vanishingly rare.
     """
-    from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
-
-    # Fetch Radarr/Sonarr libraries once per call and index by tmdbId + title.
-    # None signals "not yet fetched"; an empty dict means "fetched, nothing found".
-    _radarr_by_id: dict[int, dict] | None = None
-    _radarr_by_title: dict[str, dict] | None = None
-    _sonarr_by_id: dict[int, dict] | None = None
-    _sonarr_by_title: dict[str, dict] | None = None
-
-    def _ensure_radarr() -> None:
-        nonlocal _radarr_by_id, _radarr_by_title
-        if _radarr_by_id is not None:
-            return
-        # Build indexes before marking as fetched — if get_movies() raises,
-        # _radarr_by_id stays None so the next item retries (matching original behaviour).
-        by_id: dict[int, dict] = {}
-        by_title: dict[str, dict] = {}
-        client = build_radarr_from_db(conn, secret_key)
-        for m in client.get_movies() if client else []:
-            if tid := m.get("tmdbId"):
-                by_id[int(tid)] = m
-            if t := (m.get("title") or ""):
-                by_title[t] = m
-        _radarr_by_id, _radarr_by_title = by_id, by_title
-
-    def _ensure_sonarr() -> None:
-        nonlocal _sonarr_by_id, _sonarr_by_title
-        if _sonarr_by_id is not None:
-            return
-        by_id: dict[int, dict] = {}
-        by_title: dict[str, dict] = {}
-        client = build_sonarr_from_db(conn, secret_key)
-        for s in client.get_series() if client else []:
-            if tid := s.get("tmdbId"):
-                by_id[int(tid)] = s
-            if t := (s.get("title") or ""):
-                by_title[t] = s
-        _sonarr_by_id, _sonarr_by_title = by_id, by_title
-
-    # Collect verified rows first; commit once at the end to avoid N fsyncs.
+    idx = _ArrLibraryIndex(conn, secret_key)
     to_insert: list[tuple] = []
 
     for c in completed:
-        dl_id = c["dl_id"]
-        title = c["title"]
-
-        # Verify with Radarr/Sonarr that the item actually has files
-        verified = False
         try:
-            if dl_id.startswith("radarr:"):
-                _ensure_radarr()
-                assert _radarr_by_id is not None
-                assert _radarr_by_title is not None
-                tmdb_id = c.get("tmdb_id")
-                movie = _radarr_by_id.get(int(tmdb_id)) if tmdb_id else None
-                if movie is None:
-                    if not tmdb_id:
-                        logger.warning(
-                            "record_verified_completions: no tmdb_id for %s "
-                            "(title=%r) — falling back to title-only match; "
-                            "two releases with the same title would be "
-                            "indistinguishable",
-                            dl_id,
-                            title,
-                        )
-                    movie = _radarr_by_title.get(title)
-                if movie is not None and bool(movie.get("hasFile")):
-                    verified = True
-            elif dl_id.startswith("sonarr:"):
-                _ensure_sonarr()
-                assert _sonarr_by_id is not None
-                assert _sonarr_by_title is not None
-                tmdb_id = c.get("tmdb_id")
-                series = _sonarr_by_id.get(int(tmdb_id)) if tmdb_id else None
-                if series is None:
-                    if not tmdb_id:
-                        logger.warning(
-                            "record_verified_completions: no tmdb_id for %s "
-                            "(title=%r) — falling back to title-only match; "
-                            "two releases with the same title would be "
-                            "indistinguishable",
-                            dl_id,
-                            title,
-                        )
-                    series = _sonarr_by_title.get(title)
-                if series is not None and series_has_files(series):
-                    verified = True
-            else:
-                # NZBGet-only items — no Arr verification possible
-                verified = True
+            verified = _check_item_verified(c, idx)
         except Exception:
             # Skip rather than log "no files confirmed" — the real cause is a network error
-            logger.warning("Failed to verify completion for %s — skipping", dl_id, exc_info=True)
+            logger.warning(
+                "Failed to verify completion for %s — skipping", c["dl_id"], exc_info=True
+            )
             continue
 
         if not verified:
-            logger.info("Skipping completion for %s — no files confirmed", dl_id)
+            logger.info("Skipping completion for %s — no files confirmed", c["dl_id"])
             continue
 
         to_insert.append((c["dl_id"], c["title"], c["media_type"], c["poster_url"]))
 
     # Single batch insert + single commit (D26 / per-row fsyncs finding).
-    if to_insert:
-        try:
-            conn.executemany(
-                "INSERT OR IGNORE INTO recent_downloads "
-                "(dl_id, title, media_type, poster_url) VALUES (?, ?, ?, ?)",
-                to_insert,
-            )
-            conn.commit()
-        except Exception:
-            logger.warning(
-                "Failed to record %d completed download(s)",
-                len(to_insert),
-                exc_info=True,
-            )
+    _batch_insert_completions(conn, to_insert)
 
 
 def fetch_and_sync_recent_downloads(

@@ -49,8 +49,8 @@ def is_inactive(watch_history: list[dict[str, object]], inactivity_days: int) ->
     is filtered out. If filtering leaves zero usable entries the item
     is treated as having been watched recently — i.e. **not inactive**
     — so we fail safe rather than schedule deletion off an unusable
-    history. The previous code raised ``ValueError`` from
-    ``max(empty_iter)`` in that case (D05 finding 12).
+    history. The previous code raised ``ValueError`` from ``max(empty_iter)``
+    on empty input; filtering and the safe-default handling prevent this.
 
     Args:
         watch_history: List of watch-history dicts, each containing at

@@ -25,7 +25,7 @@ from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
 #: items) on a slow NAS.
 _ARR_TIMEOUT_SECONDS: tuple[float, float] = (5.0, 30.0)
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 class ArrError(Exception):

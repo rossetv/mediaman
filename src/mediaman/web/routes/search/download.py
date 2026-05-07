@@ -26,7 +26,7 @@ from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.rate_limit import ActionRateLimiter, RateLimiter, get_client_ip
 from mediaman.web.auth.middleware import get_current_admin
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Rate limiters for POST /api/search/download
@@ -130,23 +130,14 @@ def _resolve_admin_email(admin: str) -> str:
 router = APIRouter()
 
 
-# rationale: rate checks, Arr client construction, search lookup, download
-# token minting, and audit-log write share a single DB transaction — extracting
-# any branch would require passing the open connection and audit context through
-# the call boundary without reducing the actual lines of business logic.
-@router.post("/api/search/download")
-def api_download(
-    body: _DownloadRequest, request: Request, admin: str = Depends(get_current_admin)
-) -> JSONResponse:
-    # Per-admin rate check.
+def _check_rate_limits(admin: str, request: Request) -> JSONResponse | None:
+    """Check per-admin and per-IP rate limits. Return a 429 response or None."""
     if not _DOWNLOAD_ADMIN_LIMITER.check(admin):
         logger.warning("search.download_throttled user=%s", admin)
         return JSONResponse(
             {"ok": False, "error": "Too many download requests — slow down"},
             status_code=429,
         )
-
-    # Per-IP rate check.
     client_ip = get_client_ip(request)
     if not _DOWNLOAD_IP_LIMITER.check(client_ip):
         logger.warning("search.download_ip_throttled ip=%s", client_ip)
@@ -154,9 +145,11 @@ def api_download(
             {"ok": False, "error": "Too many download requests from this IP — slow down"},
             status_code=429,
         )
+    return None
 
-    # Duplicate-request suppression: same (admin, tmdb_id, media_type, seasons)
-    # within the dedup window indicates a double-click or replay.
+
+def _check_dedup(admin: str, body: _DownloadRequest) -> JSONResponse | None:
+    """Suppress duplicate requests within the dedup window. Return 429 or None."""
     seasons_token = _seasons_dedup_token(body.monitored_seasons, body.search_seasons)
     if _is_duplicate_download(admin, body.tmdb_id, body.media_type, seasons_token):
         logger.info(
@@ -170,86 +163,94 @@ def api_download(
             {"ok": False, "error": "Duplicate request — wait a moment before retrying"},
             status_code=429,
         )
+    return None
 
-    conn = get_db()
-    secret_key = request.app.state.config.secret_key
 
-    # Notification recipient: see ``_resolve_admin_email`` for the
-    # rationale on re-using the admin username.
-    notify_email = _resolve_admin_email(admin)
+def _submit_movie(conn, secret_key: str, body: _DownloadRequest, notify_email: str) -> JSONResponse:
+    """Add a movie to Radarr and record the download notification."""
+    radarr = build_radarr_from_db(conn, secret_key)
+    if not radarr:
+        return JSONResponse({"ok": False, "error": "Radarr not configured"}, status_code=503)
+    try:
+        existing_movie = radarr.get_movie_by_tmdb(body.tmdb_id)
+        if existing_movie is not None:
+            # The movie is in Radarr's library. Two sub-cases:
+            #
+            # * Monitored — genuinely already tracked. Reject so a
+            #   double-click doesn't churn the existing entry.
+            # * Unmonitored — the residue of a manual or auto abandon.
+            #   Reusing the same entry by re-monitoring + re-searching
+            #   is what the user meant when they pressed Download
+            #   again. Without this branch they were wedged: the
+            #   search button showed "Queued" and the API rejected
+            #   their click with 409.
+            if existing_movie.get("monitored"):
+                return JSONResponse(
+                    {"ok": False, "error": f"'{body.title}' is already in your library"},
+                    status_code=409,
+                )
+            movie_id_raw = existing_movie.get("id")
+            if not isinstance(movie_id_raw, int) or movie_id_raw <= 0:
+                logger.warning(
+                    "search.download: unmonitored radarr entry has bad id=%r for tmdb=%s",
+                    movie_id_raw,
+                    body.tmdb_id,
+                )
+                return JSONResponse(
+                    {"ok": False, "error": "Radarr entry is in an unexpected state"},
+                    status_code=502,
+                )
+            radarr.remonitor_movie(movie_id_raw)
+        else:
+            radarr.add_movie(body.tmdb_id, body.title)
+    except (SafeHTTPError, _requests.RequestException, ValueError, ArrError):
+        # Narrow exception list: SafeHTTPError covers Radarr's non-2xx
+        # responses, RequestException covers transport failures, ValueError
+        # covers add_movie's own ``tmdb_id <= 0`` guard, ArrError covers
+        # configuration failures (e.g. no root folder configured). A bare
+        # ``except Exception`` would silently swallow programming bugs.
+        logger.exception("Failed to add movie")
+        return JSONResponse({"ok": False, "error": "Failed to add to Radarr"}, status_code=502)
+    _record_dn(
+        conn,
+        email=notify_email,
+        title=body.title,
+        media_type="movie",
+        tmdb_id=body.tmdb_id,
+        service="radarr",
+    )
+    conn.commit()
+    return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Radarr"})
 
-    if body.media_type == "movie":
-        radarr = build_radarr_from_db(conn, secret_key)
-        if not radarr:
-            return JSONResponse({"ok": False, "error": "Radarr not configured"}, status_code=503)
-        try:
-            existing_movie = radarr.get_movie_by_tmdb(body.tmdb_id)
-            if existing_movie is not None:
-                # The movie is in Radarr's library. Two sub-cases:
-                #
-                # * Monitored — genuinely already tracked. Reject so a
-                #   double-click doesn't churn the existing entry.
-                # * Unmonitored — the residue of a manual or auto abandon.
-                #   Reusing the same entry by re-monitoring + re-searching
-                #   is what the user meant when they pressed Download
-                #   again. Without this branch they were wedged: the
-                #   search button showed "Queued" and the API rejected
-                #   their click with 409.
-                if existing_movie.get("monitored"):
-                    return JSONResponse(
-                        {"ok": False, "error": f"'{body.title}' is already in your library"},
-                        status_code=409,
-                    )
-                movie_id_raw = existing_movie.get("id")
-                if not isinstance(movie_id_raw, int) or movie_id_raw <= 0:
-                    logger.warning(
-                        "search.download: unmonitored radarr entry has bad id=%r for tmdb=%s",
-                        movie_id_raw,
-                        body.tmdb_id,
-                    )
-                    return JSONResponse(
-                        {"ok": False, "error": "Radarr entry is in an unexpected state"},
-                        status_code=502,
-                    )
-                radarr.remonitor_movie(movie_id_raw)
-            else:
-                radarr.add_movie(body.tmdb_id, body.title)
-        except (SafeHTTPError, _requests.RequestException, ValueError, ArrError):
-            # Narrow exception list: SafeHTTPError covers Radarr's non-2xx
-            # responses, RequestException covers transport failures, ValueError
-            # covers add_movie's own ``tmdb_id <= 0`` guard, ArrError covers
-            # configuration failures (e.g. no root folder configured). A bare
-            # ``except Exception`` would silently swallow programming bugs.
-            logger.exception("Failed to add movie")
-            return JSONResponse({"ok": False, "error": "Failed to add to Radarr"}, status_code=502)
-        _record_dn(
-            conn,
-            email=notify_email,
-            title=body.title,
-            media_type="movie",
-            tmdb_id=body.tmdb_id,
-            service="radarr",
-        )
-        conn.commit()
-        return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Radarr"})
 
-    sonarr = build_sonarr_from_db(conn, secret_key)
-    if not sonarr:
-        return JSONResponse({"ok": False, "error": "Sonarr not configured"}, status_code=503)
+def _resolve_tvdb_id(sonarr, body: _DownloadRequest) -> tuple[int | None, JSONResponse | None]:
+    """Look up the TVDB ID for a series via Sonarr. Return (tvdb_id, None) or (None, error)."""
     try:
         lookup = sonarr.lookup_series_by_tmdb(body.tmdb_id)
     except (SafeHTTPError, _requests.RequestException):
         logger.exception("Sonarr lookup failed")
-        return JSONResponse({"ok": False, "error": "Sonarr lookup failed"}, status_code=502)
+        return None, JSONResponse({"ok": False, "error": "Sonarr lookup failed"}, status_code=502)
     if not lookup:
-        return JSONResponse(
+        return None, JSONResponse(
             {"ok": False, "error": "Series not found in Sonarr lookup"}, status_code=404
         )
     tvdb_id_raw = lookup.get("tvdbId")
     if not isinstance(tvdb_id_raw, int) or tvdb_id_raw <= 0:
-        return JSONResponse({"ok": False, "error": "No TVDB ID for this series"}, status_code=422)
-    tvdb_id: int = tvdb_id_raw
+        return None, JSONResponse(
+            {"ok": False, "error": "No TVDB ID for this series"}, status_code=422
+        )
+    return tvdb_id_raw, None
 
+
+def _submit_tv(conn, secret_key: str, body: _DownloadRequest, notify_email: str) -> JSONResponse:
+    """Add a series to Sonarr and record the download notification."""
+    sonarr = build_sonarr_from_db(conn, secret_key)
+    if not sonarr:
+        return JSONResponse({"ok": False, "error": "Sonarr not configured"}, status_code=503)
+    tvdb_id, err = _resolve_tvdb_id(sonarr, body)
+    if err is not None:
+        return err
+    assert tvdb_id is not None
     try:
         existing = sonarr.get_series()
     except (SafeHTTPError, _requests.RequestException):
@@ -265,10 +266,8 @@ def api_download(
             },
             status_code=409,
         )
-
     if body.search_seasons is not None and not body.search_seasons:
         return JSONResponse({"ok": False, "error": "Pick at least one season"}, status_code=400)
-
     try:
         if body.monitored_seasons is None:
             sonarr.add_series(tvdb_id, body.title)
@@ -293,3 +292,29 @@ def api_download(
     )
     conn.commit()
     return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Sonarr"})
+
+
+@router.post("/api/search/download")
+def api_download(
+    body: _DownloadRequest, request: Request, admin: str = Depends(get_current_admin)
+) -> JSONResponse:
+    rate_err = _check_rate_limits(admin, request)
+    if rate_err is not None:
+        return rate_err
+
+    # Duplicate-request suppression: same (admin, tmdb_id, media_type, seasons)
+    # within the dedup window indicates a double-click or replay.
+    dedup_err = _check_dedup(admin, body)
+    if dedup_err is not None:
+        return dedup_err
+
+    conn = get_db()
+    secret_key = request.app.state.config.secret_key
+
+    # Notification recipient: see ``_resolve_admin_email`` for the
+    # rationale on re-using the admin username.
+    notify_email = _resolve_admin_email(admin)
+
+    if body.media_type == "movie":
+        return _submit_movie(conn, secret_key, body, notify_email)
+    return _submit_tv(conn, secret_key, body, notify_email)

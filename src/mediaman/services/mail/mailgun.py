@@ -12,7 +12,7 @@ import requests
 
 from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 # Transient HTTP status codes that warrant a retry on POST requests.
 _RETRYABLE_POST_STATUSES = frozenset({429, 500, 502, 503, 504})

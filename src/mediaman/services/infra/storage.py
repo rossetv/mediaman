@@ -7,7 +7,7 @@ import os
 import shutil
 from pathlib import Path
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 #: Paths that must never be configured as a delete root. A misconfigured
 #: ``delete_allowed_roots = ["/"]`` (or any system directory) would let a

@@ -40,7 +40,7 @@ from mediaman.services.arr._client_base import (
 from mediaman.services.arr.spec import ArrSpec
 from mediaman.services.infra.http import SafeHTTPError
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 # Re-export for back-compat: tests and other callers that import these names
 # directly from ``mediaman.services.arr.base`` continue to work unchanged.

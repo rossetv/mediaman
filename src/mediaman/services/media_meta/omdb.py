@@ -43,7 +43,7 @@ OMDB_API_BASE_URL = "https://www.omdbapi.com"
 _OMDB_SESSION = requests.Session()
 _OMDB_CLIENT = SafeHTTPClient(OMDB_API_BASE_URL, session=_OMDB_SESSION)
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def _attach_scrub_filters(api_key: str) -> None:

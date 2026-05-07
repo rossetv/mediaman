@@ -32,7 +32,6 @@ have been updated to patch ``mediaman.web.routes.library_api.build_radarr_from_d
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -70,7 +69,7 @@ from mediaman.web.routes.library_api.redownload import (
     _RedownloadRequest,
 )
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -177,8 +176,10 @@ def api_media_keep(
         execute_at = (now + timedelta(days=int(days))).isoformat()
         snooze_label = duration
 
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    # ``with conn:`` commits on normal exit and rolls back on exception;
+    # BEGIN IMMEDIATE here preserves write-lock semantics.
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
         existing = conn.execute(
             "SELECT id FROM scheduled_actions WHERE media_item_id = ? AND token_used = 0",
             (media_id,),
@@ -207,19 +208,14 @@ def api_media_keep(
                     snooze_label,
                 ),
             )
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
 
-    log_audit(
-        conn,
-        media_id,
-        "snoozed",
-        f"Kept for {snooze_label} by admin ({username})",
-        actor=username,
-    )
-
-    conn.commit()
+        log_audit(
+            conn,
+            media_id,
+            "snoozed",
+            f"Kept for {snooze_label} by admin ({username})",
+            actor=username,
+        )
     logger.info("Media item %s protected for %s by %s", media_id, snooze_label, username)
 
     return respond_ok({"id": media_id, "duration": snooze_label})
@@ -258,33 +254,38 @@ def api_media_delete(
         )
     conn = get_db()
 
+    # Snapshot transaction: ``with conn:`` commits on normal exit and
+    # rolls back on exception; BEGIN IMMEDIATE preserves write-lock
+    # semantics. The _not_found flag lets us return 403 AFTER the
+    # with-block has rolled back via the sentinel raise.
+    _not_found = False
     try:
-        conn.execute("BEGIN IMMEDIATE")
-        row = conn.execute(
-            "SELECT id, title, media_type, file_path, file_size_bytes, radarr_id, sonarr_id, season_number, plex_rating_key "
-            "FROM media_items WHERE id = ?",
-            (media_id,),
-        ).fetchone()
-        if row is None:
-            conn.execute("ROLLBACK")
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT id, title, media_type, file_path, file_size_bytes, radarr_id, sonarr_id, season_number, plex_rating_key "
+                "FROM media_items WHERE id = ?",
+                (media_id,),
+            ).fetchone()
+            if row is None:
+                _not_found = True
+                raise RuntimeError("not_found")  # triggers with-block rollback
+            snapshot = {
+                "title": row["title"],
+                "media_type": row["media_type"],
+                "file_path": row["file_path"],
+                "file_size_bytes": row["file_size_bytes"],
+                "radarr_id": row["radarr_id"],
+                "sonarr_id": row["sonarr_id"],
+                "season_number": row["season_number"],
+                "plex_rating_key": row["plex_rating_key"],
+            }
+    except RuntimeError:
+        if _not_found:
             # Do NOT leak existence/non-existence: returning 404 tells an
             # attacker which media IDs are valid.  With auth already confirmed,
             # an unknown id is treated as forbidden access.
             return respond_err("forbidden", status=403)
-        snapshot = {
-            "title": row["title"],
-            "media_type": row["media_type"],
-            "file_path": row["file_path"],
-            "file_size_bytes": row["file_size_bytes"],
-            "radarr_id": row["radarr_id"],
-            "sonarr_id": row["sonarr_id"],
-            "season_number": row["season_number"],
-            "plex_rating_key": row["plex_rating_key"],
-        }
-        conn.execute("COMMIT")
-    except Exception:
-        with contextlib.suppress(Exception):
-            conn.execute("ROLLBACK")
         raise
 
     title = snapshot["title"]
@@ -370,7 +371,10 @@ def api_media_delete(
     detail = f"Deleted '{title}' by {username}"
     if rk:
         detail += f" [rk:{rk}]"
-    try:
+    # Cleanup transaction: ``with conn:`` commits on normal exit and
+    # rolls back on exception; BEGIN IMMEDIATE preserves write-lock
+    # semantics.
+    with conn:
         conn.execute("BEGIN IMMEDIATE")
         log_audit(
             conn,
@@ -382,11 +386,6 @@ def api_media_delete(
         )
         conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_id,))
         conn.execute("DELETE FROM media_items WHERE id = ?", (media_id,))
-        conn.execute("COMMIT")
-    except Exception:
-        with contextlib.suppress(Exception):
-            conn.execute("ROLLBACK")
-        raise
 
     if intent_id is not None:
         _complete_delete_intent(conn, intent_id)

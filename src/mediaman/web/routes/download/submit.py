@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 
 from mediaman.audit import log_audit
 from mediaman.crypto import generate_poll_token, validate_download_token
+from mediaman.crypto.tokens import DownloadTokenPayload
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.notifications import record_download_notification
@@ -21,7 +22,7 @@ from mediaman.services.rate_limit import RateLimiter, get_client_ip
 
 from ._tokens import _mark_token_used, _unmark_token_used
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -208,48 +209,41 @@ def _submit_to_sonarr(payload: DownloadPayload) -> JSONResponse:
     )
 
 
-# rationale: HMAC token verification, scheduled-action lookup, Arr dispatch,
-# audit-log write, and scheduled-action completion form one CSRF-exempt flow
-# that touches a single DB connection in strict sequence — splitting the Arr
-# dispatch from the audit and completion steps would leave scheduled-action
-# rows open if the later writes fail.
-@router.post("/download/{token}")
-def download_submit(request: Request, token: str) -> JSONResponse:
-    """Trigger a download via Radarr or Sonarr.
+def _validate_token_request(
+    request: Request, token: str, secret_key: str
+) -> tuple[DownloadTokenPayload | None, JSONResponse | None]:
+    """Run pre-flight checks: rate limit, token length, HMAC, exp validity.
 
-    CSRF-exempt: this route is HMAC-token-authenticated and gets clicked
-    through from email clients where the browser's Origin is whichever
-    webmail host the recipient happens to use.  The exemption is opt-in
-    via the explicit ``_CSRF_EXEMPT_ROUTES`` allowlist in
-    :mod:`mediaman.web` — adding a sibling ``POST /download/...`` will
-    NOT silently inherit the exemption.
+    Returns (payload, None) on success or (None, error_response) on failure.
     """
-    config = request.app.state.config
-    conn = get_db()
-
     if not _DOWNLOAD_LIMITER_POST.check(get_client_ip(request)):
-        return JSONResponse({"ok": False, "error": "Too many requests"}, status_code=429)
-
+        return None, JSONResponse({"ok": False, "error": "Too many requests"}, status_code=429)
     if len(token) > 4096:
-        return JSONResponse({"ok": False, "error": "Token expired or invalid"}, status_code=410)
-
-    payload = validate_download_token(token, config.secret_key)
+        return None, JSONResponse(
+            {"ok": False, "error": "Token expired or invalid"}, status_code=410
+        )
+    payload = validate_download_token(token, secret_key)
     if payload is None:
-        return JSONResponse({"ok": False, "error": "Token expired or invalid"}, status_code=410)
-
+        return None, JSONResponse(
+            {"ok": False, "error": "Token expired or invalid"}, status_code=410
+        )
     exp_value = payload.get("exp", 0)
     # ``int(float('inf'))`` raises OverflowError. Guard against a
     # signer-controlled non-finite ``exp`` so a malformed token can never
     # crash the handler — treat it as expired/invalid.
     if not isinstance(exp_value, (int, float)) or not math.isfinite(exp_value):
-        return JSONResponse({"ok": False, "error": "Token expired or invalid"}, status_code=410)
+        return None, JSONResponse(
+            {"ok": False, "error": "Token expired or invalid"}, status_code=410
+        )
+    return payload, None
 
-    # Phase 1 of the 2-phase reservation: claim the token in the DB
-    # *before* doing any Arr work. _mark_token_used returns False when
-    # the digest is already recorded (replay or cross-worker collision)
-    # and raises on DB failure (fail closed → 503 so the user can retry
-    # once the DB recovers, rather than letting a replay slip through
-    # on an unverified cache entry).
+
+def _claim_token(token: str, exp_value: float) -> JSONResponse | None:
+    """Phase 1 reservation: mark the token used in the DB.
+
+    Returns None on success (token claimed), or an error response on
+    DB failure (503) or replay (409).
+    """
     try:
         claimed = _mark_token_used(token, int(exp_value))
     except Exception:
@@ -265,19 +259,26 @@ def download_submit(request: Request, token: str) -> JSONResponse:
             {"ok": False, "error": "This download link has already been used"},
             status_code=409,
         )
+    return None
 
+
+def _build_dl_payload(
+    conn, token: str, payload: DownloadTokenPayload, secret_key: str
+) -> tuple[DownloadPayload, str, bool]:
+    """Extract fields from the token payload and build a DownloadPayload.
+
+    Returns (dl_payload, media_type, is_redownload).
+    """
     title = payload.get("title", "")
     media_type = payload.get("mt", "")
     tmdb_id = payload.get("tmdb")
     email = payload.get("email", "")
     action = payload.get("act", "download")
-
     is_redownload = action == "redownload"
     audit_action = "re_downloaded" if is_redownload else "downloaded"
     audit_detail = (
         f"Re-downloaded by {email}" if is_redownload else f"Downloaded '{title}' by {email}"
     )
-
     dl_payload: DownloadPayload = {
         "conn": conn,
         "token": token,
@@ -286,8 +287,105 @@ def download_submit(request: Request, token: str) -> JSONResponse:
         "email": email,
         "audit_action": audit_action,
         "audit_detail": audit_detail,
-        "secret_key": config.secret_key,
+        "secret_key": secret_key,
     }
+    return dl_payload, media_type, is_redownload
+
+
+def _handle_already_exists_error(
+    exc: SafeHTTPError,
+    token: str,
+    title: str,
+    media_type: str,
+    tmdb_id: int | None,
+    is_redownload: bool,
+    secret_key: str,
+) -> JSONResponse:
+    """Handle Arr 409/422 (item already exists) and non-recoverable transport errors.
+
+    For 409/422: release the token reservation for re-download links, mint
+    a poll token, and return a 409. For other HTTP errors: release the
+    reservation and return a 502.
+    """
+    status = exc.status_code
+    if status in (409, 422):
+        # The Arr service reports the item already exists. For a
+        # *re-download* link this is the expected hot path — the
+        # user explicitly wants to re-grab a title that's already
+        # in the library, so the token must be released so the
+        # page can immediately re-issue the request via the usual
+        # flow rather than leaving the user stranded with a "link
+        # already used" error on the next click.
+        #
+        # For a fresh download link, the same response means the
+        # admin already added it elsewhere; the click was
+        # effectively idempotent, so we keep the token consumed
+        # (preserves replay protection) and surface a poll_token
+        # for the page to display the existing library state.
+        if is_redownload:
+            _unmark_token_used(token)
+        service_name = "radarr" if media_type == "movie" else "sonarr"
+        svc_label = "Radarr" if media_type == "movie" else "Sonarr"
+        poll_token = None
+        if tmdb_id:
+            poll_token = generate_poll_token(
+                media_item_id=f"{service_name}:{title}",
+                service=service_name,
+                tmdb_id=tmdb_id,
+                secret_key=secret_key,
+            )
+        response: dict[str, object] = {
+            "ok": False,
+            "error": f"'{title}' already exists in your {svc_label} library",
+        }
+        if poll_token:
+            response["poll_token"] = poll_token
+        return JSONResponse(response, status_code=409)
+    # Phase 2 (failure): release the reservation so the user can
+    # retry once the upstream recovers.
+    _unmark_token_used(token)
+    # Demote to DEBUG: every transient Arr blip would otherwise
+    # spam the WARNING log with a full traceback. The audit trail
+    # captures the user-facing failure separately, so operators
+    # who need the stack can dial up the log level.
+    logger.debug("Download token submit failed for '%s': %s", title, exc, exc_info=True)
+    return JSONResponse(
+        {"ok": False, "error": "Download request failed — check service connectivity"},
+        status_code=502,
+    )
+
+
+@router.post("/download/{token}")
+def download_submit(request: Request, token: str) -> JSONResponse:
+    """Trigger a download via Radarr or Sonarr.
+
+    CSRF-exempt: this route is HMAC-token-authenticated and gets clicked
+    through from email clients where the browser's Origin is whichever
+    webmail host the recipient happens to use.  The exemption is opt-in
+    via the explicit ``_CSRF_EXEMPT_ROUTES`` allowlist in
+    :mod:`mediaman.web` — adding a sibling ``POST /download/...`` will
+    NOT silently inherit the exemption.
+    """
+    config = request.app.state.config
+    conn = get_db()
+
+    payload, pre_err = _validate_token_request(request, token, config.secret_key)
+    if pre_err is not None:
+        return pre_err
+
+    assert payload is not None
+    exp_value = payload.get("exp", 0)
+    # Phase 1 of the 2-phase reservation: claim the token in the DB
+    # *before* doing any Arr work.
+    claim_err = _claim_token(token, exp_value)
+    if claim_err is not None:
+        return claim_err
+
+    dl_payload, media_type, is_redownload = _build_dl_payload(
+        conn, token, payload, config.secret_key
+    )
+    title = dl_payload["title"]
+    tmdb_id = dl_payload["tmdb_id"]
 
     try:
         if media_type == "movie":
@@ -299,51 +397,8 @@ def download_submit(request: Request, token: str) -> JSONResponse:
         return result
 
     except SafeHTTPError as exc:
-        status = exc.status_code
-        if status in (409, 422):
-            # The Arr service reports the item already exists. For a
-            # *re-download* link this is the expected hot path — the
-            # user explicitly wants to re-grab a title that's already
-            # in the library, so the token must be released so the
-            # page can immediately re-issue the request via the usual
-            # flow rather than leaving the user stranded with a "link
-            # already used" error on the next click.
-            #
-            # For a fresh download link, the same response means the
-            # admin already added it elsewhere; the click was
-            # effectively idempotent, so we keep the token consumed
-            # (preserves replay protection) and surface a poll_token
-            # for the page to display the existing library state.
-            if is_redownload:
-                _unmark_token_used(token)
-            service_name = "radarr" if media_type == "movie" else "sonarr"
-            svc_label = "Radarr" if media_type == "movie" else "Sonarr"
-            poll_token = None
-            if tmdb_id:
-                poll_token = generate_poll_token(
-                    media_item_id=f"{service_name}:{title}",
-                    service=service_name,
-                    tmdb_id=tmdb_id,
-                    secret_key=config.secret_key,
-                )
-            response: dict[str, object] = {
-                "ok": False,
-                "error": f"'{title}' already exists in your {svc_label} library",
-            }
-            if poll_token:
-                response["poll_token"] = poll_token
-            return JSONResponse(response, status_code=409)
-        # Phase 2 (failure): release the reservation so the user can
-        # retry once the upstream recovers.
-        _unmark_token_used(token)
-        # Demote to DEBUG: every transient Arr blip would otherwise
-        # spam the WARNING log with a full traceback. The audit trail
-        # captures the user-facing failure separately, so operators
-        # who need the stack can dial up the log level.
-        logger.debug("Download token submit failed for '%s': %s", title, exc, exc_info=True)
-        return JSONResponse(
-            {"ok": False, "error": "Download request failed — check service connectivity"},
-            status_code=502,
+        return _handle_already_exists_error(
+            exc, token, title, media_type, tmdb_id, is_redownload, config.secret_key
         )
     except (requests.RequestException, sqlite3.Error) as exc:
         # Narrow handler: only swallow network/DB-shaped failures so

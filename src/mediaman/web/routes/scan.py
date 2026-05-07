@@ -27,7 +27,7 @@ from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.responses import respond_err, respond_ok
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

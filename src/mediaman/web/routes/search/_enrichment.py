@@ -34,11 +34,12 @@ from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.media_meta.omdb import fetch_ratings, get_omdb_key
 from mediaman.services.rate_limit import ActionRateLimiter
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 _RATINGS_TTL_DAYS = 30
 _DISCOVER_TMDB_TTL_SECONDS = 3600
 _MAX_QUERY_LEN = 100
+_DISCOVER_CACHE_MAX_ENTRIES = 32
 
 _discover_cache: dict[str, tuple[float, list[dict[str, object]]]] = {}
 _discover_cache_lock = threading.Lock()
@@ -55,12 +56,12 @@ def _get_executor() -> ThreadPoolExecutor:
     return ThreadPoolExecutor(max_workers=6, thread_name_prefix="search_enrich")
 
 
-# /api/search and /api/search/discover query limiter (findings 1, 2). Both
-# endpoints fan out to TMDB and the per-result rating-enrichment threadpool.
-# Even authenticated, an admin who scripts the endpoint (or an attacker
-# holding a session cookie) can rapidly exhaust TMDB's quota or our worker
-# pool. 30 per minute / 200 per day per admin keeps the typeahead UX
-# snappy while blocking sustained abuse.
+# /api/search and /api/search/discover query limiter. Both endpoints fan
+# out to TMDB and the per-result rating-enrichment threadpool. Even
+# authenticated, an admin who scripts the endpoint (or an attacker holding
+# a session cookie) can rapidly exhaust TMDB's quota or our worker pool.
+# 30 per minute / 200 per day per admin keeps the typeahead UX snappy
+# while blocking sustained abuse.
 _QUERY_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=200)
 
 

@@ -248,6 +248,12 @@ class TestCreateUserIntegrityErrorNarrowing:
             def __getattr__(self, name):
                 return getattr(self._inner, name)
 
+            def __enter__(self):
+                return self._inner.__enter__()
+
+            def __exit__(self, *args):
+                return self._inner.__exit__(*args)
+
             def execute(self, sql, *args, **kwargs):
                 if sql.startswith("INSERT INTO admin_users"):
                     raise sqlite3.IntegrityError(

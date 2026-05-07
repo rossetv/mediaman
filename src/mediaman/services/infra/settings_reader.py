@@ -12,13 +12,15 @@ import json
 import logging
 import os
 import sqlite3
-from typing import Any
 
 from cryptography.exceptions import InvalidTag
 
 from mediaman.crypto import decrypt_value
 
-logger = logging.getLogger("mediaman")
+# Type alias for values that json.loads can return.
+_JsonValue = str | int | float | bool | list[object] | dict[str, object] | None
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigDecryptError(Exception):
@@ -52,8 +54,8 @@ def get_setting(
     key: str,
     *,
     secret_key: str | None = None,
-    default: Any = "",
-) -> Any:
+    default: _JsonValue = "",
+) -> _JsonValue:
     """Return the value of *key* from the ``settings`` table.
 
     - If the row is marked ``encrypted=1`` and ``secret_key`` is provided,
@@ -143,7 +145,7 @@ def get_int_setting(
     """
     raw = get_setting(conn, key, default=default)
     try:
-        result = int(raw)
+        result = int(raw)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return default
     if min is not None and result < min:

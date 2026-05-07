@@ -34,7 +34,7 @@ from mediaman.services.downloads.download_format import (
 # two distinct rows into one cluster and double-counting pack totals.
 _CLUSTER_SEP = "\x00"
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def _compute_cluster_keys(eps: list[ArrEpisodeEntry], card_series_id: int) -> list[str | None]:

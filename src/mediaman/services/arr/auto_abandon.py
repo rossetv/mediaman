@@ -20,7 +20,7 @@ import sqlite3
 from mediaman.audit import security_event
 from mediaman.services.infra.settings_reader import get_bool_setting
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 # How long an item has to sit in `searching` state before the manual Abandon
 # button appears in the queue UI. Time-based (clock = item.added_at) so the

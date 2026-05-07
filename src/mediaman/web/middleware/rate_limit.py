@@ -63,7 +63,7 @@ from mediaman.services.rate_limit.ip_resolver import get_client_ip
 from mediaman.services.rate_limit.limiters import ActionRateLimiter, RateLimiter
 from mediaman.web.responses import respond_err
 
-_logger = logging.getLogger("mediaman")
+_logger = logging.getLogger(__name__)
 
 # Union type accepted as the limiter argument.
 _AnyLimiter = ActionRateLimiter | RateLimiter

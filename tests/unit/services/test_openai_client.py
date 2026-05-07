@@ -41,22 +41,29 @@ def _put(conn, key, value):
 
 
 class TestGetOpenAiKey:
-    def test_returns_env_var_when_no_db(self, monkeypatch):
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-env-key-test")
-        assert get_openai_key(None) == "sk-env-key-test"
-
-    def test_returns_none_when_no_env_and_no_db(self, monkeypatch):
+    def test_raises_when_no_db_and_no_key(self, monkeypatch):
+        """Environment variables are no longer accepted; ValueError is raised."""
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        assert get_openai_key(None) is None
+        with pytest.raises(ValueError, match="OpenAI API key is not configured"):
+            get_openai_key(None)
 
-    def test_env_not_checked_when_not_needed(self, monkeypatch, conn):
-        """If DB has a key, env var value doesn't matter."""
+    def test_returns_db_key_when_available(self, monkeypatch, conn):
+        """If DB has a key, it is returned."""
         monkeypatch.setenv("OPENAI_API_KEY", "sk-env-key")
         with patch(
             "mediaman.services.infra.settings_reader.get_string_setting", return_value="sk-db-key"
         ):
             result = get_openai_key(conn, secret_key="x" * 32)
         assert result == "sk-db-key"
+
+    def test_raises_when_db_key_missing(self, monkeypatch, conn):
+        """When DB has no key and env var is not consulted, ValueError is raised."""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        with (
+            patch("mediaman.services.infra.settings_reader.get_string_setting", return_value=None),
+            pytest.raises(ValueError, match="OpenAI API key is not configured"),
+        ):
+            get_openai_key(conn, secret_key="x" * 32)
 
 
 # ---------------------------------------------------------------------------

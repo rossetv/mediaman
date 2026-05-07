@@ -31,7 +31,7 @@ from mediaman.web.routes.dashboard._data import (
     _fetch_storage_stats,
 )
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

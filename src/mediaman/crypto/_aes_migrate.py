@@ -22,7 +22,7 @@ from ._aes_key import (
     _load_or_create_salt,
 )
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 # Date on which the v1 ciphertext path (SHA-256-derived key, no prefix byte,
 # no AAD) was removed from this module. Databases must have run migration v35

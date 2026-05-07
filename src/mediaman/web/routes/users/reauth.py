@@ -26,7 +26,7 @@ from mediaman.web.models.users import ReauthBody
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.users.rate_limits import _REAUTH_LIMITER
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

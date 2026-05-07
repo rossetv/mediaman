@@ -10,7 +10,7 @@ from mediaman.core.format import ensure_tz as _ensure_tz
 from mediaman.core.time import now_iso
 from mediaman.core.time import parse_iso_utc as _parse_iso_utc
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def upsert_media_item(

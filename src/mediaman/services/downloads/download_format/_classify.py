@@ -16,7 +16,7 @@ from mediaman.core.time import parse_iso_utc
 # sentinel.
 _MAX_FUTURE_YEARS = 100
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def extract_poster_url(images: list[dict] | None) -> str:

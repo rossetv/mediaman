@@ -58,7 +58,7 @@ from mediaman.services.downloads.download_queue.queue import (
     parse_nzb_queue as _parse_nzb_queue,
 )
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "DownloadsResponse",
@@ -82,7 +82,9 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # Module-level state for completion detection.
 # ---------------------------------------------------------------------------
-# Maps dl_id -> item dict from the previous poll.
+# rationale: in-process snapshot of the previous NZBGet queue for completion
+# detection; process restart resets it (reconcile-on-startup handles gaps);
+# single-worker invariant.
 _previous_queue: dict[str, dict[str, object]] = {}
 _previous_initialised: bool = False
 

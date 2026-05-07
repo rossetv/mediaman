@@ -46,7 +46,7 @@ from mediaman.web.middleware.security_headers import (
     _should_emit_hsts,
 )
 
-logger = logging.getLogger("mediaman.web")
+logger = logging.getLogger(__name__)
 
 
 def _parse_allowed_hosts(raw: str | None) -> list[str]:

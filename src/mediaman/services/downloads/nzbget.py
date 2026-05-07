@@ -11,7 +11,7 @@ import requests
 
 from mediaman.services.infra.http import SafeHTTPClient
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 #: NZBGet status/queue JSON responses are tiny (typically < 10 KiB).
 #: Cap at 1 MiB so a misconfigured or compromised NZBGet cannot pin memory.
@@ -80,7 +80,14 @@ class NzbgetClient:
             )
 
     def _call(self, method: str) -> Any:
-        """Invoke *method* on the NZBGet JSON-RPC endpoint and return the result."""
+        """Invoke *method* on the NZBGet JSON-RPC endpoint and return the result.
+
+        # rationale: returns resp.json().get("result") whose shape depends on
+        # the RPC method (dict for status, list for listgroups). Each public
+        # caller narrows the type with isinstance before returning a concrete
+        # typed value; annotating _call as Any avoids cascading casts while
+        # keeping get_status / get_queue fully typed.
+        """
         resp = self._http.post(
             "/jsonrpc",
             json={"method": method},

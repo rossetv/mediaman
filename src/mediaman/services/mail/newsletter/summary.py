@@ -12,7 +12,7 @@ from mediaman.crypto import sign_poster_url
 
 from ._time import _parse_days_ago
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def _load_deleted_items(

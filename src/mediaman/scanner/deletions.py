@@ -25,7 +25,7 @@ from mediaman.audit import log_audit
 from mediaman.scanner import repository
 from mediaman.services.infra.storage import delete_path
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 class DeletionResult(TypedDict):
@@ -278,9 +278,8 @@ class DeletionExecutor:
 
         Returns a dict with ``deleted`` count and ``reclaimed_bytes``
         total. Cleans up expired snoozes before returning unless
-        ``cleanup_snoozes`` was set to ``False`` at construction (D05
-        finding 10) so a real dry-run preview never mutates
-        ``scheduled_actions``.
+        ``cleanup_snoozes`` was set to ``False`` at construction, ensuring
+        a real dry-run preview never mutates ``scheduled_actions``.
 
         # rationale: orchestrator — body is sequential phase calls plus
         # the deletion loop; the loop counter state (deleted_count,
@@ -351,7 +350,7 @@ class DeletionExecutor:
         # Remove expired snoozes so items re-enter the scan pipeline.
         # A real dry-run preview must NOT mutate scheduled_actions, so
         # the engine passes ``cleanup_snoozes=False`` when running in
-        # dry_run mode (D05 finding 10).
+        # dry_run mode.
         if self._cleanup_snoozes:
             repository.cleanup_expired_snoozes(self._conn, now.isoformat())
 

@@ -9,7 +9,7 @@ from urllib.parse import quote as _url_quote
 from mediaman.core.time import now_iso
 from mediaman.crypto import generate_download_token, generate_unsubscribe_token
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def _mask_email(email: str) -> str:

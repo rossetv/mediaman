@@ -323,27 +323,15 @@ class TestOpenAIKeySource:
 
         assert any("database" in r.message.lower() for r in caplog.records)
 
-    def test_logs_env_source_when_key_from_env(self, conn, monkeypatch, caplog):
-        """When the key comes from the environment, a DEBUG message says so."""
-        import logging
+    def test_raises_when_no_key_in_db(self, conn, monkeypatch):
+        """When DB has no key, ValueError is raised (env var not consulted)."""
+        import pytest
 
-        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-from-env")
-        # No key in DB — falls back to environment.
-
-        with caplog.at_level(logging.DEBUG, logger="mediaman"):
-            result = openai_recommendations._get_openai_key(conn)
-
-        assert result == "sk-from-env"
-        assert any("environment" in r.message.lower() for r in caplog.records)
-
-    def test_returns_none_when_no_key(self, conn, monkeypatch):
-        """When neither DB nor env has a key, None is returned."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-        result = openai_recommendations._get_openai_key(conn)
-        assert result is None
+        with pytest.raises(ValueError, match="OpenAI API key is not configured"):
+            openai_recommendations._get_openai_key(conn)
 
 
 class TestOpenAIClientTimeout:

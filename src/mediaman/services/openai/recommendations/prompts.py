@@ -127,7 +127,7 @@ def sanitise_plex_string(s: str) -> str:
 
 _CTRL_CHAR_STRICT_RE = re.compile(r"[\x00-\x1f\x7f\x80-\x9f]")
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def _validate_llm_string(value: str, max_len: int, field: str) -> str | None:

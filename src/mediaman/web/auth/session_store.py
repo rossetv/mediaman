@@ -39,7 +39,7 @@ __all__ = [
     "_fingerprint_mode",
 ]
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 _EXPIRED_CLEANUP_INTERVAL = 60.0
 _last_cleanup_at = 0.0
@@ -149,17 +149,11 @@ def _exec_with_commit(conn: sqlite3.Connection, sql: str, params: tuple) -> None
       high-level ``rollback()`` (a safe no-op when nothing is open) and
       the exception is re-raised.
     """
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    # ``with conn:`` commits on normal exit and rolls back on exception;
+    # BEGIN IMMEDIATE here preserves write-lock semantics.
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(sql, params)
-        conn.execute("COMMIT")
-    except Exception:
-        # ``rollback()`` (the high-level method) is a no-op when no
-        # transaction is open, so we use it instead of a raw SQL
-        # ROLLBACK + nested try/except — saves the bandit B110 noise
-        # without losing the safety net.
-        conn.rollback()
-        raise
 
 
 def _delete_session_with_commit(conn: sqlite3.Connection, token_hash: str) -> None:
@@ -182,17 +176,15 @@ def _delete_session_with_commit(conn: sqlite3.Connection, token_hash: str) -> No
     # Local import to dodge the session_store -> reauth import cycle.
     from mediaman.web.auth.reauth import revoke_reauth_by_hash_in_tx
 
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    # ``with conn:`` commits on normal exit and rolls back on exception;
+    # BEGIN IMMEDIATE here preserves write-lock semantics.
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "DELETE FROM admin_sessions WHERE token_hash = ?",
             (token_hash,),
         )
         revoke_reauth_by_hash_in_tx(conn, token_hash)
-        conn.execute("COMMIT")
-    except Exception:
-        conn.rollback()
-        raise
 
 
 def _refresh_last_used_with_commit(conn: sqlite3.Connection, token_hash: str, now_iso: str) -> None:
@@ -374,8 +366,10 @@ def destroy_session(
 
     token_hash = _hash_token(token)
 
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    # ``with conn:`` commits on normal exit and rolls back on exception;
+    # BEGIN IMMEDIATE here preserves write-lock semantics.
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT username FROM admin_sessions WHERE token_hash = ?",
             (token_hash,),
@@ -386,10 +380,6 @@ def destroy_session(
             (token_hash,),
         )
         revoke_reauth_by_hash_in_tx(conn, token_hash)
-        conn.execute("COMMIT")
-    except Exception:
-        conn.rollback()
-        raise
 
     logger.info("session.destroyed user=%s ip=%s", username or "-", ip or "-")
     try:

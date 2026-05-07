@@ -76,7 +76,7 @@ from mediaman.services.media_meta._plex_types import (  # noqa: F401
     _to_utc,
 )
 
-_logger = _logging.getLogger("mediaman")
+_logger = _logging.getLogger(__name__)
 
 
 class PlexClient:

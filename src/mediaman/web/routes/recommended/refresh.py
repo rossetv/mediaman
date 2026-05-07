@@ -31,7 +31,7 @@ from mediaman.services.openai.recommendations.throttle import (
 )
 from mediaman.web.auth.middleware import get_current_admin
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

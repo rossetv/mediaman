@@ -60,7 +60,7 @@ from mediaman.services.arr.auto_abandon import maybe_auto_abandon
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.fetcher import fetch_arr_queue
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 # ---- Backoff configuration (non-backoff constants kept here) ----

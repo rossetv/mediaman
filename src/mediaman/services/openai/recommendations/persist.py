@@ -16,7 +16,7 @@ from mediaman.services.openai.recommendations.prompts import (
 if TYPE_CHECKING:
     from mediaman.services.media_meta.plex import PlexClient, PlexRatedItem
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def refresh_recommendations(

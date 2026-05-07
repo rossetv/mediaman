@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any, Final, TypedDict
 if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Download-state action constants

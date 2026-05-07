@@ -15,7 +15,7 @@ from mediaman.validators import (
     validate_sync_interval,
 )
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 # Bounded wait at shutdown so a SIGTERM can't be wedged forever by a
 # long-running scan job. 30 s is comfortably longer than the

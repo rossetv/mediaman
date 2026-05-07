@@ -51,7 +51,7 @@ import bcrypt
 
 from mediaman.web.auth._token_hashing import hash_token as _hash_token
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 #: Default lifetime of a "recent reauth" ticket. Five minutes — comfortable
 #: for a "prompt then submit" UX, short enough that a leaked cookie cannot

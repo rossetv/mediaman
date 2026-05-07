@@ -13,6 +13,7 @@ from mediaman.services.media_meta.plex import (
     _SafePlexSession,
     _scrub_plex_token,
 )
+from tests.helpers.factories import make_plex_episode, make_plex_season, make_plex_show
 
 
 @pytest.fixture
@@ -182,29 +183,11 @@ class TestPlexClient:
         mock_server = MagicMock()
         mock_cls.return_value = mock_server
 
-        special_season = MagicMock()
-        special_season.index = 0
+        ep = make_plex_episode(title="Pilot")
+        special_season = make_plex_season(index=0, rating_key=999)
+        real_season = make_plex_season(index=1, rating_key=200, episodes=[ep])
 
-        real_season = MagicMock()
-        real_season.index = 1
-        real_season.ratingKey = 200
-        real_season.addedAt = datetime(2026, 1, 15, tzinfo=UTC)
-
-        ep = MagicMock()
-        ep.addedAt = datetime(2026, 1, 10, tzinfo=UTC)
-        ep.title = "Pilot"
-        ep.media = [MagicMock()]
-        ep.media[0].parts = [MagicMock()]
-        ep.media[0].parts[0].file = "/data/tv/Show/Season 1/ep01.mkv"
-        ep.media[0].parts[0].size = 2_000_000_000
-        ep.history.return_value = []
-        real_season.episodes.return_value = [ep]
-
-        show = MagicMock()
-        show.ratingKey = 100
-        show.title = "Test Show"
-        show.thumb = "/library/metadata/100/thumb/1"
-        show.seasons.return_value = [special_season, real_season]
+        show = make_plex_show(seasons=[special_season, real_season])
 
         section = MagicMock()
         section.all.return_value = [show]

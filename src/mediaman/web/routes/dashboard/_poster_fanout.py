@@ -7,7 +7,7 @@ import sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants

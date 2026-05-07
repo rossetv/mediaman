@@ -7,7 +7,7 @@ from datetime import datetime
 
 from mediaman.core.format import ensure_tz as _ensure_tz
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def _parse_days_ago(value: str | None, now: datetime) -> int | None:

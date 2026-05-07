@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from mediaman.audit import log_audit
 from mediaman.db import get_db
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def _record_delete_intent(
