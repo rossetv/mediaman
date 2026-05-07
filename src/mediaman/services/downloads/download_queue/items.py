@@ -17,6 +17,7 @@ import time
 from collections.abc import Callable
 from typing import Any, TypedDict, cast
 
+from mediaman.core.format import format_bytes
 from mediaman.services.arr.fetcher._base import ArrCard, ArrEpisodeEntry
 from mediaman.services.downloads.download_format import (
     build_episode_summary,
@@ -25,9 +26,8 @@ from mediaman.services.downloads.download_format import (
     map_state,
 )
 from mediaman.services.downloads.download_format._types import DownloadItem
-from mediaman.services.infra.format import format_bytes
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------

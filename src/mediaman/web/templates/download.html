@@ -74,8 +74,8 @@
   </div>
   {% endif %}
 
-  {# Trailer — finding 19: key must be exactly 11 URL-safe base64 chars (validated server-side
-     by confirm.py validate_youtube_id); add restrictive sandbox + referrerpolicy. #}
+  {# Trailer — key must be exactly 11 URL-safe base64 chars (validated server-side
+     by confirm.py validate_youtube_id); uses restrictive sandbox + referrerpolicy. #}
   {% if item.trailer_key %}
   <div class="dl-trailer">
     <div class="dl-section-label">Trailer</div>

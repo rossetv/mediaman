@@ -11,8 +11,12 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import TYPE_CHECKING
 
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 from mediaman.web.middleware.body_size import (
     _DEFAULT_MAX_REQUEST_BYTES,
@@ -42,7 +46,7 @@ from mediaman.web.middleware.security_headers import (
     _should_emit_hsts,
 )
 
-logger = logging.getLogger("mediaman.web")
+logger = logging.getLogger(__name__)
 
 
 def _parse_allowed_hosts(raw: str | None) -> list[str]:
@@ -65,7 +69,7 @@ def _parse_allowed_hosts(raw: str | None) -> list[str]:
     return hosts or ["*"]
 
 
-def register_security_middleware(app) -> None:
+def register_security_middleware(app: FastAPI) -> None:
     """Register security middleware on a FastAPI/Starlette app.
 
     Exposed as a helper so the app factory can wire the middleware without

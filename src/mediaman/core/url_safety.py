@@ -43,7 +43,7 @@ from urllib.parse import urlparse
 
 import idna
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 #: Schemes allowed for outbound service URLs. Anything else (file, gopher,
 #: ldap, dict, ftp, etc.) is refused outright.

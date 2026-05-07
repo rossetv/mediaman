@@ -20,11 +20,19 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
+from typing import Protocol
 
 from fastapi.responses import JSONResponse
 
-from mediaman.services.infra.http_client import SafeHTTPClient, SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
 from mediaman.web.models import _API_KEY_RE
+
+
+class _ConnectionTestable(Protocol):
+    """Any client exposing a no-argument ``test_connection()`` health probe."""
+
+    def is_reachable(self) -> bool: ...
+
 
 #: OpenAI models endpoint used by the connectivity test.
 _OPENAI_MODELS_URL = "https://api.openai.com/v1/models"
@@ -123,6 +131,33 @@ def _test_bearer_api(url: str, api_key: str) -> JSONResponse:
         return _safe_http_error_to_response(exc)
 
 
+def _test_connection_service(
+    settings: dict[str, object],
+    *,
+    required_keys: dict[str, str],
+    required_msg: str,
+    optional_keys: dict[str, str] | None = None,
+    make_client: Callable[[dict[str, str]], _ConnectionTestable],
+) -> JSONResponse:
+    """Common shape for HTTP-connection-style tester endpoints.
+
+    Resolves the named settings from *required_keys* (and *optional_keys* if
+    given), returns a 4xx-shaped JSONResponse if any required field is missing,
+    then calls ``client.test_connection()`` and returns ``{"ok": True}`` on
+    success or ``{"ok": False, "error": "Connection failed"}`` on failure.
+    """
+    resolved: dict[str, str] = {}
+    for arg_name, setting_name in required_keys.items():
+        value = str(settings.get(setting_name) or "")
+        if not value:
+            return JSONResponse({"ok": False, "error": required_msg})
+        resolved[arg_name] = value
+    for arg_name, setting_name in (optional_keys or {}).items():
+        resolved[arg_name] = str(settings.get(setting_name) or "")
+    ok = bool(make_client(resolved).is_reachable())
+    return JSONResponse({"ok": True} if ok else {"ok": False, "error": "Connection failed"})
+
+
 # ---------------------------------------------------------------------------
 # Per-service testers
 # ---------------------------------------------------------------------------
@@ -144,27 +179,29 @@ def test_plex(settings: dict[str, object]) -> JSONResponse:
 @_register("sonarr")
 def test_sonarr(settings: dict[str, object]) -> JSONResponse:
     """Test connectivity to Sonarr using the configured URL and API key."""
-    from mediaman.services.arr.sonarr import SonarrClient
+    from mediaman.services.arr.base import ArrClient
+    from mediaman.services.arr.spec import SONARR_SPEC
 
-    url = str(settings.get("sonarr_url") or "")
-    api_key = str(settings.get("sonarr_api_key") or "")
-    if not url or not api_key:
-        return JSONResponse({"ok": False, "error": "Sonarr URL and API key are required"})
-    ok = SonarrClient(url, api_key).test_connection()
-    return JSONResponse({"ok": ok} if ok else {"ok": False, "error": "Connection failed"})
+    return _test_connection_service(
+        settings,
+        required_keys={"url": "sonarr_url", "api_key": "sonarr_api_key"},
+        required_msg="Sonarr URL and API key are required",
+        make_client=lambda v: ArrClient(SONARR_SPEC, v["url"], v["api_key"]),
+    )
 
 
 @_register("radarr")
 def test_radarr(settings: dict[str, object]) -> JSONResponse:
     """Test connectivity to Radarr using the configured URL and API key."""
-    from mediaman.services.arr.radarr import RadarrClient
+    from mediaman.services.arr.base import ArrClient
+    from mediaman.services.arr.spec import RADARR_SPEC
 
-    url = str(settings.get("radarr_url") or "")
-    api_key = str(settings.get("radarr_api_key") or "")
-    if not url or not api_key:
-        return JSONResponse({"ok": False, "error": "Radarr URL and API key are required"})
-    ok = RadarrClient(url, api_key).test_connection()
-    return JSONResponse({"ok": ok} if ok else {"ok": False, "error": "Connection failed"})
+    return _test_connection_service(
+        settings,
+        required_keys={"url": "radarr_url", "api_key": "radarr_api_key"},
+        required_msg="Radarr URL and API key are required",
+        make_client=lambda v: ArrClient(RADARR_SPEC, v["url"], v["api_key"]),
+    )
 
 
 @_register("nzbget")
@@ -172,13 +209,13 @@ def test_nzbget(settings: dict[str, object]) -> JSONResponse:
     """Test connectivity to NZBGet using the configured URL and credentials."""
     from mediaman.services.downloads.nzbget import NzbgetClient
 
-    url = str(settings.get("nzbget_url") or "")
-    username = str(settings.get("nzbget_username") or "")
-    password = str(settings.get("nzbget_password") or "")
-    if not url:
-        return JSONResponse({"ok": False, "error": "NZBGet URL is required"})
-    ok = NzbgetClient(url, username, password).test_connection()
-    return JSONResponse({"ok": ok} if ok else {"ok": False, "error": "Connection failed"})
+    return _test_connection_service(
+        settings,
+        required_keys={"url": "nzbget_url"},
+        required_msg="NZBGet URL is required",
+        optional_keys={"username": "nzbget_username", "password": "nzbget_password"},
+        make_client=lambda v: NzbgetClient(v["url"], v["username"], v["password"]),
+    )
 
 
 @_register("mailgun")
@@ -186,13 +223,13 @@ def test_mailgun(settings: dict[str, object]) -> JSONResponse:
     """Test connectivity to Mailgun using the configured domain and API key."""
     from mediaman.services.mail.mailgun import MailgunClient
 
-    domain = str(settings.get("mailgun_domain") or "")
-    api_key = str(settings.get("mailgun_api_key") or "")
-    from_address = str(settings.get("mailgun_from_address") or "")
-    if not domain or not api_key:
-        return JSONResponse({"ok": False, "error": "Mailgun domain and API key are required"})
-    ok = MailgunClient(domain, api_key, from_address).test_connection()
-    return JSONResponse({"ok": ok} if ok else {"ok": False, "error": "Connection failed"})
+    return _test_connection_service(
+        settings,
+        required_keys={"domain": "mailgun_domain", "api_key": "mailgun_api_key"},
+        required_msg="Mailgun domain and API key are required",
+        optional_keys={"from_address": "mailgun_from_address"},
+        make_client=lambda v: MailgunClient(v["domain"], v["api_key"], v["from_address"]),
+    )
 
 
 @_register("openai")

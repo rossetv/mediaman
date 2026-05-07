@@ -6,10 +6,10 @@ import logging
 import sqlite3
 from urllib.parse import quote as _url_quote
 
+from mediaman.core.time import now_iso
 from mediaman.crypto import generate_download_token, generate_unsubscribe_token
-from mediaman.services.infra.time import now_iso
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def _mask_email(email: str) -> str:
@@ -57,10 +57,9 @@ def _record_delivery_attempt(
     The newsletter previously flagged each scheduled item as ``notified=1``
     after the first successful Mailgun call. With multiple subscribers a
     later send failure would silently drop notifications for everyone
-    after the first success — finding 23. We now record one row per
-    scheduled-item × recipient pair so the orchestrating function can
-    decide whether to mark the item done only when *every* recipient has
-    been served.
+    after the first success. We now record one row per scheduled-item ×
+    recipient pair so the orchestrating function can decide whether to
+    mark the item done only when *every* recipient has been served.
 
     Best-effort: a row that cannot be persisted is logged but does not
     break the send loop.
@@ -116,9 +115,8 @@ def _send_to_recipients(
     Each recipient gets a unique unsubscribe URL and per-item download tokens.
 
     When *conn* is provided we also persist a per-recipient delivery
-    record for every scheduled item — finding 23. The orchestrator then
-    only flips ``notified=1`` for items where every active recipient
-    has succeeded.
+    record for every scheduled item. The orchestrator then only flips
+    ``notified=1`` for items where every active recipient has succeeded.
     """
     scheduled_action_ids = [
         int(item["_action_id"]) for item in scheduled_items if item.get("_action_id") is not None
@@ -127,7 +125,7 @@ def _send_to_recipients(
     for email in recipient_emails:
         unsub_token = generate_unsubscribe_token(email=email, secret_key=secret_key)
         # The email is encoded inside the signed token — no need to expose it
-        # as a query parameter (finding 36).
+        # as a query parameter, which would leak PII into server logs.
         unsub_url = (
             f"{base_url}/unsubscribe?token={_url_quote(unsub_token, safe='')}" if base_url else ""
         )
@@ -202,7 +200,7 @@ def _send_to_recipients(
                     error=None,
                 )
         except Exception as exc:
-            logger.exception("Newsletter send failed for %s — continuing", email)
+            logger.exception("Newsletter send failed for %s — continuing", _mask_email(email))
             if conn is not None:
                 _record_delivery_attempt(
                     conn,

@@ -16,10 +16,11 @@ from unittest.mock import MagicMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
 from mediaman.scanner.engine import ScanEngine
+from mediaman.web.auth.password_hash import create_user
+from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.downloads import router as downloads_router
 
 _TPL_DIR = Path(__file__).parent.parent.parent / "src" / "mediaman" / "web" / "templates"

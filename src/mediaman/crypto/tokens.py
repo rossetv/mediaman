@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TypedDict, cast
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +165,7 @@ _TOKEN_PURPOSE_UNSUBSCRIBE = b"mediaman-token-unsubscribe-v1"
 _TOKEN_PURPOSE_POSTER = b"mediaman-token-poster-v1"
 _TOKEN_PURPOSE_POLL = b"mediaman-token-poll-v1"
 
+_SUBKEY_CACHE_MAX_ENTRIES = 64
 
 _subkey_cache: dict[tuple[str, bytes], bytes] = {}
 _subkey_cache_lock = threading.Lock()
@@ -178,6 +179,10 @@ def _derive_token_subkey(secret_key: str, purpose: bytes) -> bytes:
             return _subkey_cache[cache_key]
     subkey = hmac.new(secret_key.encode(), purpose, hashlib.sha256).digest()
     with _subkey_cache_lock:
+        # rationale: worst case ≈ N_PURPOSES × N_KEY_ROTATIONS, with comfortable
+        # headroom; small clear-on-overflow is acceptable.
+        if len(_subkey_cache) >= _SUBKEY_CACHE_MAX_ENTRIES:
+            _subkey_cache.clear()
         _subkey_cache[cache_key] = subkey
     return subkey
 

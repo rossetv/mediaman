@@ -15,7 +15,7 @@ import os
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-logger = logging.getLogger("mediaman.web")
+logger = logging.getLogger(__name__)
 
 
 # Default cap: 8 MiB. Mediaman is single-process and single-worker; a

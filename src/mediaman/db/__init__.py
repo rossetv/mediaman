@@ -22,9 +22,8 @@ from .connection import (
     start_refresh_run,
     start_scan_run,
 )
-from .migrations import SchemaFromFutureError, SchemaTooOldError
-from .schema import DB_SCHEMA_VERSION, apply_migrations
-from .schema_definition import CUTOVER_VERSION
+from .migrations import SchemaFromFutureError, SchemaTooOldError, apply_migrations
+from .schema_definition import CUTOVER_VERSION, DB_SCHEMA_VERSION
 
 __all__ = [
     "CUTOVER_VERSION",

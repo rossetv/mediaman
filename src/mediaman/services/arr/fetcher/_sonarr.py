@@ -11,20 +11,21 @@ from mediaman.services.arr.fetcher._base import (
     ArrCard,
     ArrEpisodeEntry,
     _iter_still_searching,
+    clamp_progress,
     make_arr_card,
 )
-from mediaman.services.infra.http_client import SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPError
 
 if TYPE_CHECKING:
-    from mediaman.services.arr.sonarr import SonarrClient
+    from mediaman.services.arr.base import ArrClient
+from mediaman.core.format import format_bytes
+from mediaman.core.time import parse_iso_utc
 from mediaman.services.downloads.download_format import (
     classify_series_upcoming,
     compute_series_released_at,
     extract_poster_url,
     format_episode_label,
 )
-from mediaman.services.infra.format import format_bytes
-from mediaman.services.infra.time import parse_iso_utc
 
 # Cluster-key separator. Chosen as NUL (``\x00``) because it cannot
 # legally appear in a downloadId, series title, or episode label coming
@@ -33,49 +34,7 @@ from mediaman.services.infra.time import parse_iso_utc
 # two distinct rows into one cluster and double-counting pack totals.
 _CLUSTER_SEP = "\x00"
 
-logger = logging.getLogger("mediaman")
-
-
-def _make_sonarr_card(
-    title: str,
-    *,
-    year: int | None = None,
-    poster_url: str = "",
-    episodes: list[ArrEpisodeEntry] | None = None,
-    episode_count: int = 0,
-    downloading_count: int = 0,
-    progress: int = 0,
-    size: int = 0,
-    sizeleft: int = 0,
-    arr_id: int = 0,
-    title_slug: str = "",
-    added_at: float = 0.0,
-    released_at: float = 0.0,
-    is_upcoming: bool = False,
-    release_label: str = "",
-    release_names: list[str] | None = None,
-) -> ArrCard:
-    """Build a Sonarr series card.  Shim — delegates to :func:`make_arr_card`."""
-    return make_arr_card(
-        "series",
-        title,
-        source="Sonarr",
-        year=year,
-        poster_url=poster_url,
-        episodes=episodes,
-        episode_count=episode_count,
-        downloading_count=downloading_count,
-        progress=progress,
-        size=size,
-        sizeleft=sizeleft,
-        arr_id=arr_id,
-        title_slug=title_slug,
-        added_at=added_at,
-        released_at=released_at,
-        is_upcoming=is_upcoming,
-        release_label=release_label,
-        release_names=release_names,
-    )
+logger = logging.getLogger(__name__)
 
 
 def _compute_cluster_keys(eps: list[ArrEpisodeEntry], card_series_id: int) -> list[str | None]:
@@ -159,9 +118,7 @@ def _finalise_card_aggregates(
         e["is_pack_episode"] = k is not None and cluster_counts.get(k, 0) > 1
 
     downloading = sum(1 for e in eps if e["progress"] > 0)
-    overall_pct = (
-        max(0, min(100, round((1 - total_left / max(total_size, 1)) * 100))) if total_size else 0
-    )
+    overall_pct = clamp_progress(total_size, total_left)
     card["episode_count"] = len(eps)
     card["downloading_count"] = downloading
     card["progress"] = overall_pct
@@ -193,7 +150,7 @@ def _aggregate_pack_episodes(card: ArrCard, card_series_id: int) -> None:
     _finalise_card_aggregates(card, eps, cluster_keys, cluster_counts, total_size, total_left)
 
 
-def fetch_sonarr_queue(client: SonarrClient) -> list[ArrCard]:
+def fetch_sonarr_queue(client: ArrClient) -> list[ArrCard]:
     """Build Sonarr download cards from an already-constructed client.
 
     Groups queue episodes by series into one card each, then appends
@@ -213,7 +170,7 @@ def fetch_sonarr_queue(client: SonarrClient) -> list[ArrCard]:
         # Clamp to [0, 100]: Sonarr can briefly report ``sizeleft > size``
         # while a torrent re-downloads, which would otherwise produce a
         # negative percentage and break progress bars.
-        progress = max(0, min(100, round((1 - sizeleft / max(size, 1)) * 100))) if size else 0
+        progress = clamp_progress(size, sizeleft)
         status = q.get("status") or q.get("trackedDownloadStatus") or "queued"
 
         season_num = episode.get("seasonNumber")
@@ -238,8 +195,10 @@ def fetch_sonarr_queue(client: SonarrClient) -> list[ArrCard]:
         if series_id not in series_map:
             poster_url = extract_poster_url(series.get("images"))
             s_title = series.get("title") or "Unknown"
-            series_map[series_id] = _make_sonarr_card(
+            series_map[series_id] = make_arr_card(
+                "series",
                 s_title,
+                source="Sonarr",
                 year=series.get("year"),
                 poster_url=poster_url,
             )
@@ -299,8 +258,10 @@ def fetch_sonarr_queue(client: SonarrClient) -> list[ArrCard]:
         poster_url = extract_poster_url(series.get("images"))
 
         items.append(
-            _make_sonarr_card(
+            make_arr_card(
+                "series",
                 s_title,
+                source="Sonarr",
                 poster_url=poster_url,
                 arr_id=series_id,
                 title_slug=series.get("titleSlug", ""),

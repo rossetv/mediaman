@@ -12,8 +12,17 @@ Back-compat shim: ``mediaman.services.infra.scrub_filter``.
 
 Usage::
 
-    from mediaman.core.scrub_filter import ScrubFilter
+    from mediaman.core.scrub_filter import ScrubFilter, install_root_filter
 
+    # Preferred: attach once to every handler on the root mediaman logger.
+    # Filters on a *handler* apply to all log records routed through that
+    # handler regardless of which child logger (getLogger(__name__)) emits
+    # them, because handler-level filters are evaluated after propagation.
+    # This is propagation-safe: any future module using getLogger(__name__)
+    # automatically inherits redaction without a per-module attach call.
+    install_root_filter(secrets=[api_key])
+
+    # Legacy: attach directly to a named logger (still supported).
     ScrubFilter.attach("urllib3.connectionpool", secrets=[api_key])
     ScrubFilter.attach("mediaman", secrets=[api_key])
 """
@@ -83,6 +92,21 @@ class ScrubFilter(logging.Filter):
         return True
 
     # ------------------------------------------------------------------
+    # Runtime secret registration
+    # ------------------------------------------------------------------
+
+    def register_secret(self, secret: str) -> None:
+        """Add *secret* to the set of strings that will be redacted.
+
+        Safe to call at any time — including from background threads that
+        resolve runtime secrets (e.g. a Plex token read from the DB after
+        startup).  Empty strings are silently ignored.  Already-registered
+        secrets are not duplicated.
+        """
+        if secret and secret not in self._secrets:
+            self._secrets.append(secret)
+
+    # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
@@ -131,3 +155,66 @@ class ScrubFilter(logging.Filter):
         new_filter = cls(secrets=secret_list, replacement=replacement)
         target.addFilter(new_filter)
         return new_filter
+
+
+# ---------------------------------------------------------------------------
+# Module-level singleton and root-handler install
+# ---------------------------------------------------------------------------
+
+#: Single shared :class:`ScrubFilter` instance attached to every handler on
+#: the ``"mediaman"`` root logger.  Use :func:`register_secret` to add runtime
+#: secrets (e.g. a Plex token resolved from the DB after startup) without
+#: constructing a new filter instance.
+_root_filter: ScrubFilter | None = None
+
+
+def install_root_filter(secrets: Iterable[str] = ()) -> ScrubFilter:
+    """Attach a single :class:`ScrubFilter` to every handler on the ``"mediaman"`` logger.
+
+    Filters attached to a *handler* (not a logger) apply to every log record
+    routed through that handler regardless of which child logger emitted it.
+    Because child loggers propagate records up to the root mediaman logger,
+    attaching to the handler is propagation-safe: any module that uses
+    ``logging.getLogger(__name__)`` automatically inherits redaction without
+    a per-module :meth:`ScrubFilter.attach` call.
+
+    The function is idempotent — repeated calls extend the existing singleton's
+    secret list rather than stacking duplicate filters.  Call
+    :func:`register_secret` afterwards to add runtime secrets one at a time.
+
+    Args:
+        secrets: Initial set of secret strings to redact.
+
+    Returns:
+        The :class:`ScrubFilter` singleton now attached to every handler.
+    """
+    global _root_filter
+    mediaman_logger = logging.getLogger("mediaman")
+
+    if _root_filter is None:
+        _root_filter = ScrubFilter(secrets=secrets)
+    else:
+        for s in secrets:
+            _root_filter.register_secret(s)
+
+    for handler in mediaman_logger.handlers:
+        if _root_filter not in handler.filters:
+            handler.addFilter(_root_filter)
+
+    return _root_filter
+
+
+def register_secret(secret: str) -> None:
+    """Register *secret* with the root mediaman :class:`ScrubFilter`.
+
+    Convenience wrapper around :meth:`ScrubFilter.register_secret` on the
+    singleton created by :func:`install_root_filter`.  Safe to call from any
+    thread at any time after :func:`install_root_filter` has been called once
+    at startup.  A no-op if :func:`install_root_filter` has not yet been
+    called (the filter does not yet exist).
+
+    Args:
+        secret: The secret string to redact in future log records.
+    """
+    if _root_filter is not None:
+        _root_filter.register_secret(secret)

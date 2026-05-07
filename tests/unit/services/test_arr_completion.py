@@ -156,16 +156,20 @@ class TestCleanupRecentDownloads:
 # ---------------------------------------------------------------------------
 
 
+SECRET_KEY = "test-secret-32-chars-XXXXXXXXXX"
+
+
 class TestRecordVerifiedCompletions:
-    def test_records_radarr_item_when_has_file(self, conn):
+    def test_records_radarr_item_when_has_file(self, conn, monkeypatch):
         """A Radarr item confirmed to have a file is inserted into recent_downloads."""
         mock_radarr = MagicMock()
         mock_radarr.get_movies.return_value = [
             {"title": "Dune", "hasFile": True},
         ]
-
-        def build_client(c, svc):
-            return mock_radarr if svc == "radarr" else None
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_radarr_from_db",
+            lambda *a, **kw: mock_radarr,
+        )
 
         completed = [
             {
@@ -175,22 +179,23 @@ class TestRecordVerifiedCompletions:
                 "poster_url": "",
             }
         ]
-        record_verified_completions(conn, completed, build_client)
+        record_verified_completions(conn, completed, SECRET_KEY)
 
         rows = conn.execute(
             "SELECT dl_id FROM recent_downloads WHERE dl_id = 'radarr:Dune'"
         ).fetchall()
         assert len(rows) == 1
 
-    def test_skips_radarr_item_without_file(self, conn):
+    def test_skips_radarr_item_without_file(self, conn, monkeypatch):
         """A Radarr item that has no file is not persisted."""
         mock_radarr = MagicMock()
         mock_radarr.get_movies.return_value = [
             {"title": "Dune", "hasFile": False},
         ]
-
-        def build_client(c, svc):
-            return mock_radarr if svc == "radarr" else None
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_radarr_from_db",
+            lambda *a, **kw: mock_radarr,
+        )
 
         completed = [
             {
@@ -200,18 +205,19 @@ class TestRecordVerifiedCompletions:
                 "poster_url": "",
             }
         ]
-        record_verified_completions(conn, completed, build_client)
+        record_verified_completions(conn, completed, SECRET_KEY)
 
         rows = conn.execute(
             "SELECT dl_id FROM recent_downloads WHERE dl_id = 'radarr:Dune'"
         ).fetchall()
         assert len(rows) == 0
 
-    def test_handles_arr_client_none(self, conn):
-        """If build_arr_client returns None, function completes without error."""
-
-        def build_client(c, svc):
-            return None
+    def test_handles_arr_client_none(self, conn, monkeypatch):
+        """If build_radarr_from_db returns None, function completes without error."""
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_radarr_from_db",
+            lambda *a, **kw: None,
+        )
 
         completed = [
             {
@@ -222,7 +228,7 @@ class TestRecordVerifiedCompletions:
             }
         ]
         # Must not raise even with no client
-        record_verified_completions(conn, completed, build_client)
+        record_verified_completions(conn, completed, SECRET_KEY)
 
         rows = conn.execute(
             "SELECT dl_id FROM recent_downloads WHERE dl_id = 'radarr:Interstellar'"
@@ -232,11 +238,6 @@ class TestRecordVerifiedCompletions:
 
     def test_nzbget_only_item_is_verified_without_arr(self, conn):
         """NZBGet-only items (no radarr:/sonarr: prefix) are inserted unconditionally."""
-
-        def build_client(c, svc):
-            # Should never be called for NZBGet-only items
-            raise AssertionError("build_client should not be called for NZBGet-only items")
-
         completed = [
             {
                 "dl_id": "nzbget:SomeNzb",
@@ -245,14 +246,16 @@ class TestRecordVerifiedCompletions:
                 "poster_url": "",
             }
         ]
-        record_verified_completions(conn, completed, build_client)
+        # No monkeypatching — build_radarr/sonarr_from_db must not be called
+        # for NZBGet-only items (they have no Arr prefix to dispatch on).
+        record_verified_completions(conn, completed, SECRET_KEY)
 
         rows = conn.execute(
             "SELECT dl_id FROM recent_downloads WHERE dl_id = 'nzbget:SomeNzb'"
         ).fetchall()
         assert len(rows) == 1
 
-    def test_sonarr_item_recorded_when_has_episode_files(self, conn):
+    def test_sonarr_item_recorded_when_has_episode_files(self, conn, monkeypatch):
         """A Sonarr series with episodeFileCount > 0 is inserted into recent_downloads."""
         mock_sonarr = MagicMock()
         mock_sonarr.get_series.return_value = [
@@ -261,9 +264,10 @@ class TestRecordVerifiedCompletions:
                 "statistics": {"episodeFileCount": 3},
             }
         ]
-
-        def build_client(c, svc):
-            return mock_sonarr if svc == "sonarr" else None
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_sonarr_from_db",
+            lambda *a, **kw: mock_sonarr,
+        )
 
         completed = [
             {
@@ -273,20 +277,21 @@ class TestRecordVerifiedCompletions:
                 "poster_url": "",
             }
         ]
-        record_verified_completions(conn, completed, build_client)
+        record_verified_completions(conn, completed, SECRET_KEY)
 
         rows = conn.execute(
             "SELECT dl_id FROM recent_downloads WHERE dl_id = 'sonarr:Severance'"
         ).fetchall()
         assert len(rows) == 1
 
-    def test_arr_network_error_skips_item_without_false_positive_log(self, conn):
+    def test_arr_network_error_skips_item_without_false_positive_log(self, conn, monkeypatch):
         """When the arr client raises, the item is skipped — not logged as 'no files confirmed'."""
         mock_radarr = MagicMock()
         mock_radarr.get_movies.side_effect = ConnectionError("network error")
-
-        def build_client(c, svc):
-            return mock_radarr if svc == "radarr" else None
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_radarr_from_db",
+            lambda *a, **kw: mock_radarr,
+        )
 
         completed = [
             {
@@ -296,7 +301,7 @@ class TestRecordVerifiedCompletions:
                 "poster_url": "",
             }
         ]
-        record_verified_completions(conn, completed, build_client)
+        record_verified_completions(conn, completed, SECRET_KEY)
 
         rows = conn.execute(
             "SELECT dl_id FROM recent_downloads WHERE dl_id = 'radarr:Dune'"
@@ -304,7 +309,7 @@ class TestRecordVerifiedCompletions:
         # Network failure → skipped, not inserted
         assert len(rows) == 0
 
-    def test_multiple_items_partial_network_failure(self, conn):
+    def test_multiple_items_partial_network_failure(self, conn, monkeypatch):
         """A network error on one item does not prevent other items from being processed."""
         call_count = {"n": 0}
 
@@ -316,22 +321,23 @@ class TestRecordVerifiedCompletions:
 
         mock_radarr = MagicMock()
         mock_radarr.get_movies.side_effect = mock_get_movies
-
-        def build_client(c, svc):
-            return mock_radarr if svc == "radarr" else None
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_radarr_from_db",
+            lambda *a, **kw: mock_radarr,
+        )
 
         completed = [
             {"dl_id": "radarr:Dune1", "title": "Dune1", "media_type": "movie", "poster_url": ""},
             {"dl_id": "radarr:Dune", "title": "Dune", "media_type": "movie", "poster_url": ""},
         ]
-        record_verified_completions(conn, completed, build_client)
+        record_verified_completions(conn, completed, SECRET_KEY)
 
         rows = conn.execute("SELECT dl_id FROM recent_downloads").fetchall()
         dl_ids = {r["dl_id"] for r in rows}
         assert "radarr:Dune1" not in dl_ids  # failed — skipped
         assert "radarr:Dune" in dl_ids  # succeeded
 
-    def test_radarr_match_prefers_tmdb_id_over_title(self, conn):
+    def test_radarr_match_prefers_tmdb_id_over_title(self, conn, monkeypatch):
         """When ``tmdb_id`` is populated, the match keys on it — even when the title differs.
 
         Two same-titled releases would otherwise collide in the title
@@ -346,9 +352,10 @@ class TestRecordVerifiedCompletions:
             {"tmdbId": 100, "title": "Dune", "hasFile": True},
             {"tmdbId": 200, "title": "Dune", "hasFile": False},
         ]
-
-        def build_client(c, svc):
-            return mock_radarr if svc == "radarr" else None
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_radarr_from_db",
+            lambda *a, **kw: mock_radarr,
+        )
 
         completed = [
             {
@@ -359,14 +366,14 @@ class TestRecordVerifiedCompletions:
                 "tmdb_id": 100,
             }
         ]
-        record_verified_completions(conn, completed, build_client)
+        record_verified_completions(conn, completed, SECRET_KEY)
         rows = conn.execute(
             "SELECT dl_id FROM recent_downloads WHERE dl_id = 'radarr:Dune-original'"
         ).fetchall()
         # Verified via tmdb_id=100 -> hasFile=True.
         assert len(rows) == 1
 
-    def test_sonarr_match_prefers_tmdb_id_over_title(self, conn):
+    def test_sonarr_match_prefers_tmdb_id_over_title(self, conn, monkeypatch):
         """The Sonarr branch must also disambiguate by ``tmdb_id`` when present."""
         mock_sonarr = MagicMock()
         mock_sonarr.get_series.return_value = [
@@ -375,9 +382,10 @@ class TestRecordVerifiedCompletions:
             # tmdb_id=10 caller.
             {"tmdbId": 20, "title": "Severance", "statistics": {"episodeFileCount": 0}},
         ]
-
-        def build_client(c, svc):
-            return mock_sonarr if svc == "sonarr" else None
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_sonarr_from_db",
+            lambda *a, **kw: mock_sonarr,
+        )
 
         completed = [
             {
@@ -388,19 +396,20 @@ class TestRecordVerifiedCompletions:
                 "tmdb_id": 10,
             }
         ]
-        record_verified_completions(conn, completed, build_client)
+        record_verified_completions(conn, completed, SECRET_KEY)
         rows = conn.execute(
             "SELECT dl_id FROM recent_downloads WHERE dl_id = 'sonarr:Severance-2010'"
         ).fetchall()
         assert len(rows) == 1
 
-    def test_logs_warning_on_title_only_fallback(self, conn, caplog):
+    def test_logs_warning_on_title_only_fallback(self, conn, monkeypatch, caplog):
         """No ``tmdb_id`` on the completed item triggers a WARNING about the title fallback."""
         mock_radarr = MagicMock()
         mock_radarr.get_movies.return_value = [{"title": "Dune", "hasFile": True}]
-
-        def build_client(c, svc):
-            return mock_radarr if svc == "radarr" else None
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_radarr_from_db",
+            lambda *a, **kw: mock_radarr,
+        )
 
         completed = [
             {
@@ -412,7 +421,7 @@ class TestRecordVerifiedCompletions:
             }
         ]
         with caplog.at_level("WARNING", logger="mediaman"):
-            record_verified_completions(conn, completed, build_client)
+            record_verified_completions(conn, completed, SECRET_KEY)
         # Item still records (the fallback works) but a warning is logged
         # so operators are aware disambiguation may have failed.
         assert any(

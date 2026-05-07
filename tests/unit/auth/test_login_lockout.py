@@ -6,14 +6,14 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from mediaman.auth.login_lockout import (
+from mediaman.db import init_db
+from mediaman.web.auth.login_lockout import (
     admin_unlock,
-    check_lockout,
+    is_locked_out,
     record_failure,
     record_success,
 )
-from mediaman.auth.session import authenticate, create_user
-from mediaman.db import init_db
+from mediaman.web.auth.password_hash import authenticate, create_user
 
 
 @pytest.fixture
@@ -23,16 +23,16 @@ def conn(db_path):
 
 class TestCounterMechanics:
     def test_fresh_user_not_locked(self, conn):
-        assert check_lockout(conn, "alice") is False
+        assert is_locked_out(conn, "alice") is False
 
     def test_single_failure_no_lock(self, conn):
         record_failure(conn, "alice")
-        assert check_lockout(conn, "alice") is False
+        assert is_locked_out(conn, "alice") is False
 
     def test_five_failures_lock_for_fifteen_minutes(self, conn):
         for _ in range(5):
             record_failure(conn, "alice")
-        assert check_lockout(conn, "alice") is True
+        assert is_locked_out(conn, "alice") is True
 
         row = conn.execute(
             "SELECT locked_until, failure_count FROM login_failures WHERE username = ?",
@@ -47,7 +47,7 @@ class TestCounterMechanics:
     def test_ten_failures_lock_for_one_hour(self, conn):
         for _ in range(10):
             record_failure(conn, "alice")
-        assert check_lockout(conn, "alice") is True
+        assert is_locked_out(conn, "alice") is True
 
         row = conn.execute(
             "SELECT locked_until, failure_count FROM login_failures WHERE username = ?",
@@ -63,7 +63,7 @@ class TestCounterMechanics:
             record_failure(conn, "alice")
         record_success(conn, "alice")
 
-        assert check_lockout(conn, "alice") is False
+        assert is_locked_out(conn, "alice") is False
         row = conn.execute("SELECT * FROM login_failures WHERE username = ?", ("alice",)).fetchone()
         assert row is None
 
@@ -92,7 +92,7 @@ class TestDecay:
         ).fetchone()
         # 4 → decayed to 0 → +1 = 1.
         assert row["failure_count"] == 1
-        assert check_lockout(conn, "alice") is False
+        assert is_locked_out(conn, "alice") is False
 
     def test_locked_account_does_not_decay(self, conn):
         """Still-locked accounts should not have their counter wiped by
@@ -130,7 +130,7 @@ class TestLockExpiry:
         )
         conn.commit()
 
-        assert check_lockout(conn, "alice") is False
+        assert is_locked_out(conn, "alice") is False
 
 
 class TestAuthenticateIntegration:
@@ -156,7 +156,7 @@ class TestAuthenticateIntegration:
 
         # Counter wiped — one more wrong guess should not lock anyone.
         authenticate(conn, "alice", "wrong-password")
-        assert check_lockout(conn, "alice") is False
+        assert is_locked_out(conn, "alice") is False
 
     def test_lockout_does_not_leak_to_caller(self, conn):
         """`authenticate` must return False for locked accounts — same
@@ -328,7 +328,7 @@ class TestAuthenticateRecordFailuresFlag:
                 )
                 is False
             )
-        assert check_lockout(conn, "alice") is False
+        assert is_locked_out(conn, "alice") is False
         row = conn.execute(
             "SELECT failure_count FROM login_failures WHERE username = ?",
             ("alice",),
@@ -429,12 +429,12 @@ class TestAdminUnlock:
     def test_unlock_clears_an_existing_lock(self, conn):
         for _ in range(5):
             record_failure(conn, "alice")
-        assert check_lockout(conn, "alice") is True
+        assert is_locked_out(conn, "alice") is True
 
         cleared = admin_unlock(conn, "alice")
         conn.commit()  # admin_unlock leaves commit to caller for tx control
         assert cleared is True
-        assert check_lockout(conn, "alice") is False
+        assert is_locked_out(conn, "alice") is False
         row = conn.execute(
             "SELECT * FROM login_failures WHERE username = ?",
             ("alice",),
@@ -463,4 +463,4 @@ class TestAdminUnlock:
         # Roll back — the unlock must not have been auto-committed.
         conn.rollback()
         # The lock should still be in place because admin_unlock didn't commit.
-        assert check_lockout(conn, "alice") is True
+        assert is_locked_out(conn, "alice") is True

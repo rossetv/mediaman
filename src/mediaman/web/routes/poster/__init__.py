@@ -41,6 +41,7 @@ oracle to enumerate the user's library rating keys.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import os
@@ -53,8 +54,7 @@ import requests
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
 
-from mediaman.auth.middleware import get_optional_admin
-from mediaman.auth.rate_limit import get_client_ip
+from mediaman.core.url_safety import is_safe_outbound_url
 from mediaman.crypto import (
     decrypt_value,
     sign_poster_url,  # noqa: F401 — re-exported for web/templates + tests
@@ -63,11 +63,12 @@ from mediaman.crypto import (
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.download_format import extract_poster_url
-from mediaman.services.infra.http_client import SafeHTTPClient, SafeHTTPError
-from mediaman.services.infra.rate_limits import (
+from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
+from mediaman.services.rate_limit import get_client_ip
+from mediaman.services.rate_limit.instances import (
     POSTER_PUBLIC_LIMITER as _POSTER_PUBLIC_LIMITER,
 )
-from mediaman.services.infra.url_safety import is_safe_outbound_url
+from mediaman.web.auth.middleware import get_optional_admin
 
 # Import pure helpers from submodules.
 from mediaman.web.routes.poster.cache import (
@@ -77,10 +78,10 @@ from mediaman.web.routes.poster.cache import (
     write_sidecar_mime as _write_sidecar_mime,
 )
 from mediaman.web.routes.poster.fetch import (
-    safe_mime as _safe_mime_impl,
+    is_valid_rating_key as _validate_rating_key_impl,
 )
 from mediaman.web.routes.poster.fetch import (
-    validate_rating_key as _validate_rating_key_impl,
+    safe_mime as _safe_mime_impl,
 )
 
 # Remote poster fetches get a tight 3 s read timeout and 4 MiB cap — a
@@ -91,14 +92,14 @@ _POSTER_HTTP = SafeHTTPClient(
     default_max_bytes=4 * 1024 * 1024,
 )
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 _cache_dir: Path | None = None  # populated on first request from app config
 
 # Cache posters for 7 days (response header) — browser won't re-request
-_CACHE_MAX_AGE = 7 * 24 * 60 * 60
+_CACHE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 
 # Soft cap for the on-disk poster cache. The directory was previously
 # unbounded — a long-lived install would let it grow until the data
@@ -117,6 +118,10 @@ _CACHE_GC_RECHECK_EVERY = 50
 # walk the directory. Lock is best-effort — if it cannot be acquired
 # without blocking, the request skips the GC and serves immediately.
 _cache_gc_lock = threading.Lock()
+# rationale: _cache_gc_counter is incremented from the FastAPI thread pool
+# (multiple concurrent poster requests); the dedicated lock guards the
+# read-modify-write so no increments are lost to a torn update.
+_cache_gc_counter_lock = threading.Lock()
 _cache_gc_counter = 0
 
 # Only these mime types are ever served back to the client.
@@ -170,9 +175,10 @@ def _maybe_sweep_cache(cache_dir: Path) -> None:
     expensive walk only runs once per ~50 cache misses.
     """
     global _cache_gc_counter
-    _cache_gc_counter += 1
-    if _cache_gc_counter < _CACHE_GC_RECHECK_EVERY:
-        return
+    with _cache_gc_counter_lock:
+        _cache_gc_counter += 1
+        if _cache_gc_counter < _CACHE_GC_RECHECK_EVERY:
+            return
     if not _cache_gc_lock.acquire(blocking=False):
         return
     _cache_gc_counter = 0
@@ -273,7 +279,7 @@ def _safe_mime(remote_type: str | None) -> str:
 def _validate_rating_key(rating_key: str) -> bool:
     """Return ``True`` if rating_key is a valid Plex rating key (digits only).
 
-    Delegates to :func:`~.fetch.validate_rating_key`.  Kept as a module-level
+    Delegates to :func:`~.fetch.is_valid_rating_key`.  Kept as a module-level
     name here so that imports and patches against ``mediaman.web.routes.poster``
     resolve correctly.
     """
@@ -408,6 +414,133 @@ def _sanitise_plex_url(raw: str | None) -> str | None:
     return f"{parsed.scheme.lower()}://{authority}"
 
 
+def _authenticate_poster_request(
+    request: Request,
+    rating_key: str,
+    sig: str | None,
+    admin: str | None,
+    secret_key: str,
+) -> Response | None:
+    """Authenticate a poster request. Return an error Response or None on success.
+
+    Auth FIRST — return 401 for any unauthenticated caller regardless
+    of whether the rating_key is well-formed or present on the Plex
+    server. This closes the enumeration oracle noted in the pentest.
+    Authenticated admin sessions skip the IP cap — they're already
+    bounded by the auth layer.
+    """
+    if admin is None:
+        if not _POSTER_PUBLIC_LIMITER.check(get_client_ip(request)):
+            return Response(status_code=429)
+        if not sig or len(sig) > 4096:
+            return Response(status_code=401)
+        if not _validate_rating_key(rating_key):
+            return Response(status_code=401)
+        poster_payload = validate_poster_token(sig, secret_key)
+        if poster_payload is None or poster_payload.get("rk") != rating_key:
+            return Response(status_code=401)
+    else:
+        if not _validate_rating_key(rating_key):
+            return Response(status_code=404)
+    return None
+
+
+def _load_plex_credentials(conn, secret_key: str) -> tuple[str | None, str | None, Response | None]:
+    """Load and decrypt the Plex URL and token from the DB.
+
+    Returns (plex_base, plex_token, None) on success, or (None, None, error_response).
+    """
+    plex_url_row = conn.execute("SELECT value FROM settings WHERE key='plex_url'").fetchone()
+    plex_token_row = conn.execute(
+        "SELECT value, encrypted FROM settings WHERE key='plex_token'"
+    ).fetchone()
+    if not plex_url_row or not plex_token_row:
+        return None, None, Response(status_code=404)
+    plex_url = plex_url_row["value"]
+    plex_token = plex_token_row["value"]
+    if plex_token_row["encrypted"]:
+        plex_token = decrypt_value(plex_token, secret_key, conn=conn, aad=b"plex_token")
+    # Re-validate plex_url on every call — it sits in the DB for weeks
+    # and an attacker who lands a settings write could have swapped it
+    # for something hostile (cloud metadata, loopback). Reject URLs
+    # with userinfo, non-http(s) schemes, and anything that fails the
+    # general SSRF guard; then strip back to scheme://host[:port]/ so
+    # path-traversal smuggling via the stored URL cannot reach a
+    # different endpoint than the templated thumb URL we expect.
+    plex_base = _sanitise_plex_url(plex_url)
+    if plex_base is None:
+        logger.warning("Refusing Plex poster fetch — plex_url failed per-request safety check")
+        return None, None, Response(status_code=502)
+    return plex_base, plex_token, None
+
+
+def _fetch_plex_poster(
+    plex_base: str, plex_token: str, rating_key: str
+) -> tuple[bytes | None, str]:
+    """Fetch a poster from Plex. Returns (content, content_type) or (None, 'image/jpeg')."""
+    thumb_url = f"{plex_base}/library/metadata/{rating_key}/thumb"
+    try:
+        resp = _POSTER_HTTP.get(thumb_url, headers={"X-Plex-Token": plex_token})
+        return resp.content, _safe_mime(resp.headers.get("Content-Type"))
+    except SafeHTTPError as exc:
+        logger.warning(
+            "Plex poster fetch failed for rating_key=%s (%s)",
+            rating_key,
+            exc.status_code,
+        )
+    except requests.RequestException:
+        logger.warning("Failed to fetch Plex poster for rating_key=%s", rating_key, exc_info=True)
+    return None, "image/jpeg"
+
+
+def _resolve_poster_content(
+    conn, rating_key: str, plex_base: str, plex_token: str, config
+) -> tuple[bytes | None, str, Response | None]:
+    """Fetch poster bytes from Plex with Radarr/Sonarr fallback.
+
+    Returns (content, content_type, None) on success, or (None, '', 404_response)
+    when no source has a poster.
+    """
+    content, content_type = _fetch_plex_poster(plex_base, plex_token, rating_key)
+    # Fallback: fetch poster from Radarr/Sonarr via TMDB if Plex has none
+    if content is None:
+        content, fallback_type = _fetch_arr_poster(conn, rating_key, None, config)
+        if content is None:
+            logger.info("Poster unavailable for rating_key=%s — returning 404", rating_key)
+            return None, "", Response(status_code=404)
+        content_type = fallback_type or "image/jpeg"
+    return content, content_type, None
+
+
+def _write_poster_cache(
+    cache_dir: Path, cached_path: Path, rating_key: str, content: bytes, content_type: str
+) -> None:
+    """Write poster content to disk atomically, then trigger an LRU sweep."""
+    # Write to cache atomically: write to a temp file in the same directory
+    # (guaranteeing same filesystem), then os.replace() it into place.
+    # This prevents another reader from seeing a partial write. On
+    # failure after the temp file was written, the temp must be removed
+    # explicitly — leaving it would orphan disk space until the next sweep.
+    tmp_name: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=cache_dir, delete=False, suffix=".tmp") as tmp:
+            tmp.write(content)
+            tmp_name = tmp.name
+        os.replace(tmp_name, cached_path)
+        tmp_name = None  # Success — replace consumed the temp.
+        # Persist the served mime so subsequent cache hits return the
+        # same Content-Type rather than always claiming image/jpeg.
+        _write_sidecar_mime(cached_path, content_type)
+        # Opportunistic LRU sweep — if the cache directory has grown
+        # past the soft cap, delete oldest entries until back under.
+        _maybe_sweep_cache(cache_dir)
+    except OSError:
+        logger.warning("Poster cache write failed for %s", rating_key, exc_info=True)
+        if tmp_name:
+            with contextlib.suppress(OSError):
+                os.remove(tmp_name)
+
+
 @router.get("/api/poster/{rating_key}")
 def proxy_poster(
     request: Request,
@@ -430,125 +563,40 @@ def proxy_poster(
     Authenticated admin sessions skip the IP cap — they're already
     bounded by the auth layer.
     """
-    # Auth FIRST — return 401 for any unauthenticated caller regardless
-    # of whether the rating_key is well-formed or present on the Plex
-    # server. This closes the enumeration oracle noted in the pentest.
     config = request.app.state.config
-    if admin is None:
-        if not _POSTER_PUBLIC_LIMITER.check(get_client_ip(request)):
-            return Response(status_code=429)
-        if not sig or len(sig) > 4096:
-            return Response(status_code=401)
-        if not _validate_rating_key(rating_key):
-            return Response(status_code=401)
-        poster_payload = validate_poster_token(sig, config.secret_key)
-        if poster_payload is None or poster_payload.get("rk") != rating_key:
-            return Response(status_code=401)
-    else:
-        if not _validate_rating_key(rating_key):
-            return Response(status_code=404)
+    auth_err = _authenticate_poster_request(request, rating_key, sig, admin, config.secret_key)
+    if auth_err is not None:
+        return auth_err
 
-    cache_dir = _get_cache_dir(request.app.state.config.data_dir)
-    # Use a safe filename derived from the rating key. Full SHA-256 so
-    # we're never worried about collisions; filesystems handle 64 hex
-    # chars without complaint.
-    safe_name = hashlib.sha256(rating_key.encode()).hexdigest()
-    cached_path = cache_dir / f"{safe_name}.jpg"
+    cache_dir = _get_cache_dir(config.data_dir)
+    # Full SHA-256 cache filename — collision-free, filesystem-safe.
+    cached_path = cache_dir / f"{hashlib.sha256(rating_key.encode()).hexdigest()}.jpg"
 
-    # Serve from cache if available — read mime from sidecar so PNG /
-    # WebP entries are served with their actual type and don't trip the
-    # nosniff guard on modern browsers.
+    # Serve from disk cache (sidecar carries the true mime type).
     if cached_path.exists():
         return Response(
             content=cached_path.read_bytes(),
             media_type=_read_sidecar_mime(cached_path),
-            headers={"Cache-Control": f"public, max-age={_CACHE_MAX_AGE}"},
+            headers={"Cache-Control": f"public, max-age={_CACHE_MAX_AGE_SECONDS}"},
         )
 
-    # Cache miss — fetch from Plex
     conn = get_db()
+    plex_base, plex_token, cred_err = _load_plex_credentials(conn, config.secret_key)
+    if cred_err is not None:
+        return cred_err
+    assert plex_base is not None
+    assert plex_token is not None
 
-    plex_url_row = conn.execute("SELECT value FROM settings WHERE key='plex_url'").fetchone()
-    plex_token_row = conn.execute(
-        "SELECT value, encrypted FROM settings WHERE key='plex_token'"
-    ).fetchone()
+    content, content_type, fetch_err = _resolve_poster_content(
+        conn, rating_key, plex_base, plex_token, config
+    )
+    if fetch_err is not None:
+        return fetch_err
+    assert content is not None
 
-    if not plex_url_row or not plex_token_row:
-        return Response(status_code=404)
-
-    plex_url = plex_url_row["value"]
-    plex_token = plex_token_row["value"]
-    if plex_token_row["encrypted"]:
-        plex_token = decrypt_value(plex_token, config.secret_key, conn=conn, aad=b"plex_token")
-
-    # Re-validate plex_url on every call — it sits in the DB for weeks
-    # and an attacker who lands a settings write could have swapped it
-    # for something hostile (cloud metadata, loopback). Reject URLs
-    # with userinfo, non-http(s) schemes, and anything that fails the
-    # general SSRF guard; then strip back to scheme://host[:port]/ so
-    # path-traversal smuggling via the stored URL cannot reach a
-    # different endpoint than the templated thumb URL we expect.
-    plex_base = _sanitise_plex_url(plex_url)
-    if plex_base is None:
-        logger.warning("Refusing Plex poster fetch — plex_url failed per-request safety check")
-        return Response(status_code=502)
-
-    thumb_url = f"{plex_base}/library/metadata/{rating_key}/thumb"
-    content = None
-    content_type = "image/jpeg"
-    try:
-        resp = _POSTER_HTTP.get(
-            thumb_url,
-            headers={"X-Plex-Token": plex_token},
-        )
-        content = resp.content
-        content_type = _safe_mime(resp.headers.get("Content-Type"))
-    except SafeHTTPError as exc:
-        logger.warning(
-            "Plex poster fetch failed for rating_key=%s (%s)",
-            rating_key,
-            exc.status_code,
-        )
-    except requests.RequestException:
-        logger.warning("Failed to fetch Plex poster for rating_key=%s", rating_key, exc_info=True)
-
-    # Fallback: fetch poster from Radarr/Sonarr via TMDB if Plex has none
-    if content is None:
-        content, fallback_type = _fetch_arr_poster(conn, rating_key, plex_token_row, config)
-        if content is None:
-            logger.info("Poster unavailable for rating_key=%s — returning 404", rating_key)
-            return Response(status_code=404)
-        content_type = fallback_type or "image/jpeg"
-
-    # Write to cache atomically: write to a temp file in the same directory
-    # (guaranteeing same filesystem), then os.replace() it into place.
-    # This prevents another reader from seeing a partial write. On
-    # failure after the temp file was written, the temp must be removed
-    # explicitly — leaving it would orphan disk space until the next
-    # sweep.
-    tmp_name: str | None = None
-    try:
-        with tempfile.NamedTemporaryFile(dir=cache_dir, delete=False, suffix=".tmp") as tmp:
-            tmp.write(content)
-            tmp_name = tmp.name
-        os.replace(tmp_name, cached_path)
-        tmp_name = None  # Success — replace consumed the temp.
-        # Persist the served mime so subsequent cache hits return the
-        # same Content-Type rather than always claiming image/jpeg.
-        _write_sidecar_mime(cached_path, content_type)
-        # Opportunistic LRU sweep — if the cache directory has grown
-        # past the soft cap, delete oldest entries until back under.
-        _maybe_sweep_cache(cache_dir)
-    except OSError:
-        logger.warning("Poster cache write failed for %s", rating_key, exc_info=True)
-        if tmp_name and os.path.exists(tmp_name):
-            try:
-                os.remove(tmp_name)
-            except OSError:
-                logger.debug("Failed to remove orphan temp %s", tmp_name, exc_info=True)
-
+    _write_poster_cache(cache_dir, cached_path, rating_key, content, content_type)
     return Response(
         content=content,
         media_type=content_type,
-        headers={"Cache-Control": f"public, max-age={_CACHE_MAX_AGE}"},
+        headers={"Cache-Control": f"public, max-age={_CACHE_MAX_AGE_SECONDS}"},
     )

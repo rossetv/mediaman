@@ -15,9 +15,12 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING
 
-logger = logging.getLogger("mediaman")
+if TYPE_CHECKING:
+    from mediaman.services.arr.base import ArrClient
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_arr_iso(value: str) -> datetime | None:
@@ -75,7 +78,9 @@ class ArrDateCache:
     Radarr/Sonarr reads.
     """
 
-    def __init__(self, *, radarr_client: Any = None, sonarr_client: Any = None) -> None:
+    def __init__(
+        self, *, radarr_client: ArrClient | None = None, sonarr_client: ArrClient | None = None
+    ) -> None:
         self._radarr = radarr_client
         self._sonarr = sonarr_client
         self._dates: dict[str, str] = {}

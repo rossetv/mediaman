@@ -11,27 +11,27 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
-from mediaman.auth.middleware import get_current_admin
-from mediaman.auth.rate_limit import ActionRateLimiter
+from mediaman.core.time import now_iso
 from mediaman.crypto import generate_download_token
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.notifications import record_download_notification
-from mediaman.services.infra.http_client import SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.infra.settings_reader import get_string_setting
-from mediaman.services.infra.time import now_iso
+from mediaman.services.openai.recommendations.repository import (
+    fetch_suggestion_by_id,
+    fetch_suggestion_header,
+    mark_downloaded,
+)
+from mediaman.services.rate_limit import ActionRateLimiter
+from mediaman.web.auth.middleware import get_current_admin
 
 from ._query import fetch_recommendations
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Rate-limit authenticated admin actions on the recommended endpoints.
-# Both the download trigger and the share-token mint are limited to
-# 30 per minute / 500 per day per admin username so a compromised
-# credential or a scripted loop cannot hammer Radarr/Sonarr or pre-mint
-# a warehouse of share tokens.
 _DOWNLOAD_ACTION_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=500)
 _SHARE_TOKEN_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=500)
 
@@ -46,11 +46,6 @@ def reset_share_token_limiter() -> None:
     _SHARE_TOKEN_LIMITER.reset()
 
 
-# Default and maximum slice for /api/recommended pagination (finding 22).
-# A heavy backlog (months of refreshes × 4 batches × ~24 items) can balloon
-# to several hundred suggestions; serialising that into one JSON payload
-# blocks the page until the whole table is ready. The defaults here keep
-# the page fast and let an admin paginate explicitly via ?limit&?offset.
 _RECOMMENDED_LIMIT_DEFAULT = 50
 _RECOMMENDED_LIMIT_MAX = 200
 
@@ -61,13 +56,7 @@ def api_recommended(
     limit: int = Query(default=_RECOMMENDED_LIMIT_DEFAULT, ge=1, le=_RECOMMENDED_LIMIT_MAX),
     offset: int = Query(default=0, ge=0, le=10_000),
 ) -> JSONResponse:
-    """Return cached recommendations as JSON, paginated.
-
-    ``limit`` defaults to 50, capped at 200; ``offset`` is bounded at
-    10,000 to prevent cheap O(n) skips through a corrupted client. The
-    response includes the full ordered slice plus the total so the UI
-    can show "showing X of Y" without a second round-trip.
-    """
+    """Return cached recommendations as JSON, paginated."""
     conn = get_db()
     all_recs = fetch_recommendations(conn)
     total = len(all_recs)
@@ -88,49 +77,30 @@ def api_share_token(
     request: Request,
     admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
-    """Mint a single-use download share token for one recommendation, on demand.
-
-    Returns ``{"token": "...", "share_url": "...", "expires_at": "..."}``.
-    Rate-limited to 30/min, 500/day per admin.
-
-    Tokens are not pre-embedded in the page (that approach leaked a stack
-    of tokens to any page viewer). Instead the browser calls this endpoint
-    when the user explicitly clicks the share button, and the returned
-    URL is used once for copy-to-clipboard or immediate navigation.
-    """
+    """Mint a single-use download share token for one recommendation, on demand."""
     if not _SHARE_TOKEN_LIMITER.check(admin):
         return JSONResponse({"ok": False, "error": "Too many requests"}, status_code=429)
 
     conn = get_db()
     config = request.app.state.config
 
-    row = conn.execute(
-        "SELECT id, title, media_type, tmdb_id FROM suggestions WHERE id = ?",
-        (recommendation_id,),
-    ).fetchone()
+    row = fetch_suggestion_header(conn, recommendation_id)
     if not row:
         return JSONResponse({"ok": False, "error": "Recommendation not found"}, status_code=404)
 
-    # Finding 15: refuse to mint a public download token unless a stable
-    # TMDB identifier is present.  Without it the token is bound only to a
-    # title string which can be duplicated, re-used, or spoofed.
-    if not row["tmdb_id"]:
+    if not row.tmdb_id:
         return JSONResponse(
             {
                 "ok": False,
-                "error": "Cannot generate share link — no TMDB identifier for this recommendation",
+                "error": "Cannot generate share link -- no TMDB identifier for this recommendation",
             },
             status_code=422,
         )
 
     base_url = (get_string_setting(conn, "base_url") or "").rstrip("/")
     if not base_url:
-        # Finding 24: a missing base_url is a *server-side* config
-        # problem, not a client-side error — return 503 so monitoring
-        # alerts on it instead of treating the empty body as a normal
-        # response.
         return JSONResponse(
-            {"ok": False, "error": "Base URL not configured — cannot generate share link"},
+            {"ok": False, "error": "Base URL not configured -- cannot generate share link"},
             status_code=503,
         )
 
@@ -141,10 +111,10 @@ def api_share_token(
     share_token = generate_download_token(
         email=admin,
         action="download",
-        title=row["title"],
-        media_type=row["media_type"],
-        tmdb_id=row["tmdb_id"],
-        recommendation_id=row["id"],
+        title=row.title,
+        media_type=row.media_type,
+        tmdb_id=row.tmdb_id,
+        recommendation_id=row.id,
         secret_key=config.secret_key,
         ttl_days=ttl_days,
     )
@@ -154,31 +124,18 @@ def api_share_token(
         "Share token minted by admin '%s' for recommendation_id=%d title='%s'",
         admin,
         recommendation_id,
-        row["title"],
+        row.title,
     )
     return JSONResponse(
         {"ok": True, "token": share_token, "share_url": share_url, "expires_at": expires_at}
     )
 
 
-# Defence-in-depth title sanitiser (finding 23). The canonical place to
-# strip control characters is on persist (in
-# ``services/openai/recommendations/persist.py`` — out of this wave's
-# scope), but persisted rows from earlier OpenAI runs may still contain
-# them. Sanitising at use-time means we never pass a name with embedded
-# CR/LF/NUL into Arr's add_movie / add_series — those characters could
-# bleed into the eventual Radarr filename or queue label.
 _CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
 def _sanitise_title(title: str | None) -> str:
-    """Strip control characters and trim whitespace from *title*.
-
-    Returns an empty string if *title* is ``None``. Truncates to 256
-    chars to keep the eventual Arr request under any reasonable length
-    cap — the canonical title was already validated on the search /
-    redownload paths; this is the recommendations-side belt-and-braces.
-    """
+    """Strip control characters and trim whitespace from title."""
     if not title:
         return ""
     cleaned = _CONTROL_CHARS_RE.sub("", title).strip()
@@ -201,11 +158,7 @@ def _add_rec_to_radarr(
     safe_title = _sanitise_title(row["title"])
     client.add_movie(tmdb_id, safe_title)
     logger.info("Added movie '%s' (tmdb:%d) to Radarr", safe_title, tmdb_id)
-    conn.execute(
-        "UPDATE suggestions SET downloaded_at = ? WHERE id = ?",
-        (now_iso(), recommendation_id),
-    )
-    # H24: notify the authenticated admin, not an arbitrary subscriber.
+    mark_downloaded(conn, recommendation_id, now_iso())
     record_download_notification(
         conn,
         email=admin,
@@ -232,7 +185,6 @@ def _add_rec_to_sonarr(
         return JSONResponse({"ok": False, "error": "Sonarr not configured"})
     tmdb_id = row["tmdb_id"]
     safe_title = _sanitise_title(row["title"])
-    # Sonarr lookup by TMDB ID to get the authoritative TVDB ID
     results = client.lookup_by_tmdb_id(tmdb_id, endpoint="/api/v3/series/lookup")
     if not results:
         return JSONResponse({"ok": False, "error": "Show not found in Sonarr lookup"})
@@ -241,13 +193,7 @@ def _add_rec_to_sonarr(
         return JSONResponse({"ok": False, "error": "No TVDB ID found for this show"})
     client.add_series(tvdb_id, safe_title)
     logger.info("Added series '%s' (tvdb:%d) to Sonarr", safe_title, tvdb_id)
-    conn.execute(
-        "UPDATE suggestions SET downloaded_at = ? WHERE id = ?",
-        (now_iso(), recommendation_id),
-    )
-    # H24: notify the authenticated admin, not an arbitrary subscriber.
-    # Sonarr matches series by TVDB id, not TMDB — keep both so the
-    # completion checker uses the right field per service.
+    mark_downloaded(conn, recommendation_id, now_iso())
     record_download_notification(
         conn,
         email=admin,
@@ -265,23 +211,19 @@ def _add_rec_to_sonarr(
 def api_download_recommendation(
     recommendation_id: int, request: Request, admin: str = Depends(get_current_admin)
 ) -> JSONResponse:
-    """Add a recommended movie/show to Radarr or Sonarr and trigger download.
-
-    Rate-limited to 30/min, 500/day per admin username to prevent a
-    compromised credential from hammering Radarr/Sonarr with burst requests.
-    """
+    """Add a recommended movie/show to Radarr or Sonarr and trigger download."""
     if not _DOWNLOAD_ACTION_LIMITER.check(admin):
         return JSONResponse({"ok": False, "error": "Too many requests"}, status_code=429)
 
     conn = get_db()
     config = request.app.state.config
 
-    row = conn.execute("SELECT * FROM suggestions WHERE id = ?", (recommendation_id,)).fetchone()
+    row = fetch_suggestion_by_id(conn, recommendation_id)
     if not row:
         return JSONResponse({"ok": False, "error": "Recommendation not found"}, status_code=404)
 
     if not row["tmdb_id"]:
-        return JSONResponse({"ok": False, "error": "No TMDB ID — cannot add to Radarr/Sonarr"})
+        return JSONResponse({"ok": False, "error": "No TMDB ID -- cannot add to Radarr/Sonarr"})
 
     try:
         if row["media_type"] == "movie":
@@ -302,10 +244,6 @@ def api_download_recommendation(
 
     except SafeHTTPError as exc:
         if exc.status_code in (409, 422):
-            # Finding 25: surface the conflict properly — returning 200
-            # made downstream clients treat "already exists" as a
-            # success path, masking the real state. 409 is the standard
-            # response for "the resource already exists".
             return JSONResponse(
                 {"ok": False, "error": f"'{row['title']}' already exists in your library"},
                 status_code=409,

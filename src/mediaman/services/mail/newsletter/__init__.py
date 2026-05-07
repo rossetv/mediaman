@@ -23,7 +23,7 @@ import logging
 import sqlite3
 from datetime import UTC, datetime
 
-from mediaman.services.infra.format import format_day_month as _format_day_month
+from mediaman.core.format import format_day_month as _format_day_month
 
 from .enrich import _annotate_rec_download_states
 from .recipients import _load_recipients, _send_to_recipients
@@ -31,7 +31,7 @@ from .render import _TEMPLATE_DIR, _build_subject, _get_jinja_env
 from .schedule import _load_scheduled_items, _mark_notified
 from .summary import _load_deleted_items, _load_recommendations, _load_storage_stats
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 class NewsletterConfigError(Exception):

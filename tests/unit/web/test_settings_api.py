@@ -10,15 +10,16 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mediaman.auth.reauth import grant_recent_reauth
-from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.crypto import encrypt_value
 from mediaman.db import init_db, set_connection
-from mediaman.services.infra.rate_limits import (
+from mediaman.services.rate_limit.instances import (
     SETTINGS_TEST_LIMITER,
     SETTINGS_WRITE_LIMITER,
 )
+from mediaman.web.auth.password_hash import create_user
+from mediaman.web.auth.reauth import grant_recent_reauth
+from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.settings import _TEST_CACHE, router
 
 
@@ -525,7 +526,7 @@ class TestApiTestServiceOpenAiTmdbOmdb:
         mock_resp._content_consumed = True
         mock_resp.headers = {}
 
-        with patch("mediaman.services.infra.http_client._dispatch", return_value=mock_resp):
+        with patch("mediaman.services.infra.http.client._dispatch", return_value=mock_resp):
             resp = client.post("/api/settings/test/openai")
 
         assert resp.json()["ok"] is True
@@ -537,10 +538,10 @@ class TestApiTestServiceOpenAiTmdbOmdb:
 
         from unittest.mock import patch
 
-        from mediaman.services.infra.http_client import SafeHTTPError
+        from mediaman.services.infra.http import SafeHTTPError
 
         with patch(
-            "mediaman.services.infra.http_client._dispatch",
+            "mediaman.services.infra.http.client._dispatch",
             side_effect=SafeHTTPError(401, "Unauthorized", "https://api.openai.com/v1/models"),
         ):
             resp = client.post("/api/settings/test/openai")
@@ -556,10 +557,10 @@ class TestApiTestServiceOpenAiTmdbOmdb:
 
         from unittest.mock import patch
 
-        from mediaman.services.infra.http_client import SafeHTTPError
+        from mediaman.services.infra.http import SafeHTTPError
 
         with patch(
-            "mediaman.services.infra.http_client._dispatch",
+            "mediaman.services.infra.http.client._dispatch",
             side_effect=SafeHTTPError(
                 0, "transport error: ConnectionError", "https://api.openai.com/v1/models"
             ),
@@ -577,10 +578,10 @@ class TestApiTestServiceOpenAiTmdbOmdb:
 
         from unittest.mock import patch
 
-        from mediaman.services.infra.http_client import SafeHTTPError
+        from mediaman.services.infra.http import SafeHTTPError
 
         with patch(
-            "mediaman.services.infra.http_client._dispatch",
+            "mediaman.services.infra.http.client._dispatch",
             side_effect=SafeHTTPError(
                 0, "refused by SSRF guard", "https://api.openai.com/v1/models"
             ),
@@ -618,12 +619,16 @@ class TestSettingsTestServiceTimeout:
     Plex cannot pin the request thread for 35+ seconds."""
 
     def test_long_running_tester_returns_timeout(self, conn, secret_key, monkeypatch):
-        import time
+        import threading
 
         from mediaman.web.routes import settings as settings_module
 
         def slow_tester(_settings):
-            time.sleep(2.0)
+            # Block long enough that the production timeout (0.1 s) fires
+            # before this returns, but exit promptly so the ThreadPoolExecutor
+            # shutdown does not stall the test.  0.3 s is 3× the cap —
+            # generous margin without adding real wall-clock cost.
+            threading.Event().wait(timeout=0.3)
             from fastapi.responses import JSONResponse
 
             return JSONResponse({"ok": True})
@@ -683,7 +688,7 @@ class TestSettingsTestServiceScopedDecryption:
 
         # Stub the actual SafeHTTP call so we don't hit the network.
         with patch(
-            "mediaman.services.infra.http_client._dispatch",
+            "mediaman.services.infra.http.client._dispatch",
             return_value=MagicMock(status_code=200, headers={}, content=b"{}"),
         ):
             resp = client.post("/api/settings/test/openai")

@@ -10,9 +10,10 @@ from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
-from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
+from mediaman.web.auth.password_hash import create_user
+from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.subscribers import _validate_email
 from mediaman.web.routes.subscribers import (
     router as subscribers_router,

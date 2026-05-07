@@ -13,7 +13,7 @@ the proxy to an internal metadata endpoint, loopback address, or cloud
 credential service.  The helpers in this module form the first line of
 defence:
 
-* :func:`validate_rating_key` rejects non-numeric and oversized keys
+* :func:`is_valid_rating_key` rejects non-numeric and oversized keys
   before they can reach any URL construction or DB lookup.
 * :func:`safe_mime` prevents a hostile CDN from injecting
   ``Content-Type: text/html`` through the proxy — a stored-XSS vector.
@@ -24,7 +24,7 @@ from __future__ import annotations
 from mediaman.web.routes.poster.cache import ALLOWED_IMAGE_MIMES
 
 
-def validate_rating_key(rating_key: str) -> bool:
+def is_valid_rating_key(rating_key: str) -> bool:
     """Return ``True`` only if *rating_key* is a valid Plex rating key.
 
     A valid rating key is a non-empty string of ASCII digits whose total

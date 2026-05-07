@@ -1,4 +1,15 @@
-"""Mediaman — media lifecycle management for Plex."""
+"""Mediaman — media lifecycle management for Plex.
+
+Top-level package. Exposes ``__version__`` and acts as the import root for all
+sub-packages: ``scanner``, ``services``, ``web``, ``crypto``, ``db``, and
+``bootstrap``.
+
+Allowed dependencies: ``importlib.metadata`` only — this module must import
+cleanly in any environment without pulling in third-party packages.
+
+Forbidden patterns: do not add application logic here; keep this file to
+version detection and nothing else.
+"""
 
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version

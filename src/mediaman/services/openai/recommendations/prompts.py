@@ -37,13 +37,13 @@ _SAFE_CATEGORY_PREFIXES = frozenset(
     }
 )
 
-# Maximum title length accepted from LLM output (finding 38).
+# Maximum title length accepted from LLM output.
 _LLM_TITLE_MAX_LEN = 200
 
 # Maximum reason length accepted from LLM output.
 _LLM_REASON_MAX_LEN = 1000
 
-# Patterns that strongly suggest prompt injection in LLM output (finding 38).
+# Patterns that strongly suggest prompt injection in LLM output.
 # These are conservative checks — false positives block a recommendation, but
 # that is far preferable to persisting injected content into future prompts.
 _INJECTION_PATTERNS = re.compile(
@@ -127,13 +127,13 @@ def sanitise_plex_string(s: str) -> str:
 
 _CTRL_CHAR_STRICT_RE = re.compile(r"[\x00-\x1f\x7f\x80-\x9f]")
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def _validate_llm_string(value: str, max_len: int, field: str) -> str | None:
     """Return *value* if it passes LLM-output validation, or ``None`` to reject.
 
-    Checks applied (finding 38):
+    Checks applied:
     * Strip and enforce maximum length.
     * Reject strings containing C0/C1 control characters.
     * Reject strings matching known prompt-injection patterns.
@@ -167,7 +167,7 @@ def _validate_llm_string(value: str, max_len: int, field: str) -> str | None:
 def parse_recommendations(items: list[dict], category: str) -> list[dict]:
     """Normalise and validate raw GPT recommendations.
 
-    Each item is validated against stricter rules (finding 38):
+    Each item is validated against stricter rules to prevent prompt-injection and control-character leakage:
 
     * Titles must be ≤ 200 characters, contain no control characters, and
       must not match known prompt-injection patterns.
@@ -222,14 +222,14 @@ def generate_trending(
     now = datetime.now(UTC)
     last_week_end = now - timedelta(days=now.weekday() + 1)
     last_week_start = last_week_end - timedelta(days=6)
-    from mediaman.services.infra.format import format_day_month as _fmt_dm
+    from mediaman.core.format import format_day_month as _fmt_dm
 
     week_str = f"{_fmt_dm(last_week_start)}–{_fmt_dm(last_week_end, long_month=True)}"
 
     dedup_block = ""
     if previous_titles:
         # JSON-encode the list inside a clearly-marked untrusted-data block so
-        # the model cannot interpret any title as an instruction (finding 38).
+        # the model cannot interpret any title as an instruction (prompt-injection defence).
         encoded = json.dumps(_safe_previous_titles(previous_titles)[:100], ensure_ascii=False)
         dedup_block = (
             "\nDo NOT recommend any titles in the following list.\n"

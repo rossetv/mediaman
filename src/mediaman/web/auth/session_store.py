@@ -7,10 +7,7 @@ persisted and validated" concern; password hashing lives in
 
 from __future__ import annotations
 
-import hashlib
-import ipaddress
 import logging
-import os
 import re
 import sqlite3
 import threading
@@ -18,8 +15,12 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import TypedDict
 
+from mediaman.core.time import parse_iso_utc as _parse_iso_aware
 from mediaman.crypto import generate_session_token
-from mediaman.services.infra.format import parse_iso_utc as _parse_iso_aware
+from mediaman.web.auth._session_fingerprint import (
+    _client_fingerprint,
+    _fingerprint_mode,
+)
 from mediaman.web.auth._token_hashing import hash_token as _hash_token
 
 # ``_parse_iso_aware`` is now an alias for the canonical
@@ -28,7 +29,17 @@ from mediaman.web.auth._token_hashing import hash_token as _hash_token
 # when a stored timestamp is corrupt — a side effect the generic parser
 # deliberately does not perform.
 
-logger = logging.getLogger("mediaman")
+# Re-export so that ``session.py`` and tests can import these from the
+# canonical ``session_store`` module path, and monkeypatches on
+# ``session_store._fingerprint_mode`` / ``session_store._client_fingerprint``
+# continue to intercept calls made inside this module.
+__all__ = [
+    "_SESSION_TOKEN_RE",
+    "_client_fingerprint",
+    "_fingerprint_mode",
+]
+
+logger = logging.getLogger(__name__)
 
 _EXPIRED_CLEANUP_INTERVAL = 60.0
 _last_cleanup_at = 0.0
@@ -39,109 +50,10 @@ _SESSION_REFRESH_MIN_INTERVAL = timedelta(seconds=60)
 _HARD_EXPIRY_DAYS = 1
 _IDLE_TIMEOUT_HOURS = 24
 
-_FINGERPRINT_MODE_ENV = "MEDIAMAN_FINGERPRINT_MODE"
-#: Supported fingerprint modes.  Each one trades resilience against
-#: legitimate client churn for binding strength:
-#:
-#: ``off``    — no binding at all.  ``fingerprint`` is stored empty and
-#:              the validate-side comparison is skipped.  Useful for
-#:              deployments behind reverse-proxy farms that rewrite
-#:              client IPs unpredictably or where every legitimate
-#:              client is on a churn-heavy CGNAT.
-#:
-#: ``loose``  — IPv4 bucketed at ``/24`` and IPv6 at ``/64``; UA hash
-#:              truncated to 16 hex chars.  This is the default.  It
-#:              tolerates an end user roaming inside a single carrier
-#:              CGNAT pool and minor UA churn (Chrome version bumps mid
-#:              session) without invalidating the cookie, while still
-#:              shutting down a stolen-cookie replay from a different
-#:              network or a different browser family.
-#:
-#: ``strict`` — full client IP (no bucketing) and full SHA-256 UA hash
-#:              (no truncation).  Maximum binding strength but
-#:              intolerant of CGNAT IP rotation and any UA churn at
-#:              all (User-Agent string changes, Chrome version bumps,
-#:              switching from desktop to mobile UA on the same
-#:              network).  Choose this when every legitimate client
-#:              has a stable public IP and a stable UA.
-_VALID_FINGERPRINT_MODES = {"strict", "loose", "off"}
-
-#: Per-mode bucket configuration consumed by :func:`_client_fingerprint`.
-#: ``ipv4_prefix`` / ``ipv6_prefix`` — CIDR length to bucket the client
-#: IP at; ``None`` means "use the full address with no bucketing".
-#: ``ua_hash_chars`` — number of leading hex chars of the SHA-256 UA
-#: hash to keep; ``None`` means "use the full 64-char digest".
-_FINGERPRINT_BUCKETS: dict[str, dict[str, int | None]] = {
-    "loose": {"ipv4_prefix": 24, "ipv6_prefix": 64, "ua_hash_chars": 16},
-    "strict": {"ipv4_prefix": None, "ipv6_prefix": None, "ua_hash_chars": None},
-}
-
 # Anchors are redundant under ``fullmatch``; using a bare token regex
 # here means the cheap pre-DB sanity check on every authenticated
 # request stays cheap.
 _SESSION_TOKEN_RE = re.compile(r"[0-9a-f]{64}")
-
-
-def _fingerprint_mode() -> str:
-    """Return the current fingerprint mode from the environment."""
-    mode = (os.environ.get(_FINGERPRINT_MODE_ENV) or "loose").lower()
-    if mode not in _VALID_FINGERPRINT_MODES:
-        return "loose"
-    return mode
-
-
-def _client_fingerprint(
-    user_agent: str | None,
-    client_ip: str | None,
-    *,
-    mode: str | None = None,
-) -> str:
-    """Compute a stable fingerprint for session-to-client binding.
-
-    Dispatches on *mode* — defaults to the value of
-    :func:`_fingerprint_mode` when the caller does not pin it.  ``off``
-    is intentionally not handled here; create-/validate-side code
-    branches on ``mode == 'off'`` before calling this helper.
-
-    See :data:`_VALID_FINGERPRINT_MODES` for the documented trade-offs
-    of each mode.
-    """
-    if mode is None:
-        mode = _fingerprint_mode()
-    bucket_cfg = _FINGERPRINT_BUCKETS.get(mode, _FINGERPRINT_BUCKETS["loose"])
-    ua_hash_chars = bucket_cfg["ua_hash_chars"]
-    full_ua_hash = hashlib.sha256((user_agent or "").encode()).hexdigest()
-    ua_hash = full_ua_hash if ua_hash_chars is None else full_ua_hash[:ua_hash_chars]
-
-    if not client_ip:
-        prefix = "unknown"
-    else:
-        try:
-            addr = ipaddress.ip_address(client_ip)
-        except ValueError:
-            prefix = "unknown"
-        else:
-            if isinstance(addr, ipaddress.IPv6Address):
-                ipv6_prefix = bucket_cfg["ipv6_prefix"]
-                if ipv6_prefix is None:
-                    prefix = str(addr)
-                else:
-                    prefix = str(
-                        ipaddress.ip_network(
-                            f"{client_ip}/{ipv6_prefix}", strict=False
-                        ).network_address
-                    )
-            else:
-                ipv4_prefix = bucket_cfg["ipv4_prefix"]
-                if ipv4_prefix is None:
-                    prefix = str(addr)
-                else:
-                    prefix = str(
-                        ipaddress.ip_network(
-                            f"{client_ip}/{ipv4_prefix}", strict=False
-                        ).network_address
-                    )
-    return f"{ua_hash}:{prefix}"
 
 
 def create_session(
@@ -162,9 +74,7 @@ def create_session(
     else:
         expires_at = (now + timedelta(seconds=ttl_seconds)).isoformat()
     mode = _fingerprint_mode()
-    if mode == "off":
-        fingerprint = ""
-    elif user_agent or client_ip:
+    if mode != "off" and (user_agent or client_ip):
         fingerprint = _client_fingerprint(user_agent, client_ip, mode=mode)
     else:
         fingerprint = ""
@@ -239,17 +149,11 @@ def _exec_with_commit(conn: sqlite3.Connection, sql: str, params: tuple) -> None
       high-level ``rollback()`` (a safe no-op when nothing is open) and
       the exception is re-raised.
     """
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    # ``with conn:`` commits on normal exit and rolls back on exception;
+    # BEGIN IMMEDIATE here preserves write-lock semantics.
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(sql, params)
-        conn.execute("COMMIT")
-    except Exception:
-        # ``rollback()`` (the high-level method) is a no-op when no
-        # transaction is open, so we use it instead of a raw SQL
-        # ROLLBACK + nested try/except — saves the bandit B110 noise
-        # without losing the safety net.
-        conn.rollback()
-        raise
 
 
 def _delete_session_with_commit(conn: sqlite3.Connection, token_hash: str) -> None:
@@ -261,7 +165,7 @@ def _delete_session_with_commit(conn: sqlite3.Connection, token_hash: str) -> No
     was gone but the ticket survived — a stolen cookie + ticket pair
     would remain replayable for the rest of the ticket's TTL even
     though the legitimate session had been killed by idle expiry or
-    fingerprint mismatch (H-4 + audit).
+    fingerprint mismatch.
 
     The reauth-side delete is best-effort: if the
     ``revoke_reauth_by_hash`` helper itself raises (e.g. table
@@ -272,17 +176,15 @@ def _delete_session_with_commit(conn: sqlite3.Connection, token_hash: str) -> No
     # Local import to dodge the session_store -> reauth import cycle.
     from mediaman.web.auth.reauth import revoke_reauth_by_hash_in_tx
 
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    # ``with conn:`` commits on normal exit and rolls back on exception;
+    # BEGIN IMMEDIATE here preserves write-lock semantics.
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "DELETE FROM admin_sessions WHERE token_hash = ?",
             (token_hash,),
         )
         revoke_reauth_by_hash_in_tx(conn, token_hash)
-        conn.execute("COMMIT")
-    except Exception:
-        conn.rollback()
-        raise
 
 
 def _refresh_last_used_with_commit(conn: sqlite3.Connection, token_hash: str, now_iso: str) -> None:
@@ -298,9 +200,8 @@ def _cleanup_expired_with_commit(conn: sqlite3.Connection, now_iso: str) -> None
     """Sweep expired session rows inside a short write transaction.
 
     The matching reauth tickets are also swept so the table cannot grow
-    indefinitely with rows whose owning session is gone (H-4).  The
-    reauth sweep is best-effort — a failure here never aborts the
-    session sweep.
+    indefinitely with rows whose owning session is gone. The reauth sweep
+    is best-effort — a failure here never aborts the session sweep.
     """
     _exec_with_commit(
         conn,
@@ -421,6 +322,12 @@ def validate_session(
     # Phase 5: opportunistic expired-row sweep, gated on a monotonic
     # counter so it runs at most once per minute regardless of request
     # rate.
+    #
+    # Invariant: stamp _last_cleanup_at with the moment the cleanup
+    # FINISHED, not the moment validate_session was entered.  Otherwise a
+    # slow sweep would let the next request fire another sweep almost
+    # immediately after this one returned, defeating the once-per-minute
+    # throttle.
     mono = time.monotonic()
     if mono - _last_cleanup_at >= _EXPIRED_CLEANUP_INTERVAL:
         with _cleanup_lock:
@@ -428,12 +335,6 @@ def validate_session(
                 try:
                     _cleanup_expired_with_commit(conn, now_iso)
                 finally:
-                    # Stamp the counter with the moment the cleanup
-                    # FINISHED, not the moment validate_session was
-                    # entered.  Otherwise a slow sweep would let the
-                    # next request fire another sweep almost
-                    # immediately after this one returned, defeating
-                    # the once-per-minute throttle.
                     _last_cleanup_at = time.monotonic()
 
     return row["username"]
@@ -451,7 +352,7 @@ def destroy_session(
     Also revokes the matching reauth ticket — without that, a stolen
     session cookie plus a freshly granted reauth ticket would remain
     replayable for the rest of the ticket's TTL after the legitimate
-    user has logged out (H-4).
+    user has logged out.
 
     The username lookup, session delete, and reauth-ticket delete are
     wrapped in a single ``BEGIN IMMEDIATE`` transaction so a failure
@@ -465,8 +366,10 @@ def destroy_session(
 
     token_hash = _hash_token(token)
 
-    conn.execute("BEGIN IMMEDIATE")
-    try:
+    # ``with conn:`` commits on normal exit and rolls back on exception;
+    # BEGIN IMMEDIATE here preserves write-lock semantics.
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT username FROM admin_sessions WHERE token_hash = ?",
             (token_hash,),
@@ -477,10 +380,6 @@ def destroy_session(
             (token_hash,),
         )
         revoke_reauth_by_hash_in_tx(conn, token_hash)
-        conn.execute("COMMIT")
-    except Exception:
-        conn.rollback()
-        raise
 
     logger.info("session.destroyed user=%s ip=%s", username or "-", ip or "-")
     try:
@@ -494,10 +393,10 @@ def destroy_session(
 def destroy_all_sessions_for(conn: sqlite3.Connection, username: str) -> int:
     """Delete every session belonging to *username*. Returns rows affected.
 
-    Also revokes every reauth ticket owned by *username* (H-4) so a bulk
-    session purge — typically driven by a forced password change or admin
-    action — does not leave stale tickets that an attacker holding a
-    related cookie could replay.
+    Also revokes every reauth ticket owned by *username* so a bulk session
+    purge — typically driven by a forced password change or admin action —
+    does not leave stale tickets that an attacker holding a related cookie
+    could replay.
     """
     cur = conn.execute("DELETE FROM admin_sessions WHERE username = ?", (username,))
     conn.commit()

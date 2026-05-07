@@ -34,7 +34,7 @@ import threading
 import time
 from datetime import UTC, datetime
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 _USED_TOKENS_LOCK = threading.Lock()
 #: Bounded LRU mapping ``digest -> exp_ts`` of recently-claimed tokens.

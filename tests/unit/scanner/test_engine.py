@@ -1091,7 +1091,7 @@ class TestTwoPhaseDelete:
     ):
         """Recovery: a 'deleting' row whose file is still on disk is
         reset to 'pending' so the next run retries it."""
-        from mediaman.scanner.engine import _recover_stuck_deletions
+        from mediaman.scanner.deletions import _recover_stuck_deletions
 
         live = tmp_path / "live.mkv"
         live.write_bytes(b"x")
@@ -1113,7 +1113,7 @@ class TestTwoPhaseDelete:
     def test_recover_file_absent_completes_cleanup(self, conn, mock_plex):
         """Recovery: a 'deleting' row whose file is already gone gets
         its audit entry written and the row removed."""
-        from mediaman.scanner.engine import _recover_stuck_deletions
+        from mediaman.scanner.deletions import _recover_stuck_deletions
 
         self._insert_item(conn, "r2", file_path="/definitely/not/here/x.mkv")
         self._insert_sched(

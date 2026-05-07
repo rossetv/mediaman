@@ -11,7 +11,7 @@ def _reset_poster_module_state():
     """Reset poster.py module-level state between tests so suite
     ordering does not cause spurious failures (cache dir, GC counter,
     public-IP rate limiter)."""
-    from mediaman.services.infra.rate_limits import POSTER_PUBLIC_LIMITER
+    from mediaman.services.rate_limit.instances import POSTER_PUBLIC_LIMITER
     from mediaman.web.routes import poster as poster_mod
 
     poster_mod._cache_dir = None
@@ -269,7 +269,8 @@ class TestPosterEndpointAuth:
         """A logged-in admin need not attach ?sig=... — the session is enough."""
         client, conn = self._build_test_app(tmp_path, self._KEY)
 
-        from mediaman.auth.session import create_session, create_user
+        from mediaman.web.auth.password_hash import create_user
+        from mediaman.web.auth.session_store import create_session
 
         create_user(conn, "admin", "long-enough-test-password-please", enforce_policy=False)
         token = create_session(conn, "admin")
@@ -288,7 +289,8 @@ class TestPosterEndpointAuth:
         """Admin + bad rating key returns 404."""
         client, conn = self._build_test_app(tmp_path, self._KEY, stub_cache=False)
 
-        from mediaman.auth.session import create_session, create_user
+        from mediaman.web.auth.password_hash import create_user
+        from mediaman.web.auth.session_store import create_session
 
         create_user(conn, "admin", "long-enough-test-password-please", enforce_policy=False)
         token = create_session(conn, "admin")
@@ -626,7 +628,7 @@ class TestPosterPublicRateLimit:
 
         from mediaman.config import load_config
         from mediaman.db import init_db, set_connection
-        from mediaman.services.infra.rate_limits import POSTER_PUBLIC_LIMITER
+        from mediaman.services.rate_limit.instances import POSTER_PUBLIC_LIMITER
         from mediaman.web.routes.poster import router
 
         POSTER_PUBLIC_LIMITER.reset()
@@ -668,8 +670,9 @@ class TestPosterPublicRateLimit:
 
     def test_admin_bypasses_ip_cap(self, tmp_path):
         client, _ = self._setup(tmp_path)
-        from mediaman.auth.session import create_session, create_user
         from mediaman.db import get_db
+        from mediaman.web.auth.password_hash import create_user
+        from mediaman.web.auth.session_store import create_session
 
         conn = get_db()
         create_user(conn, "admin", "long-enough-test-password-please", enforce_policy=False)
@@ -700,7 +703,7 @@ class TestPosterCacheSidecarMime:
 
         from mediaman.config import load_config
         from mediaman.db import init_db, set_connection
-        from mediaman.services.infra.rate_limits import POSTER_PUBLIC_LIMITER
+        from mediaman.services.rate_limit.instances import POSTER_PUBLIC_LIMITER
         from mediaman.web.routes.poster import router
 
         POSTER_PUBLIC_LIMITER.reset()
@@ -894,7 +897,7 @@ class TestPosterTempCleanupOnFailure:
 
         poster_mod._cache_dir = None
 
-        from mediaman.services.infra.rate_limits import POSTER_PUBLIC_LIMITER
+        from mediaman.services.rate_limit.instances import POSTER_PUBLIC_LIMITER
 
         POSTER_PUBLIC_LIMITER.reset()
 

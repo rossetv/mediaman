@@ -34,6 +34,12 @@ class Obscure405Middleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:
+        """Convert 405 Method Not Allowed to 401 for ``/api/*`` routes.
+
+        Prevents method enumeration by returning an indistinguishable 401
+        response instead of the 405 that would reveal which HTTP methods are
+        accepted. Also strips the ``Allow`` header that advertises accepted methods.
+        """
         response = await call_next(request)
         if response.status_code == 405 and request.url.path.startswith("/api/"):
             body = b'{"detail":"Not authenticated"}'

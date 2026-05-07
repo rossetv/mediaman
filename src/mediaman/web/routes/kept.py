@@ -17,21 +17,33 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from mediaman.audit import log_audit
-from mediaman.auth.middleware import get_current_admin
-from mediaman.auth.rate_limit import ActionRateLimiter
+from mediaman.core.format import format_bytes as _format_bytes
+from mediaman.core.format import media_type_badge
+from mediaman.core.time import now_iso
 from mediaman.db import get_db
-from mediaman.services.infra.format import format_bytes as _format_bytes
-from mediaman.services.infra.format import media_type_badge
-from mediaman.services.infra.time import now_iso
+from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.scheduled_actions import format_expiry
+from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
+from mediaman.web.repository.kept import (
+    delete_kept_show,
+    delete_protection,
+    fetch_active_protection,
+    fetch_existing_actions_for_seasons,
+    fetch_protected_items,
+    fetch_seasons_for_show,
+    fetch_show_keep_row,
+    fetch_show_kept_status,
+    set_protected_state,
+    upsert_kept_show,
+)
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes._helpers import is_admin as _is_admin
 
 # Canonical list of TV / anime season media_type values, shared with the
-# library type filter (finding 34). Keeping the list co-located with
-# library/_query.py would create a circular import; instead we redeclare
-# the same tuple here and rely on the unit test to detect drift.
+# library type filter. Keeping the list co-located with library/_query.py
+# would create a circular import; instead we redeclare the same tuple here
+# and rely on the unit test to detect drift.
 _TV_SEASON_TYPES: tuple[str, ...] = ("tv_season", "tv", "season")
 _ANIME_SEASON_TYPES: tuple[str, ...] = ("anime_season", "anime")
 _ALL_SEASON_TYPES: tuple[str, ...] = _TV_SEASON_TYPES + _ANIME_SEASON_TYPES
@@ -40,23 +52,23 @@ _ALL_SEASON_TYPES: tuple[str, ...] = _TV_SEASON_TYPES + _ANIME_SEASON_TYPES
 def _resolve_show_rating_key(
     conn: sqlite3.Connection, supplied_key: str
 ) -> tuple[str | None, str | None]:
-    """Return ``(resolved_key, error)`` for a keep-show request.
+    """Return (resolved_key, error) for a keep-show request.
 
     IDOR risk closed by this helper: the previous implementation fell
-    back to matching seasons by ``show_title`` whenever the supplied
+    back to matching seasons by show_title whenever the supplied
     rating key was missing on the stored rows. Two distinct shows
-    sharing a title (a common case — remakes, international versions,
+    sharing a title (a common case -- remakes, international versions,
     generic one-word titles) collided in that branch so user A keeping
-    ``Kingdom`` would also match user B's ``Kingdom`` rows.
+    Kingdom would also match user B's Kingdom rows.
 
     Resolution rules:
-      (a) ``supplied_key`` is present and at least one media_items row
-          carries that exact ``show_rating_key`` → use the supplied key.
-      (b) anything else → return ``(None, error_message)`` so the caller
+      (a) supplied_key is present and at least one media_items row
+          carries that exact show_rating_key -- use the supplied key.
+      (b) anything else -- return (None, error_message) so the caller
           can 409.
 
-    ``supplied_key`` is the raw path parameter. Callers pass it through
-    unchanged — never synthesised from ``show_title``.
+    supplied_key is the raw path parameter. Callers pass it through
+    unchanged -- never synthesised from show_title.
     """
     key = (supplied_key or "").strip()
     if key:
@@ -71,31 +83,18 @@ def _resolve_show_rating_key(
 
 
 class _KeepShowBody(BaseModel):
-    """Body shape for POST /api/show/{show_rating_key}/keep.
-
-    ``season_ids`` is capped at 50 entries (finding 32) — generous for
-    even the longest series but tight enough to refuse a flood payload.
-    A 50-element list × 36 chars per UUID is ~1.8 KB, well within
-    reasonable JSON body limits.
-    """
+    """Body shape for POST /api/show/{show_rating_key}/keep."""
 
     duration: str = "forever"
     season_ids: list[str] = Field(default_factory=list, max_length=50)
 
 
-# Per-admin cap on /api/media/{id}/unprotect (finding 30) — matches the
-# /keep limiter on the library side so an admin can't strip protection
-# rapidly via a script while the partner /keep endpoint is throttled.
 _UNPROTECT_LIMITER = ActionRateLimiter(
     max_in_window=60,
     window_seconds=60,
     max_per_day=500,
 )
 
-# Per-admin cap on /api/show/{id}/remove. Same shape as the unprotect
-# limiter for symmetry — both endpoints strip protection and a stolen
-# session cookie should not be able to wipe show-level keeps in a tight
-# loop.
 _REMOVE_SHOW_KEEP_LIMITER = ActionRateLimiter(
     max_in_window=60,
     window_seconds=60,
@@ -103,7 +102,7 @@ _REMOVE_SHOW_KEEP_LIMITER = ActionRateLimiter(
 )
 
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -111,52 +110,30 @@ router = APIRouter()
 def _fetch_protected(conn: sqlite3.Connection) -> tuple[list[dict], list[dict]]:
     """Return (forever_items, snoozed_items) from scheduled_actions joined with media_items."""
     now = now_iso()
-
-    rows = conn.execute(
-        """
-        SELECT
-            sa.id          AS sa_id,
-            sa.media_item_id,
-            sa.action,
-            sa.execute_at,
-            sa.snooze_duration,
-            mi.title,
-            mi.media_type,
-            mi.show_title,
-            mi.season_number,
-            mi.plex_rating_key,
-            mi.file_size_bytes
-        FROM scheduled_actions sa
-        JOIN media_items mi ON mi.id = sa.media_item_id
-        WHERE sa.action = 'protected_forever'
-           OR (sa.action = 'snoozed' AND sa.execute_at > ?)
-        ORDER BY sa.action DESC, sa.execute_at ASC
-    """,
-        (now,),
-    ).fetchall()
+    rows = fetch_protected_items(conn, now)
 
     forever = []
     snoozed = []
     for r in rows:
-        media_type = r["media_type"] or "movie"
+        media_type = r.media_type
         badge_class, type_label = media_type_badge(media_type)
-        if media_type in ("tv", "anime") and r["season_number"]:
-            type_label = f"{type_label} · S{r['season_number']}"
+        if media_type in ("tv", "anime") and r.season_number:
+            type_label = f"{type_label} . S{r.season_number}"
 
         item = {
-            "sa_id": r["sa_id"],
-            "media_item_id": r["media_item_id"],
-            "title": r["title"],
-            "plex_rating_key": r["plex_rating_key"],
+            "sa_id": r.sa_id,
+            "media_item_id": r.media_item_id,
+            "title": r.title,
+            "plex_rating_key": r.plex_rating_key,
             "badge_class": badge_class,
             "type_label": type_label,
-            "action": r["action"],
-            "expiry": format_expiry(r["action"], r["execute_at"]),
-            "snooze_duration": r["snooze_duration"] or "",
-            "file_size": _format_bytes(r["file_size_bytes"] or 0),
+            "action": r.action,
+            "expiry": format_expiry(r.action, r.execute_at),
+            "snooze_duration": r.snooze_duration,
+            "file_size": _format_bytes(r.file_size_bytes),
         }
 
-        if r["action"] == ACTION_PROTECTED_FOREVER:
+        if r.action == ACTION_PROTECTED_FOREVER:
             forever.append(item)
         else:
             snoozed.append(item)
@@ -164,19 +141,9 @@ def _fetch_protected(conn: sqlite3.Connection) -> tuple[list[dict], list[dict]]:
     return forever, snoozed
 
 
-# ---------------------------------------------------------------------------
-# Page route
-# ---------------------------------------------------------------------------
-
-
 @router.get("/kept")
 def redirect_kept_to_library(request: Request) -> RedirectResponse:
-    """Redirect /kept to the library Kept filter — auth-gated.
-
-    Gated so an unauthenticated caller can't use the 301 target to
-    enumerate internal URL structure; unauth callers just see the
-    login redirect.
-    """
+    """Redirect /kept to the library Kept filter -- auth-gated."""
     if not _is_admin(request):
         return RedirectResponse("/login", status_code=302)
     return RedirectResponse("/library?type=kept", status_code=301)
@@ -184,15 +151,10 @@ def redirect_kept_to_library(request: Request) -> RedirectResponse:
 
 @router.get("/kept/page")
 def redirect_kept_page(request: Request) -> RedirectResponse:
-    """Redirect legacy /kept/page to /library?type=kept — auth-gated."""
+    """Redirect legacy /kept/page to /library?type=kept -- auth-gated."""
     if not _is_admin(request):
         return RedirectResponse("/login", status_code=302)
     return RedirectResponse("/library?type=kept", status_code=301)
-
-
-# ---------------------------------------------------------------------------
-# JSON API endpoints
-# ---------------------------------------------------------------------------
 
 
 @router.get("/api/kept")
@@ -205,34 +167,20 @@ def api_protected(username: str = Depends(get_current_admin)) -> JSONResponse:
 
 @router.post("/api/media/{media_item_id}/unprotect")
 def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)) -> JSONResponse:
-    """Remove protection from a media item.
-
-    Deletes the scheduled_actions entry (protected_forever or snoozed) and
-    logs the action to audit_log. Rate-limited (finding 30) to match the
-    keep limiter — without this, an admin could script-strip protections
-    far faster than they could re-apply them.
-    """
+    """Remove protection from a media item."""
     if not _UNPROTECT_LIMITER.check(username):
         logger.warning("media.unprotect_throttled user=%s", username)
         return respond_err(
-            "too_many_requests", status=429, message="Too many unprotect operations — slow down"
+            "too_many_requests", status=429, message="Too many unprotect operations -- slow down"
         )
 
     conn = get_db()
+    action_id = fetch_active_protection(conn, media_item_id)
 
-    # Pick the most-recent protection row — avoids targeting a stale
-    # snooze when a newer protect/snooze has already been applied.
-    row = conn.execute(
-        "SELECT id FROM scheduled_actions "
-        "WHERE media_item_id = ? AND action IN ('protected_forever', 'snoozed') "
-        "ORDER BY id DESC LIMIT 1",
-        (media_item_id,),
-    ).fetchone()
-
-    if row is None:
+    if action_id is None:
         return respond_err("not_found", status=404, message="No active protection found")
 
-    conn.execute("DELETE FROM scheduled_actions WHERE id = ?", (row["id"],))
+    delete_protection(conn, action_id)
     log_audit(
         conn,
         media_item_id,
@@ -250,35 +198,21 @@ def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)
 def api_show_seasons(
     show_rating_key: str, request: Request, admin: str = Depends(get_current_admin)
 ) -> JSONResponse:
-    """Return all seasons of a show for the keep dialog season picker.
-
-    Looks up by show_rating_key only. The previous implementation fell
-    back to matching by show_title via the ``title`` query parameter
-    when the rating-key lookup was empty — that branch is removed
-    (finding 31) because an admin could probe arbitrary titles to
-    enumerate which shows existed in the library, and two distinct
-    shows sharing a title would collide.
-    """
+    """Return all seasons of a show for the keep dialog season picker."""
     conn = get_db()
-    rows = conn.execute(
-        "SELECT id, title, show_title, season_number, file_size_bytes, last_watched_at "
-        "FROM media_items "
-        "WHERE show_rating_key = ? ORDER BY season_number ASC",
-        (show_rating_key,),
-    ).fetchall()
+    season_rows = fetch_seasons_for_show(conn, show_rating_key)
 
-    show_title = rows[0]["show_title"] if rows else ""
+    show_title = ""
+    if season_rows:
+        raw = conn.execute(
+            "SELECT show_title FROM media_items WHERE show_rating_key = ? LIMIT 1",
+            (show_rating_key,),
+        ).fetchone()
+        show_title = raw["show_title"] if raw else ""
 
     seasons = []
-    for r in rows:
-        kept_row = conn.execute(
-            "SELECT id FROM scheduled_actions WHERE media_item_id = ? "
-            "AND action IN ('protected_forever', 'snoozed') AND token_used = 0",
-            (r["id"],),
-        ).fetchone()
-
-        # Format last watched for display
-        lw = r["last_watched_at"]
+    for r in season_rows:
+        lw = r.last_watched_at
         last_watched = None
         if lw:
             try:
@@ -295,29 +229,30 @@ def api_show_seasons(
             except (ValueError, TypeError):
                 pass
 
-        size_bytes = r["file_size_bytes"] or 0
         seasons.append(
             {
-                "id": r["id"],
-                "season_number": r["season_number"],
-                "title": r["title"],
-                "kept": kept_row is not None,
-                "file_size": _format_bytes(size_bytes),
-                "file_size_bytes": size_bytes,
+                "id": r.id,
+                "season_number": r.season_number,
+                "title": r.title,
+                "kept": r.kept,
+                "file_size": _format_bytes(r.file_size_bytes),
+                "file_size_bytes": r.file_size_bytes,
                 "last_watched": last_watched,
             }
         )
 
-    show_kept = conn.execute(
-        "SELECT action, execute_at FROM kept_shows WHERE show_rating_key = ?",
-        (show_rating_key,),
-    ).fetchone()
+    show_kept_row = fetch_show_kept_status(conn, show_rating_key)
 
     return JSONResponse(
         {
             "show_title": show_title,
             "show_rating_key": show_rating_key,
-            "show_kept": dict(show_kept) if show_kept else None,
+            "show_kept": {
+                "action": show_kept_row.action,
+                "execute_at": show_kept_row.execute_at,
+            }
+            if show_kept_row
+            else None,
             "seasons": seasons,
         }
     )
@@ -340,13 +275,6 @@ def api_keep_show(
     if duration not in VALID_KEEP_DURATIONS:
         return respond_err("invalid_duration", status=400)
 
-    # Guard against IDOR — every season_id must actually belong to this
-    # show. We used to fall back to matching by ``show_title`` when the
-    # stored ``show_rating_key`` was NULL. That opened a collision path
-    # for two distinct shows sharing a title. Now we strictly match on
-    # ``show_rating_key`` and log any attempt that would have needed
-    # the old fallback, so operators can spot unscanned rows in the
-    # wild and backfill them.
     resolved_key, err = _resolve_show_rating_key(conn, show_rating_key)
     if err or not resolved_key:
         logger.warning(
@@ -364,8 +292,6 @@ def api_keep_show(
     ).fetchall()
     owned_ids = {r["id"] for r in owned}
     if owned_ids != set(season_ids):
-        # Note any season whose show_rating_key is unpopulated — if
-        # that's the cause, a scan backfill is the correct remedy.
         missing = set(season_ids) - owned_ids
         if missing:
             unkeyed = conn.execute(
@@ -395,44 +321,44 @@ def api_keep_show(
         action = ACTION_SNOOZED
         execute_at = (now + timedelta(days=days)).isoformat() if days else None
 
-    # Use the *resolved* key for every subsequent DB lookup (finding 33).
-    # The unverified path parameter was being used for both the
-    # title-row lookup and the kept_shows insert, which meant a request
-    # with a slightly different cased key could land on the wrong show
-    # row even after _resolve_show_rating_key approved it.
     title_row = conn.execute(
         "SELECT show_title FROM media_items WHERE show_rating_key = ? LIMIT 1",
         (resolved_key,),
     ).fetchone()
     show_title = title_row["show_title"] if title_row else "Unknown"
 
-    conn.execute(
-        "INSERT INTO kept_shows (show_rating_key, show_title, action, execute_at, snooze_duration, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?) "
-        "ON CONFLICT(show_rating_key) DO UPDATE SET action=excluded.action, "
-        "execute_at=excluded.execute_at, snooze_duration=excluded.snooze_duration",
-        (resolved_key, show_title, action, execute_at, duration, now.isoformat()),
+    upsert_kept_show(
+        conn,
+        show_rating_key=resolved_key,
+        show_title=show_title,
+        action=action,
+        execute_at=execute_at,
+        snooze_duration=duration,
+        created_at=now.isoformat(),
     )
 
-    for sid in season_ids:
-        existing = conn.execute(
-            "SELECT id FROM scheduled_actions WHERE media_item_id = ? AND token_used = 0",
-            (sid,),
-        ).fetchone()
-        token = secrets.token_urlsafe(32)
-        if existing:
-            conn.execute(
-                "UPDATE scheduled_actions SET action = ?, execute_at = ?, "
-                "snoozed_at = ?, snooze_duration = ? WHERE id = ?",
-                (action, execute_at, now.isoformat(), duration, existing["id"]),
-            )
-        else:
-            conn.execute(
-                "INSERT INTO scheduled_actions "
-                "(media_item_id, action, scheduled_at, execute_at, token, token_used, snoozed_at, snooze_duration) "
-                "VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
-                (sid, action, now.isoformat(), execute_at, token, now.isoformat(), duration),
-            )
+    existing_by_season = fetch_existing_actions_for_seasons(conn, season_ids)
+
+    to_update = [
+        (action, execute_at, now.isoformat(), duration, existing_by_season[sid])
+        for sid in season_ids
+        if sid in existing_by_season
+    ]
+    to_insert = [
+        (
+            sid,
+            action,
+            now.isoformat(),
+            execute_at,
+            secrets.token_urlsafe(32),
+            now.isoformat(),
+            duration,
+        )
+        for sid in season_ids
+        if sid not in existing_by_season
+    ]
+
+    set_protected_state(conn, to_update=to_update, to_insert=to_insert)
 
     log_audit(
         conn,
@@ -443,7 +369,7 @@ def api_keep_show(
     )
     conn.commit()
 
-    logger.info("Kept show %s (%s) — %s by %s", resolved_key, show_title, duration, admin)
+    logger.info("Kept show %s (%s) -- %s by %s", resolved_key, show_title, duration, admin)
     return respond_ok()
 
 
@@ -459,20 +385,18 @@ def api_remove_show_keep(
             message="Too many remove-show-keep requests; try again shortly.",
         )
     conn = get_db()
-    row = conn.execute(
-        "SELECT id, show_title FROM kept_shows WHERE show_rating_key = ?",
-        (show_rating_key,),
-    ).fetchone()
+    keep_row = fetch_show_keep_row(conn, show_rating_key)
 
-    if row is None:
+    if keep_row is None:
         return respond_err("not_found", status=404, message="No show-level keep found")
 
-    conn.execute("DELETE FROM kept_shows WHERE id = ?", (row["id"],))
+    kept_id, show_title = keep_row
+    delete_kept_show(conn, kept_id)
     log_audit(
         conn,
         show_rating_key,
         "removed_show_keep",
-        f"Show keep removed for '{row['show_title']}' by {admin}",
+        f"Show keep removed for '{show_title}' by {admin}",
         actor=admin,
     )
     conn.commit()
@@ -481,14 +405,9 @@ def api_remove_show_keep(
     return respond_ok()
 
 
-# ---------------------------------------------------------------------------
-# Legacy redirect — bookmarks and external links land on the library view.
-# ---------------------------------------------------------------------------
-
-
 @router.get("/protected")
 def redirect_protected_page(request: Request) -> RedirectResponse:
-    """Redirect old /protected URL to library kept filter — auth-gated."""
+    """Redirect old /protected URL to library kept filter -- auth-gated."""
     if not _is_admin(request):
         return RedirectResponse("/login", status_code=302)
     return RedirectResponse("/library?type=kept", status_code=301)

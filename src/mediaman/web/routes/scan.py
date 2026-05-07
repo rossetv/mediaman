@@ -11,8 +11,6 @@ from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
 from mediaman.audit import security_event, security_event_or_raise
-from mediaman.auth.middleware import get_current_admin
-from mediaman.auth.rate_limit import get_client_ip
 from mediaman.db import (
     finish_scan_run,
     get_db,
@@ -21,13 +19,15 @@ from mediaman.db import (
     open_thread_connection,
     start_scan_run,
 )
-from mediaman.services.infra.rate_limits import (
+from mediaman.services.rate_limit import get_client_ip
+from mediaman.services.rate_limit.instances import (
     SCAN_TRIGGER_LIMITER as _SCAN_TRIGGER_LIMITER,
 )
-from mediaman.services.rate_limit import rate_limit
+from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.responses import respond_err, respond_ok
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -40,11 +40,10 @@ def trigger_scan(
     """Trigger a manual scan. Returns immediately; scan runs in background thread.
 
     Spawns a heartbeat thread alongside the scan worker so the
-    ``scan_runs`` lease is renewed every minute (D05 finding 9). The
-    previous code only renewed via the manual scan thread itself, so a
-    long Plex / *arr round-trip would let the lease lapse and a
-    competing cron scan would (correctly) consider the row stale and
-    fire a duplicate run.
+    ``scan_runs`` lease is renewed every minute. The previous code only
+    renewed via the manual scan thread itself, so a long Plex / *arr
+    round-trip would let the lease lapse and a competing cron scan would
+    (correctly) consider the row stale and fire a duplicate run.
 
     Rate-limited per-admin (3/min, 20/day) so a leaked session cookie
     cannot be used to chain scans against Plex / Sonarr / Radarr.
@@ -91,6 +90,11 @@ def trigger_scan(
     heartbeat_thread.start()
 
     def run():
+        """Execute the scan in a background thread with its own DB connection.
+
+        Opens a fresh thread-local connection, invokes the full scan pipeline,
+        marks the run as done or errored, and always closes the connection on exit.
+        """
         thread_conn = open_thread_connection(db_path)
         try:
             from mediaman.scanner.runner import run_scan_from_db

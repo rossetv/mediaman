@@ -40,23 +40,27 @@ be invoked.  The same applies to ``resolve_safe_outbound_url``.
 
 from __future__ import annotations
 
+import contextlib
 import json as _json
 import logging
 import sys
+import time  # noqa: F401 — tests patch http.client.time.sleep via monkeypatch
 from typing import Any
 
 import requests
 
+from mediaman.core.url_safety import resolve_safe_outbound_url as _resolve_safe_outbound_url
 from mediaman.services.infra.http.dns_pinning import ensure_hook_installed, pin
 from mediaman.services.infra.http.retry import _RETRY_BACKOFFS, dispatch_loop
 from mediaman.services.infra.http.streaming import _read_capped
-from mediaman.services.infra.url_safety import (
-    resolve_safe_outbound_url as _resolve_safe_outbound_url,
-)
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
-_HTTP_CLIENT_MODULE = "mediaman.services.infra.http_client"
+# Public alias so tests can monkeypatch ``http.client.resolve_safe_outbound_url``
+# and have ``_request`` pick up the patched version via sys.modules lookup.
+resolve_safe_outbound_url = _resolve_safe_outbound_url
+
+_HTTP_CLIENT_MODULE = "mediaman.services.infra.http.client"
 
 # ---------------------------------------------------------------------------
 # Module-level constants
@@ -65,7 +69,7 @@ _HTTP_CLIENT_MODULE = "mediaman.services.infra.http_client"
 #: Default per-call timeouts.  Connect is short — a TCP handshake that hasn't
 #: completed in 5 s means the target is unreachable.  Read is generous because
 #: OpenAI and TMDB occasionally take 20-30 s.
-_DEFAULT_TIMEOUT: tuple[float, float] = (5.0, 30.0)
+_DEFAULT_TIMEOUT_SECONDS: tuple[float, float] = (5.0, 30.0)
 
 #: Default response-size cap.  8 MiB is well above any sane JSON API payload
 #: but low enough that a pathological upstream cannot pin memory on a worker.
@@ -159,6 +163,14 @@ def _dispatch(
 # ---------------------------------------------------------------------------
 
 
+# rationale: json/data/auth/caller mirror `requests.Session.request` and
+# `requests.adapters.HTTPAdapter` which themselves take `Any`. There is no
+# upstream stub for these parameters; tightening here would force callers
+# to cast or duplicate the request library's permissive contract.
+# The `params` dict is typed as `dict[str, Any]` for the same reason —
+# `requests` accepts values of any JSON-serialisable type for query params.
+
+
 class SafeHTTPClient:
     """SSRF- and size-aware wrapper around :mod:`requests`.
 
@@ -173,7 +185,7 @@ class SafeHTTPClient:
         base_url: str = "",
         *,
         session: requests.Session | None = None,
-        default_timeout: tuple[float, float] = _DEFAULT_TIMEOUT,
+        default_timeout: tuple[float, float] = _DEFAULT_TIMEOUT_SECONDS,
         default_max_bytes: int = _DEFAULT_MAX_BYTES,
         strict_egress: bool | None = None,
     ) -> None:
@@ -414,21 +426,13 @@ class SafeHTTPClient:
                 expected_content_type=expected_content_type,
             )
 
-        if hostname and pinned_ip:
-            with pin(hostname, pinned_ip):
-                return dispatch_loop(
-                    dispatch_fn=_dispatch_fn,
-                    read_fn=_read_fn,
-                    method=method,
-                    url=url,
-                    attempts=attempts,
-                    make_error=SafeHTTPError,
-                )
-        return dispatch_loop(
-            dispatch_fn=_dispatch_fn,
-            read_fn=_read_fn,
-            method=method,
-            url=url,
-            attempts=attempts,
-            make_error=SafeHTTPError,
-        )
+        ctx = pin(hostname, pinned_ip) if (hostname and pinned_ip) else contextlib.nullcontext()
+        with ctx:
+            return dispatch_loop(
+                dispatch_fn=_dispatch_fn,
+                read_fn=_read_fn,
+                method=method,
+                url=url,
+                attempts=attempts,
+                make_error=SafeHTTPError,
+            )

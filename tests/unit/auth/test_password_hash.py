@@ -8,7 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
-from mediaman.auth.password_hash import (
+from mediaman.db import init_db
+from mediaman.web.auth.password_hash import (
     BCRYPT_ROUNDS,
     authenticate,
     change_password,
@@ -18,7 +19,6 @@ from mediaman.auth.password_hash import (
     set_must_change_password,
     user_must_change_password,
 )
-from mediaman.db import init_db
 
 
 @pytest.fixture
@@ -119,7 +119,7 @@ class TestChangePassword:
         assert authenticate(conn, "alice", "correct-old") is True
 
     def test_change_revokes_existing_sessions(self, conn):
-        from mediaman.auth.session_store import create_session, validate_session
+        from mediaman.web.auth.session_store import create_session, validate_session
 
         create_user(conn, "alice", "old-pass", enforce_policy=False)
         token = create_session(conn, "alice")
@@ -313,7 +313,7 @@ class TestEmptyUsernameShortCircuit:
     empty-username requests at the endpoint and DoS the server's CPU."""
 
     def test_empty_username_does_not_call_bcrypt(self, conn):
-        with patch("mediaman.auth.password_hash.bcrypt") as mock_bcrypt:
+        with patch("mediaman.web.auth.password_hash.bcrypt") as mock_bcrypt:
             assert authenticate(conn, "", "any-password") is False
             assert not mock_bcrypt.checkpw.called
             assert not mock_bcrypt.hashpw.called
@@ -337,14 +337,14 @@ class TestLockedAccountSkipsBcrypt:
     test_login_lockout.py."""
 
     def test_locked_account_skips_bcrypt_call(self, conn):
-        from mediaman.auth.login_lockout import record_failure
+        from mediaman.web.auth.login_lockout import record_failure
 
         create_user(conn, "alice", "correct-pass", enforce_policy=False)
         # Force the account into a locked state.
         for _ in range(5):
             record_failure(conn, "alice")
         # Now patch bcrypt and confirm authenticate does not call it.
-        with patch("mediaman.auth.password_hash.bcrypt") as mock_bcrypt:
+        with patch("mediaman.web.auth.password_hash.bcrypt") as mock_bcrypt:
             assert authenticate(conn, "alice", "anything") is False
             assert not mock_bcrypt.checkpw.called
             assert not mock_bcrypt.hashpw.called
@@ -354,7 +354,7 @@ class TestLockedAccountSkipsBcrypt:
         the username exists or not, otherwise a timing channel
         enumerates valid usernames. We assert by execution-path: both
         cases skip bcrypt entirely once locked."""
-        from mediaman.auth.login_lockout import record_failure
+        from mediaman.web.auth.login_lockout import record_failure
 
         # Real user, locked.
         create_user(conn, "alice", "correct-pass", enforce_policy=False)
@@ -367,7 +367,7 @@ class TestLockedAccountSkipsBcrypt:
         for _ in range(5):
             record_failure(conn, "ghost")
 
-        with patch("mediaman.auth.password_hash.bcrypt") as mock_bcrypt:
+        with patch("mediaman.web.auth.password_hash.bcrypt") as mock_bcrypt:
             assert authenticate(conn, "alice", "anything") is False
             assert authenticate(conn, "ghost", "anything") is False
             assert not mock_bcrypt.checkpw.called
@@ -438,7 +438,7 @@ class TestChangePasswordTOCTOU:
             return result
 
         with patch(
-            "mediaman.auth.password_hash.authenticate",
+            "mediaman.web.auth.password_hash.authenticate",
             side_effect=authenticate_then_delete,
         ):
             ok = change_password(conn, "alice", "correct-old", "new-pass-2", enforce_policy=False)
@@ -462,8 +462,8 @@ class TestChangePasswordReauthInsideTransaction:
         revoked atomically with the password-change transaction so a
         thief holding a ticket cannot redeem it under the freshly
         issued session."""
-        from mediaman.auth.reauth import grant_recent_reauth, has_recent_reauth
-        from mediaman.auth.session_store import create_session
+        from mediaman.web.auth.reauth import grant_recent_reauth, has_recent_reauth
+        from mediaman.web.auth.session_store import create_session
 
         create_user(conn, "alice", "old-pass", enforce_policy=False)
         token = create_session(conn, "alice")

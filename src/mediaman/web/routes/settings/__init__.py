@@ -24,6 +24,12 @@ Sub-modules
     URL-field validation helpers (_URL_FIELDS, validate_url_fields).
 """
 
+# rationale: package barrel + 6 route handlers + ``_load_settings``; the
+# ``_load_settings`` function is a monkeypatch target in tests so extracting
+# it would break the test suite's patching contract; the route handlers share
+# rate-limiter singletons and settings-loading state that make further
+# decomposition incremental rather than immediately safe.
+
 from __future__ import annotations
 
 import concurrent.futures
@@ -37,19 +43,19 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.responses import Response
 
 from mediaman.audit import security_event, security_event_or_raise
-from mediaman.auth.middleware import get_current_admin, resolve_page_session
-from mediaman.auth.rate_limit import get_client_ip
-from mediaman.auth.reauth import has_recent_reauth
+from mediaman.core.time import now_iso
+from mediaman.core.url_safety import (
+    is_safe_outbound_url as is_safe_outbound_url,  # re-exported for patch targets
+)
 from mediaman.crypto import decrypt_value, encrypt_value
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_plex_from_db
-from mediaman.services.infra.rate_limits import SETTINGS_TEST_LIMITER as _SETTINGS_TEST_LIMITER
-from mediaman.services.infra.rate_limits import SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER
 from mediaman.services.infra.settings_reader import ConfigDecryptError
-from mediaman.services.infra.time import now_iso
-from mediaman.services.infra.url_safety import (
-    is_safe_outbound_url as is_safe_outbound_url,  # re-exported for patch targets
-)
+from mediaman.services.rate_limit import get_client_ip
+from mediaman.services.rate_limit.instances import SETTINGS_TEST_LIMITER as _SETTINGS_TEST_LIMITER
+from mediaman.services.rate_limit.instances import SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER
+from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
+from mediaman.web.auth.reauth import has_recent_reauth
 from mediaman.web.models import SettingsUpdate
 from mediaman.web.responses import respond_err, respond_ok
 
@@ -87,13 +93,13 @@ from mediaman.web.routes.settings.secrets import (
     encrypted_keys as _encrypted_keys,
 )
 from mediaman.web.routes.settings.secrets import (
+    has_sensitive_key_changes as _touches_sensitive_keys,
+)
+from mediaman.web.routes.settings.secrets import (
     mask_encrypted_keys as _mask_encrypted_keys,
 )
 from mediaman.web.routes.settings.secrets import (
     mask_secrets as _mask_secrets,  # noqa: F401 — kept for backward compat
-)
-from mediaman.web.routes.settings.secrets import (
-    touches_sensitive_keys as _touches_sensitive_keys,
 )
 from mediaman.web.routes.settings.testers import (
     SERVICE_TESTER_KEYS as _SERVICE_TESTER_KEYS,
@@ -120,7 +126,7 @@ from mediaman.web.routes.settings.testers import (
 # Re-export the cache dict under the name tests import directly.
 TEST_CACHE = _TEST_CACHE
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

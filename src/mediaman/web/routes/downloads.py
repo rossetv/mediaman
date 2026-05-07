@@ -15,10 +15,10 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from starlette.responses import Response
 
-from mediaman.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.db import get_db
 from mediaman.services.downloads.abandon import abandon_movie, abandon_seasons, abandon_series
 from mediaman.services.downloads.download_queue import build_downloads_response
+from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
 
 router = APIRouter()
 

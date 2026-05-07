@@ -51,7 +51,7 @@ import bcrypt
 
 from mediaman.web.auth._token_hashing import hash_token as _hash_token
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 #: Default lifetime of a "recent reauth" ticket. Five minutes — comfortable
 #: for a "prompt then submit" UX, short enough that a leaked cookie cannot
@@ -138,7 +138,7 @@ def require_reauth(conn: sqlite3.Connection, admin: str, password: str) -> bool:
     """
     if not password:
         return False
-    from mediaman.web.auth.session import authenticate
+    from mediaman.web.auth.password_hash import authenticate
 
     return authenticate(conn, admin, password, record_failures=False)
 
@@ -176,11 +176,11 @@ def verify_reauth_password(
     client.
     """
     from mediaman.web.auth.login_lockout import (
-        check_lockout,
+        is_locked_out,
         record_failure,
         record_success,
     )
-    from mediaman.web.auth.session import authenticate
+    from mediaman.web.auth.password_hash import authenticate
 
     namespace = f"{REAUTH_LOCKOUT_PREFIX}{admin}"
 
@@ -190,7 +190,7 @@ def verify_reauth_password(
     # detect the lock state by latency alone (the locked-and-returns-
     # immediately path is ~0 ms, the unlocked-but-wrong-password path
     # is ~150 ms+ on cost-12 bcrypt).
-    if check_lockout(conn, namespace):
+    if is_locked_out(conn, namespace):
         # The previous implementation called ``authenticate(conn, "",
         # password, ...)`` here intending to burn a bcrypt cycle, but
         # ``authenticate`` short-circuits on empty username before

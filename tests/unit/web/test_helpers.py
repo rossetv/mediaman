@@ -106,7 +106,7 @@ class TestIsAdmin:
         """is_admin returns True when get_optional_admin_from_token returns a username."""
         req = self._make_request("valid-token")
         with patch(
-            "mediaman.auth.middleware.get_optional_admin_from_token",
+            "mediaman.web.auth.middleware.get_optional_admin_from_token",
             return_value="admin",
         ):
             assert is_admin(req) is True
@@ -115,7 +115,7 @@ class TestIsAdmin:
         """is_admin returns False when no valid session exists."""
         req = self._make_request(None)
         with patch(
-            "mediaman.auth.middleware.get_optional_admin_from_token",
+            "mediaman.web.auth.middleware.get_optional_admin_from_token",
             return_value=None,
         ):
             assert is_admin(req) is False
@@ -124,7 +124,7 @@ class TestIsAdmin:
         """is_admin must pass the session_token cookie value to the middleware function."""
         req = self._make_request("my-session-token")
         with patch(
-            "mediaman.auth.middleware.get_optional_admin_from_token",
+            "mediaman.web.auth.middleware.get_optional_admin_from_token",
             return_value=None,
         ) as mock_fn:
             is_admin(req)
@@ -136,7 +136,7 @@ class TestIsAdmin:
         """When no cookie is present, None is passed to the middleware function."""
         req = self._make_request(None)
         with patch(
-            "mediaman.auth.middleware.get_optional_admin_from_token",
+            "mediaman.web.auth.middleware.get_optional_admin_from_token",
             return_value=None,
         ) as mock_fn:
             is_admin(req)

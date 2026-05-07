@@ -21,7 +21,7 @@ from functools import lru_cache
 import requests as _requests
 from fastapi import Request
 
-from mediaman.auth.rate_limit import ActionRateLimiter
+from mediaman.core.time import now_iso as _now_iso
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
@@ -30,15 +30,16 @@ from mediaman.services.arr.state import (
     build_sonarr_cache,
     compute_download_state,
 )
-from mediaman.services.infra.http_client import SafeHTTPError
-from mediaman.services.infra.time import now_iso as _now_iso
+from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.media_meta.omdb import fetch_ratings, get_omdb_key
+from mediaman.services.rate_limit import ActionRateLimiter
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 _RATINGS_TTL_DAYS = 30
 _DISCOVER_TMDB_TTL_SECONDS = 3600
 _MAX_QUERY_LEN = 100
+_DISCOVER_CACHE_MAX_ENTRIES = 32
 
 _discover_cache: dict[str, tuple[float, list[dict[str, object]]]] = {}
 _discover_cache_lock = threading.Lock()
@@ -55,12 +56,12 @@ def _get_executor() -> ThreadPoolExecutor:
     return ThreadPoolExecutor(max_workers=6, thread_name_prefix="search_enrich")
 
 
-# /api/search and /api/search/discover query limiter (findings 1, 2). Both
-# endpoints fan out to TMDB and the per-result rating-enrichment threadpool.
-# Even authenticated, an admin who scripts the endpoint (or an attacker
-# holding a session cookie) can rapidly exhaust TMDB's quota or our worker
-# pool. 30 per minute / 200 per day per admin keeps the typeahead UX
-# snappy while blocking sustained abuse.
+# /api/search and /api/search/discover query limiter. Both endpoints fan
+# out to TMDB and the per-result rating-enrichment threadpool. Even
+# authenticated, an admin who scripts the endpoint (or an attacker holding
+# a session cookie) can rapidly exhaust TMDB's quota or our worker pool.
+# 30 per minute / 200 per day per admin keeps the typeahead UX snappy
+# while blocking sustained abuse.
 _QUERY_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=200)
 
 
@@ -121,12 +122,12 @@ def _annotate_states(results: list[dict], request: Request) -> None:
             r["download_state"] = compute_download_state(r["media_type"], r["tmdb_id"], caches)
 
 
-# Wall-clock budget for the parallel ratings-enrichment fan-out (finding 4).
-# The previous code passed ``timeout=None`` to ``as_completed`` so a single
-# stuck future blocked the whole iterator until ``fut.result(timeout=3)``
-# fired — but ``as_completed`` doesn't yield until the future is ready, so
-# that inner timeout was effectively dead code. The right place to bound
-# the wall-clock cost is on ``as_completed`` itself.
+# Wall-clock budget for the parallel ratings-enrichment fan-out. The previous
+# code passed ``timeout=None`` to ``as_completed`` so a single stuck future
+# blocked the whole iterator until ``fut.result(timeout=3)`` fired — but
+# ``as_completed`` doesn't yield until the future is ready, so that inner
+# timeout was effectively dead code. The right place to bound the wall-clock
+# cost is on ``as_completed`` itself.
 _ENRICH_BUDGET_SECONDS = 6.0
 
 
@@ -175,7 +176,7 @@ def _enrich_ratings(results: list[dict], request: Request) -> None:
         return
 
     # Read the OMDb key in the request thread — SQLite connections must not
-    # cross thread boundaries (finding 32).
+    # cross thread boundaries.
     resolved_omdb_key = get_omdb_key(conn, secret_key)
 
     def fetch(key_group):

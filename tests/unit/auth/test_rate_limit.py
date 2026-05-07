@@ -6,14 +6,14 @@ import time
 
 import pytest
 
-from mediaman.auth.rate_limit import (
+from mediaman.services.rate_limit import (
     ActionRateLimiter,
     RateLimiter,
     get_client_ip,
     trusted_proxies,
 )
-from mediaman.auth.rate_limit import ip_resolver as ip_resolver_module
-from mediaman.auth.rate_limit.ip_resolver import (
+from mediaman.services.rate_limit import ip_resolver as ip_resolver_module
+from mediaman.services.rate_limit.ip_resolver import (
     clear_cache,
     cloudflare_proxies,
 )
@@ -59,11 +59,16 @@ class TestRateLimiter:
         limiter.check("2001:db8:1234:5678::1")
         assert limiter.check("2001:db8:1234:5678::ffff") is False
 
-    def test_resets_after_window(self):
+    def test_resets_after_window(self, monkeypatch):
+        from mediaman.services.rate_limit import limiters as _limiters
+
+        fake_now = [1000.0]
+        monkeypatch.setattr(_limiters.time, "monotonic", lambda: fake_now[0])
+
         limiter = RateLimiter(max_attempts=1, window_seconds=0.1)
         limiter.check("192.168.1.1")
         assert limiter.check("192.168.1.1") is False
-        time.sleep(0.15)
+        fake_now[0] += 0.2  # advance past the 0.1 s window
         assert limiter.check("192.168.1.1") is True
 
     def test_concurrent_check_is_atomic(self):
@@ -91,7 +96,7 @@ class TestRateLimiterEviction:
 
     def test_lru_bucket_evicted_when_cap_hit(self, monkeypatch):
         """Filling beyond _MAX_BUCKETS evicts the LEAST-recently-used bucket."""
-        from mediaman.auth.rate_limit import limiters as limiters_module
+        from mediaman.services.rate_limit import limiters as limiters_module
 
         monkeypatch.setattr(limiters_module, "_MAX_BUCKETS", 3)
         limiter = RateLimiter(max_attempts=10, window_seconds=60)
@@ -109,7 +114,7 @@ class TestRateLimiterEviction:
 
     def test_recent_access_promotes_bucket(self, monkeypatch):
         """A bucket touched most recently must NOT be the next eviction target."""
-        from mediaman.auth.rate_limit import limiters as limiters_module
+        from mediaman.services.rate_limit import limiters as limiters_module
 
         monkeypatch.setattr(limiters_module, "_MAX_BUCKETS", 3)
         limiter = RateLimiter(max_attempts=10, window_seconds=60)

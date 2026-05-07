@@ -11,6 +11,19 @@ from __future__ import annotations
 
 import re
 
+# Action-type constants are canonical in mediaman.core.scheduled_action_kinds;
+# re-exported here for backwards compatibility — existing importers of
+# ``mediaman.web.models`` continue to work without modification.
+from mediaman.core.scheduled_action_kinds import (
+    ACTION_PROTECTED_FOREVER as ACTION_PROTECTED_FOREVER,
+)
+from mediaman.core.scheduled_action_kinds import (
+    ACTION_SCHEDULED_DELETION as ACTION_SCHEDULED_DELETION,
+)
+from mediaman.core.scheduled_action_kinds import (
+    ACTION_SNOOZED as ACTION_SNOOZED,
+)
+
 #: Field-level cap on password input.  bcrypt itself only consumes 72
 #: bytes, but we accept up to this many characters at the API surface
 #: so a passphrase user gets a clear "too long" rejection instead of a
@@ -45,14 +58,6 @@ _SECRET_MAX = 1024
 #: Hostname (incl. fully-qualified) max per RFC 1035 is 253; round up
 #: to 256 for a comfortable margin.
 _HOST_MAX = 256
-
-# ---------------------------------------------------------------------------
-# Action type constants — canonical string values stored in scheduled_actions
-# ---------------------------------------------------------------------------
-
-ACTION_PROTECTED_FOREVER = "protected_forever"
-ACTION_SNOOZED = "snoozed"
-ACTION_SCHEDULED_DELETION = "scheduled_deletion"
 
 # ---------------------------------------------------------------------------
 # Keep duration vocabulary — maps canonical long-form label to days (None = forever)

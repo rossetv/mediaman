@@ -14,7 +14,7 @@ import hmac
 
 from .aes import (
     # Public API
-    canary_check,
+    is_canary_valid,
     decrypt_value,
     encrypt_value,
     migrate_legacy_ciphertexts,
@@ -51,7 +51,6 @@ __all__ = [
     "_derive_aes_key_hkdf",
     "_load_or_create_salt",
     "_secret_key_looks_strong",
-    "canary_check",
     "decrypt_value",
     "encrypt_value",
     "generate_download_token",
@@ -60,6 +59,7 @@ __all__ = [
     "generate_poster_token",
     "generate_session_token",
     "generate_unsubscribe_token",
+    "is_canary_valid",
     "migrate_legacy_ciphertexts",
     "sign_poster_url",
     "validate_download_token",

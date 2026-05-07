@@ -16,7 +16,7 @@ from mediaman.services.arr.state import (
 if TYPE_CHECKING:
     from mediaman.services.arr.state import ArrCaches
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def _annotate_rec_download_states(

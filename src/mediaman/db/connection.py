@@ -1,7 +1,8 @@
 """SQLite connection management and job-run helpers.
 
 Split from the original monolithic ``db.py`` (R5). Schema DDL and
-migrations live in :mod:`mediaman.db.schema`.
+migrations live in :mod:`mediaman.db.schema_definition` and
+:mod:`mediaman.db.migrations`.
 
 Connection lifecycle
 --------------------
@@ -25,11 +26,11 @@ import sqlite3
 import threading
 from datetime import UTC, datetime, timedelta
 
-from mediaman.services.infra.time import now_iso
+from mediaman.core.time import now_iso
 
-from .schema import apply_migrations
+from .migrations import apply_migrations
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def _configure_connection(conn: sqlite3.Connection) -> None:
@@ -153,9 +154,9 @@ def close_db() -> None:
             _thread_local.conn = None
 
 
-# Heartbeat lease (finding 9): a running job renews its ``heartbeat_at``
-# column at least once per :data:`_JOB_HEARTBEAT_INTERVAL_SECONDS`. A row
-# whose heartbeat (or, for legacy rows that pre-date migration 24, whose
+# Heartbeat lease: a running job renews its ``heartbeat_at`` column at
+# least once per :data:`_JOB_HEARTBEAT_INTERVAL_SECONDS`. A row whose
+# heartbeat (or, for legacy rows that pre-date migration 24, whose
 # ``started_at``) is older than :data:`_JOB_HEARTBEAT_STALE_SECONDS` is
 # considered crashed and no longer blocks new runs.
 _JOB_HEARTBEAT_INTERVAL_SECONDS = 60

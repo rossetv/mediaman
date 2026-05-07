@@ -1,6 +1,6 @@
 import pytest
 
-from mediaman.services.infra.http_client import SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.mail.mailgun import (
     MailgunClient,
     _retry_with_jitter,
@@ -34,7 +34,7 @@ class TestMailgunClient:
 
     def test_test_connection(self, client, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data={"domain": {"name": "example.com"}}))
-        assert client.test_connection() is True
+        assert client.is_reachable() is True
 
 
 class TestMailgunSend:

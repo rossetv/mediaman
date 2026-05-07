@@ -12,9 +12,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from mediaman.auth.session import create_session, create_user
 from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
+from mediaman.web.auth.password_hash import create_user
+from mediaman.web.auth.session_store import create_session
 
 
 @pytest.fixture
@@ -47,7 +48,7 @@ def authed_client(app):
 def _reset_subscriber_limiter():
     """Reset the per-admin subscriber limiter so suite ordering does not
     cause the second / third test in a class to hit the daily cap."""
-    from mediaman.services.infra.rate_limits import SUBSCRIBER_WRITE_LIMITER
+    from mediaman.services.rate_limit.instances import SUBSCRIBER_WRITE_LIMITER
 
     SUBSCRIBER_WRITE_LIMITER.reset()
     yield
@@ -188,7 +189,7 @@ class TestSendNewsletter:
     @pytest.fixture(autouse=True)
     def _reset_newsletter_limiter(self):
         """Reset the newsletter rate-limiter between tests."""
-        from mediaman.services.infra.rate_limits import NEWSLETTER_LIMITER
+        from mediaman.services.rate_limit.instances import NEWSLETTER_LIMITER
 
         NEWSLETTER_LIMITER.reset()
         yield
@@ -307,7 +308,7 @@ class TestSubscriberAuditEvents:
         assert "rmv@example.com" not in rows[0]["detail"]
 
     def test_newsletter_send_writes_security_event(self, authed_client, app):
-        from mediaman.services.infra.rate_limits import NEWSLETTER_LIMITER
+        from mediaman.services.rate_limit.instances import NEWSLETTER_LIMITER
 
         NEWSLETTER_LIMITER.reset()
 

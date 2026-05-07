@@ -122,7 +122,7 @@ class TestForceChangePost:
             patch(SESSION_PATCH, return_value=("admin", conn)),
             patch("mediaman.web.routes.force_password_change.password_issues", return_value=[]),
             patch("mediaman.web.routes.force_password_change.change_password", return_value=True),
-            patch("mediaman.auth.session.create_session", return_value="new-token"),
+            patch("mediaman.web.auth.session_store.create_session", return_value="new-token"),
         ):
             client = TestClient(app, raise_server_exceptions=True)
             resp = client.post(

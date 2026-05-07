@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -56,7 +56,7 @@ class PlexFetcher:
         Pure network-read helper; touches no DB. Returns one
         :class:`_PlexItemFetch` per movie or per season.
 
-        **Fails closed on watch-history errors** (D05 finding 13). The
+        **Fails closed on watch-history errors**. The
         previous code swallowed a per-item watch-history failure and
         substituted an empty list, which combined with
         ``check_inactivity([], …) == True`` to mean a transient Plex

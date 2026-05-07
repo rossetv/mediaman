@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.testclient import TestClient
@@ -23,6 +24,7 @@ from mediaman.crypto import generate_download_token
 from mediaman.db import init_db, set_connection
 from mediaman.web.routes.download.confirm import (
     _DOWNLOAD_LIMITER_GET,
+    _reset_arr_cache_for_tests,
     validate_youtube_id,
 )
 from mediaman.web.routes.download.confirm import (
@@ -94,9 +96,28 @@ class TestValidateYoutubeId:
         assert validate_youtube_id("abc_def-ghi") == "abc_def-ghi"
 
 
+_CONFIRM_MODULE = "mediaman.web.routes.download.confirm"
+
+
 class TestDownloadPageConfirm:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _arr_stubs(self):
+        """Patch Arr infrastructure boundaries and reset per-process caches.
+
+        Every test in this class exercises the confirm page at the HTTP layer;
+        none of them care about Radarr/Sonarr state.  Patching the two
+        TTL-cached helpers (rather than their four internal callees) keeps
+        each test body free of infrastructure mocks.
+        """
+        _reset_arr_cache_for_tests()
         _DOWNLOAD_LIMITER_GET._attempts.clear()
+        with (
+            patch(f"{_CONFIRM_MODULE}._get_radarr_cache_cached", return_value={}),
+            patch(f"{_CONFIRM_MODULE}._get_sonarr_cache_cached", return_value={}),
+            patch(f"{_CONFIRM_MODULE}.compute_download_state", return_value=None),
+        ):
+            yield
+        _reset_arr_cache_for_tests()
 
     def test_valid_token_returns_confirm_state(self, db_path, secret_key):
         """GET with a valid token renders the confirm state."""
@@ -105,24 +126,7 @@ class TestDownloadPageConfirm:
         client = TestClient(app)
         token = _valid_token(secret_key)
 
-        mock_radarr = MagicMock()
-        mock_radarr.get_movie_by_tmdb.return_value = None
-        mock_radarr.get_queue.return_value = []
-
-        with (
-            patch(
-                "mediaman.web.routes.download.confirm.build_radarr_from_db",
-                return_value=mock_radarr,
-            ),
-            patch(
-                "mediaman.web.routes.download.confirm.build_sonarr_from_db",
-                return_value=MagicMock(),
-            ),
-            patch("mediaman.web.routes.download.confirm.build_radarr_cache", return_value={}),
-            patch("mediaman.web.routes.download.confirm.build_sonarr_cache", return_value={}),
-            patch("mediaman.web.routes.download.confirm.compute_download_state", return_value=None),
-        ):
-            resp = client.get(f"/download/{token}")
+        resp = client.get(f"/download/{token}")
 
         assert resp.status_code == 200
         ctx = resp.json()
@@ -197,21 +201,7 @@ class TestDownloadPageConfirm:
 
         app = _make_app(conn, secret_key)
         client = TestClient(app)
-
-        with (
-            patch(
-                "mediaman.web.routes.download.confirm.build_radarr_from_db",
-                return_value=MagicMock(),
-            ),
-            patch(
-                "mediaman.web.routes.download.confirm.build_sonarr_from_db",
-                return_value=MagicMock(),
-            ),
-            patch("mediaman.web.routes.download.confirm.build_radarr_cache", return_value={}),
-            patch("mediaman.web.routes.download.confirm.build_sonarr_cache", return_value={}),
-            patch("mediaman.web.routes.download.confirm.compute_download_state", return_value=None),
-        ):
-            resp = client.get(f"/download/{token}")
+        resp = client.get(f"/download/{token}")
 
         assert resp.status_code == 200
         ctx = resp.json()

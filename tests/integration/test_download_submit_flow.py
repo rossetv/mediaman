@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 from mediaman.config import Config
 from mediaman.crypto import generate_download_token, validate_poll_token
 from mediaman.db import init_db, set_connection
-from mediaman.services.infra.http_client import SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPError
 from mediaman.web.routes.download import (
     reset_download_caches,
     reset_download_limiters,

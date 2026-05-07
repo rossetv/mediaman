@@ -12,27 +12,29 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.responses import Response
 
 from mediaman.audit import security_event
-from mediaman.auth.password_policy import is_strong
-from mediaman.auth.rate_limit import (
+from mediaman.db import get_db
+from mediaman.services.rate_limit import (
     RateLimiter,
     get_client_ip,
     peer_is_trusted,
     trusted_proxies,
 )
-from mediaman.auth.session import (
+from mediaman.web.auth.password_hash import (
+    _sanitise_log_field,
     authenticate,
-    create_session,
-    destroy_session,
     set_must_change_password,
     user_must_change_password,
+)
+from mediaman.web.auth.password_policy import is_strong
+from mediaman.web.auth.session_store import (
+    create_session,
+    destroy_session,
     validate_session,
 )
-from mediaman.db import get_db
-from mediaman.web.auth.password_hash import _sanitise_log_field
 from mediaman.web.responses import respond_err
 from mediaman.web.routes._helpers import set_session_cookie
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 # Login bucket: 5 attempts per 5 minutes per /24 IPv4 block (or /64 IPv6).
@@ -143,6 +145,7 @@ if _secure_cookie_override() == "false":
 
 @router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request) -> HTMLResponse:
+    """Render the login form (HTML)."""
     templates = request.app.state.templates
     return templates.TemplateResponse(request, "login.html", {"error": None})
 
@@ -153,6 +156,10 @@ def login_submit(
     username: str = Form(...),
     password: str = Form(...),
 ) -> Response:
+    """Authenticate a username/password submission, applying per-IP and per-username rate limits before touching the credential check.
+
+    On success, issues a session cookie and redirects to the post-login destination; on failure, re-renders the form with a generic error to avoid leaking which field was wrong.
+    """
     client_ip = get_client_ip(request)
     if not _limiter.check(client_ip):
         templates = request.app.state.templates

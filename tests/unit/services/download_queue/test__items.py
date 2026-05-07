@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from mediaman.services.arr.fetcher._radarr import _make_radarr_card
-from mediaman.services.arr.fetcher._sonarr import _make_sonarr_card
+from mediaman.services.arr.fetcher._base import make_arr_card
 from mediaman.services.downloads.download_queue.items import (
     build_episode_dicts,
     build_matched_item,
@@ -89,20 +88,20 @@ class TestBuildEpisodeDicts:
 
 class TestBuildMatchedItemMovie:
     def test_produces_movie_media_type(self):
-        arr = _make_radarr_card("Dune", year=2021, progress=50)
+        arr = make_arr_card("movie", "Dune", source="Radarr", year=2021, progress=50)
         item = build_matched_item(
             arr, _nzb(), state="downloading", eta="~10 min", download_rate=1_000_000
         )
         assert item["media_type"] == "movie"
 
     def test_title_from_arr_preferred(self):
-        arr = _make_radarr_card("Dune", year=2021)
+        arr = make_arr_card("movie", "Dune", source="Radarr", year=2021)
         nzb = _nzb(title="Dune.2021.1080p.BluRay")
         item = build_matched_item(arr, nzb, state="downloading", eta="", download_rate=0)
         assert item["title"] == "Dune"
 
     def test_progress_taken_from_nzb(self):
-        arr = _make_radarr_card("Dune", year=2021)
+        arr = make_arr_card("movie", "Dune", source="Radarr", year=2021)
         item = build_matched_item(
             arr, _nzb(progress=75), state="downloading", eta="", download_rate=0
         )
@@ -116,12 +115,17 @@ class TestBuildMatchedItemMovie:
 
 class TestBuildMatchedItemSeries:
     def test_produces_series_media_type(self):
-        arr = _make_sonarr_card("Breaking Bad", episodes=[_ep_entry()])
+        arr = make_arr_card("series", "Breaking Bad", source="Sonarr", episodes=[_ep_entry()])
         item = build_matched_item(arr, _nzb(), state="downloading", eta="", download_rate=0)
         assert item["media_type"] == "series"
 
     def test_episodes_populated(self):
-        arr = _make_sonarr_card("Breaking Bad", episodes=[_ep_entry(), _ep_entry(label="S01E02")])
+        arr = make_arr_card(
+            "series",
+            "Breaking Bad",
+            source="Sonarr",
+            episodes=[_ep_entry(), _ep_entry(label="S01E02")],
+        )
         item = build_matched_item(arr, _nzb(), state="downloading", eta="", download_rate=0)
         assert len(item["episodes"]) == 2
 
@@ -134,20 +138,20 @@ class TestBuildMatchedItemSeries:
 class TestBuildUnmatchedArrItem:
     @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
     def test_unmatched_movie_in_searching_state(self, _mock_search):
-        arr = _make_radarr_card("Dune", progress=0)
+        arr = make_arr_card("movie", "Dune", source="Radarr", progress=0)
         item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
         assert item["media_type"] == "movie"
         assert item["state"] == "searching"
 
     @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
     def test_unmatched_movie_at_100_is_almost_ready(self, _mock_search):
-        arr = _make_radarr_card("Dune", progress=100)
+        arr = make_arr_card("movie", "Dune", source="Radarr", progress=100)
         item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
         assert item["state"] == "almost_ready"
 
     @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
     def test_unmatched_series_in_searching_state(self, _mock_search):
-        arr = _make_sonarr_card("Breaking Bad", episodes=[])
+        arr = make_arr_card("series", "Breaking Bad", source="Sonarr", episodes=[])
         item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
         assert item["media_type"] == "series"
         assert item["state"] == "searching"
@@ -159,13 +163,13 @@ class TestBuildUnmatchedArrItem:
             _ep_entry(progress=100, sizeleft=0, size=500_000_000),
             _ep_entry(label="S01E02", progress=100, sizeleft=0, size=500_000_000),
         ]
-        arr = _make_sonarr_card("Silo", episodes=eps)
+        arr = make_arr_card("series", "Silo", source="Sonarr", episodes=eps)
         item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
         assert item["state"] == "almost_ready"
 
     @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(3, 1_000_000.0))
     def test_search_count_propagated(self, _mock_search):
-        arr = _make_radarr_card("Dune", progress=0)
+        arr = make_arr_card("movie", "Dune", source="Radarr", progress=0)
         item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
         assert item["search_count"] == 3
 
@@ -181,7 +185,7 @@ class TestAbandonVisibleThreshold:
     """abandon_visible flips on once an item has been searching for ≥10 h."""
 
     def _make_item(self, added_at: float, progress: int = 0) -> dict:
-        arr = _make_radarr_card("Dune", progress=progress)
+        arr = make_arr_card("movie", "Dune", source="Radarr", progress=progress)
         arr["added_at"] = added_at
         with patch(
             "mediaman.services.arr.search_trigger.get_search_info",
@@ -252,14 +256,16 @@ def _ep_with_season(label: str, season_number: int) -> dict:
 class TestStuckSeasons:
     @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
     def test_movie_has_empty_stuck_seasons(self, _mock_search):
-        arr = _make_radarr_card("Dune", progress=0)
+        arr = make_arr_card("movie", "Dune", source="Radarr", progress=0)
         item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
         assert item["stuck_seasons"] == []
 
     @patch("mediaman.services.arr.search_trigger.get_search_info", return_value=(0, 0.0))
     def test_series_groups_episodes_by_season(self, _mock_search):
-        arr = _make_sonarr_card(
+        arr = make_arr_card(
+            "series",
             "Breaking Bad",
+            source="Sonarr",
             episodes=[
                 _ep_with_season("S21E01", 21),
                 _ep_with_season("S21E02", 21),
@@ -291,7 +297,7 @@ class TestStuckSeasons:
                 "status": "completed",
             },
         ]
-        arr = _make_sonarr_card("Silo", episodes=eps)
+        arr = make_arr_card("series", "Silo", source="Sonarr", episodes=eps)
         item = build_unmatched_arr_item(arr, {}, _fake_search_hint, _fake_arr_link)
         # state will be almost_ready — stuck_seasons must be empty
         assert item["state"] == "almost_ready"

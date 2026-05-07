@@ -13,10 +13,11 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from mediaman.audit import security_event
-from mediaman.auth.middleware import get_current_admin
-from mediaman.auth.rate_limit import get_client_ip
-from mediaman.auth.session import change_password, create_session
 from mediaman.db import get_db
+from mediaman.services.rate_limit import get_client_ip
+from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.password_hash import change_password
+from mediaman.web.auth.session_store import create_session
 from mediaman.web.models.users import ChangePasswordBody
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes._helpers import set_session_cookie
@@ -25,7 +26,7 @@ from mediaman.web.routes.users.rate_limits import (
     _PASSWORD_CHANGE_LIMITER,
 )
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -66,7 +67,7 @@ def api_change_password(
             "same_password", status=400, message="New password must differ from the old password"
         )
 
-    from mediaman.auth.password_policy import password_issues
+    from mediaman.web.auth.password_policy import password_issues
 
     issues = password_issues(new_password, username=admin)
     if issues:

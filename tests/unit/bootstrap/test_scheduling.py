@@ -8,11 +8,17 @@ The module is mostly wiring/glue, so we test:
 
 import pytest
 
-from mediaman.bootstrap.scheduling import (
-    _validate_scan_day,
-    _validate_scan_time,
-    _validate_scan_timezone,
-    _validate_sync_interval,
+from mediaman.validators import (
+    validate_scan_day as _validate_scan_day,
+)
+from mediaman.validators import (
+    validate_scan_time as _validate_scan_time,
+)
+from mediaman.validators import (
+    validate_scan_timezone as _validate_scan_timezone,
+)
+from mediaman.validators import (
+    validate_sync_interval as _validate_sync_interval,
 )
 
 # ---------------------------------------------------------------------------
@@ -97,7 +103,7 @@ class TestBootstrapScheduling:
             calls.update(kwargs)
 
         monkeypatch.setattr(
-            "mediaman.bootstrap.scheduling.start_scheduler",
+            "mediaman.bootstrap.scan_jobs.start_scheduler",
             fake_start_scheduler,
             raising=False,
         )
@@ -106,7 +112,7 @@ class TestBootstrapScheduling:
 
         monkeypatch.setattr(_sched, "start_scheduler", fake_start_scheduler)
 
-        from mediaman.bootstrap.scheduling import bootstrap_scheduling
+        from mediaman.bootstrap.scan_jobs import bootstrap_scheduling
 
         result = bootstrap_scheduling(app, self._make_config())
         assert result is True
@@ -129,7 +135,7 @@ class TestBootstrapScheduling:
 
         monkeypatch.setattr(_sched, "start_scheduler", fake_start)
 
-        from mediaman.bootstrap.scheduling import bootstrap_scheduling
+        from mediaman.bootstrap.scan_jobs import bootstrap_scheduling
 
         bootstrap_scheduling(app, self._make_config())
         assert captured.get("hour") == 14
@@ -139,7 +145,7 @@ class TestBootstrapScheduling:
         app = self._make_app(db_path)
         app.state.canary_ok = False
 
-        from mediaman.bootstrap.scheduling import bootstrap_scheduling
+        from mediaman.bootstrap.scan_jobs import bootstrap_scheduling
 
         result = bootstrap_scheduling(app, self._make_config())
         assert result is False
@@ -152,7 +158,7 @@ class TestBootstrapScheduling:
         )
         app.state.db.commit()
 
-        from mediaman.bootstrap.scheduling import bootstrap_scheduling
+        from mediaman.bootstrap.scan_jobs import bootstrap_scheduling
 
         # Invalid scan_time must not blow up the app — bootstrap catches it and returns False.
         result = bootstrap_scheduling(app, self._make_config())
@@ -163,7 +169,7 @@ class TestBootstrapScheduling:
         app = self._make_app(db_path)
         app.state.canary_ok = False
 
-        from mediaman.bootstrap.scheduling import bootstrap_scheduling
+        from mediaman.bootstrap.scan_jobs import bootstrap_scheduling
 
         result = bootstrap_scheduling(app, self._make_config())
         assert result is False
@@ -182,7 +188,7 @@ class TestBootstrapScheduling:
         app = self._make_app(db_path)
         app.state.canary_ok = False
 
-        from mediaman.bootstrap.scheduling import bootstrap_scheduling
+        from mediaman.bootstrap.scan_jobs import bootstrap_scheduling
 
         with caplog.at_level(logging.ERROR, logger="mediaman"):
             bootstrap_scheduling(app, self._make_config())
@@ -208,18 +214,24 @@ class TestShutdownScheduling:
         # should still return — abandoning the worker — within the bounded
         # timeout, not block forever.
         def slow_stop():
-            time.sleep(60)
+            import threading
+
+            # Block without consuming real wall-clock time at the test's
+            # expense.  The production code's bounded join(timeout=0.2)
+            # will return; this thread exits after 10 s at the latest so
+            # it does not leak across the entire test session.
+            threading.Event().wait(timeout=10)
 
         import mediaman.scanner.scheduler as _sched
 
         monkeypatch.setattr(_sched, "stop_scheduler", slow_stop)
 
         # Squash the timeout for the test so we don't actually wait 30s.
-        import mediaman.bootstrap.scheduling as _boot
+        import mediaman.bootstrap.scan_jobs as _boot
 
         monkeypatch.setattr(_boot, "_SHUTDOWN_TIMEOUT_SECONDS", 0.2)
 
-        from mediaman.bootstrap.scheduling import shutdown_scheduling
+        from mediaman.bootstrap.scan_jobs import shutdown_scheduling
 
         start = time.monotonic()
         shutdown_scheduling()
@@ -233,7 +245,7 @@ class TestBootstrapCryptoFailClosed:
 
     def test_canary_ok_starts_false_on_import_failure(self, db_path, monkeypatch):
         """An import-time exception must leave canary_ok=False."""
-        from mediaman.bootstrap import crypto as crypto_mod
+        from mediaman.app_factory import bootstrap_crypto
 
         class _State:
             pass
@@ -250,15 +262,15 @@ class TestBootstrapCryptoFailClosed:
         def boom(*_a, **_kw):
             raise RuntimeError("synthetic failure")
 
-        monkeypatch.setattr("mediaman.crypto.canary_check", boom)
+        monkeypatch.setattr("mediaman.crypto.is_canary_valid", boom)
 
         class _Cfg:
             secret_key = "0123456789abcdef" * 4
 
-        crypto_mod.bootstrap_crypto(app, _Cfg())
+        bootstrap_crypto(app, _Cfg())
         assert app.state.canary_ok is False
-        # And — finding 15 — bootstrap_crypto must NOT touch
-        # scheduler_healthy; that's bootstrap_scheduling's job.
+        # bootstrap_crypto must NOT touch scheduler_healthy; that
+        # invariant belongs to bootstrap_scheduling.
         assert not hasattr(app.state, "scheduler_healthy")
 
 

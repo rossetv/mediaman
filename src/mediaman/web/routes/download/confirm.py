@@ -15,7 +15,6 @@ import requests
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
-from mediaman.auth.rate_limit import RateLimiter, get_client_ip
 from mediaman.crypto import generate_poll_token, validate_download_token
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
@@ -28,13 +27,14 @@ from mediaman.services.arr.state import (
     compute_download_state,
 )
 from mediaman.services.downloads.download_format import build_item
-from mediaman.services.infra.http_client import SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.media_meta.item_enrichment import enrich_redownload_item
+from mediaman.services.rate_limit import RateLimiter, get_client_ip
 
 # YouTube video IDs are exactly 11 URL-safe base64 characters.
 _YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -192,6 +192,138 @@ def _build_item_from_suggestion(
     return item
 
 
+def _build_item_from_payload(
+    payload: Mapping[str, object],
+    conn: sqlite3.Connection,
+    secret_key: str,
+) -> dict[str, object]:
+    """Build the download item dict from the token payload, enriching where possible.
+
+    Tries the suggestion DB row (``sid``), redownload enrichment, or falls
+    back to the base skeleton.
+    """
+    sid = payload.get("sid")
+    if sid:
+        # ``sid`` is typed as ``int | None`` in DownloadTokenPayload but the
+        # token producer is responsible for the type — coerce here so the
+        # SQL parameter is always an int regardless of upstream regressions.
+        try:
+            sid_int = int(str(sid))
+        except (TypeError, ValueError):
+            sid_int = None
+        if sid_int is not None:
+            row = conn.execute(
+                "SELECT poster_url, year, description, reason, rating, rt_rating, "
+                "tagline, runtime, genres, cast_json, director, trailer_key, imdb_rating, metascore "
+                "FROM suggestions WHERE id = ?",
+                (sid_int,),
+            ).fetchone()
+            return (
+                _build_item_from_suggestion(payload, row) if row else _base_download_item(payload)
+            )
+        return _base_download_item(payload)
+    if payload.get("act") == "redownload":
+        item = _base_download_item(payload)
+        enrich_redownload_item(item, conn, secret_key)
+        return item
+    return _base_download_item(payload)
+
+
+def _enrich_item_fields(item: dict[str, object]) -> None:
+    """Sanitise trailer key and decode genres/cast JSON in-place."""
+    trailer_value = item.get("trailer_key")
+    item["trailer_key"] = validate_youtube_id(
+        trailer_value if isinstance(trailer_value, str) else None
+    )
+    genres_value = item.get("genres")
+    if isinstance(genres_value, (str, bytes, bytearray)):
+        try:
+            item["genres_list"] = _coerce_string_list(json.loads(genres_value))
+        except (json.JSONDecodeError, TypeError):
+            item["genres_list"] = []
+    cast_value = item.get("cast_json")
+    if isinstance(cast_value, (str, bytes, bytearray)):
+        try:
+            item["cast_list"] = _coerce_string_list(json.loads(cast_value))
+        except (json.JSONDecodeError, TypeError):
+            item["cast_list"] = []
+
+
+def _resolve_download_state(
+    item: dict[str, object],
+    conn: sqlite3.Connection,
+    tmdb_id: int | None,
+    secret_key: str,
+    mt: str,
+) -> None:
+    """Fetch Arr library state and set ``item["download_state"]`` in-place."""
+    item["download_state"] = None
+    if not tmdb_id:
+        return
+    try:
+        # Only build the cache for the matching service — the other
+        # half is dead work and doubles the outbound load otherwise.
+        # Use ``.get`` with empty defaults so a malformed upstream
+        # cache (e.g. a unit test that patches ``build_radarr_cache``
+        # to return ``{}``) doesn't crash the page render.
+        caches: ArrCaches = {
+            "radarr_movies": {},
+            "radarr_queue_tmdb_ids": set(),
+            "sonarr_series": {},
+            "sonarr_queue_tmdb_ids": set(),
+        }
+        if mt == "movie":
+            radarr_cache = _get_radarr_cache_cached(conn, secret_key)
+            caches["radarr_movies"] = radarr_cache.get("radarr_movies", {}) or {}
+            caches["radarr_queue_tmdb_ids"] = radarr_cache.get("radarr_queue_tmdb_ids") or set()
+        else:
+            sonarr_cache = _get_sonarr_cache_cached(conn, secret_key)
+            caches["sonarr_series"] = sonarr_cache.get("sonarr_series", {}) or {}
+            caches["sonarr_queue_tmdb_ids"] = sonarr_cache.get("sonarr_queue_tmdb_ids") or set()
+        state = compute_download_state(mt, tmdb_id, caches)
+        if state is not None:
+            item["download_state"] = state
+    except (requests.RequestException, SafeHTTPError):
+        logger.warning("Failed to check Arr library status for tmdb_id=%s", tmdb_id, exc_info=True)
+
+
+def _build_hero_context(
+    item: dict[str, object], tmdb_id: int | None, secret_key: str
+) -> tuple[object, object]:
+    """Build the hero item and poll token when the item is already queued.
+
+    Returns (hero_item, poll_token); both are None when not applicable.
+    """
+    if item["download_state"] != "queued":
+        return None, None
+    service = "radarr" if item["media_type"] == "movie" else "sonarr"
+    hero_title = cast(str, item["title"])
+    hero_media_type = cast(str, item["media_type"])
+    hero_poster = cast("str | None", item.get("poster_url")) or ""
+    hero_item = build_item(
+        dl_id=f"{service}:{hero_title}",
+        title=hero_title,
+        media_type=hero_media_type,
+        poster_url=hero_poster,
+        state="searching",
+        progress=0,
+        eta="",
+        size_done="",
+        size_total="",
+    )
+    # Finding 14: mint a short-lived poll token so the page can start
+    # polling immediately without exposing the long-lived download token.
+    poll_token = None
+    if tmdb_id:
+        poll_token = generate_poll_token(
+            media_item_id=f"{service}:{hero_title}",
+            service=service,
+            tmdb_id=tmdb_id,
+            secret_key=secret_key,
+        )
+    return hero_item, poll_token
+
+
 @router.get("/download/{token}", response_class=HTMLResponse)
 def download_page(request: Request, token: str) -> HTMLResponse:
     """Render the download confirmation page."""
@@ -215,110 +347,15 @@ def download_page(request: Request, token: str) -> HTMLResponse:
     if payload is None:
         return _expired
 
-    sid = payload.get("sid")
-    if sid:
-        # ``sid`` is typed as ``int | None`` in DownloadTokenPayload but the
-        # token producer is responsible for the type — coerce here so the
-        # SQL parameter is always an int regardless of upstream regressions.
-        try:
-            sid_int = int(sid)
-        except (TypeError, ValueError):
-            sid_int = None
-        if sid_int is not None:
-            row = conn.execute(
-                "SELECT poster_url, year, description, reason, rating, rt_rating, "
-                "tagline, runtime, genres, cast_json, director, trailer_key, imdb_rating, metascore "
-                "FROM suggestions WHERE id = ?",
-                (sid_int,),
-            ).fetchone()
-            item = (
-                _build_item_from_suggestion(payload, row) if row else _base_download_item(payload)
-            )
-        else:
-            item = _base_download_item(payload)
-    elif payload.get("act") == "redownload":
-        item = _base_download_item(payload)
-        enrich_redownload_item(item, conn, config.secret_key)
-    else:
-        item = _base_download_item(payload)
+    item = _build_item_from_payload(payload, conn, config.secret_key)
+    _enrich_item_fields(item)
 
-    trailer_value = item.get("trailer_key")
-    item["trailer_key"] = validate_youtube_id(
-        trailer_value if isinstance(trailer_value, str) else None
-    )
+    mt = "movie" if payload.get("mt") == "movie" else "tv"
+    tmdb_id_raw = payload.get("tmdb")
+    tmdb_id: int | None = int(tmdb_id_raw) if isinstance(tmdb_id_raw, int) else None
+    _resolve_download_state(item, conn, tmdb_id, config.secret_key, mt)
 
-    genres_value = item.get("genres")
-    if isinstance(genres_value, (str, bytes, bytearray)):
-        try:
-            item["genres_list"] = _coerce_string_list(json.loads(genres_value))
-        except (json.JSONDecodeError, TypeError):
-            item["genres_list"] = []
-    cast_value = item.get("cast_json")
-    if isinstance(cast_value, (str, bytes, bytearray)):
-        try:
-            item["cast_list"] = _coerce_string_list(json.loads(cast_value))
-        except (json.JSONDecodeError, TypeError):
-            item["cast_list"] = []
-
-    item["download_state"] = None
-    tmdb_id = payload.get("tmdb")
-    if tmdb_id:
-        try:
-            mt = "movie" if payload.get("mt") == "movie" else "tv"
-            # Only build the cache for the matching service — the other
-            # half is dead work and doubles the outbound load otherwise.
-            # Use ``.get`` with empty defaults so a malformed upstream
-            # cache (e.g. a unit test that patches ``build_radarr_cache``
-            # to return ``{}``) doesn't crash the page render.
-            caches: ArrCaches = {
-                "radarr_movies": {},
-                "radarr_queue_tmdb_ids": set(),
-                "sonarr_series": {},
-                "sonarr_queue_tmdb_ids": set(),
-            }
-            if mt == "movie":
-                radarr_cache = _get_radarr_cache_cached(conn, config.secret_key)
-                caches["radarr_movies"] = radarr_cache.get("radarr_movies", {}) or {}
-                caches["radarr_queue_tmdb_ids"] = radarr_cache.get("radarr_queue_tmdb_ids") or set()
-            else:
-                sonarr_cache = _get_sonarr_cache_cached(conn, config.secret_key)
-                caches["sonarr_series"] = sonarr_cache.get("sonarr_series", {}) or {}
-                caches["sonarr_queue_tmdb_ids"] = sonarr_cache.get("sonarr_queue_tmdb_ids") or set()
-            state = compute_download_state(mt, tmdb_id, caches)
-            if state is not None:
-                item["download_state"] = state
-        except (requests.RequestException, SafeHTTPError):
-            logger.warning(
-                "Failed to check Arr library status for tmdb_id=%s", tmdb_id, exc_info=True
-            )
-
-    hero_item = None
-    poll_token = None
-    if item["download_state"] == "queued":
-        service = "radarr" if item["media_type"] == "movie" else "sonarr"
-        hero_title = cast(str, item["title"])
-        hero_media_type = cast(str, item["media_type"])
-        hero_poster = cast("str | None", item.get("poster_url")) or ""
-        hero_item = build_item(
-            dl_id=f"{service}:{hero_title}",
-            title=hero_title,
-            media_type=hero_media_type,
-            poster_url=hero_poster,
-            state="searching",
-            progress=0,
-            eta="",
-            size_done="",
-            size_total="",
-        )
-        # Finding 14: mint a short-lived poll token so the page can start
-        # polling immediately without exposing the long-lived download token.
-        if tmdb_id:
-            poll_token = generate_poll_token(
-                media_item_id=f"{service}:{hero_title}",
-                service=service,
-                tmdb_id=tmdb_id,
-                secret_key=config.secret_key,
-            )
+    hero_item, poll_token = _build_hero_context(item, tmdb_id, config.secret_key)
 
     return templates.TemplateResponse(
         request,

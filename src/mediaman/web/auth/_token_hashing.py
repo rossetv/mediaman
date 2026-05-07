@@ -10,10 +10,6 @@ the other doesn't, every reauth ticket suddenly stops matching its
 session and the symptom shows up only in the logs.
 
 Centralise the hash here so a future change touches one place.
-
-The contract is the public function :func:`hash_token`; ``_hash_token``
-is preserved as a private alias because tests, ``mediaman.web.auth.session``,
-and the integration suite import it under that name.
 """
 
 from __future__ import annotations
@@ -30,8 +26,3 @@ def hash_token(token: str) -> str:
     lands in storage.
     """
     return hashlib.sha256(token.encode()).hexdigest()
-
-
-# Private alias retained for backwards compatibility — the test suite
-# and ``mediaman.web.auth.session`` re-export it under this name.
-_hash_token = hash_token

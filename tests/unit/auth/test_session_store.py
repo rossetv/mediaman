@@ -6,13 +6,13 @@ helpers.
 """
 
 import hashlib
-import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from mediaman.auth.password_hash import create_user
-from mediaman.auth.session_store import (
+from mediaman.db import init_db
+from mediaman.web.auth.password_hash import create_user
+from mediaman.web.auth.session_store import (
     _client_fingerprint,
     _hash_token,
     create_session,
@@ -21,7 +21,6 @@ from mediaman.auth.session_store import (
     list_sessions_for,
     validate_session,
 )
-from mediaman.db import init_db
 
 
 @pytest.fixture
@@ -306,7 +305,7 @@ class TestSessionDestructionRevokesReauth:
     """
 
     def test_destroy_session_revokes_reauth(self, conn):
-        from mediaman.auth.reauth import grant_recent_reauth, has_recent_reauth
+        from mediaman.web.auth.reauth import grant_recent_reauth, has_recent_reauth
 
         token = create_session(conn, "alice")
         grant_recent_reauth(conn, token, "alice")
@@ -317,7 +316,7 @@ class TestSessionDestructionRevokesReauth:
         assert has_recent_reauth(conn, token, "alice") is False
 
     def test_idle_expiry_revokes_reauth(self, conn):
-        from mediaman.auth.reauth import grant_recent_reauth, has_recent_reauth
+        from mediaman.web.auth.reauth import grant_recent_reauth, has_recent_reauth
 
         token = create_session(conn, "alice", user_agent="ua", client_ip="1.2.3.4")
         grant_recent_reauth(conn, token, "alice")
@@ -336,7 +335,7 @@ class TestSessionDestructionRevokesReauth:
 
     def test_fingerprint_mismatch_revokes_reauth(self, conn, monkeypatch):
         """Set strict fingerprint mode and validate from a different IP."""
-        from mediaman.auth.reauth import grant_recent_reauth, has_recent_reauth
+        from mediaman.web.auth.reauth import grant_recent_reauth, has_recent_reauth
 
         monkeypatch.setenv("MEDIAMAN_FINGERPRINT_MODE", "strict")
 
@@ -350,7 +349,7 @@ class TestSessionDestructionRevokesReauth:
 
     def test_destroy_all_sessions_for_revokes_all_reauth(self, conn):
         """Bulk session purge must drop every owned reauth ticket too."""
-        from mediaman.auth.reauth import grant_recent_reauth, has_recent_reauth
+        from mediaman.web.auth.reauth import grant_recent_reauth, has_recent_reauth
 
         t1 = create_session(conn, "alice")
         t2 = create_session(conn, "alice")
@@ -520,8 +519,8 @@ class TestAtomicSessionAndReauthDelete:
     def test_destroy_session_failure_rolls_back_both(self, conn, monkeypatch):
         """Force the reauth-revoke to raise and verify the session row
         is preserved (atomic rollback)."""
-        from mediaman.auth import session_store
-        from mediaman.auth.reauth import grant_recent_reauth
+        from mediaman.web.auth import session_store
+        from mediaman.web.auth.reauth import grant_recent_reauth
 
         token = create_session(conn, "alice")
         grant_recent_reauth(conn, token, "alice")
@@ -529,7 +528,7 @@ class TestAtomicSessionAndReauthDelete:
         # Patch ``revoke_reauth_by_hash_in_tx`` to raise so the
         # transaction must roll back. We patch the symbol on the
         # reauth module since session_store imports it lazily.
-        from mediaman.auth import reauth
+        from mediaman.web.auth import reauth
 
         def boom(_conn, _hash):
             raise RuntimeError("simulated reauth-side failure")
@@ -543,7 +542,7 @@ class TestAtomicSessionAndReauthDelete:
         assert validate_session(conn, token) == "alice"
 
         # And the reauth ticket also still exists — both rolled back.
-        from mediaman.auth.reauth import has_recent_reauth
+        from mediaman.web.auth.reauth import has_recent_reauth
 
         # Restore the original function so has_recent_reauth doesn't
         # also blow up if it touches the patched symbol.
@@ -559,7 +558,7 @@ class TestAtomicSessionAndReauthDelete:
         """A failure during idle-expiry must NOT propagate to the
         validate_session caller — the user just sees "not authenticated"
         for that request and the next request retries cleanly."""
-        from mediaman.auth import reauth
+        from mediaman.web.auth import reauth
 
         token = create_session(conn, "alice")
         # Wind ``last_used_at`` back to trigger idle expiry on the next
@@ -590,32 +589,42 @@ class TestCleanupThrottleStampedAfterCompletion:
     """
 
     def test_last_cleanup_at_is_post_cleanup(self, conn, monkeypatch):
-        from mediaman.auth import session_store
+        from mediaman.web.auth import session_store
 
         # Reset the module-global throttle so the test starts in a
         # known state.
         monkeypatch.setattr(session_store, "_last_cleanup_at", 0.0)
 
-        # Pretend the cleanup itself takes a measurable sliver of
-        # wall-clock time so we can distinguish "stamped at entry"
-        # from "stamped at exit".
+        # Use a fake monotonic clock that we advance explicitly inside
+        # slow_cleanup, so we never sleep for real.
+        # All callers — both test code and session_store production code —
+        # go through session_store.time.monotonic (via the patched binding).
+        fake_clock = [1000.0]
+
+        def fake_monotonic() -> float:
+            return fake_clock[0]
+
+        monkeypatch.setattr(session_store.time, "monotonic", fake_monotonic)
+
+        # Pretend the cleanup itself takes a measurable sliver of time so
+        # we can distinguish "stamped at entry" from "stamped at exit".
         original_cleanup = session_store._cleanup_expired_with_commit
 
         def slow_cleanup(*args, **kwargs):
             original_cleanup(*args, **kwargs)
-            time.sleep(0.05)  # 50 ms of synthetic work after the SQL.
+            fake_clock[0] += 0.1  # advance the fake clock by 100 ms — no real sleep
 
         monkeypatch.setattr(session_store, "_cleanup_expired_with_commit", slow_cleanup)
 
         token = create_session(conn, "alice")
-        before = time.monotonic()
+        before = fake_monotonic()  # == 1000.0 (entry clock value)
         assert validate_session(conn, token) == "alice"
-        after = time.monotonic()
+        after = fake_monotonic()  # == 1000.1 (clock advanced inside slow_cleanup)
 
-        # The post-cleanup timestamp must lie at or after ``before + 0.05``.
+        # The post-cleanup timestamp must lie at or after before + 0.05.
         # If the bug were still present, ``_last_cleanup_at`` would equal
-        # the value of ``time.monotonic()`` BEFORE the 50 ms sleep, i.e.
-        # before + 0 (effectively).
+        # the value of ``time.monotonic()`` BEFORE slow_cleanup ran, i.e.
+        # 1000.0, not 1000.1.
         assert session_store._last_cleanup_at >= before + 0.04
         assert session_store._last_cleanup_at <= after + 0.001
 
@@ -627,7 +636,7 @@ class TestCleanupThrottleStampedAfterCompletion:
 
 class TestSessionTokenRegex:
     def test_pattern_has_no_redundant_anchors(self):
-        from mediaman.auth import session_store
+        from mediaman.web.auth import session_store
 
         # The compiled regex MUST NOT carry ``^...$`` anchors —
         # ``fullmatch`` already anchors implicitly.  This is cosmetic
@@ -635,7 +644,7 @@ class TestSessionTokenRegex:
         assert session_store._SESSION_TOKEN_RE.pattern == r"[0-9a-f]{64}"
 
     def test_fullmatch_still_rejects_extra_chars(self):
-        from mediaman.auth.session_store import _SESSION_TOKEN_RE
+        from mediaman.web.auth.session_store import _SESSION_TOKEN_RE
 
         # A 65th character must be rejected by ``fullmatch`` — the
         # same as if anchors were present.
@@ -680,9 +689,9 @@ class TestSharedHashTokenModule:
     """
 
     def test_session_store_and_reauth_use_same_helper(self):
-        from mediaman.auth import reauth as reauth_mod
-        from mediaman.auth import session_store as session_mod
-        from mediaman.auth._token_hashing import hash_token
+        from mediaman.web.auth import reauth as reauth_mod
+        from mediaman.web.auth import session_store as session_mod
+        from mediaman.web.auth._token_hashing import hash_token
 
         # All three names point at the same callable — no second
         # definition can drift independently.
@@ -690,6 +699,6 @@ class TestSharedHashTokenModule:
         assert reauth_mod._hash_token is hash_token
 
     def test_shared_helper_matches_sha256_hex(self):
-        from mediaman.auth._token_hashing import hash_token
+        from mediaman.web.auth._token_hashing import hash_token
 
         assert hash_token("token-1") == hashlib.sha256(b"token-1").hexdigest()

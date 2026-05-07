@@ -79,9 +79,9 @@ def __getattr__(name: str) -> object:
 
 
 MIN_LENGTH = 12
-MIN_UNIQUE = 6
+MIN_UNIQUE_CHARS = 6
 PASSPHRASE_MIN_LENGTH = 20
-PASSPHRASE_MIN_UNIQUE = 12
+PASSPHRASE_MIN_UNIQUE_CHARS = 12
 
 #: Hard cap on password length, measured in UTF-8 bytes after NFKC
 #: normalisation. Bounds DB / session-storage size and prevents an
@@ -115,7 +115,7 @@ def _looks_like_passphrase(password: str) -> bool:
     """
     if len(password) < PASSPHRASE_MIN_LENGTH:
         return False
-    if len(set(password)) < PASSPHRASE_MIN_UNIQUE:
+    if len(set(password)) < PASSPHRASE_MIN_UNIQUE_CHARS:
         return False
     # Multi-word passphrase OR high variance (≥60% of characters are unique).
     has_whitespace = any(c.isspace() for c in password)
@@ -157,7 +157,7 @@ def password_issues(password: str, username: str = "") -> list[str]:
     if len(password) < MIN_LENGTH:
         issues.append(f"Must be at least {MIN_LENGTH} characters (yours is {len(password)}).")
 
-    if len(set(password)) < MIN_UNIQUE:
+    if len(set(password)) < MIN_UNIQUE_CHARS:
         issues.append("Avoid repeating the same few characters.")
 
     if username:

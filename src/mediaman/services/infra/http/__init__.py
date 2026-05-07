@@ -15,7 +15,7 @@ preserves every pre-split import path.
 
 from mediaman.services.infra.http.client import (
     _DEFAULT_MAX_BYTES,
-    _DEFAULT_TIMEOUT,
+    _DEFAULT_TIMEOUT_SECONDS,
     _USER_AGENT,
     SafeHTTPClient,
     SafeHTTPError,
@@ -46,7 +46,7 @@ from mediaman.services.infra.http.streaming import (
 __all__ = [
     "_BODY_SNIPPET_BYTES",
     "_DEFAULT_MAX_BYTES",
-    "_DEFAULT_TIMEOUT",
+    "_DEFAULT_TIMEOUT_SECONDS",
     "_ORIG_GETADDRINFO",
     "_RETRYABLE_EXCEPTIONS",
     "_RETRYABLE_STATUSES",
