@@ -12,15 +12,17 @@ even though plexapi itself never imports defusedxml.
 
 Direct ``ET.fromstring`` usage in this module already imports
 :mod:`defusedxml.ElementTree` explicitly so it is doubly hardened.
+
+Security infrastructure and data types are in the sub-modules
+:mod:`._plex_session` and :mod:`._plex_types` respectively.
 """
 
 from __future__ import annotations
 
 import logging as _logging
-import re as _re
 import warnings as _warnings
 from datetime import UTC, datetime
-from typing import Any, Literal, TypedDict
+from typing import Literal
 
 import defusedxml
 import defusedxml.ElementTree as ET
@@ -47,308 +49,34 @@ with _warnings.catch_warnings():
     )
     defusedxml.defuse_stdlib()
 
-from mediaman.services.infra.http_client import (
+from mediaman.core.scrub_filter import ScrubFilter, register_secret
+from mediaman.core.url_safety import resolve_safe_outbound_url
+from mediaman.services.infra.http import (
     SafeHTTPClient,
     SafeHTTPError,
-    pin_dns_for_request,
 )
-from mediaman.services.infra.scrub_filter import ScrubFilter
-from mediaman.services.infra.url_safety import resolve_safe_outbound_url
-from mediaman.services.media_meta.anime_detect import is_anime as _is_anime_show
+from mediaman.services.media_meta._plex_session import (  # noqa: F401
+    _PLEX_MAX_BYTES,
+    _PLEX_TIMEOUT_SECONDS,
+    _PLEX_TOKEN_RE,
+    _PlexBodyTooLarge,
+    _SafePlexSession,
+    _scrub_plex_token,
+)
+from mediaman.services.media_meta._plex_types import (  # noqa: F401
+    _HISTORY_MAX_BYTES,
+    PlexAccount,
+    PlexLibrarySection,
+    PlexMovieItem,
+    PlexRatedItem,
+    PlexSeasonItem,
+    PlexWatchEntry,
+    _movie_to_item,
+    _season_to_item,
+    _to_utc,
+)
 
-_logger = _logging.getLogger("mediaman")
-
-# Matches X-Plex-Token query parameter values so they can be redacted from
-# exception messages and log lines before they propagate.
-_PLEX_TOKEN_RE = _re.compile(r"(X-Plex-Token=)[^&\s\"'>]+", _re.IGNORECASE)
-
-#: Hard cap on a single plexapi response body. Library/season XML is
-#: small even on large libraries — 16 MiB is well above any sane limit
-#: while still preventing a runaway upstream from filling memory.
-_PLEX_MAX_BYTES = 16 * 1024 * 1024
-
-#: ``(connect, read)`` timeout used when plexapi passes us a single int.
-#: 5 s connect matches mediaman's other clients; 30 s read is generous
-#: enough for a slow library scan but stops a slow-lorris stalling a
-#: worker indefinitely.
-_PLEX_TIMEOUT: tuple[float, float] = (5.0, 30.0)
-
-
-def _scrub_plex_token(msg: str) -> str:
-    """Replace any ``X-Plex-Token=<value>`` substring in *msg* with ``<redacted>``.
-
-    Applied to exception messages and log lines before they propagate so the
-    token never appears in tracebacks, log files, or error responses.
-    """
-    return _PLEX_TOKEN_RE.sub(r"\1<redacted>", msg)
-
-
-class _SafePlexSession(http_requests.Session):
-    """``requests.Session`` subclass enforcing mediaman's outbound rules.
-
-    Injected into :class:`plexapi.server.PlexServer` via the ``session=``
-    constructor kwarg so every plexapi call — library enumeration,
-    section scanning, raw queries — inherits:
-
-    * Per-call SSRF re-validation, including IDN normalisation and
-      DNS-rebind defence (the validated address is pinned for the
-      duration of the request).
-    * ``allow_redirects=False`` — a 302 to ``169.254.169.254`` would
-      otherwise leak the X-Plex-Token into cloud metadata.
-    * Streamed body capped at :data:`_PLEX_MAX_BYTES`, so a malicious
-      or buggy upstream cannot pin a worker's memory.
-    * ``(connect, read)`` timeout split, so a slow-lorris read cannot
-      hold a connection indefinitely.
-
-    The class deliberately does NOT inherit from ``SafeHTTPClient``;
-    plexapi calls ``self._session.get(...)``-style methods, and
-    ``requests.Session`` is the base contract those expect. We hook
-    ``request()`` because every verb method routes through it.
-    """
-
-    def __init__(self, *, strict_egress: bool | None = None) -> None:
-        super().__init__()
-        self._strict_egress = strict_egress
-
-    def request(  # type: ignore[override]
-        self,
-        method: str,
-        url: str,
-        **kwargs: Any,
-    ) -> http_requests.Response:
-        # 1. SSRF re-validation. Re-runs at every request so DNS-rebind
-        #    cannot slip past a one-off check at PlexServer construction
-        #    time, and so a configured Plex URL pointing at an internal
-        #    service is refused even if the operator persisted it before
-        #    the check existed.
-        safe, hostname, pinned_ip = resolve_safe_outbound_url(
-            url, strict_egress=self._strict_egress
-        )
-        if not safe:
-            # Match the SafeHTTPError shape for consistency with
-            # SafeHTTPClient — the scrubbed URL keeps any token out of
-            # the exception message.
-            raise SafeHTTPError(
-                status_code=0,
-                body_snippet="refused by SSRF guard",
-                url=_scrub_plex_token(url),
-            )
-
-        # 2. Force redirect refusal. A 302 to a metadata endpoint would
-        #    take the X-Plex-Token header along for the ride, so we
-        #    refuse to follow ANY redirect from a Plex URL.
-        kwargs["allow_redirects"] = False
-
-        # 3. Always stream so we control the body cap.
-        kwargs["stream"] = True
-
-        # 4. Normalise the timeout. plexapi defaults to a single int —
-        #    convert to (connect, read) for stable behaviour. A caller
-        #    passing a tuple already is honoured untouched.
-        timeout = kwargs.get("timeout")
-        if timeout is None or isinstance(timeout, (int, float)):
-            kwargs["timeout"] = _PLEX_TIMEOUT
-
-        # 5. DNS pin + dispatch. The pin closes the rebind window
-        #    between the SSRF check above and the actual connect.
-        if hostname and pinned_ip:
-            with pin_dns_for_request(hostname, pinned_ip):
-                response = super().request(method, url, **kwargs)
-        else:
-            response = super().request(method, url, **kwargs)
-
-        # 6. Body cap — read up to the limit and re-attach so plexapi's
-        #    .text / .content access works as it expects.
-        try:
-            body = self._read_capped(response, _PLEX_MAX_BYTES)
-        except _PlexBodyTooLarge as exc:
-            response.close()
-            raise SafeHTTPError(
-                status_code=response.status_code,
-                body_snippet=str(exc),
-                url=_scrub_plex_token(url),
-            ) from None
-        response._content = body
-        # ``_content_consumed`` is a private requests internal; setattr keeps
-        # mypy quiet about poking at non-public attributes.
-        response.__setattr__("_content_consumed", True)
-        return response
-
-    @staticmethod
-    def _read_capped(response: http_requests.Response, max_bytes: int) -> bytes:
-        """Read the response body up to *max_bytes*, raising if the cap is hit.
-
-        Mirrors ``http_client._read_capped`` but kept private to this
-        module so the Plex session has no compile-time dependency on
-        SafeHTTPClient internals.
-        """
-        declared = response.headers.get("Content-Length")
-        if declared is not None:
-            try:
-                if int(declared) > max_bytes:
-                    raise _PlexBodyTooLarge(
-                        f"Plex response body too large: declared {declared} > cap {max_bytes}"
-                    )
-            except ValueError:
-                pass
-        buf = bytearray()
-        for chunk in response.iter_content(chunk_size=65536):
-            if not chunk:
-                continue
-            buf.extend(chunk)
-            if len(buf) > max_bytes:
-                raise _PlexBodyTooLarge(f"Plex response body exceeded cap of {max_bytes} bytes")
-        return bytes(buf)
-
-
-class _PlexBodyTooLarge(Exception):
-    """Internal signal that a Plex response breached the body cap."""
-
-
-class PlexLibrarySection(TypedDict):
-    """A Plex library section as returned by :meth:`PlexClient.get_libraries`."""
-
-    id: str
-    type: str
-    title: str
-
-
-class PlexMovieItem(TypedDict):
-    """A movie item as returned by :meth:`PlexClient.get_movie_items`."""
-
-    plex_rating_key: str
-    title: str
-    added_at: datetime | None
-    updated_at: datetime | None
-    file_path: str
-    file_size_bytes: int
-    poster_path: str
-
-
-class PlexSeasonItem(TypedDict):
-    """A TV season item as returned by :meth:`PlexClient.get_show_seasons`."""
-
-    plex_rating_key: str
-    title: str  # show title, kept for DB compat
-    show_title: str
-    season_number: int
-    added_at: datetime | None
-    updated_at: datetime | None
-    file_path: str
-    file_size_bytes: int
-    poster_path: str
-    episode_count: int
-    show_rating_key: str
-    is_anime: bool
-
-
-class PlexWatchEntry(TypedDict, total=False):
-    """One view event from :meth:`PlexClient.get_watch_history` / :meth:`get_season_watch_history`."""
-
-    viewed_at: datetime
-    account_id: int
-    episode_title: str  # only present for season watch history entries
-
-
-class PlexRatedItem(TypedDict):
-    """A user-rated item from :meth:`PlexClient.get_user_ratings`."""
-
-    title: str
-    type: Literal["movie", "tv"]
-    stars: float
-
-
-class PlexAccount(TypedDict):
-    """A named Plex home/managed account from :meth:`PlexClient.get_accounts`."""
-
-    id: int
-    name: str
-
-
-# Hard cap on a single /status/sessions/history response. Plex history
-# XML is small; 4 MiB is orders of magnitude above normal and still
-# cheap to hold in memory if a malicious or buggy server starts
-# streaming indefinitely.
-_HISTORY_MAX_BYTES = 4 * 1024 * 1024
-
-
-# ---------------------------------------------------------------------------
-# Module-level private helpers — row-to-item conversion
-# ---------------------------------------------------------------------------
-
-
-def _to_utc(dt: datetime | None) -> datetime | None:
-    """Promote a plexapi datetime to a tz-aware UTC value.
-
-    PlexAPI parses Plex's XML ``addedAt`` / ``updatedAt`` (which are
-    POSIX timestamps in seconds) via ``datetime.fromtimestamp(int(...))``
-    — that yields a NAIVE local-time datetime even though the underlying
-    instant is UTC.  Downstream code uses
-    :func:`mediaman.services.infra.format.ensure_tz`, which now treats
-    naive inputs as already-UTC.  Without explicit conversion here the
-    stored timestamp would jump by the local UTC offset.
-
-    On Python 3.12, ``naive.astimezone(tz)`` interprets the naive value
-    as local time, so this round-trips correctly back to UTC for the
-    actual Plex server's wall clock.  Aware inputs are pass-through-
-    converted; ``None`` stays ``None``.
-    """
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.astimezone(UTC)
-    return dt.astimezone(UTC)
-
-
-def _movie_to_item(movie) -> PlexMovieItem:
-    """Convert a plexapi Movie object to a :class:`PlexMovieItem` dict."""
-    file_path = ""
-    file_size = 0
-    if movie.media:
-        for part in movie.media[0].parts:
-            file_path = file_path or part.file
-            file_size += part.size or 0
-    return {
-        "plex_rating_key": str(movie.ratingKey),
-        "title": movie.title,
-        "added_at": _to_utc(movie.addedAt),
-        "updated_at": _to_utc(movie.updatedAt),
-        "file_path": file_path,
-        "file_size_bytes": file_size,
-        "poster_path": movie.thumb,
-    }
-
-
-def _season_to_item(show, season) -> PlexSeasonItem:
-    """Convert a plexapi Season object (and its parent Show) to a :class:`PlexSeasonItem` dict."""
-    episodes = season.episodes()
-    file_size = 0
-    file_path = ""
-    earliest_added = None
-    for ep in episodes:
-        if ep.media:
-            for part in ep.media[0].parts:
-                file_size += part.size or 0
-                if not file_path and part.file:
-                    file_path = str(part.file).rsplit("/", 1)[0]
-        ep_added = ep.addedAt
-        if ep_added is not None and (earliest_added is None or ep_added < earliest_added):
-            earliest_added = ep_added
-    added_at = season.addedAt or earliest_added
-    return {
-        "plex_rating_key": str(season.ratingKey),
-        "title": show.title,
-        "show_title": show.title,
-        "season_number": season.index,
-        "added_at": _to_utc(added_at),
-        "updated_at": _to_utc(show.updatedAt),
-        "file_path": file_path,
-        "file_size_bytes": file_size,
-        "poster_path": show.thumb,
-        "episode_count": len(episodes),
-        "show_rating_key": str(show.ratingKey),
-        "is_anime": _is_anime_show(show),
-    }
+_logger = _logging.getLogger(__name__)
 
 
 class PlexClient:
@@ -393,7 +121,7 @@ class PlexClient:
         # Idempotent — safe to call at construction time; repeated calls
         # with the same token do not stack filters.
         ScrubFilter.attach("urllib3.connectionpool", secrets=[token])
-        ScrubFilter.attach("mediaman", secrets=[token])
+        register_secret(token)
 
         # Hardened session for everything plexapi does internally —
         # library enumeration, section scanning, raw queries. Without
@@ -585,7 +313,7 @@ class PlexClient:
                 )
         return rated
 
-    def test_connection(self) -> bool:
+    def is_reachable(self) -> bool:
         """Return True if the Plex server responds and lists at least one library.
 
         Catches :exc:`PlexApiException` (API-level errors from plexapi) and

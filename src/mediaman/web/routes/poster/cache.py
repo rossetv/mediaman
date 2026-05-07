@@ -35,7 +35,7 @@ import os
 import tempfile
 from pathlib import Path
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 # Only these mime types are ever served back to the client.  Everything
 # else is normalised down to ``image/jpeg`` so a malicious upstream CDN
@@ -44,31 +44,6 @@ logger = logging.getLogger("mediaman")
 ALLOWED_IMAGE_MIMES: frozenset[str] = frozenset(
     {"image/jpeg", "image/png", "image/webp", "image/gif"}
 )
-
-_cache_dir_instance: Path | None = None  # internal singleton — not exported
-
-
-def get_cache_dir(data_dir: str) -> Path:
-    """Return (and lazily create) the poster cache directory.
-
-    Uses a module-level singleton so repeated calls within the same
-    process pay only the attribute-read cost rather than a filesystem
-    stat.  The singleton is intentionally kept in this module rather than
-    on the package namespace so that it is not accidentally patched by
-    tests that reset ``poster._cache_dir``.
-
-    Args:
-        data_dir: The application data directory root (``Config.data_dir``).
-
-    Returns:
-        A :class:`~pathlib.Path` pointing at ``<data_dir>/poster_cache/``,
-        which is guaranteed to exist.
-    """
-    global _cache_dir_instance
-    if _cache_dir_instance is None:
-        _cache_dir_instance = Path(data_dir) / "poster_cache"
-        _cache_dir_instance.mkdir(parents=True, exist_ok=True)
-    return _cache_dir_instance
 
 
 def read_sidecar_mime(cache_path: Path) -> str:
@@ -137,6 +112,6 @@ def write_sidecar_mime(cache_path: Path, mime: str) -> None:
         os.replace(tmp_name, sidecar)
     except OSError:
         logger.debug("Sidecar mime write failed for %s", cache_path, exc_info=True)
-        if tmp_name and os.path.exists(tmp_name):
+        if tmp_name:
             with contextlib.suppress(OSError):
                 os.remove(tmp_name)

@@ -1,11 +1,11 @@
 """Tests for mediaman.scanner._eligibility.
 
-Covers: check_age and check_inactivity.
+Covers: is_old_enough and is_inactive.
 """
 
 from datetime import UTC, datetime, timedelta
 
-from mediaman.scanner._eligibility import check_age, check_inactivity
+from mediaman.scanner._eligibility import is_inactive, is_old_enough
 
 
 def _now():
@@ -13,52 +13,52 @@ def _now():
 
 
 # ---------------------------------------------------------------------------
-# check_age
+# is_old_enough
 # ---------------------------------------------------------------------------
 
 
 class TestCheckAge:
     def test_old_enough_returns_true(self):
         added = _now() - timedelta(days=31)
-        assert check_age(added, min_age_days=30) is True
+        assert is_old_enough(added, min_age_days=30) is True
 
     def test_exactly_at_threshold_returns_true(self):
         # days >= min_age_days — boundary is inclusive.
         added = _now() - timedelta(days=30, hours=1)
-        assert check_age(added, min_age_days=30) is True
+        assert is_old_enough(added, min_age_days=30) is True
 
     def test_too_new_returns_false(self):
         added = _now() - timedelta(days=5)
-        assert check_age(added, min_age_days=30) is False
+        assert is_old_enough(added, min_age_days=30) is False
 
     def test_naive_datetime_treated_as_utc(self):
         # Naive datetimes must not raise; treated as UTC.
         added = datetime.now().replace(tzinfo=None) - timedelta(days=60)
         assert added.tzinfo is None
-        assert check_age(added, min_age_days=30) is True
+        assert is_old_enough(added, min_age_days=30) is True
 
     def test_zero_min_age_always_eligible(self):
         added = _now()  # Just added this instant.
-        assert check_age(added, min_age_days=0) is True
+        assert is_old_enough(added, min_age_days=0) is True
 
 
 # ---------------------------------------------------------------------------
-# check_inactivity
+# is_inactive
 # ---------------------------------------------------------------------------
 
 
 class TestCheckInactivity:
     def test_no_history_is_inactive(self):
         # Never watched — eligible.
-        assert check_inactivity([], inactivity_days=30) is True
+        assert is_inactive([], inactivity_days=30) is True
 
     def test_recently_watched_is_not_inactive(self):
         history = [{"viewed_at": _now() - timedelta(days=2)}]
-        assert check_inactivity(history, inactivity_days=30) is False
+        assert is_inactive(history, inactivity_days=30) is False
 
     def test_stale_watch_is_inactive(self):
         history = [{"viewed_at": _now() - timedelta(days=60)}]
-        assert check_inactivity(history, inactivity_days=30) is True
+        assert is_inactive(history, inactivity_days=30) is True
 
     def test_uses_most_recent_watch_event(self):
         # Two events; only the recent one should matter.
@@ -66,7 +66,7 @@ class TestCheckInactivity:
             {"viewed_at": _now() - timedelta(days=100)},
             {"viewed_at": _now() - timedelta(days=5)},  # recent
         ]
-        assert check_inactivity(history, inactivity_days=30) is False
+        assert is_inactive(history, inactivity_days=30) is False
 
     def test_entries_with_none_viewed_at_filtered(self):
         # One None entry is ignored; the non-None entry governs eligibility.
@@ -74,12 +74,12 @@ class TestCheckInactivity:
             {"viewed_at": None},
             {"viewed_at": _now() - timedelta(days=5)},  # recent
         ]
-        assert check_inactivity(history, inactivity_days=30) is False
+        assert is_inactive(history, inactivity_days=30) is False
 
     def test_exactly_at_threshold_is_inactive(self):
         # days >= inactivity_days — boundary is inclusive.
         history = [{"viewed_at": _now() - timedelta(days=30, hours=1)}]
-        assert check_inactivity(history, inactivity_days=30) is True
+        assert is_inactive(history, inactivity_days=30) is True
 
     def test_all_none_viewed_at_does_not_raise(self):
         """D05 finding 12: a watch_history list whose every entry has
@@ -90,5 +90,5 @@ class TestCheckInactivity:
         """
         history = [{"viewed_at": None}, {"viewed_at": None}]
         # Must not raise.
-        result = check_inactivity(history, inactivity_days=30)
+        result = is_inactive(history, inactivity_days=30)
         assert result is False

@@ -28,7 +28,7 @@ from mediaman.scanner import repository
 from mediaman.scanner.arr_dates import ArrDateCache
 from mediaman.scanner.fetch import _PlexItemFetch
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 # Default keep-token TTL: 30 days from the scheduling moment.
 _TOKEN_TTL_DAYS = 30

@@ -18,9 +18,9 @@ from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
-from mediaman.auth.session import create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
+from mediaman.web.auth.password_hash import create_user
 from mediaman.web.routes.auth import router as auth_router
 from mediaman.web.routes.downloads import router as downloads_router
 
@@ -64,7 +64,7 @@ class TestSessionLifecycle:
         assert session_cookie, "session cookie must be set after successful login"
 
         # Verify the session row exists in the DB.
-        from mediaman.auth.session_store import _hash_token
+        from mediaman.web.auth.session_store import _hash_token
 
         token_hash = _hash_token(session_cookie)
         row = conn.execute(

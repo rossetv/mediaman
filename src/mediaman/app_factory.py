@@ -6,32 +6,20 @@ This module is the single place that owns the full application lifecycle:
   middleware, mounts static files, and wires all routers.
 - :func:`lifespan` — orchestrates startup and shutdown in the correct
   order (DB → crypto canary → scheduler → reconciliation).
-- ``bootstrap_*`` helpers — the "runs once at startup" logic that was
-  previously spread across the ``bootstrap/`` sub-package.  Keeping them
-  here means ``lifespan`` can call them directly without the extra layer
-  of indirection.  The ``bootstrap/`` package is now a thin back-compat
-  shim so existing import paths (including test fixtures) continue to work.
+- :func:`bootstrap_db`, :func:`bootstrap_crypto` — startup helpers kept
+  here for direct use by :func:`lifespan`.
 
-Public names
-------------
-The following names are re-exported by ``mediaman.bootstrap`` for
-backwards compatibility:
-
-- :class:`DataDirNotWritableError`
-- :func:`bootstrap_db`
-- :func:`bootstrap_crypto`
-- :func:`bootstrap_scheduling`
-- :func:`shutdown_scheduling`
+The data-dir writability helpers now live in
+:mod:`mediaman.bootstrap.data_dir` and the scheduling lifecycle helpers
+live in :mod:`mediaman.bootstrap.scan_jobs`. The ``bootstrap/`` shims
+re-export everything so existing import paths keep working.
 """
 
 from __future__ import annotations
 
-import errno
 import logging
 import os
 import sys
-import tempfile
-import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -42,96 +30,17 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from mediaman.config import Config, ConfigError, load_config
-from mediaman.validators import (
-    validate_scan_day,
-    validate_scan_time,
-    validate_scan_timezone,
-    validate_sync_interval,
-)
+from mediaman.core.scrub_filter import install_root_filter
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 _STATIC_DIR = Path(__file__).parent / "web" / "static"
 _TEMPLATE_DIR = Path(__file__).parent / "web" / "templates"
-
-# Bounded wait at shutdown so a SIGTERM can't be wedged forever by a
-# long-running scan job. 30 s is comfortably longer than the
-# inter-request work each scan loop iteration performs (DB write +
-# Plex/Arr round-trips) but short enough that an orchestrator's normal
-# 60–90 s grace window will never escalate to SIGKILL on a healthy
-# scheduler.
-_SHUTDOWN_TIMEOUT_SECONDS = 30
-
-# Stuck-deletion recovery is best-effort at startup, but a recurring
-# failure means deletions are leaking forever. We escalate to CRITICAL
-# once the failure repeats so the noise is impossible to miss.
-_stuck_deletion_failures = 0
 
 
 # ---------------------------------------------------------------------------
 # DB bootstrap
 # ---------------------------------------------------------------------------
-
-
-class DataDirNotWritableError(RuntimeError):
-    """Raised when the data directory cannot be written by the current process.
-
-    The Dockerfile pins the runtime identity to uid/gid 1000:1000. If an
-    operator bind-mounts a host directory whose ownership doesn't match,
-    SQLite eventually fails mid-migration with an opaque "attempt to write
-    a readonly database" stack trace. We probe writability up-front so the
-    operator sees one actionable line instead of a Python traceback.
-    """
-
-
-def _remediation_for(exc: OSError) -> str:
-    """Return errno-tailored remediation advice for an OSError on the data dir."""
-    proc_uid = os.geteuid()
-    proc_gid = os.getegid()
-    if exc.errno == errno.ENOSPC:
-        return "disk is full — free space on the host filesystem backing /data"
-    if exc.errno == errno.EROFS:
-        return "filesystem is mounted read-only — remount rw or use a different path"
-    if exc.errno == errno.EDQUOT:
-        return "disk quota exceeded for the owning user — raise quota or free space"
-    if exc.errno in (errno.EACCES, errno.EPERM):
-        return (
-            f"likely wrong ownership — on the host run: "
-            f"chown -R {proc_uid}:{proc_gid} <your-bind-mount-for-/data>"
-        )
-    return (
-        f"unexpected error (errno={exc.errno}) — most often this is wrong "
-        f"ownership; on the host try: "
-        f"chown -R {proc_uid}:{proc_gid} <your-bind-mount-for-/data>"
-    )
-
-
-def _assert_data_dir_writable(data_dir: Path) -> None:
-    """Fail fast and loud if ``data_dir`` is not writable by this process.
-
-    Uses a self-cleaning temp file rather than a fixed probe path so a
-    partial failure can't leave a stray file behind. ``os.access`` is not
-    used because it consults real (not effective) uid and ignores read-only
-    filesystem mounts and ACLs.
-    """
-    try:
-        with tempfile.NamedTemporaryFile(
-            dir=data_dir, prefix=".mediaman-write-probe-", delete=True
-        ):
-            pass
-    except OSError as exc:
-        proc_uid = os.geteuid()
-        proc_gid = os.getegid()
-        try:
-            st = data_dir.stat()
-            owner = f"uid={st.st_uid} gid={st.st_gid}"
-        except OSError:
-            owner = "uid=? gid=? (stat failed)"
-        raise DataDirNotWritableError(
-            f"data dir {data_dir} is not writable by uid={proc_uid} "
-            f"gid={proc_gid} (currently owned by {owner}); "
-            f"{_remediation_for(exc)}; underlying error: {exc}"
-        ) from exc
 
 
 def bootstrap_db(app: FastAPI, config: Config) -> None:
@@ -143,6 +52,11 @@ def bootstrap_db(app: FastAPI, config: Config) -> None:
     - ``app.state.db`` — the bootstrap :class:`sqlite3.Connection`.
     - ``app.state.db_path`` — absolute path of the DB file.
     """
+    from mediaman.bootstrap.data_dir import (
+        DataDirNotWritableError,
+        _assert_data_dir_writable,
+        _remediation_for,
+    )
     from mediaman.db import init_db, set_connection
 
     data_dir = Path(config.data_dir)
@@ -188,7 +102,7 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
     scheduler when the canary failed.
 
     The canary state is initialised to ``False`` and only flipped to
-    ``True`` after :func:`canary_check` returns a positive result. An
+    ``True`` after :func:`is_canary_valid` returns a positive result. An
     import failure or any other exception leaves the flag at its
     fail-closed default — without this, a partial import (e.g. a missing
     ``cryptography`` extension) would slip through with the optimistic
@@ -197,16 +111,53 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
     """
     canary_ok = False
     try:
-        from mediaman.crypto import canary_check, migrate_legacy_ciphertexts
+        from mediaman.audit import security_event
+        from mediaman.crypto import is_canary_valid, migrate_legacy_ciphertexts
 
-        canary_ok = bool(canary_check(app.state.db, config.secret_key))
+        db = app.state.db
+
+        def _on_canary_failure(reason: str) -> None:
+            """Best-effort audit-log a canary failure.
+
+            The canary fires before the audit table is guaranteed to exist on
+            fresh-DB bootstrap, so any failure in the audit path is logged and
+            swallowed — the security verdict (False) is what matters; the audit
+            row is the cherry on top.
+            """
+            try:
+                security_event(
+                    db,
+                    event="aes.canary_failed",
+                    actor="",
+                    ip="",
+                    detail={"reason": reason},
+                )
+            except Exception:  # pragma: no cover
+                logger.exception("aes.canary_failed audit write failed reason=%s", reason)
+
+        def _on_migration_complete(migrated_count: int) -> None:
+            """Best-effort audit-log after a successful v35 migration commit."""
+            try:
+                security_event(
+                    db,
+                    event="aes.v35_migration_complete",
+                    actor="",
+                    ip="",
+                    detail={"migrated_count": migrated_count},
+                )
+            except Exception:  # pragma: no cover
+                logger.exception("aes.v35_migration_complete audit write failed")
+
+        canary_ok = bool(is_canary_valid(db, config.secret_key, on_failure=_on_canary_failure))
         if canary_ok:
             # Migration v35: re-encrypt any legacy v1 or no-AAD v2 settings
             # ciphertexts to v2+AAD. Safe to call on every startup —
             # already-migrated rows are skipped. Errors are logged but do
             # not abort startup.
             try:
-                n = migrate_legacy_ciphertexts(app.state.db, config.secret_key)
+                n = migrate_legacy_ciphertexts(
+                    db, config.secret_key, on_complete=_on_migration_complete
+                )
                 if n:
                     logger.info("bootstrap_crypto: migrated %d legacy settings row(s) to v2+AAD", n)
             except Exception:
@@ -215,216 +166,6 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
         logger.exception("AES canary check failed unexpectedly")
         canary_ok = False
     app.state.canary_ok = canary_ok
-
-
-# ---------------------------------------------------------------------------
-# Scheduling bootstrap
-# ---------------------------------------------------------------------------
-
-
-def _run_scheduled_scan(db_path: str | None, secret_key: str) -> None:
-    """Execute a scheduled scan, reading all settings fresh from the DB.
-
-    Lifted to module scope so it can be unit-tested without standing up
-    an entire FastAPI app. The scheduler is in-process and the heartbeat
-    thread opens its own DB connection, so the only dependencies passed
-    in are the bootstrap DB path (for the heartbeat) and the AES secret
-    (forwarded to the scan runner so settings can be decrypted).
-    """
-    from mediaman.db import (
-        finish_scan_run,
-        get_db,
-        heartbeat_scan_run,
-        open_thread_connection,
-        start_scan_run,
-    )
-    from mediaman.scanner.runner import run_scan_from_db
-
-    db_conn = get_db()
-    run_id = start_scan_run(db_conn)
-    if run_id is None:
-        logger.info("Scheduled scan skipped — another scan is already running")
-        return
-
-    # Heartbeat worker keeps the lease alive while the scan itself is
-    # busy with disk + Plex + Arr round-trips. Uses its own connection
-    # so it never contends with the scan's writes for the SQLite write
-    # lock.
-    stop_heartbeat = threading.Event()
-
-    def _heartbeat_loop() -> None:
-        if not db_path:
-            return
-        try:
-            hb_conn = open_thread_connection(db_path)
-        except Exception:
-            logger.warning("scan heartbeat thread could not open DB", exc_info=True)
-            return
-        try:
-            while not stop_heartbeat.wait(60):
-                heartbeat_scan_run(hb_conn, run_id)
-        finally:
-            try:
-                hb_conn.close()
-            except Exception:  # pragma: no cover — best-effort close
-                logger.debug("scan heartbeat close failed", exc_info=True)
-
-    heartbeat_thread = threading.Thread(target=_heartbeat_loop, name="scan-heartbeat", daemon=True)
-    heartbeat_thread.start()
-    try:
-        run_scan_from_db(db_conn, secret_key)
-        finish_scan_run(db_conn, run_id, "done")
-    except Exception as exc:
-        try:
-            finish_scan_run(db_conn, run_id, "error", str(exc))
-        except Exception:  # pragma: no cover — finish is best-effort here
-            logger.debug("scan finish (error path) failed", exc_info=True)
-        logger.exception("Scheduled scan failed")
-    finally:
-        stop_heartbeat.set()
-        heartbeat_thread.join(timeout=5)
-
-
-def _run_library_sync_job(secret_key: str) -> None:
-    """Execute a lightweight library sync from Plex."""
-    from mediaman.db import get_db
-    from mediaman.scanner.runner import run_library_sync
-
-    try:
-        db_conn = get_db()
-        run_library_sync(db_conn, secret_key)
-    except Exception:
-        logger.exception("Library sync failed")
-
-
-def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
-    """Start the APScheduler jobs. Returns True iff the scheduler actually started."""
-    from mediaman.scanner.scheduler import start_scheduler
-    from mediaman.services.infra.settings_reader import get_string_setting as _get_setting
-
-    conn = app.state.db
-    canary_ok = getattr(app.state, "canary_ok", True)
-
-    # Default to "not ready" — only flipped to True at the end of the
-    # successful path. /readyz reads this flag to decide its 200/503.
-    app.state.scheduler_healthy = False
-    # ``scheduler_error`` carries the *why* into /readyz so an
-    # orchestrator log line can reach the operator without them having
-    # to ssh into the container and tail the python logs.
-    app.state.scheduler_error = None
-
-    global _stuck_deletion_failures
-
-    try:
-        if not canary_ok:
-            raise RuntimeError(
-                "Refusing to start scheduler: AES canary check failed. "
-                "Fix MEDIAMAN_SECRET_KEY (or re-enter encrypted settings) "
-                "and restart. The web UI is still accessible so an admin "
-                "can investigate."
-            )
-
-        # Reconcile any rows left in the 'deleting' state by a previous
-        # crash — safe even if no scan runs this boot.
-        try:
-            from mediaman.scanner.engine import _recover_stuck_deletions
-
-            _recover_stuck_deletions(conn)
-            _stuck_deletion_failures = 0
-        except Exception:
-            _stuck_deletion_failures += 1
-            if _stuck_deletion_failures > 1:
-                logger.critical(
-                    "Stuck-deletion recovery has failed %d consecutive boot(s); "
-                    "deletions left in the 'deleting' state will accumulate "
-                    "until the underlying error is resolved.",
-                    _stuck_deletion_failures,
-                    exc_info=True,
-                )
-            else:
-                logger.exception("Stuck-deletion recovery failed at startup")
-
-        scan_day = validate_scan_day(_get_setting(conn, "scan_day", default="mon"))
-        scan_time = _get_setting(conn, "scan_time", default="09:00")
-        scan_tz = validate_scan_timezone(_get_setting(conn, "scan_timezone", default="UTC"))
-        hour, minute = validate_scan_time(scan_time)
-
-        # Capture the secret key and the DB path now; the scheduler
-        # callbacks are invoked from APScheduler worker threads where
-        # ``app`` is not in scope.
-        secret_key = config.secret_key
-        db_path = getattr(app.state, "db_path", None)
-
-        def scan_callback() -> None:
-            _run_scheduled_scan(db_path, secret_key)
-
-        def sync_callback() -> None:
-            _run_library_sync_job(secret_key)
-
-        sync_interval = validate_sync_interval(
-            _get_setting(conn, "library_sync_interval", default="30")
-        )
-
-        start_scheduler(
-            scan_fn=scan_callback,
-            day_of_week=scan_day,
-            hour=hour,
-            minute=minute,
-            timezone=scan_tz,
-            sync_fn=sync_callback,
-            sync_interval_minutes=sync_interval,
-            secret_key=secret_key,
-        )
-        app.state.scheduler_healthy = True
-        logger.info(
-            "Scheduler started: scan every %s at %02d:%02d %s, library sync every %d min",
-            scan_day,
-            hour,
-            minute,
-            scan_tz,
-            sync_interval,
-        )
-        return True
-    except Exception as e:
-        logger.exception("Could not start scheduler: %s", e)
-        app.state.scheduler_error = str(e) or e.__class__.__name__
-        return False
-
-
-def shutdown_scheduling() -> None:
-    """Stop the APScheduler jobs with a bounded wait.
-
-    Calls :func:`mediaman.scanner.scheduler.stop_scheduler` from a worker
-    thread and joins for at most :data:`_SHUTDOWN_TIMEOUT_SECONDS`. The
-    underlying call passes ``wait=False`` to APScheduler for fast
-    shutdown of the scheduler thread itself, but jobs already executing
-    are allowed to complete within the timeout window so a SIGTERM mid-
-    scan does not abandon a half-written DB row. If the timeout expires
-    we log and return — the alternative is a pod that ignores SIGTERM
-    forever and gets SIGKILL'd by the orchestrator.
-
-    Safe to call even when the scheduler was never started.
-    """
-    from mediaman.scanner.scheduler import stop_scheduler
-
-    done = threading.Event()
-
-    def _drain() -> None:
-        try:
-            stop_scheduler()
-        except Exception:  # pragma: no cover — best-effort shutdown
-            logger.exception("scheduler shutdown raised — abandoning in-flight jobs")
-        finally:
-            done.set()
-
-    worker = threading.Thread(target=_drain, name="scheduler-shutdown", daemon=True)
-    worker.start()
-    if not done.wait(_SHUTDOWN_TIMEOUT_SECONDS):
-        logger.warning(
-            "Scheduler shutdown still draining after %ds — abandoning "
-            "in-flight jobs to allow process exit.",
-            _SHUTDOWN_TIMEOUT_SECONDS,
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -450,11 +191,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     fifteen frames of uvicorn/FastAPI internals; the single-line path
     fits in an orchestrator's restart-loop log without truncation.
     """
+    from mediaman.bootstrap.data_dir import DataDirNotWritableError
+    from mediaman.bootstrap.scan_jobs import bootstrap_scheduling, shutdown_scheduling
+
     try:
         config = load_config()
     except ConfigError as exc:
         logger.critical("Configuration error at startup: %s", exc)
         sys.exit(1)
+
+    # Install the root scrub filter on every handler of the mediaman logger.
+    # Secrets (OMDB key, Plex token) are runtime-resolved from the DB after
+    # bootstrap_db completes; callers register them via register_secret().
+    # Attaching to *handlers* rather than the logger itself ensures that any
+    # child logger (getLogger(__name__)) automatically inherits redaction
+    # regardless of the logger hierarchy depth.
+    install_root_filter()
 
     try:
         bootstrap_db(app, config)
@@ -486,7 +238,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.exception("delete-intent reconciliation failed at startup; continuing")
 
     # Reconcile download_notifications rows stranded at notified=2 by a
-    # crashed worker (H-5 — finding 22 follow-up).
+    # crashed worker.
     try:
         from mediaman.services.downloads.notifications import (
             reconcile_stranded_notifications,

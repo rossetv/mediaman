@@ -9,7 +9,7 @@ from pathlib import Path
 
 from mediaman.config import ConfigError, load_config
 from mediaman.db import init_db
-from mediaman.web.auth.session import create_user
+from mediaman.web.auth.password_hash import create_user
 
 
 def _prompt_username() -> str:

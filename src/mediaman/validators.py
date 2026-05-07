@@ -26,7 +26,7 @@ import os
 import re
 from datetime import datetime
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 _SCAN_TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 
@@ -101,14 +101,14 @@ def validate_scan_timezone(s: str) -> str:
         raise ValueError("scan_timezone must not be empty")
     try:
         from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-    except Exception:
+    except ImportError:
         # Standard library should always provide it; defer if unavailable.
         return raw
     try:
         ZoneInfo(raw)
     except ZoneInfoNotFoundError as exc:
         raise ValueError(f"scan_timezone {raw!r} is not a known IANA timezone") from exc
-    except Exception as exc:
+    except (KeyError, ValueError) as exc:
         raise ValueError(f"scan_timezone {raw!r} is invalid: {exc}") from exc
     return raw
 
@@ -133,14 +133,14 @@ def validate_sync_interval(s: str) -> int:
 
 
 def enforce_single_worker() -> None:
-    """Refuse to start under multi-worker uvicorn (finding 3).
+    """Refuse to start under multi-worker uvicorn.
 
     Several invariants in mediaman assume a single process holds the
     SQLite connection: the APScheduler instance, the in-memory rate
     limits, and the search-trigger throttle would all duplicate or race
-    if a second worker booted up. Token replay (finding 2) is now backed
-    by SQLite and would survive, but the rest is not yet ready for
-    horizontal scale, so we fail loudly instead of degrading silently.
+    if a second worker booted up. Token replay is now backed by SQLite
+    and would survive, but the rest is not yet ready for horizontal scale,
+    so we fail loudly instead of degrading silently.
 
     Reads ``MEDIAMAN_WORKERS`` and the legacy ``WORKERS`` env var so an
     operator who exports either by accident sees an immediate error

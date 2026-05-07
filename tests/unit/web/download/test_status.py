@@ -17,10 +17,11 @@ from unittest.mock import MagicMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.crypto import generate_download_token, generate_poll_token
 from mediaman.db import init_db, set_connection
+from mediaman.web.auth.password_hash import create_user
+from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.download.status import (
     _DOWNLOAD_STATUS_LIMITER,
     _format_timeleft,

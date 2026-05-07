@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta, timezone
 
-from mediaman.services.infra.format import (
+from mediaman.core.format import (
     days_ago,
     ensure_tz,
     format_bytes,

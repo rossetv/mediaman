@@ -29,8 +29,8 @@ import sqlite3
 
 import requests
 
-from mediaman.services.infra.http_client import SafeHTTPClient, SafeHTTPError
-from mediaman.services.infra.scrub_filter import ScrubFilter
+from mediaman.core.scrub_filter import ScrubFilter, register_secret
+from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
 from mediaman.services.infra.settings_reader import get_string_setting
 
 #: Base URL for the OMDb REST API.
@@ -43,12 +43,11 @@ OMDB_API_BASE_URL = "https://www.omdbapi.com"
 _OMDB_SESSION = requests.Session()
 _OMDB_CLIENT = SafeHTTPClient(OMDB_API_BASE_URL, session=_OMDB_SESSION)
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def _attach_scrub_filters(api_key: str) -> None:
-    """Attach :class:`~mediaman.services.infra.scrub_filter.ScrubFilter` instances
-    for *api_key* to the loggers that may emit URLs containing it.
+    """Register *api_key* for redaction and attach to the urllib3 logger.
 
     Called once per resolved key inside :func:`fetch_ratings`.  The attach is
     idempotent — repeated calls with the same key do not stack filters.
@@ -57,20 +56,21 @@ def _attach_scrub_filters(api_key: str) -> None:
 
     * ``urllib3.connectionpool`` — logs the full request URL at DEBUG, which
       would otherwise expose ``apikey=<value>``.
-    * ``mediaman`` — catches any caller that stringifies a
-      :class:`~mediaman.services.infra.http_client.SafeHTTPError` carrying
-      the constructed URL.
+    * ``mediaman`` (root) — covered by the global :func:`~mediaman.core.scrub_filter.register_secret`
+      call, which extends the handler-level filter installed at startup by
+      :func:`~mediaman.app_factory.create_app`.  Any child logger that
+      propagates to the mediaman root handler inherits the redaction
+      automatically.
     """
-    secrets = [api_key]
-    ScrubFilter.attach("urllib3.connectionpool", secrets=secrets)
-    ScrubFilter.attach("mediaman", secrets=secrets)
+    ScrubFilter.attach("urllib3.connectionpool", secrets=[api_key])
+    register_secret(api_key)
 
 
 def get_omdb_key(conn: sqlite3.Connection, secret_key: str) -> str | None:
     """Return the OMDb API key from settings, or ``None`` if not configured.
 
     Read this in the *request thread* before dispatching to a thread pool —
-    SQLite connections must not cross thread boundaries (finding 32).
+    SQLite connections must not cross thread boundaries.
 
     Delegates to :func:`~mediaman.services.infra.settings_reader.get_string_setting`
     so the decrypt-and-unwrap logic is not duplicated here.

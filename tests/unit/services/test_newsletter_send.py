@@ -188,6 +188,15 @@ class TestSendNewsletterNoMailgunConfig:
 
 
 class TestSendNewsletterNoSubscribers:
+    @pytest.fixture(autouse=True)
+    def _patch_boundaries(self):
+        with (
+            patch(_PATCH_STORAGE, return_value=_fake_disk()),
+            patch(_PATCH_RADARR, return_value=None),
+            patch(_PATCH_SONARR, return_value=None),
+        ):
+            yield
+
     def test_no_subscribers_sends_nothing(self, db_path):
         """When there are no active subscribers, no email is sent even if Mailgun is configured."""
         conn = init_db(str(db_path))
@@ -195,18 +204,22 @@ class TestSendNewsletterNoSubscribers:
         _add_scheduled_item(conn)
 
         mock_mailgun_cls = MagicMock()
-        with (
-            patch(_PATCH_MAILGUN, mock_mailgun_cls),
-            patch(_PATCH_STORAGE, return_value=_fake_disk()),
-            patch(_PATCH_RADARR, return_value=None),
-            patch(_PATCH_SONARR, return_value=None),
-        ):
+        with patch(_PATCH_MAILGUN, mock_mailgun_cls):
             send_newsletter(conn, _SECRET_KEY)
 
         mock_mailgun_cls.assert_not_called()
 
 
 class TestSendNewsletterWithScheduledItems:
+    @pytest.fixture(autouse=True)
+    def _patch_boundaries(self):
+        with (
+            patch(_PATCH_STORAGE, return_value=_fake_disk()),
+            patch(_PATCH_RADARR, return_value=None),
+            patch(_PATCH_SONARR, return_value=None),
+        ):
+            yield
+
     def test_scheduled_items_trigger_email_send(self, db_path):
         """When there are scheduled items and subscribers, email is sent."""
         conn = init_db(str(db_path))
@@ -215,14 +228,7 @@ class TestSendNewsletterWithScheduledItems:
         _add_scheduled_item(conn)
 
         mock_mailgun_instance = MagicMock()
-        mock_mailgun_cls = MagicMock(return_value=mock_mailgun_instance)
-
-        with (
-            patch(_PATCH_MAILGUN, mock_mailgun_cls),
-            patch(_PATCH_STORAGE, return_value=_fake_disk()),
-            patch(_PATCH_RADARR, return_value=None),
-            patch(_PATCH_SONARR, return_value=None),
-        ):
+        with patch(_PATCH_MAILGUN, return_value=mock_mailgun_instance):
             send_newsletter(conn, _SECRET_KEY)
 
         mock_mailgun_instance.send.assert_called_once()
@@ -238,14 +244,7 @@ class TestSendNewsletterWithScheduledItems:
         _add_scheduled_item(conn)
 
         mock_mailgun_instance = MagicMock()
-        mock_mailgun_cls = MagicMock(return_value=mock_mailgun_instance)
-
-        with (
-            patch(_PATCH_MAILGUN, mock_mailgun_cls),
-            patch(_PATCH_STORAGE, return_value=_fake_disk()),
-            patch(_PATCH_RADARR, return_value=None),
-            patch(_PATCH_SONARR, return_value=None),
-        ):
+        with patch(_PATCH_MAILGUN, return_value=mock_mailgun_instance):
             send_newsletter(conn, _SECRET_KEY)
 
         sa = conn.execute(
@@ -263,15 +262,9 @@ class TestSendNewsletterWithScheduledItems:
 
         mock_mailgun_instance = MagicMock()
         mock_mailgun_instance.send.side_effect = RuntimeError("Mailgun is down")
-        mock_mailgun_cls = MagicMock(return_value=mock_mailgun_instance)
 
         # Should not raise
-        with (
-            patch(_PATCH_MAILGUN, mock_mailgun_cls),
-            patch(_PATCH_STORAGE, return_value=_fake_disk()),
-            patch(_PATCH_RADARR, return_value=None),
-            patch(_PATCH_SONARR, return_value=None),
-        ):
+        with patch(_PATCH_MAILGUN, return_value=mock_mailgun_instance):
             send_newsletter(conn, _SECRET_KEY)
 
         # Send was attempted but failed — items must NOT be marked notified
@@ -289,14 +282,7 @@ class TestSendNewsletterWithScheduledItems:
         _add_scheduled_item(conn)
 
         mock_mailgun_instance = MagicMock()
-        mock_mailgun_cls = MagicMock(return_value=mock_mailgun_instance)
-
-        with (
-            patch(_PATCH_MAILGUN, mock_mailgun_cls),
-            patch(_PATCH_STORAGE, return_value=_fake_disk()),
-            patch(_PATCH_RADARR, return_value=None),
-            patch(_PATCH_SONARR, return_value=None),
-        ):
+        with patch(_PATCH_MAILGUN, return_value=mock_mailgun_instance):
             send_newsletter(conn, _SECRET_KEY)
 
         assert mock_mailgun_instance.send.call_count == 2
@@ -313,6 +299,15 @@ class TestPartialDeliveryFailure:
     ``newsletter_deliveries`` table and only marks the scheduled action
     as ``notified=1`` once every active recipient has been delivered.
     """
+
+    @pytest.fixture(autouse=True)
+    def _patch_boundaries(self):
+        with (
+            patch(_PATCH_STORAGE, return_value=_fake_disk()),
+            patch(_PATCH_RADARR, return_value=None),
+            patch(_PATCH_SONARR, return_value=None),
+        ):
+            yield
 
     def test_partial_failure_leaves_notified_zero(self, db_path):
         """Mailgun fails for one of two recipients — the row stays
@@ -333,14 +328,8 @@ class TestPartialDeliveryFailure:
 
         mock_mailgun_instance = MagicMock()
         mock_mailgun_instance.send.side_effect = fake_send
-        mock_mailgun_cls = MagicMock(return_value=mock_mailgun_instance)
 
-        with (
-            patch(_PATCH_MAILGUN, mock_mailgun_cls),
-            patch(_PATCH_STORAGE, return_value=_fake_disk()),
-            patch(_PATCH_RADARR, return_value=None),
-            patch(_PATCH_SONARR, return_value=None),
-        ):
+        with patch(_PATCH_MAILGUN, return_value=mock_mailgun_instance):
             send_newsletter(conn, _SECRET_KEY)
 
         # Alice got through, Bob didn't.
@@ -361,14 +350,7 @@ class TestPartialDeliveryFailure:
         _add_scheduled_item(conn)
 
         mock_mailgun_instance = MagicMock()
-        mock_mailgun_cls = MagicMock(return_value=mock_mailgun_instance)
-
-        with (
-            patch(_PATCH_MAILGUN, mock_mailgun_cls),
-            patch(_PATCH_STORAGE, return_value=_fake_disk()),
-            patch(_PATCH_RADARR, return_value=None),
-            patch(_PATCH_SONARR, return_value=None),
-        ):
+        with patch(_PATCH_MAILGUN, return_value=mock_mailgun_instance):
             send_newsletter(conn, _SECRET_KEY)
 
         sa = conn.execute(
@@ -385,14 +367,7 @@ class TestPartialDeliveryFailure:
         _add_scheduled_item(conn)
 
         mock_mailgun_instance = MagicMock()
-        mock_mailgun_cls = MagicMock(return_value=mock_mailgun_instance)
-
-        with (
-            patch(_PATCH_MAILGUN, mock_mailgun_cls),
-            patch(_PATCH_STORAGE, return_value=_fake_disk()),
-            patch(_PATCH_RADARR, return_value=None),
-            patch(_PATCH_SONARR, return_value=None),
-        ):
+        with patch(_PATCH_MAILGUN, return_value=mock_mailgun_instance):
             send_newsletter(conn, _SECRET_KEY)
 
         rows = conn.execute("SELECT recipient, sent_at FROM newsletter_deliveries").fetchall()
@@ -426,12 +401,7 @@ class TestPartialDeliveryFailure:
         mock_first = MagicMock()
         mock_first.send.side_effect = first_send
 
-        with (
-            patch(_PATCH_MAILGUN, MagicMock(return_value=mock_first)),
-            patch(_PATCH_STORAGE, return_value=_fake_disk()),
-            patch(_PATCH_RADARR, return_value=None),
-            patch(_PATCH_SONARR, return_value=None),
-        ):
+        with patch(_PATCH_MAILGUN, return_value=mock_first):
             send_newsletter(conn, _SECRET_KEY)
 
         sa = conn.execute(
@@ -444,12 +414,7 @@ class TestPartialDeliveryFailure:
         mock_second = MagicMock()
         mock_second.send.side_effect = lambda **kw: second_pass_sent.append(kw["to"])
 
-        with (
-            patch(_PATCH_MAILGUN, MagicMock(return_value=mock_second)),
-            patch(_PATCH_STORAGE, return_value=_fake_disk()),
-            patch(_PATCH_RADARR, return_value=None),
-            patch(_PATCH_SONARR, return_value=None),
-        ):
+        with patch(_PATCH_MAILGUN, return_value=mock_second):
             send_newsletter(conn, _SECRET_KEY)
 
         sa = conn.execute(
@@ -459,6 +424,15 @@ class TestPartialDeliveryFailure:
 
 
 class TestSendNewsletterRecipientOverride:
+    @pytest.fixture(autouse=True)
+    def _patch_boundaries(self):
+        with (
+            patch(_PATCH_STORAGE, return_value=_fake_disk()),
+            patch(_PATCH_RADARR, return_value=None),
+            patch(_PATCH_SONARR, return_value=None),
+        ):
+            yield
+
     def test_recipients_override_bypasses_subscriber_table(self, db_path):
         """When recipients= is provided, the subscriber table is ignored."""
         conn = init_db(str(db_path))
@@ -467,14 +441,7 @@ class TestSendNewsletterRecipientOverride:
         _add_scheduled_item(conn)
 
         mock_mailgun_instance = MagicMock()
-        mock_mailgun_cls = MagicMock(return_value=mock_mailgun_instance)
-
-        with (
-            patch(_PATCH_MAILGUN, mock_mailgun_cls),
-            patch(_PATCH_STORAGE, return_value=_fake_disk()),
-            patch(_PATCH_RADARR, return_value=None),
-            patch(_PATCH_SONARR, return_value=None),
-        ):
+        with patch(_PATCH_MAILGUN, return_value=mock_mailgun_instance):
             send_newsletter(
                 conn,
                 _SECRET_KEY,
@@ -492,14 +459,7 @@ class TestSendNewsletterRecipientOverride:
         _add_scheduled_item(conn)
 
         mock_mailgun_instance = MagicMock()
-        mock_mailgun_cls = MagicMock(return_value=mock_mailgun_instance)
-
-        with (
-            patch(_PATCH_MAILGUN, mock_mailgun_cls),
-            patch(_PATCH_STORAGE, return_value=_fake_disk()),
-            patch(_PATCH_RADARR, return_value=None),
-            patch(_PATCH_SONARR, return_value=None),
-        ):
+        with patch(_PATCH_MAILGUN, return_value=mock_mailgun_instance):
             send_newsletter(
                 conn,
                 _SECRET_KEY,
@@ -515,6 +475,15 @@ class TestSendNewsletterRecipientOverride:
 
 class TestNewsletterSuggestionContext:
     """H59: suggestion rows must be passed to the template as explicit dicts, not raw DB rows."""
+
+    @pytest.fixture(autouse=True)
+    def _patch_boundaries(self):
+        with (
+            patch(_PATCH_STORAGE, return_value=_fake_disk()),
+            patch(_PATCH_RADARR, return_value=None),
+            patch(_PATCH_SONARR, return_value=None),
+        ):
+            yield
 
     def test_suggestion_context_contains_only_known_fields(self, db_path):
         """Suggestion items in the template context must only contain the declared fields."""
@@ -568,10 +537,7 @@ class TestNewsletterSuggestionContext:
             return "<html></html>"
 
         with (
-            patch(_PATCH_MAILGUN, MagicMock(return_value=MagicMock())),
-            patch(_PATCH_STORAGE, return_value=_fake_disk()),
-            patch(_PATCH_RADARR, return_value=None),
-            patch(_PATCH_SONARR, return_value=None),
+            patch(_PATCH_MAILGUN, return_value=MagicMock()),
             patch.object(jinja2.Template, "render", capturing_render),
         ):
             send_newsletter(conn, _SECRET_KEY)

@@ -14,7 +14,7 @@ from mediaman.services.openai.client import (
     get_openai_key,
     get_openai_model,
     is_web_search_enabled,
-    validate_web_search_title,
+    is_web_search_title_safe,
 )
 
 # ---------------------------------------------------------------------------
@@ -41,22 +41,29 @@ def _put(conn, key, value):
 
 
 class TestGetOpenAiKey:
-    def test_returns_env_var_when_no_db(self, monkeypatch):
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-env-key-test")
-        assert get_openai_key(None) == "sk-env-key-test"
-
-    def test_returns_none_when_no_env_and_no_db(self, monkeypatch):
+    def test_raises_when_no_db_and_no_key(self, monkeypatch):
+        """Environment variables are no longer accepted; ValueError is raised."""
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        assert get_openai_key(None) is None
+        with pytest.raises(ValueError, match="OpenAI API key is not configured"):
+            get_openai_key(None)
 
-    def test_env_not_checked_when_not_needed(self, monkeypatch, conn):
-        """If DB has a key, env var value doesn't matter."""
+    def test_returns_db_key_when_available(self, monkeypatch, conn):
+        """If DB has a key, it is returned."""
         monkeypatch.setenv("OPENAI_API_KEY", "sk-env-key")
         with patch(
             "mediaman.services.infra.settings_reader.get_string_setting", return_value="sk-db-key"
         ):
             result = get_openai_key(conn, secret_key="x" * 32)
         assert result == "sk-db-key"
+
+    def test_raises_when_db_key_missing(self, monkeypatch, conn):
+        """When DB has no key and env var is not consulted, ValueError is raised."""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        with (
+            patch("mediaman.services.infra.settings_reader.get_string_setting", return_value=None),
+            pytest.raises(ValueError, match="OpenAI API key is not configured"),
+        ):
+            get_openai_key(conn, secret_key="x" * 32)
 
 
 # ---------------------------------------------------------------------------
@@ -94,31 +101,31 @@ class TestIsWebSearchEnabled:
 
 
 # ---------------------------------------------------------------------------
-# validate_web_search_title
+# is_web_search_title_safe
 # ---------------------------------------------------------------------------
 
 
 class TestValidateWebSearchTitle:
     def test_plain_ascii_title_is_valid(self):
-        assert validate_web_search_title("Inception") is True
+        assert is_web_search_title_safe("Inception") is True
 
     def test_title_with_punctuation_is_valid(self):
-        assert validate_web_search_title("The Dark Knight (2008)") is True
+        assert is_web_search_title_safe("The Dark Knight (2008)") is True
 
     def test_non_printable_ascii_rejected(self):
-        assert validate_web_search_title("Title\x01here") is False
+        assert is_web_search_title_safe("Title\x01here") is False
 
     def test_non_ascii_unicode_rejected(self):
-        assert validate_web_search_title("Títle with accent") is False
+        assert is_web_search_title_safe("Títle with accent") is False
 
     def test_markdown_link_rejected(self):
-        assert validate_web_search_title("[click me](http://evil.com)") is False
+        assert is_web_search_title_safe("[click me](http://evil.com)") is False
 
     def test_embedded_https_url_rejected(self):
-        assert validate_web_search_title("Dune https://evil.com") is False
+        assert is_web_search_title_safe("Dune https://evil.com") is False
 
     def test_embedded_http_url_rejected(self):
-        assert validate_web_search_title("Dune http://evil.com") is False
+        assert is_web_search_title_safe("Dune http://evil.com") is False
 
 
 # ---------------------------------------------------------------------------

@@ -72,6 +72,7 @@ class DiskThresholds(BaseModel):
     @field_validator("thresholds")
     @classmethod
     def validate_thresholds(cls, v: dict[str, int]) -> dict[str, int]:
+        """Validate each threshold entry: reject CRLF in paths and enforce 0–100 range."""
         for path, pct in v.items():
             _reject_crlf(path)
             if not isinstance(pct, int) or not (0 <= pct <= 100):

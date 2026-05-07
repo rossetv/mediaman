@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from mediaman.auth import cli as cli_mod
+from mediaman.web.auth import cli as cli_mod
 
 
 def _enable_config(monkeypatch, tmp_path):

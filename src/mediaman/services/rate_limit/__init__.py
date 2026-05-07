@@ -19,13 +19,15 @@ Public surface
     Predicate for trusted-proxy allowlist membership.
 ``trusted_proxies``
     Parsed ``MEDIAMAN_TRUSTED_PROXIES`` allowlist (cached).
-``rate_limit``
-    Decorator for inline limiter checks on FastAPI route handlers.
+
+Note: the ``rate_limit`` decorator is intentionally NOT re-exported here.
+It is FastAPI-coupled (uses ``Request`` and ``respond_err`` from the web
+layer) and therefore lives in :mod:`mediaman.web.middleware.rate_limit`.
+Import it directly from that module using the full dotted path.
 """
 
 # ruff: noqa: F401 — deliberate re-export facade.
 
-from mediaman.services.rate_limit.decorator import rate_limit
 from mediaman.services.rate_limit.ip_resolver import (
     _ip_in_networks,
     get_client_ip,
@@ -44,6 +46,5 @@ __all__ = [
     "RateLimiter",
     "get_client_ip",
     "peer_is_trusted",
-    "rate_limit",
     "trusted_proxies",
 ]

@@ -13,13 +13,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import sqlite3
 
 import requests
 
-from mediaman.services.infra.http_client import SafeHTTPClient, SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
 
 # Module-level client so the connection pool is shared across calls.
 # Connect timeout: 5 s.  Read timeout: 30 s — the 90 s default was blocking
@@ -31,7 +30,7 @@ _OPENAI_CLIENT = SafeHTTPClient(
     default_timeout=(5.0, 30.0),
 )
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 # Default OpenAI model for the /v1/responses API.
 _DEFAULT_MODEL = "gpt-4.1"
@@ -41,15 +40,20 @@ _SAFE_TITLE_RE = re.compile(r"^[\x20-\x7E]+$")
 _MARKDOWN_LINK_RE = re.compile(r"\[.*?\]\(.*?\)")
 
 
-def get_openai_key(conn: sqlite3.Connection | None, secret_key: str | None = None) -> str | None:
-    """Read the OpenAI API key from settings, falling back to env var.
+def get_openai_key(conn: sqlite3.Connection | None, secret_key: str | None = None) -> str:
+    """Read the OpenAI API key from settings.
 
     ``secret_key`` is passed to the DB reader to decrypt the stored key when
     it is encrypted. If ``None``, unencrypted keys are still returned but
     encrypted ones fall back silently.
 
-    Logs (DEBUG) which source was used so administrators can diagnose
-    misconfiguration without the key itself ever appearing in logs.
+    Logs (DEBUG) when the key is loaded. Raises ValueError if the key is not
+    configured (neither in database settings nor MEDIAMAN_SECRET_KEY for
+    encrypted values).
+
+    §10.3 forbids plaintext credentials from environment variables other than
+    MEDIAMAN_SECRET_KEY; the env-var fallback was removed to prevent
+    unencrypted on-disk credentials.
     """
     if conn is not None:
         from mediaman.services.infra.settings_reader import get_string_setting
@@ -58,10 +62,7 @@ def get_openai_key(conn: sqlite3.Connection | None, secret_key: str | None = Non
         if val:
             logger.debug("OpenAI API key loaded from database settings")
             return val
-    env_val = os.environ.get("OPENAI_API_KEY")
-    if env_val:
-        logger.debug("OpenAI API key loaded from OPENAI_API_KEY environment variable")
-    return env_val
+    raise ValueError("OpenAI API key is not configured (set it in Settings)")
 
 
 def get_openai_model(conn: sqlite3.Connection | None) -> str:
@@ -86,7 +87,7 @@ def is_web_search_enabled(conn: sqlite3.Connection | None) -> bool:
     return get_bool_setting(conn, "openai_web_search_enabled", default=False)
 
 
-def validate_web_search_title(title: str) -> bool:
+def is_web_search_title_safe(title: str) -> bool:
     """Return True if *title* is safe to persist after a web-search response.
 
     Rejects the entire batch (caller must check the return value) if:
@@ -128,8 +129,9 @@ def call_openai(
     looks adversarial (non-ASCII, markdown link syntax, embedded URL) the
     entire batch is rejected and an empty list is returned.
     """
-    api_key = get_openai_key(conn, secret_key)
-    if not api_key:
+    try:
+        api_key = get_openai_key(conn, secret_key)
+    except ValueError:
         logger.warning("Recommendations skipped — OpenAI API key not configured")
         return []
 
@@ -191,7 +193,7 @@ def call_openai(
         if web_search_active:
             for item in items:
                 title = str(item.get("title", ""))
-                if not validate_web_search_title(title):
+                if not is_web_search_title_safe(title):
                     logger.warning(
                         "Rejecting web-search recommendation batch — title failed safety check: %r",
                         title,

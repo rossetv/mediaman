@@ -22,10 +22,9 @@ import sqlite3
 from typing import TYPE_CHECKING, Any, Final, TypedDict
 
 if TYPE_CHECKING:
-    from mediaman.services.arr.radarr import RadarrClient
-    from mediaman.services.arr.sonarr import SonarrClient
+    from mediaman.services.arr.base import ArrClient
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Download-state action constants
@@ -150,7 +149,7 @@ def compute_download_state(media_type: str, tmdb_id: int, caches: ArrCaches) -> 
     return ACTION_QUEUED
 
 
-def build_radarr_cache(client: RadarrClient | None) -> RadarrCaches:
+def build_radarr_cache(client: ArrClient | None) -> RadarrCaches:
     """Build the per-request Radarr cache fragment. Returns a partial
     ``ArrCaches`` containing only the Radarr keys; combine with
     ``build_sonarr_cache`` via dict-spread to get a full ``ArrCaches``.
@@ -188,7 +187,7 @@ def build_radarr_cache(client: RadarrClient | None) -> RadarrCaches:
     return {"radarr_movies": movies, "radarr_queue_tmdb_ids": queue_ids}
 
 
-def build_sonarr_cache(client: SonarrClient | None) -> SonarrCaches:
+def build_sonarr_cache(client: ArrClient | None) -> SonarrCaches:
     """Build the per-request Sonarr cache fragment. Returns a partial
     ``ArrCaches`` containing only the Sonarr keys; combine with
     ``build_radarr_cache`` via dict-spread to get a full ``ArrCaches``.
@@ -229,11 +228,6 @@ def build_sonarr_cache(client: SonarrClient | None) -> SonarrCaches:
 class LazyArrClients:
     """Request-scoped Radarr/Sonarr client pair built lazily from DB settings.
 
-    The D3 finding identified three inline copies of the pattern
-    ``build_radarr_from_db(conn, secret_key)`` / ``build_sonarr_from_db(...)``
-    scattered across route modules. This class encapsulates both builds
-    behind a single lazy-initialised accessor so the pattern is written once.
-
     Each client is built at most once per :class:`LazyArrClients` instance.
     Call :meth:`radarr` / :meth:`sonarr` to obtain the client (or ``None``
     when the service is not configured).
@@ -247,29 +241,25 @@ class LazyArrClients:
     def __init__(self, conn: sqlite3.Connection, secret_key: str) -> None:
         self._conn = conn
         self._secret_key = secret_key
-        self._radarr: RadarrClient | None | type[_Sentinel] = _Sentinel
-        self._sonarr: SonarrClient | None | type[_Sentinel] = _Sentinel
+        self._radarr: ArrClient | None = None
+        self._radarr_built: bool = False
+        self._sonarr: ArrClient | None = None
+        self._sonarr_built: bool = False
 
-    def radarr(self) -> RadarrClient | None:
-        """Return the :class:`~mediaman.services.arr.radarr.RadarrClient`, building it on first call."""
-        if self._radarr is _Sentinel:
+    def radarr(self) -> ArrClient | None:
+        """Return the Radarr :class:`~mediaman.services.arr.base.ArrClient`, building it on first call."""
+        if not self._radarr_built:
             from mediaman.services.arr.build import build_radarr_from_db
 
             self._radarr = build_radarr_from_db(self._conn, self._secret_key)
-        # mypy can't narrow _radarr out of _Sentinel here because the branch
-        # sets it to RadarrClient|None, but the union annotation still includes
-        # type[_Sentinel].  At this point it is always RadarrClient|None.
-        return self._radarr  # type: ignore[return-value]
+            self._radarr_built = True
+        return self._radarr
 
-    def sonarr(self) -> SonarrClient | None:
-        """Return the :class:`~mediaman.services.arr.sonarr.SonarrClient`, building it on first call."""
-        if self._sonarr is _Sentinel:
+    def sonarr(self) -> ArrClient | None:
+        """Return the Sonarr :class:`~mediaman.services.arr.base.ArrClient`, building it on first call."""
+        if not self._sonarr_built:
             from mediaman.services.arr.build import build_sonarr_from_db
 
             self._sonarr = build_sonarr_from_db(self._conn, self._secret_key)
-        # Same narrowing limitation as radarr() above.
-        return self._sonarr  # type: ignore[return-value]
-
-
-class _Sentinel:
-    """Sentinel class used to distinguish "not yet built" from ``None``."""
+            self._sonarr_built = True
+        return self._sonarr

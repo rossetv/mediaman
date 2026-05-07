@@ -10,9 +10,9 @@ from collections.abc import Callable
 
 import requests
 
-from mediaman.services.infra.http_client import SafeHTTPClient, SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 # Transient HTTP status codes that warrant a retry on POST requests.
 _RETRYABLE_POST_STATUSES = frozenset({429, 500, 502, 503, 504})
@@ -185,7 +185,7 @@ class MailgunClient:
         for recipient in recipients:
             self.send(to=recipient, subject=subject, html=html)
 
-    def test_connection(self) -> bool:
+    def is_reachable(self) -> bool:
         """Return True if either region reports the domain exists."""
         for base in (self._base, self._other_base()):
             try:

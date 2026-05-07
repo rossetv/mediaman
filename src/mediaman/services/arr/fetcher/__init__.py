@@ -25,7 +25,7 @@ from mediaman.services.arr.fetcher._base import (
 from mediaman.services.arr.fetcher._radarr import fetch_radarr_queue
 from mediaman.services.arr.fetcher._sonarr import fetch_sonarr_queue
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "ArrCard",

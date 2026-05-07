@@ -21,44 +21,46 @@ Import-cycle rule: :mod:`repository` imports nothing from
 module orchestrates all three.
 """
 
+# rationale: scan orchestrator — the per-library fetch → upsert → evaluate →
+# schedule → commit sequence forms an atomic transaction discipline that must
+# not be scattered across files; splitting the inner steps would either break
+# the rollback guard around each library commit or force callers to manage
+# transaction boundaries themselves, which is harder to audit.
+
 from __future__ import annotations
 
 import logging
 import sqlite3
 from collections.abc import Callable, Iterable
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING
 
+if TYPE_CHECKING:
+    from mediaman.services.arr.base import ArrClient
+    from mediaman.services.media_meta.plex import PlexClient
+
+from mediaman.core.format import ensure_tz as _ensure_tz
+from mediaman.core.time import parse_iso_utc as _parse_iso_utc
 from mediaman.scanner import repository
 from mediaman.scanner.arr_dates import ArrDateCache
 from mediaman.scanner.deletions import (
     DeletionExecutor,
     DeletionResult,
-    _recover_stuck_deletions,
 )
 from mediaman.scanner.fetch import PlexFetcher, _PlexItemFetch
 from mediaman.scanner.phases.delete import remove_orphans
-from mediaman.scanner.phases.evaluate import evaluate_movie_item, evaluate_season_item
+from mediaman.scanner.phases.evaluate import evaluate_movie, evaluate_season
 from mediaman.scanner.phases.upsert import schedule_deletion as _phase_schedule_deletion
 from mediaman.scanner.phases.upsert import upsert_item as _phase_upsert_item
-from mediaman.services.infra.format import ensure_tz as _ensure_tz
 from mediaman.services.infra.settings_reader import get_bool_setting as _get_bool_setting
-from mediaman.services.infra.storage import delete_path  # re-exported for back-compat
-from mediaman.services.infra.time import parse_iso_utc as _parse_iso_utc
 from mediaman.services.mail.newsletter import send_newsletter as _send_newsletter
 from mediaman.services.openai.recommendations.persist import (
     refresh_recommendations as _refresh_recommendations,
 )
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
-# Back-compat: callers historically imported these from engine.
-__all__ = [
-    "ScanEngine",
-    "_PlexItemFetch",
-    "_recover_stuck_deletions",
-    "delete_path",
-]
+__all__ = ["ScanEngine"]
 
 
 def _coerce_lib_ids(raw: Iterable[str]) -> set[int]:
@@ -100,23 +102,15 @@ class ScanEngine:
             changes are written**: ``schedule_deletion`` is skipped, orphan
             removal is skipped, the newsletter is not sent, recommendations
             are not refreshed, and the on-disk rm + ``cleanup_expired_snoozes``
-            in the deletion executor are also skipped (delegated to
-            ``skip_rmtree`` below). Use this for "what would happen"
-            previews. Defaults to False.
-        skip_rmtree: When True, prevents the deletion executor from
-            invoking ``delete_path`` (the on-disk rm) but allows every
-            other write — schedule_deletion, orphan cleanup, newsletter,
-            and audit logging still run. ``dry_run=True`` implies
-            ``skip_rmtree=True``. Use ``skip_rmtree`` directly when you
-            want the narrower "no rm" behaviour without disabling the
-            rest of the pipeline. Defaults to False.
+            in the deletion executor are also skipped. Use this for
+            "what would happen" previews. Defaults to False.
     """
 
     def __init__(
         self,
         *,
         conn: sqlite3.Connection,
-        plex_client: Any,
+        plex_client: PlexClient,
         library_ids: list[str],
         library_types: dict[str, str],
         library_titles: dict[str, str] | None = None,
@@ -125,9 +119,8 @@ class ScanEngine:
         inactivity_days: int = 30,
         grace_days: int = 14,
         dry_run: bool = False,
-        skip_rmtree: bool = False,
-        sonarr_client: Any = None,
-        radarr_client: Any = None,
+        sonarr_client: ArrClient | None = None,
+        radarr_client: ArrClient | None = None,
     ) -> None:
         self._conn = conn
         self._plex = plex_client
@@ -139,9 +132,6 @@ class ScanEngine:
         self._inactivity_days = inactivity_days
         self._grace_days = grace_days
         self._dry_run = dry_run
-        # dry_run implies skip_rmtree — a true preview cannot perform
-        # on-disk deletions either.
-        self._skip_rmtree = bool(skip_rmtree or dry_run)
         self._sonarr = sonarr_client
         self._radarr = radarr_client
 
@@ -156,27 +146,16 @@ class ScanEngine:
         )
         self._deletions = DeletionExecutor(
             conn=conn,
-            dry_run=self._skip_rmtree,
+            dry_run=dry_run,
             cleanup_snoozes=not dry_run,
             sonarr_client=sonarr_client,
             radarr_client=radarr_client,
         )
 
-    # ------------------------------------------------------------------
-    # Back-compat shims — keep the pre-split private API importable so
-    # the rest of the codebase (and tests) keep working without a
-    # behavioural change.
-    # ------------------------------------------------------------------
-
     def _load_delete_allowed_roots(self) -> list[str]:
         return repository.read_delete_allowed_roots_setting(self._conn)
 
     def _ensure_arr_dates(self) -> None:
-        self._arr_cache.ensure_loaded()
-
-    def _build_arr_date_cache(self) -> None:  # pragma: no cover — compat shim
-        # Forces a (re)load. Only used as an explicit helper in tests.
-        self._arr_cache.reset()
         self._arr_cache.ensure_loaded()
 
     @property
@@ -204,8 +183,8 @@ class ScanEngine:
         1. **Fetch phase** — pull every library's items and their watch
            history from Plex into an in-memory buffer. No DB writes.
         2. **Write phase** — UPSERTs with one ``commit()`` per library
-           (D05 finding 5) so the SQLite write lock is held only for
-           a single library's worth of writes at a time.
+           so the SQLite write lock is held only for a single library's
+           worth of writes at a time.
         """
         summary = {"synced": 0, "errors": 0, "removed": 0}
 
@@ -280,7 +259,8 @@ class ScanEngine:
             "removed": 0,
         }
         # Per-library accumulator so the orphan safeguard is evaluated
-        # against each library independently (D05 finding 7).
+        # against each library independently — a single library's empty
+        # result cannot wipe items belonging to another library.
         seen_by_lib: dict[str, set[str]] = {}
 
         for lib_id in self._library_ids:
@@ -313,10 +293,9 @@ class ScanEngine:
             else:
                 self._scan_movie_library(lib_id, summary, seen)
 
-            # Per-library commit (D05 finding 4 + 5): bound the SQLite
-            # write-lock duration so a SIGKILL mid-scan can only roll
-            # back the in-flight library, not every successful upsert
-            # from earlier libraries.
+            # Per-library commit: bound the SQLite write-lock duration so a
+            # SIGKILL mid-scan can only roll back the in-flight library, not
+            # every successful upsert from earlier libraries.
             self._conn.commit()
 
         # Per-library orphan cleanup so a single library's empty result
@@ -425,7 +404,7 @@ class ScanEngine:
         self,
         fetched: list[_PlexItemFetch],
         media_type_fn: Callable[[_PlexItemFetch], str],
-        evaluate_fn: Callable[[_PlexItemFetch, Any, list[dict[str, object]]], str | None],
+        evaluate_fn: Callable[[_PlexItemFetch, datetime, list[dict[str, object]]], str | None],
         item_label: str,
         library_id: str,
         summary: dict[str, int],
@@ -525,13 +504,12 @@ class ScanEngine:
 
         def _evaluate(
             f: _PlexItemFetch,
-            added_at: Any,
+            added_at: datetime,
             watch_history: list[dict[str, object]],
         ) -> str | None:
-            return evaluate_movie_item(
-                f,
-                added_at,
-                watch_history,
+            return evaluate_movie(
+                added_at=added_at,
+                watch_history=watch_history,
                 min_age_days=self._min_age_days,
                 inactivity_days=self._inactivity_days,
             )
@@ -557,14 +535,17 @@ class ScanEngine:
 
         def _evaluate(
             f: _PlexItemFetch,
-            added_at: Any,
+            added_at: datetime,
             watch_history: list[dict[str, object]],
         ) -> str | None:
-            return evaluate_season_item(
-                f,
-                added_at,
-                watch_history,
-                conn=self._conn,
+            season = f.item
+            if repository.is_show_kept(self._conn, season.get("show_rating_key")):
+                return None  # show is protected; skip all its seasons
+            return evaluate_season(
+                added_at=added_at,
+                episode_count=season.get("episode_count", 0),
+                watch_history=watch_history,
+                has_future_episodes=False,
                 min_age_days=self._min_age_days,
                 inactivity_days=self._inactivity_days,
             )
@@ -591,31 +572,3 @@ class ScanEngine:
         to libraries that were successfully scanned.
         """
         return remove_orphans(self._conn, seen_keys, scanned_libs)
-
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
-    def _upsert_media_item(
-        self,
-        item: dict[str, object],
-        library_id: str,
-        media_type: str,
-    ) -> None:
-        """Insert or update a media item record.
-
-        Back-compat shim used by :meth:`sync_library`.  New code in the
-        scan loop delegates directly to :func:`phases.upsert.upsert_item`.
-        """
-        self._arr_cache.ensure_loaded()
-        file_path = item.get("file_path") or ""
-        if not isinstance(file_path, str):
-            file_path = ""
-        arr_date = self._arr_cache.get(file_path)
-        repository.upsert_media_item(
-            self._conn,
-            item=item,
-            library_id=library_id,
-            media_type=media_type,
-            arr_date=arr_date,
-        )

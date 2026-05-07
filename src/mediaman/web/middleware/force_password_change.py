@@ -51,6 +51,13 @@ class ForcePasswordChangeMiddleware(BaseHTTPMiddleware):
     )
 
     async def dispatch(self, request: Request, call_next) -> Response:
+        """Redirect to the password-change page when the session user must change their password.
+
+        Passes requests through unchanged when there is no session cookie, when
+        the path is in the allowed-prefix list, or when the session is invalid.
+        For all other authenticated requests it checks the ``must_change_password``
+        flag and redirects to ``/force-password-change`` when set.
+        """
         token = request.cookies.get("session_token")
         if not token:
             return await call_next(request)
@@ -62,12 +69,10 @@ class ForcePasswordChangeMiddleware(BaseHTTPMiddleware):
         # Cheap check — avoid importing the DB layer at module load
         # to keep this middleware testable in isolation.
         try:
-            from mediaman.auth.rate_limit import get_client_ip
-            from mediaman.auth.session import (
-                user_must_change_password,
-                validate_session,
-            )
             from mediaman.db import get_db
+            from mediaman.services.rate_limit import get_client_ip
+            from mediaman.web.auth.password_hash import user_must_change_password
+            from mediaman.web.auth.session_store import validate_session
         except Exception:
             return await call_next(request)
 

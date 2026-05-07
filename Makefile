@@ -5,7 +5,7 @@
 # `make` target passes locally, the matching CI job should also pass (modulo
 # environment differences such as Python patch version).
 
-.PHONY: help test lint format format-check typecheck check clean
+.PHONY: help test lint format format-check typecheck bandit audit check clean
 
 # Default target — `make` with no arguments prints the menu.
 help:
@@ -16,26 +16,34 @@ help:
 	@echo "  make format       Run ruff format (rewrites files)"
 	@echo "  make format-check Run ruff format --check (read-only)"
 	@echo "  make typecheck    Run mypy"
-	@echo "  make check        Run lint + format-check + typecheck + test"
+	@echo "  make bandit       Run bandit security scan"
+	@echo "  make audit        Run pip-audit dependency audit"
+	@echo "  make check        Run lint + format-check + typecheck + bandit + audit + test"
 	@echo "  make clean        Remove local cache and coverage artefacts"
 
 test:
 	pytest -q
 
 lint:
-	ruff check .
+	ruff check src tests
 
 format:
-	ruff format .
+	ruff format src tests
 
 format-check:
-	ruff format --check .
+	ruff format --check src tests
 
 typecheck:
-	mypy src
+	mypy src/mediaman
+
+bandit:
+	bandit -r src/ -c bandit.yaml -ll -f txt
+
+audit:
+	pip-audit -r requirements.lock --require-hashes
 
 # `check` is the "before pushing" smoke test. Mirrors the CI gates.
-check: lint format-check typecheck test
+check: lint format-check typecheck bandit audit test
 
 clean:
 	rm -f .coverage .coverage.*

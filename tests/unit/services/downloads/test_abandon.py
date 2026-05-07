@@ -38,8 +38,12 @@ class TestAbandonMovie:
         """Happy path: unmonitor_movie called once, throttle row deleted."""
         client = MagicMock()
         monkeypatch.setattr(
-            "mediaman.services.downloads.abandon.build_arr_client",
-            lambda c, svc, sk: client if svc == "radarr" else None,
+            "mediaman.services.downloads.abandon.build_radarr_from_db",
+            lambda c, sk: client,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.downloads.abandon.build_sonarr_from_db",
+            lambda c, sk: None,
         )
         _save_trigger_to_db(db_conn, "radarr:Tenet", 999.0, 5)
 
@@ -56,8 +60,12 @@ class TestAbandonMovie:
         client = MagicMock()
         client.unmonitor_movie.side_effect = RuntimeError("radarr down")
         monkeypatch.setattr(
-            "mediaman.services.downloads.abandon.build_arr_client",
-            lambda c, svc, sk: client if svc == "radarr" else None,
+            "mediaman.services.downloads.abandon.build_radarr_from_db",
+            lambda c, sk: client,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.downloads.abandon.build_sonarr_from_db",
+            lambda c, sk: None,
         )
         _save_trigger_to_db(db_conn, "radarr:Tenet", 999.0, 5)
 
@@ -71,10 +79,14 @@ class TestAbandonMovie:
         assert count == 5  # preserved on failure
 
     def test_no_radarr_client_returns_failure(self, db_conn, monkeypatch):
-        """build_arr_client returning None is treated as a failure, not silent."""
+        """The builder returning None is treated as a failure, not silent."""
         monkeypatch.setattr(
-            "mediaman.services.downloads.abandon.build_arr_client",
-            lambda c, svc, sk: None,
+            "mediaman.services.downloads.abandon.build_radarr_from_db",
+            lambda c, sk: None,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.downloads.abandon.build_sonarr_from_db",
+            lambda c, sk: None,
         )
         result = abandon_movie(db_conn, "secret", arr_id=42, dl_id="radarr:Tenet")
         assert result.failed == [0]
@@ -85,8 +97,12 @@ class TestAbandonSeasons:
     def test_loops_per_season_and_clears_throttle_on_full_success(self, db_conn, monkeypatch):
         client = MagicMock()
         monkeypatch.setattr(
-            "mediaman.services.downloads.abandon.build_arr_client",
-            lambda c, svc, sk: client if svc == "sonarr" else None,
+            "mediaman.services.downloads.abandon.build_radarr_from_db",
+            lambda c, sk: None,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.downloads.abandon.build_sonarr_from_db",
+            lambda c, sk: client,
         )
         _save_trigger_to_db(db_conn, "sonarr:One Piece", 999.0, 47)
 
@@ -118,8 +134,12 @@ class TestAbandonSeasons:
 
         client.unmonitor_season.side_effect = fail_22
         monkeypatch.setattr(
-            "mediaman.services.downloads.abandon.build_arr_client",
-            lambda c, svc, sk: client if svc == "sonarr" else None,
+            "mediaman.services.downloads.abandon.build_radarr_from_db",
+            lambda c, sk: None,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.downloads.abandon.build_sonarr_from_db",
+            lambda c, sk: client,
         )
         _save_trigger_to_db(db_conn, "sonarr:One Piece", 999.0, 47)
 
@@ -141,8 +161,8 @@ class TestAbandonSeasons:
     def test_empty_season_list_raises_value_error(self, db_conn, monkeypatch):
         """An empty list is rejected — nothing to abandon."""
         monkeypatch.setattr(
-            "mediaman.services.downloads.abandon.build_arr_client",
-            lambda c, svc, sk: MagicMock(),
+            "mediaman.services.downloads.abandon.build_sonarr_from_db",
+            lambda c, sk: MagicMock(),
         )
         with pytest.raises(ValueError, match="at least one season"):
             abandon_seasons(
@@ -167,8 +187,12 @@ class TestAbandonSeries:
             ],
         }
         monkeypatch.setattr(
-            "mediaman.services.downloads.abandon.build_arr_client",
-            lambda c, svc, sk: client if svc == "sonarr" else None,
+            "mediaman.services.downloads.abandon.build_radarr_from_db",
+            lambda c, sk: None,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.downloads.abandon.build_sonarr_from_db",
+            lambda c, sk: client,
         )
 
         result = abandon_series(
@@ -191,8 +215,12 @@ class TestAbandonSeries:
             "seasons": [{"seasonNumber": 1, "monitored": False}],
         }
         monkeypatch.setattr(
-            "mediaman.services.downloads.abandon.build_arr_client",
-            lambda c, svc, sk: client if svc == "sonarr" else None,
+            "mediaman.services.downloads.abandon.build_radarr_from_db",
+            lambda c, sk: None,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.downloads.abandon.build_sonarr_from_db",
+            lambda c, sk: client,
         )
 
         result = abandon_series(db_conn, "secret", series_id=7, dl_id="sonarr:Done")
@@ -204,8 +232,12 @@ class TestAbandonSeries:
         client = MagicMock()
         client.get_series_by_id.side_effect = RuntimeError("sonarr down")
         monkeypatch.setattr(
-            "mediaman.services.downloads.abandon.build_arr_client",
-            lambda c, svc, sk: client if svc == "sonarr" else None,
+            "mediaman.services.downloads.abandon.build_radarr_from_db",
+            lambda c, sk: None,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.downloads.abandon.build_sonarr_from_db",
+            lambda c, sk: client,
         )
 
         result = abandon_series(db_conn, "secret", series_id=7, dl_id="sonarr:Boom")

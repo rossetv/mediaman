@@ -8,9 +8,10 @@ from unittest.mock import MagicMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
+from mediaman.web.auth.password_hash import create_user
+from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.library import router as library_router
 from mediaman.web.routes.library_api import _DELETE_LIMITER, _KEEP_LIMITER
 from mediaman.web.routes.library_api import router as library_api_router
@@ -591,7 +592,7 @@ class TestRedownloadSafeHTTPError:
 
     def test_radarr_409_safe_http_error_returns_already_exists(self, db_path, secret_key):
         """A 409 SafeHTTPError from Radarr returns the 'already exists in Radarr' message."""
-        from mediaman.services.infra.http_client import SafeHTTPError
+        from mediaman.services.infra.http import SafeHTTPError
 
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key)
@@ -615,7 +616,7 @@ class TestRedownloadSafeHTTPError:
 
     def test_radarr_422_safe_http_error_returns_already_exists(self, db_path, secret_key):
         """A 422 SafeHTTPError from Radarr is treated identically to 409."""
-        from mediaman.services.infra.http_client import SafeHTTPError
+        from mediaman.services.infra.http import SafeHTTPError
 
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key)
@@ -639,7 +640,7 @@ class TestRedownloadSafeHTTPError:
 
     def test_sonarr_409_safe_http_error_returns_already_exists(self, db_path, secret_key):
         """A 409 SafeHTTPError from Sonarr returns the 'already exists in Sonarr' message."""
-        from mediaman.services.infra.http_client import SafeHTTPError
+        from mediaman.services.infra.http import SafeHTTPError
 
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key)

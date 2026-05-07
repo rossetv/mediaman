@@ -30,6 +30,12 @@ symmetrically. A mismatch (pre-hash on set, raw on verify or vice
 versa) would lock everyone out.
 """
 
+# rationale: combines user CRUD (create, list, delete, change-password) with
+# bcrypt helpers because the helpers are intrinsic to each CRUD operation and
+# the test suite patches ``mediaman.web.auth.password_hash.bcrypt`` at module
+# scope — splitting bcrypt helpers into a separate file would move the patch
+# target and break all password tests without reducing complexity.
+
 from __future__ import annotations
 
 import base64
@@ -43,9 +49,9 @@ from typing import TypedDict
 
 import bcrypt
 
-from mediaman.services.infra.time import now_iso
+from mediaman.core.time import now_iso
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 class UserRecord(TypedDict):
@@ -79,8 +85,6 @@ _LOG_FIELD_RE = _re.compile(r"[^A-Za-z0-9._@\-]")
 
 def _sanitise_log_field(value: str, limit: int = 64) -> str:
     """Strip non-safe characters from *value* and truncate to *limit*."""
-    if value is None:
-        return ""
     truncated = len(value) > limit
     sanitised = _LOG_FIELD_RE.sub("", value)[:limit]
     return sanitised + "..." if truncated else sanitised
@@ -191,33 +195,32 @@ def create_user(
     bcrypt_input = _prepare_bcrypt_input(password)
     password_hash = bcrypt.hashpw(bcrypt_input, bcrypt.gensalt(rounds=BCRYPT_ROUNDS)).decode()
     now = now_iso()
-    conn.execute("BEGIN IMMEDIATE")
+    # ``with conn:`` commits on normal exit and rolls back on exception;
+    # BEGIN IMMEDIATE here preserves write-lock semantics so the unique
+    # username check and the INSERT are serialised.
     try:
-        conn.execute(
-            "INSERT INTO admin_users (username, password_hash, created_at, must_change_password) "
-            "VALUES (?, ?, ?, 0)",
-            (username, password_hash, now),
-        )
-        if audit_actor is not None:
-            from mediaman.audit import security_event_or_raise
-
-            security_event_or_raise(
-                conn,
-                event="user.created",
-                actor=audit_actor,
-                ip=audit_ip,
-                detail={"new_username": username},
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "INSERT INTO admin_users (username, password_hash, created_at, must_change_password) "
+                "VALUES (?, ?, ?, 0)",
+                (username, password_hash, now),
             )
-        conn.execute("COMMIT")
+            if audit_actor is not None:
+                from mediaman.audit import security_event_or_raise
+
+                security_event_or_raise(
+                    conn,
+                    event="user.created",
+                    actor=audit_actor,
+                    ip=audit_ip,
+                    detail={"new_username": username},
+                )
     except sqlite3.IntegrityError as exc:
-        conn.execute("ROLLBACK")
         message = (exc.args[0] if exc.args else "").lower()
         if "unique" in message and "admin_users.username" in message:
             raise ValueError(f"User '{username}' already exists") from exc
         logger.error("create_user integrity_error user=%s detail=%s", username, exc)
-        raise
-    except Exception:
-        conn.execute("ROLLBACK")
         raise
 
 
@@ -261,7 +264,7 @@ def authenticate(
     can deduce from response volume anyway.
     """
     from mediaman.web.auth.login_lockout import (
-        check_lockout,
+        is_locked_out,
         record_failure,
         record_success,
     )
@@ -279,7 +282,7 @@ def authenticate(
     # remain reachable (5 → 10 → 15 failures); see C6 in the lockout
     # tests. record_failure keeps acquiring the writer lock, which is
     # the price of the escalation property.
-    if check_lockout(conn, username):
+    if is_locked_out(conn, username):
         if record_failures:
             record_failure(conn, username)
         logger.warning("auth.account_locked user=%s reason=lockout_active", username)
@@ -306,6 +309,10 @@ def authenticate(
     return ok
 
 
+# rationale: verify old password, enforce policy, bcrypt the new one, write
+# the hash, rotate the session token, and write an audit row — all must happen
+# in a single DB transaction so a failure between the hash write and the audit
+# write cannot produce an audit-free password change.
 def change_password(
     conn: sqlite3.Connection,
     username: str,
@@ -349,7 +356,7 @@ def change_password(
     password change.
     """
     from mediaman.web.auth.login_lockout import (
-        check_lockout,
+        is_locked_out,
         record_failure,
         record_success,
     )
@@ -357,7 +364,7 @@ def change_password(
 
     namespace = f"{REAUTH_LOCKOUT_PREFIX}{username}" if username else ""
 
-    if namespace and check_lockout(conn, namespace):
+    if namespace and is_locked_out(conn, namespace):
         # Burn a constant-time bcrypt cycle so timing matches the
         # wrong-password path; bump the counter so a sustained attack
         # escalates the lock window.
@@ -388,50 +395,56 @@ def change_password(
     new_hash = bcrypt.hashpw(
         _prepare_bcrypt_input(new_password), bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
     ).decode()
-    conn.execute("BEGIN IMMEDIATE")
+    # ``with conn:`` commits on normal exit and rolls back on exception;
+    # BEGIN IMMEDIATE here preserves write-lock semantics.
+    # The _user_vanished flag signals that the TOCTOU guard fired so we
+    # can return False AFTER the with-block (which rolled back via raise).
+    _user_vanished = False
     try:
-        cursor = conn.execute(
-            "UPDATE admin_users SET password_hash=?, must_change_password=0 WHERE username=?",
-            (new_hash, username),
-        )
-        # TOCTOU guard: if the user vanished between authenticate() and
-        # this UPDATE, rowcount will be zero. Roll back instead of
-        # claiming success — we just wrote a no-op and would otherwise
-        # also DELETE sessions / mint an audit row for a user who is no
-        # longer there.
-        if cursor.rowcount == 0:
-            conn.execute("ROLLBACK")
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.execute(
+                "UPDATE admin_users SET password_hash=?, must_change_password=0 WHERE username=?",
+                (new_hash, username),
+            )
+            # TOCTOU guard: if the user vanished between authenticate() and
+            # this UPDATE, rowcount will be zero. Roll back instead of
+            # claiming success — we just wrote a no-op and would otherwise
+            # also DELETE sessions / mint an audit row for a user who is no
+            # longer there.
+            if cursor.rowcount == 0:
+                _user_vanished = True
+                raise RuntimeError("user_vanished")  # triggers with-block rollback
+            conn.execute("DELETE FROM admin_sessions WHERE username=?", (username,))
+            # Reauth ticket revocation belongs INSIDE the transaction.
+            # Otherwise a thief holding a reauth ticket whose session we
+            # just dropped could redeem the ticket against a brand-new
+            # session that re-authenticates with the same username. We
+            # inline the DELETE rather than calling
+            # ``revoke_all_reauth_for`` because that helper commits its
+            # own transaction, which would prematurely commit the outer
+            # block.
+            conn.execute(
+                "DELETE FROM reauth_tickets WHERE username = ?",
+                (username,),
+            )
+            if audit_actor is not None:
+                from mediaman.audit import security_event_or_raise
+
+                security_event_or_raise(
+                    conn,
+                    event=audit_event,
+                    actor=audit_actor,
+                    ip=audit_ip,
+                    detail={"target_username": username},
+                )
+    except RuntimeError:
+        if _user_vanished:
             logger.warning(
                 "password.change_failed user=%s reason=user_vanished",
                 _sanitise_log_field(username),
             )
             return False
-        conn.execute("DELETE FROM admin_sessions WHERE username=?", (username,))
-        # Reauth ticket revocation belongs INSIDE the transaction.
-        # Otherwise a thief holding a reauth ticket whose session we
-        # just dropped could redeem the ticket against a brand-new
-        # session that re-authenticates with the same username. We
-        # inline the DELETE rather than calling
-        # ``revoke_all_reauth_for`` because that helper commits its
-        # own transaction, which would prematurely commit the outer
-        # block.
-        conn.execute(
-            "DELETE FROM reauth_tickets WHERE username = ?",
-            (username,),
-        )
-        if audit_actor is not None:
-            from mediaman.audit import security_event_or_raise
-
-            security_event_or_raise(
-                conn,
-                event=audit_event,
-                actor=audit_actor,
-                ip=audit_ip,
-                detail={"target_username": username},
-            )
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
         raise
     if namespace:
         # Clear the failure counter outside the transaction so a counter
@@ -480,29 +493,35 @@ def delete_user(
         return False
     target_username = row["username"]
 
+    # ``with conn:`` commits on normal exit and rolls back on exception;
+    # BEGIN IMMEDIATE here preserves write-lock semantics.
+    # The _last_user flag signals the "last admin" guard fired so we
+    # return False AFTER the with-block has rolled back via raise.
+    _last_user = False
     try:
-        conn.execute("BEGIN IMMEDIATE")
-        conn.execute("DELETE FROM admin_sessions WHERE username=?", (target_username,))
-        cursor = conn.execute(
-            "DELETE FROM admin_users WHERE id = ? AND (SELECT COUNT(*) FROM admin_users) > 1",
-            (user_id,),
-        )
-        if cursor.rowcount == 0:
-            conn.execute("ROLLBACK")
-            return False
-        if audit_actor is not None:
-            from mediaman.audit import security_event_or_raise
-
-            security_event_or_raise(
-                conn,
-                event="user.deleted",
-                actor=audit_actor,
-                ip=audit_ip,
-                detail={"target_id": user_id, "target_username": target_username},
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("DELETE FROM admin_sessions WHERE username=?", (target_username,))
+            cursor = conn.execute(
+                "DELETE FROM admin_users WHERE id = ? AND (SELECT COUNT(*) FROM admin_users) > 1",
+                (user_id,),
             )
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
+            if cursor.rowcount == 0:
+                _last_user = True
+                raise RuntimeError("last_user")  # triggers with-block rollback
+            if audit_actor is not None:
+                from mediaman.audit import security_event_or_raise
+
+                security_event_or_raise(
+                    conn,
+                    event="user.deleted",
+                    actor=audit_actor,
+                    ip=audit_ip,
+                    detail={"target_id": user_id, "target_username": target_username},
+                )
+    except RuntimeError:
+        if _last_user:
+            return False
         raise
     # Best-effort cleanup of any reauth tickets the deleted user held —
     # done outside the transaction so a tickets-table hiccup never

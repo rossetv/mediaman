@@ -99,7 +99,7 @@ def _mark_notified(
     active_recipients: list[str] | None = None,
 ) -> None:
     """Mark scheduled action rows as notified=1, but only when every active
-    recipient has been delivered to (finding 23).
+    recipient has been delivered to.
 
     Asserts all ids are integers before building the parameterised query so a
     non-integer id (e.g. from a corrupt row) surfaces as a clear error rather
@@ -126,14 +126,18 @@ def _mark_notified(
 
     expected = set(active_recipients)
     fully_delivered: list[int] = []
+    # rationale: batched IN-clause replaces N+1 query
+    placeholders = ",".join("?" * len(action_ids))
+    delivery_rows = conn.execute(
+        f"SELECT scheduled_action_id, recipient FROM newsletter_deliveries "
+        f"WHERE scheduled_action_id IN ({placeholders}) AND sent_at IS NOT NULL",
+        action_ids,
+    ).fetchall()
+    delivered_by_action: dict[int, set[str]] = {}
+    for dr in delivery_rows:
+        delivered_by_action.setdefault(dr["scheduled_action_id"], set()).add(dr["recipient"])
     for action_id in action_ids:
-        rows = conn.execute(
-            "SELECT recipient FROM newsletter_deliveries "
-            "WHERE scheduled_action_id = ? AND sent_at IS NOT NULL",
-            (action_id,),
-        ).fetchall()
-        delivered = {r["recipient"] for r in rows}
-        if expected.issubset(delivered):
+        if expected.issubset(delivered_by_action.get(action_id, set())):
             fully_delivered.append(action_id)
 
     if fully_delivered:

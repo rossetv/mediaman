@@ -15,7 +15,6 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
-from mediaman.auth.middleware import get_current_admin
 from mediaman.db import (
     finish_refresh_run,
     get_db,
@@ -30,16 +29,16 @@ from mediaman.services.openai.recommendations.throttle import (
     record_manual_refresh,
     refresh_cooldown_remaining,
 )
+from mediaman.web.auth.middleware import get_current_admin
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Shared state for the background worker (finding 28). The
-# ``_refresh_result`` dict is mutated by the background thread and read
-# by the polling endpoint; without a lock the read could observe a
-# half-built dict mid-assignment. The lock is fine-grained — held only
-# for the swap, not for the work itself.
+# Shared state for the background worker. The ``_refresh_result`` dict is
+# mutated by the background thread and read by the polling endpoint;
+# without a lock the read could observe a half-built dict mid-assignment.
+# The lock is fine-grained — held only for the swap, not for the work itself.
 _refresh_result: dict[str, object] | None = None
 _refresh_result_lock = threading.Lock()
 
@@ -100,6 +99,13 @@ def api_refresh_recommendations(
     _secret_key = config.secret_key
 
     def run() -> None:
+        """Execute the recommendation refresh in a background thread.
+
+        Opens a dedicated thread-local DB connection, calls the refresh pipeline,
+        records the run result (done or error), and closes the connection on exit.
+        The cooldown timestamp is only recorded on a successful non-zero result to
+        avoid locking the user out after a transient OpenAI failure.
+        """
         thread_conn = open_thread_connection(_db_path)
         thread_secret_key = _secret_key
         result: dict[str, object]

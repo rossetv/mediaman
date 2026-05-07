@@ -5,7 +5,9 @@ This module provides two classes:
 * :class:`_ArrClientBase` — raw HTTP helpers (GET/PUT/POST/DELETE), the
   connection test, add-flow pickers (root folder, quality profile), and
   lookup helpers.  It is not instantiated directly; it is the superclass of
-  :class:`ArrClient`.
+  :class:`ArrClient`.  The implementation lives in
+  :mod:`mediaman.services.arr._client_base` and is re-exported here for
+  back-compat.
 
 * :class:`ArrClient` — the spec-driven unified client.  It accepts an
   :class:`~mediaman.services.arr.spec.ArrSpec` as its first constructor
@@ -13,9 +15,6 @@ This module provides two classes:
   or Radarr (``kind="movie"``).  All service-specific methods are present on
   this class; kind-specific ones raise :exc:`ArrKindMismatch` when called on
   the wrong variant.
-
-Back-compat subclasses in ``sonarr.py`` and ``radarr.py`` pre-bind the
-appropriate spec so existing callers need no changes.
 
 All outbound calls route through :class:`SafeHTTPClient` for SSRF
 re-validation, size capping, redirect refusal, and retry/backoff on
@@ -31,238 +30,28 @@ from __future__ import annotations
 import logging
 from typing import Any, cast
 
-import requests
-from requests import RequestException
-
+from mediaman.services.arr._client_base import (
+    _ARR_TIMEOUT_SECONDS,
+    ArrConfigError,
+    ArrError,
+    ArrKindMismatch,
+    _ArrClientBase,
+)
 from mediaman.services.arr.spec import ArrSpec
-from mediaman.services.infra.http_client import SafeHTTPClient, SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPError
 
-#: Split timeout: 5 s to establish a TCP connection, 30 s to read the body.
-#: Radarr/Sonarr responses are usually under 1 s on the LAN; the 30 s read
-#: budget covers the rare case of a large library dump (tens of thousands of
-#: items) on a slow NAS.
-_ARR_TIMEOUT: tuple[float, float] = (5.0, 30.0)
+logger = logging.getLogger(__name__)
 
-logger = logging.getLogger("mediaman")
-
-
-class ArrKindMismatch(RuntimeError):
-    """Raised when a kind-specific method is called on the wrong :class:`ArrClient` variant.
-
-    For example, calling :meth:`ArrClient.delete_episode_files` on a client
-    built with :data:`~mediaman.services.arr.spec.RADARR_SPEC`
-    (``kind="movie"``) raises this exception.
-    """
-
-
-class _ArrClientBase:
-    """Raw HTTP helpers and shared plumbing for *arr API clients.
-
-    Not intended for direct instantiation — use :class:`ArrClient` instead.
-
-    :attr:`last_error` is ``None`` when the last call succeeded and is set
-    to the exception string on failure.  Callers that want to surface fetch
-    errors to the UI should read this attribute after calling any method.
-    """
-
-    def __init__(self, url: str, api_key: str):
-        self._url = url.rstrip("/")
-        self._headers = {"X-Api-Key": api_key}
-        self._session = requests.Session()
-        self._http = SafeHTTPClient(
-            self._url,
-            session=self._session,
-            default_timeout=_ARR_TIMEOUT,
-        )
-        #: Set to the error string of the last failed call; ``None`` on success.
-        self.last_error: str | None = None
-
-    def _get(self, path: str) -> dict | list:
-        """Perform an authenticated GET.  Sets :attr:`last_error` on failure.
-
-        Raises:
-            ValueError: If the response body is null (empty or explicitly null JSON).
-        """
-        try:
-            resp = self._http.get(path, headers=self._headers)
-            self.last_error = None
-            result = resp.json()
-            if result is None:
-                raise ValueError(f"Arr returned null for {path}")
-            return result
-        except Exception as exc:
-            self.last_error = str(exc)
-            raise
-
-    def _put(self, path: str, data: dict) -> None:
-        """Perform an authenticated PUT.  Sets :attr:`last_error` on failure."""
-        try:
-            self._http.put(path, headers=self._headers, json=data)
-            self.last_error = None
-        except Exception as exc:
-            self.last_error = str(exc)
-            raise
-
-    def _post(self, path: str, data: dict) -> dict | list:
-        """Perform an authenticated POST.  Sets :attr:`last_error` on failure."""
-        try:
-            resp = self._http.post(path, headers=self._headers, json=data)
-            self.last_error = None
-            return resp.json()
-        except Exception as exc:
-            self.last_error = str(exc)
-            raise
-
-    def _delete(self, path: str) -> None:
-        """Perform an authenticated DELETE.  Sets :attr:`last_error` on failure."""
-        try:
-            self._http.delete(path, headers=self._headers)
-            self.last_error = None
-        except Exception as exc:
-            self.last_error = str(exc)
-            raise
-
-    def lookup_by_tmdb_id(self, tmdb_id: int, *, endpoint: str) -> list[dict[str, Any]]:
-        """Return the lookup results for a given TMDB ID.
-
-        ``endpoint`` is the Arr-specific lookup path, e.g.
-        ``"/api/v3/movie/lookup"`` or ``"/api/v3/series/lookup"``.
-        The query term ``tmdb:<id>`` is appended automatically.
-        """
-        result = self._get(f"{endpoint}?term=tmdb:{tmdb_id}") or []
-        assert isinstance(result, list)
-        return cast(list[dict[str, Any]], result)
-
-    def lookup_by_tvdb_id(self, tvdb_id: int, *, endpoint: str) -> list[dict[str, Any]]:
-        """Return the lookup results for a given TVDB ID.
-
-        ``endpoint`` is the Arr-specific lookup path, e.g.
-        ``"/api/v3/series/lookup"``.
-        The query term ``tvdb:<id>`` is appended automatically.
-        """
-        result = self._get(f"{endpoint}?term=tvdb:{tvdb_id}") or []
-        assert isinstance(result, list)
-        return cast(list[dict[str, Any]], result)
-
-    def lookup_by_imdb_id(self, imdb_id: str, *, endpoint: str) -> list[dict[str, Any]]:
-        """Return the lookup results for a given IMDb ID.
-
-        ``endpoint`` is the Arr-specific lookup path.  The query term
-        ``imdb:<id>`` is appended automatically.
-        """
-        result = self._get(f"{endpoint}?term=imdb:{imdb_id}") or []
-        assert isinstance(result, list)
-        return cast(list[dict[str, Any]], result)
-
-    def lookup_by_term(self, term: str, *, endpoint: str) -> list[dict[str, Any]]:
-        """Return lookup results for a free-text search term.
-
-        ``term`` must already be URL-encoded by the caller if it contains
-        spaces or special characters.
-        """
-        result = self._get(f"{endpoint}?term={term}") or []
-        assert isinstance(result, list)
-        return cast(list[dict[str, Any]], result)
-
-    def get_release(self, item_id: int, *, endpoint: str) -> dict | None:
-        """Return a single Arr item by its internal numeric ID.
-
-        Returns ``None`` when the item does not exist (404) or on a network
-        error (:exc:`~requests.RequestException`).  All other exceptions —
-        including programming errors — are allowed to propagate so they are
-        not silently swallowed.
-        """
-        try:
-            result = self._get(f"{endpoint}/{item_id}")
-            return result if isinstance(result, dict) else None
-        except SafeHTTPError as exc:
-            if exc.status_code == 404:
-                return None
-            raise
-        except RequestException:
-            return None
-
-    def test_connection(self) -> bool:
-        """Return True if the service's /api/v3/system/status endpoint responds.
-
-        Catches :exc:`SafeHTTPError` (non-2xx responses) and
-        :exc:`~requests.RequestException` (network/transport errors) only —
-        not the broad ``Exception`` which would swallow ``SystemExit``,
-        ``KeyboardInterrupt``, and programming errors.
-        """
-        try:
-            self._get("/api/v3/system/status")
-            return True
-        except (SafeHTTPError, RequestException):
-            return False
-
-    # ---------------------------------------------------------------------
-    # Add-flow helpers (root folder / quality profile pickers)
-    # ---------------------------------------------------------------------
-    #
-    # Both Radarr and Sonarr require the caller to nominate a root folder and
-    # a quality profile when adding a new release. Three near-identical copies
-    # of "GET /rootfolder, take [0], else fall back to '/tv' or '/movies'"
-    # used to live in the per-client modules; the same was true of the
-    # hardcoded ``quality_profile_id=4`` default. The helpers below replace
-    # those copies so every add path uses the same logic and the same set of
-    # error messages.
-    #
-    # The picked values are cached on the instance because every add-flow
-    # touches them and the underlying lists barely change at runtime.
-
-    _root_folder_cache: str | None = None
-    _quality_profile_cache: int | None = None
-
-    def _choose_root_folder(self) -> str:
-        """Return the path of the first configured root folder.
-
-        Cached on the client instance so a burst of adds in a single
-        process pays one API call. Raises :exc:`RuntimeError` when the
-        Arr service has no root folders configured — the previous default
-        of ``"/tv"`` / ``"/movies"`` paved over a common misconfiguration
-        and led to silent failures further down the pipeline.
-        """
-        if self._root_folder_cache is not None:
-            return self._root_folder_cache
-        result = self._get("/api/v3/rootfolder")
-        root_folders = cast(list[dict[str, Any]], result) if isinstance(result, list) else []
-        if not root_folders:
-            raise RuntimeError(
-                f"{type(self).__name__}: no root folders configured — "
-                "set one in the service's UI before adding releases"
-            )
-        path = root_folders[0].get("path")
-        if not isinstance(path, str) or not path:
-            raise RuntimeError(
-                f"{type(self).__name__}: first root folder has no 'path' — "
-                "the service's response is malformed"
-            )
-        self._root_folder_cache = path
-        return path
-
-    def _choose_quality_profile(self) -> int:
-        """Return the id of the lowest-numbered quality profile.
-
-        Used by the add-flow when the caller doesn't pin a specific
-        profile. Cached on the client instance. Raises
-        :exc:`RuntimeError` when the Arr service has no quality profiles
-        configured (which would otherwise have silently picked id ``4``
-        whether or not such a profile exists).
-        """
-        if self._quality_profile_cache is not None:
-            return self._quality_profile_cache
-        result = self._get("/api/v3/qualityprofile")
-        profiles = cast(list[dict[str, Any]], result) if isinstance(result, list) else []
-        ids = [int(p["id"]) for p in profiles if isinstance(p.get("id"), int)]
-        if not ids:
-            raise RuntimeError(
-                f"{type(self).__name__}: no quality profiles configured — "
-                "set one in the service's UI before adding releases"
-            )
-        chosen = min(ids)
-        self._quality_profile_cache = chosen
-        return chosen
+# Re-export for back-compat: tests and other callers that import these names
+# directly from ``mediaman.services.arr.base`` continue to work unchanged.
+__all__ = [
+    "_ARR_TIMEOUT_SECONDS",
+    "ArrClient",
+    "ArrConfigError",
+    "ArrError",
+    "ArrKindMismatch",
+    "_ArrClientBase",
+]
 
 
 class ArrClient(_ArrClientBase):
@@ -277,10 +66,6 @@ class ArrClient(_ArrClientBase):
     Methods that are specific to one service kind raise
     :exc:`ArrKindMismatch` when called on the wrong variant, e.g. calling
     :meth:`delete_episode_files` on a Radarr client.
-
-    Existing callers that import ``SonarrClient`` or ``RadarrClient`` from
-    their respective modules continue to work unchanged — those modules
-    provide thin back-compat subclasses that pre-bind the appropriate spec.
     """
 
     def __init__(self, spec: ArrSpec, url: str, api_key: str):
@@ -354,21 +139,16 @@ class ArrClient(_ArrClientBase):
     def delete_series(self, series_id: int) -> None:
         """Delete a series from Sonarr, its files, and add to exclusion list.
 
-        Defensively coerces ``series_id`` to ``int`` at the boundary even
-        though the type hint already forces it — a future caller passing
-        a string would otherwise allow URL-extension (e.g. an id like
-        ``"1?evil=…"`` would tack arbitrary query parameters onto the
-        DELETE).  The cast raises :exc:`ValueError` on malformed input.
-
         Raises :exc:`ArrKindMismatch` when called on a Radarr client.
         """
         self._require_series("delete_series")
-        sid = int(series_id)
         # ``self.spec.exclusion_param`` is the per-flavour spelling
         # (``addImportListExclusion`` for Sonarr, ``addImportExclusion`` for
         # Radarr).  Reading it through the spec keeps the spelling in one
         # place — see :class:`mediaman.services.arr.spec.ArrSpec`.
-        self._delete(f"/api/v3/series/{sid}?deleteFiles=true&{self.spec.exclusion_param}=true")
+        self._delete(
+            f"/api/v3/series/{series_id}?deleteFiles=true&{self.spec.exclusion_param}=true"
+        )
 
     def has_remaining_files(self, series_id: int) -> bool:
         """Return True if the series still has any episode files on disk.
@@ -377,7 +157,7 @@ class ArrClient(_ArrClientBase):
         """
         self._require_series("has_remaining_files")
         efs = cast(list[dict[str, object]], self._get(f"/api/v3/episodefile?seriesId={series_id}"))
-        return len(efs) > 0
+        return bool(efs)
 
     def get_series(self) -> list[dict[str, Any]]:
         """Return all series in the Sonarr library.
@@ -436,56 +216,37 @@ class ArrClient(_ArrClientBase):
         Raises :exc:`ArrKindMismatch` when called on a Radarr client.
         """
         self._require_series("unmonitor_season")
-        last_observed: bool | None = None
-        for attempt in range(max_retries):
+
+        def fetch_entity() -> dict:
             series = self.get_series_by_id(series_id)
             seasons = series.get("seasons")
             if not isinstance(seasons, list):
                 raise ValueError(f"Sonarr series {series_id} has no 'seasons' list")
+            if not any(s.get("seasonNumber") == season_number for s in seasons):
+                raise ValueError(f"Sonarr series {series_id} has no season {season_number}")
+            return cast(dict, series)
+
+        def is_already_unmonitored(entity: dict) -> bool:
+            seasons = entity.get("seasons", [])
             target = next((s for s in seasons if s.get("seasonNumber") == season_number), None)
             if target is None:
                 raise ValueError(f"Sonarr series {series_id} has no season {season_number}")
-            current_monitored = bool(target.get("monitored", False))
-            if not current_monitored:
-                # Already unmonitored — either nothing to do (first
-                # attempt) or another writer beat us to it (subsequent
-                # attempts). Either way, the desired state is achieved.
-                if last_observed is True:
-                    logger.warning(
-                        "sonarr.unmonitor_season: concurrent writer set monitored=False "
-                        "on series_id=%s season=%s while we were retrying — exiting cleanly",
-                        series_id,
-                        season_number,
-                    )
-                return
-            target["monitored"] = False
-            logger.debug(
-                "sonarr.unmonitor_season: issuing full-payload PUT for series_id=%s "
-                "season=%s (attempt %d) — a concurrent write to this series would "
-                "be silently overwritten",
-                series_id,
-                season_number,
-                attempt + 1,
-            )
-            try:
-                self._put(f"/api/v3/series/{series_id}", cast(dict, series))
-                return
-            except Exception:
-                if attempt + 1 >= max_retries:
-                    raise
-                logger.warning(
-                    "sonarr.unmonitor_season: PUT failed for series_id=%s season=%s "
-                    "(attempt %d/%d) — re-reading and retrying",
-                    series_id,
-                    season_number,
-                    attempt + 1,
-                    max_retries,
-                )
-                last_observed = current_monitored
-        raise RuntimeError(
-            f"sonarr.unmonitor_season: gave up after {max_retries} retries for "
-            f"series_id={series_id} season={season_number} — concurrent writes kept "
-            "interleaving"
+            return not bool(target.get("monitored", False))
+
+        def apply_unmonitor(entity: dict) -> None:
+            seasons = entity.get("seasons", [])
+            target = next((s for s in seasons if s.get("seasonNumber") == season_number), None)
+            if target is not None:
+                target["monitored"] = False
+
+        self._unmonitor_with_retry(
+            fetch_entity=fetch_entity,
+            put_url=f"/api/v3/series/{series_id}",
+            is_already_unmonitored=is_already_unmonitored,
+            apply_unmonitor=apply_unmonitor,
+            log_prefix="sonarr.unmonitor_season",
+            log_id=f"series_id={series_id} season={season_number}",
+            max_retries=max_retries,
         )
 
     def remonitor_season(self, series_id: int, season_number: int) -> None:
@@ -613,7 +374,7 @@ class ArrClient(_ArrClientBase):
 
         lookup = cast(list[dict[str, Any]], self._get(f"/api/v3/series/lookup?term=tvdb:{tvdb_id}"))
         if not lookup:
-            raise RuntimeError(f"Sonarr lookup returned no results for tvdb:{tvdb_id}")
+            raise ArrConfigError(f"Sonarr lookup returned no results for tvdb:{tvdb_id}")
         meta = lookup[0]
 
         monitored_set = set(monitored_seasons)
@@ -687,7 +448,7 @@ class ArrClient(_ArrClientBase):
         Returns the first match or ``None`` if the upstream API returns an
         empty list (series genuinely not found in Sonarr's metadata provider).
 
-        Network failures (:exc:`~mediaman.services.infra.http_client.SafeHTTPError`,
+        Network failures (:exc:`~mediaman.services.infra.http.client.SafeHTTPError`,
         :exc:`~requests.RequestException`) are allowed to propagate so callers
         can distinguish "not found" from "call failed".
 
@@ -727,17 +488,12 @@ class ArrClient(_ArrClientBase):
     def delete_movie(self, movie_id: int) -> None:
         """Delete a movie from Radarr and its files from disk.
 
-        Defensively coerces ``movie_id`` to ``int`` at the boundary so a
-        malformed caller (e.g. one passing ``"1?evil=…"`` as a string)
-        cannot tack arbitrary query parameters onto the DELETE.
-
         Raises :exc:`ArrKindMismatch` when called on a Sonarr client.
         """
         self._require_movie("delete_movie")
-        mid = int(movie_id)
         # ``self.spec.exclusion_param`` carries the per-flavour spelling —
         # see :func:`delete_series` for the rationale.
-        self._delete(f"/api/v3/movie/{mid}?deleteFiles=true&{self.spec.exclusion_param}=true")
+        self._delete(f"/api/v3/movie/{movie_id}?deleteFiles=true&{self.spec.exclusion_param}=true")
 
     def unmonitor_movie(self, movie_id: int, *, max_retries: int = 3) -> None:
         """Set ``monitored=False`` for *movie_id* in Radarr.
@@ -753,46 +509,15 @@ class ArrClient(_ArrClientBase):
         Raises :exc:`ArrKindMismatch` when called on a Sonarr client.
         """
         self._require_movie("unmonitor_movie")
-        last_observed: bool | None = None
-        for attempt in range(max_retries):
-            movie = self.get_movie_by_id(movie_id)
-            current_monitored = bool(movie.get("monitored", False))
-            if not current_monitored:
-                # Already unmonitored — either nothing to do (first
-                # attempt) or another writer beat us to it (subsequent
-                # attempts). Either way, the desired state is achieved.
-                if last_observed is True:
-                    logger.warning(
-                        "radarr.unmonitor_movie: concurrent writer set monitored=False "
-                        "on movie_id=%s while we were retrying — exiting cleanly",
-                        movie_id,
-                    )
-                return
-            movie["monitored"] = False
-            logger.debug(
-                "radarr.unmonitor_movie: issuing full-payload PUT for movie_id=%s "
-                "(attempt %d) — a concurrent write to this record would be "
-                "silently overwritten",
-                movie_id,
-                attempt + 1,
-            )
-            try:
-                self._put(f"/api/v3/movie/{movie_id}", cast(dict, movie))
-                return
-            except Exception:
-                if attempt + 1 >= max_retries:
-                    raise
-                logger.warning(
-                    "radarr.unmonitor_movie: PUT failed for movie_id=%s "
-                    "(attempt %d/%d) — re-reading and retrying",
-                    movie_id,
-                    attempt + 1,
-                    max_retries,
-                )
-                last_observed = current_monitored
-        raise RuntimeError(
-            f"radarr.unmonitor_movie: gave up after {max_retries} retries for "
-            f"movie_id={movie_id} — concurrent writes kept interleaving"
+
+        self._unmonitor_with_retry(
+            fetch_entity=lambda: cast(dict, self.get_movie_by_id(movie_id)),
+            put_url=f"/api/v3/movie/{movie_id}",
+            is_already_unmonitored=lambda movie: not bool(movie.get("monitored", False)),
+            apply_unmonitor=lambda movie: movie.__setitem__("monitored", False),
+            log_prefix="radarr.unmonitor_movie",
+            log_id=f"movie_id={movie_id}",
+            max_retries=max_retries,
         )
 
     def remonitor_movie(self, movie_id: int) -> None:

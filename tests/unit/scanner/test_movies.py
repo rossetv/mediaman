@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from mediaman.scanner.movies import evaluate_movie
+from mediaman.scanner.phases.evaluate import evaluate_movie
 
 
 def _now():
