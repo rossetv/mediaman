@@ -6,13 +6,13 @@ import logging
 import sqlite3
 from datetime import datetime, timedelta
 
+from mediaman.core.format import rk_from_audit_detail as _extract_rk_from_detail
+from mediaman.core.format import title_from_audit_detail as _extract_title_from_detail
 from mediaman.crypto import sign_poster_url
-from mediaman.services.infra.format import rk_from_audit_detail as _extract_rk_from_detail
-from mediaman.services.infra.format import title_from_audit_detail as _extract_title_from_detail
 
 from ._time import _parse_days_ago
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def _load_deleted_items(
@@ -31,9 +31,8 @@ def _load_deleted_items(
     ``suggestions`` table (most deleted items were originally downloaded
     from a recommendation).  The recipient loop only mints a re-download
     URL when ``tmdb_id`` is present, so items with no resolvable id keep
-    their button hidden — the public ``/download/<token>`` submit
-    endpoint cannot reliably enqueue the right film/show via title-only
-    lookup (finding 15).
+    their button hidden — the public ``/download/<token>`` submit endpoint
+    cannot reliably enqueue the right film/show via title-only lookup.
 
     The ``media_items`` schema does not carry a ``tmdb_id`` column itself,
     so the tombstone-metadata path is not available for items downloaded

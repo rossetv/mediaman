@@ -6,10 +6,11 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mediaman.auth.reauth import grant_recent_reauth
-from mediaman.auth.session import authenticate, create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
+from mediaman.web.auth.password_hash import authenticate, create_user
+from mediaman.web.auth.reauth import grant_recent_reauth
+from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.users import (
     _PASSWORD_CHANGE_IP_LIMITER,
     _PASSWORD_CHANGE_LIMITER,
@@ -398,7 +399,7 @@ class TestDeleteUserBruteForceLockout:
 
     def test_wrong_password_records_reauth_failure(self, db_path, secret_key):
         """One wrong password bumps the reauth-namespace counter to 1."""
-        from mediaman.auth.reauth import REAUTH_LOCKOUT_PREFIX
+        from mediaman.web.auth.reauth import REAUTH_LOCKOUT_PREFIX
 
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key)
@@ -421,8 +422,8 @@ class TestDeleteUserBruteForceLockout:
     def test_five_wrong_passwords_lock_the_namespace(self, db_path, secret_key):
         """Five wrong passwords trip the namespace lockout — even the
         right password is then refused for the lock duration."""
-        from mediaman.auth.login_lockout import check_lockout
-        from mediaman.auth.reauth import REAUTH_LOCKOUT_PREFIX
+        from mediaman.web.auth.login_lockout import is_locked_out
+        from mediaman.web.auth.reauth import REAUTH_LOCKOUT_PREFIX
 
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key)
@@ -440,7 +441,7 @@ class TestDeleteUserBruteForceLockout:
             )
             assert resp.status_code == 403
 
-        assert check_lockout(conn, f"{REAUTH_LOCKOUT_PREFIX}admin") is True
+        assert is_locked_out(conn, f"{REAUTH_LOCKOUT_PREFIX}admin") is True
 
         # Even with the correct password the delete is now refused.
         _USER_MGMT_LIMITER.reset()

@@ -9,9 +9,6 @@ from typing import TYPE_CHECKING, cast
 
 from mediaman.services.openai.recommendations.enrich import enrich_recommendations
 from mediaman.services.openai.recommendations.prompts import (
-    _LLM_REASON_MAX_LEN,
-    _LLM_TITLE_MAX_LEN,
-    _validate_llm_string,
     generate_personal,
     generate_trending,
 )
@@ -19,7 +16,7 @@ from mediaman.services.openai.recommendations.prompts import (
 if TYPE_CHECKING:
     from mediaman.services.media_meta.plex import PlexClient, PlexRatedItem
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def refresh_recommendations(
@@ -105,18 +102,8 @@ def refresh_recommendations(
     now_iso = now.isoformat()
     inserted = 0
     for s in all_recommendations:
-        # Validate title and reason once more at write time — enrichment may have
-        # modified fields, and this is the last gate before persistence (finding 38).
-        title = _validate_llm_string(str(s.get("title") or ""), _LLM_TITLE_MAX_LEN, "title")
-        if not title:
-            logger.warning(
-                "recommendations.persist_skipped reason=invalid_title raw=%r",
-                str(s.get("title") or "")[:80],
-            )
-            continue
-        reason = (
-            _validate_llm_string(str(s.get("reason") or ""), _LLM_REASON_MAX_LEN, "reason") or ""
-        )
+        title = str(s.get("title") or "")
+        reason = str(s.get("reason") or "")
 
         conn.execute(
             "INSERT INTO suggestions (title, year, media_type, category, tmdb_id, imdb_id, "

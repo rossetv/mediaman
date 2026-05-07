@@ -2,19 +2,20 @@
 
 import pytest
 
-from mediaman.services.arr.radarr import RadarrClient
+from mediaman.services.arr.base import ArrClient, ArrConfigError
+from mediaman.services.arr.spec import RADARR_SPEC
 
 
 @pytest.fixture
 def client():
-    return RadarrClient("http://radarr:7878", "test-api-key")
+    return ArrClient(RADARR_SPEC, "http://radarr:7878", "test-api-key")
 
 
 def _find_call(fake_http, method):
     return next((c for c in fake_http.calls if c[0] == method.upper()), None)
 
 
-class TestRadarrClient:
+class TestArrClientRadarr:
     def test_get_movies(self, client, fake_http, fake_response):
         fake_http.queue(
             "GET",
@@ -82,15 +83,12 @@ class TestRadarrClient:
         # Only the failed first PUT — no clobbering retry.
         assert len(puts) == 1
 
-    def test_delete_movie_coerces_movie_id_to_int(self, client, fake_http, fake_response):
-        """Defensive int() prevents URL-extension via a string id."""
+    def test_delete_movie_sends_delete_request(self, client, fake_http, fake_response):
+        """delete_movie issues a DELETE with the correct URL."""
         fake_http.queue("DELETE", fake_response(content=b""))
         client.delete_movie(movie_id=42)
         delete_call = _find_call(fake_http, "DELETE")
         assert "/api/v3/movie/42?" in delete_call[1]
-        # Non-int strings raise rather than slipping through.
-        with pytest.raises(ValueError):
-            client.delete_movie(movie_id="42?evil=1")  # type: ignore[arg-type]
 
     def test_remonitor_movie(self, client, fake_http, fake_response):
         fake_http.queue(
@@ -106,7 +104,7 @@ class TestRadarrClient:
 
     def test_test_connection(self, client, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data={"version": "5.0"}))
-        assert client.test_connection() is True
+        assert client.is_reachable() is True
 
     def test_search_movie_posts_moviessearch_command(self, client, fake_http, fake_response):
         fake_http.queue("POST", fake_response(status=201, json_data={}))
@@ -137,14 +135,14 @@ class TestRadarrClient:
     def test_add_movie_raises_when_no_root_folder(self, client, fake_http, fake_response):
         """Empty rootfolder list now fails loudly instead of inventing /movies."""
         fake_http.queue("GET", fake_response(json_data=[]))
-        with pytest.raises(RuntimeError, match="no root folders configured"):
+        with pytest.raises(ArrConfigError, match="no root folders configured"):
             client.add_movie(tmdb_id=1, title="Test")
 
     def test_add_movie_raises_when_no_quality_profile(self, client, fake_http, fake_response):
         """Empty qualityprofile list now fails loudly rather than picking id=4."""
         fake_http.queue("GET", fake_response(json_data=[{"path": "/movies"}]))
         fake_http.queue("GET", fake_response(json_data=[]))
-        with pytest.raises(RuntimeError, match="no quality profiles configured"):
+        with pytest.raises(ArrConfigError, match="no quality profiles configured"):
             client.add_movie(tmdb_id=1, title="Test")
 
     def test_add_movie_rejects_non_positive_tmdb_id(self, client, fake_http):

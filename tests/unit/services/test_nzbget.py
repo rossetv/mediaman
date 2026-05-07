@@ -45,8 +45,8 @@ class TestNzbgetClient:
             "POST",
             fake_response(json_data={"result": {"ServerStandBy": False}}),
         )
-        assert client.test_connection() is True
+        assert client.is_reachable() is True
 
     def test_test_connection_failure(self, client, fake_http):
         fake_http.raise_on("POST", Exception("refused"))
-        assert client.test_connection() is False
+        assert client.is_reachable() is False

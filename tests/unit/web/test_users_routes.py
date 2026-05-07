@@ -14,10 +14,11 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mediaman.auth.reauth import grant_recent_reauth
-from mediaman.auth.session import create_session, create_user, validate_session
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
+from mediaman.web.auth.password_hash import create_user
+from mediaman.web.auth.reauth import grant_recent_reauth
+from mediaman.web.auth.session_store import create_session, validate_session
 from mediaman.web.routes.users import (
     _PASSWORD_CHANGE_IP_LIMITER,
     _PASSWORD_CHANGE_LIMITER,

@@ -15,15 +15,16 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mediaman.auth.login_lockout import check_lockout, record_failure
-from mediaman.auth.reauth import (
+from mediaman.config import Config
+from mediaman.db import init_db, set_connection
+from mediaman.web.auth.login_lockout import is_locked_out, record_failure
+from mediaman.web.auth.password_hash import create_user
+from mediaman.web.auth.reauth import (
     REAUTH_LOCKOUT_PREFIX,
     grant_recent_reauth,
     has_recent_reauth,
 )
-from mediaman.auth.session import create_session, create_user
-from mediaman.config import Config
-from mediaman.db import init_db, set_connection
+from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.users import (
     _PASSWORD_CHANGE_LIMITER,
     _REAUTH_LIMITER,
@@ -158,7 +159,7 @@ class TestReauthEndpoint:
             assert resp.status_code == 403
 
         # The reauth-namespace lockout is now active.
-        assert check_lockout(conn, f"{REAUTH_LOCKOUT_PREFIX}admin") is True
+        assert is_locked_out(conn, f"{REAUTH_LOCKOUT_PREFIX}admin") is True
 
         # Even the correct password is refused while the lock is in place.
         resp = client.post("/api/auth/reauth", json={"password": "password1234"})
@@ -220,7 +221,7 @@ class TestChangePasswordThrottling:
             assert resp.status_code == 403
 
         # Reauth-namespace lock is now active.
-        assert check_lockout(conn, f"{REAUTH_LOCKOUT_PREFIX}admin") is True
+        assert is_locked_out(conn, f"{REAUTH_LOCKOUT_PREFIX}admin") is True
 
         # Even the correct old password is refused now.
         resp = client.post(
@@ -291,7 +292,7 @@ class TestAdminUnlockEndpoint:
         assert resp.status_code == 403
         assert resp.json()["reauth_required"] is True
         # The lock is still in place.
-        assert check_lockout(conn, "other") is True
+        assert is_locked_out(conn, "other") is True
 
     def test_unlock_clears_the_lock(self, db_path, secret_key):
         conn = init_db(str(db_path))
@@ -301,14 +302,14 @@ class TestAdminUnlockEndpoint:
 
         for _ in range(5):
             record_failure(conn, "other")
-        assert check_lockout(conn, "other") is True
+        assert is_locked_out(conn, "other") is True
 
         resp = client.post(f"/api/users/{target_id}/unlock")
         assert resp.status_code == 200
         body = resp.json()
         assert body["ok"] is True
         assert body["had_lock"] is True
-        assert check_lockout(conn, "other") is False
+        assert is_locked_out(conn, "other") is False
 
     def test_unlock_refuses_self(self, db_path, secret_key):
         conn = init_db(str(db_path))

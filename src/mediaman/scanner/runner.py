@@ -74,16 +74,16 @@ class PlexClientBundle(NamedTuple):
     lib_titles: dict[str, str]
 
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
-# Module-level Plex client cache (D05 finding 8). The previous code
-# rebuilt PlexClient on every ``run_library_sync`` call (every 30 min by
-# default) — each rebuild re-validates the URL via the SSRF guard and
-# decrypts the stored token. The cache reuses the existing client until
-# the underlying settings change, keyed on a hash of (raw plex_url,
-# raw encrypted plex_token row). The hash deliberately uses the raw
-# encrypted token so we never need to decrypt just to check freshness.
+# Module-level Plex client cache. The previous code rebuilt PlexClient on
+# every ``run_library_sync`` call (every 30 min by default) — each rebuild
+# re-validates the URL via the SSRF guard and decrypts the stored token. The
+# cache reuses the existing client until the underlying settings change, keyed
+# on a hash of (raw plex_url, raw encrypted plex_token row). The hash
+# deliberately uses the raw encrypted token so we never need to decrypt just
+# to check freshness.
 _PLEX_CLIENT_CACHE: dict[str, PlexClient] = {}
 _PLEX_CLIENT_CACHE_LOCK = threading.Lock()
 
@@ -203,7 +203,7 @@ def _get_or_build_plex(conn: sqlite3.Connection, secret_key: str) -> PlexClient 
     from the SSRF guard to the caller so it can log + skip.
 
     Avoids the per-invocation cost of SSRF re-validation and token
-    decryption on the hot ``run_library_sync`` path (D05 finding 8).
+    decryption on the hot ``run_library_sync`` path.
     """
     fp = _plex_settings_fingerprint(conn)
     if fp is None:
@@ -247,7 +247,7 @@ def _build_plex_client(conn: sqlite3.Connection, secret_key: str) -> PlexClientB
     or metadata address is refused here rather than at the first
     network call. The constructed client is cached at module scope
     keyed on the settings fingerprint so subsequent calls with the
-    same configuration reuse it (D05 finding 8).
+    same configuration reuse it.
     """
     try:
         plex = _get_or_build_plex(conn, secret_key)

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from mediaman.auth.password_hash import create_user
-from mediaman.auth.reauth import (
+from mediaman.db import init_db
+from mediaman.web.auth.password_hash import create_user
+from mediaman.web.auth.reauth import (
     REAUTH_LOCKOUT_PREFIX,
     cleanup_expired_reauth,
     grant_recent_reauth,
@@ -19,8 +19,7 @@ from mediaman.auth.reauth import (
     revoke_reauth_by_hash,
     verify_reauth_password,
 )
-from mediaman.auth.session_store import _hash_token
-from mediaman.db import init_db
+from mediaman.web.auth.session_store import _hash_token
 
 
 @pytest.fixture
@@ -94,12 +93,23 @@ class TestGrantHasRevoke:
         # And critically — the plaintext is nowhere in the table.
         assert rows[0]["session_token_hash"] != token
 
-    def test_re_grant_extends_window(self, conn):
+    def test_re_grant_extends_window(self, conn, monkeypatch):
         """Re-granting before expiry slides the window forward."""
+        from datetime import UTC, datetime, timedelta
+
+        from mediaman.web.auth import reauth as _reauth
+
+        tick = [datetime(2000, 1, 1, tzinfo=UTC)]
+
+        def _fake_now():
+            return tick[0]
+
+        monkeypatch.setattr(_reauth, "_now", _fake_now)
+
         token = "a" * 64
         grant_recent_reauth(conn, token, "alice", window_seconds=60)
         first = conn.execute("SELECT expires_at FROM reauth_tickets").fetchone()["expires_at"]
-        time.sleep(0.01)
+        tick[0] = tick[0] + timedelta(seconds=1)  # advance the fake clock by 1 s
         grant_recent_reauth(conn, token, "alice", window_seconds=300)
         second = conn.execute("SELECT expires_at FROM reauth_tickets").fetchone()["expires_at"]
         assert second > first

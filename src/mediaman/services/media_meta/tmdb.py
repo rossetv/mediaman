@@ -21,10 +21,10 @@ from typing import Any, TypedDict
 
 import requests
 
-from mediaman.services.infra.http_client import SafeHTTPClient, SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
 from mediaman.services.infra.settings_reader import get_string_setting
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 _BASE = "https://api.themoviedb.org/3"
 _POSTER_BASE_W300 = "https://image.tmdb.org/t/p/w300"
@@ -164,6 +164,13 @@ class TmdbClient:
         ``json.JSONDecodeError``) — neither subclass of
         :class:`requests.RequestException` — so the per-method ``except``
         clauses must cover it explicitly via :class:`ValueError`.
+
+        # rationale: returns resp.json() whose runtime type varies per endpoint
+        # (dict for single-item endpoints, list for collection endpoints). Each
+        # public method narrows the result via .get() or isinstance guards and
+        # returns a fully-typed value; annotating _get as Any avoids cascading
+        # casts across every caller while keeping all public API return types
+        # concrete.
         """
         return self._http.get(path, headers=self._headers, params=params or {}).json()
 
@@ -190,7 +197,7 @@ class TmdbClient:
                 return
         logger.debug("TMDB %s failed: %s", label, exc)
 
-    def test_connection(self) -> bool:
+    def is_reachable(self) -> bool:
         """Return True if the TMDB API is reachable and the token is valid."""
         try:
             self._get("/configuration")

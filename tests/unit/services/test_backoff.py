@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from mediaman.services.infra.backoff import ExponentialBackoff
+from mediaman.core.backoff import ExponentialBackoff
 
 
 class TestPlainBackoff:

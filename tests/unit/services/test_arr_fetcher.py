@@ -72,11 +72,11 @@ def test_returns_empty_when_nothing_configured(conn):
     assert result == []
 
 
-@patch("mediaman.services.arr.radarr.RadarrClient")
-def test_returns_empty_when_radarr_not_configured(mock_radarr_cls, conn):
-    """No Radarr credentials → no cards, RadarrClient never constructed."""
+@patch("mediaman.services.arr.build.build_radarr_from_db")
+def test_returns_empty_when_radarr_not_configured(mock_build_radarr, conn):
+    """No Radarr credentials → no cards, build_radarr_from_db returns None."""
+    mock_build_radarr.return_value = None
     result = fetch_arr_queue(conn, "test-secret-32-chars-XXXXXXXXXX")
-    mock_radarr_cls.assert_not_called()
     assert result == []
 
 
@@ -85,8 +85,8 @@ def test_returns_empty_when_radarr_not_configured(mock_radarr_cls, conn):
 # ---------------------------------------------------------------------------
 
 
-@patch("mediaman.services.arr.radarr.RadarrClient")
-def test_radarr_queue_movie_appears(mock_radarr_cls, conn, tmp_path):
+@patch("mediaman.services.arr.build.build_radarr_from_db")
+def test_radarr_queue_movie_appears(mock_build_radarr, conn, tmp_path):
     _configure_radarr(conn)
 
     mock_client = MagicMock()
@@ -105,7 +105,7 @@ def test_radarr_queue_movie_appears(mock_radarr_cls, conn, tmp_path):
         }
     ]
     mock_client.get_movies.return_value = []
-    mock_radarr_cls.return_value = mock_client
+    mock_build_radarr.return_value = mock_client
 
     result = fetch_arr_queue(conn, "test-secret-32-chars-XXXXXXXXXX")
 
@@ -117,8 +117,8 @@ def test_radarr_queue_movie_appears(mock_radarr_cls, conn, tmp_path):
     assert card["progress"] == 50
 
 
-@patch("mediaman.services.arr.radarr.RadarrClient")
-def test_radarr_searching_movie_appears(mock_radarr_cls, conn):
+@patch("mediaman.services.arr.build.build_radarr_from_db")
+def test_radarr_searching_movie_appears(mock_build_radarr, conn):
     """Monitored movies with no file that are not in the queue show up as 'searching'."""
     _configure_radarr(conn)
 
@@ -137,15 +137,15 @@ def test_radarr_searching_movie_appears(mock_radarr_cls, conn):
             "titleSlug": "oppenheimer-2023",
         }
     ]
-    mock_radarr_cls.return_value = mock_client
+    mock_build_radarr.return_value = mock_client
 
     result = fetch_arr_queue(conn, "test-secret-32-chars-XXXXXXXXXX")
 
     assert any(c["title"] == "Oppenheimer" and c["status"] == "searching" for c in result)
 
 
-@patch("mediaman.services.arr.radarr.RadarrClient")
-def test_is_upcoming_flag_set_for_future_release(mock_radarr_cls, conn):
+@patch("mediaman.services.arr.build.build_radarr_from_db")
+def test_is_upcoming_flag_set_for_future_release(mock_build_radarr, conn):
     """A movie with a future physicalRelease date and no file gets is_upcoming=True."""
     _configure_radarr(conn)
 
@@ -165,7 +165,7 @@ def test_is_upcoming_flag_set_for_future_release(mock_radarr_cls, conn):
             "titleSlug": "future-film",
         }
     ]
-    mock_radarr_cls.return_value = mock_client
+    mock_build_radarr.return_value = mock_client
 
     result = fetch_arr_queue(conn, "test-secret-32-chars-XXXXXXXXXX")
 
@@ -174,8 +174,8 @@ def test_is_upcoming_flag_set_for_future_release(mock_radarr_cls, conn):
     assert upcoming[0]["is_upcoming"] is True
 
 
-@patch("mediaman.services.arr.radarr.RadarrClient")
-def test_unmonitored_movie_excluded(mock_radarr_cls, conn):
+@patch("mediaman.services.arr.build.build_radarr_from_db")
+def test_unmonitored_movie_excluded(mock_build_radarr, conn):
     """Unmonitored movies must not appear in the queue."""
     _configure_radarr(conn)
 
@@ -193,21 +193,21 @@ def test_unmonitored_movie_excluded(mock_radarr_cls, conn):
             "added": "2024-01-01T00:00:00Z",
         }
     ]
-    mock_radarr_cls.return_value = mock_client
+    mock_build_radarr.return_value = mock_client
 
     result = fetch_arr_queue(conn, "test-secret-32-chars-XXXXXXXXXX")
     assert not any(c["title"] == "Hidden Film" for c in result)
 
 
-@patch("mediaman.services.arr.sonarr.SonarrClient")
-@patch("mediaman.services.arr.radarr.RadarrClient")
-def test_radarr_failure_does_not_crash(mock_radarr_cls, mock_sonarr_cls, conn):
-    """Exception from RadarrClient is swallowed; Sonarr items still returned."""
+@patch("mediaman.services.arr.build.build_sonarr_from_db")
+@patch("mediaman.services.arr.build.build_radarr_from_db")
+def test_radarr_failure_does_not_crash(mock_build_radarr, mock_build_sonarr, conn):
+    """Exception from build_radarr_from_db is swallowed; Sonarr items still returned."""
     _configure_radarr(conn)
     _configure_sonarr(conn)
 
-    # Radarr raises on construction
-    mock_radarr_cls.side_effect = RuntimeError("connection refused")
+    # Radarr raises on build
+    mock_build_radarr.side_effect = RuntimeError("connection refused")
 
     sonarr_client = MagicMock()
     sonarr_client.get_queue.return_value = [
@@ -222,7 +222,7 @@ def test_radarr_failure_does_not_crash(mock_radarr_cls, mock_sonarr_cls, conn):
         }
     ]
     sonarr_client.get_series.return_value = []
-    mock_sonarr_cls.return_value = sonarr_client
+    mock_build_sonarr.return_value = sonarr_client
 
     result = fetch_arr_queue(conn, "test-secret-32-chars-XXXXXXXXXX")
 
@@ -235,8 +235,8 @@ def test_radarr_failure_does_not_crash(mock_radarr_cls, mock_sonarr_cls, conn):
 # ---------------------------------------------------------------------------
 
 
-@patch("mediaman.services.arr.sonarr.SonarrClient")
-def test_sonarr_series_appear_in_queue(mock_sonarr_cls, conn):
+@patch("mediaman.services.arr.build.build_sonarr_from_db")
+def test_sonarr_series_appear_in_queue(mock_build_sonarr, conn):
     _configure_sonarr(conn)
 
     mock_client = MagicMock()
@@ -261,7 +261,7 @@ def test_sonarr_series_appear_in_queue(mock_sonarr_cls, conn):
         }
     ]
     mock_client.get_series.return_value = []
-    mock_sonarr_cls.return_value = mock_client
+    mock_build_sonarr.return_value = mock_client
 
     result = fetch_arr_queue(conn, "test-secret-32-chars-XXXXXXXXXX")
 
@@ -273,8 +273,8 @@ def test_sonarr_series_appear_in_queue(mock_sonarr_cls, conn):
     assert len(card["episodes"]) == 1
 
 
-@patch("mediaman.services.arr.sonarr.SonarrClient")
-def test_sonarr_episodes_grouped_by_series(mock_sonarr_cls, conn):
+@patch("mediaman.services.arr.build.build_sonarr_from_db")
+def test_sonarr_episodes_grouped_by_series(mock_build_sonarr, conn):
     """Multiple queue items for the same series are merged into one card."""
     _configure_sonarr(conn)
 
@@ -301,7 +301,7 @@ def test_sonarr_episodes_grouped_by_series(mock_sonarr_cls, conn):
         },
     ]
     mock_client.get_series.return_value = []
-    mock_sonarr_cls.return_value = mock_client
+    mock_build_sonarr.return_value = mock_client
 
     result = fetch_arr_queue(conn, "test-secret-32-chars-XXXXXXXXXX")
 
@@ -309,8 +309,8 @@ def test_sonarr_episodes_grouped_by_series(mock_sonarr_cls, conn):
     assert result[0]["episode_count"] == 2
 
 
-@patch("mediaman.services.arr.sonarr.SonarrClient")
-def test_sonarr_empty_downloadids_do_not_double_count(mock_sonarr_cls, conn):
+@patch("mediaman.services.arr.build.build_sonarr_from_db")
+def test_sonarr_empty_downloadids_do_not_double_count(mock_build_sonarr, conn):
     """C19 — two queue rows with empty downloadId must not collapse into one pack total."""
     _configure_sonarr(conn)
 
@@ -337,7 +337,7 @@ def test_sonarr_empty_downloadids_do_not_double_count(mock_sonarr_cls, conn):
         },
     ]
     mock_client.get_series.return_value = []
-    mock_sonarr_cls.return_value = mock_client
+    mock_build_sonarr.return_value = mock_client
 
     result = fetch_arr_queue(conn, "test-secret-32-chars-XXXXXXXXXX")
 
@@ -355,8 +355,8 @@ def test_sonarr_empty_downloadids_do_not_double_count(mock_sonarr_cls, conn):
     assert all(e["is_pack_episode"] is False for e in card["episodes"])
 
 
-@patch("mediaman.services.arr.sonarr.SonarrClient")
-def test_sonarr_pack_with_shared_download_id_still_clusters(mock_sonarr_cls, conn):
+@patch("mediaman.services.arr.build.build_sonarr_from_db")
+def test_sonarr_pack_with_shared_download_id_still_clusters(mock_build_sonarr, conn):
     """When a real pack downloadId is shared, we still dedupe correctly."""
     _configure_sonarr(conn)
 
@@ -383,7 +383,7 @@ def test_sonarr_pack_with_shared_download_id_still_clusters(mock_sonarr_cls, con
         },
     ]
     mock_client.get_series.return_value = []
-    mock_sonarr_cls.return_value = mock_client
+    mock_build_sonarr.return_value = mock_client
 
     result = fetch_arr_queue(conn, "test-secret-32-chars-XXXXXXXXXX")
     assert len(result) == 1
@@ -393,8 +393,8 @@ def test_sonarr_pack_with_shared_download_id_still_clusters(mock_sonarr_cls, con
     assert all(e["is_pack_episode"] is True for e in card["episodes"])
 
 
-@patch("mediaman.services.arr.sonarr.SonarrClient")
-def test_sonarr_searching_series_appears(mock_sonarr_cls, conn):
+@patch("mediaman.services.arr.build.build_sonarr_from_db")
+def test_sonarr_searching_series_appears(mock_build_sonarr, conn):
     """Monitored series with zero episode files but not in the queue show up."""
     _configure_sonarr(conn)
 
@@ -413,7 +413,7 @@ def test_sonarr_searching_series_appears(mock_sonarr_cls, conn):
         }
     ]
     mock_client.get_episodes.return_value = []
-    mock_sonarr_cls.return_value = mock_client
+    mock_build_sonarr.return_value = mock_client
 
     result = fetch_arr_queue(conn, "test-secret-32-chars-XXXXXXXXXX")
 
@@ -451,22 +451,22 @@ class TestFetchResult:
         result = fetch_arr_queue_result(conn, "test-secret-32-chars-XXXXXXXXXX")
         assert result.errors == []
 
-    @patch("mediaman.services.arr.radarr.RadarrClient")
-    def test_fetch_arr_queue_result_errors_on_radarr_failure(self, mock_radarr_cls, conn):
-        """If RadarrClient raises, the error is captured in result.errors, not raised."""
+    @patch("mediaman.services.arr.build.build_radarr_from_db")
+    def test_fetch_arr_queue_result_errors_on_radarr_failure(self, mock_build_radarr, conn):
+        """If build_radarr_from_db raises, the error is captured in result.errors, not raised."""
         _configure_radarr(conn)
-        mock_radarr_cls.side_effect = RuntimeError("timeout")
+        mock_build_radarr.side_effect = RuntimeError("timeout")
         result = fetch_arr_queue_result(conn, "test-secret-32-chars-XXXXXXXXXX")
         assert any("Radarr" in e for e in result.errors)
 
-    @patch("mediaman.services.arr.radarr.RadarrClient")
-    def test_fetch_arr_queue_wraps_fetch_arr_queue_result(self, mock_radarr_cls, conn):
+    @patch("mediaman.services.arr.build.build_radarr_from_db")
+    def test_fetch_arr_queue_wraps_fetch_arr_queue_result(self, mock_build_radarr, conn):
         """fetch_arr_queue is a backward-compat shim — it returns only the cards list."""
         _configure_radarr(conn)
         mock_client = MagicMock()
         mock_client.get_queue.return_value = []
         mock_client.get_movies.return_value = []
-        mock_radarr_cls.return_value = mock_client
+        mock_build_radarr.return_value = mock_client
 
         cards = fetch_arr_queue(conn, "test-secret-32-chars-XXXXXXXXXX")
         assert isinstance(cards, list)

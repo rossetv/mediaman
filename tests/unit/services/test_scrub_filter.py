@@ -6,7 +6,7 @@ import logging
 
 import pytest
 
-from mediaman.services.infra.scrub_filter import ScrubFilter
+from mediaman.core.scrub_filter import ScrubFilter
 
 # ---------------------------------------------------------------------------
 # Helpers

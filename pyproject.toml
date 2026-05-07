@@ -68,7 +68,7 @@ Issues = "https://github.com/rossetv/mediaman/issues"
 
 [project.scripts]
 mediaman = "mediaman.main:cli_main"
-mediaman-create-user = "mediaman.auth.cli:create_user_cli"
+mediaman-create-user = "mediaman.web.auth.cli:create_user_cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]

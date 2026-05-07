@@ -13,6 +13,7 @@ import pytest
 
 from mediaman.db import init_db
 from mediaman.scanner import repository
+from mediaman.scanner.phases.upsert import schedule_deletion
 
 
 @pytest.fixture
@@ -538,7 +539,7 @@ class TestUpdateLastWatchedMonotonic:
 class TestScheduleDeletionRace:
     def test_returns_scheduled_on_success(self, conn):
         _insert_item(conn)
-        result = repository.schedule_deletion(
+        result = schedule_deletion(
             conn,
             media_id="m1",
             is_reentry=False,
@@ -563,7 +564,7 @@ class TestScheduleDeletionRace:
         IntegrityError up to the caller.
         """
         _insert_item(conn)
-        first = repository.schedule_deletion(
+        first = schedule_deletion(
             conn,
             media_id="m1",
             is_reentry=False,
@@ -572,7 +573,7 @@ class TestScheduleDeletionRace:
         )
         assert first == "scheduled"
         # Second call hits the partial unique index — must report skipped.
-        second = repository.schedule_deletion(
+        second = schedule_deletion(
             conn,
             media_id="m1",
             is_reentry=False,

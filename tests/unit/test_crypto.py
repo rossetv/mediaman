@@ -1,6 +1,7 @@
 """Tests for encryption and token signing."""
 
 import base64
+import contextlib
 import hashlib
 import secrets
 import sqlite3
@@ -10,18 +11,51 @@ import pytest
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from mediaman.audit import security_event
 from mediaman.crypto import (
     _derive_aes_key_hkdf,
     _load_or_create_salt,
-    canary_check,
     decrypt_value,
     encrypt_value,
     generate_keep_token,
     generate_session_token,
+    is_canary_valid,
     migrate_legacy_ciphertexts,
     validate_keep_token,
 )
 from mediaman.db import init_db
+
+
+def _make_canary_audit_callback(conn: sqlite3.Connection):
+    """Return an ``on_failure`` callback that writes a canary-failed audit row."""
+
+    def _on_failure(reason: str) -> None:
+        with contextlib.suppress(Exception):
+            security_event(
+                conn,
+                event="aes.canary_failed",
+                actor="",
+                ip="",
+                detail={"reason": reason},
+            )
+
+    return _on_failure
+
+
+def _make_migration_audit_callback(conn: sqlite3.Connection):
+    """Return an ``on_complete`` callback that writes a migration-complete audit row."""
+
+    def _on_complete(migrated_count: int) -> None:
+        with contextlib.suppress(Exception):
+            security_event(
+                conn,
+                event="aes.v35_migration_complete",
+                actor="",
+                ip="",
+                detail={"migrated_count": migrated_count},
+            )
+
+    return _on_complete
 
 
 @pytest.fixture
@@ -130,7 +164,7 @@ class TestLegacyV1Fallback:
 
 class TestCanary:
     def test_seeds_canary_on_first_run(self, conn, secret_key):
-        assert canary_check(conn, secret_key) is True
+        assert is_canary_valid(conn, secret_key) is True
         row = conn.execute(
             "SELECT value, encrypted FROM settings WHERE key='aes_kdf_canary'"
         ).fetchone()
@@ -138,14 +172,14 @@ class TestCanary:
         assert row["encrypted"] == 1
 
     def test_passes_on_subsequent_runs_with_same_key(self, conn, secret_key):
-        assert canary_check(conn, secret_key) is True
+        assert is_canary_valid(conn, secret_key) is True
         # Second run reads the seeded canary.
-        assert canary_check(conn, secret_key) is True
+        assert is_canary_valid(conn, secret_key) is True
 
     def test_returns_false_on_key_mismatch(self, conn, secret_key, caplog):
-        canary_check(conn, secret_key)  # seed
+        is_canary_valid(conn, secret_key)  # seed
         with caplog.at_level("WARNING", logger="mediaman"):
-            ok = canary_check(conn, "different-secret-32-chars-YYYYYY")
+            ok = is_canary_valid(conn, "different-secret-32-chars-YYYYYY")
         assert ok is False
         assert any("AES key mismatch" in rec.message for rec in caplog.records)
 
@@ -204,7 +238,7 @@ class TestSessionToken:
 
 
 class TestCanaryNoReseedOnTamper:
-    """C26: canary_check must NOT re-seed when other encrypted rows
+    """C26: is_canary_valid must NOT re-seed when other encrypted rows
     exist but the canary row is missing. Previously it re-seeded,
     self-erasing the tamper signal after one run."""
 
@@ -220,9 +254,9 @@ class TestCanaryNoReseedOnTamper:
         )
         conn.commit()
 
-        # No canary row exists yet. canary_check must refuse to seed
+        # No canary row exists yet. is_canary_valid must refuse to seed
         # and must return False.
-        ok = canary_check(conn, secret_key)
+        ok = is_canary_valid(conn, secret_key)
         assert ok is False
 
         # Canary row must NOT have been created.
@@ -241,12 +275,12 @@ class TestCanaryNoReseedOnTamper:
         )
         conn.commit()
 
-        assert canary_check(conn, secret_key) is False
-        assert canary_check(conn, secret_key) is False
+        assert is_canary_valid(conn, secret_key) is False
+        assert is_canary_valid(conn, secret_key) is False
 
     def test_genuine_first_run_still_seeds(self, conn, secret_key):
         """No encrypted rows at all → clean first-run → seed + True."""
-        assert canary_check(conn, secret_key) is True
+        assert is_canary_valid(conn, secret_key) is True
         row = conn.execute("SELECT value FROM settings WHERE key='aes_kdf_canary'").fetchone()
         assert row is not None
 
@@ -326,16 +360,16 @@ class TestSaltCache:
         assert first == second
 
     def test_cache_invalidated_on_canary_key_mismatch(self, conn, secret_key):
-        """canary_check returning False (key mismatch) must evict the cached salt."""
+        """is_canary_valid returning False (key mismatch) must evict the cached salt."""
         from mediaman.crypto import _db_path, _load_or_create_salt, _salt_cache
 
         # Prime the cache.
         _load_or_create_salt(conn)
         assert _db_path(conn) in _salt_cache
         # Seed canary with correct key.
-        canary_check(conn, secret_key)
+        is_canary_valid(conn, secret_key)
         # Now fail with a wrong key — cache must be cleared.
-        canary_check(conn, "wrong-key-32-chars-padding-xxxxx")
+        is_canary_valid(conn, "wrong-key-32-chars-padding-xxxxx")
         assert _db_path(conn) not in _salt_cache
 
 
@@ -589,7 +623,11 @@ class TestV35MigrateLegacyCiphertexts:
         )
         conn.commit()
 
-        migrate_legacy_ciphertexts(conn, secret_key)
+        # Pass the audit callback — audit writing was moved out of crypto/ to
+        # the caller layer to satisfy the §2.2 leaf-package invariant.
+        migrate_legacy_ciphertexts(
+            conn, secret_key, on_complete=_make_migration_audit_callback(conn)
+        )
 
         rows = conn.execute(
             "SELECT detail FROM audit_log WHERE action=?",
@@ -714,16 +752,22 @@ class TestExpFieldBoolRejection:
 
 
 class TestCanaryFailureAudits:
-    """The audit's MEDIUM finding on canary_check audit logging.
+    """The audit's MEDIUM finding on is_canary_valid audit logging.
 
     When the canary fails (key mismatch / DB tamper), an audit row
     must be written so an operator's audit trail captures the event.
     """
 
     def test_canary_key_mismatch_writes_audit_row(self, conn, secret_key):
-        canary_check(conn, secret_key)  # seed
-        # Fail with a different valid-shape key.
-        ok = canary_check(conn, "fedcba9876543210" * 4)
+        is_canary_valid(conn, secret_key)  # seed
+        # Fail with a different valid-shape key; supply the audit callback so
+        # the failure reason is written to audit_log (audit writing was moved
+        # out of crypto/ to the caller layer — see §2.2 leaf-package rule).
+        ok = is_canary_valid(
+            conn,
+            "fedcba9876543210" * 4,
+            on_failure=_make_canary_audit_callback(conn),
+        )
         assert ok is False
 
         rows = conn.execute(
@@ -743,7 +787,8 @@ class TestCanaryFailureAudits:
         )
         conn.commit()
 
-        ok = canary_check(conn, secret_key)
+        # Supply the audit callback — see §2.2 leaf-package rule.
+        ok = is_canary_valid(conn, secret_key, on_failure=_make_canary_audit_callback(conn))
         assert ok is False
 
         rows = conn.execute(

@@ -26,7 +26,7 @@ openai_recommendations = types.SimpleNamespace(
     _get_openai_key=_openai_client_mod.get_openai_key,
     _get_openai_model=_openai_client_mod.get_openai_model,
     _is_web_search_enabled=_openai_client_mod.is_web_search_enabled,
-    _validate_web_search_title=_openai_client_mod.validate_web_search_title,
+    _is_web_search_title_safe=_openai_client_mod.is_web_search_title_safe,
     _sanitise_plex_string=_prompts_mod.sanitise_plex_string,
     _strip_season_suffix=_prompts_mod.strip_season_suffix,
     _PLEX_STRING_MAX_LEN=_prompts_mod._PLEX_STRING_MAX_LEN,
@@ -212,23 +212,23 @@ class TestWebSearchGating:
 
 
 class TestWebSearchTitleValidation:
-    """Tests for ``_validate_web_search_title`` and its enforcement in ``_call_openai``."""
+    """Tests for ``_is_web_search_title_safe`` and its enforcement in ``_call_openai``."""
 
     def test_clean_title_passes(self):
-        assert openai_recommendations._validate_web_search_title("Oppenheimer") is True
+        assert openai_recommendations._is_web_search_title_safe("Oppenheimer") is True
 
     def test_markdown_link_rejected(self):
-        assert openai_recommendations._validate_web_search_title("[Foo](http://evil.com)") is False
+        assert openai_recommendations._is_web_search_title_safe("[Foo](http://evil.com)") is False
 
     def test_embedded_url_rejected(self):
         assert (
-            openai_recommendations._validate_web_search_title("Title https://evil.com ignore")
+            openai_recommendations._is_web_search_title_safe("Title https://evil.com ignore")
             is False
         )
 
     def test_non_ascii_rejected(self):
         """Titles with non-ASCII characters fail the strict ASCII-only check."""
-        assert openai_recommendations._validate_web_search_title("Amélie") is False
+        assert openai_recommendations._is_web_search_title_safe("Amélie") is False
 
     def test_adversarial_batch_rejected(self, conn, monkeypatch, fake_http, fake_response):
         """When web search is active and a title fails validation, the whole batch is rejected."""
@@ -323,27 +323,15 @@ class TestOpenAIKeySource:
 
         assert any("database" in r.message.lower() for r in caplog.records)
 
-    def test_logs_env_source_when_key_from_env(self, conn, monkeypatch, caplog):
-        """When the key comes from the environment, a DEBUG message says so."""
-        import logging
+    def test_raises_when_no_key_in_db(self, conn, monkeypatch):
+        """When DB has no key, ValueError is raised (env var not consulted)."""
+        import pytest
 
-        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-from-env")
-        # No key in DB — falls back to environment.
-
-        with caplog.at_level(logging.DEBUG, logger="mediaman"):
-            result = openai_recommendations._get_openai_key(conn)
-
-        assert result == "sk-from-env"
-        assert any("environment" in r.message.lower() for r in caplog.records)
-
-    def test_returns_none_when_no_key(self, conn, monkeypatch):
-        """When neither DB nor env has a key, None is returned."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-        result = openai_recommendations._get_openai_key(conn)
-        assert result is None
+        with pytest.raises(ValueError, match="OpenAI API key is not configured"):
+            openai_recommendations._get_openai_key(conn)
 
 
 class TestOpenAIClientTimeout:

@@ -48,7 +48,7 @@ Limiter rationale
 
 from __future__ import annotations
 
-from mediaman.auth.rate_limit import ActionRateLimiter
+from mediaman.services.rate_limit import ActionRateLimiter
 
 _USER_MGMT_LIMITER = ActionRateLimiter(max_in_window=5, window_seconds=60, max_per_day=20)
 _USER_CREATE_LIMITER = ActionRateLimiter(max_in_window=3, window_seconds=3600, max_per_day=5)

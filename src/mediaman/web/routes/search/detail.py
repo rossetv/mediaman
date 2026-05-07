@@ -9,14 +9,16 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from typing import Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 from typing import cast as _cast
+
+if TYPE_CHECKING:
+    from mediaman.services.arr.base import ArrClient
 
 import requests as _requests
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from mediaman.auth.middleware import get_current_admin
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
@@ -27,14 +29,15 @@ from mediaman.services.arr.state import (
     build_sonarr_cache,
     compute_download_state,
 )
-from mediaman.services.infra.http_client import SafeHTTPError
+from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.media_meta.omdb import fetch_ratings
 from mediaman.services.media_meta.tmdb import TmdbClient
+from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.responses import respond_err
 
 from ._enrichment import _BACKDROP_BASE, _PROFILE_BASE, _poster_url
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -60,7 +63,7 @@ class _SonarrDetail(TypedDict):
 
 
 def _fetch_sonarr_series_detail(
-    tmdb_id: int, sonarr_cache: SonarrCaches, client: Any
+    tmdb_id: int, sonarr_cache: SonarrCaches, client: ArrClient | None
 ) -> _SonarrDetail:
     if not client:
         return {"tracked": False, "seasons_in_library": set()}
@@ -115,7 +118,7 @@ def _build_arr_caches(
     conn: sqlite3.Connection,
     secret_key: str,
     media_type: str,
-) -> tuple[RadarrCaches, SonarrCaches, object]:
+) -> tuple[RadarrCaches, SonarrCaches, ArrClient | None]:
     if media_type == "movie":
         try:
             radarr_cache = build_radarr_cache(build_radarr_from_db(conn, secret_key))
@@ -142,6 +145,22 @@ def api_detail(
     request: Request,
     admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
+    """Return expanded detail card for a single TMDB movie or TV series.
+
+    Fetches full TMDB metadata (credits, videos, season summaries), builds
+    Radarr/Sonarr caches to annotate download state, and fetches OMDb ratings.
+    Used by the search/discover UI when a result card is opened.
+
+    Args:
+        media_type: Either ``"movie"`` or ``"tv"``; 400 on any other value.
+        tmdb_id: TMDB numeric identifier for the item.
+        request: Incoming FastAPI request (provides app state and secret key).
+        admin: Authenticated admin username.
+
+    Returns:
+        JSON detail payload, or an error response on misconfiguration or
+        TMDB fetch failure.
+    """
     if media_type not in ("movie", "tv"):
         raise HTTPException(status_code=400, detail="media_type must be 'movie' or 'tv'")
 

@@ -68,10 +68,10 @@ def _normalise_origin(value: str, default_scheme: str | None = None) -> tuple[st
     """Return ``(scheme, host_without_default_port)`` for *value*.
 
     *value* may be a full URL (``Origin``/``Referer`` header values, or
-    ``str(request.url)``) or a bare ``host[:port]`` netloc.  The result
+    ``str(request.url)``) or a bare ``host[:port]`` netloc. The result
     is suitable for direct equality comparison so the CSRF middleware
     can require both the scheme AND host of the origin/referer to match
-    the request URL — finding 11.
+    the request URL.
 
     Two correctness fixes over the previous prefix-stripping logic:
 
@@ -149,16 +149,15 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
     legacy browsers, in-app webviews, and anything that might ship
     cookies without honouring the SameSite attribute.
 
-    The comparison is **host-only**, not (scheme, host).  The Wave 5-1
-    "compare scheme too" hardening (Domain 04 finding 11) broke real
-    reverse-proxy deployments where uvicorn sees ``request.url.scheme
-    == "http"`` but the browser is on ``https://`` and sets
-    ``Origin: https://...``.  Trusting ``X-Forwarded-Proto`` to
-    rewrite the scheme is itself a footgun (it requires
-    ``MEDIAMAN_TRUSTED_PROXIES`` to be configured first), and the
-    cross-scheme attack the harden was guarding against is already
-    closed by ``Secure`` cookie flag (browser refuses to send the
-    cookie over HTTP) and ``SameSite=Strict`` on the session cookie.
+    The comparison is **host-only**, not (scheme, host). A previous
+    hardening that compared scheme and host broke real reverse-proxy
+    deployments where uvicorn sees ``request.url.scheme == "http"`` but
+    the browser is on ``https://`` and sets ``Origin: https://...``.
+    Trusting ``X-Forwarded-Proto`` to rewrite the scheme is itself a
+    footgun (it requires ``MEDIAMAN_TRUSTED_PROXIES`` to be configured
+    first), and the cross-scheme attack being guarded against is already
+    closed by ``Secure`` cookie flag (browser refuses to send the cookie
+    over HTTP) and ``SameSite=Strict`` on the session cookie.
 
     The check is intentionally narrow: only POST/PUT/PATCH/DELETE
     from non-same-origin origins are refused, and only for routes
@@ -167,6 +166,13 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next) -> Response:
+        """Enforce same-origin CSRF policy on state-changing requests.
+
+        Passes the request through unchanged for safe methods (GET, HEAD,
+        OPTIONS) and for CSRF-exempt routes. For all other requests it
+        compares the ``Origin`` or ``Referer`` header host against the
+        request host and rejects mismatches with a 403 response.
+        """
         if request.method not in _CSRF_PROTECTED_METHODS:
             return await call_next(request)
 

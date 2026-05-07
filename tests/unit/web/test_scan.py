@@ -9,9 +9,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mediaman.auth.session import create_session, create_user
 from mediaman.config import Config
 from mediaman.db import init_db, set_connection
+from mediaman.web.auth.password_hash import create_user
+from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.scan import router as scan_router
 
 
@@ -20,7 +21,7 @@ def _reset_scan_trigger_limiter():
     """Reset the per-admin scan-trigger limiter so suite ordering does
     not cause the second / third test in a class to hit the daily cap.
     """
-    from mediaman.services.infra.rate_limits import SCAN_TRIGGER_LIMITER
+    from mediaman.services.rate_limit.instances import SCAN_TRIGGER_LIMITER
 
     SCAN_TRIGGER_LIMITER.reset()
     yield

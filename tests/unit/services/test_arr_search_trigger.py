@@ -57,8 +57,12 @@ class TestGetSearchInfo:
         conn = MagicMock()
 
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         item = {
@@ -131,8 +135,12 @@ class TestResetSearchTriggers:
         conn = MagicMock()
 
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         item = {
@@ -172,8 +180,12 @@ class TestTriggerSonarrPartialMissing:
         }
 
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: mock_sonarr if svc == "sonarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: None,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: mock_sonarr,
         )
 
         calls: list[tuple] = []
@@ -217,8 +229,12 @@ class TestTriggerSonarrPartialMissing:
         # the main path so the arr-id-stable throttle gets populated.
         sonarr_client = MagicMock()
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: sonarr_client if svc == "sonarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: None,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: sonarr_client,
         )
 
         item_old = {
@@ -242,12 +258,16 @@ class TestTriggerSonarrPartialMissing:
         )
 
     def test_no_client_returns_without_error(self, monkeypatch):
-        """If build_arr_client returns None for sonarr, function exits cleanly."""
+        """If the Sonarr builder returns None, the function exits cleanly."""
         conn = MagicMock()
 
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: None,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         calls: list = []
@@ -336,8 +356,12 @@ class TestThrottleDbPersistence:
         """After maybe_trigger_search fires, the DB row is written."""
         mock_radarr = MagicMock()
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
         item = {
             "kind": "movie",
@@ -361,8 +385,12 @@ class TestThrottleDbPersistence:
         mock_radarr = MagicMock()
         mock_radarr.search_movie.side_effect = lambda _: calls.append("searched")
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         item = {
@@ -386,8 +414,12 @@ class TestThrottleDbPersistence:
         """
         mock_radarr = MagicMock()
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: mock_radarr if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         # Simulate: process previously fired 5 searches, last one was
@@ -480,8 +512,12 @@ class TestLockReleasedDuringNetwork:
         client.search_movie.side_effect = slow_search_movie
 
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: client if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: client,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         def asserter():
@@ -522,8 +558,12 @@ class TestLockReleasedDuringNetwork:
         client = MagicMock()
         client.search_movie.side_effect = RuntimeError("Radarr down")
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: client if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: client,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         item = {
@@ -563,8 +603,12 @@ class TestLockReleasedDuringNetwork:
         # Failure path so the rollback branch fires.
         client = MagicMock()
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: client if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: client,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         # Simulate a sibling stamping its own reservation between phase 1
@@ -622,8 +666,12 @@ class TestLockReleasedDuringNetwork:
         # measures phase 0 + phase 1.
         client = MagicMock()
         monkeypatch.setattr(
-            "mediaman.services.arr.search_trigger.build_arr_client",
-            lambda c, svc, sk: client if svc == "radarr" else None,
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: client,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
         )
 
         item = {
@@ -1216,13 +1264,15 @@ class TestSearchBackoff:
 
     def _no_jitter(self, monkeypatch):
         """Neutralise jitter by fixing the deterministic multiplier to 1.0."""
-        from mediaman.services.arr import throttle
+        from mediaman.services.arr import _throttle_state
 
-        monkeypatch.setattr(throttle._SEARCH_BACKOFF, "_deterministic_multiplier", lambda seed: 1.0)
+        monkeypatch.setattr(
+            _throttle_state._SEARCH_BACKOFF, "_deterministic_multiplier", lambda seed: 1.0
+        )
 
     def test_zero_count_returns_base_two_minutes(self, monkeypatch):
         """search_count=0 yields exactly 120 s when jitter is fixed at 1.0."""
-        from mediaman.services.arr.throttle import _search_backoff_seconds
+        from mediaman.services.arr.search_trigger import _search_backoff_seconds
 
         self._no_jitter(monkeypatch)
         assert _search_backoff_seconds(0, "radarr:Foo", 0.0) == 120.0
@@ -1244,7 +1294,7 @@ class TestSearchBackoff:
     )
     def test_geometric_sequence(self, monkeypatch, count, expected_minutes):
         """The unjittered curve doubles each step from 2 m up to but excluding the cap."""
-        from mediaman.services.arr.throttle import _search_backoff_seconds
+        from mediaman.services.arr.search_trigger import _search_backoff_seconds
 
         self._no_jitter(monkeypatch)
         assert _search_backoff_seconds(count, "radarr:Foo", 1.0) == expected_minutes * 60
@@ -1252,47 +1302,47 @@ class TestSearchBackoff:
     @pytest.mark.parametrize("count", [11, 12, 50, 200])
     def test_clamps_to_24h_cap(self, monkeypatch, count):
         """Above n=10 the unjittered value clamps to exactly 86_400 s."""
-        from mediaman.services.arr.throttle import _search_backoff_seconds
+        from mediaman.services.arr.search_trigger import _search_backoff_seconds
 
         self._no_jitter(monkeypatch)
         assert _search_backoff_seconds(count, "radarr:Foo", 1.0) == 86_400.0
 
     def test_negative_count_treated_as_zero(self, monkeypatch):
         """Defensive: a stray negative count returns the base interval."""
-        from mediaman.services.arr.throttle import _search_backoff_seconds
+        from mediaman.services.arr.search_trigger import _search_backoff_seconds
 
         self._no_jitter(monkeypatch)
         assert _search_backoff_seconds(-5, "radarr:Foo", 1.0) == 120.0
 
     def test_jitter_deterministic_per_fire(self):
         """Same seed bytes return the same multiplier across calls."""
-        from mediaman.services.arr import throttle
+        from mediaman.services.arr import _throttle_state
 
         seed = f"radarr:Foo|{1700000000.0!r}".encode()
-        a = throttle._SEARCH_BACKOFF._deterministic_multiplier(seed)
-        b = throttle._SEARCH_BACKOFF._deterministic_multiplier(seed)
+        a = _throttle_state._SEARCH_BACKOFF._deterministic_multiplier(seed)
+        b = _throttle_state._SEARCH_BACKOFF._deterministic_multiplier(seed)
         assert a == b
 
     def test_jitter_different_for_different_seeds(self):
         """Distinct (dl_id, last) pairs roll different multipliers (sample test)."""
-        from mediaman.services.arr import throttle
+        from mediaman.services.arr import _throttle_state
 
         seeds = [f"radarr:Item{i}|{(1700000000.0 + i)!r}".encode() for i in range(50)]
-        multipliers = {throttle._SEARCH_BACKOFF._deterministic_multiplier(s) for s in seeds}
+        multipliers = {_throttle_state._SEARCH_BACKOFF._deterministic_multiplier(s) for s in seeds}
         assert len(multipliers) > 30
 
     def test_jitter_within_band(self):
         """All multipliers stay in [0.9, 1.1] across a large sample."""
-        from mediaman.services.arr import throttle
+        from mediaman.services.arr import _throttle_state
 
         for i in range(1000):
             seed = f"radarr:Item{i}|{(1.0 + i * 7.31)!r}".encode()
-            m = throttle._SEARCH_BACKOFF._deterministic_multiplier(seed)
+            m = _throttle_state._SEARCH_BACKOFF._deterministic_multiplier(seed)
             assert 0.9 <= m <= 1.1
 
     def test_real_jitter_applied_to_curve(self):
         """Without monkeypatching, the returned value is within ±10% of the base."""
-        from mediaman.services.arr.throttle import _search_backoff_seconds
+        from mediaman.services.arr.search_trigger import _search_backoff_seconds
 
         v = _search_backoff_seconds(5, "radarr:Foo", 1700000000.0)
         # n=5 → 32 m base = 1920 s. ±10% → [1728, 2112].
@@ -1300,7 +1350,7 @@ class TestSearchBackoff:
 
     def test_jitter_at_cap_never_exceeds_cap(self):
         """At n≥11 the jittered value is clamped to 86 400 s — no ~26 h surprises."""
-        from mediaman.services.arr.throttle import _search_backoff_seconds
+        from mediaman.services.arr.search_trigger import _search_backoff_seconds
 
         for count in (11, 12, 20, 50, 200):
             v = _search_backoff_seconds(count, "radarr:Foo", 1700000000.0)

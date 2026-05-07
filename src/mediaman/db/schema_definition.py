@@ -50,6 +50,7 @@ if DB_SCHEMA_VERSION < CUTOVER_VERSION:
     )
 
 _SCHEMA = """
+-- === Settings / encrypted KV ===
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
@@ -57,6 +58,7 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at TEXT NOT NULL
 );
 
+-- === Authentication (users, sessions, login attempts, lockouts) ===
 CREATE TABLE IF NOT EXISTS admin_users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
@@ -76,6 +78,7 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
     issued_ip TEXT
 );
 
+-- === Scanner (media items, scheduled actions, kept shows, audit log) ===
 CREATE TABLE IF NOT EXISTS media_items (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
@@ -121,6 +124,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
     actor TEXT
 );
 
+-- === Newsletter (subscribers, delivery tracking) ===
 CREATE TABLE IF NOT EXISTS subscribers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT UNIQUE NOT NULL,
@@ -138,6 +142,7 @@ CREATE TABLE IF NOT EXISTS kept_shows (
     created_at TEXT NOT NULL
 );
 
+-- === Recommendations (cached suggestions, ratings cache) ===
 CREATE TABLE IF NOT EXISTS suggestions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
@@ -175,6 +180,7 @@ CREATE TABLE IF NOT EXISTS ratings_cache (
     PRIMARY KEY (tmdb_id, media_type)
 );
 
+-- === Downloads (NZBGet matches, notifications, redownload audits) ===
 CREATE TABLE IF NOT EXISTS download_notifications (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT NOT NULL,
@@ -197,6 +203,7 @@ CREATE TABLE IF NOT EXISTS recent_downloads (
     completed_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- === Throttles and tokens ===
 CREATE TABLE IF NOT EXISTS login_failures (
     username TEXT PRIMARY KEY,
     failure_count INTEGER NOT NULL DEFAULT 0,

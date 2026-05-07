@@ -6,6 +6,8 @@ lives in ``app_factory`` so this module stays a slim entry point that
 uvicorn and the ``mediaman`` console script target.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import sys
@@ -20,14 +22,14 @@ from mediaman.validators import enforce_single_worker, sanitise_trusted_proxies
 _enforce_single_worker = enforce_single_worker
 _sanitise_trusted_proxies = sanitise_trusted_proxies
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def cli_main() -> None:
     """CLI entry point — run the server or handle subcommands."""
     if len(sys.argv) > 1 and sys.argv[1] == "create-user":
         sys.argv = sys.argv[1:]
-        from mediaman.auth.cli import create_user_cli
+        from mediaman.web.auth.cli import create_user_cli
 
         create_user_cli()
         return

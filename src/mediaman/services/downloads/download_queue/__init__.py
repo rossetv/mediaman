@@ -58,7 +58,7 @@ from mediaman.services.downloads.download_queue.queue import (
     parse_nzb_queue as _parse_nzb_queue,
 )
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "DownloadsResponse",
@@ -82,7 +82,9 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # Module-level state for completion detection.
 # ---------------------------------------------------------------------------
-# Maps dl_id -> item dict from the previous poll.
+# rationale: in-process snapshot of the previous NZBGet queue for completion
+# detection; process restart resets it (reconcile-on-startup handles gaps);
+# single-worker invariant.
 _previous_queue: dict[str, dict[str, object]] = {}
 _previous_initialised: bool = False
 
@@ -126,7 +128,8 @@ def _enrich_with_tmdb_ids(
     window. ``record_verified_completions`` already logs a warning
     whenever the title-only fallback fires.
     """
-    from mediaman.services.arr.build import build_arr_client as _build_arr_client
+    from mediaman.services.arr.build import build_radarr_from_db as _build_radarr
+    from mediaman.services.arr.build import build_sonarr_from_db as _build_sonarr
 
     arr_ids_radarr = {
         v.get("arr_id")
@@ -144,11 +147,11 @@ def _enrich_with_tmdb_ids(
 
     if arr_ids_radarr:
         try:
-            from mediaman.services.arr.radarr import RadarrClient
+            from mediaman.services.arr.base import ArrClient
 
-            client = _build_arr_client(conn, "radarr", secret_key)
+            client = _build_radarr(conn, secret_key)
             if client:
-                radarr_client = cast(RadarrClient, client)
+                radarr_client = cast(ArrClient, client)
                 for m in radarr_client.get_movies():
                     aid = m.get("id")
                     tid = m.get("tmdbId")
@@ -159,11 +162,11 @@ def _enrich_with_tmdb_ids(
 
     if arr_ids_sonarr:
         try:
-            from mediaman.services.arr.sonarr import SonarrClient
+            from mediaman.services.arr.base import ArrClient
 
-            client = _build_arr_client(conn, "sonarr", secret_key)
+            client = _build_sonarr(conn, secret_key)
             if client:
-                sonarr_client = cast(SonarrClient, client)
+                sonarr_client = cast(ArrClient, client)
                 for s in sonarr_client.get_series():
                     aid = s.get("id")
                     tid = s.get("tmdbId")
@@ -215,8 +218,6 @@ def _maybe_record_completions(
     completion verification to a stable identifier instead of the
     collision-prone title.
     """
-    from mediaman.services.arr.build import build_arr_client as _build_arr_client
-
     global _previous_queue, _previous_initialised
 
     _enrich_with_tmdb_ids(conn, current_map, secret_key)
@@ -229,11 +230,7 @@ def _maybe_record_completions(
 
     if previously_initialised:
         completed = detect_completed(previous_snapshot, current_map)
-        record_verified_completions(
-            conn,
-            completed,
-            lambda c, svc: _build_arr_client(c, svc, secret_key),
-        )
+        record_verified_completions(conn, completed, secret_key)
 
 
 # ---------------------------------------------------------------------------
@@ -308,16 +305,9 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     hero, queue = select_hero(items_as_dicts)
 
     # 8. Recent downloads (last 7 days), excluding anything actively in queue.
-    from mediaman.services.arr.build import build_arr_client as _build_arr_client_local
-
     active_ids = {cast(str, item["id"]) for item in items_as_dicts}
     active_titles = {cast(str, item["title"]) for item in items_as_dicts}
-    recent = fetch_and_sync_recent_downloads(
-        conn,
-        active_ids,
-        active_titles,
-        lambda c, svc: _build_arr_client_local(c, svc, secret_key),
-    )
+    recent = fetch_and_sync_recent_downloads(conn, active_ids, active_titles, secret_key)
 
     return {
         "hero": hero,

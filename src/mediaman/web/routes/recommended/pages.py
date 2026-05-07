@@ -11,7 +11,6 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.responses import Response
 
-from mediaman.auth.middleware import resolve_page_session
 from mediaman.services.arr.state import (
     LazyArrClients,
     RadarrCaches,
@@ -22,6 +21,7 @@ from mediaman.services.arr.state import (
 )
 from mediaman.services.infra.settings_reader import get_bool_setting
 from mediaman.services.openai.recommendations.throttle import refresh_cooldown_remaining
+from mediaman.web.auth.middleware import resolve_page_session
 
 from ._query import fetch_recommendations
 
@@ -54,7 +54,7 @@ def _relative_label(batch_date: _date | None, index: int, today: _date) -> str:
 #: Older batches stay in the database — the user can still navigate to
 #: them via the API or a future "show more" affordance — but the page
 #: itself only renders the four most recent so the initial paint stays
-#: bounded (finding 27).
+#: bounded — older batches remain in the DB but are not rendered on the initial page load.
 _MAX_VISIBLE_BATCHES = 4
 
 
@@ -67,7 +67,7 @@ def _group_into_batches(
     Returns ``(formatted, total_batches)`` — the page renders at most
     :data:`_MAX_VISIBLE_BATCHES` of those, but the caller can use the
     full count to surface a "showing 4 of N" affordance and avoid
-    silently hiding older picks (finding 27).
+    silently hiding older picks.
     """
     batches_map: OrderedDict = OrderedDict()
     for s in recommendations:
@@ -106,7 +106,7 @@ def _group_into_batches(
 
 
 def _json_safe(value: object) -> object:
-    """Coerce a single value to a JSON-serialisable form (finding 26).
+    """Coerce a single value to a JSON-serialisable form.
 
     Replaces the catch-all ``default=str`` previously passed to
     :func:`json.dumps`, which silently stringified anything it didn't
@@ -187,8 +187,8 @@ def recommended_page(request: Request) -> Response:
             all_recs[item["id"]] = item
 
     # Use an explicit type whitelist instead of ``default=str`` so an
-    # unexpected non-JSON value crashes the handler loudly (finding 26)
-    # rather than silently rendering ``str(value)`` into the page.
+    # unexpected non-JSON value crashes the handler loudly rather than
+    # silently rendering ``str(value)`` into the page.
     all_recommendations_json = json.dumps(
         {str(k): _json_safe(v) for k, v in all_recs.items()},
     ).replace("</", "<\\/")
@@ -214,7 +214,7 @@ def recommended_page(request: Request) -> Response:
             "manual_refresh_available": manual_refresh_available,
             "next_manual_refresh_at": next_manual_refresh_at,
             # Surface the count so the template can render an "Older
-            # picks not shown" hint when needed (finding 27). Templates
+            # picks not shown" hint when needed. Templates
             # may render this conditionally on ``older_batches_count >
             # 0``; templates not yet updated simply ignore the field.
             "older_batches_count": older_batches_count,

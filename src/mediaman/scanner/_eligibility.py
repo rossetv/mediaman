@@ -12,10 +12,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from mediaman.services.infra.format import ensure_tz as _ensure_tz
+from mediaman.core.format import ensure_tz as _ensure_tz
 
 
-def check_age(added_at: datetime, min_age_days: int) -> bool:
+def is_old_enough(added_at: datetime, min_age_days: int) -> bool:
     """Return True if *added_at* is old enough to be eligible for deletion.
 
     An item whose ``added_at`` timestamp is less than *min_age_days* ago is
@@ -36,7 +36,7 @@ def check_age(added_at: datetime, min_age_days: int) -> bool:
     return (now - added_at).days >= min_age_days
 
 
-def check_inactivity(watch_history: list[dict[str, object]], inactivity_days: int) -> bool:
+def is_inactive(watch_history: list[dict[str, object]], inactivity_days: int) -> bool:
     """Return True if the item has been inactive long enough to be eligible.
 
     An item with no watch history at all is considered inactive (the
@@ -49,8 +49,8 @@ def check_inactivity(watch_history: list[dict[str, object]], inactivity_days: in
     is filtered out. If filtering leaves zero usable entries the item
     is treated as having been watched recently — i.e. **not inactive**
     — so we fail safe rather than schedule deletion off an unusable
-    history. The previous code raised ``ValueError`` from
-    ``max(empty_iter)`` in that case (D05 finding 12).
+    history. The previous code raised ``ValueError`` from ``max(empty_iter)``
+    on empty input; filtering and the safe-default handling prevent this.
 
     Args:
         watch_history: List of watch-history dicts, each containing at

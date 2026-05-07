@@ -3,7 +3,7 @@
 Imports of :mod:`apscheduler`, :mod:`mediaman.db`, and the service
 modules are deferred to :func:`start_scheduler` so that importing
 this module does not drag in heavy dependencies or trigger DB access
-at import time (M-finding: unconditional top-level imports).
+at import time — unconditional top-level imports of heavy dependencies are deferred to call time.
 """
 
 from __future__ import annotations
@@ -11,9 +11,13 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
-from typing import Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
-logger = logging.getLogger("mediaman")
+if TYPE_CHECKING:
+    from apscheduler.schedulers.background import BackgroundScheduler
+
+logger = logging.getLogger(__name__)
 
 # Module-level scheduler reference. Mutation is guarded by ``_scheduler_lock``;
 # in practice ``start_scheduler`` and ``stop_scheduler`` are only ever called
@@ -83,15 +87,15 @@ def _close_tracked_connections() -> None:
 
 def start_scheduler(
     *,
-    scan_fn,
+    scan_fn: Callable[[], None],
     day_of_week: str = "mon",
     hour: int = 9,
     minute: int = 0,
     timezone: str = "UTC",
-    sync_fn=None,
+    sync_fn: Callable[[], None] | None = None,
     sync_interval_minutes: int = 30,
     secret_key: str,
-):
+) -> BackgroundScheduler:
     """Start a background scheduler with weekly scan and optional library sync.
 
     Args:

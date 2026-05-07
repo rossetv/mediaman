@@ -40,7 +40,7 @@ from mediaman.services.downloads.download_queue.items import (
     nzb_matches_arr,
 )
 
-logger = logging.getLogger("mediaman")
+logger = logging.getLogger(__name__)
 
 
 def get_arr_base_urls(conn: sqlite3.Connection, secret_key: str) -> dict[str, str]:
@@ -213,8 +213,8 @@ def add_unmatched_nzb_items(
     download_rate: int,
 ) -> None:
     """Append unmatched NZBGet entries (manual grabs with no arr card) to *items* in place."""
+    from mediaman.core.format import format_bytes
     from mediaman.services.downloads.download_format import build_item, format_eta, map_state
-    from mediaman.services.infra.format import format_bytes
 
     for nzb in nzb_parsed:
         if nzb["_matched"]:

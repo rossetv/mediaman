@@ -11,7 +11,6 @@ from mediaman.services.infra.settings_reader import (
     get_int_setting,
     get_setting,
     get_string_setting,
-    get_string_setting_strict,
 )
 
 
@@ -108,7 +107,7 @@ class TestGetStringSetting:
 
 
 # ---------------------------------------------------------------------------
-# H45: ConfigDecryptError and get_string_setting_strict
+# H45: ConfigDecryptError
 # ---------------------------------------------------------------------------
 
 
@@ -124,42 +123,3 @@ class TestConfigDecryptError:
     def test_message_includes_key(self):
         exc = ConfigDecryptError("sonarr_api_key", ValueError("oops"))
         assert "sonarr_api_key" in str(exc)
-
-
-class TestGetStringSettingStrict:
-    def test_returns_none_when_key_missing(self, conn):
-        assert get_string_setting_strict(conn, "nonexistent") is None
-
-    def test_returns_none_when_value_empty(self, conn):
-        _put(conn, "blank", "")
-        assert get_string_setting_strict(conn, "blank") is None
-
-    def test_returns_plain_string(self, conn):
-        _put(conn, "url", "http://radarr.local")
-        assert get_string_setting_strict(conn, "url") == "http://radarr.local"
-
-    def test_returns_decrypted_value(self, conn):
-        ct = encrypt_value("my-secret", "test-secret-32-chars-XXXXXXXXXX", conn=conn)
-        _put(conn, "api_key", ct, encrypted=1)
-        result = get_string_setting_strict(
-            conn, "api_key", secret_key="test-secret-32-chars-XXXXXXXXXX"
-        )
-        assert result == "my-secret"
-
-    def test_raises_config_decrypt_error_on_wrong_key(self, conn):
-        ct = encrypt_value("secret", "right-secret-32-chars-XXXXXXXXXXXXXXX", conn=conn)
-        _put(conn, "api_key", ct, encrypted=1)
-        with pytest.raises(ConfigDecryptError) as exc_info:
-            get_string_setting_strict(
-                conn, "api_key", secret_key="wrong-secret-32-chars-XXXXXXXXXXXXXXX"
-            )
-        assert exc_info.value.key == "api_key"
-
-    def test_returns_none_for_encrypted_row_without_secret_key(self, conn):
-        _put(conn, "api_key", "cipher", encrypted=1)
-        assert get_string_setting_strict(conn, "api_key") is None
-
-    def test_json_boolean_coerced_to_string(self, conn):
-        _put(conn, "flag", "true")
-        result = get_string_setting_strict(conn, "flag")
-        assert result == "True"
