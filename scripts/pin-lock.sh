@@ -7,6 +7,14 @@
 # version used at runtime (3.12, matching the Dockerfile and CI workflow).
 #
 # Flags rationale:
+#   --upgrade            : force a fresh resolve. Without this, pip-compile
+#                          treats the existing requirements.lock as a
+#                          constraints file and refuses to bump pins, so
+#                          re-running this script after a CI lock-drift
+#                          failure would be a no-op. CI's gate writes to a
+#                          different output path (requirements.lock.check)
+#                          so it always gets a clean resolve; we mirror that
+#                          here.
 #   --generate-hashes    : required for `pip install --require-hashes` in CI
 #   --allow-unsafe       : pin pip/setuptools too (otherwise CI may pull
 #                          unhashed transitives)
@@ -29,6 +37,7 @@ docker run --rm \
     set -eu
     pip install --quiet --upgrade "pip-tools>=7,<8"
     pip-compile \
+      --upgrade \
       --generate-hashes \
       --allow-unsafe \
       --strip-extras \
