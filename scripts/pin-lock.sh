@@ -10,11 +10,13 @@
 #   --upgrade            : force a fresh resolve. Without this, pip-compile
 #                          treats the existing requirements.lock as a
 #                          constraints file and refuses to bump pins, so
-#                          re-running this script after a CI lock-drift
-#                          failure would be a no-op. CI's gate writes to a
-#                          different output path (requirements.lock.check)
-#                          so it always gets a clean resolve; we mirror that
-#                          here.
+#                          re-running this script to pull in newer PyPI
+#                          releases would be a no-op. The CI gate
+#                          deliberately does NOT pass --upgrade — it seeds
+#                          its check with the committed lock so it only
+#                          flags drift between pyproject and lock, not new
+#                          PyPI releases. The two behaviours are intentional
+#                          mirror-images: this script upgrades; CI verifies.
 #   --generate-hashes    : required for `pip install --require-hashes` in CI
 #   --allow-unsafe       : pin pip/setuptools too (otherwise CI may pull
 #                          unhashed transitives)
