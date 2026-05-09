@@ -89,7 +89,7 @@ class TestCfConnectingIp:
 
 class TestCsrfPortNormalisation:
     def test_explicit_default_port_accepted(self):
-        from mediaman.web import _normalise_host
+        from mediaman.web.middleware.csrf import _normalise_host
 
         assert _normalise_host("mediaman.example.com") == "mediaman.example.com"
         assert _normalise_host("mediaman.example.com:443") == "mediaman.example.com"

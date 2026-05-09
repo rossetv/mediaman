@@ -68,7 +68,7 @@ def load_config() -> Config:
             'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
         )
 
-    from mediaman.crypto import _secret_key_looks_strong
+    from mediaman.crypto._aes_key import _secret_key_looks_strong
 
     if not _secret_key_looks_strong(secret_key):
         raise ConfigError(

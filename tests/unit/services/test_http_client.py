@@ -15,7 +15,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from mediaman.services.infra.http import (
-    _BODY_SNIPPET_BYTES,
     SafeHTTPClient,
     SafeHTTPError,
     pin_dns_for_request,
@@ -26,6 +25,7 @@ from mediaman.services.infra.http import (
 from mediaman.services.infra.http import (
     dns_pinning as _dns_pinning,
 )
+from mediaman.services.infra.http.retry import _BODY_SNIPPET_BYTES
 
 
 def _response(*, status=200, body=b"", headers=None):
