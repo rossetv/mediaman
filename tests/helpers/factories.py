@@ -1,5 +1,16 @@
-"""Test data factories."""
+"""Test data factories.
 
+The dict factories (``make_*``) build minimal-but-valid in-memory shapes
+the test code can poke at; the ``insert_*`` companions take a connection
+and persist the row, returning the assigned id (or the supplied id where
+the caller pre-chose it). The two halves share defaults so a test that
+needs a row inserted *and* available as a dict can do::
+
+    fields = make_media_item(title="Foo")
+    media_id = insert_media_item(conn, **fields)
+"""
+
+import sqlite3
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
@@ -67,6 +78,65 @@ def make_scheduled_action(
         "notified": notified,
         "is_reentry": is_reentry,
     }
+
+
+def insert_media_item(conn: sqlite3.Connection, **fields) -> str:
+    """Persist a ``media_items`` row using the dict shape from :func:`make_media_item`.
+
+    Returns the row's ``id``. Any field not supplied falls back to the
+    factory's default — pass overrides for whatever the test cares about.
+    """
+    row = {**make_media_item(), **fields}
+    conn.execute(
+        "INSERT INTO media_items ("
+        " id, title, media_type, show_title, season_number, plex_library_id,"
+        " plex_rating_key, sonarr_id, radarr_id, added_at, file_path,"
+        " file_size_bytes, poster_path"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            row["id"],
+            row["title"],
+            row["media_type"],
+            row["show_title"],
+            row["season_number"],
+            row["plex_library_id"],
+            row["plex_rating_key"],
+            row["sonarr_id"],
+            row["radarr_id"],
+            row["added_at"],
+            row["file_path"],
+            row["file_size_bytes"],
+            row["poster_path"],
+        ),
+    )
+    conn.commit()
+    return row["id"]
+
+
+def insert_scheduled_action(conn: sqlite3.Connection, **fields) -> int:
+    """Persist a ``scheduled_actions`` row; return the assigned id."""
+    from mediaman.web.auth._token_hashing import hash_token
+
+    row = {**make_scheduled_action(), **fields}
+    cursor = conn.execute(
+        "INSERT INTO scheduled_actions ("
+        " media_item_id, action, scheduled_at, execute_at, token, token_hash,"
+        " token_used, notified, is_reentry"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            row["media_item_id"],
+            row["action"],
+            row["scheduled_at"],
+            row["execute_at"],
+            row["token"],
+            hash_token(row["token"]),
+            int(row["token_used"]),
+            int(row["notified"]),
+            int(row["is_reentry"]),
+        ),
+    )
+    conn.commit()
+    return int(cursor.lastrowid)
 
 
 def make_plex_episode(

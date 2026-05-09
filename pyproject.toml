@@ -59,6 +59,11 @@ dev = [
     "mypy~=1.20",
     "coverage[toml]~=7.13",
     "types-requests~=2.33",
+    # freezegun is the canonical clock for tests that exercise time-dependent
+    # behaviour (lockout windows, session idle expiry, "X days ago" formatters).
+    # Use the ``freezer`` fixture in tests/unit/web/conftest.py rather than
+    # reaching for ``datetime.now()`` directly.
+    "freezegun~=1.5",
 ]
 
 [project.urls]
