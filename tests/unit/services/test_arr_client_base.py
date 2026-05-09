@@ -1,24 +1,21 @@
-"""Tests for the shared ArrClient HTTP base class."""
+"""Tests for the shared ArrClient HTTP plumbing.
+
+These tests cover only the kind-agnostic plumbing layer (``_get``/``_put``/
+``_post``/``_delete``, ``is_reachable``, ``last_error``, the lookup helpers
+and ``get_release``).  Either spec is valid here because none of these
+methods read :attr:`ArrClient.spec`; ``SONARR_SPEC`` is used arbitrarily.
+"""
 
 import pytest
 
-from mediaman.services.arr.base import _ArrClientBase
+from mediaman.services.arr.base import ArrClient
+from mediaman.services.arr.spec import SONARR_SPEC
 from mediaman.services.infra.http import SafeHTTPError
 
 
-class _TestClient(_ArrClientBase):
-    """Minimal concrete subclass for testing the HTTP plumbing directly.
-
-    Uses :class:`_ArrClientBase` rather than the public spec-driven
-    :class:`ArrClient` so the tests cover only the shared HTTP layer
-    (``_get``/``_put``/``_post``/``_delete`` + lookup helpers) without
-    needing to thread an :class:`ArrSpec` through every fixture.
-    """
-
-
 @pytest.fixture
-def client() -> _TestClient:
-    return _TestClient("http://arr.local:7878", "test-api-key")
+def client() -> ArrClient:
+    return ArrClient(SONARR_SPEC, "http://arr.local:7878", "test-api-key")
 
 
 class TestGetMethod:
@@ -83,12 +80,12 @@ class TestTestConnection:
 
 class TestConstructor:
     def test_trailing_slash_stripped_from_url(self):
-        c = _TestClient("http://arr.local/", "key")
+        c = ArrClient(SONARR_SPEC, "http://arr.local/", "key")
         assert not c._url.endswith("/")
 
     def test_api_key_stored_in_header(self):
         """API key is forwarded verbatim in the X-Api-Key header."""
-        c = _TestClient("http://arr.local", "my-secret-key")
+        c = ArrClient(SONARR_SPEC, "http://arr.local", "my-secret-key")
         assert c._headers["X-Api-Key"] == "my-secret-key"
 
 
@@ -97,22 +94,14 @@ class TestLastError:
 
     def test_last_error_initially_none(self):
         """last_error is None before any call is made."""
-        from mediaman.services.arr.base import _ArrClientBase
-
-        class TC(_ArrClientBase):
-            pass
-
-        c = TC("http://arr.local", "key")
+        c = ArrClient(SONARR_SPEC, "http://arr.local", "key")
         assert c.last_error is None
 
     def test_split_timeout_applied(self):
         """SafeHTTPClient is configured with the split connect/read timeout."""
-        from mediaman.services.arr.base import _ARR_TIMEOUT_SECONDS, _ArrClientBase
+        from mediaman.services.arr.base import _ARR_TIMEOUT_SECONDS
 
-        class TC(_ArrClientBase):
-            pass
-
-        c = TC("http://arr.local", "key")
+        c = ArrClient(SONARR_SPEC, "http://arr.local", "key")
         assert c._http._default_timeout == _ARR_TIMEOUT_SECONDS
         assert _ARR_TIMEOUT_SECONDS == (5.0, 30.0)
 
