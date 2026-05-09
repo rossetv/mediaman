@@ -32,8 +32,7 @@
    ([§6.3](#63-raise-x-from-original-is-mandatory)).
 6. `except Exception:` only at the four documented outer-boundary sites
    ([§6.4](#64-except-exception-is-reserved-for-outermost-loops)).
-7. Never log a token, password, hash, key, or full email address
-   ([§7.4](#74-never-log-secrets)).
+7. Never log a token, password, hash, or key ([§7.4](#74-never-log-secrets)).
 8. Module-level mutable state needs a `threading.Lock` *and* a `# rationale:` comment
    ([§8.5](#85-module-level-mutable-state-is-forbidden-by-default)).
 9. Test names describe behaviour, not the function under test
@@ -960,10 +959,14 @@ queries portable across dashboards and tests-on-logs.
 The following are forbidden as either log values or substrings of log values:
 
 - API keys, passwords, password hashes, session tokens, keep tokens, download tokens.
-- Email addresses except via the existing `_scrub_email` helper (or the equivalent for the
-  surface — addresses are PII).
 - Encryption keys, HMAC secrets, IVs, ciphertexts.
 - Full request bodies on POST endpoints.
+
+Email addresses are *not* secrets in mediaman's threat model: the operator
+hosts the instance and is the only audience for both operational logs and
+the audit log. Logging full subscriber and admin emails is intentional —
+operators need them to triage delivery failures and to read the audit
+trail. Do not introduce email-masking helpers.
 
 When forensic context is needed, use a length-bounded, irreversible identifier:
 
@@ -2145,7 +2148,7 @@ neighbours of this codebase. Run the list against every PR before approving.
 
 ### 16.18 Logging secrets
 
-- [ ] No log line interpolates a token, password, hash, key, or full email address
+- [ ] No log line interpolates a token, password, hash, or key
       without going through a scrub helper ([§7.4](#74-never-log-secrets)).
 - [ ] No `logger.debug(f"request body: {body}")`.
 

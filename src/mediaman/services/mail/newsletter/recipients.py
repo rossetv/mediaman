@@ -12,21 +12,6 @@ from mediaman.crypto import generate_download_token, generate_unsubscribe_token
 logger = logging.getLogger(__name__)
 
 
-def _mask_email(email: str) -> str:
-    """Return a masked representation of *email* for log output.
-
-    Exposes only the first character of the local part plus the total length,
-    e.g. ``"a...@example.com (len=17)"``.  The domain is retained so operators
-    can still triage delivery failures without exposing the full address.
-    """
-    try:
-        local, domain = email.split("@", 1)
-    except ValueError:
-        return f"(len={len(email)})"
-    first = local[0] if local else "?"
-    return f"{first}...@{domain} (len={len(email)})"
-
-
 def _load_recipients(conn: sqlite3.Connection, recipients: list[str] | None) -> list[str] | None:
     """Return the recipient list, or ``None`` to signal "skip — no recipients".
 
@@ -129,7 +114,7 @@ def _send_to_recipients(
         unsub_url = (
             f"{base_url}/unsubscribe?token={_url_quote(unsub_token, safe='')}" if base_url else ""
         )
-        logger.debug("newsletter.unsub_url_minted recipient=%s", _mask_email(email))
+        logger.debug("newsletter.unsub_url_minted recipient=%s", email)
 
         # Build per-recipient shallow copies so token URLs don't bleed between recipients.
         # Without this, recipient N's tokens overwrite recipient N-1's in the shared dicts.
@@ -200,7 +185,7 @@ def _send_to_recipients(
                     error=None,
                 )
         except Exception as exc:
-            logger.exception("Newsletter send failed for %s — continuing", _mask_email(email))
+            logger.exception("Newsletter send failed for %s — continuing", email)
             if conn is not None:
                 _record_delivery_attempt(
                     conn,

@@ -63,16 +63,6 @@ def _validate_email(email: str) -> bool:
     return bool(_EMAIL_RE.match(email.strip()))
 
 
-def _mask_email_log(email: str) -> str:
-    """Return a masked email for log output (first char of local-part + domain + length)."""
-    try:
-        local, domain = email.split("@", 1)
-    except ValueError:
-        return f"(len={len(email)})"
-    first = local[0] if local else "?"
-    return f"{first}...@{domain} (len={len(email)})"
-
-
 @router.get("/api/subscribers")
 def api_list_subscribers(username: str = Depends(get_current_admin)) -> JSONResponse:
     """Return all subscribers as JSON."""
@@ -140,14 +130,13 @@ def api_add_subscriber(
         logger.exception("subscriber.add failed user=%s", username)
         return respond_err("internal_error", status=500)
 
-    masked = _mask_email_log(email)
-    logger.info("Subscriber added: %s by %s", masked, username)
+    logger.info("Subscriber added: %s by %s", email, username)
     security_event(
         conn,
         event="subscriber.added",
         actor=username,
         ip=get_client_ip(request),
-        detail={"email": masked},
+        detail={"email": email},
     )
     return respond_ok({"email": email}, status=201)
 
@@ -172,14 +161,13 @@ def api_remove_subscriber(
     delete_subscriber(conn, subscriber_id)
     conn.commit()
 
-    masked = _mask_email_log(email or "")
-    logger.info("Subscriber removed: %s by %s", masked, username)
+    logger.info("Subscriber removed: %s by %s", email, username)
     security_event(
         conn,
         event="subscriber.removed",
         actor=username,
         ip=get_client_ip(request),
-        detail={"id": subscriber_id, "email": masked},
+        detail={"id": subscriber_id, "email": email},
     )
     return respond_ok()
 
@@ -347,9 +335,7 @@ def unsubscribe_confirm(
     sub_status = find_subscriber_status_by_email(conn, email_from_token)
 
     if sub_status is None:
-        logger.info(
-            "Unsubscribe link used for unknown email: %s", _mask_email_log(email_from_token)
-        )
+        logger.info("Unsubscribe link used for unknown email: %s", email_from_token)
         return _render_result(
             request,
             _UNSUB_CONFIRMATION_MSG,
@@ -360,7 +346,7 @@ def unsubscribe_confirm(
     if is_active:
         deactivate_subscriber(conn, sub_id)
         conn.commit()
-        logger.info("Unsubscribed via link: %s", _mask_email_log(email_from_token))
+        logger.info("Unsubscribed via link: %s", email_from_token)
 
     return _render_result(
         request,

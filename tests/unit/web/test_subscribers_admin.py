@@ -269,14 +269,16 @@ class TestSendNewsletter:
 
 
 # ---------------------------------------------------------------------------
-# Audit logging + rate limiting + masked PII (Domain 03 findings 9-11, 14)
+# Audit logging + rate limiting (Domain 03 findings 9-11, 14)
 # ---------------------------------------------------------------------------
 
 
 class TestSubscriberAuditEvents:
     """Add, remove, and newsletter sends must each write a security_event
     row — without them, a compromised admin token can churn the
-    subscriber list and dispatch newsletters with no audit trail."""
+    subscriber list and dispatch newsletters with no audit trail. Per
+    CODE_GUIDELINES §7.5/§10.10 the audit log records full actor/target
+    identity (including email); masking belongs on operational logs only."""
 
     def test_add_writes_security_event(self, authed_client, app):
         conn = app.state.db
@@ -287,9 +289,8 @@ class TestSubscriberAuditEvents:
             "SELECT detail FROM audit_log WHERE action = 'sec:subscriber.added'"
         ).fetchall()
         assert rows, "audit row missing for sec:subscriber.added"
-        # Email must NOT appear verbatim — it's masked.
-        assert "audit@example.com" not in rows[0]["detail"]
-        assert "@example.com" in rows[0]["detail"]
+        # Audit log records the target of the action — full email is required.
+        assert "audit@example.com" in rows[0]["detail"]
 
     def test_remove_writes_security_event(self, authed_client, app):
         conn = app.state.db
@@ -305,7 +306,7 @@ class TestSubscriberAuditEvents:
             "SELECT detail FROM audit_log WHERE action = 'sec:subscriber.removed'"
         ).fetchall()
         assert rows, "audit row missing for sec:subscriber.removed"
-        assert "rmv@example.com" not in rows[0]["detail"]
+        assert "rmv@example.com" in rows[0]["detail"]
 
     def test_newsletter_send_writes_security_event(self, authed_client, app):
         from mediaman.services.rate_limit.instances import NEWSLETTER_LIMITER
@@ -340,18 +341,17 @@ class TestSubscriberAddRemoveRateLimit:
         assert resp.status_code == 429
 
 
-class TestSubscriberAddPiiMasked:
-    """The info-log message for a successful add must NOT log the
-    full email PII — operators see a masked variant only."""
+class TestSubscriberAddLogging:
+    """The info log on a successful add records the full email so the
+    operator can correlate against the subscriber list during triage —
+    see CODE_GUIDELINES §7.4."""
 
-    def test_log_message_does_not_contain_full_email(self, authed_client, app, caplog):
+    def test_log_message_contains_full_email(self, authed_client, app, caplog):
         with caplog.at_level("INFO"):
             resp = authed_client.post("/api/subscribers", data={"email": "secret@example.com"})
         assert resp.status_code == 201
         joined = " ".join(rec.getMessage() for rec in caplog.records)
-        assert "secret@example.com" not in joined
-        # The masked form survives so operators can correlate during triage.
-        assert "@example.com" in joined
+        assert "secret@example.com" in joined
 
 
 class TestSubscriberAddRace:
