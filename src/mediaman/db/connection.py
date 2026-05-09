@@ -114,8 +114,11 @@ def reset_connection() -> None:
     if conn is not None:
         try:
             conn.close()
-        except Exception:
-            pass
+        except sqlite3.Error as exc:
+            # Test reset must not raise: a connection that won't close
+            # (already closed, locked from a prior crash) is the cost of
+            # cleaning up; the next test opens a fresh one.
+            logger.debug("reset_connection: close() raised %s — ignoring", exc)
         finally:
             _thread_local.conn = None
 

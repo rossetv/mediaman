@@ -39,7 +39,7 @@ _FORBIDDEN_ROOTS: frozenset[str] = frozenset(
         # mis-configures their delete root to /tmp on macOS would have it
         # resolved to /private/tmp and slip past the bare-name check.
         "/private/etc",
-        "/private/tmp",  # nosec B108 — forbidden delete root, not a temp path used by mediaman
+        "/private/tmp",  # nosec B108  # rationale: listed as a *forbidden* delete root; mediaman never writes here
         "/private/var",
         "/proc",
         "/root",
@@ -47,7 +47,7 @@ _FORBIDDEN_ROOTS: frozenset[str] = frozenset(
         "/sbin",
         "/srv",
         "/sys",
-        "/tmp",  # nosec B108 — listed as a *forbidden* delete root, not a temp path used by mediaman
+        "/tmp",  # nosec B108  # rationale: listed as a *forbidden* delete root; mediaman never writes here
         "/usr",
         "/var",
     }

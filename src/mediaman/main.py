@@ -108,7 +108,7 @@ def _resolve_bind_host() -> str:
     )
     # Inside a container the only route into the process is the published
     # port — binding to 0.0.0.0 is required, not an exposure bug.
-    return "0.0.0.0" if in_container else "127.0.0.1"  # nosec B104
+    return "0.0.0.0" if in_container else "127.0.0.1"  # nosec B104  # rationale: bind 0.0.0.0 only inside a container; the published port is the only route into the process
 
 
 # Module-level instantiation for uvicorn targets such as
