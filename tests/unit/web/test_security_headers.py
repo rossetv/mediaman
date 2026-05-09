@@ -670,14 +670,14 @@ class TestNormaliseOrigin:
     """
 
     def test_ipv6_origin_with_default_port(self):
-        from mediaman.web import _normalise_origin
+        from mediaman.web.middleware.csrf import _normalise_origin
 
         scheme, host = _normalise_origin("https://[2001:db8::1]:443")
         assert scheme == "https"
         assert host == "2001:db8::1"
 
     def test_ipv6_origin_with_custom_port(self):
-        from mediaman.web import _normalise_origin
+        from mediaman.web.middleware.csrf import _normalise_origin
 
         scheme, host = _normalise_origin("http://[::1]:8080")
         assert scheme == "http"
@@ -685,19 +685,19 @@ class TestNormaliseOrigin:
         assert host == "[::1]:8080"
 
     def test_https_default_port_stripped(self):
-        from mediaman.web import _normalise_origin
+        from mediaman.web.middleware.csrf import _normalise_origin
 
         scheme, host = _normalise_origin("https://example.com:443")
         assert (scheme, host) == ("https", "example.com")
 
     def test_http_default_port_stripped(self):
-        from mediaman.web import _normalise_origin
+        from mediaman.web.middleware.csrf import _normalise_origin
 
         scheme, host = _normalise_origin("http://example.com:80")
         assert (scheme, host) == ("http", "example.com")
 
     def test_non_default_port_preserved(self):
-        from mediaman.web import _normalise_origin
+        from mediaman.web.middleware.csrf import _normalise_origin
 
         # Previously ``endswith(":443")`` failed and the host survived
         # as ``"example.com:8443"`` — that's correct here, AND it must
@@ -707,13 +707,13 @@ class TestNormaliseOrigin:
         assert (scheme, host) == ("https", "example.com:8443")
 
     def test_lowercases_scheme_and_host(self):
-        from mediaman.web import _normalise_origin
+        from mediaman.web.middleware.csrf import _normalise_origin
 
         scheme, host = _normalise_origin("HTTPS://EXAMPLE.COM")
         assert (scheme, host) == ("https", "example.com")
 
     def test_bare_netloc_uses_default_scheme(self):
-        from mediaman.web import _normalise_origin
+        from mediaman.web.middleware.csrf import _normalise_origin
 
         scheme, host = _normalise_origin("example.com:443", default_scheme="https")
         assert (scheme, host) == ("https", "example.com")
@@ -721,7 +721,7 @@ class TestNormaliseOrigin:
     def test_normalise_host_drops_default_port(self):
         """Backward-compat shim: ``_normalise_host`` returns just the
         host portion (still used by tests / older code paths)."""
-        from mediaman.web import _normalise_host
+        from mediaman.web.middleware.csrf import _normalise_host
 
         assert _normalise_host("example.com:443") == "example.com"
         assert _normalise_host("example.com") == "example.com"
