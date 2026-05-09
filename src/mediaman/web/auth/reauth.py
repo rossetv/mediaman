@@ -143,10 +143,6 @@ def require_reauth(conn: sqlite3.Connection, admin: str, password: str) -> bool:
     return authenticate(conn, admin, password, record_failures=False)
 
 
-# Underscore alias kept for callers that imported the private name.
-_require_reauth = require_reauth
-
-
 def verify_reauth_password(
     conn: sqlite3.Connection,
     admin: str,

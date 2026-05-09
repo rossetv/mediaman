@@ -927,9 +927,9 @@ class TestSearchTriggerThrottle:
             lambda c, sk: None,
         )
         # Pin jitter so the gate is exactly 120 s, not [108, 132].
-        monkeypatch.setattr(
-            "mediaman.services.arr._throttle_state._jitter_for", lambda dl_id, last: 1.0
-        )
+        from mediaman.services.arr import _throttle_state as _ts
+
+        monkeypatch.setattr(_ts._SEARCH_BACKOFF, "deterministic_multiplier", lambda seed: 1.0)
 
         import time
 
@@ -961,9 +961,9 @@ class TestSearchTriggerThrottle:
             "mediaman.services.arr.search_trigger.build_sonarr_from_db",
             lambda c, sk: None,
         )
-        monkeypatch.setattr(
-            "mediaman.services.arr._throttle_state._jitter_for", lambda dl_id, last: 1.0
-        )
+        from mediaman.services.arr import _throttle_state as _ts
+
+        monkeypatch.setattr(_ts._SEARCH_BACKOFF, "deterministic_multiplier", lambda seed: 1.0)
 
         from mediaman.services.arr import search_trigger as st
 

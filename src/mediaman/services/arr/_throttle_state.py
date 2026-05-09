@@ -76,27 +76,6 @@ _SEARCH_BACKOFF = ExponentialBackoff(
 # ---- Internal helpers ----
 
 
-def _jitter_for(dl_id: str, last_triggered_at: float) -> float:
-    """Return the deterministic ±10% jitter multiplier for *(dl_id, last_triggered_at)*.
-
-    Kept as a thin shim so existing tests can ``monkeypatch`` it to
-    pin the multiplier to a constant when asserting on the unjittered
-    backoff curve.  Production code routes through ``_SEARCH_BACKOFF.delay``,
-    which calls into :class:`~mediaman.services.infra.backoff.ExponentialBackoff`'s
-    deterministic-multiplier helper using the same seed.
-
-    Tests patch ``mediaman.services.arr._throttle_state._jitter_for``.
-    ``_search_backoff_seconds`` resolves ``_jitter_for`` from this
-    module's globals at call time, so the monkeypatch on this name is
-    picked up by the production backoff computation. (Patching the
-    re-export at ``mediaman.services.arr.search_trigger._jitter_for``
-    has no effect on production behaviour, since ``search_trigger``
-    does not call ``_jitter_for`` directly.)
-    """
-    seed = f"{dl_id}|{last_triggered_at!r}".encode()
-    return _SEARCH_BACKOFF._deterministic_multiplier(seed)
-
-
 def _search_backoff_seconds(search_count: int, dl_id: str, last_triggered_at: float) -> float:
     """Return the wait in seconds before the next fire is allowed.
 
@@ -107,17 +86,14 @@ def _search_backoff_seconds(search_count: int, dl_id: str, last_triggered_at: fl
     The seed encodes ``(dl_id, last_triggered_at)`` — the ``!r`` formatting
     of the float is deliberate and part of the determinism contract: it
     produces a consistent representation across platforms and Python versions,
-    unlike bare ``str(float)``.  See :class:`~mediaman.services.infra.backoff.ExponentialBackoff`
+    unlike bare ``str(float)``.  See :class:`~mediaman.core.backoff.ExponentialBackoff`
     for why determinism is load-bearing here.
 
-    Routes the multiplier through the module-level ``_jitter_for`` name so
-    that test monkeypatches on
-    ``mediaman.services.arr._throttle_state._jitter_for`` override the
-    multiplier as expected.
+    Tests neutralise jitter by monkeypatching
+    ``_SEARCH_BACKOFF.deterministic_multiplier`` to return a constant.
     """
-    n = max(search_count, 0)
-    base = min(_SEARCH_BACKOFF_BASE_SECONDS * 2 ** max(n - 1, 0), _SEARCH_BACKOFF_MAX_SECONDS)
-    return min(base * _jitter_for(dl_id, last_triggered_at), _SEARCH_BACKOFF_MAX_SECONDS)
+    seed = f"{dl_id}|{last_triggered_at!r}".encode()
+    return _SEARCH_BACKOFF.delay(search_count, seed=seed)
 
 
 def _arr_throttle_key(service: str, arr_id: int) -> str:

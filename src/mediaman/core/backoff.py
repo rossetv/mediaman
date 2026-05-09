@@ -102,19 +102,22 @@ class ExponentialBackoff:
         if self._jitter == 0.0 or seed is None:
             return base_delay
 
-        multiplier = self._deterministic_multiplier(seed)
+        multiplier = self.deterministic_multiplier(seed)
         # Clamp again after applying jitter so a +jitter% roll at the cap
         # never pushes above the advertised ceiling.
         return min(base_delay * multiplier, self._max)
 
-    def _deterministic_multiplier(self, seed: bytes) -> float:
+    def deterministic_multiplier(self, seed: bytes) -> float:
         """Return a stable ±jitter multiplier seeded from *seed*.
 
-        Uses blake2b (not ``hash()``) because ``PYTHONHASHSEED`` salts the
-        built-in hash differently on every interpreter start — two workers
-        handling the same item would compute different multipliers and
-        disagree on whether the gate is open.  blake2b produces the same
-        digest regardless of process, platform, or Python version.
+        Public so tests can monkeypatch this method on a specific
+        :class:`ExponentialBackoff` instance to pin the multiplier when
+        asserting on the unjittered curve.  Uses blake2b (not ``hash()``)
+        because ``PYTHONHASHSEED`` salts the built-in hash differently on
+        every interpreter start — two workers handling the same item
+        would compute different multipliers and disagree on whether the
+        gate is open.  blake2b produces the same digest regardless of
+        process, platform, or Python version.
         """
         digest = hashlib.blake2b(seed, digest_size=4).digest()
         int_seed = int.from_bytes(digest, "big")

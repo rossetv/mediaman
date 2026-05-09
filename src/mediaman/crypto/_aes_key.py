@@ -8,7 +8,6 @@ import re
 import secrets
 import sqlite3
 import threading
-from collections import OrderedDict
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
@@ -104,33 +103,29 @@ def _derive_aes_key_hkdf(secret_key: str, salt: bytes) -> bytes:
 
 
 # ---------------------------------------------------------------------------
-# Salt LRU cache
+# Salt cache — single entry
 # ---------------------------------------------------------------------------
 
-# Salt cache — keyed by absolute DB path. Bounded to 4 entries to
-# stop an unusual deployment that opens many distinct DB files
-# (long-running test process, multi-tenant) from leaking memory.
-_SALT_CACHE_MAX = 4
-_salt_cache: OrderedDict[str, bytes] = OrderedDict()
+# mediaman is a single-process design (CODE_GUIDELINES §1.12), so the salt
+# cache only ever needs to remember one DB path. Storing a single
+# ``(path, salt)`` tuple under a lock is enough to skip the second DB read
+# on the hot path; if a different path is queried the previous entry is
+# overwritten.
+_salt_cache: dict[str, bytes] = {}
 _salt_cache_lock = threading.Lock()
 
 
 def _salt_cache_get(cache_key: str) -> bytes | None:
-    """Return the cached salt for *cache_key*, refreshing LRU order on hit."""
+    """Return the cached salt for *cache_key* if it matches the single entry."""
     with _salt_cache_lock:
-        if cache_key in _salt_cache:
-            _salt_cache.move_to_end(cache_key)
-            return _salt_cache[cache_key]
-    return None
+        return _salt_cache.get(cache_key)
 
 
 def _salt_cache_put(cache_key: str, salt: bytes) -> None:
-    """Insert *salt* under *cache_key*, evicting the LRU entry if at capacity."""
+    """Store *salt* under *cache_key*, replacing any previous single entry."""
     with _salt_cache_lock:
+        _salt_cache.clear()
         _salt_cache[cache_key] = salt
-        _salt_cache.move_to_end(cache_key)
-        while len(_salt_cache) > _SALT_CACHE_MAX:
-            _salt_cache.popitem(last=False)
 
 
 def _salt_cache_pop(cache_key: str) -> None:
