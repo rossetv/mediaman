@@ -238,7 +238,7 @@ class TestCsp:
         the Downloads/Library/Recommended pages whenever Radarr or
         Sonarr return a poster from a CDN we didn't enumerate.
         """
-        from mediaman.web import _CSP
+        from mediaman.web.middleware.security_headers import _CSP
 
         # img-src accepts self, inline data, blobs, and any https: origin.
         assert "img-src 'self' data: blob: https:" in _CSP
@@ -246,11 +246,11 @@ class TestCsp:
         assert " https:" not in _CSP.split("script-src")[1].split(";")[0]
 
     def test_object_src_none(self):
-        from mediaman.web import _CSP
+        from mediaman.web.middleware.security_headers import _CSP
 
         assert "object-src 'none'" in _CSP
 
     def test_frame_ancestors_none(self):
-        from mediaman.web import _CSP
+        from mediaman.web.middleware.security_headers import _CSP
 
         assert "frame-ancestors 'none'" in _CSP

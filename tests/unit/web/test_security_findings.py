@@ -583,7 +583,7 @@ class TestFinding20CspImgSrc:
         # host entries; "https:" without a host suffix would match anything.
         import re
 
-        from mediaman.web import _CSP
+        from mediaman.web.middleware.security_headers import _CSP
 
         m = re.search(r"img-src ([^;]+)", _CSP)
         assert m, "img-src directive not found in CSP"
@@ -596,12 +596,12 @@ class TestFinding20CspImgSrc:
         )
 
     def test_csp_allows_tmdb(self):
-        from mediaman.web import _CSP
+        from mediaman.web.middleware.security_headers import _CSP
 
         assert "image.tmdb.org" in _CSP
 
     def test_csp_allows_ytimg(self):
-        from mediaman.web import _CSP
+        from mediaman.web.middleware.security_headers import _CSP
 
         assert "i.ytimg.com" in _CSP
 

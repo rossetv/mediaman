@@ -13,8 +13,6 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from mediaman.audit import security_event
 from mediaman.crypto import (
-    _derive_aes_key_hkdf,
-    _load_or_create_salt,
     decrypt_value,
     encrypt_value,
     generate_keep_token,
@@ -23,6 +21,7 @@ from mediaman.crypto import (
     migrate_legacy_ciphertexts,
     validate_keep_token,
 )
+from mediaman.crypto._aes_key import _derive_aes_key_hkdf, _load_or_create_salt
 from mediaman.db import init_db
 
 
@@ -327,7 +326,7 @@ class TestCiphertextCap:
         """Ciphertexts that exceed _MAX_CIPHERTEXT_LEN must be rejected."""
         import base64
 
-        from mediaman.crypto import _MAX_CIPHERTEXT_LEN
+        from mediaman.crypto._aes_key import _MAX_CIPHERTEXT_LEN
 
         # Build a base64 string that decodes to more than _MAX_CIPHERTEXT_LEN bytes.
         raw_len = _MAX_CIPHERTEXT_LEN + 1
@@ -337,7 +336,7 @@ class TestCiphertextCap:
 
     def test_ciphertext_at_exact_cap_is_rejected(self, secret_key, conn):
         """A base64 string that decodes to exactly _MAX_CIPHERTEXT_LEN + 1 bytes fails."""
-        from mediaman.crypto import _MAX_CIPHERTEXT_LEN
+        from mediaman.crypto._aes_key import _MAX_CIPHERTEXT_LEN
 
         # The cap is checked on the base64 *string* length, not the raw bytes.
         # Build a string whose length is _MAX_CIPHERTEXT_LEN + 1.
@@ -351,7 +350,7 @@ class TestSaltCache:
 
     def test_salt_cached_after_first_call(self, conn):
         """Subsequent calls to _load_or_create_salt return cached value without DB hit."""
-        from mediaman.crypto import _db_path, _load_or_create_salt, _salt_cache
+        from mediaman.crypto._aes_key import _db_path, _load_or_create_salt, _salt_cache
 
         first = _load_or_create_salt(conn)
         # Must be in cache now, keyed by DB file path.
@@ -361,7 +360,7 @@ class TestSaltCache:
 
     def test_cache_invalidated_on_canary_key_mismatch(self, conn, secret_key):
         """is_canary_valid returning False (key mismatch) must evict the cached salt."""
-        from mediaman.crypto import _db_path, _load_or_create_salt, _salt_cache
+        from mediaman.crypto._aes_key import _db_path, _load_or_create_salt, _salt_cache
 
         # Prime the cache.
         _load_or_create_salt(conn)
@@ -380,7 +379,7 @@ class TestValidateSignedNarrowedException:
     def test_non_dict_payload_rejected(self):
         """A JSON-array or JSON-null payload must not slide through —
         even with the right signature, it's not a valid token shape."""
-        from mediaman.crypto import _TOKEN_PURPOSE_KEEP, _encode_signed, _validate_signed
+        from mediaman.crypto.tokens import _TOKEN_PURPOSE_KEEP, _encode_signed, _validate_signed
 
         key = "0123456789abcdef" * 4
         # Craft a payload that's a list, not a dict. _encode_signed
@@ -389,7 +388,7 @@ class TestValidateSignedNarrowedException:
         assert _validate_signed(token, key, _TOKEN_PURPOSE_KEEP) is None
 
     def test_malformed_token_returns_none_not_exception(self):
-        from mediaman.crypto import _TOKEN_PURPOSE_KEEP, _validate_signed
+        from mediaman.crypto.tokens import _TOKEN_PURPOSE_KEEP, _validate_signed
 
         key = "0123456789abcdef" * 4
         # Bad base64, bad JSON, no dot — all must degrade to None
@@ -410,7 +409,7 @@ class TestSecretKeyEntropyHardened:
 
     def test_rejects_audit_low_unique_43_char_case(self):
         """The audit's example: 43 chars, 10 unique — must be refused."""
-        from mediaman.crypto import _secret_key_looks_strong
+        from mediaman.crypto._aes_key import _secret_key_looks_strong
 
         bad = "abcdefghij" * 4 + "abc"  # 43 chars, 10 unique
         assert len(bad) == 43
@@ -418,19 +417,19 @@ class TestSecretKeyEntropyHardened:
 
     def test_rejects_8_unique_64_char_hex(self):
         """64 hex chars but only 8 unique digits is structured low-entropy."""
-        from mediaman.crypto import _secret_key_looks_strong
+        from mediaman.crypto._aes_key import _secret_key_looks_strong
 
         bad = "deadbeef" * 8  # 64 hex chars, 8 unique
         assert _secret_key_looks_strong(bad) is False
 
     def test_rejects_single_char_repeat(self):
-        from mediaman.crypto import _secret_key_looks_strong
+        from mediaman.crypto._aes_key import _secret_key_looks_strong
 
         assert _secret_key_looks_strong("a" * 64) is False
         assert _secret_key_looks_strong("0" * 64) is False
 
     def test_rejects_short_input(self):
-        from mediaman.crypto import _secret_key_looks_strong
+        from mediaman.crypto._aes_key import _secret_key_looks_strong
 
         assert _secret_key_looks_strong("") is False
         assert _secret_key_looks_strong("short") is False
@@ -438,7 +437,7 @@ class TestSecretKeyEntropyHardened:
 
     def test_rejects_43_char_decoding_to_too_few_bytes(self):
         """The base64url path requires ≥32 decoded bytes (token_urlsafe(32)+)."""
-        from mediaman.crypto import _secret_key_looks_strong
+        from mediaman.crypto._aes_key import _secret_key_looks_strong
 
         # 43-char string with high unique count BUT only when decoded as
         # base64url it yields ≥32 bytes. token_urlsafe(31) yields 42
@@ -452,7 +451,7 @@ class TestSecretKeyEntropyHardened:
         """Real-world ``secrets.token_hex(32)`` keys must always pass."""
         import secrets
 
-        from mediaman.crypto import _secret_key_looks_strong
+        from mediaman.crypto._aes_key import _secret_key_looks_strong
 
         # 1000 samples — one rejection here would be a regression.
         for _ in range(1000):
@@ -462,7 +461,7 @@ class TestSecretKeyEntropyHardened:
         """Real-world ``secrets.token_urlsafe(32)`` keys must always pass."""
         import secrets
 
-        from mediaman.crypto import _secret_key_looks_strong
+        from mediaman.crypto._aes_key import _secret_key_looks_strong
 
         for _ in range(1000):
             assert _secret_key_looks_strong(secrets.token_urlsafe(32)) is True
@@ -470,7 +469,7 @@ class TestSecretKeyEntropyHardened:
     def test_accepts_test_fixture_value(self):
         """The widely-used test fixture (``"0123456789abcdef" * 4``) must
         keep passing — too many call sites depend on it for a bump now."""
-        from mediaman.crypto import _secret_key_looks_strong
+        from mediaman.crypto._aes_key import _secret_key_looks_strong
 
         assert _secret_key_looks_strong("0123456789abcdef" * 4) is True
 
@@ -657,8 +656,8 @@ class TestValidatePayloadCap:
         the patched function is never called. If the cap is missing,
         the AssertionError below fires.
         """
-        from mediaman.crypto import _TOKEN_PURPOSE_KEEP, _validate_signed
         from mediaman.crypto import tokens as _t
+        from mediaman.crypto.tokens import _TOKEN_PURPOSE_KEEP, _validate_signed
 
         sign_calls = []
 
@@ -682,7 +681,7 @@ class TestValidatePayloadCap:
 
     def test_oversize_outer_token_rejected(self):
         """The outer 4 KiB cap also still works."""
-        from mediaman.crypto import _TOKEN_PURPOSE_KEEP, _validate_signed
+        from mediaman.crypto.tokens import _TOKEN_PURPOSE_KEEP, _validate_signed
 
         key = "0123456789abcdef" * 4
         huge = "A" * 5000 + "." + "AAAA"
@@ -716,7 +715,7 @@ class TestExpFieldBoolRejection:
     """
 
     def test_exp_true_rejected(self, secret_key):
-        from mediaman.crypto import (
+        from mediaman.crypto.tokens import (
             _TOKEN_PURPOSE_KEEP,
             _encode_signed,
             _validate_signed,
@@ -726,7 +725,7 @@ class TestExpFieldBoolRejection:
         assert _validate_signed(token, secret_key, _TOKEN_PURPOSE_KEEP) is None
 
     def test_exp_false_rejected(self, secret_key):
-        from mediaman.crypto import (
+        from mediaman.crypto.tokens import (
             _TOKEN_PURPOSE_KEEP,
             _encode_signed,
             _validate_signed,
@@ -737,7 +736,7 @@ class TestExpFieldBoolRejection:
 
     def test_exp_genuine_int_still_accepted(self, secret_key):
         """Regression: an int ``exp`` in the future must still validate."""
-        from mediaman.crypto import (
+        from mediaman.crypto.tokens import (
             _TOKEN_PURPOSE_KEEP,
             _encode_signed,
             _validate_signed,
@@ -808,7 +807,7 @@ class TestSaltCacheBounded:
     """
 
     def test_cache_evicts_lru_at_capacity(self, tmp_path):
-        from mediaman.crypto import _salt_cache
+        from mediaman.crypto._aes_key import _salt_cache
         from mediaman.crypto.aes import _SALT_CACHE_MAX, _load_or_create_salt
         from mediaman.db import init_db
 
@@ -840,7 +839,7 @@ class TestRaceFreeSaltSeed:
     def test_concurrent_callers_agree_on_salt(self, tmp_path):
         """Two distinct connections to the same DB must both return
         the same salt even if neither finds the row at first read."""
-        from mediaman.crypto import _load_or_create_salt, _salt_cache
+        from mediaman.crypto._aes_key import _load_or_create_salt, _salt_cache
         from mediaman.db import init_db
 
         path = str(tmp_path / "race.db")
@@ -868,7 +867,7 @@ class TestCiphertextCapTightened:
     """
 
     def test_max_cap_is_64kib(self):
-        from mediaman.crypto import _MAX_CIPHERTEXT_LEN
+        from mediaman.crypto._aes_key import _MAX_CIPHERTEXT_LEN
 
         assert _MAX_CIPHERTEXT_LEN == 65_536
 
