@@ -187,7 +187,6 @@ class SafeHTTPClient:
         session: requests.Session | None = None,
         default_timeout: tuple[float, float] = _DEFAULT_TIMEOUT_SECONDS,
         default_max_bytes: int = _DEFAULT_MAX_BYTES,
-        strict_egress: bool | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/") if base_url else ""
         # If the caller didn't supply a Session, create a private one so the
@@ -202,7 +201,6 @@ class SafeHTTPClient:
             self._session.headers["User-Agent"] = _USER_AGENT
         self._default_timeout = default_timeout
         self._default_max_bytes = default_max_bytes
-        self._strict_egress = strict_egress
 
     # ------------------------------------------------------------------
     # Public verb methods
@@ -387,7 +385,7 @@ class SafeHTTPClient:
             else None
         ) or _resolve_safe_outbound_url
 
-        safe, hostname, pinned_ip = _resolve(url, strict_egress=self._strict_egress)
+        safe, hostname, pinned_ip = _resolve(url)
         if not safe:
             raise SafeHTTPError(
                 status_code=0,

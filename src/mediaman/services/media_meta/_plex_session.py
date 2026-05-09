@@ -86,9 +86,8 @@ class _SafePlexSession(http_requests.Session):
     ``request()`` because every verb method routes through it.
     """
 
-    def __init__(self, *, strict_egress: bool | None = None) -> None:
+    def __init__(self) -> None:
         super().__init__()
-        self._strict_egress = strict_egress
 
     def request(  # type: ignore[override]
         self,
@@ -101,9 +100,7 @@ class _SafePlexSession(http_requests.Session):
         #    time, and so a configured Plex URL pointing at an internal
         #    service is refused even if the operator persisted it before
         #    the check existed.
-        safe, hostname, pinned_ip = _resolve_safe_outbound_url(
-            url, strict_egress=self._strict_egress
-        )
+        safe, hostname, pinned_ip = _resolve_safe_outbound_url(url)
         if not safe:
             # Match the SafeHTTPError shape for consistency with
             # SafeHTTPClient — the scrubbed URL keeps any token out of

@@ -102,11 +102,10 @@ class TestSearchHintNextAttempt:
         assert "waiting for first search" in out
 
     def test_minutes_format_under_one_hour(self, monkeypatch):
+        from mediaman.services.arr import _throttle_state as _ts
         from mediaman.services.downloads.download_queue import classify
 
-        monkeypatch.setattr(
-            "mediaman.services.arr._throttle_state._jitter_for", lambda dl_id, last: 1.0
-        )
+        monkeypatch.setattr(_ts._SEARCH_BACKOFF, "deterministic_multiplier", lambda seed: 1.0)
 
         last = 1700000000.0
         # search_count=1 → interval = 120 s. 30 s elapsed → 90 s remain → "in 1m" (floor).
@@ -121,11 +120,10 @@ class TestSearchHintNextAttempt:
         assert "next attempt in 1m" in out
 
     def test_hours_format_band(self, monkeypatch):
+        from mediaman.services.arr import _throttle_state as _ts
         from mediaman.services.downloads.download_queue import classify
 
-        monkeypatch.setattr(
-            "mediaman.services.arr._throttle_state._jitter_for", lambda dl_id, last: 1.0
-        )
+        monkeypatch.setattr(_ts._SEARCH_BACKOFF, "deterministic_multiplier", lambda seed: 1.0)
 
         last = 1700000000.0
         # search_count=8 → interval = 256 m = 15360 s. 1 s elapsed.
@@ -141,11 +139,10 @@ class TestSearchHintNextAttempt:
         assert "next attempt in ~4h" in out
 
     def test_cap_band_displays_24h(self, monkeypatch):
+        from mediaman.services.arr import _throttle_state as _ts
         from mediaman.services.downloads.download_queue import classify
 
-        monkeypatch.setattr(
-            "mediaman.services.arr._throttle_state._jitter_for", lambda dl_id, last: 1.0
-        )
+        monkeypatch.setattr(_ts._SEARCH_BACKOFF, "deterministic_multiplier", lambda seed: 1.0)
 
         last = 1700000000.0
         out = classify.build_search_hint(
@@ -158,11 +155,10 @@ class TestSearchHintNextAttempt:
         assert "next attempt in ~24h" in out
 
     def test_firing_now_when_window_elapsed(self, monkeypatch):
+        from mediaman.services.arr import _throttle_state as _ts
         from mediaman.services.downloads.download_queue import classify
 
-        monkeypatch.setattr(
-            "mediaman.services.arr._throttle_state._jitter_for", lambda dl_id, last: 1.0
-        )
+        monkeypatch.setattr(_ts._SEARCH_BACKOFF, "deterministic_multiplier", lambda seed: 1.0)
 
         last = 1700000000.0
         out = classify.build_search_hint(
@@ -176,11 +172,10 @@ class TestSearchHintNextAttempt:
 
     def test_minutes_floor_minimum_one_minute(self, monkeypatch):
         """Even if there's only 5 s left, we round up to '1m' to avoid '0m'."""
+        from mediaman.services.arr import _throttle_state as _ts
         from mediaman.services.downloads.download_queue import classify
 
-        monkeypatch.setattr(
-            "mediaman.services.arr._throttle_state._jitter_for", lambda dl_id, last: 1.0
-        )
+        monkeypatch.setattr(_ts._SEARCH_BACKOFF, "deterministic_multiplier", lambda seed: 1.0)
 
         last = 1700000000.0
         # interval(1) = 120 s. 115 s elapsed → 5 s remain.

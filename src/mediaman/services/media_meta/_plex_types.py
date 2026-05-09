@@ -90,11 +90,7 @@ def _to_utc(dt: datetime | None) -> datetime | None:
     actual Plex server's wall clock.  Aware inputs are pass-through-
     converted; ``None`` stays ``None``.
     """
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.astimezone(UTC)
-    return dt.astimezone(UTC)
+    return dt.astimezone(UTC) if dt is not None else None
 
 
 def _movie_to_item(movie) -> PlexMovieItem:

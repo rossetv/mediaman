@@ -128,8 +128,6 @@ def get_int_setting(
     key: str,
     *,
     default: int,
-    min: int | None = None,
-    max: int | None = None,
 ) -> int:
     """Return an integer setting, falling back to *default* on any error.
 
@@ -138,21 +136,12 @@ def get_int_setting(
         key: Settings-table key to look up.
         default: Value returned when the key is absent or the stored value
             cannot be coerced to an integer.
-        min: When supplied, the returned value is clamped to this lower bound.
-            A stored value below ``min`` is silently raised to ``min``.
-        max: When supplied, the returned value is clamped to this upper bound.
-            A stored value above ``max`` is silently lowered to ``max``.
     """
     raw = get_setting(conn, key, default=default)
     try:
-        result = int(raw)  # type: ignore[arg-type]
+        return int(raw)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return default
-    if min is not None and result < min:
-        result = min
-    if max is not None and result > max:
-        result = max
-    return result
 
 
 def get_bool_setting(

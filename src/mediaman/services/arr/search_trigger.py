@@ -48,7 +48,6 @@ from mediaman.services.arr._throttle_state import (  # noqa: F401
     _SEARCH_BACKOFF_JITTER,
     _SEARCH_BACKOFF_MAX_SECONDS,
     _arr_throttle_key,
-    _jitter_for,
     _last_search_trigger,
     _last_search_trigger_by_arr,
     _reservation_tokens,
