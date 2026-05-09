@@ -201,7 +201,5 @@
   .dl-result,
   .dl-hint,
   .dl-expired { padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
-  /* Sticky save bar on Settings sits above the tab bar. */
-  .save-bar { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
 }
 
