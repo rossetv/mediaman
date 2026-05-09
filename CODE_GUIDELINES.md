@@ -33,7 +33,8 @@
 6. `except Exception:` only at the four documented outer-boundary sites
    ([§6.4](#64-except-exception-is-reserved-for-outermost-loops)).
 7. Never log a token, password, hash, or key ([§7.4](#74-never-log-secrets)).
-8. Module-level mutable state needs a `threading.Lock` *and* a `# rationale:` comment
+8. Module-level mutable state needs a `threading.Lock` and a one-line comment
+   explaining why a global is required
    ([§8.5](#85-module-level-mutable-state-is-forbidden-by-default)).
 9. Test names describe behaviour, not the function under test
    ([§4.8](#48-test-names-describe-behaviour),
@@ -1108,12 +1109,13 @@ worker-affine and untestable in isolation. The only legitimate uses are:
 Each such site looks like:
 
 ```python
+# Per-process cache; rebuilt on settings change. Single-worker invariant.
 _LIBRARY_TITLE_CACHE: dict[int, str] = {}
 _LIBRARY_TITLE_CACHE_LOCK = threading.Lock()
-# rationale: per-process cache; rebuilt on settings change. Single-worker invariant.
 ```
 
-Anything else moves to SQLite or to a request-scoped dependency.
+A short prose comment explaining why a global is required is sufficient — no special
+keyword token is needed. Anything else moves to SQLite or to a request-scoped dependency.
 
 ### 8.6 Threads are named
 
@@ -1428,8 +1430,12 @@ is a catastrophe.
 ### 10.10 Audit log on every authenticated state change
 
 Every authenticated mutation produces an `audit_log` row with: actor, action, target,
-timestamp, source IP, user agent. Read-only routes do not log. Anonymous routes (keep
-tokens, download confirmations) log against the token's identity, never the IP alone.
+timestamp, source IP. Read-only routes do not log. Anonymous routes (keep tokens, download
+confirmations) log against the token's identity, never the IP alone.
+
+User-agent is intentionally not recorded: mediaman is single-operator self-hosted, so the
+forensic value of UA-string variation is near zero and not worth the schema and plumbing
+cost. If a deployment ever wants it, the migration is mechanical.
 
 ### 10.11 Mandatory security tests for new code
 
@@ -2098,8 +2104,8 @@ neighbours of this codebase. Run the list against every PR before approving.
 
 ### 16.10 Module-level mutable state without a Lock + comment
 
-- [ ] Every module-level mutable container has a paired `threading.Lock` *and* a
-      one-line `# rationale:` comment naming why it is in-process state
+- [ ] Every module-level mutable container has a paired `threading.Lock` and a one-line
+      comment naming why it is in-process state
       ([§8.5](#85-module-level-mutable-state-is-forbidden-by-default)).
 - [ ] Caches declare a TTL or a max size at construction.
 
