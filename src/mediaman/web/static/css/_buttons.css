@@ -85,34 +85,15 @@
 .keep-trigger--kept { background: var(--rgba-success-bg); color: var(--success); }
 .keep-trigger--kept:hover { background: rgba(48,209,88,.22); }
 
-/* Legacy button aliases (templates / JS still emit these). */
-.btn-keep,
-.btn-sm-keep        { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 5px 12px; font-size: 12px; font-weight: 500; border-radius: var(--r-pill); background: var(--rgba-accent-bg); color: var(--accent); transition: background .15s; white-space: nowrap; letter-spacing: -.01em; }
-.btn-keep:hover,
-.btn-sm-keep:hover  { background: rgba(41,151,255,.24); }
+/* Legacy aliases still emitted by JS (ui-feedback confirm dialog). */
+.btn-keep           { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 5px 12px; font-size: 12px; font-weight: 500; border-radius: var(--r-pill); background: var(--rgba-accent-bg); color: var(--accent); transition: background .15s; white-space: nowrap; letter-spacing: -.01em; }
+.btn-keep:hover     { background: rgba(41,151,255,.24); }
 
-.btn-sm-kept        { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; font-size: 12px; font-weight: 500; border-radius: var(--r-pill); background: var(--rgba-success-bg); color: var(--success); white-space: nowrap; }
-
-.btn-sm-delete,
 .btn-danger         { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; font-size: 12px; font-weight: 500; border-radius: var(--r-pill); background: var(--rgba-danger-bg); color: var(--danger); white-space: nowrap; transition: background .15s; }
-.btn-sm-delete:hover,
 .btn-danger:hover   { background: rgba(255,69,58,.2); }
 
-.btn-success        { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; font-size: 12px; font-weight: 500; border-radius: var(--r-pill); background: var(--rgba-accent-bg); color: var(--accent); transition: background .15s; }
-.btn-success:hover  { background: rgba(41,151,255,.24); }
-
-.btn-ghost,
-.btn-ghost-pill,
-.btn-cancel         { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: 13px; font-weight: 500; border-radius: var(--r-pill); background: transparent; color: var(--t1); border: 1px solid var(--hair-strong); transition: background .15s, border-color .15s; white-space: nowrap; }
-.btn-ghost:hover,
-.btn-ghost-pill:hover,
-.btn-cancel:hover   { border-color: rgba(255,255,255,.3); background: rgba(255,255,255,.04); }
-
-.btn-cancel--danger { color: var(--danger); border-color: rgba(255,69,58,.4); }
-.btn-cancel--danger:hover { background: rgba(255,69,58,.08); }
-
-.btn-danger-ghost   { display: inline-flex; padding: 5px 12px; font-size: 12px; font-weight: 500; border-radius: var(--r-pill); background: transparent; color: var(--danger); border: 1px solid rgba(255,69,58,.3); transition: background .15s; }
-.btn-danger-ghost:hover { background: rgba(255,69,58,.08); }
+.btn-ghost          { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: 13px; font-weight: 500; border-radius: var(--r-pill); background: transparent; color: var(--t1); border: 1px solid var(--hair-strong); transition: background .15s, border-color .15s; white-space: nowrap; }
+.btn-ghost:hover    { border-color: rgba(255,255,255,.3); background: rgba(255,255,255,.04); }
 
 /* Small SVG icon helper used in caret / kebab buttons */
 .svg-icon-xs {
@@ -164,35 +145,6 @@
 .pill--neutral{ background: rgba(255,255,255,.08); color: var(--t2); }
 
 .pill-row { display: flex; gap: 6px; flex-wrap: wrap; }
-
-/* Legacy media-badge variants — same shape as .pill */
-.media-badge,
-.lib-type-badge,
-.action-badge,
-.meta-pill,
-.protection-badge,
-.snoozed-badge,
-.kept-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 10px;
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: var(--r-pill);
-  letter-spacing: .02em;
-  background: rgba(255,255,255,.08);
-  color: var(--t2);
-  white-space: nowrap;
-}
-.badge-movie, .lib-type-badge.badge-movie, .meta-pill.type-movie, .action-badge.deletion, .action-badge.delete    { background: rgba(255,159,10,.18); color: var(--orange); }
-.badge-tv,    .lib-type-badge.badge-tv,    .meta-pill.type-tv,    .action-badge.scan,                  .show-cyan { background: rgba(41,151,255,.18); color: var(--accent); }
-.badge-anime, .lib-type-badge.badge-anime, .action-badge.newsletter                                               { background: rgba(191,90,242,.18); color: var(--purple); }
-.action-badge.keep,
-.protection-badge,
-.kept-badge        { background: rgba(48,209,88,.18); color: var(--success); }
-.snoozed-badge     { background: rgba(255,214,10,.18); color: var(--warning); }
-.action-badge.error{ background: rgba(255,69,58,.18); color: var(--danger); }
 
 /* Countdown badge — pulsing red dot */
 .countdown,
