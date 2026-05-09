@@ -1,11 +1,9 @@
 /* =============================================================
-   17. RECENTLY-DELETED LIST (dashboard) — .ditem / .deleted-item
+   17. RECENTLY-DELETED LIST (dashboard) — .ditem
    ============================================================= */
-.dlist,
-.deleted-list { display: flex; flex-direction: column; gap: 2px; }
+.dlist { display: flex; flex-direction: column; gap: 2px; }
 
-.ditem,
-.deleted-item {
+.ditem {
   display: grid;
   grid-template-columns: 44px 1fr auto auto;
   gap: 16px;
@@ -14,24 +12,16 @@
   border-radius: var(--r-md);
   transition: background .15s;
 }
-.ditem:hover,
-.deleted-item:hover { background: var(--s1); }
+.ditem:hover { background: var(--s1); }
 
-.ditem-thumb,
-.deleted-thumb {
+.ditem-thumb {
   width: 44px;
   height: 66px;
   border-radius: var(--r-xs);
   overflow: hidden;
   background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
 }
-.ditem-thumb img,
-img.deleted-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
-
-.deleted-info { min-width: 0; }
-.deleted-title { font-weight: 500; font-size: 14px; }
-.deleted-meta  { font-size: 12px; color: var(--t3); margin-top: 2px; }
-.deleted-size  { font-size: 12px; color: var(--t3); }
+.ditem-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* =============================================================
    25. KEEP PUBLIC LANDING PAGE

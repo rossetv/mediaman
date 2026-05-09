@@ -546,8 +546,7 @@ select.inp,
 /* =============================================================
    14. TOGGLE SWITCH
    ============================================================= */
-.tog,
-.toggle-switch {
+.tog {
   position: relative;
   width: 44px;
   height: 26px;
@@ -558,9 +557,8 @@ select.inp,
   flex-shrink: 0;
   display: inline-block;
 }
-.tog::after { content: ""; }
-.tog::after,
-.toggle-switch-thumb {
+.tog::after {
+  content: "";
   position: absolute;
   top: 2px; left: 2px;
   width: 22px; height: 22px;
@@ -569,19 +567,8 @@ select.inp,
   transition: transform .2s;
   z-index: 1;
 }
-.tog.on,
-.toggle-switch input:checked ~ .toggle-switch-track { background: var(--success); }
-.tog.on::after,
-.toggle-switch input:checked ~ .toggle-switch-thumb { transform: translateX(18px); }
-
-.toggle-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
-.toggle-switch-track {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: rgba(255,255,255,.12);
-  transition: background .15s;
-}
+.tog.on { background: var(--success); }
+.tog.on::after { transform: translateX(18px); }
 
 /* =============================================================
    15. CONNECTION STATUS DOT
@@ -646,7 +633,7 @@ select.inp,
 .icon-tertiary { color: var(--t3); }
 
 /* =============================================================
-   21. LIBRARY TABLE (legacy lib-* grid layout)
+   21. LIBRARY TABLE — toolbar, protected-row tint, snooze menu, pagination
    ============================================================= */
 .toolbar-row {
   display: flex;
@@ -659,75 +646,8 @@ select.inp,
 .toolbar-row .search-wrap { flex: 1; min-width: 260px; }
 .filter-pills { display: flex; gap: 6px; flex-wrap: wrap; }
 
-.lib-table {
-  background: var(--s1);
-  border: 1px solid var(--hair);
-  border-radius: var(--r-lg);
-  overflow: hidden;
-}
-.lib-header {
-  display: grid;
-  grid-template-columns: 60px 2fr 80px 100px 140px 1fr;
-  gap: 14px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--hair);
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--t3);
-  text-transform: uppercase;
-  letter-spacing: .08em;
-  align-items: center;
-}
-.lib-sort-col { cursor: pointer; }
-.lib-sort-col:hover { color: var(--t1); }
-
-.lib-row {
-  display: grid;
-  grid-template-columns: 60px 2fr 80px 100px 140px 1fr;
-  gap: 14px;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--hair);
-  align-items: center;
-  font-size: 14px;
-  transition: background .15s;
-}
-.lib-row:hover { background: var(--s2); }
-.lib-row:last-child { border-bottom: 0; }
-.lib-row-protected { background: rgba(48,209,88,.04); }
-
-.lib-title-col { min-width: 0; }
-.lib-title { font-weight: 500; }
-.lib-subtitle {
-  font-size: 12px;
-  color: var(--t3);
-  margin-top: 2px;
-  letter-spacing: -.005em;
-}
-.lib-row-meta { display: none; }
-.lib-protection-label { color: var(--success); }
-.watchlist-none { color: var(--danger); }
-
-.lib-size,
-.lib-watch-info { font-size: 13px; color: var(--t2); }
-.lib-actions {
-  display: flex;
-  gap: 6px;
-  justify-content: flex-end;
-  align-items: center;
-}
-
-.btn-sm {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 5px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: var(--r-pill);
-  white-space: nowrap;
-  transition: background .15s;
-  letter-spacing: -.01em;
-}
+/* Protected library rows render with a subtle green tint via .tbl row markup. */
+tr.lib-row-protected { background: rgba(48,209,88,.04); }
 
 /* Snooze dropdown (split-button menu used by library + dashboard) */
 .keep-wrapper {
@@ -778,28 +698,6 @@ select.inp,
 .lib-mobile-sort-label { font-size: 12px; color: var(--t3); }
 
 @media (max-width: 760px) {
-  .lib-header { display: none; }
-  .lib-row {
-    grid-template-columns: 60px 1fr;
-    gap: 12px;
-  }
-  .lib-row > .lib-type-wrap,
-  .lib-row > .lib-size,
-  .lib-row > .lib-watch-info { display: none; }
-  .lib-row > .lib-actions {
-    grid-column: 1 / -1;
-    justify-content: flex-start;
-    margin-top: 4px;
-  }
-  .lib-row-meta {
-    display: flex;
-    gap: 8px;
-    margin-top: 6px;
-    font-size: 12px;
-    color: var(--t3);
-    align-items: center;
-    flex-wrap: wrap;
-  }
   .lib-mobile-sort { display: flex; }
 }
 
@@ -849,64 +747,6 @@ select.inp,
 .hist-msg { font-size: 14px; }
 .hist-msg b { font-weight: 500; }
 .hist-type { color: var(--t3); font-size: 13px; }
-
-.history-table {
-  background: var(--s1);
-  border: 1px solid var(--hair);
-  border-radius: var(--r-lg);
-  padding: 0 24px;
-  overflow: hidden;
-}
-.history-header {
-  display: grid;
-  grid-template-columns: 110px 2fr 1fr;
-  gap: 16px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--hair);
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--t3);
-  text-transform: uppercase;
-  letter-spacing: .08em;
-}
-.history-header > span:nth-child(1),  /* mobile title */
-.history-header > span:nth-child(3)   /* desktop title */ { display: none; }
-
-.history-row {
-  display: grid;
-  grid-template-columns: 110px 2fr 1fr;
-  gap: 16px;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--hair);
-  align-items: center;
-  font-size: 14px;
-}
-.history-row:last-child { border-bottom: 0; }
-.history-row > .history-title-mobile { display: none; }
-.history-title { font-weight: 500; }
-.history-date { font-size: 12px; color: var(--t3); display: block; margin-top: 2px; }
-.history-detail { color: var(--t3); font-size: 13px; }
-.history-space-impact { color: var(--t3); font-size: 12px; margin-left: 6px; }
-
-@media (min-width: 760px) {
-  .history-header > span:nth-child(3) { display: inline; }
-  .history-header { grid-template-columns: 80px 2fr 1fr; }
-  .history-row    { grid-template-columns: 80px 2fr 1fr; }
-}
-@media (max-width: 759px) {
-  .history-header { display: none; }
-  .history-row {
-    grid-template-columns: 1fr;
-    gap: 8px;
-    padding: 14px 0;
-  }
-  .history-row > .history-title-desktop { display: none; }
-  .history-row > .history-title-mobile {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-}
 
 /* =============================================================
    23. DETAIL MODAL — restyled with card / btn / pill primitives

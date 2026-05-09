@@ -174,84 +174,7 @@
 .shelf .tile { flex: 0 0 170px; width: 170px; max-width: 170px; }
 
 /* =============================================================
-   9. LEGACY MEDIA-CARD — same look as .tile, used by dashboard
-   scheduled-deletion, protected, recommended where templates
-   still emit .media-card markup.
-   ============================================================= */
-.media-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  cursor: default;
-  transition: transform .2s;
-  min-width: 0;
-}
-.media-card:hover { transform: translateY(-2px); }
-.media-card:hover .media-card-poster { box-shadow: var(--shadow-card); }
-
-.media-card-poster {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 2/3;
-  border-radius: var(--r-md);
-  overflow: hidden;
-  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
-  transition: box-shadow .25s;
-}
-.media-card-poster img { width: 100%; height: 100%; object-fit: cover; }
-.media-card-poster::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(to bottom, rgba(0,0,0,.45) 0%, transparent 25%, transparent 65%, rgba(0,0,0,.85) 100%);
-}
-.media-card-poster .media-badge,
-.media-card-poster .lib-type-badge {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  z-index: 2;
-}
-.media-card-poster .countdown-badge,
-.media-card-poster .protection-badge,
-.media-card-poster .snoozed-badge {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 2;
-}
-
-.media-card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.media-card-title {
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: -.01em;
-  line-height: 1.25;
-}
-.media-card-meta {
-  font-size: 12px;
-  color: var(--t3);
-}
-.media-card-footer {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  margin-top: 4px;
-}
-.file-size {
-  font-size: 12px;
-  color: var(--t3);
-  margin-left: auto;
-}
-
-/* =============================================================
-   19. RECOMMENDED — sug-card uses .tile primitives
+   19. RECOMMENDED — uses .tile primitives
    ============================================================= */
 .rec-disabled-card {
   margin-top: 16px;
@@ -329,74 +252,7 @@
   border: 0;
 }
 
-.sug-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  cursor: pointer;
-  transition: transform .2s;
-  min-width: 0;
-}
-.sug-card:hover { transform: translateY(-2px); }
-.sug-card:hover .sug-poster { box-shadow: var(--shadow-card); }
-
-.sug-poster {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 2/3;
-  border-radius: var(--r-md);
-  overflow: hidden;
-  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
-  transition: box-shadow .25s;
-}
-.sug-poster img { width: 100%; height: 100%; object-fit: cover; }
-.sug-poster::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(to bottom, rgba(0,0,0,.45) 0%, transparent 25%, transparent 65%, rgba(0,0,0,.85) 100%);
-}
-.sug-poster-empty {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: var(--t4);
-}
-.sug-badge {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  z-index: 2;
-  padding: 3px 10px;
-  border-radius: var(--r-pill);
-  font-size: 11px;
-  font-weight: 600;
-  background: rgba(0,0,0,.65);
-  color: #fff;
-  backdrop-filter: blur(8px);
-  letter-spacing: .03em;
-}
-.sug-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.sug-title {
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: -.01em;
-  line-height: 1.25;
-}
-.sug-year { color: var(--t3); font-weight: 400; }
-.sug-desc {
-  font-size: 12px;
-  color: var(--t3);
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.sug-reason,
+/* AI reason chip — used on /recommended tiles via _rec_card.html. */
 .reason {
   margin-top: 4px;
   padding: 8px 10px;
@@ -407,34 +263,7 @@
   color: var(--t2);
   line-height: 1.45;
 }
-.sug-reason b, .reason b { color: var(--accent); font-weight: 600; }
-
-.sug-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
-.sug-trailer-link {
-  font-size: 12px;
-  color: var(--accent);
-  text-decoration: none;
-}
-.sug-trailer-link:hover { text-decoration: underline; }
-
-.sug-dl-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 14px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: var(--r-pill);
-  background: var(--accent-cta);
-  color: #fff;
-  white-space: nowrap;
-  transition: background .15s;
-  margin-left: auto;
-}
-.sug-dl-btn:hover { background: var(--accent-hi); }
-.sug-dl-btn.state-ready,
-.sug-dl-btn.state-downloading { background: var(--rgba-success-bg); color: var(--success); }
-.sug-dl-btn.state-queued { background: rgba(255,214,10,.14); color: var(--warning); }
+.reason b { color: var(--accent); font-weight: 600; }
 
 .inline-error {
   display: none;

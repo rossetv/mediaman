@@ -88,6 +88,19 @@
      .12 is the canonical destructive chip background per existing usage. */
   --rgba-danger-bg: rgba(255,69,58,.12);
 
+  /* Warning (yellow) chip background — .pill--queued, .snoozed-badge,
+     .dl-state-searching. .18 matches the chip-pill convention used across
+     the orange/purple/yellow semantic tints. */
+  --rgba-warning-bg: rgba(255,214,10,.18);
+
+  /* Purple chip background — .pill--anime, .badge-anime alias.
+     .18 chip-pill convention. */
+  --rgba-purple-bg: rgba(191,90,242,.18);
+
+  /* Orange chip background — .pill--movie, .badge-movie alias.
+     .18 chip-pill convention. */
+  --rgba-orange-bg: rgba(255,159,10,.18);
+
   /* Row gap shared by .setg-row, .settings-subrow, and .form-row. */
   --gap-row: 20px;
 }
