@@ -1267,7 +1267,7 @@ class TestSearchBackoff:
         from mediaman.services.arr import _throttle_state
 
         monkeypatch.setattr(
-            _throttle_state._SEARCH_BACKOFF, "_deterministic_multiplier", lambda seed: 1.0
+            _throttle_state._SEARCH_BACKOFF, "deterministic_multiplier", lambda seed: 1.0
         )
 
     def test_zero_count_returns_base_two_minutes(self, monkeypatch):
@@ -1319,8 +1319,8 @@ class TestSearchBackoff:
         from mediaman.services.arr import _throttle_state
 
         seed = f"radarr:Foo|{1700000000.0!r}".encode()
-        a = _throttle_state._SEARCH_BACKOFF._deterministic_multiplier(seed)
-        b = _throttle_state._SEARCH_BACKOFF._deterministic_multiplier(seed)
+        a = _throttle_state._SEARCH_BACKOFF.deterministic_multiplier(seed)
+        b = _throttle_state._SEARCH_BACKOFF.deterministic_multiplier(seed)
         assert a == b
 
     def test_jitter_different_for_different_seeds(self):
@@ -1328,7 +1328,7 @@ class TestSearchBackoff:
         from mediaman.services.arr import _throttle_state
 
         seeds = [f"radarr:Item{i}|{(1700000000.0 + i)!r}".encode() for i in range(50)]
-        multipliers = {_throttle_state._SEARCH_BACKOFF._deterministic_multiplier(s) for s in seeds}
+        multipliers = {_throttle_state._SEARCH_BACKOFF.deterministic_multiplier(s) for s in seeds}
         assert len(multipliers) > 30
 
     def test_jitter_within_band(self):
@@ -1337,7 +1337,7 @@ class TestSearchBackoff:
 
         for i in range(1000):
             seed = f"radarr:Item{i}|{(1.0 + i * 7.31)!r}".encode()
-            m = _throttle_state._SEARCH_BACKOFF._deterministic_multiplier(seed)
+            m = _throttle_state._SEARCH_BACKOFF.deterministic_multiplier(seed)
             assert 0.9 <= m <= 1.1
 
     def test_real_jitter_applied_to_curve(self):

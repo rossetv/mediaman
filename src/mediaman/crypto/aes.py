@@ -44,7 +44,6 @@ from ._aes_key import (  # noqa: F401
     _MAX_CIPHERTEXT_LEN,
     _MIN_HEX_UNIQUE,
     _MIN_URLSAFE_UNIQUE,
-    _SALT_CACHE_MAX,
     _SALT_SETTING_KEY,
     _V2_PREFIX,
     _db_path,

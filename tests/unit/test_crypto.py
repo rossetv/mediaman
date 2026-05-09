@@ -799,16 +799,13 @@ class TestCanaryFailureAudits:
 
 
 class TestSaltCacheBounded:
-    """The audit's LOW finding on the unbounded ``_salt_cache``.
-
-    The cache must enforce an upper bound so a long-running test
-    process opening many distinct DB files doesn't accumulate state
-    indefinitely.
+    """mediaman is single-process (CODE_GUIDELINES §1.12), so the salt
+    cache only ever needs a single entry. Opening a second DB must
+    overwrite the previous entry rather than grow the cache.
     """
 
-    def test_cache_evicts_lru_at_capacity(self, tmp_path):
-        from mediaman.crypto._aes_key import _salt_cache
-        from mediaman.crypto.aes import _SALT_CACHE_MAX, _load_or_create_salt
+    def test_cache_holds_single_entry(self, tmp_path):
+        from mediaman.crypto._aes_key import _load_or_create_salt, _salt_cache
         from mediaman.db import init_db
 
         # Wipe any leakage from earlier tests.
@@ -816,13 +813,13 @@ class TestSaltCacheBounded:
 
         conns = []
         try:
-            # Open _SALT_CACHE_MAX + 2 distinct DBs to force eviction.
-            for i in range(_SALT_CACHE_MAX + 2):
+            for i in range(3):
                 db = init_db(str(tmp_path / f"mm_{i}.db"))
                 _load_or_create_salt(db)
                 conns.append(db)
-            # Cache must not exceed the configured maximum.
-            assert len(_salt_cache) == _SALT_CACHE_MAX
+            # The cache replaces, not accumulates: only the most recent
+            # path remains.
+            assert len(_salt_cache) == 1
         finally:
             for c in conns:
                 c.close()
