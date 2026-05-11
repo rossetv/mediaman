@@ -41,7 +41,6 @@ from urllib.parse import quote as _url_quote
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import JSONResponse
 
-from mediaman.audit import log_audit
 from mediaman.core.time import now_utc
 from mediaman.db import get_db
 from mediaman.scanner.repository.library_query import (
