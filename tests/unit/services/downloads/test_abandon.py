@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
 from mediaman.db import init_db
 from mediaman.services.arr.search_trigger import (
@@ -58,7 +59,7 @@ class TestAbandonMovie:
     def test_returns_partial_failure_when_unmonitor_raises(self, db_conn, monkeypatch):
         """Sonarr/Radarr down: surfaced as failed list; throttle untouched."""
         client = MagicMock()
-        client.unmonitor_movie.side_effect = RuntimeError("radarr down")
+        client.unmonitor_movie.side_effect = requests.ConnectionError("radarr down")
         monkeypatch.setattr(
             "mediaman.services.downloads.abandon.build_radarr_from_db",
             lambda c, sk: client,
@@ -130,7 +131,7 @@ class TestAbandonSeasons:
 
         def fail_22(series_id, season_number):
             if season_number == 22:
-                raise RuntimeError("sonarr blew up on season 22")
+                raise requests.ConnectionError("sonarr blew up on season 22")
 
         client.unmonitor_season.side_effect = fail_22
         monkeypatch.setattr(
@@ -230,7 +231,7 @@ class TestAbandonSeries:
 
     def test_get_series_failure_returns_failed(self, db_conn, monkeypatch):
         client = MagicMock()
-        client.get_series_by_id.side_effect = RuntimeError("sonarr down")
+        client.get_series_by_id.side_effect = requests.ConnectionError("sonarr down")
         monkeypatch.setattr(
             "mediaman.services.downloads.abandon.build_radarr_from_db",
             lambda c, sk: None,

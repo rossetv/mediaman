@@ -1,4 +1,5 @@
 import pytest
+import requests
 
 from mediaman.services.downloads.nzbget import NzbgetClient
 
@@ -48,5 +49,5 @@ class TestNzbgetClient:
         assert client.is_reachable() is True
 
     def test_test_connection_failure(self, client, fake_http):
-        fake_http.raise_on("POST", Exception("refused"))
+        fake_http.raise_on("POST", requests.ConnectionError("refused"))
         assert client.is_reachable() is False

@@ -84,7 +84,7 @@ def _release_claim(conn: sqlite3.Connection, row_id: int) -> None:
             (row_id,),
         )
         conn.commit()
-    except Exception:
+    except sqlite3.Error:
         logger.warning("failed to release notification claim id=%s", row_id, exc_info=True)
 
 
@@ -110,7 +110,7 @@ def _release_claims_bulk(conn: sqlite3.Connection, row_ids: list[int]) -> None:
             row_ids,
         )
         conn.commit()
-    except Exception:
+    except sqlite3.Error:
         logger.warning(
             "failed to bulk-release notification claims (n=%d)", len(row_ids), exc_info=True
         )

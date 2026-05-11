@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 
 import pytest
+import requests
 
 from mediaman.db import init_db
 
