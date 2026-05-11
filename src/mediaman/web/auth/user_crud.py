@@ -58,6 +58,20 @@ def list_users(conn: sqlite3.Connection) -> list[UserRecord]:
     ]
 
 
+def find_username_by_user_id(conn: sqlite3.Connection, user_id: int) -> str | None:
+    """Return the username for *user_id*, or None if no such user exists.
+
+    The single sanctioned reader of ``admin_users.username`` outside the
+    bcrypt-bound helpers in ``password_hash`` (§2.7.4: auth owns the users
+    table; route handlers go through this module).
+    """
+    row = conn.execute(
+        "SELECT username FROM admin_users WHERE id = ?",
+        (user_id,),
+    ).fetchone()
+    return row["username"] if row else None
+
+
 def _delete_user_atomically(
     conn: sqlite3.Connection,
     user_id: int,
@@ -89,7 +103,7 @@ def _delete_user_atomically(
                 _last_user = True
                 raise RuntimeError("last_user")  # triggers with-block rollback
             if audit_actor is not None:
-                from mediaman.audit import security_event_or_raise
+                from mediaman.core.audit import security_event_or_raise
 
                 security_event_or_raise(
                     conn,

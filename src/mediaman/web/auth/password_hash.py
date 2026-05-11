@@ -168,7 +168,7 @@ def create_user(
                 (username, password_hash, now),
             )
             if audit_actor is not None:
-                from mediaman.audit import security_event_or_raise
+                from mediaman.core.audit import security_event_or_raise
 
                 security_event_or_raise(
                     conn,
@@ -345,7 +345,7 @@ def _write_rotation_audit_row(
     target_username: str,
 ) -> None:
     """Insert the security audit row for a successful password rotation."""
-    from mediaman.audit import security_event_or_raise
+    from mediaman.core.audit import security_event_or_raise
 
     security_event_or_raise(
         conn,
