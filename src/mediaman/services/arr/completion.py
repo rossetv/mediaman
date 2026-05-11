@@ -15,15 +15,13 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from typing import Any, NotRequired, TypedDict, cast
+from collections.abc import Mapping
+from typing import NotRequired, TypedDict, cast
 
-import requests
-
-from mediaman.services.arr.base import ArrError
+from mediaman.services.arr._types import RadarrMovie, SonarrSeries
 from mediaman.services.arr.fetcher import ArrCard
 from mediaman.services.arr.state import series_has_files
 from mediaman.services.downloads.download_format import extract_poster_url
-from mediaman.services.infra.http import SafeHTTPError
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +54,8 @@ class CompletedItem(TypedDict):
 
 
 def detect_completed(
-    previous: dict[str, ArrCard] | dict[str, dict[str, Any]],
-    current: dict[str, ArrCard] | dict[str, dict[str, Any]],
+    previous: Mapping[str, ArrCard] | Mapping[str, Mapping[str, object]],
+    current: Mapping[str, ArrCard] | Mapping[str, Mapping[str, object]],
 ) -> list[CompletedItem]:
     """Find items that disappeared from the queue (i.e. completed).
 
@@ -113,10 +111,10 @@ class _ArrLibraryIndex:
     def __init__(self, conn: sqlite3.Connection, secret_key: str) -> None:
         self._conn = conn
         self._secret_key = secret_key
-        self.radarr_by_id: dict[int, dict] | None = None
-        self.radarr_by_title: dict[str, dict] | None = None
-        self.sonarr_by_id: dict[int, dict] | None = None
-        self.sonarr_by_title: dict[str, dict] | None = None
+        self.radarr_by_id: dict[int, RadarrMovie] | None = None
+        self.radarr_by_title: dict[str, RadarrMovie] | None = None
+        self.sonarr_by_id: dict[int, SonarrSeries] | None = None
+        self.sonarr_by_title: dict[str, SonarrSeries] | None = None
 
     def ensure_radarr(self) -> None:
         if self.radarr_by_id is not None:
@@ -125,8 +123,8 @@ class _ArrLibraryIndex:
 
         # Build indexes before marking as fetched — if get_movies() raises,
         # radarr_by_id stays None so the next item retries (matching original behaviour).
-        by_id: dict[int, dict] = {}
-        by_title: dict[str, dict] = {}
+        by_id: dict[int, RadarrMovie] = {}
+        by_title: dict[str, RadarrMovie] = {}
         client = build_radarr_from_db(self._conn, self._secret_key)
         for m in client.get_movies() if client else []:
             if tid := m.get("tmdbId"):
@@ -140,8 +138,8 @@ class _ArrLibraryIndex:
             return
         from mediaman.services.arr.build import build_sonarr_from_db
 
-        by_id: dict[int, dict] = {}
-        by_title: dict[str, dict] = {}
+        by_id: dict[int, SonarrSeries] = {}
+        by_title: dict[str, SonarrSeries] = {}
         client = build_sonarr_from_db(self._conn, self._secret_key)
         for s in client.get_series() if client else []:
             if tid := s.get("tmdbId"):
@@ -209,7 +207,7 @@ def _batch_insert_completions(conn: sqlite3.Connection, to_insert: list[tuple]) 
             to_insert,
         )
         conn.commit()
-    except sqlite3.Error:
+    except Exception:
         logger.warning(
             "Failed to record %d completed download(s)",
             len(to_insert),
@@ -244,7 +242,7 @@ def record_verified_completions(
     for c in completed:
         try:
             verified = _check_item_verified(c, idx)
-        except (SafeHTTPError, requests.RequestException, ArrError):
+        except Exception:
             # Skip rather than log "no files confirmed" — the real cause is a network error
             logger.warning(
                 "Failed to verify completion for %s — skipping", c["dl_id"], exc_info=True
@@ -304,7 +302,7 @@ def fetch_and_sync_recent_downloads(
                         url = extract_poster_url(e.get("images"))
                         if url:
                             cache[t] = url
-            except (SafeHTTPError, requests.RequestException, ArrError):
+            except Exception:
                 logger.warning(
                     "Failed to fetch %s posters for backfill",
                     service,
@@ -341,7 +339,7 @@ def fetch_and_sync_recent_downloads(
                         (poster_url, r["id"]),
                     )
                     conn.commit()
-                except sqlite3.Error:
+                except Exception:
                     logger.warning(
                         "Failed to backfill poster for %s",
                         r["title"],
