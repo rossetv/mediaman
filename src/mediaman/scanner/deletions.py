@@ -21,9 +21,13 @@ import sqlite3
 from datetime import UTC, datetime
 from typing import Any, TypedDict
 
-from mediaman.core.audit import log_audit
+import requests
+
+from mediaman.audit import log_audit
 from mediaman.scanner import repository
-from mediaman.services.infra.storage import delete_path
+from mediaman.services.arr._client_base import ArrError
+from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.infra.storage import DeletionRefused, delete_path
 
 logger = logging.getLogger(__name__)
 
@@ -96,14 +100,14 @@ def _delete_file_on_disk(
     returned so the caller can ``continue`` to the next row.  All
     try/except branches are contained here so no except clause is ever
     stranded in a different scope from its try.
-    # rationale: four distinct exception types (ValueError, FileNotFoundError,
+    # rationale: four distinct exception types (DeletionRefused, FileNotFoundError,
     # PermissionError/OSError, Exception) each require different recovery
     # actions; splitting by exception type would separate try from except.
     """
     try:
         delete_path(row["file_path"], allowed_roots=allowed_roots)
         return True
-    except ValueError as exc:
+    except DeletionRefused as exc:
         # Allowlist refusal: the path is wrong, but the action
         # row is still valid — reset to pending so a later run
         # (e.g. once the operator fixes the path) can retry.
@@ -156,7 +160,7 @@ def _delete_file_on_disk(
         )
         conn.commit()
         return False
-    except Exception as exc:
+    except Exception as exc:  # rationale: documented permanent-failure path — operator must see every unhandled deletion failure
         # Unexpected exception type. Log + audit and treat as
         # permanent so the operator can investigate; leave the
         # row in 'deleting' for recovery to reconcile.
@@ -217,7 +221,7 @@ def _unmonitor_arr(
     if row["radarr_id"] and radarr_client:
         try:
             radarr_client.unmonitor_movie(row["radarr_id"])
-        except Exception:
+        except (SafeHTTPError, requests.RequestException, ArrError):
             logger.warning(
                 "Failed to unmonitor movie %s after deletion",
                 row["radarr_id"],
@@ -227,7 +231,7 @@ def _unmonitor_arr(
     if row["sonarr_id"] and row["season_number"] is not None and sonarr_client:
         try:
             sonarr_client.unmonitor_season(row["sonarr_id"], row["season_number"])
-        except Exception:
+        except (SafeHTTPError, requests.RequestException, ArrError):
             logger.warning(
                 "Failed to unmonitor season %s of series %s after deletion",
                 row["season_number"],

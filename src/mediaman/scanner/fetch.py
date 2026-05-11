@@ -11,6 +11,9 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+import requests
+from plexapi.exceptions import PlexApiException
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,7 +81,7 @@ class PlexFetcher:
                 )
                 try:
                     watch_history = self._plex.get_season_watch_history(season["plex_rating_key"])
-                except Exception:
+                except (PlexApiException, requests.RequestException):
                     logger.warning(
                         "Failed to fetch watch history for season %s — "
                         "skipping season this scan to avoid misclassifying "
@@ -100,7 +103,7 @@ class PlexFetcher:
             for item in items:
                 try:
                     watch_history = self._plex.get_watch_history(item["plex_rating_key"])
-                except Exception:
+                except (PlexApiException, requests.RequestException):
                     logger.warning(
                         "Failed to fetch watch history for item %s — "
                         "skipping item this scan to avoid misclassifying "

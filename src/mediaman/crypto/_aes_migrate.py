@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import collections.abc
 import logging
 import sqlite3
@@ -112,7 +113,7 @@ def migrate_legacy_ciphertexts(
 
         try:
             raw = base64.urlsafe_b64decode(raw_ct)
-        except Exception:
+        except (binascii.Error, ValueError):
             # Include exc_info — "bad base64" is a category, but the
             # specific Exception subclass and message tell an operator
             # whether they're looking at a corrupted row, an unexpected
@@ -171,7 +172,7 @@ def migrate_legacy_ciphertexts(
         # continue with rollback semantics.
         try:
             conn.commit()
-        except Exception:
+        except sqlite3.Error:
             logger.error(
                 "migrate_legacy_ciphertexts: commit failed after %d "
                 "re-encryptions — rows were NOT persisted; the migration "
@@ -183,7 +184,7 @@ def migrate_legacy_ciphertexts(
         if on_complete is not None:
             try:
                 on_complete(migrated)
-            except Exception:  # pragma: no cover — never block on audit failure
+            except Exception:  # pragma: no cover; rationale: best-effort audit callback — never block migration success on audit failure
                 logger.exception("aes.v35_migration_complete on_complete callback failed")
 
     return migrated

@@ -1,6 +1,7 @@
 import pytest
 
 from mediaman.services.infra.storage import (
+    DeletionRefused,
     delete_path,
     get_aggregate_disk_usage,
     get_directory_size,
@@ -53,12 +54,12 @@ class TestAggregateDiskUsage:
 class TestDeletePathValidation:
     def test_refuses_root_path(self):
         # ``/media`` is a forbidden root — caught at allowlist validation.
-        with pytest.raises(ValueError, match="system / mount-root"):
+        with pytest.raises(DeletionRefused, match="system / mount-root"):
             delete_path("/", allowed_roots=["/media"])
 
     def test_refuses_etc_path(self):
         # ``/media`` is a forbidden root — caught at allowlist validation.
-        with pytest.raises(ValueError, match="system / mount-root"):
+        with pytest.raises(DeletionRefused, match="system / mount-root"):
             delete_path("/etc/passwd", allowed_roots=["/media"])
 
     def test_allows_path_under_allowed_root(self, tmp_path):
@@ -69,7 +70,7 @@ class TestDeletePathValidation:
         assert not target.exists()
 
     def test_refuses_path_traversal(self, tmp_path):
-        with pytest.raises(ValueError, match="strict descendant"):
+        with pytest.raises(DeletionRefused, match="strict descendant"):
             delete_path(str(tmp_path / ".." / "etc"), allowed_roots=[str(tmp_path)])
 
     def test_nonexistent_path_under_allowed_root(self, tmp_path):
@@ -80,14 +81,14 @@ class TestDeletePathValidation:
         """A path like /media-backup must not pass when root is /media."""
         sibling = tmp_path / "media-backup"
         sibling.mkdir()
-        with pytest.raises(ValueError, match="strict descendant"):
+        with pytest.raises(DeletionRefused, match="strict descendant"):
             delete_path(str(sibling), allowed_roots=[str(tmp_path / "media")])
 
     def test_rejects_missing_allowed_roots(self, tmp_path):
         """Calling without allowed_roots must raise — prevents accidental bypass."""
         target = tmp_path / "anywhere"
         target.mkdir()
-        with pytest.raises(ValueError, match="requires allowed_roots"):
+        with pytest.raises(DeletionRefused, match="requires allowed_roots"):
             delete_path(str(target))
 
     def test_empty_allowed_roots_refuses_deletion(self, tmp_path):
@@ -95,7 +96,7 @@ class TestDeletePathValidation:
         target = tmp_path / "anywhere"
         target.mkdir()
         (target / "f.txt").write_text("data")
-        with pytest.raises(ValueError, match="not configured"):
+        with pytest.raises(DeletionRefused, match="not configured"):
             delete_path(str(target), allowed_roots=[])
         # File system untouched.
         assert target.exists()
@@ -119,7 +120,7 @@ class TestDeletePathSymlinkSafety:
         link = root / "link"
         link.symlink_to(real)
 
-        with pytest.raises(ValueError, match="symlink"):
+        with pytest.raises(DeletionRefused, match="symlink"):
             delete_path(str(link), allowed_roots=[str(root)])
         # Real target untouched.
         assert real.exists()
@@ -161,7 +162,7 @@ class TestDeletePathSymlinkSafety:
         (target / "inner.txt").write_text("x")
 
         # Root is the symlink, target is inside its resolved content.
-        with pytest.raises(ValueError, match="symlink"):
+        with pytest.raises(DeletionRefused, match="symlink"):
             delete_path(str(target), allowed_roots=[str(link_root)])
         # Target is untouched.
         assert target.exists()
@@ -200,7 +201,7 @@ class TestDeletePathStrictDescendant:
         root = tmp_path / "library"
         root.mkdir()
         (root / "important.mkv").write_text("keep")
-        with pytest.raises(ValueError, match="strict descendant"):
+        with pytest.raises(DeletionRefused, match="strict descendant"):
             delete_path(str(root), allowed_roots=[str(root)])
         # Root and its contents survive.
         assert root.exists()
@@ -219,13 +220,13 @@ class TestDeletePathStrictDescendant:
         # Pass the same logical root via a `.` indirection — both
         # forms must be rejected as equal-to-root.
         configured_root = root / "."
-        with pytest.raises(ValueError, match="strict descendant"):
+        with pytest.raises(DeletionRefused, match="strict descendant"):
             delete_path(str(root), allowed_roots=[str(configured_root)])
         assert root.exists()
 
     def test_refuses_when_allowed_roots_contains_filesystem_root(self):
         """``/`` as a delete root is a configuration disaster — refuse."""
-        with pytest.raises(ValueError, match="system / mount-root"):
+        with pytest.raises(DeletionRefused, match="system / mount-root"):
             # Even an obviously-non-existent path must be refused before
             # the OS gets near it.
             delete_path("/something/inside", allowed_roots=["/"])
@@ -236,12 +237,12 @@ class TestDeletePathStrictDescendant:
         ``/data`` is the conventional in-container app home; deletion at
         that level would wipe the database, sessions, and configuration.
         """
-        with pytest.raises(ValueError, match="system / mount-root"):
+        with pytest.raises(DeletionRefused, match="system / mount-root"):
             delete_path("/data/db.sqlite", allowed_roots=["/data"])
 
     def test_refuses_when_allowed_roots_contains_usr(self):
         """``/usr`` as a delete root is forbidden — refuse before any IO."""
-        with pytest.raises(ValueError, match="system / mount-root"):
+        with pytest.raises(DeletionRefused, match="system / mount-root"):
             delete_path("/usr/bin/python", allowed_roots=["/usr"])
 
     def test_refuses_when_allowed_roots_contains_etc(self):
@@ -252,17 +253,17 @@ class TestDeletePathStrictDescendant:
         ``/private/etc`` and is caught by the symlink-root check. Either
         message is an acceptable fail-closed response.
         """
-        with pytest.raises(ValueError, match="system / mount-root|symlink"):
+        with pytest.raises(DeletionRefused, match="system / mount-root|symlink"):
             delete_path("/etc/passwd", allowed_roots=["/etc"])
 
     def test_refuses_when_allowed_roots_contains_var(self):
         """``/var`` as a delete root is rejected (real-dir or symlink)."""
-        with pytest.raises(ValueError, match="system / mount-root|symlink"):
+        with pytest.raises(DeletionRefused, match="system / mount-root|symlink"):
             delete_path("/var/log/syslog", allowed_roots=["/var"])
 
     def test_refuses_relative_root(self):
         """A relative path in allowed_roots is a configuration error."""
-        with pytest.raises(ValueError, match="absolute path"):
+        with pytest.raises(DeletionRefused, match="absolute path"):
             delete_path("relative/path", allowed_roots=["relative"])
 
     def test_refuses_root_traversal_in_config(self):
@@ -273,7 +274,7 @@ class TestDeletePathStrictDescendant:
         though the literal string isn't in the forbidden set.
         """
         # Construct a token that resolves to a forbidden path.
-        with pytest.raises(ValueError, match="system / mount-root|symlink"):
+        with pytest.raises(DeletionRefused, match="system / mount-root|symlink"):
             delete_path("/should/not/run", allowed_roots=["/data/.."])
 
     def test_refuses_symlink_root_at_validation(self, tmp_path):
@@ -283,7 +284,7 @@ class TestDeletePathStrictDescendant:
         (real_root / "f.txt").write_text("data")
         link_root = tmp_path / "link"
         link_root.symlink_to(real_root)
-        with pytest.raises(ValueError, match="symlink"):
+        with pytest.raises(DeletionRefused, match="symlink"):
             delete_path(str(link_root / "f.txt"), allowed_roots=[str(link_root)])
         # Real root still intact.
         assert real_root.exists()
@@ -301,7 +302,7 @@ class TestDeletePathStrictDescendant:
         target_dir = tmp_path / "movies"
         target_dir.mkdir()
         (target_dir / "1.mkv").write_text("x")
-        with pytest.raises(ValueError, match="strict descendant"):
+        with pytest.raises(DeletionRefused, match="strict descendant"):
             delete_path(str(tmp_path), allowed_roots=[str(tmp_path)])
         # Mount-root contents survive.
         assert target_dir.exists()
@@ -320,7 +321,7 @@ class TestDeletePathStrictDescendant:
 
     def test_refuses_relative_target_path(self, tmp_path):
         """Target paths must be absolute — relative paths anchor on CWD."""
-        with pytest.raises(ValueError, match="absolute"):
+        with pytest.raises(DeletionRefused, match="absolute"):
             delete_path("relative/target", allowed_roots=[str(tmp_path)])
 
     def test_picks_longest_matching_root(self, tmp_path):
@@ -362,7 +363,7 @@ class TestForbiddenRootsMacOS:
 
     @pytest.mark.parametrize("root", ["/private", "/private/tmp", "/private/var", "/private/etc"])
     def test_private_subtrees_refused(self, root):
-        with pytest.raises(ValueError, match="system / mount-root"):
+        with pytest.raises(DeletionRefused, match="system / mount-root"):
             delete_path(f"{root}/somefile", allowed_roots=[root])
 
 

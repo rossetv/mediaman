@@ -35,6 +35,9 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+import requests
+from plexapi.exceptions import PlexApiException
+
 if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient
     from mediaman.services.media_meta.plex import PlexClient
@@ -42,7 +45,6 @@ if TYPE_CHECKING:
 from mediaman.core.format import ensure_tz as _ensure_tz
 from mediaman.core.time import parse_iso_utc as _parse_iso_utc
 from mediaman.scanner import repository
-from mediaman.scanner._post_scan import run_post_scan_followups as _run_post_scan_followups
 from mediaman.scanner.arr_dates import ArrDateCache
 from mediaman.scanner.deletions import (
     DeletionExecutor,
@@ -53,6 +55,11 @@ from mediaman.scanner.phases.delete import remove_orphans
 from mediaman.scanner.phases.evaluate import evaluate_movie, evaluate_season
 from mediaman.scanner.phases.upsert import schedule_deletion as _phase_schedule_deletion
 from mediaman.scanner.phases.upsert import upsert_item as _phase_upsert_item
+from mediaman.services.infra.settings_reader import get_bool_setting as _get_bool_setting
+from mediaman.services.mail.newsletter import send_newsletter as _send_newsletter
+from mediaman.services.openai.recommendations.persist import (
+    refresh_recommendations as _refresh_recommendations,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -183,50 +190,35 @@ class ScanEngine:
            worth of writes at a time.
         """
         summary = {"synced": 0, "errors": 0, "removed": 0}
-        per_lib_fetches = self._sync_phase_fetch(summary)
-        self._sync_phase_write(per_lib_fetches, summary)
-        logger.info(
-            "Library sync complete: %d synced, %d orphans removed, %d errors",
-            summary["synced"],
-            summary["removed"],
-            summary["errors"],
-        )
-        return summary
 
-    def _sync_phase_fetch(self, summary: dict[str, int]) -> dict[str, list[_PlexItemFetch]]:
-        """Pull every library's items + watch history from Plex into memory.
-
-        Returns a ``lib_id -> [PlexItemFetch]`` mapping.  No DB writes
-        happen here.  Fetch failures are logged per-library and
-        accumulate into ``summary["errors"]`` so a single bad library
-        cannot abort the whole sync.
-        """
+        # Phase 1: network reads. No DB writes, no lock.
+        # Group fetches by library so phase 2 can commit per library —
+        # an OOM kill mid-scan won't roll back already-synced libraries.
         per_lib_fetches: dict[str, list[_PlexItemFetch]] = {}
+        successfully_scanned: list[str] = []
         for lib_id in self._library_ids:
             try:
                 per_lib_fetches[lib_id] = self._fetcher.fetch_library_items(lib_id)
-            except Exception:
+                successfully_scanned.append(lib_id)
+            except (PlexApiException, requests.RequestException, sqlite3.Error):
                 logger.exception("Library sync failed for library %s", lib_id)
                 summary["errors"] += 1
-        return per_lib_fetches
 
-    def _sync_phase_write(
-        self,
-        per_lib_fetches: dict[str, list[_PlexItemFetch]],
-        summary: dict[str, int],
-    ) -> None:
-        """Apply per-library UPSERTs + orphan cleanup, one transaction each.
-
-        No network calls happen here, so the SQLite write lock is held
-        only for one library's UPSERTs at a time.  A malformed ``lib_id``
-        skips orphan removal for that library rather than crashing the
-        whole sync.
-        """
-        for lib_id, fetches in per_lib_fetches.items():
+        # Phase 2: per-library write transactions. No network calls
+        # happen past this point, so the write lock is held only for
+        # one library's UPSERTs at a time.
+        for lib_id in successfully_scanned:
+            fetches = per_lib_fetches.get(lib_id, [])
             seen_lib_keys: set[str] = {f.item["plex_rating_key"] for f in fetches}
             for f in fetches:
                 _phase_upsert_item(self._conn, f, self._arr_cache, f.media_type)
                 summary["synced"] += 1
+            # Per-library orphan cleanup so an empty result on one
+            # library cannot wipe items belonging to another.  A malformed
+            # ``lib_id`` (rare — would mean the Plex section tree contains
+            # a non-numeric key, which the API does not currently emit but
+            # could on a corrupted server) skips orphan removal for this
+            # library rather than crashing the whole sync.
             try:
                 lib_set = _coerce_lib_ids([lib_id])
             except ValueError:
@@ -239,6 +231,14 @@ class ScanEngine:
                 continue
             summary["removed"] += self._remove_orphaned_items(seen_lib_keys, lib_set)
             self._conn.commit()
+
+        logger.info(
+            "Library sync complete: %d synced, %d orphans removed, %d errors",
+            summary["synced"],
+            summary["removed"],
+            summary["errors"],
+        )
+        return summary
 
     def run_scan(self) -> dict[str, int]:
         """Execute a full scan and return a summary dict.
@@ -261,23 +261,18 @@ class ScanEngine:
             "errors": 0,
             "removed": 0,
         }
-        seen_by_lib = self._scan_all_libraries(summary)
-        self._cleanup_orphans_per_library(seen_by_lib, summary)
-        self._record_deletion_outcome(summary)
-        self._run_post_scan_followups()
-        return summary
-
-    def _scan_all_libraries(self, summary: dict[str, int]) -> dict[str, set[str]]:
-        """Run the per-library scan and return the ``lib_id -> seen-keys`` map.
-
-        Each library commits separately so a SIGKILL mid-scan can only
-        roll back the in-flight library.  Libraries with unknown or
-        unsupported types are logged and skipped.
-        """
+        # Per-library accumulator so the orphan safeguard is evaluated
+        # against each library independently — a single library's empty
+        # result cannot wipe items belonging to another library.
         seen_by_lib: dict[str, set[str]] = {}
+
         for lib_id in self._library_ids:
             lib_type = self._library_types.get(lib_id)
             if lib_type is None:
+                # An unmapped library would silently default to "movie",
+                # so a Plex library that has been re-typed (e.g. moved to
+                # "music" or "photo") would be scanned as if it were a
+                # movie collection. Skip loudly instead.
                 logger.warning(
                     "engine.run_scan.unknown_library_type lib_id=%s — skipping; "
                     "Plex library type is unknown to the scanner. "
@@ -300,49 +295,65 @@ class ScanEngine:
                 self._scan_tv_library(lib_id, summary, seen)
             else:
                 self._scan_movie_library(lib_id, summary, seen)
+
+            # Per-library commit: bound the SQLite write-lock duration so a
+            # SIGKILL mid-scan can only roll back the in-flight library, not
+            # every successful upsert from earlier libraries.
             self._conn.commit()
-        return seen_by_lib
 
-    def _cleanup_orphans_per_library(
-        self, seen_by_lib: dict[str, set[str]], summary: dict[str, int]
-    ) -> None:
-        """Remove orphan ``media_items`` rows for each library independently.
-
-        Each library is evaluated alone so a single library's empty
-        result cannot wipe items belonging to another library.  Skipped
-        entirely when running in dry-run mode.
-        """
+        # Per-library orphan cleanup so a single library's empty result
+        # cannot wipe items belonging to another library.
         if self._dry_run:
             logger.info("engine.run_scan.dry_run skipping orphan removal")
-            return
-        for lib_id, seen in seen_by_lib.items():
-            try:
-                lib_set = _coerce_lib_ids([lib_id])
-            except ValueError:
-                logger.warning(
-                    "scanner.run_scan.malformed_lib_id lib_id=%r — "
-                    "skipping orphan removal for this library",
-                    lib_id,
-                )
-                continue
-            summary["removed"] += self._remove_orphaned_items(seen, lib_set)
-        self._conn.commit()
+        else:
+            for lib_id, seen in seen_by_lib.items():
+                try:
+                    lib_set = _coerce_lib_ids([lib_id])
+                except ValueError:
+                    logger.warning(
+                        "scanner.run_scan.malformed_lib_id lib_id=%r — "
+                        "skipping orphan removal for this library",
+                        lib_id,
+                    )
+                    continue
+                summary["removed"] += self._remove_orphaned_items(seen, lib_set)
+            self._conn.commit()
 
-    def _record_deletion_outcome(self, summary: dict[str, int]) -> None:
-        """Execute pending deletions and record their counts in *summary*."""
         deletion_result = self.execute_deletions()
         summary["deleted"] = deletion_result["deleted"]
         summary["reclaimed_bytes"] = deletion_result["reclaimed_bytes"]
 
-    def _run_post_scan_followups(self) -> None:
-        """Delegate to :func:`mediaman.scanner._post_scan.run_post_scan_followups`."""
-        _run_post_scan_followups(
-            conn=self._conn,
-            plex_client=self._plex,
-            secret_key=self._secret_key,
-            dry_run=self._dry_run,
-            grace_days=self._grace_days,
-        )
+        if self._dry_run:
+            logger.info("engine.run_scan.dry_run skipping newsletter + recommendations refresh")
+        else:
+            # Refresh AI recommendations BEFORE sending the newsletter so the
+            # email reflects this week's picks rather than last week's stale
+            # batch.  The newsletter's recommendation cards are loaded from the
+            # ``suggestions`` table that ``_refresh_recommendations`` rewrites.
+            if _get_bool_setting(self._conn, "suggestions_enabled", default=True):
+                try:
+                    _refresh_recommendations(self._conn, self._plex, secret_key=self._secret_key)
+                except (
+                    sqlite3.Error,
+                    requests.RequestException,
+                    PlexApiException,
+                ):
+                    logger.exception("Recommendation generation failed — scan results unaffected")
+
+            try:
+                _send_newsletter(
+                    conn=self._conn,
+                    secret_key=self._secret_key,
+                    dry_run=self._dry_run,
+                    grace_days=self._grace_days,
+                )
+            except (
+                sqlite3.Error,
+                requests.RequestException,
+            ):
+                logger.exception("Newsletter sending failed — scan results unaffected")
+
+        return summary
 
     def execute_deletions(self) -> DeletionResult:
         """Execute pending deletions where the grace period has passed.
@@ -399,69 +410,6 @@ class ScanEngine:
             candidate = None
         return _ensure_tz(candidate)
 
-    def _apply_scan_decision(
-        self,
-        media_id: str,
-        decision: str,
-        summary: dict[str, int],
-    ) -> None:
-        """Apply a per-item decision (``schedule_deletion`` or skip).
-
-        Branches on dry-run mode and re-entry status; bumps the matching
-        summary counter.  Decisions other than ``"schedule_deletion"``
-        are treated as a skip so the caller doesn't have to duplicate the
-        bookkeeping.
-        """
-        if decision != "schedule_deletion":
-            summary["skipped"] += 1
-            return
-        if self._dry_run:
-            # Dry-run preview: count what *would* be scheduled but write
-            # nothing.  Both ``scheduled_actions`` and the audit_log row
-            # inside ``schedule_deletion`` are skipped.
-            summary["scheduled"] += 1
-            return
-        is_reentry = repository.has_expired_snooze(self._conn, media_id)
-        _phase_schedule_deletion(
-            self._conn,
-            media_id=media_id,
-            is_reentry=is_reentry,
-            grace_days=self._grace_days,
-            secret_key=self._secret_key,
-        )
-        summary["scheduled"] += 1
-
-    def _evaluate_scan_item(
-        self,
-        f: _PlexItemFetch,
-        media_type_fn: Callable[[_PlexItemFetch], str],
-        evaluate_fn: Callable[[_PlexItemFetch, datetime, list[dict[str, object]]], str | None],
-        seen_keys: set[str] | None,
-    ) -> tuple[str, str | None]:
-        """Upsert one item and return ``(media_id, decision)``.
-
-        ``decision`` is the evaluator's return value (``"schedule_deletion"``,
-        a skip marker, or ``None`` for an evaluator-driven early skip such
-        as the TV show-kept check).  When the protection / already-scheduled
-        guards fire we return ``(media_id, "_skip")`` so the caller bumps
-        the skipped counter without invoking the evaluator.
-        """
-        item = f.item
-        media_id = item["plex_rating_key"]
-        if seen_keys is not None:
-            seen_keys.add(media_id)
-        _phase_upsert_item(self._conn, f, self._arr_cache, media_type_fn(f))
-        repository.update_last_watched(self._conn, media_id, f.watch_history)
-
-        if repository.is_protected(self._conn, media_id):
-            return media_id, "_skip"
-        if repository.is_already_scheduled(self._conn, media_id):
-            return media_id, "_skip"
-
-        added_at = self._resolve_added_at(item)
-        decision = evaluate_fn(f, added_at, f.watch_history)
-        return media_id, decision
-
     def _scan_items(
         self,
         fetched: list[_PlexItemFetch],
@@ -476,27 +424,82 @@ class ScanEngine:
 
         Iterates *fetched* items, upserts each one, applies the common
         protection/schedule guards, then delegates per-item evaluation
-        to *evaluate_fn*.  The two callers differ only in *media_type_fn*
-        (which selects the media type string from the fetch record) and
-        *evaluate_fn* (which calls the appropriate evaluator and applies
-        any domain-specific pre-skip such as the TV show-kept check).
+        to *evaluate_fn*. The two callers differ only in
+        ``media_type_fn`` (which selects the media type string from the
+        fetch record) and ``evaluate_fn`` (which calls the appropriate
+        evaluator and applies any domain-specific pre-skip logic such
+        as the TV show-kept check).
+
+        Args:
+            fetched: Pre-fetched items from the fetch phase.
+            media_type_fn: Callable that returns the media_type string
+                for a :class:`_PlexItemFetch` record.
+            evaluate_fn: Callable ``(fetch, added_at, watch_history) ->
+                decision`` where decision is ``"schedule_deletion"`` or
+                any other value meaning "skip". May return ``None`` to
+                signal an early skip (e.g. show-kept check failed before
+                evaluation).
+            item_label: Human-readable label used in exception log
+                messages (e.g. ``"Movie"`` or ``"TV"``).
+            library_id: Plex section ID — passed through to the upsert
+                phase.
+            summary: Mutable summary counter dict (``scanned``,
+                ``scheduled``, ``skipped``, ``errors``).
+            seen_keys: If provided, the item's Plex rating key is added
+                so orphan detection can exclude it later.
         """
         for f in fetched:
             summary["scanned"] += 1
+            item = f.item
+            watch_history = f.watch_history
             try:
-                media_id, decision = self._evaluate_scan_item(
-                    f, media_type_fn, evaluate_fn, seen_keys
-                )
-                if decision is None or decision == "_skip":
+                media_id = item["plex_rating_key"]
+                if seen_keys is not None:
+                    seen_keys.add(media_id)
+                _phase_upsert_item(self._conn, f, self._arr_cache, media_type_fn(f))
+                repository.update_last_watched(self._conn, media_id, watch_history)
+
+                if repository.is_protected(self._conn, media_id):
                     summary["skipped"] += 1
                     continue
-                self._apply_scan_decision(media_id, decision, summary)
-            except Exception:
+
+                if repository.is_already_scheduled(self._conn, media_id):
+                    summary["skipped"] += 1
+                    continue
+
+                added_at = self._resolve_added_at(item)
+                decision = evaluate_fn(f, added_at, watch_history)
+
+                if decision is None:
+                    # evaluate_fn signalled an early skip (e.g. show-kept).
+                    summary["skipped"] += 1
+                    continue
+
+                if decision == "schedule_deletion":
+                    if self._dry_run:
+                        # Dry-run preview: count what *would* be scheduled
+                        # but write nothing. Both ``scheduled_actions`` and
+                        # the audit_log row inside ``schedule_deletion``
+                        # are skipped.
+                        summary["scheduled"] += 1
+                    else:
+                        is_reentry = repository.has_expired_snooze(self._conn, media_id)
+                        _phase_schedule_deletion(
+                            self._conn,
+                            media_id=media_id,
+                            is_reentry=is_reentry,
+                            grace_days=self._grace_days,
+                            secret_key=self._secret_key,
+                        )
+                        summary["scheduled"] += 1
+                else:
+                    summary["skipped"] += 1
+            except Exception:  # rationale: §6.4 site 2 — scheduler must survive a single bad row
                 summary["errors"] += 1
                 logger.exception(
                     "%s scan item failed (plex_rating_key=%s)",
                     item_label,
-                    f.item.get("plex_rating_key", "?"),
+                    item.get("plex_rating_key", "?"),
                 )
 
     def _scan_movie_library(
@@ -550,7 +553,9 @@ class ScanEngine:
                 return None  # show is protected; skip all its seasons
             return evaluate_season(
                 added_at=added_at,
+                episode_count=season.get("episode_count", 0),
                 watch_history=watch_history,
+                has_future_episodes=False,
                 min_age_days=self._min_age_days,
                 inactivity_days=self._inactivity_days,
             )
