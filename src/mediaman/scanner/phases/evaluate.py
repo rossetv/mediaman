@@ -14,6 +14,7 @@ The scan engine calls them directly from
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 
 from mediaman.scanner._eligibility import is_inactive, is_old_enough
@@ -22,7 +23,7 @@ from mediaman.scanner._eligibility import is_inactive, is_old_enough
 def evaluate_movie(
     *,
     added_at: datetime,
-    watch_history: list[dict[str, object]],
+    watch_history: Sequence[Mapping[str, object]],
     min_age_days: int = 30,
     inactivity_days: int = 30,
 ) -> str:
@@ -44,7 +45,7 @@ def evaluate_movie(
 def evaluate_season(
     *,
     added_at: datetime,
-    watch_history: list[dict[str, object]],
+    watch_history: Sequence[Mapping[str, object]],
     min_age_days: int = 30,
     inactivity_days: int = 30,
 ) -> str:
