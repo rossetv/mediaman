@@ -51,14 +51,18 @@ from mediaman.services.infra.storage import (
     get_directory_size,
 )
 from mediaman.services.infra.url_safety import (
+    PINNED_EXTERNAL_HOSTS,
+    allowed_outbound_hosts,
     is_safe_outbound_url,
     resolve_safe_outbound_url,
 )
 
 __all__ = [
     "ConfigDecryptError",
+    "PINNED_EXTERNAL_HOSTS",
     "SafeHTTPClient",
     "SafeHTTPError",
+    "allowed_outbound_hosts",
     "delete_path",
     "disk_usage_allowed_roots",
     "get_aggregate_disk_usage",
