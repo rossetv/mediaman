@@ -17,7 +17,7 @@ from urllib.parse import quote as _url_quote
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from mediaman.audit import log_audit
+from mediaman.core.audit import log_audit
 from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.services.infra.http import SafeHTTPError
 

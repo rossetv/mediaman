@@ -32,9 +32,9 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import JSONResponse
 
-from mediaman.audit import log_audit
+from mediaman.core.audit import log_audit
 from mediaman.db import get_db
-from mediaman.scanner.repository.library_query import (
+from mediaman.web.repository.library_query import (
     _VALID_SORTS,
     _VALID_TYPES,
     fetch_library,
@@ -46,22 +46,22 @@ from mediaman.web.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_
 from mediaman.web.responses import respond_err, respond_ok
 
 # Re-exports for backwards-compatible imports
-from mediaman.web.routes.library_api.delete_intents import (
+from mediaman.web.repository.delete_intents import (
     _complete_delete_intent,
     _fail_delete_intent,
     _record_delete_intent,
     reconcile_pending_delete_intents,
 )
-from mediaman.web.routes.library_api.delete_intents import (
+from mediaman.web.repository.delete_intents import (
     finalise_media_delete as _finalise_media_delete,
 )
-from mediaman.web.routes.library_api.delete_intents import (
+from mediaman.web.repository.delete_intents import (
     handle_radarr_delete as _handle_radarr_delete,
 )
-from mediaman.web.routes.library_api.delete_intents import (
+from mediaman.web.repository.delete_intents import (
     handle_sonarr_delete as _handle_sonarr_delete,
 )
-from mediaman.web.routes.library_api.delete_intents import (
+from mediaman.web.repository.delete_intents import (
     snapshot_media_for_delete as _snapshot_media_for_delete,
 )
 from mediaman.web.routes.library_api.redownload import (
