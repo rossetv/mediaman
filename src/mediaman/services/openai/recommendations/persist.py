@@ -7,6 +7,9 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, cast
 
+import requests
+from plexapi.exceptions import PlexApiException
+
 from mediaman.services.openai.recommendations.enrich import enrich_recommendations
 from mediaman.services.openai.recommendations.prompts import (
     generate_personal,
@@ -54,9 +57,7 @@ def refresh_recommendations(
         media_type = r["media_type"] or "movie"
         if media_type in ("tv_season", "anime_season", "season"):
             media_type = "tv"
-        elif media_type == "anime":
-            media_type = "anime"
-        else:
+        elif media_type != "anime":
             media_type = "movie"
         watch_history.append({"title": r["title"], "type": media_type})
 
@@ -65,7 +66,7 @@ def refresh_recommendations(
         if plex_client is not None:
             user_ratings = plex_client.get_user_ratings()
             logger.info("Fetched %d user ratings from Plex", len(user_ratings))
-    except Exception:
+    except (PlexApiException, requests.RequestException):
         logger.warning("Failed to fetch Plex user ratings — proceeding without them", exc_info=True)
 
     cutoff_30d = (now - timedelta(days=30)).strftime("%Y-%m-%d")

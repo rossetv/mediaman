@@ -26,13 +26,17 @@ target for tests; production calls in this file resolve them as bare names.
 from __future__ import annotations
 
 import logging
+import sqlite3
 import time
 import uuid
 from typing import TYPE_CHECKING, cast
 
+import requests
+
 if TYPE_CHECKING:
     from mediaman.services.arr.fetcher import ArrCard
 
+from mediaman.services.arr._client_base import ArrError
 from mediaman.services.arr._throttle_persistence import (  # noqa: F401
     _STRANDED_THROTTLE_TTL_SECONDS,
     _load_throttle_from_db,
@@ -58,6 +62,8 @@ from mediaman.services.arr._throttle_state import (  # noqa: F401
 from mediaman.services.arr.auto_abandon import maybe_auto_abandon
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.fetcher import fetch_arr_queue
+from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.infra.settings_reader import ConfigDecryptError
 
 logger = logging.getLogger(__name__)
 
@@ -210,7 +216,13 @@ def maybe_trigger_search(
             previous_count + 1,
             _format_next_attempt(_search_backoff_seconds(previous_count + 1, dl_id, now)),
         )
-    except Exception:
+    except (
+        SafeHTTPError,
+        requests.RequestException,
+        ArrError,
+        sqlite3.Error,
+        ConfigDecryptError,
+    ):
         logger.warning("Failed to trigger search for %s", dl_id, exc_info=True)
     finally:
         # Phase 3: re-acquire the lock to commit or roll back. The token
@@ -279,7 +291,13 @@ def trigger_pending_searches(conn, secret_key: str) -> None:
     """
     try:
         arr_items = fetch_arr_queue(conn, secret_key)
-    except Exception:
+    except (
+        SafeHTTPError,
+        requests.RequestException,
+        ArrError,
+        sqlite3.Error,
+        ConfigDecryptError,
+    ):
         logger.warning("trigger_pending_searches: failed to fetch arr queue", exc_info=True)
         arr_items = []
 
@@ -289,14 +307,20 @@ def trigger_pending_searches(conn, secret_key: str) -> None:
         maybe_trigger_search(conn, item_dict, matched_nzb=False, secret_key=secret_key)
         try:
             maybe_auto_abandon(conn, secret_key, item=item_dict, now=now)
-        except Exception:
+        except Exception:  # rationale: §6.4 site 2 — scheduler must survive a single bad row
             logger.warning(
                 "auto-abandon: skipped %s due to error", item.get("dl_id"), exc_info=True
             )
 
     try:
         _trigger_sonarr_partial_missing(conn, arr_items, secret_key)
-    except Exception:
+    except (
+        SafeHTTPError,
+        requests.RequestException,
+        ArrError,
+        sqlite3.Error,
+        ConfigDecryptError,
+    ):
         logger.warning(
             "trigger_pending_searches: sonarr partial-missing pass failed",
             exc_info=True,

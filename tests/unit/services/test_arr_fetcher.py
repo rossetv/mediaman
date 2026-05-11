@@ -6,6 +6,7 @@ import sqlite3
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from mediaman.db import init_db
 from mediaman.services.arr.fetcher import FetchResult, fetch_arr_queue, fetch_arr_queue_result
@@ -207,7 +208,7 @@ def test_radarr_failure_does_not_crash(mock_build_radarr, mock_build_sonarr, con
     _configure_sonarr(conn)
 
     # Radarr raises on build
-    mock_build_radarr.side_effect = RuntimeError("connection refused")
+    mock_build_radarr.side_effect = requests.ConnectionError("connection refused")
 
     sonarr_client = MagicMock()
     sonarr_client.get_queue.return_value = [
@@ -455,7 +456,7 @@ class TestFetchResult:
     def test_fetch_arr_queue_result_errors_on_radarr_failure(self, mock_build_radarr, conn):
         """If build_radarr_from_db raises, the error is captured in result.errors, not raised."""
         _configure_radarr(conn)
-        mock_build_radarr.side_effect = RuntimeError("timeout")
+        mock_build_radarr.side_effect = requests.Timeout("timeout")
         result = fetch_arr_queue_result(conn, "test-secret-32-chars-XXXXXXXXXX")
         assert any("Radarr" in e for e in result.errors)
 
