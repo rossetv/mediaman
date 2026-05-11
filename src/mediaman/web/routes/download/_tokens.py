@@ -32,9 +32,13 @@ import logging
 import sqlite3
 import threading
 import time
-from datetime import UTC, datetime
 
 from mediaman.core.time import now_iso as _now_iso
+from mediaman.web.repository.download import (
+    claim_download_token,
+    purge_expired_download_tokens,
+    release_download_token,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,20 +94,11 @@ def _get_db_or_none() -> sqlite3.Connection | None:
 def _persist_used_token(conn: sqlite3.Connection, digest: str, exp: int) -> bool:
     """Atomically claim *digest* in the DB. Returns ``True`` on first claim.
 
-    Uses ``INSERT OR IGNORE`` against the unique-keyed
-    ``used_download_tokens`` table — the rowcount tells us whether this
-    claim succeeded or whether a sibling worker / earlier request had
-    already taken the slot.
+    Thin adaptor around :func:`claim_download_token` — kept as a
+    private hook so the in-memory LRU cache path can mock the DB
+    interaction in tests.
     """
-    expires_at = datetime.fromtimestamp(exp, tz=UTC).isoformat()
-    used_at = _now_iso()
-    cursor = conn.execute(
-        "INSERT OR IGNORE INTO used_download_tokens "
-        "(token_hash, expires_at, used_at) VALUES (?, ?, ?)",
-        (digest, expires_at, used_at),
-    )
-    conn.commit()
-    return cursor.rowcount == 1
+    return claim_download_token(conn, digest=digest, exp=exp)
 
 
 def _release_used_token(conn: sqlite3.Connection, digest: str) -> None:
@@ -115,8 +110,7 @@ def _release_used_token(conn: sqlite3.Connection, digest: str) -> None:
     the row anyway.
     """
     try:
-        conn.execute("DELETE FROM used_download_tokens WHERE token_hash = ?", (digest,))
-        conn.commit()
+        release_download_token(conn, digest)
     except Exception:
         logger.warning("download token release failed for digest=%s", digest, exc_info=True)
 
@@ -143,8 +137,7 @@ def gc_expired_tokens(conn: sqlite3.Connection | None = None) -> None:
             return
     now_iso = _now_iso()
     try:
-        conn.execute("DELETE FROM used_download_tokens WHERE expires_at < ?", (now_iso,))
-        conn.commit()
+        purge_expired_download_tokens(conn, now_iso=now_iso)
     except Exception:
         logger.debug("download token GC failed", exc_info=True)
 

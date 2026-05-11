@@ -5,6 +5,11 @@ Shared between the browser-facing library page
 (:mod:`mediaman.web.routes.library_api`) so neither route module needs to
 import from the other (an inter-route import violation per §2.8.6).
 
+This module is the canonical location for library-display SQL.  An
+earlier revision lived under ``mediaman.scanner.repository`` despite
+serving only web callers; it has been relocated here to match the
+table-group ownership rule (§9.4).
+
 Functions
 ---------
 ``fetch_library``
@@ -392,6 +397,69 @@ def fetch_library(
     return items, total
 
 
+# ---------------------------------------------------------------------------
+# Stats-bar counts — used by the library page render alongside fetch_library.
+# Each helper does a single COUNT(*); the view-model assembler lives in the
+# library route.
+# ---------------------------------------------------------------------------
+
+
+def count_movies(conn: sqlite3.Connection) -> int:
+    """Return the count of movie rows in ``media_items``."""
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM media_items WHERE media_type = 'movie'"
+    ).fetchone()
+    return int(row["n"])
+
+
+def count_tv_shows(conn: sqlite3.Connection) -> int:
+    """Return the count of distinct TV shows (grouped by show_rating_key/show_title)."""
+    placeholders = ",".join("?" * len(TV_SEASON_TYPES))
+    row = conn.execute(
+        f"SELECT COUNT(*) AS n FROM ("
+        f"  SELECT 1 FROM media_items "
+        f"  WHERE media_type IN ({placeholders}) "
+        f"  GROUP BY COALESCE(show_rating_key, show_title)"
+        f")",
+        TV_SEASON_TYPES,
+    ).fetchone()
+    return int(row["n"])
+
+
+def count_anime_shows(conn: sqlite3.Connection) -> int:
+    """Return the count of distinct anime shows (grouped by show_rating_key/show_title)."""
+    placeholders = ",".join("?" * len(ANIME_SEASON_TYPES))
+    row = conn.execute(
+        f"SELECT COUNT(*) AS n FROM ("
+        f"  SELECT 1 FROM media_items "
+        f"  WHERE media_type IN ({placeholders}) "
+        f"  GROUP BY COALESCE(show_rating_key, show_title)"
+        f")",
+        ANIME_SEASON_TYPES,
+    ).fetchone()
+    return int(row["n"])
+
+
+def count_stale(conn: sqlite3.Connection, *, age_cutoff: str, watch_cutoff: str) -> int:
+    """Return the count of media items older than *age_cutoff* and unwatched since *watch_cutoff*."""
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS n
+        FROM media_items
+        WHERE added_at < ?
+          AND (last_watched_at IS NULL OR last_watched_at < ?)
+        """,
+        (age_cutoff, watch_cutoff),
+    ).fetchone()
+    return int(row["n"])
+
+
+def sum_total_size_bytes(conn: sqlite3.Connection) -> int:
+    """Return the total file_size_bytes across all media items (0 when empty)."""
+    row = conn.execute("SELECT SUM(file_size_bytes) AS n FROM media_items").fetchone()
+    return int(row["n"] or 0)
+
+
 __all__ = [
     "ALL_SEASON_TYPES",
     "ANIME_SEASON_TYPES",
@@ -402,5 +470,10 @@ __all__ = [
     "_days_ago",
     "_protection_label",
     "_type_css",
+    "count_anime_shows",
+    "count_movies",
+    "count_stale",
+    "count_tv_shows",
     "fetch_library",
+    "sum_total_size_bytes",
 ]

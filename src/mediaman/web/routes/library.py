@@ -7,7 +7,7 @@ Handles the browser-facing GET /library page.  All JSON API endpoints
 Query helpers (``fetch_library``, private helpers) and the shared
 constants (``_VALID_SORTS``, ``_VALID_TYPES``, ``TV_SEASON_TYPES``,
 etc.) now live in the canonical location
-:mod:`mediaman.scanner.repository.library_query` so that
+:mod:`mediaman.web.repository.library_query` so that
 :mod:`mediaman.web.routes.library_api` can import them without
 creating a peer-route import (§2.8.6).  This module re-exports them
 so existing external importers (tests, app_factory) continue to work.
@@ -29,38 +29,45 @@ from starlette.responses import Response
 
 from mediaman.core.format import format_bytes
 from mediaman.core.time import now_utc
-from mediaman.scanner.repository.library_query import (
-    _MAX_SEARCH_TERM_LEN as _MAX_SEARCH_TERM_LEN,
-)
-from mediaman.scanner.repository.library_query import (
-    _VALID_SORTS as _VALID_SORTS,
-)
-from mediaman.scanner.repository.library_query import (
-    _VALID_TYPES as _VALID_TYPES,
-)
-from mediaman.scanner.repository.library_query import (
-    ALL_SEASON_TYPES as ALL_SEASON_TYPES,
-)
-from mediaman.scanner.repository.library_query import (
-    ANIME_SEASON_TYPES as ANIME_SEASON_TYPES,
-)
-from mediaman.scanner.repository.library_query import (
-    TV_SEASON_TYPES as TV_SEASON_TYPES,
-)
-from mediaman.scanner.repository.library_query import (
-    _days_ago as _days_ago,
-)
-from mediaman.scanner.repository.library_query import (
-    _protection_label as _protection_label,
-)
-from mediaman.scanner.repository.library_query import (
-    _type_css as _type_css,
-)
-from mediaman.scanner.repository.library_query import (
-    fetch_library as fetch_library,
-)
 from mediaman.services.infra.settings_reader import get_int_setting
 from mediaman.web.auth.middleware import resolve_page_session
+from mediaman.web.repository.library_query import (
+    _MAX_SEARCH_TERM_LEN as _MAX_SEARCH_TERM_LEN,
+)
+from mediaman.web.repository.library_query import (
+    _VALID_SORTS as _VALID_SORTS,
+)
+from mediaman.web.repository.library_query import (
+    _VALID_TYPES as _VALID_TYPES,
+)
+from mediaman.web.repository.library_query import (
+    ALL_SEASON_TYPES as ALL_SEASON_TYPES,
+)
+from mediaman.web.repository.library_query import (
+    ANIME_SEASON_TYPES as ANIME_SEASON_TYPES,
+)
+from mediaman.web.repository.library_query import (
+    TV_SEASON_TYPES as TV_SEASON_TYPES,
+)
+from mediaman.web.repository.library_query import (
+    _days_ago as _days_ago,
+)
+from mediaman.web.repository.library_query import (
+    _protection_label as _protection_label,
+)
+from mediaman.web.repository.library_query import (
+    _type_css as _type_css,
+)
+from mediaman.web.repository.library_query import (
+    count_anime_shows,
+    count_movies,
+    count_stale,
+    count_tv_shows,
+    sum_total_size_bytes,
+)
+from mediaman.web.repository.library_query import (
+    fetch_library as fetch_library,
+)
 
 
 def fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
@@ -77,29 +84,9 @@ def fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
     ``COUNT(DISTINCT ...)``) makes the NULL behaviour match: NULL is a
     group in its own right, counted as 1.
     """
-    movies = conn.execute(
-        "SELECT COUNT(*) AS n FROM media_items WHERE media_type = 'movie'"
-    ).fetchone()["n"]
-
-    tv_placeholders = ",".join("?" * len(TV_SEASON_TYPES))
-    tv = conn.execute(
-        f"SELECT COUNT(*) AS n FROM ("
-        f"  SELECT 1 FROM media_items "
-        f"  WHERE media_type IN ({tv_placeholders}) "
-        f"  GROUP BY COALESCE(show_rating_key, show_title)"
-        f")",
-        TV_SEASON_TYPES,
-    ).fetchone()["n"]
-
-    anime_placeholders = ",".join("?" * len(ANIME_SEASON_TYPES))
-    anime = conn.execute(
-        f"SELECT COUNT(*) AS n FROM ("
-        f"  SELECT 1 FROM media_items "
-        f"  WHERE media_type IN ({anime_placeholders}) "
-        f"  GROUP BY COALESCE(show_rating_key, show_title)"
-        f")",
-        ANIME_SEASON_TYPES,
-    ).fetchone()["n"]
+    movies = count_movies(conn)
+    tv = count_tv_shows(conn)
+    anime = count_anime_shows(conn)
 
     min_age = get_int_setting(conn, "min_age_days", default=30)
     inactivity = get_int_setting(conn, "inactivity_days", default=30)
@@ -108,19 +95,10 @@ def fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
     age_cutoff = (now - timedelta(days=min_age)).isoformat()
     watch_cutoff = (now - timedelta(days=inactivity)).isoformat()
 
-    stale = conn.execute(
-        """
-        SELECT COUNT(*) AS n
-        FROM media_items
-        WHERE added_at < ?
-          AND (last_watched_at IS NULL OR last_watched_at < ?)
-    """,
-        (age_cutoff, watch_cutoff),
-    ).fetchone()["n"]
+    stale = count_stale(conn, age_cutoff=age_cutoff, watch_cutoff=watch_cutoff)
 
     total = movies + tv + anime
-    total_size_row = conn.execute("SELECT SUM(file_size_bytes) AS n FROM media_items").fetchone()
-    total_size = format_bytes(total_size_row["n"] or 0)
+    total_size = format_bytes(sum_total_size_bytes(conn))
 
     return {
         "movies": movies,

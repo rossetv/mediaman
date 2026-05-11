@@ -22,8 +22,7 @@ from mediaman.services.arr.state import (
 from mediaman.services.infra.settings_reader import get_bool_setting
 from mediaman.services.openai.recommendations.throttle import refresh_cooldown_remaining
 from mediaman.web.auth.middleware import resolve_page_session
-
-from ._query import fetch_recommendations
+from mediaman.web.repository.recommended import fetch_recommendations
 
 router = APIRouter()
 
