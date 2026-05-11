@@ -6,6 +6,7 @@
    inside an outer <button> would be invalid HTML — the parser implicitly
    closes the outer button, which previously caused the grid layout to
    explode on /recommended. #}
+{%- import "_components.html" as c -%}
 {%- set _state = item.download_state if item.download_state else ('queued' if item.downloaded_at else '') -%}
 <div class="tile" data-rec-id="{{ item.id }}">
   <button type="button" class="tile-hit" aria-label="{{ item.title }} — open details"></button>
@@ -37,12 +38,14 @@
   {% if _safe_trailer or not _state %}
   <div class="tile-actions">
     {% if _safe_trailer %}
-    <a href="{{ _safe_trailer }}" target="_blank" rel="noopener noreferrer" class="btn btn--ghost btn--sm" data-stop-propagation>▶ Trailer</a>
+    {{ c.btn("▶ Trailer", variant="ghost", size="sm", tag="a", href=_safe_trailer,
+             target="_blank", rel="noopener noreferrer",
+             data_attrs={"stop-propagation": ""}) }}
     {% endif %}
     {% if not _state %}
-    <button type="button" class="btn btn--primary btn--sm"
-            data-download-rec="{{ item.id }}" data-stop-propagation
-            title="Add to {{ 'Radarr' if item.media_type == 'movie' else 'Sonarr' }}">Download</button>
+    {{ c.btn("Download", variant="primary", size="sm",
+             title=("Add to " ~ ('Radarr' if item.media_type == 'movie' else 'Sonarr')),
+             data_attrs={"download-rec": item.id, "stop-propagation": ""}) }}
     {% endif %}
   </div>
   {% endif %}

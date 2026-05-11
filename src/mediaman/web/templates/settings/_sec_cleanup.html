@@ -3,22 +3,22 @@
 
 {% call c.setg_block("setg-cleanup", "Cleanup Rules", "Thresholds that determine when media becomes eligible for deletion") %}
 
-  {% call c.setg_card_v2() %}
-    {% call c.setg_row_v2("Minimum age", "Media must have been added to Plex at least this many days ago to be eligible.") %}
+  {% call c.setg_card() %}
+    {% call c.setg_row("Minimum age", "Media must have been added to Plex at least this many days ago to be eligible.") %}
       <div class="thresh-field">
         <input class="inp inp--num" type="number" id="min_age_days"
                value="{{ settings.get('min_age_days', 30) }}" min="1" max="365">
         <span class="unit">days</span>
       </div>
     {% endcall %}
-    {% call c.setg_row_v2("Watch inactivity", "No plays by any user within this period triggers eligibility.") %}
+    {% call c.setg_row("Watch inactivity", "No plays by any user within this period triggers eligibility.") %}
       <div class="thresh-field">
         <input class="inp inp--num" type="number" id="inactivity_days"
                value="{{ settings.get('inactivity_days', 30) }}" min="1" max="365">
         <span class="unit">days</span>
       </div>
     {% endcall %}
-    {% call c.setg_row_v2("Grace period", "Days between scheduling and actual deletion — time for users to keep items.") %}
+    {% call c.setg_row("Grace period", "Days between scheduling and actual deletion — time for users to keep items.") %}
       <div class="thresh-field">
         <input class="inp inp--num" type="number" id="grace_days"
                value="{{ settings.get('grace_days', 7) }}" min="1" max="90">
@@ -27,10 +27,10 @@
     {% endcall %}
   {% endcall %}
 
-  {% call c.setg_card_v2(title="Stuck searches",
+  {% call c.setg_card(title="Stuck searches",
                          sub="When a download has been searching for ages with no result, mediaman can give up automatically. The Abandon button on the Downloads page is always available after 10 hours of searching for manual control.") %}
     {% set auto_abandon = settings.get('auto_abandon_enabled', False) not in (False, 'false', 'False', 0, '0') %}
-    {% call c.setg_row_v2("Auto-abandon",
+    {% call c.setg_row("Auto-abandon",
                           "When on, mediaman unmonitors stuck items after 14 days of fruitless searching. For movies, the whole movie. For series, only the seasons currently missing episodes.") %}
       <span class="tog {% if auto_abandon %}on{% endif %}" role="switch" tabindex="0"
             data-toggle data-target="auto_abandon_enabled"

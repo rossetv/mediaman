@@ -13,11 +13,9 @@
   </div>
 
   <div class="pill-row u-mb-24">
-    <a href="/history" class="fpill {% if not action_filter %}on{% endif %}">All events</a>
+    {{ c.fpill("All events", on=(not action_filter), tag="a", href="/history") }}
     {% for at in action_types %}
-    <a href="/history?action={{ at }}" class="fpill {% if action_filter == at %}on{% endif %}">
-      {{ at | replace('_', ' ') | title }}
-    </a>
+    {{ c.fpill((at | replace('_', ' ') | title), on=(action_filter == at), tag="a", href="/history?action=" ~ at) }}
     {% endfor %}
     {% if total > 0 %}
     <span class="sub u-ml-auto u-as-center">{{ total }} event{{ 's' if total != 1 }}</span>
@@ -35,7 +33,9 @@
         {% if item.space_impact %}<span class="text-muted"> · {{ item.space_impact }}</span>{% endif %}
       </div>
       <div class="hist-type">
-        <span class="pill {{ 'pill--stale' if 'delet' in item.action_label|lower else ('pill--kept' if 'keep' in item.action_label|lower else ('pill--tv' if 'newsletter' in item.action_label|lower else 'pill--neutral')) }}">{{ item.action_label }}</span>
+        {% set _action_lc = item.action_label|lower %}
+        {% set _variant = 'stale' if 'delet' in _action_lc else ('kept' if 'keep' in _action_lc else ('tv' if 'newsletter' in _action_lc else 'neutral')) %}
+        {{ c.pill(item.action_label, variant=_variant) }}
       </div>
     </div>
     {% endfor %}
@@ -70,16 +70,8 @@
   {% endif %}
 
   {% else %}
-  <div class="empty">
-    <h3>No events yet</h3>
-    <p>
-      {% if action_filter %}
-      No "{{ action_filter | replace('_', ' ') }}" events on record.
-      {% else %}
-      The audit log is empty — actions will appear here as Mediaman runs.
-      {% endif %}
-    </p>
-  </div>
+  {% set _hist_sub %}{% if action_filter %}No "{{ action_filter | replace('_', ' ') }}" events on record.{% else %}The audit log is empty — actions will appear here as Mediaman runs.{% endif %}{% endset %}
+  {{ c.empty("No events yet", sub=_hist_sub) }}
   {% endif %}
 
   <div class="page-bottom-spacer"></div>

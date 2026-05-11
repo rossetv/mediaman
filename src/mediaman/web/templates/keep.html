@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_components.html" as c %}
 
 {% block title %}
   {% if state == "active" %}Keep · {{ item.title }} · Mediaman
@@ -48,16 +49,16 @@
       </div>
 
       <div class="meta-row">
-        {% if item.media_type == "movie" %}<span class="pill pill--movie">Movie</span>
-        {% elif item.media_type == "tv" %}<span class="pill pill--tv">TV</span>
-        {% else %}<span class="pill pill--neutral">{{ item.media_type | title }}</span>
+        {% if item.media_type == "movie" %}{{ c.pill("Movie", variant="movie") }}
+        {% elif item.media_type == "tv" %}{{ c.pill("TV", variant="tv") }}
+        {% else %}{{ c.pill(item.media_type | title, variant="neutral") }}
         {% endif %}
-        <span class="pill pill--stale">Never watched</span>
+        {{ c.pill("Never watched", variant="stale") }}
         {% if item.file_size_bytes %}
           {% set gb = item.file_size_bytes / 1073741824 %}
-          <span class="pill pill--neutral">{% if gb >= 1 %}{{ "%.1f"|format(gb) }} GB{% else %}{{ "%.0f"|format(item.file_size_bytes / 1048576) }} MB{% endif %}</span>
+          {{ c.pill(("%.1f"|format(gb) ~ " GB") if gb >= 1 else ("%.0f"|format(item.file_size_bytes / 1048576) ~ " MB"), variant="neutral") }}
         {% endif %}
-        {% if item.added_at %}<span class="pill pill--neutral">Added {{ item.added_display }}</span>{% endif %}
+        {% if item.added_at %}{{ c.pill("Added " ~ item.added_display, variant="neutral") }}{% endif %}
       </div>
 
       <div class="info-box">
