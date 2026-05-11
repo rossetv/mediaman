@@ -3,11 +3,12 @@
  *
  * Public surface (under the global MM.api namespace):
  *
- *   MM.api.get(endpoint, options?)         → Promise<data>
- *   MM.api.post(endpoint, body?, options?) → Promise<data>
- *   MM.api.put(endpoint, body?, options?)  → Promise<data>
- *   MM.api.patch(endpoint, body?, options?)→ Promise<data>
- *   MM.api.delete(endpoint, options?)      → Promise<data>
+ *   MM.api.get(endpoint, options?)             → Promise<data>
+ *   MM.api.post(endpoint, body?, options?)     → Promise<data>
+ *   MM.api.put(endpoint, body?, options?)      → Promise<data>
+ *   MM.api.patch(endpoint, body?, options?)    → Promise<data>
+ *   MM.api.delete(endpoint, options?)          → Promise<data>
+ *   MM.api.postForm(endpoint, params, options?) → Promise<data>
  *
  * Each method returns a Promise that resolves to the parsed JSON body.
  * If the response is not ok (HTTP >= 400), or the body contains
@@ -17,10 +18,23 @@
  *   .error   — machine-readable error code from the response body (string)
  *   .message — human-readable description
  *   .status  — HTTP status code (number)
+ *   .issues  — optional structured per-rule failures (e.g. password-policy)
+ *   .data    — full parsed JSON body so callers can read non-standard
+ *              fields the server returned alongside an error
+ *              (e.g. cooldown's ``next_available_at``)
  *
  * All requests include `credentials: 'same-origin'` for cookie auth.
  * Write methods (POST/PUT/PATCH/DELETE) default to
  * `Content-Type: application/json` and JSON-encode the body automatically.
+ *
+ * ``postForm`` builds an ``application/x-www-form-urlencoded`` body from
+ * a plain object or URLSearchParams and is the right call when the
+ * server endpoint reads ``Form()`` parameters rather than JSON.
+ *
+ * Options may include ``signal`` to wire up an AbortController for
+ * cancellable requests; aborted fetches reject with the native
+ * ``AbortError`` (``err.name === 'AbortError'``) so callers can detect
+ * cancellation without inspecting status.
  *
  * No external dependencies. Load this before any page-specific script
  * that calls MM.api.*.
@@ -32,19 +46,26 @@
 
   /* ── APIError ──
    *
-   * Three fields, three roles:
+   * Fields, by role:
    *   .error    — machine-readable code (used by callers in switch statements)
    *   .message  — human-readable prose (used in toasts / inline error text)
+   *   .status   — HTTP status code (helpful for 401/403/429 branching)
    *   .issues   — optional structured per-rule failures (e.g. password-policy)
+   *   .data     — the full parsed response body so callers can read
+   *               non-standard fields a specific endpoint returns alongside
+   *               an error envelope (e.g. ``next_available_at`` on 429
+   *               cooldowns). Always present on APIError; may be {} when
+   *               the response had no JSON body.
    *
    * Callers should prefer .message for display and .error for branching.
    */
-  function APIError(error, message, status, issues) {
+  function APIError(error, message, status, issues, data) {
     this.name = 'APIError';
     this.error = error || 'unknown_error';
     this.message = message || error || 'API request failed';
     this.status = status || 0;
     this.issues = issues || null;
+    this.data = data || {};
     if (Error.captureStackTrace) Error.captureStackTrace(this, APIError);
   }
   APIError.prototype = Object.create(Error.prototype);
@@ -92,13 +113,13 @@
           var errCode = (data && data.error) || ('http_' + status);
           var errMsg = (data && data.message) || (data && data.error) ||
                         resp.statusText || ('HTTP ' + status);
-          throw new APIError(errCode, errMsg, status, data && data.issues);
+          throw new APIError(errCode, errMsg, status, data && data.issues, data);
         }
         /* Honour the `{"ok": false}` envelope this codebase uses. */
         if (data && data.ok === false) {
           var envCode = data.error || 'request_failed';
           var envMsg = data.message || data.error || 'Request failed';
-          throw new APIError(envCode, envMsg, status, data.issues);
+          throw new APIError(envCode, envMsg, status, data.issues, data);
         }
         return data;
       });
@@ -123,6 +144,30 @@
     },
     delete: function (endpoint, options) {
       return request('DELETE', endpoint, undefined, options);
+    },
+
+    /**
+     * POST an ``application/x-www-form-urlencoded`` body. ``params`` may
+     * be a plain object (each value coerced to a string) or an existing
+     * URLSearchParams instance. Server-side, this matches FastAPI's
+     * ``Form(...)`` parameters — used by the legacy ``/api/media/.../keep``
+     * endpoint that predates the JSON-everywhere convention.
+     */
+    postForm: function (endpoint, params, options) {
+      options = options || {};
+      var search = (params instanceof URLSearchParams)
+        ? params
+        : new URLSearchParams(params || {});
+      var headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+      if (options.headers) {
+        Object.keys(options.headers).forEach(function (k) {
+          headers[k] = options.headers[k];
+        });
+      }
+      return request('POST', endpoint, search.toString(), {
+        headers: headers,
+        signal: options.signal,
+      });
     },
   };
 

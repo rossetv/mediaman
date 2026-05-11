@@ -15,29 +15,9 @@
   if (!root) return;
   var polling = false;
 
-  /* ── DOM helpers ── */
-  function q(sel, ctx) { return (ctx || document).querySelector(sel); }
-  function setText(el, txt) { if (el && el.textContent !== txt) el.textContent = txt; }
-
-  /* Find element by data-dl-id without selector injection */
-  function findByDlId(container, dlId) {
-    if (!container) return null;
-    var els = container.querySelectorAll('[data-dl-id]');
-    for (var i = 0; i < els.length; i++) {
-      if (els[i].getAttribute('data-dl-id') === dlId) return els[i];
-    }
-    return null;
-  }
-
-  /* Find element by data-ep without selector injection */
-  function findByEp(container, label) {
-    if (!container) return null;
-    var rows = container.querySelectorAll('[data-ep]');
-    for (var i = 0; i < rows.length; i++) {
-      if (rows[i].getAttribute('data-ep') === label) return rows[i];
-    }
-    return null;
-  }
+  /* ── DOM helpers — thin aliases to shared MM.dom primitives. ── */
+  var q = MM.dom.q;
+  var setText = MM.dom.setText;
 
   /* ── State pill text ── */
   function stateLabel(state) {
@@ -130,7 +110,7 @@
     if (item.episodes) {
       for (var i = 0; i < item.episodes.length; i++) {
         var ep = item.episodes[i];
-        var epRow = findByEp(card, ep.label);
+        var epRow = MM.dom.findByAttr(card, 'data-ep', ep.label);
         if (!epRow) continue;
         var epFill = q('[data-v="ep-fill"]', epRow);
         if (epFill) {
@@ -218,7 +198,7 @@
     if (item.episodes) {
       for (var i = 0; i < item.episodes.length; i++) {
         var ep = item.episodes[i];
-        var epRow = findByEp(row, ep.label);
+        var epRow = MM.dom.findByAttr(row, 'data-ep', ep.label);
         if (!epRow) continue;
         var epFill = q('[data-v="ep-fill"]', epRow);
         if (epFill) {
@@ -532,7 +512,7 @@
     for (var i = 0; i < upcoming.length; i++) {
       var item = upcoming[i];
       activeIds[item.id] = true;
-      var row = findByDlId(list, item.id);
+      var row = MM.dom.findByAttr(list, 'data-dl-id', item.id);
       if (row) {
         updateUpcomingRow(row, item);
       } else {
@@ -606,7 +586,7 @@
         var activeIds = {};
         for (var i = 0; i < data.queue.length; i++) {
           activeIds[data.queue[i].id] = true;
-          var row = findByDlId(list, data.queue[i].id);
+          var row = MM.dom.findByAttr(list, 'data-dl-id', data.queue[i].id);
           if (row) {
             updateCompactRow(row, data.queue[i]);
           }
@@ -674,21 +654,19 @@
   function poll() {
     if (polling) return;
     polling = true;
-    fetch('/api/downloads')
-      .then(function(r) {
-        if (r.status === 401 || r.status === 403) {
-          window.location.href = '/login';
-          return;
-        }
-        if (!r.ok) throw new Error(r.status);
-        return r.json();
-      })
+    MM.api.get('/api/downloads')
       .then(function(data) {
         if (data) update(data);
         consecutiveFailures = 0;
         scheduleNextPoll(POLL_MS);
       })
-      .catch(function() {
+      .catch(function(err) {
+        /* Session expired — bounce to /login rather than tight-looping
+           on 401s. APIError.status is the HTTP status from MM.api. */
+        if (err instanceof MM.api.APIError && (err.status === 401 || err.status === 403)) {
+          window.location.href = '/login';
+          return;
+        }
         consecutiveFailures += 1;
         var backoff = Math.min(POLL_MS * Math.pow(2, consecutiveFailures), 30000);
         scheduleNextPoll(backoff);

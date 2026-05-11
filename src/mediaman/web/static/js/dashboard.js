@@ -42,8 +42,7 @@
   function pollScanStatus(btn) {
     setTimeout(function check() {
       _scanElapsed += 3;
-      fetch('/api/scan/status')
-        .then(function (r) { return r.json(); })
+      MM.api.get('/api/scan/status')
         .then(function (data) {
           if (data.running) {
             updateScanStatus('Scanning libraries — ' + fmtElapsed(_scanElapsed));
@@ -59,7 +58,8 @@
             }
             setTimeout(function () { window.location.reload(); }, 1500);
           }
-        });
+        })
+        .catch(function () { /* keep silent — original behaviour. */ });
     }, 3000);
   }
 
@@ -69,8 +69,7 @@
     btn.textContent = 'Scanning';
     _scanElapsed = 0;
     updateScanStatus('Starting scan…');
-    fetch('/api/scan/trigger', { method: 'POST' })
-      .then(function (r) { return r.json(); })
+    MM.api.post('/api/scan/trigger')
       .then(function (data) {
         if (data.status === 'already_running') updateScanStatus('Scan already in progress');
         pollScanStatus(btn);
@@ -101,26 +100,24 @@
 
     btn.disabled = true;
     btn.textContent = 'Adding…';
-    fetch('/api/media/redownload', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: title, media_item_id: mediaItemId, media_type: mediaType }),
+    MM.api.post('/api/media/redownload', {
+      title: title, media_item_id: mediaItemId, media_type: mediaType,
     })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (data.ok) {
-          btn.textContent = 'Queued ✓';
-          btn.classList.add('is-success');
+      .then(function () {
+        btn.textContent = 'Queued ✓';
+        btn.classList.add('is-success');
+      })
+      .catch(function (err) {
+        if (err instanceof MM.api.APIError) {
+          var msg = err.message || 'Failed';
+          btn.textContent = msg.length < 30 ? msg : 'Failed';
+          btn.classList.add('is-error');
+          btn.disabled = false;
         } else {
-          btn.textContent = data.error && data.error.length < 30 ? data.error : 'Failed';
+          btn.textContent = 'Error';
           btn.classList.add('is-error');
           btn.disabled = false;
         }
-      })
-      .catch(function () {
-        btn.textContent = 'Error';
-        btn.classList.add('is-error');
-        btn.disabled = false;
       });
   }
 
@@ -135,15 +132,13 @@
     if (!proceed) return;
     btn.disabled = true;
     btn.textContent = 'Clearing…';
-    fetch('/api/scan/clear-scheduled', { method: 'POST' })
-      .then(function (r) { return r.json(); })
+    MM.api.post('/api/scan/clear-scheduled')
       .then(function (data) {
-        if (data.ok) {
-          btn.textContent = 'Cleared ' + data.cleared;
-          btn.classList.add('is-success');
-          setTimeout(function () { window.location.reload(); }, 1000);
-        }
-      });
+        btn.textContent = 'Cleared ' + data.cleared;
+        btn.classList.add('is-success');
+        setTimeout(function () { window.location.reload(); }, 1000);
+      })
+      .catch(function () { /* original silently dropped failure. */ });
   }
 
   /* Submit a keep request from a dashboard tile. The library.html keep-dialog
@@ -153,21 +148,15 @@
     var wrapper = btn.closest('.keep-wrapper');
     if (!wrapper) return;
     var mediaId = wrapper.dataset.id;
-    fetch('/api/media/' + encodeURIComponent(mediaId) + '/keep', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ duration: duration }).toString(),
-    }).then(function (r) {
-      if (r.ok) {
-        window.location.reload();
-      } else {
-        r.json().then(function (d) {
-          if (window.UIFeedback) {
-            window.UIFeedback.error("Couldn't save keep. " + (d.error || r.status));
-          }
-        });
-      }
-    });
+    MM.api.postForm('/api/media/' + encodeURIComponent(mediaId) + '/keep',
+      { duration: duration })
+      .then(function () { window.location.reload(); })
+      .catch(function (err) {
+        if (window.UIFeedback) {
+          var msg = (err && err.message) || 'Try again.';
+          window.UIFeedback.error("Couldn't save keep. " + msg);
+        }
+      });
   }
 
   /* Single delegated click handler — every action is data-action driven. */

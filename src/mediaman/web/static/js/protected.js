@@ -21,17 +21,16 @@
       confirmVariant: 'danger'
     });
     if (!ok) return;
-    fetch('/api/media/' + encodeURIComponent(mediaItemId) + '/unprotect', { method: 'POST' })
-      .then(function (r) {
-        if (r.ok) {
-          window.location.reload();
+    MM.api.post('/api/media/' + encodeURIComponent(mediaItemId) + '/unprotect')
+      .then(function () { window.location.reload(); })
+      .catch(function (err) {
+        if (err instanceof MM.api.APIError) {
+          var msg = err.message || 'Try again.';
+          window.UIFeedback.error("Couldn't remove keep. " + msg);
         } else {
-          r.json().then(function (d) {
-            window.UIFeedback.error("Couldn't remove keep. " + (d.error || 'Try again.'));
-          });
+          window.UIFeedback.error('Network error. Try again.');
         }
-      })
-      .catch(function () { window.UIFeedback.error('Network error. Try again.'); });
+      });
   }
 
   async function removeShowKeep(showRatingKey) {
@@ -43,17 +42,16 @@
       confirmVariant: 'danger'
     });
     if (!ok) return;
-    fetch('/api/show/' + encodeURIComponent(showRatingKey) + '/remove', { method: 'POST' })
-      .then(function (r) {
-        if (r.ok) {
-          window.location.reload();
+    MM.api.post('/api/show/' + encodeURIComponent(showRatingKey) + '/remove')
+      .then(function () { window.location.reload(); })
+      .catch(function (err) {
+        if (err instanceof MM.api.APIError) {
+          var msg = err.message || 'Try again.';
+          window.UIFeedback.error("Couldn't stop keeping show. " + msg);
         } else {
-          r.json().then(function (d) {
-            window.UIFeedback.error("Couldn't stop keeping show. " + (d.error || 'Try again.'));
-          });
+          window.UIFeedback.error('Network error. Try again.');
         }
-      })
-      .catch(function () { window.UIFeedback.error('Network error. Try again.'); });
+      });
   }
 
   document.addEventListener('click', function (e) {

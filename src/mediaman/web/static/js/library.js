@@ -17,6 +17,13 @@
    * ---------------------------------------------------------------------- */
   var _keepDialogState = { showRk: '', showTitle: '', seasonId: '', duration: '30 days' };
 
+  /* Modal handles assigned during wire() — both modals are CSS-class
+     driven (no inline display:flex), so we pass activeClass to setupDetail.
+     manageBodyOverflow stays at its default — neither modal locks body
+     scroll today and we shouldn't introduce that as a side effect. */
+  var _keepDialogModal = null;
+  var _deleteModal = null;
+
   /**
    * Submit a keep/snooze request for a media item.
    * For TV seasons (showRk truthy), opens the season-picker dialog.
@@ -31,15 +38,13 @@
     var showTitle = wrapper.dataset.showTitle || '';
 
     if (!isTv) {
-      var body = new URLSearchParams({ duration: duration });
-      fetch('/api/media/' + encodeURIComponent(mediaId) + '/keep', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body.toString(),
-      }).then(function (r) {
-        if (r.ok) window.location.reload();
-        else r.json().then(function (d) { window.UIFeedback.error("Couldn't save keep. " + (d.error || r.status)); });
-      });
+      MM.api.postForm('/api/media/' + encodeURIComponent(mediaId) + '/keep',
+        { duration: duration })
+        .then(function () { window.location.reload(); })
+        .catch(function (err) {
+          var msg = (err && err.message) || 'Try again.';
+          window.UIFeedback.error("Couldn't save keep. " + msg);
+        });
       return;
     }
     var durMap = { '7d': '7 days', '30d': '30 days', '90d': '90 days', 'forever': 'forever', 'current': null };
@@ -51,10 +56,7 @@
   }
 
   function openKeepDialog() {
-    var overlay = document.getElementById('keep-dialog-overlay');
-    overlay.classList.add('active');
-    overlay.setAttribute('aria-hidden', 'false');
-    if (window.ModalA11y) window.ModalA11y.onOpened('keep-dialog-overlay');
+    if (_keepDialogModal) _keepDialogModal.open();
     if (_keepDialogState.duration) selectDurationByValue(_keepDialogState.duration);
 
     var list = document.getElementById('keep-season-list');
@@ -66,8 +68,7 @@
     }
     document.getElementById('keep-dialog-remove').classList.remove('is-visible');
     document.getElementById('keep-dialog-confirm').textContent = 'Keep';
-    fetch(url)
-      .then(function (r) { return r.json(); })
+    MM.api.get(url)
       .then(function (data) {
         document.getElementById('keep-dialog-title').textContent = 'Keep ' + (data.show_title || _keepDialogState.showTitle || 'Show');
         var hasKeeps = data.show_kept || data.seasons.some(function (s) { return s.kept; });
@@ -86,10 +87,7 @@
   }
 
   function closeKeepDialog() {
-    var overlay = document.getElementById('keep-dialog-overlay');
-    overlay.classList.remove('active');
-    overlay.setAttribute('aria-hidden', 'true');
-    if (window.ModalA11y) window.ModalA11y.onClosed('keep-dialog-overlay');
+    if (_keepDialogModal) _keepDialogModal.close();
   }
 
   function selectDuration(btn) {
@@ -104,7 +102,7 @@
 
   function renderSeasonPicker(seasons, showKept) {
     var list = document.getElementById('keep-season-list');
-    while (list.firstChild) list.removeChild(list.firstChild);
+    list.replaceChildren();
 
     var allRow = document.createElement('div');
     allRow.className = 'keep-season-item keep-all-row';
@@ -177,16 +175,19 @@
           selectedIds.push(cb.dataset.seasonId);
         });
       }
-      fetch('/api/show/' + encodeURIComponent(_keepDialogState.showRk) + '/keep', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ duration: _keepDialogState.duration, season_ids: selectedIds }),
-      }).then(function (r) {
-        if (r.ok) window.location.reload();
-        else r.json().then(function (d) { window.UIFeedback.error("Couldn't save keep. " + (d.error || 'Try again.')); btn.disabled = false; btn.textContent = 'Keep'; });
-      });
+      MM.api.post(
+        '/api/show/' + encodeURIComponent(_keepDialogState.showRk) + '/keep',
+        { duration: _keepDialogState.duration, season_ids: selectedIds }
+      )
+        .then(function () { window.location.reload(); })
+        .catch(function (err) {
+          var msg = (err && err.message) || 'Try again.';
+          window.UIFeedback.error("Couldn't save keep. " + msg);
+          btn.disabled = false;
+          btn.textContent = 'Keep';
+        });
     } else {
-      /* Finding 35: check response.ok for each request; report failed season IDs. */
+      /* Finding 35: check each request; report failed season IDs. */
       var durMap = { '7 days': '7d', '30 days': '30d', '90 days': '90d', 'forever': 'forever' };
       var dur = durMap[_keepDialogState.duration] || '30d';
       var failed = [];
@@ -203,17 +204,9 @@
           return;
         }
         var sid = selectedIds[i];
-        fetch('/api/media/' + encodeURIComponent(sid) + '/keep', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ duration: dur }).toString(),
-        }).then(function (r) {
-          if (!r.ok) failed.push(sid);
-          runNext(i + 1);
-        }).catch(function () {
-          failed.push(sid);
-          runNext(i + 1);
-        });
+        MM.api.postForm('/api/media/' + encodeURIComponent(sid) + '/keep', { duration: dur })
+          .then(function () { runNext(i + 1); })
+          .catch(function () { failed.push(sid); runNext(i + 1); });
       })(0);
     }
   }
@@ -250,13 +243,9 @@
           return;
         }
         var req = allRequests[i];
-        fetch(req.url, { method: 'POST' }).then(function (r) {
-          if (!r.ok) failed.push(req.id);
-          runNext(i + 1);
-        }).catch(function () {
-          failed.push(req.id);
-          runNext(i + 1);
-        });
+        MM.api.post(req.url)
+          .then(function () { runNext(i + 1); })
+          .catch(function () { failed.push(req.id); runNext(i + 1); });
       })(0);
     });
   }
@@ -269,16 +258,14 @@
   function confirmDelete(mediaId, title) {
     _pendingDeleteId = mediaId;
     document.getElementById('delete-modal-body').textContent = 'Delete "' + title + '"? This cannot be undone.';
-    var modal = document.getElementById('delete-modal');
-    modal.classList.add('is-visible');
-    modal.setAttribute('aria-hidden', 'false');
-    if (window.ModalA11y) window.ModalA11y.onOpened('delete-modal');
+    if (_deleteModal) _deleteModal.open();
     document.getElementById('delete-confirm-btn').onclick = function () {
       if (!_pendingDeleteId) return;
-      fetch('/api/media/' + encodeURIComponent(_pendingDeleteId) + '/delete', { method: 'POST' })
-        .then(function (r) {
-          if (r.ok) window.location.reload();
-          else r.json().then(function (d) { window.UIFeedback.error("Couldn't delete item. " + (d.error || r.status)); });
+      MM.api.post('/api/media/' + encodeURIComponent(_pendingDeleteId) + '/delete')
+        .then(function () { window.location.reload(); })
+        .catch(function (err) {
+          var msg = (err && err.message) || 'Try again.';
+          window.UIFeedback.error("Couldn't delete item. " + msg);
         });
       closeDeleteModal();
     };
@@ -286,15 +273,13 @@
 
   function closeDeleteModal() {
     _pendingDeleteId = null;
-    var modal = document.getElementById('delete-modal');
-    modal.classList.remove('is-visible');
-    modal.setAttribute('aria-hidden', 'true');
-    if (window.ModalA11y) window.ModalA11y.onClosed('delete-modal');
+    if (_deleteModal) _deleteModal.close();
   }
 
   function removeKeep(mediaId) {
-    fetch('/api/media/' + encodeURIComponent(mediaId) + '/unprotect', { method: 'POST' })
-      .then(function (r) { if (r.ok) window.location.reload(); });
+    MM.api.post('/api/media/' + encodeURIComponent(mediaId) + '/unprotect')
+      .then(function () { window.location.reload(); })
+      .catch(function () { /* original failed silently — preserve that. */ });
   }
 
   /* ----------------------------------------------------------------------
@@ -331,30 +316,28 @@
    * Wiring — runs on script load (deferred, so DOM is parsed).
    * ---------------------------------------------------------------------- */
   function wire() {
-    /* Modal-a11y registration. Safe to call once at startup; both modals
-       must exist on the library page when items are present (delete) and
-       always (keep). */
-    if (window.ModalA11y) {
-      window.ModalA11y.register('keep-dialog-overlay', closeKeepDialog);
-      window.ModalA11y.register('delete-modal', closeDeleteModal);
-    }
-
-    /* Delete-modal backdrop click closes. */
-    var deleteModal = document.getElementById('delete-modal');
-    if (deleteModal) {
-      deleteModal.addEventListener('click', function (e) {
-        if (e.target === deleteModal) closeDeleteModal();
+    /* ── Delete modal — CSS-class-driven (.is-visible owns the display
+         rule), close-cancel button uses data-action, body scroll is not
+         locked by this modal today. ── */
+    var deleteModalEl = document.getElementById('delete-modal');
+    if (deleteModalEl) {
+      _deleteModal = MM.modal.setupDetail(deleteModalEl, {
+        activeClass: 'is-visible',
+        manageBodyOverflow: false,
+        closeSelectors: ['[data-action="close-delete-modal"]'],
+        onClose: function () { _pendingDeleteId = null; },
       });
-      /* Cancel button in delete modal. */
-      var deleteCancel = deleteModal.querySelector('[data-action="close-delete-modal"]');
-      if (deleteCancel) deleteCancel.addEventListener('click', closeDeleteModal);
     }
 
-    /* Keep-dialog wiring: backdrop click closes; inner card stops propagation. */
+    /* ── Keep dialog — CSS-class-driven (.active owns the display rule).
+         The dialog card stops click propagation so a click on it doesn't
+         bubble to the overlay's backdrop-close. ── */
     var keepOverlay = document.getElementById('keep-dialog-overlay');
     if (keepOverlay) {
-      keepOverlay.addEventListener('click', function (e) {
-        if (e.target === keepOverlay) closeKeepDialog();
+      _keepDialogModal = MM.modal.setupDetail(keepOverlay, {
+        activeClass: 'active',
+        manageBodyOverflow: false,
+        closeSelectors: ['[data-action="close-keep-dialog"]'],
       });
       var keepCard = keepOverlay.querySelector('.keep-dialog');
       if (keepCard) {
@@ -364,14 +347,11 @@
       keepOverlay.querySelectorAll('.keep-dur-btn').forEach(function (b) {
         b.addEventListener('click', function () { selectDuration(b); });
       });
-      /* Remove-all / Cancel / Confirm buttons (data-action delegation). */
+      /* Remove-all / Confirm buttons */
       var removeBtn = document.getElementById('keep-dialog-remove');
       if (removeBtn) removeBtn.addEventListener('click', removeAllKeeps);
       var confirmBtn = document.getElementById('keep-dialog-confirm');
       if (confirmBtn) confirmBtn.addEventListener('click', confirmKeepDialog);
-      keepOverlay.querySelectorAll('[data-action="close-keep-dialog"]').forEach(function (b) {
-        b.addEventListener('click', closeKeepDialog);
-      });
     }
 
     /* Mobile sort <select> — uses change event rather than inline onchange. */

@@ -62,6 +62,7 @@
   assert('MM.api.put is a function',     typeof window.MM.api.put === 'function');
   assert('MM.api.patch is a function',   typeof window.MM.api.patch === 'function');
   assert('MM.api.delete is a function',  typeof window.MM.api.delete === 'function');
+  assert('MM.api.postForm is a function', typeof window.MM.api.postForm === 'function');
   assert('MM.api.APIError is a function', typeof window.MM.api.APIError === 'function');
 
   /* APIError instance shape */
@@ -69,7 +70,14 @@
   assert('APIError.error field set',     err.error === 'test_code');
   assert('APIError.message field set',   err.message === 'Test message');
   assert('APIError.status field set',    err.status === 404);
+  assert('APIError.data defaults to {}', typeof err.data === 'object' && err.data !== null);
   assert('APIError is instanceof Error', err instanceof Error);
+
+  /* APIError carries the full response body for callers that need to
+     inspect endpoint-specific fields (e.g. cooldown next_available_at). */
+  var err2 = new window.MM.api.APIError('rate_limited', 'Slow down', 429, null,
+    { next_available_at: '2026-12-31T00:00:00Z', cooldown_seconds: 60 });
+  assert('APIError.data preserved',      err2.data.next_available_at === '2026-12-31T00:00:00Z');
 
   /* ── MM.dom ── */
   assert('MM.dom exists',                    typeof window.MM.dom === 'object');

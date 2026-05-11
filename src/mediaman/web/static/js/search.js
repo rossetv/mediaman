@@ -35,66 +35,40 @@
     return parts.join(" · ");
   }
 
-  function ratingChips(item) {
-    // Split the ratings into two small chips so each one stays single-line
-    // regardless of poster width. The media type is already in the subtitle
-    // under the title, so we don't repeat it on the poster.
-    const chips = [];
-    if (item.rating) {
-      chips.push(`<span class="poster-chip r-imdb"><span class="chip-icon">★</span>${escapeHtml(item.rating)}</span>`);
-    }
-    if (item.rt_rating) {
-      chips.push(`<span class="poster-chip r-rt"><span class="chip-icon">🍅</span>${escapeHtml(item.rt_rating)}</span>`);
-    }
-    return chips.length ? `<div class="poster-chips">${chips.join("")}</div>` : "";
-  }
-
-  function renderCard(item) {
-    const state = item.download_state;
-    const poster = item.poster_url
-      ? `<img src="${escapeAttr(item.poster_url)}" alt="${escapeAttr(item.title)}" loading="lazy" referrerpolicy="no-referrer">`
-      : `<div class="poster-empty">—</div>`;
-    const stateBadge = state
-      ? `<span class="poster-state ${escapeAttr(state)}">${escapeHtml(state.replace("_", " "))}</span>`
-      : "";
-    return `
-      <div class="poster-card" data-type="${escapeAttr(item.media_type)}" data-id="${escapeAttr(item.tmdb_id)}">
-        <div class="poster">
-          ${poster}
-          ${ratingChips(item)}
-          ${stateBadge}
-        </div>
-        <div class="poster-body">
-          <div class="card-title">${escapeHtml(item.title)}</div>
-          <div class="card-meta">${escapeHtml(metaLine(item))}</div>
-        </div>
-      </div>
-    `;
-  }
-
   function buildShelf(label, items, { showCount = false } = {}) {
+    /* Poster grid is now rendered by MM.tiles.render — DOM-safe by
+       construction (no innerHTML, no template-literal escaping). The
+       section header is built by hand because tiles.render doesn't own
+       the surrounding container. */
     const section = document.createElement("section");
     section.className = "shelf";
-    const countText = showCount ? `${items.length} ${items.length === 1 ? "title" : "titles"}` : "";
-    section.innerHTML = `
-      <div class="section-label">
-        <h2>${escapeHtml(label)}</h2>
-        ${countText ? `<span class="count">${escapeHtml(countText)}</span>` : ""}
-      </div>
-      <div class="poster-grid">
-        ${items.map(renderCard).join("")}
-      </div>
-    `;
-    section.querySelectorAll(".poster-card").forEach(el => {
-      el.addEventListener("click", () => {
-        openDetail(el.dataset.type, Number(el.dataset.id));
-      });
+
+    const labelWrap = document.createElement("div");
+    labelWrap.className = "section-label";
+    const h = document.createElement("h2");
+    h.textContent = label;
+    labelWrap.appendChild(h);
+    if (showCount) {
+      const countText = `${items.length} ${items.length === 1 ? "title" : "titles"}`;
+      const count = document.createElement("span");
+      count.className = "count";
+      count.textContent = countText;
+      labelWrap.appendChild(count);
+    }
+    section.appendChild(labelWrap);
+
+    const grid = document.createElement("div");
+    grid.className = "poster-grid";
+    section.appendChild(grid);
+
+    MM.tiles.render(grid, items, {
+      onClick: (item) => openDetail(item.media_type, Number(item.tmdb_id)),
     });
     return section;
   }
 
   function renderEmpty(message) {
-    shelves.innerHTML = "";
+    shelves.replaceChildren();
     const msg = document.createElement("div");
     msg.className = "search-empty";
     msg.textContent = message;
@@ -137,12 +111,13 @@
     abort = new AbortController();
     wrap.classList.add("loading");
     try {
-      const resp = await fetch(url, { signal: abort.signal });
-      if (myGen !== reqGen) return;
-      const data = await resp.json();
+      const data = await MM.api.get(url, { signal: abort.signal });
       if (myGen !== reqGen) return;
       onData(data);
     } catch (e) {
+      /* Native fetch throws AbortError when the signal aborts; MM.api
+         lets it propagate so we can distinguish "user typed another key"
+         from "actually failed". */
       if (e.name === "AbortError") return;
       renderEmpty("Couldn't load results.");
     } finally {
@@ -196,17 +171,12 @@
   let seasonTickState = new Map();
   let lockedSeasons = new Set();
 
-  function closeModal() {
-    modal.style.display = "none";
-    modal.setAttribute("aria-hidden", "true");
-    document.body.style.overflow = "";
-    if (window.ModalA11y) window.ModalA11y.onClosed("detail-modal");
-  }
-  window.closeModal = closeModal;
-  if (window.ModalA11y) window.ModalA11y.register("detail-modal", closeModal);
-  // Click on the backdrop itself (outside the sheet) closes the modal.
-  modal.addEventListener("click", function(e) { if (e.target === modal) closeModal(); });
-  // The .modal-close-bar button uses onclick="closeModal()" directly.
+  /* ── Detail-modal lifecycle (MM.modal.setupDetail).
+       setupDetail owns the display:flex/none + aria-hidden + body
+       overflow + ModalA11y registration. The close-bar button uses
+       [data-close-modal] which is wired automatically. */
+  const detailModal = MM.modal.setupDetail(modal);
+  function closeModal() { detailModal.close(); }
 
   function resetModal() {
     modalEl.hero.innerHTML = "";
@@ -227,10 +197,7 @@
   }
 
   async function openDetail(mediaType, tmdbId) {
-    modal.style.display = "";
-    modal.setAttribute("aria-hidden", "false");
-    document.body.style.overflow = "hidden";
-    if (window.ModalA11y) window.ModalA11y.onOpened("detail-modal");
+    detailModal.open();
     resetModal();
     const loading = document.createElement("div");
     loading.className = "modal-loading";
@@ -239,11 +206,9 @@
 
     let data;
     try {
-      const resp = await fetch(`/api/search/detail/${encodeURIComponent(mediaType)}/${encodeURIComponent(tmdbId)}`);
-      data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || "Failed");
+      data = await MM.api.get(`/api/search/detail/${encodeURIComponent(mediaType)}/${encodeURIComponent(tmdbId)}`);
     } catch (e) {
-      modalEl.actions.innerHTML = "";
+      modalEl.actions.replaceChildren();
       const err = document.createElement("div");
       err.className = "modal-error";
       err.textContent = "Couldn't load details. ";
@@ -464,24 +429,17 @@
     btn.disabled = true;
     btn.textContent = "Adding…";
     try {
-      const resp = await fetch("/api/search/download", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(payload),
-      });
-      const data = await resp.json();
-      if (data.ok) {
-        btn.textContent = "Added ✓";
-        btn.style.background = "rgba(48,209,88,0.2)";
-        btn.style.color = "#30d158";
-        setTimeout(() => { closeModal(); refreshCurrentView(); }, 1200);
+      await MM.api.post("/api/search/download", payload);
+      btn.textContent = "Added ✓";
+      btn.style.background = "rgba(48,209,88,0.2)";
+      btn.style.color = "#30d158";
+      setTimeout(() => { closeModal(); refreshCurrentView(); }, 1200);
+    } catch (err) {
+      if (err instanceof MM.api.APIError) {
+        btn.textContent = err.message || "Failed";
       } else {
-        btn.textContent = data.error || "Failed";
-        btn.style.background = "rgba(255,69,58,0.2)";
-        btn.style.color = "#ff453a";
+        btn.textContent = "Network error";
       }
-    } catch {
-      btn.textContent = "Network error";
       btn.style.background = "rgba(255,69,58,0.2)";
       btn.style.color = "#ff453a";
     }
