@@ -28,6 +28,12 @@ binding (User-Agent + client IP) is consistently applied:
     ``RedirectResponse("/login", 302)`` for unauthenticated callers.
     Replaces the repetitive cookie → ``validate_session`` → redirect
     pattern that previously appeared verbatim in every page handler.
+
+:func:`is_admin`
+    Convenience predicate over :func:`get_optional_admin_from_token` that
+    pulls the ``session_token`` cookie off the request itself.  Used by
+    page-rendering routes that toggle admin-only UI affordances on or off
+    without rejecting anonymous callers (keep, kept, recommended).
 """
 
 from __future__ import annotations
@@ -142,3 +148,19 @@ def resolve_page_session(
     if username is None:
         return RedirectResponse("/login", status_code=302)
     return username, conn
+
+
+def is_admin(request: Request) -> bool:
+    """Return True when *request* carries a valid admin session cookie.
+
+    Replaces the repeated ``get_optional_admin_from_token(request.cookies.get(
+    "session_token"), request=request) is not None`` pattern previously
+    duplicated across the keep, kept, and recommended page routes.  Page
+    routes that gate admin-only UI affordances without rejecting anonymous
+    visitors should call this helper rather than re-implementing the cookie
+    lookup.
+    """
+    return (
+        get_optional_admin_from_token(request.cookies.get("session_token"), request=request)
+        is not None
+    )

@@ -18,9 +18,9 @@ from mediaman.services.rate_limit import get_client_ip
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.password_hash import change_password
 from mediaman.web.auth.session_store import create_session
+from mediaman.web.cookies import is_request_secure, set_session_cookie
 from mediaman.web.models.users import ChangePasswordBody
 from mediaman.web.responses import respond_err, respond_ok
-from mediaman.web.routes._helpers import set_session_cookie
 from mediaman.web.routes.users.rate_limits import (
     _PASSWORD_CHANGE_IP_LIMITER,
     _PASSWORD_CHANGE_LIMITER,
@@ -90,8 +90,6 @@ def api_change_password(
         audit_event="password.changed",
     ):
         # Create a new session since the old ones were invalidated.
-        from mediaman.web.routes.auth import is_request_secure
-
         new_token = create_session(
             conn,
             admin,
