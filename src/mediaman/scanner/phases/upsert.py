@@ -22,7 +22,7 @@ import secrets
 import sqlite3
 from datetime import timedelta
 
-from mediaman.audit import log_audit
+from mediaman.core.audit import log_audit
 from mediaman.core.time import now_utc
 from mediaman.crypto import generate_keep_token
 from mediaman.scanner import repository

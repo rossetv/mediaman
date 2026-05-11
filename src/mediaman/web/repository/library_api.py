@@ -16,7 +16,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
-from mediaman.audit import log_audit
+from mediaman.core.audit import log_audit
 from mediaman.services.downloads.notifications import record_download_notification
 
 

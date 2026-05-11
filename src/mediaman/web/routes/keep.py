@@ -23,7 +23,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.responses import Response
 
-from mediaman.audit import log_audit
+from mediaman.core.audit import log_audit
 from mediaman.core.time import now_utc
 from mediaman.db import get_db
 from mediaman.services.rate_limit import RateLimiter, get_client_ip

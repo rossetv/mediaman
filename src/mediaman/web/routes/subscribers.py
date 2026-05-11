@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from mediaman.audit import security_event
+from mediaman.core.audit import security_event
 from mediaman.core.time import now_iso
 from mediaman.crypto import validate_unsubscribe_token
 from mediaman.db import get_db
