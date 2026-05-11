@@ -366,12 +366,14 @@ class TestCreateUserAuditInTransaction:
         app = _make_app(conn, secret_key)
         client, _ = _client(app, conn, with_reauth=True)
 
-        # The audit insert lives inside create_user (in mediaman.core.audit).
+        # The audit insert lives inside create_user (in mediaman.audit).
         # Patch it there so the in-transaction insert blows up.
-        import mediaman.core.audit as audit_module
+        import sqlite3 as _sqlite3
+
+        import mediaman.audit as audit_module
 
         def boom(*_args, **_kwargs):
-            raise RuntimeError("simulated audit failure")
+            raise _sqlite3.OperationalError("simulated audit failure")
 
         monkeypatch.setattr(audit_module, "security_event_or_raise", boom)
 

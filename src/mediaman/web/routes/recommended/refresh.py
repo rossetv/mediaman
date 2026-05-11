@@ -141,7 +141,7 @@ def api_refresh_recommendations(
             else:
                 result = {"ok": False, "error": "Plex not configured"}
                 finish_refresh_run(thread_conn, run_id, "done")
-        except Exception as exc:
+        except Exception as exc:  # rationale: §6.4 site 2 — background job runner; a single bad refresh must not leak a stuck "running" lease or crash the thread.
             logger.exception("Background recommendation refresh failed")
             result = {"ok": False, "error": "Recommendation refresh failed"}
             with contextlib.suppress(Exception):
