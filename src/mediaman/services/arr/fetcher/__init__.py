@@ -18,7 +18,7 @@ import sqlite3
 
 import requests
 
-from mediaman.services.arr._client_base import ArrError
+from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.fetcher._base import (
     ArrCard,
     ArrEpisodeEntry,

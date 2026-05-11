@@ -192,7 +192,9 @@ class TestRefreshRecommendations:
     def test_plex_rating_failure_does_not_crash(self, conn):
         """If Plex raises during get_user_ratings, refresh must still proceed."""
         client = MagicMock()
-        client.get_user_ratings.side_effect = RuntimeError("Plex connection error")
+        client.get_user_ratings.side_effect = __import__(
+            "plexapi.exceptions", fromlist=["PlexApiException"]
+        ).PlexApiException("Plex connection error")
 
         with (
             patch(

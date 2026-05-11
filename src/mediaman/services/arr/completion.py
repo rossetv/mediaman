@@ -19,7 +19,7 @@ from typing import Any, NotRequired, TypedDict, cast
 
 import requests
 
-from mediaman.services.arr._client_base import ArrError
+from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.fetcher import ArrCard
 from mediaman.services.arr.state import series_has_files
 from mediaman.services.downloads.download_format import extract_poster_url

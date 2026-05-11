@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any, cast
 
-from mediaman.services.arr._transport import ArrConfigError
+from mediaman.services.arr._transport import ArrConfigError, ArrUpstreamError
 from mediaman.services.infra.http import SafeHTTPError
 
 logger = logging.getLogger(__name__)
@@ -107,7 +107,9 @@ class _SonarrMixin:
         self._require_series("get_series_by_id")  # type: ignore[attr-defined]
         data = self._get(f"/api/v3/series/{series_id}")  # type: ignore[attr-defined]
         if not isinstance(data, dict):
-            raise ValueError(f"Sonarr returned unexpected response type for series {series_id}")
+            raise ArrUpstreamError(
+                f"Sonarr returned unexpected response type for series {series_id}"
+            )
         return cast(dict[str, Any], data)
 
     def get_episodes(self, series_id: int) -> list[dict[str, Any]]:
@@ -135,16 +137,16 @@ class _SonarrMixin:
             series = self.get_series_by_id(series_id)
             seasons = series.get("seasons")
             if not isinstance(seasons, list):
-                raise ValueError(f"Sonarr series {series_id} has no 'seasons' list")
+                raise ArrUpstreamError(f"Sonarr series {series_id} has no 'seasons' list")
             if not any(s.get("seasonNumber") == season_number for s in seasons):
-                raise ValueError(f"Sonarr series {series_id} has no season {season_number}")
+                raise ArrUpstreamError(f"Sonarr series {series_id} has no season {season_number}")
             return cast(dict, series)
 
         def is_already_unmonitored(entity: dict) -> bool:
             seasons = entity.get("seasons", [])
             target = next((s for s in seasons if s.get("seasonNumber") == season_number), None)
             if target is None:
-                raise ValueError(f"Sonarr series {series_id} has no season {season_number}")
+                raise ArrUpstreamError(f"Sonarr series {series_id} has no season {season_number}")
             return not bool(target.get("monitored", False))
 
         def apply_unmonitor(entity: dict) -> None:
@@ -169,7 +171,7 @@ class _SonarrMixin:
         series = self.get_series_by_id(series_id)
         seasons = series.get("seasons")
         if not isinstance(seasons, list):
-            raise ValueError(f"Sonarr series {series_id} has no 'seasons' list")
+            raise ArrUpstreamError(f"Sonarr series {series_id} has no 'seasons' list")
         for season in seasons:
             if season["seasonNumber"] == season_number:
                 season["monitored"] = True

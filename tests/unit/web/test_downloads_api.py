@@ -1654,7 +1654,9 @@ class TestTriggerPendingSearches:
         conn = MagicMock()
 
         def boom(c, sk):
-            raise RuntimeError("radarr down")
+            import requests
+
+            raise requests.ConnectionError("radarr down")
 
         monkeypatch.setattr("mediaman.services.arr.search_trigger.fetch_arr_queue", boom)
         # Sonarr pass still runs — stub it out so the test is deterministic.
