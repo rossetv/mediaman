@@ -468,6 +468,18 @@ def list_users(conn: sqlite3.Connection) -> list[UserRecord]:
     ]
 
 
+def find_username_by_user_id(conn: sqlite3.Connection, user_id: int) -> str | None:
+    """Return the username for *user_id*, or ``None`` if no such row exists.
+
+    Centralising this read here keeps SQL against ``admin_users`` inside
+    :mod:`mediaman.web.auth` per §2.7.4 — auth owns the users table and
+    route handlers must go through this helper rather than running their
+    own ``SELECT username FROM admin_users WHERE id=?`` query.
+    """
+    row = conn.execute("SELECT username FROM admin_users WHERE id=?", (user_id,)).fetchone()
+    return row["username"] if row is not None else None
+
+
 def delete_user(
     conn: sqlite3.Connection,
     user_id: int,
