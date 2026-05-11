@@ -248,7 +248,7 @@ def _fetch_storage_stats(conn: sqlite3.Connection) -> dict[str, object]:
         total = disk["total_bytes"]
         used = disk["used_bytes"]
         free = disk["free_bytes"]
-    except Exception:
+    except (OSError, KeyError):
         total = used = free = 0
 
     # Per-type breakdown from DB

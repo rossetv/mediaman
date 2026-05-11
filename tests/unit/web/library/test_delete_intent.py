@@ -134,8 +134,10 @@ class TestDeleteIntentPersistence:
         app = _make_app(conn, secret_key)
         client = _auth_client(app, conn)
 
+        import requests as _requests
+
         mock_radarr = MagicMock()
-        mock_radarr.delete_movie.side_effect = RuntimeError("Radarr down")
+        mock_radarr.delete_movie.side_effect = _requests.ConnectionError("Radarr down")
 
         with patch(
             "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr

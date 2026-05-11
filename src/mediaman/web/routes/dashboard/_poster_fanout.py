@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from functools import lru_cache
+
+import requests
+
+from mediaman.services.infra.http import SafeHTTPError
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +78,7 @@ def _fill_tmdb_posters(
     def _lookup(title: str) -> tuple[str, str]:
         try:
             best = client.search_multi(title)
-        except Exception:
+        except (SafeHTTPError, requests.RequestException, ValueError):
             logger.debug("dashboard.poster_lookup_failed title=%r", title, exc_info=True)
             return title, ""
         if best and best.get("poster_path"):
@@ -87,7 +91,7 @@ def _fill_tmdb_posters(
         for fut in as_completed(futures, timeout=_POSTER_FANOUT_BUDGET_SECONDS):
             try:
                 title, url = fut.result()
-            except Exception:
+            except (SafeHTTPError, requests.RequestException, ValueError, CancelledError):
                 continue
             if not url:
                 continue

@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import sqlite3
 import threading
 
+import requests
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
-from mediaman.core.audit import security_event
+from mediaman.audit import security_event, security_event_or_raise
 from mediaman.db import (
     finish_scan_run,
     get_db,
@@ -19,7 +21,8 @@ from mediaman.db import (
     open_thread_connection,
     start_scan_run,
 )
-from mediaman.scanner.repository.scheduled_actions import clear_pending_deletions
+from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.infra.settings_reader import ConfigDecryptError
 from mediaman.services.rate_limit import get_client_ip
 from mediaman.services.rate_limit.instances import (
     SCAN_TRIGGER_LIMITER as _SCAN_TRIGGER_LIMITER,
@@ -73,8 +76,8 @@ def trigger_scan(
     def _heartbeat_loop() -> None:
         try:
             hb_conn = open_thread_connection(db_path)
-        except Exception:
-            logger.warning("manual scan heartbeat thread could not open DB", exc_info=True)
+        except sqlite3.Error:
+            logger.exception("manual scan heartbeat thread could not open DB")
             return
         try:
             while not stop_heartbeat.wait(60):
@@ -82,7 +85,7 @@ def trigger_scan(
         finally:
             try:
                 hb_conn.close()
-            except Exception:  # pragma: no cover — best-effort close
+            except sqlite3.Error:  # pragma: no cover — best-effort close
                 logger.debug("manual scan heartbeat close failed", exc_info=True)
 
     heartbeat_thread = threading.Thread(
@@ -102,8 +105,8 @@ def trigger_scan(
 
             run_scan_from_db(thread_conn, secret_key, skip_disk_check=True)
             finish_scan_run(thread_conn, run_id, "done")
-        except Exception as exc:
-            with contextlib.suppress(Exception):
+        except Exception as exc:  # rationale: §6.4 site 2 — background job runner; a single bad scan must not leak a stuck "running" lease.
+            with contextlib.suppress(sqlite3.Error):
                 finish_scan_run(thread_conn, run_id, "error", str(exc))
             logger.exception("Background scan failed")
         finally:
@@ -129,11 +132,11 @@ def clear_scheduled(
 ) -> Response | dict[str, object]:
     """Delete all pending scheduled_deletion actions.
 
-    Destructive admin action — the delete + audit insert run inside a
-    single transaction owned by
-    :func:`mediaman.scanner.repository.scheduled_actions.clear_pending_deletions`,
-    so a "rows deleted but no audit trail" outcome is impossible. If
-    the audit blows up, the delete rolls back.
+    Destructive admin action — wrapped in ``BEGIN IMMEDIATE`` and the
+    audit insert lives in the same transaction via
+    :func:`security_event_or_raise`, so a "rows deleted but no audit
+    trail" outcome is impossible. If the audit blows up, the delete
+    rolls back.
 
     Rate-limited per-admin (3/min, 20/day) so a leaked session cookie
     cannot be used to repeatedly nuke the scheduled queue.
@@ -145,12 +148,27 @@ def clear_scheduled(
         )
     conn = get_db()
     try:
-        cleared = clear_pending_deletions(
-            conn,
-            audit_actor=admin,
-            audit_ip=get_client_ip(request),
-        )
-    except Exception:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            cleared = conn.execute(
+                "SELECT COUNT(*) FROM scheduled_actions "
+                "WHERE action='scheduled_deletion' AND token_used=0"
+            ).fetchone()[0]
+            conn.execute(
+                "DELETE FROM scheduled_actions WHERE action='scheduled_deletion' AND token_used=0"
+            )
+            security_event_or_raise(
+                conn,
+                event="scan.cleared",
+                actor=admin,
+                ip=get_client_ip(request),
+                detail={"count": cleared},
+            )
+            conn.execute("COMMIT")
+        except sqlite3.Error:
+            conn.execute("ROLLBACK")
+            raise
+    except sqlite3.Error:
         logger.exception("scan.clear failed user=%s", admin)
         return respond_err("internal_error", status=500)
     logger.info("Cleared %d scheduled deletions by %s", cleared, admin)
@@ -183,8 +201,14 @@ def api_library_sync(request: Request, admin: str = Depends(get_current_admin)) 
             detail={"synced": result.get("synced", 0)},
         )
         return respond_ok({"synced": result.get("synced", 0)})
-    except Exception as exc:
-        logger.warning("Library sync failed: %s", exc)
+    except (
+        SafeHTTPError,
+        requests.RequestException,
+        ConfigDecryptError,
+        ValueError,
+        sqlite3.Error,
+    ) as exc:
+        logger.exception("Library sync failed")
         security_event(
             conn,
             event="library.sync.failed",

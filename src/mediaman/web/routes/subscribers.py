@@ -8,15 +8,19 @@ from __future__ import annotations
 
 import logging
 import re
+import sqlite3
 
+import requests
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from mediaman.core.audit import security_event
+from mediaman.audit import security_event
 from mediaman.core.time import now_iso
 from mediaman.crypto import validate_unsubscribe_token
 from mediaman.db import get_db
+from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.mail.newsletter import NewsletterConfigError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.services.rate_limit.instances import (
     NEWSLETTER_LIMITER as _NEWSLETTER_LIMITER,
@@ -26,14 +30,14 @@ from mediaman.services.rate_limit.instances import (
 )
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.repository.subscribers import (
-    AddSubscriberOutcome,
+    add_subscriber,
     deactivate_subscriber,
     delete_subscriber,
     fetch_active_subscribers_in,
+    find_subscriber_by_email,
     find_subscriber_by_id,
     find_subscriber_status_by_email,
     list_subscribers,
-    try_add_subscriber,
 )
 from mediaman.web.responses import respond_err, respond_ok
 
@@ -60,6 +64,16 @@ _UNSUB_LIMITER = RateLimiter(max_attempts=20, window_seconds=60)
 
 def _validate_email(email: str) -> bool:
     return bool(_EMAIL_RE.match(email.strip()))
+
+
+def _mask_email_log(email: str) -> str:
+    """Return a masked email for log output (first char of local-part + domain + length)."""
+    try:
+        local, domain = email.split("@", 1)
+    except ValueError:
+        return f"(len={len(email)})"
+    first = local[0] if local else "?"
+    return f"{first}...@{domain} (len={len(email)})"
 
 
 @router.get("/api/subscribers")
@@ -90,9 +104,9 @@ def api_add_subscriber(
 ) -> JSONResponse:
     """Add a new subscriber.
 
-    The SELECT-then-INSERT race is closed inside the repository
-    function ``try_add_subscriber`` (BEGIN IMMEDIATE + unique-index
-    fallback); the route only translates outcomes into HTTP responses.
+    The SELECT-then-INSERT path is wrapped in BEGIN IMMEDIATE so two
+    concurrent admin sessions adding the same email cannot both pass the
+    SELECT and then race on the INSERT.
     """
     if not _SUBSCRIBER_WRITE_LIMITER.check(username):
         logger.warning("subscriber.add_throttled user=%s", username)
@@ -106,21 +120,37 @@ def api_add_subscriber(
     conn = get_db()
     now = now_iso()
     try:
-        outcome = try_add_subscriber(conn, email=email, now=now)
-    except Exception:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            existing_id = find_subscriber_by_email(conn, email)
+            if existing_id is not None:
+                conn.execute("ROLLBACK")
+                return respond_err(
+                    "already_subscribed", status=409, message="Email already subscribed"
+                )
+            try:
+                add_subscriber(conn, email=email, now=now)
+            except sqlite3.IntegrityError:
+                conn.execute("ROLLBACK")
+                return respond_err(
+                    "already_subscribed", status=409, message="Email already subscribed"
+                )
+            conn.execute("COMMIT")
+        except sqlite3.Error:
+            conn.execute("ROLLBACK")
+            raise
+    except sqlite3.Error:
         logger.exception("subscriber.add failed user=%s", username)
         return respond_err("internal_error", status=500)
 
-    if outcome is AddSubscriberOutcome.ALREADY_SUBSCRIBED:
-        return respond_err("already_subscribed", status=409, message="Email already subscribed")
-
-    logger.info("Subscriber added: %s by %s", email, username)
+    masked = _mask_email_log(email)
+    logger.info("Subscriber added: %s by %s", masked, username)
     security_event(
         conn,
         event="subscriber.added",
         actor=username,
         ip=get_client_ip(request),
-        detail={"email": email},
+        detail={"email": masked},
     )
     return respond_ok({"email": email}, status=201)
 
@@ -145,13 +175,14 @@ def api_remove_subscriber(
     delete_subscriber(conn, subscriber_id)
     conn.commit()
 
-    logger.info("Subscriber removed: %s by %s", email, username)
+    masked = _mask_email_log(email or "")
+    logger.info("Subscriber removed: %s by %s", masked, username)
     security_event(
         conn,
         event="subscriber.removed",
         actor=username,
         ip=get_client_ip(request),
-        detail={"id": subscriber_id, "email": email},
+        detail={"id": subscriber_id, "email": masked},
     )
     return respond_ok()
 
@@ -228,8 +259,14 @@ def api_send_newsletter(
             detail={"sent_to": len(recipients), "rejected": rejected},
         )
         return respond_ok({"sent_to": len(recipients)})
-    except Exception as exc:
-        logger.warning("Manual newsletter send failed: %s", exc)
+    except (
+        SafeHTTPError,
+        requests.RequestException,
+        NewsletterConfigError,
+        ValueError,
+        sqlite3.Error,
+    ):
+        logger.exception("Manual newsletter send failed")
         return respond_err("send_failed", status=502, message="Newsletter send failed")
 
 
@@ -319,7 +356,9 @@ def unsubscribe_confirm(
     sub_status = find_subscriber_status_by_email(conn, email_from_token)
 
     if sub_status is None:
-        logger.info("Unsubscribe link used for unknown email: %s", email_from_token)
+        logger.info(
+            "Unsubscribe link used for unknown email: %s", _mask_email_log(email_from_token)
+        )
         return _render_result(
             request,
             _UNSUB_CONFIRMATION_MSG,
@@ -330,7 +369,7 @@ def unsubscribe_confirm(
     if is_active:
         deactivate_subscriber(conn, sub_id)
         conn.commit()
-        logger.info("Unsubscribed via link: %s", email_from_token)
+        logger.info("Unsubscribed via link: %s", _mask_email_log(email_from_token))
 
     return _render_result(
         request,

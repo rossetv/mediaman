@@ -145,8 +145,10 @@ class TestPlexLibrariesEndpoint:
         client = _auth_client(app, conn)
 
         with patch("mediaman.web.routes.settings.build_plex_from_db") as mock_build:
+            import requests as _requests
+
             mock_client = MagicMock()
-            mock_client.get_libraries.side_effect = ConnectionError("unreachable")
+            mock_client.get_libraries.side_effect = _requests.ConnectionError("unreachable")
             mock_build.return_value = mock_client
 
             resp = client.get("/api/plex/libraries")

@@ -246,7 +246,7 @@ def _claim_token(token: str, exp_value: float) -> JSONResponse | None:
     """
     try:
         claimed = _mark_token_used(token, int(exp_value))
-    except Exception:
+    except sqlite3.Error:
         # The token persistence layer already logs CRITICAL with a
         # traceback; here we only need to translate the failure into a
         # retryable response to the client.

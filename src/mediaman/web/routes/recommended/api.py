@@ -8,12 +8,14 @@ import sqlite3
 import time as _time
 from datetime import UTC, datetime
 
+import requests
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
 from mediaman.core.time import now_iso
 from mediaman.crypto import generate_download_token
 from mediaman.db import get_db
+from mediaman.services.arr._client_base import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.services.infra.http import SafeHTTPError
@@ -247,18 +249,17 @@ def api_download_recommendation(
                 {"ok": False, "error": f"'{row['title']}' already exists in your library"},
                 status_code=409,
             )
-        logger.warning(
+        logger.exception(
             "Failed to add recommendation '%s': HTTP %s",
             row["title"],
             exc.status_code,
-            exc_info=True,
         )
         return JSONResponse(
             {"ok": False, "error": "Failed to add to download queue"},
             status_code=502,
         )
-    except Exception as exc:
-        logger.warning("Failed to add recommendation '%s': %s", row["title"], exc, exc_info=True)
+    except (requests.RequestException, ArrError, ValueError, sqlite3.Error):
+        logger.exception("Failed to add recommendation '%s'", row["title"])
         return JSONResponse(
             {"ok": False, "error": "Failed to add to download queue"},
             status_code=502,

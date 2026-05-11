@@ -258,8 +258,10 @@ class TestDownloadActionRateLimit:
 
         max_in_window = _rec_api._DOWNLOAD_ACTION_LIMITER._max_in_window
 
+        import requests as _requests
+
         mock_radarr = MagicMock()
-        mock_radarr.add_movie.side_effect = Exception("Not calling real Radarr")
+        mock_radarr.add_movie.side_effect = _requests.ConnectionError("Not calling real Radarr")
 
         with patch(
             "mediaman.web.routes.recommended.api.build_radarr_from_db", return_value=mock_radarr
