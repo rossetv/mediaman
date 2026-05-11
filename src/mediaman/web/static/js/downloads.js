@@ -19,15 +19,8 @@
   var q = MM.dom.q;
   var setText = MM.dom.setText;
 
-  /* ── State pill text ── */
-  function stateLabel(state) {
-    if (state === 'searching') return 'Looking for the best version';
-    if (state === 'downloading') return 'Downloading';
-    if (state === 'almost_ready') return 'Almost ready';
-    if (state === 'ready') return 'Ready to watch';
-    if (state === 'upcoming') return '';
-    return '';
-  }
+  /* State labels come from the server (item.state_label). The canonical map
+     lives in services/downloads/download_format/_types.py. */
 
   /* ── Update hero card in-place ── */
   function updateHero(container, item) {
@@ -80,7 +73,7 @@
     var pill = q('.dl-state-pill', card);
     if (pill) {
       pill.className = 'dl-state-pill dl-state-' + item.state;
-      setText(pill, stateLabel(item.state));
+      setText(pill, item.state_label || item.state);
     }
 
     updateSearchHint(card, item);
@@ -175,7 +168,7 @@
     if (pill) {
       pill.className = 'dl-state-pill dl-state-' + item.state;
       pill.style.fontSize = '9px';
-      setText(pill, stateLabel(item.state));
+      setText(pill, item.state_label || item.state);
     }
     updateSearchHint(row, item);
     var fill = q('[data-v="fill"]', row);

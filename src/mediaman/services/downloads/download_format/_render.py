@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mediaman.services.downloads.download_format._types import DownloadItem
+from mediaman.services.downloads.download_format._types import DownloadItem, state_label
 
 
 def build_item(
@@ -55,6 +55,7 @@ def build_item(
         "media_type": media_type,
         "poster_url": poster_url,
         "state": state,
+        "state_label": state_label(state),
         "progress": progress,
         "eta": eta,
         "size_done": size_done,
