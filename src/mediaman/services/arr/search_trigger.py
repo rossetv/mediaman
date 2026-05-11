@@ -36,7 +36,6 @@ import requests
 if TYPE_CHECKING:
     from mediaman.services.arr.fetcher import ArrCard
 
-from mediaman.services.arr._client_base import ArrError
 from mediaman.services.arr._throttle_persistence import (  # noqa: F401
     _STRANDED_THROTTLE_TTL_SECONDS,
     _load_throttle_from_db,
@@ -60,6 +59,7 @@ from mediaman.services.arr._throttle_state import (  # noqa: F401
     _state_lock,
 )
 from mediaman.services.arr.auto_abandon import maybe_auto_abandon
+from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.fetcher import fetch_arr_queue
 from mediaman.services.infra.http import SafeHTTPError

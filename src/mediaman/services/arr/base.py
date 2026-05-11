@@ -47,6 +47,7 @@ from mediaman.services.arr._transport import (
     ArrConfigError,
     ArrError,
     ArrKindMismatch,
+    ArrUpstreamError,
     _TransportMixin,
 )
 from mediaman.services.arr.spec import ArrSpec
@@ -71,6 +72,7 @@ __all__ = [
     "ArrConfigError",
     "ArrError",
     "ArrKindMismatch",
+    "ArrUpstreamError",
     "_ArrClientBase",
 ]
 

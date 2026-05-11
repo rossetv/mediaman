@@ -46,6 +46,16 @@ class ArrKindMismatch(ArrError):
     """
 
 
+class ArrUpstreamError(ArrError):
+    """Raised when Radarr/Sonarr returned a malformed or unexpected response.
+
+    Distinct from ``ArrConfigError`` (which means the upstream is misconfigured)
+    and from ``SafeHTTPError`` (which means transport-layer failure). Use this
+    when the response was successfully received but doesn't match the API
+    contract — null JSON, missing required fields, unexpected schema.
+    """
+
+
 class _TransportMixin:
     """Authenticated HTTP verbs + the shared :func:`_unmonitor_with_retry`.
 
