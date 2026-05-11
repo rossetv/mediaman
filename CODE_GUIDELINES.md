@@ -435,7 +435,7 @@ from typing import TypedDict
 
 from fastapi import APIRouter, Depends, Request
 
-from mediaman.audit import log_audit
+from mediaman.core.audit import log_audit
 from mediaman.core.time import parse_iso_utc
 from mediaman.db import get_db
 ```
@@ -980,7 +980,7 @@ A leak through logs is a security finding. Treat it as one.
 
 ### 7.5 The audit log is for user-visible / security-relevant events
 
-`mediaman.audit.log_audit` writes to a SQLite table that operators and (in some surfaces)
+`mediaman.core.audit.log_audit` writes to a SQLite table that operators and (in some surfaces)
 admins read. It is *not* a debug log. Entries are required for:
 
 - Authentication (login success/failure, password change, session revocation).
