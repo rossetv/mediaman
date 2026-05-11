@@ -1439,13 +1439,28 @@ Outbound traffic is allowed only to:
 
 - The configured Plex, Sonarr, Radarr, NZBGet hosts (validated at config-write time).
 - `api.themoviedb.org`, `image.tmdb.org`, `www.omdbapi.com`.
-- `api.mailgun.net` and the configured Mailgun region.
+- `api.mailgun.net` and `api.eu.mailgun.net`.
 - `api.openai.com`.
 
-A new outbound destination is added to the allowlist in the same PR that introduces it.
-Wildcards are forbidden; the deny-by-default rule for outbound IP ranges
-(RFC1918, link-local, loopback, IPv6 ULA) is enforced in
-`services/infra/url_safety.py`.
+The allowlist is implemented in `services/infra/url_safety.py` as
+:data:`PINNED_EXTERNAL_HOSTS` (the static set above, minus the configured
+integrations) and :func:`allowed_outbound_hosts(conn)` (the same set
+plus the parsed hostnames of `plex_url` / `radarr_url` / `sonarr_url` /
+`nzbget_url`). Callers pass the composed set to
+:func:`is_safe_outbound_url` or :func:`resolve_safe_outbound_url` via
+``allowed_hosts=`` to enforce it.
+
+The allowlist is currently opt-in per call rather than mandatory at the
+SafeHTTPClient layer — flipping that default is queued as a follow-up
+because it requires threading ``conn`` through every outbound call site
+(SafeHTTPClient, plex session, settings testers). New code that performs
+outbound HTTP should compose the allowlist via :func:`allowed_outbound_hosts`
+and pass it; the deny-list still applies in either case.
+
+A new outbound destination is added to :data:`PINNED_EXTERNAL_HOSTS`
+in the same PR that introduces it. Wildcards are forbidden; the
+deny-by-default rule for outbound IP ranges (RFC1918, link-local,
+loopback, IPv6 ULA) is enforced in `services/infra/url_safety.py`.
 
 ### 10.7 Rate limiting at the boundary
 

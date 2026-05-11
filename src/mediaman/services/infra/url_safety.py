@@ -6,14 +6,26 @@ HTTP requests to them. If an attacker lands an admin session they can
 point those URLs at cloud-metadata endpoints (AWS IMDS, GCP metadata)
 or internal admin panels and read the response back through mediaman.
 
-This module blocks the narrow set of destinations that have no
-legitimate use in a self-hosted media stack — cloud metadata, the
-IPv6 wildcard/loopback addresses, CGNAT, broadcast/multicast, and
-the exotic IPv6 tunnel ranges — and optionally refuses loopback and
-RFC1918 addresses too when ``MEDIAMAN_STRICT_EGRESS`` is truthy.
+Two layers of defence
+---------------------
+
+1. **Deny-list (always on).** The narrow set of destinations that have
+   no legitimate use in a self-hosted media stack — cloud metadata,
+   IPv6 wildcard/loopback, CGNAT, broadcast/multicast, exotic IPv6
+   tunnel ranges — is always refused. ``MEDIAMAN_STRICT_EGRESS`` adds
+   RFC1918 and loopback to the list.
+2. **Allowlist (opt-in).** When a caller passes
+   ``allowed_hosts={...}`` to :func:`is_safe_outbound_url` or
+   :func:`resolve_safe_outbound_url`, only hostnames whose IDN-
+   normalised form appears in that set OR in
+   :data:`PINNED_EXTERNAL_HOSTS` are accepted, even if they pass the
+   deny-list. Callers compose the configured-integration set via
+   :func:`allowed_outbound_hosts`, which reads the current
+   ``plex_url`` / ``radarr_url`` / ``sonarr_url`` / ``nzbget_url`` and
+   the Mailgun region hostname out of the ``settings`` table.
 
 Hostnames are resolved via ``socket.getaddrinfo`` and *every* returned
-address is checked against the block list, so an attacker cannot smuggle
+address is checked against the deny list, so an attacker cannot smuggle
 169.254.169.254 behind a public DNS name. A host that fails to resolve
 at all is **rejected** — we cannot prove it is safe, so we refuse it
 rather than let the request issue with a last-moment DNS answer that
@@ -37,11 +49,42 @@ import ipaddress
 import logging
 import os
 import socket
+import sqlite3
 from urllib.parse import urlparse
 
 import idna
 
 logger = logging.getLogger(__name__)
+
+#: External hosts mediaman speaks to that are NOT configured by the
+#: operator. These are static for the lifetime of the codebase and are
+#: always trusted when the allowlist is enforced. Adding to this list
+#: is a security change — review CODE_GUIDELINES §10.6 first.
+PINNED_EXTERNAL_HOSTS: frozenset[str] = frozenset(
+    {
+        # TMDB metadata and posters.
+        "api.themoviedb.org",
+        "image.tmdb.org",
+        # OMDb fallback metadata.
+        "www.omdbapi.com",
+        # Mailgun — US default and EU region (operator picks one via
+        # ``mailgun_region``; we trust both because either may be in use
+        # without a fresh restart after toggling regions).
+        "api.mailgun.net",
+        "api.eu.mailgun.net",
+        # OpenAI recommendations.
+        "api.openai.com",
+    }
+)
+
+#: Settings-table keys whose values are URLs that should be treated as
+#: trusted outbound destinations when the allowlist is enforced.
+_INTEGRATION_URL_SETTING_KEYS = (
+    "plex_url",
+    "radarr_url",
+    "sonarr_url",
+    "nzbget_url",
+)
 
 #: Schemes allowed for outbound service URLs. Anything else (file, gopher,
 #: ldap, dict, ftp, etc.) is refused outright.
@@ -116,6 +159,82 @@ def _strict_egress_enabled(override: bool | None) -> bool:
         return bool(override)
     raw = os.environ.get("MEDIAMAN_STRICT_EGRESS", "").strip().lower()
     return raw in {"1", "true", "yes", "on"}
+
+
+def _extract_host(raw_url: str) -> str | None:
+    """Return the IDN-normalised hostname for *raw_url*, or ``None``.
+
+    Mirrors the parse + IDN step performed by
+    :func:`resolve_safe_outbound_url` so callers can build the allowlist
+    without re-implementing the URL parsing rules.
+    """
+    if not raw_url or not isinstance(raw_url, str):
+        return None
+    try:
+        parsed = urlparse(raw_url.strip())
+    except ValueError:
+        return None
+    if parsed.scheme.lower() not in _ALLOWED_SCHEMES:
+        return None
+    hostname = parsed.hostname
+    if not hostname:
+        return None
+    return _normalise_host(hostname)
+
+
+def allowed_outbound_hosts(conn: sqlite3.Connection) -> frozenset[str]:
+    """Return the current outbound host allowlist.
+
+    The allowlist is the union of:
+
+    * :data:`PINNED_EXTERNAL_HOSTS` — TMDB, OMDb, Mailgun (both
+      regions), OpenAI; static for the lifetime of the codebase.
+    * Configured integration URLs in the ``settings`` table —
+      ``plex_url``, ``radarr_url``, ``sonarr_url``, ``nzbget_url``.
+      Each is parsed, IDN-normalised, and added by hostname only
+      (port and path are ignored).
+
+    Empty / missing / unparseable settings rows are silently dropped:
+    the operator may not have configured Radarr yet, and we don't want
+    to refuse Plex calls because Radarr is empty. Encrypted settings
+    are read in their stored form — for URL fields mediaman stores
+    plaintext so this is fine. If a future schema encrypts URLs, the
+    caller would need to pass ``secret_key`` through; flagged for
+    review.
+    """
+    hosts: set[str] = set(PINNED_EXTERNAL_HOSTS)
+    for key in _INTEGRATION_URL_SETTING_KEYS:
+        try:
+            row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+        except sqlite3.Error:
+            # Schema drift or transient DB error — surface as
+            # "allowlist contains only the static pins" so an outbound
+            # call refuses rather than silently going through with a
+            # half-built allowlist.
+            logger.warning("settings read failed for %s — allowlist may be incomplete", key)
+            continue
+        if row is None:
+            continue
+        raw = row["value"] if hasattr(row, "keys") else row[0]
+        if not raw:
+            continue
+        host = _extract_host(str(raw))
+        if host:
+            hosts.add(host)
+    return frozenset(hosts)
+
+
+def _host_in_allowlist(hostname: str, allowed_hosts: frozenset[str] | set[str]) -> bool:
+    """Return True if *hostname* is in *allowed_hosts*.
+
+    Comparison is case-insensitive and ignores a trailing dot. The
+    pinned external hosts are merged in here so callers that pass an
+    integration-only set still allow TMDB/OMDb/Mailgun/OpenAI.
+    """
+    h = hostname.lower().rstrip(".")
+    if h in PINNED_EXTERNAL_HOSTS:
+        return True
+    return h in {a.lower().rstrip(".") for a in allowed_hosts}
 
 
 def _host_is_metadata(hostname: str) -> bool:
@@ -248,6 +367,7 @@ def resolve_safe_outbound_url(
     url: str,
     *,
     strict_egress: bool | None = None,
+    allowed_hosts: frozenset[str] | set[str] | None = None,
 ) -> tuple[bool, str | None, str | None]:
     """Validate *url* and return a pinned IP for the eventual connection.
 
@@ -263,6 +383,13 @@ def resolve_safe_outbound_url(
       already contains a literal IP, or the URL was rejected). When
       present, callers must connect to this exact address rather than
       re-resolving the hostname — that's the DNS-rebinding defence.
+
+    When *allowed_hosts* is provided, the URL's hostname must appear in
+    that set (after IDN normalisation) **or** in
+    :data:`PINNED_EXTERNAL_HOSTS`, otherwise the URL is refused even if
+    the deny-list checks would pass. Pass ``None`` (the default) to
+    skip the allowlist check; pass an empty set to refuse every host
+    except the pinned externals.
 
     The function is the single place in the codebase that performs
     SSRF safety analysis; :func:`is_safe_outbound_url` simply discards
@@ -300,6 +427,14 @@ def resolve_safe_outbound_url(
     if normalised is None:
         return False, hostname, None
     if _host_is_metadata(normalised):
+        return False, normalised, None
+
+    # Allowlist check sits between the cheap parse-level rules and the
+    # expensive DNS lookups, so a refused host fails fast without
+    # touching ``socket.getaddrinfo``. We test against the IDN-
+    # normalised form so a Unicode lookalike (cyrillic 'а' in
+    # ``radarr.local``) cannot smuggle past an ASCII allowlist entry.
+    if allowed_hosts is not None and not _host_in_allowlist(normalised, allowed_hosts):
         return False, normalised, None
 
     # Literal IP in the URL → check directly, skip DNS.
@@ -344,6 +479,7 @@ def is_safe_outbound_url(
     url: str,
     *,
     strict_egress: bool | None = None,
+    allowed_hosts: frozenset[str] | set[str] | None = None,
 ) -> bool:
     """Return True if *url* is safe for mediaman to request.
 
@@ -363,6 +499,15 @@ def is_safe_outbound_url(
     those are the common case for self-hosted Radarr/Sonarr/Plex. Set
     ``MEDIAMAN_STRICT_EGRESS=1`` in the environment (or pass
     ``strict_egress=True``) to additionally refuse them.
+
+    When *allowed_hosts* is provided, the URL's IDN-normalised hostname
+    must appear in that set or in :data:`PINNED_EXTERNAL_HOSTS`. The
+    deny-list checks still apply on top — an allowlisted host that
+    resolves to a metadata IP is still refused.
     """
-    safe, _hostname, _pinned_ip = resolve_safe_outbound_url(url, strict_egress=strict_egress)
+    safe, _hostname, _pinned_ip = resolve_safe_outbound_url(
+        url,
+        strict_egress=strict_egress,
+        allowed_hosts=allowed_hosts,
+    )
     return safe
