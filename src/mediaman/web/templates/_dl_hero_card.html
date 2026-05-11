@@ -40,13 +40,7 @@
       {% endif %}
 
       <div class="dl-hero-status">
-        <span class="dl-state-pill dl-state-{{ item.state }}" data-v="pill">
-          {% if item.state == 'searching' %}Looking for the best version
-          {% elif item.state == 'downloading' %}Downloading
-          {% elif item.state == 'almost_ready' %}Almost ready
-          {% elif item.state == 'ready' %}Ready to watch
-          {% endif %}
-        </span>
+        <span class="dl-state-pill dl-state-{{ item.state }}" data-v="pill">{{ item.state_label }}</span>
       </div>
 
       <div class="dl-search-hint" data-v="search-hint"

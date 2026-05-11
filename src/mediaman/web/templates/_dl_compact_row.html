@@ -9,13 +9,7 @@
     <div class="dl-compact-info dl-row-info">
       <div class="dl-compact-title dl-row-title">{{ item.title }}</div>
       <div class="dl-compact-meta dl-row-meta">
-        <span class="dl-state-pill dl-state-pill--xs dl-state-{{ item.state }}" data-v="pill">
-          {% if item.state == 'searching' %}Looking for the best version
-          {% elif item.state == 'downloading' %}Downloading
-          {% elif item.state == 'almost_ready' %}Almost ready
-          {% elif item.state == 'ready' %}Ready
-          {% endif %}
-        </span>
+        <span class="dl-state-pill dl-state-pill--xs dl-state-{{ item.state }}" data-v="pill">{{ item.state_label }}</span>
         <span data-v="size-info" {% if item.state == 'searching' %}style="display:none;"{% endif %}>
           <span data-v="size-done">{{ item.size_done or '' }}</span> of <span data-v="size-total">{{ item.size_total or '' }}</span>
         </span>
