@@ -1,0 +1,72 @@
+/* =============================================================
+   SEARCH — search-box wrapper and inputs, plus the keyframe spin
+   animation used by the search spinner. Owns `.search-*` and
+   shares `@keyframes spin` with other spinners across the site
+   (CSS keyframes are global). Extracted from _base.css per
+   CODE_GUIDELINES.md §3.1.
+   ============================================================= */
+
+/* =============================================================
+   13. SEARCH BOX
+   ============================================================= */
+.search-box,
+.search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: var(--s2);
+  border-radius: var(--r-lg);
+  padding: 0 16px;
+  height: 52px;
+  border: 1px solid var(--hair);
+  transition: border-color .15s, background .15s;
+}
+.search-box:focus-within,
+.search-wrap:focus-within { border-color: var(--accent); background: var(--s3); }
+
+.search-box svg,
+.search-wrap .search-icon,
+.search-icon {
+  width: 18px; height: 18px;
+  color: var(--t3);
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  flex-shrink: 0;
+}
+
+.search-box input,
+.search-wrap input,
+.search-input {
+  flex: 1;
+  background: none;
+  border: 0;
+  outline: 0;
+  color: var(--t1);
+  font: inherit;
+  font-size: 16px;
+  padding: 0 14px;
+  letter-spacing: -.01em;
+  min-width: 0;
+}
+.search-box input::placeholder,
+.search-input::placeholder { color: var(--t3); }
+
+.search-spinner {
+  width: 16px; height: 16px;
+  border: 2px solid rgba(255,255,255,.1);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  display: none;
+  animation: spin 1s linear infinite;
+}
+.search-wrap.loading .search-spinner { display: block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.search-empty {
+  padding: 80px 20px;
+  text-align: center;
+  color: var(--t3);
+  font-size: 14px;
+}

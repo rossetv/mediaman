@@ -1,0 +1,401 @@
+/* =============================================================
+   SETTINGS v2 — page chrome and primitives scoped under `.setg-pg`.
+   Owns the cinematic shell, sticky rail, body/block layout, the
+   card/row/input/field/toggle/conn primitives, the sticky savebar
+   (with error state), the reauth modal sheet that gates sensitive
+   settings, the ghost test-button on card headers, and the
+   inline disk-usage badge. Page-specific panel components
+   (overview hero, integration cards, library path cards,
+   subscribers, recipients, users, inline forms) live in
+   _settings_pg_panels.css.
+   ============================================================= */
+
+/* =============================================================
+   SETTINGS v2 — cinematic, rail + stacked cards + sticky savebar
+   Scoped under .setg-pg so the primitives do not leak elsewhere.
+   ============================================================= */
+.setg-pg { --rail-w: 236px; }
+.setg-pg .container { max-width: 1180px; }
+
+/* Shell ---------------------------------------------------------- */
+.setg-pg .setg-shell {
+  display: grid;
+  grid-template-columns: var(--rail-w) 1fr;
+  gap: 56px;
+  align-items: start;
+  padding-bottom: 140px;
+}
+@media (max-width: 960px) {
+  .setg-pg .setg-shell { grid-template-columns: 1fr; gap: 20px; }
+}
+
+/* Left rail ------------------------------------------------------ */
+.setg-pg .setg-rail {
+  position: sticky; top: calc(var(--nav-h) + 28px);
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 8px 0;
+}
+@media (max-width: 960px) {
+  /* Mobile rail: a sticky chip strip pinned under the top brand bar.
+     Full-bleed (breaks out of .container padding) so the fade edges sit
+     at the viewport edges. ::before/::after paint the gradients; they are
+     positioned against the sticky element, not the scrolled content. */
+  .setg-pg .setg-rail {
+    position: sticky;
+    /* On < 700 px the mobile topbar (48 px, style.css:279) sits at top:0.
+       Above that, the desktop nav-glass (--nav-h) is still visible. */
+    top: 48px;
+    z-index: 20;
+    flex-direction: row; gap: 4px; overflow-x: auto; overflow-y: hidden;
+    padding: 10px var(--pad);
+    margin: 0 calc(var(--pad) * -1) 12px;
+    background: rgba(10,10,12,.88);
+    backdrop-filter: saturate(180%) blur(16px);
+    -webkit-backdrop-filter: saturate(180%) blur(16px);
+    border-bottom: 1px solid var(--hair);
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    scroll-padding-inline: 32px;
+  }
+  .setg-pg .setg-rail::-webkit-scrollbar { display: none; }
+  /* Fade edges cue the horizontal scroll. The rail is a flex overflow
+     container so `position: absolute` pulls the pseudos out of the flex
+     flow and pins them to the padding box — they sit on top of the
+     scrolled chips without moving as the user swipes. */
+  .setg-pg .setg-rail::before,
+  .setg-pg .setg-rail::after {
+    content: ""; position: absolute; top: 0; bottom: 0;
+    width: 32px; pointer-events: none; z-index: 2;
+  }
+  .setg-pg .setg-rail::before {
+    left: 0;
+    background: linear-gradient(to right, rgba(10,10,12,.95), rgba(10,10,12,0));
+  }
+  .setg-pg .setg-rail::after {
+    right: 0;
+    background: linear-gradient(to left, rgba(10,10,12,.95), rgba(10,10,12,0));
+  }
+  .setg-pg .setg-rail-item {
+    flex: 0 0 auto;
+    padding: 8px 13px;
+    font-size: 13.5px;
+    scroll-snap-align: center;
+  }
+  .setg-pg .setg-rail-item svg { width: 15px; height: 15px; }
+  /* Active chip sits above the ::before/::after fade gradients so its edge
+     never picks up a darkened band when it lands inside the 32px fade zone.
+     Inactive chips stay below so the fades still cue horizontal scroll. */
+  .setg-pg .setg-rail-item.on {
+    position: relative;
+    z-index: 3;
+    background: var(--s3);
+  }
+  .setg-pg .setg-rail-eyebrow { display: none; }
+}
+/* Between 700 px and 960 px the desktop .nav-glass is still visible, so
+   the rail must stick below it rather than below the mobile topbar. */
+@media (min-width: 700px) and (max-width: 960px) {
+  .setg-pg .setg-rail { top: var(--nav-h); }
+}
+.setg-pg .setg-rail-eyebrow {
+  font-size: 11px; font-weight: 600; color: var(--t3);
+  text-transform: uppercase; letter-spacing: .12em;
+  padding: 0 14px; margin-bottom: 12px;
+}
+.setg-pg .setg-rail-item {
+  display: flex; align-items: center; gap: 11px;
+  padding: 9px 14px; border-radius: var(--r-md);
+  color: var(--t2); font-size: 14px; font-weight: 500;
+  text-decoration: none; white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.setg-pg .setg-rail-item:hover { color: var(--t1); background: rgba(255,255,255,.04); }
+.setg-pg .setg-rail-item.on    { color: var(--t1); background: var(--s2); }
+.setg-pg .setg-rail-item svg {
+  width: 16px; height: 16px;
+  stroke: currentColor; fill: none; stroke-width: 1.8;
+  flex-shrink: 0; opacity: .75;
+}
+.setg-pg .setg-rail-item.on svg { opacity: 1; color: var(--accent); }
+.setg-pg .setg-rail-item .rail-count {
+  margin-left: auto;
+  font-size: 10.5px; font-weight: 600; color: var(--t3);
+  padding: 1px 7px; border-radius: var(--r-pill);
+  background: var(--s2);
+}
+.setg-pg .setg-rail-item .rail-count.warn { background: rgba(255,214,10,.15); color: var(--warning); }
+.setg-pg .setg-rail-item .rail-count.err  { background: rgba(255,69,58,.15);  color: var(--danger);  }
+
+/* Body ----------------------------------------------------------- */
+.setg-pg .setg-body { min-width: 0; }
+.setg-pg .setg-body .ph { padding: 28px 0 8px; }
+.setg-pg .setg-ph-small {
+  color: var(--t3); font-size: 12px; letter-spacing: .12em;
+  text-transform: uppercase; font-weight: 600; margin-bottom: 10px;
+}
+
+/* Block (section) ------------------------------------------------ */
+.setg-pg .setg-block {
+  padding-top: 64px;
+  scroll-margin-top: calc(var(--nav-h) + 16px);
+}
+.setg-pg .setg-block:first-child { padding-top: 24px; }
+.setg-pg .setg-block-hd {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 16px; margin-bottom: 24px; flex-wrap: wrap;
+}
+.setg-pg .setg-block-hd h2 {
+  font-size: 24px; font-weight: 600; letter-spacing: -.02em;
+  white-space: nowrap;
+}
+.setg-pg .setg-block-hd .sub {
+  color: var(--t3); font-size: 13px; text-align: right; min-width: 0;
+}
+@media (max-width: 720px) {
+  .setg-pg .setg-block-hd .sub { text-align: left; width: 100%; }
+}
+@media (max-width: 640px) {
+  /* Tighten vertical rhythm so sections don't feel marooned on phones. */
+  .setg-pg .setg-body .ph { padding: 14px 0 4px; }
+  .setg-pg .setg-body .ph h1 { font-size: 30px; line-height: 1.12; }
+  .setg-pg .setg-block { padding-top: 40px; }
+  .setg-pg .setg-block:first-child { padding-top: 12px; }
+  .setg-pg .setg-block-hd { margin-bottom: 16px; }
+  .setg-pg .setg-block-hd h2 { font-size: 20px; }
+}
+
+/* Card ----------------------------------------------------------- */
+.setg-pg .setg-card {
+  background: var(--s1);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.setg-pg .setg-card + .setg-card { margin-top: 24px; }
+.setg-pg .setg-card-hd {
+  display: flex; align-items: center; gap: 14px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--hair);
+}
+.setg-pg .setg-card-hd h3 {
+  font-size: 15px; font-weight: 600; letter-spacing: -.01em;
+  font-family: var(--font-text);
+}
+.setg-pg .setg-card-hd .sub { color: var(--t3); font-size: 12px; margin-top: 3px; }
+.setg-pg .setg-card-hd .head-info { flex: 1; min-width: 0; }
+.setg-pg .setg-card-hd .head-actions { display: flex; gap: 10px; align-items: center; }
+.setg-pg .setg-card-hd .btn { font-size: 12px; padding: 6px 14px; }
+.setg-pg .setg-card-bd { padding: 6px 24px; }
+.setg-pg .setg-card-bd--pad { padding: 22px 24px; }
+
+/* Row (label / control) ----------------------------------------- */
+.setg-pg .setg-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 32px;
+  align-items: center;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--hair);
+}
+.setg-pg .setg-row:last-child { border-bottom: 0; }
+.setg-pg .setg-row-lbl { font-size: 14px; font-weight: 500; letter-spacing: -.005em; }
+.setg-pg .setg-row-sub { font-size: 12.5px; color: var(--t3); margin-top: 4px; line-height: 1.5; max-width: 58ch; }
+.setg-pg .setg-row-sub a { color: var(--accent); }
+@media (max-width: 640px) {
+  .setg-pg .setg-row { grid-template-columns: 1fr; gap: 10px; }
+  .setg-pg .setg-row > :last-child { width: 100%; }
+}
+
+/* Inputs --------------------------------------------------------- */
+.setg-pg .inp {
+  background: var(--s2);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-sm);
+  padding: 9px 12px;
+  font-size: 14px; color: var(--t1);
+  font-family: var(--font-text);
+  transition: border-color .15s, background .15s;
+  width: 100%; min-width: 0;
+}
+.setg-pg .inp:focus { outline: 0; border-color: var(--accent); background: var(--s3); }
+.setg-pg .inp::placeholder { color: var(--t4); }
+.setg-pg select.inp {
+  cursor: pointer; padding-right: 34px; appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,.5)' stroke-width='2'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+.setg-pg .inp--sm   { max-width: 140px; }
+.setg-pg .inp--md   { max-width: 260px; }
+.setg-pg .inp--lg   { max-width: 420px; }
+.setg-pg .inp--fluid { width: 100%; max-width: none; }
+.setg-pg .inp--num  { max-width: 72px; width: 72px; min-width: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.setg-pg .inp--mono { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; }
+
+.setg-pg .inp-wrap { position: relative; display: flex; align-items: stretch; }
+.setg-pg .inp-wrap .inp { padding-right: 66px; }
+.setg-pg .inp-reveal {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  padding: 5px 10px; font-size: 11px; color: var(--t3);
+  border-radius: var(--r-pill); background: transparent;
+  transition: background .15s, color .15s;
+}
+.setg-pg .inp-reveal:hover { color: var(--t1); background: var(--rgba-overlay-sm); }
+
+/* Field primitive (label + input + helper) ---------------------- */
+.setg-pg .fld { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.setg-pg .fld-lbl {
+  font-size: 11px; font-weight: 600; color: var(--t2);
+  text-transform: uppercase; letter-spacing: .08em;
+  display: flex; align-items: center; gap: 8px;
+}
+.setg-pg .fld-lbl .opt {
+  font-size: 10px; font-weight: 500; color: var(--t4);
+  text-transform: none; letter-spacing: 0;
+  padding: 1px 7px; border-radius: var(--r-pill);
+  background: var(--s3);
+}
+.setg-pg .fld-sub { font-size: 11.5px; color: var(--t3); line-height: 1.5; }
+.setg-pg .fld-sub a { color: var(--accent); }
+.setg-pg .fld-row { display: grid; gap: 20px; grid-template-columns: 1fr 1fr; }
+.setg-pg .fld-row--full { grid-template-columns: 1fr; }
+@media (max-width: 640px) { .setg-pg .fld-row { grid-template-columns: 1fr; } }
+
+/* Toggle --------------------------------------------------------- */
+.setg-pg .tog {
+  position: relative; width: 44px; height: 26px;
+  background: var(--s4); border-radius: var(--r-pill);
+  cursor: pointer; flex-shrink: 0;
+  transition: background .2s;
+}
+.setg-pg .tog::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: #fff;
+  transition: transform .2s;
+}
+.setg-pg .tog.on { background: var(--success); }
+.setg-pg .tog.on::after { transform: translateX(18px); }
+
+/* Connection dot ------------------------------------------------- */
+.setg-pg .conn { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--t2); }
+.setg-pg .conn-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--t4); display: inline-block;
+  transition: background .15s, box-shadow .15s;
+}
+.setg-pg .conn.ok       .conn-dot { background: var(--success); box-shadow: 0 0 8px rgba(48,209,88,.6); }
+.setg-pg .conn.warn     .conn-dot { background: var(--warning); box-shadow: 0 0 8px rgba(255,214,10,.6); }
+.setg-pg .conn.err      .conn-dot { background: var(--danger);  box-shadow: 0 0 8px rgba(255,69,58,.6);  }
+.setg-pg .conn.off      .conn-dot { background: var(--t4); }
+.setg-pg .conn.untested .conn-dot { background: var(--t4); opacity: .6; }
+
+/* Sticky save bar ----------------------------------------------- */
+.setg-pg .savebar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+  padding: 14px var(--pad);
+  background: rgba(20,20,22,.92);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-top: 1px solid var(--hair-strong);
+  transform: translateY(100%);
+  transition: transform .25s cubic-bezier(.2,.8,.2,1);
+}
+.setg-pg .savebar.on { transform: translateY(0); }
+.setg-pg .savebar .sb-inner {
+  max-width: 1180px; margin: 0 auto;
+  display: flex; align-items: center; gap: 14px;
+}
+.setg-pg .savebar .sb-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--warning); box-shadow: 0 0 10px rgba(255,214,10,.6);
+}
+.setg-pg .savebar .sb-msg { font-size: 13px; color: var(--t1); font-weight: 500; }
+.setg-pg .savebar .sb-sub { font-size: 12px; color: var(--t3); margin-left: auto; margin-right: 8px; }
+.setg-pg .savebar #save-status:empty { display: none; }
+
+/* Error state — DESIGN.md §2 Semantic Palette: danger red on a tinted chip,
+   never as a saturated background. The dot turns red, the sub-text takes
+   the danger colour, and the message gains an "Save failed" label. */
+.setg-pg .savebar.is-error .sb-dot {
+  background: var(--danger);
+  box-shadow: 0 0 10px rgba(255, 69, 58, .6);
+}
+.setg-pg .savebar.is-error .sb-msg { color: var(--danger); }
+.setg-pg .savebar.is-error .sb-sub {
+  color: var(--danger);
+  background: rgba(255, 69, 58, .12);
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  font-weight: 500;
+  /* Keep the long validation message readable — wrap onto multiple lines
+     rather than truncating, since it's how the user finds out what to fix. */
+  white-space: normal;
+  max-width: 60ch;
+  line-height: 1.35;
+}
+@media (max-width: 700px) {
+  /* Lift above the mobile bottom tab bar so the savebar stays reachable.
+     Matches the .nav-tabs height expression (style.css:303) + safe-area. */
+  .setg-pg .savebar { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); padding: 10px var(--pad); }
+  /* Collapse the sub caption on mobile — the warning dot + "Unsaved changes"
+     label is enough; the caption eats room the buttons need. */
+  .setg-pg .savebar .sb-sub { display: none; }
+  .setg-pg .savebar .sb-inner { gap: 10px; flex-wrap: wrap; }
+  .setg-pg .savebar .sb-msg { flex: 1 1 auto; }
+  .setg-pg .savebar .btn { flex: 0 0 auto; }
+}
+@media (max-width: 380px) {
+  /* On very narrow phones, stack the action buttons to their own row so
+     neither label ("Discard" / "Save Settings") truncates. */
+  .setg-pg .savebar .sb-msg { flex: 1 1 100%; }
+  .setg-pg .savebar .btn { flex: 1 1 0; }
+}
+
+/* Reauth modal — narrow variant of .modal-sheet for the savebar
+   sensitive-settings password gate. The shared inline drawer pattern
+   (.pw-prompt) sits before the fixed savebar and ends up with its action
+   row hidden underneath; a centred modal removes the ambiguity. ------ */
+.reauth-sheet { max-width: 460px; padding: 28px 28px 24px; }
+.reauth-sheet .reauth-title {
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 22px; font-weight: 600; line-height: 1.19;
+  letter-spacing: -.011em; color: var(--t1);
+  margin: 0 0 8px;
+}
+.reauth-sheet .reauth-desc {
+  font-size: 14px; line-height: 1.43; letter-spacing: -.224px;
+  color: var(--t2); margin: 0 0 20px;
+}
+.reauth-sheet .reauth-field { display: flex; flex-direction: column; gap: 6px; }
+.reauth-sheet .reauth-field-lbl { font-size: 12px; font-weight: 500; color: var(--t3); }
+.reauth-sheet .reauth-actions {
+  display: flex; justify-content: flex-end; gap: 8px;
+  margin-top: 20px;
+}
+.reauth-sheet .reauth-msg {
+  font-size: 12px; color: var(--danger);
+  margin-right: auto; align-self: center;
+  min-height: 1em;
+}
+
+/* Ghost-style test button on card headers ----------------------- */
+.setg-pg .btn-test {
+  font-size: 12px; font-weight: 500; padding: 7px 14px;
+  background: transparent; border: 1px solid var(--hair-strong);
+  color: var(--t1); border-radius: var(--r-pill);
+  transition: background .15s, border-color .15s;
+  white-space: nowrap;
+}
+.setg-pg .btn-test:hover { background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.3); }
+.setg-pg .btn-test:disabled { opacity: .6; cursor: default; }
+
+/* Disk-usage inline badge (per library) ------------------------- */
+.setg-pg .disk-badge {
+  font-size: 11px; font-weight: 500; padding: 3px 10px;
+  border-radius: var(--r-pill); background: var(--s3);
+  color: var(--t3); font-variant-numeric: tabular-nums;
+}
+.setg-pg .disk-badge.ok   { color: var(--success); background: rgba(48,209,88,.12); }
+.setg-pg .disk-badge.warn { color: var(--warning); background: rgba(255,214,10,.12); }
+.setg-pg .disk-badge.crit { color: var(--danger);  background: var(--rgba-danger-bg); }
