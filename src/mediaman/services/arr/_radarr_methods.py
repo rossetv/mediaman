@@ -9,7 +9,9 @@ shape.
 from __future__ import annotations
 
 import logging
-from typing import Any, cast
+from typing import cast
+
+from mediaman.services.arr._types import RadarrMovie
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +25,11 @@ class _RadarrMixin:
     silently issuing the wrong URL shape.
     """
 
-    def get_movies(self) -> list[dict[str, Any]]:
+    def get_movies(self) -> list[RadarrMovie]:
         """Return all movies in the Radarr library."""
         self._require_movie("get_movies")  # type: ignore[attr-defined]
         data = self._get("/api/v3/movie")  # type: ignore[attr-defined]
-        return cast(list[dict[str, Any]], data) if isinstance(data, list) else []
+        return cast(list[RadarrMovie], data) if isinstance(data, list) else []
 
     def get_movie_by_id(self, movie_id: int) -> dict[str, object]:
         """Return a single movie by its Radarr ID.
@@ -112,7 +114,7 @@ class _RadarrMixin:
         }
         return cast(dict[str, object], self._post("/api/v3/movie", movie_data))  # type: ignore[attr-defined]
 
-    def get_movie_by_tmdb(self, tmdb_id: int) -> dict[str, object] | None:
+    def get_movie_by_tmdb(self, tmdb_id: int) -> RadarrMovie | None:
         """Find a movie in the library by its TMDB ID, or ``None`` if not found."""
         self._require_movie("get_movie_by_tmdb")  # type: ignore[attr-defined]
         for movie in self.get_movies():
