@@ -1,25 +1,23 @@
 """FastAPI application factory and startup lifecycle.
 
-This module is the single place that owns the full application lifecycle:
+This module owns the FastAPI-facing surface of startup:
 
 - :func:`create_app` — assembles the ``FastAPI`` instance, registers
   middleware, mounts static files, and wires all routers.
 - :func:`lifespan` — orchestrates startup and shutdown in the correct
   order (DB → crypto canary → scheduler → reconciliation).
-- :func:`bootstrap_db`, :func:`bootstrap_crypto` — startup helpers kept
-  here for direct use by :func:`lifespan`.
 
-The data-dir writability helpers now live in
-:mod:`mediaman.bootstrap.data_dir` and the scheduling lifecycle helpers
-live in :mod:`mediaman.bootstrap.scan_jobs`. The ``bootstrap/`` shims
-re-export everything so existing import paths keep working.
+The bootstrap helpers themselves live under :mod:`mediaman.bootstrap`:
+
+- :mod:`mediaman.bootstrap.db` — DB open, migrations, ``app.state``.
+- :mod:`mediaman.bootstrap.crypto` — AES canary + legacy-ciphertext sweep.
+- :mod:`mediaman.bootstrap.scan_jobs` — scheduler start/stop.
+- :mod:`mediaman.bootstrap.data_dir` — data-dir writability probe.
 """
 
 from __future__ import annotations
 
 import logging
-import os
-import sqlite3
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -30,145 +28,17 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from mediaman.config import Config, ConfigError, load_config
+from mediaman.bootstrap.crypto import bootstrap_crypto
+from mediaman.bootstrap.data_dir import DataDirNotWritableError
+from mediaman.bootstrap.db import bootstrap_db
+from mediaman.bootstrap.scan_jobs import bootstrap_scheduling, shutdown_scheduling
+from mediaman.config import ConfigError, load_config
 from mediaman.core.scrub_filter import install_root_filter
 
 logger = logging.getLogger(__name__)
 
 _STATIC_DIR = Path(__file__).parent / "web" / "static"
 _TEMPLATE_DIR = Path(__file__).parent / "web" / "templates"
-
-
-# ---------------------------------------------------------------------------
-# DB bootstrap
-# ---------------------------------------------------------------------------
-
-
-def bootstrap_db(app: FastAPI, config: Config) -> None:
-    """Open the SQLite DB, run migrations, register the bootstrap connection.
-
-    Side effects on ``app.state``:
-
-    - ``app.state.config`` — the resolved config object.
-    - ``app.state.db`` — the bootstrap :class:`sqlite3.Connection`.
-    - ``app.state.db_path`` — absolute path of the DB file.
-    """
-    from mediaman.bootstrap.data_dir import (
-        DataDirNotWritableError,
-        _assert_data_dir_writable,
-        _remediation_for,
-    )
-    from mediaman.db import init_db, set_connection
-
-    data_dir = Path(config.data_dir)
-    # ``mkdir`` precedes the writability probe — without the wrapper the
-    # OSError surfaces as an unhandled traceback (lost behind a wall of
-    # ASGI frames) instead of the actionable single-line error the probe
-    # produces.
-    try:
-        data_dir.mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        proc_uid = os.geteuid()
-        proc_gid = os.getegid()
-        raise DataDirNotWritableError(
-            f"data dir {data_dir} could not be created by uid={proc_uid} "
-            f"gid={proc_gid}; {_remediation_for(exc)}; underlying error: {exc}"
-        ) from exc
-    _assert_data_dir_writable(data_dir)
-    db_path = str(Path(config.data_dir) / "mediaman.db")
-    logger.info("DB initialised at %s", db_path)
-    conn = init_db(db_path)
-    set_connection(conn)
-    app.state.config = config
-    app.state.db = conn
-    app.state.db_path = db_path
-
-    # Ensure the poster cache directory exists at startup so the first
-    # request doesn't race with the lazy mkdir inside the poster route.
-    poster_cache_dir = Path(config.data_dir) / "poster_cache"
-    poster_cache_dir.mkdir(parents=True, exist_ok=True)
-
-
-# ---------------------------------------------------------------------------
-# Crypto bootstrap
-# ---------------------------------------------------------------------------
-
-
-def bootstrap_crypto(app: FastAPI, config: Config) -> None:
-    """Run the AES canary check and stash the result on ``app.state``.
-
-    Does NOT refuse to start on a mismatch — the admin must still be
-    able to log in to re-enter secrets. The downstream
-    :func:`bootstrap_scheduling` reads the flag and refuses to start the
-    scheduler when the canary failed.
-
-    The canary state is initialised to ``False`` and only flipped to
-    ``True`` after :func:`is_canary_valid` returns a positive result. An
-    import failure or any other exception leaves the flag at its
-    fail-closed default — without this, a partial import (e.g. a missing
-    ``cryptography`` extension) would slip through with the optimistic
-    ``True`` and the scheduler would gleefully fire scans against
-    settings it cannot decrypt.
-    """
-    canary_ok = False
-    try:
-        from mediaman.core.audit import security_event
-        from mediaman.crypto import is_canary_valid, migrate_legacy_ciphertexts
-
-        db = app.state.db
-
-        def _on_canary_failure(reason: str) -> None:
-            """Best-effort audit-log a canary failure.
-
-            The canary fires before the audit table is guaranteed to exist on
-            fresh-DB bootstrap, so any failure in the audit path is logged and
-            swallowed — the security verdict (False) is what matters; the audit
-            row is the cherry on top.
-            """
-            try:
-                security_event(
-                    db,
-                    event="aes.canary_failed",
-                    actor="",
-                    ip="",
-                    detail={"reason": reason},
-                )
-            except sqlite3.Error:  # pragma: no cover
-                logger.exception("aes.canary_failed audit write failed reason=%s", reason)
-
-        def _on_migration_complete(migrated_count: int) -> None:
-            """Best-effort audit-log after a successful v35 migration commit."""
-            try:
-                security_event(
-                    db,
-                    event="aes.v35_migration_complete",
-                    actor="",
-                    ip="",
-                    detail={"migrated_count": migrated_count},
-                )
-            except sqlite3.Error:  # pragma: no cover
-                logger.exception("aes.v35_migration_complete audit write failed")
-
-        canary_ok = bool(is_canary_valid(db, config.secret_key, on_failure=_on_canary_failure))
-        if canary_ok:
-            # Migration v35: re-encrypt any legacy v1 or no-AAD v2 settings
-            # ciphertexts to v2+AAD. Safe to call on every startup —
-            # already-migrated rows are skipped. Errors are logged but do
-            # not abort startup.
-            # rationale: §6.4 site 4 — cold-start recovery; migration is non-fatal.
-            try:
-                n = migrate_legacy_ciphertexts(
-                    db, config.secret_key, on_complete=_on_migration_complete
-                )
-                if n:
-                    logger.info("bootstrap_crypto: migrated %d legacy settings row(s) to v2+AAD", n)
-            except Exception:
-                logger.exception("bootstrap_crypto: migrate_legacy_ciphertexts failed (non-fatal)")
-    # rationale: §6.4 site 4 — cold-start recovery; canary failure leaves the flag fail-closed.
-    except Exception:
-        logger.exception("AES canary check failed unexpectedly")
-        canary_ok = False
-    app.state.canary_ok = canary_ok
 
 
 # ---------------------------------------------------------------------------
@@ -194,9 +64,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     fifteen frames of uvicorn/FastAPI internals; the single-line path
     fits in an orchestrator's restart-loop log without truncation.
     """
-    from mediaman.bootstrap.data_dir import DataDirNotWritableError
-    from mediaman.bootstrap.scan_jobs import bootstrap_scheduling, shutdown_scheduling
-
     try:
         config = load_config()
     except ConfigError as exc:
@@ -211,7 +78,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # regardless of the logger hierarchy depth.
     install_root_filter()
 
-    # rationale: §6.4 site 4 — fatal cold-start; convert startup failure into one log line.
     try:
         bootstrap_db(app, config)
     except DataDirNotWritableError as exc:
@@ -221,10 +87,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.critical("Database bootstrap failed at startup: %s", exc, exc_info=True)
         sys.exit(1)
 
-    # rationale: §6.4 site 4 — bootstrap_crypto already swallows internally; defence in depth.
     try:
         bootstrap_crypto(app, config)
-    except Exception as exc:  # pragma: no cover
+    except Exception as exc:  # pragma: no cover — bootstrap_crypto already swallows
         logger.critical("Crypto bootstrap failed at startup: %s", exc, exc_info=True)
         sys.exit(1)
 
@@ -239,7 +104,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         reconciled = reconcile_pending_delete_intents()
         if reconciled:
             logger.info("Reconciled %d pending delete intent(s) at startup", reconciled)
-    except Exception:  # rationale: §6.4 site 4 — cold-start recovery
+    except Exception:
         logger.exception("delete-intent reconciliation failed at startup; continuing")
 
     # Reconcile download_notifications rows stranded at notified=2 by a
@@ -252,7 +117,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         reset = reconcile_stranded_notifications(app.state.db)
         if reset:
             logger.info("Reconciled %d stranded download notification(s) at startup", reset)
-    except Exception:  # rationale: §6.4 site 4 — cold-start recovery
+    except Exception:
         logger.exception("download-notification reconciliation failed at startup; continuing")
 
     logger.info("Mediaman started on port %s", config.port)
