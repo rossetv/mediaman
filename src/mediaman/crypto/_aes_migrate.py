@@ -81,7 +81,7 @@ def migrate_legacy_ciphertexts(
                      that writes a ``security_event`` audit row.  Keeping the
                      audit-write out of ``crypto/`` preserves the leaf-package
                      invariant (§2.2): ``crypto/`` must not import from
-                     ``mediaman.audit``.
+                     ``mediaman.core.audit``.
 
     Returns:
         Number of rows that were re-encrypted (0 if nothing to do).

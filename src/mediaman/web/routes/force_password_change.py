@@ -27,7 +27,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.responses import Response
 
-from mediaman.audit import security_event
+from mediaman.core.audit import security_event
 from mediaman.db import get_db
 from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.web.auth.middleware import resolve_page_session

@@ -111,7 +111,7 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
     """
     canary_ok = False
     try:
-        from mediaman.audit import security_event
+        from mediaman.core.audit import security_event
         from mediaman.crypto import is_canary_valid, migrate_legacy_ciphertexts
 
         db = app.state.db

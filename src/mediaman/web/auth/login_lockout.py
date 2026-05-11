@@ -395,7 +395,7 @@ def admin_unlock_with_audit(
     with conn:
         conn.execute("BEGIN IMMEDIATE")
         cleared = admin_unlock(conn, target_username)
-        from mediaman.audit import security_event_or_raise
+        from mediaman.core.audit import security_event_or_raise
 
         security_event_or_raise(
             conn,

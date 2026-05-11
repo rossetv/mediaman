@@ -262,7 +262,7 @@ def clear_pending_deletions(
             "DELETE FROM scheduled_actions WHERE action='scheduled_deletion' AND token_used=0"
         )
         if audit_actor is not None:
-            from mediaman.audit import security_event_or_raise
+            from mediaman.core.audit import security_event_or_raise
 
             security_event_or_raise(
                 conn,

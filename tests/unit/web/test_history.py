@@ -336,7 +336,7 @@ class TestSecurityTitleHoist:
     contain a single-quoted phrase that the regex would otherwise grab."""
 
     def test_security_title_does_not_pull_quoted_string_from_detail(self, db_path, secret_key):
-        from mediaman.audit import security_event
+        from mediaman.core.audit import security_event
 
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key)

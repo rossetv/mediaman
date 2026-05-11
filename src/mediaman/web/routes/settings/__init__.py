@@ -40,7 +40,7 @@ from fastapi import APIRouter, Cookie, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.responses import Response
 
-from mediaman.audit import security_event
+from mediaman.core.audit import security_event
 from mediaman.core.time import now_iso
 from mediaman.core.url_safety import (
     is_safe_outbound_url as is_safe_outbound_url,  # re-exported for patch targets

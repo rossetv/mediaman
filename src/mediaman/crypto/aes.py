@@ -175,7 +175,7 @@ def is_canary_valid(
                     that writes a ``security_event`` audit row.  Keeping the
                     audit-write out of ``crypto/`` preserves the leaf-package
                     invariant (§2.2): ``crypto/`` must not import from
-                    ``mediaman.audit``.
+                    ``mediaman.core.audit``.
 
     Returns:
         ``True`` on success, ``False`` on any failure.

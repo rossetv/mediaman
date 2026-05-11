@@ -1,11 +1,11 @@
-"""Unit tests for mediaman.audit.log_audit and security_event helpers."""
+"""Unit tests for mediaman.core.audit.log_audit and security_event helpers."""
 
 import sqlite3
 from datetime import UTC, datetime
 
 import pytest
 
-from mediaman.audit import log_audit, security_event, security_event_or_raise
+from mediaman.core.audit import log_audit, security_event, security_event_or_raise
 
 
 def _make_conn() -> sqlite3.Connection:

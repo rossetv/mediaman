@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
-from mediaman.audit import log_audit
+from mediaman.core.audit import log_audit
 from mediaman.core.format import days_ago, media_type_badge
 from mediaman.core.format import format_bytes as _format_bytes
 from mediaman.core.time import now_iso, now_utc

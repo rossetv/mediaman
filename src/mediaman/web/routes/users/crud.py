@@ -15,7 +15,7 @@ import logging
 from fastapi import APIRouter, Cookie, Depends, Header, Request
 from starlette.responses import Response
 
-from mediaman.audit import security_event
+from mediaman.core.audit import security_event
 from mediaman.db import get_db
 from mediaman.services.rate_limit import get_client_ip
 from mediaman.web.auth.login_lockout import admin_unlock_with_audit

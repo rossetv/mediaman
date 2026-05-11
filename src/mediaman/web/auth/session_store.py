@@ -383,7 +383,7 @@ def destroy_session(
 
     logger.info("session.destroyed user=%s ip=%s", username or "-", ip or "-")
     try:
-        from mediaman.audit import security_event
+        from mediaman.core.audit import security_event
 
         security_event(conn, event="session.destroy", actor=username, ip=ip)
     except Exception:  # pragma: no cover — audit is best-effort; never block logout

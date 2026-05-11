@@ -9,7 +9,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.responses import Response
 
-from mediaman.audit import security_event
+from mediaman.core.audit import security_event
 from mediaman.db import get_db
 from mediaman.services.rate_limit import (
     RateLimiter,

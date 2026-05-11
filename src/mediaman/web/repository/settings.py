@@ -187,6 +187,6 @@ def write_settings(
                     (key, str_value, now),
                 )
         if audit is not None:
-            from mediaman.audit import security_event_or_raise
+            from mediaman.core.audit import security_event_or_raise
 
             security_event_or_raise(conn, **audit)

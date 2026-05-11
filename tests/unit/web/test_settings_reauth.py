@@ -229,7 +229,7 @@ class TestSettingsAuditInTransaction:
 
         # The audit insert now lives inside web.repository.settings; patch it
         # at the source so the in-transaction insert blows up.
-        import mediaman.audit as audit_module
+        import mediaman.core.audit as audit_module
 
         def boom(*_args, **_kwargs):
             raise RuntimeError("simulated audit failure")

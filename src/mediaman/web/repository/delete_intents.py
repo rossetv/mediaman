@@ -13,7 +13,7 @@ import contextlib
 import logging
 import sqlite3
 
-from mediaman.audit import log_audit
+from mediaman.core.audit import log_audit
 from mediaman.core.time import now_iso
 from mediaman.db import get_db
 
