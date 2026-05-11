@@ -2,39 +2,25 @@
 
 Split from ``auth/session.py`` (R2). Owns the "how are passwords hashed
 and compared" concern; session persistence lives in
-:mod:`mediaman.web.auth.session_store`.
+:mod:`mediaman.web.auth.session_store`; user CRUD helpers live in
+:mod:`mediaman.web.auth.user_crud`.
 
 Bcrypt 72-byte truncation defence
 ---------------------------------
 
 ``bcrypt.hashpw`` silently truncates its input to 72 bytes — two
 different 100-byte passwords whose first 72 bytes match would hash to
-the same value, and an attacker who knows this can craft pathological
-inputs. We defeat that by pre-hashing any password that exceeds 72
-bytes (after Unicode NFKC normalisation) with SHA-256, base64-encoding
-the digest (44 bytes — comfortably under bcrypt's limit) and feeding
-the result into bcrypt. Two distinct long passwords therefore have
-distinct SHA-256 digests and bcrypt sees full-entropy inputs.
-
-The gate is keyed on input length so existing ``admin_users`` rows
-hashed before this change continue to verify: any password short enough
-for bcrypt to accept directly (≤ 72 bytes) bypasses the pre-hash on
-both the set and verify paths and hits the same bytes the original
-``hashpw`` did. No backfill or lazy migration is required — the only
-behaviour change is for pathological inputs over 72 bytes, which
-nobody could ever have logged in with reliably anyway.
+the same value.  We defeat that by pre-hashing any password that
+exceeds 72 bytes (after Unicode NFKC normalisation) with SHA-256 and
+base64-encoding the digest (44 bytes — comfortably under bcrypt's
+limit).  Inputs at or below 72 bytes bypass the pre-hash so existing
+``admin_users`` rows continue to verify unchanged.
 
 Both ``hashpw`` and ``checkpw`` callers MUST go through
-:func:`_prepare_bcrypt_input` so the pre-hash logic is applied
-symmetrically. A mismatch (pre-hash on set, raw on verify or vice
-versa) would lock everyone out.
+:func:`_prepare_bcrypt_input` so the encoding stays symmetric.  A
+mismatch (pre-hash on set, raw on verify or vice versa) would lock
+every user out.
 """
-
-# rationale: combines user CRUD (create, list, delete, change-password) with
-# bcrypt helpers because the helpers are intrinsic to each CRUD operation and
-# the test suite patches ``mediaman.web.auth.password_hash.bcrypt`` at module
-# scope — splitting bcrypt helpers into a separate file would move the patch
-# target and break all password tests without reducing complexity.
 
 from __future__ import annotations
 
@@ -45,21 +31,24 @@ import re as _re
 import sqlite3
 import threading
 import unicodedata
-from typing import TypedDict
 
 import bcrypt
 
 from mediaman.core.time import now_iso
 
+# Re-export the user-CRUD helpers so callers continue to import them via
+# ``mediaman.web.auth.password_hash``.  Splitting these to a sibling
+# module keeps ``password_hash`` under the file-size ceiling without
+# moving the ``patch("...password_hash.bcrypt")`` target tests rely on.
+from mediaman.web.auth.user_crud import (
+    UserRecord,
+    delete_user,
+    list_users,
+    set_must_change_password,
+    user_must_change_password,
+)
+
 logger = logging.getLogger(__name__)
-
-
-class UserRecord(TypedDict):
-    """A single admin user row returned by :func:`list_users`."""
-
-    id: int
-    username: str
-    created_at: str
 
 
 #: Single source of truth for the bcrypt cost factor. Tied together so
@@ -94,13 +83,11 @@ def _normalise_password(password: str) -> str:
     """NFKC-normalise *password* so visually-identical strings agree.
 
     Different OSes / IMEs emit different byte sequences for the same
-    visible character — e.g. ``é`` may arrive as a single precomposed
-    code point or as ``e`` + combining acute. Without normalisation,
-    those two strings hash to different bcrypt outputs, so a user who
-    set their password on one platform cannot log in from another.
-    NFKC also folds compatibility forms (full-width digits, ligatures,
-    etc.) so the normalised representation is stable across input
-    methods.
+    visible character (e.g. ``é`` as precomposed code point vs.
+    ``e`` + combining acute).  NFKC folds those representations and
+    compatibility forms so the same typed password hashes the same
+    everywhere — otherwise a user who set their password on one
+    platform could not log in from another.
     """
     return unicodedata.normalize("NFKC", password)
 
@@ -108,26 +95,20 @@ def _normalise_password(password: str) -> str:
 def _prepare_bcrypt_input(password: str) -> bytes:
     """Return the bytes that should be fed into ``bcrypt.hashpw``/``checkpw``.
 
-    Inputs that fit within bcrypt's 72-byte limit (after NFKC
-    normalisation) are passed straight through, so existing hashes that
-    were generated before this defence landed continue to verify
-    against the same bytes. Inputs that exceed the limit are pre-hashed
-    with SHA-256 and base64-encoded — the result is 44 bytes, well
-    under bcrypt's threshold, so the full entropy of the original
-    password reaches the final digest.
-
-    Both ``hashpw`` and ``checkpw`` MUST route through this helper so
-    the encoding stays symmetric. A mismatch would lock every user out.
+    Inputs at or below bcrypt's 72-byte limit (after NFKC normalisation)
+    pass straight through so existing hashes continue to verify
+    unchanged.  Longer inputs are SHA-256 hashed and base64-encoded
+    (44 bytes — well under the threshold) so the full entropy of the
+    original password reaches the final digest.  Both ``hashpw`` and
+    ``checkpw`` MUST route through this helper — a mismatch would
+    lock every user out.
     """
     normalised = _normalise_password(password)
     encoded = normalised.encode("utf-8")
     if len(encoded) <= _BCRYPT_MAX_INPUT_BYTES:
         return encoded
     digest = hashlib.sha256(encoded).digest()
-    # base64 of a 32-byte digest is 44 chars — comfortably under bcrypt's
-    # 72-byte limit. We keep the b64 padding (rather than stripping it)
-    # so the encoding is exactly what stdlib base64 produces, leaving
-    # zero ambiguity when re-deriving on verify.
+    # Stdlib base64 — keep the padding so the encoding is unambiguous.
     return base64.b64encode(digest)
 
 
@@ -142,26 +123,6 @@ def _get_dummy_hash() -> bytes:
         if _DUMMY_HASH is None:
             _DUMMY_HASH = bcrypt.hashpw(b"dummy", bcrypt.gensalt(rounds=BCRYPT_ROUNDS))
         return _DUMMY_HASH
-
-
-def user_must_change_password(conn: sqlite3.Connection, username: str) -> bool:
-    """Return True when *username*'s account is flagged to force a rotation."""
-    row = conn.execute(
-        "SELECT must_change_password FROM admin_users WHERE username = ?",
-        (username,),
-    ).fetchone()
-    if row is None:
-        return False
-    return bool(row["must_change_password"])
-
-
-def set_must_change_password(conn: sqlite3.Connection, username: str, flag: bool) -> None:
-    """Set / clear the force-rotation flag for *username*."""
-    conn.execute(
-        "UPDATE admin_users SET must_change_password = ? WHERE username = ?",
-        (1 if flag else 0, username),
-    )
-    conn.commit()
 
 
 def create_user(
@@ -207,7 +168,7 @@ def create_user(
                 (username, password_hash, now),
             )
             if audit_actor is not None:
-                from mediaman.core.audit import security_event_or_raise
+                from mediaman.audit import security_event_or_raise
 
                 security_event_or_raise(
                     conn,
@@ -224,6 +185,47 @@ def create_user(
         raise
 
 
+def _short_circuit_for_lockout(
+    conn: sqlite3.Connection, username: str, record_failures: bool
+) -> bool:
+    """Return ``True`` when *username* is currently locked out.
+
+    Records a failure to keep the escalation thresholds reachable (C6).
+    Logging on this path uses ``username`` directly because the caller
+    only reaches it when ``username`` is non-empty.
+    """
+    from mediaman.web.auth.login_lockout import is_locked_out, record_failure
+
+    if not is_locked_out(conn, username):
+        return False
+    if record_failures:
+        record_failure(conn, username)
+    logger.warning("auth.account_locked user=%s reason=lockout_active", username)
+    return True
+
+
+def _verify_against_dummy_hash(password: str) -> None:
+    """Burn one constant-time bcrypt cycle for nonexistent-user probes.
+
+    Equalises wall-time between real-username and fake-username probes
+    so an attacker cannot enumerate valid usernames via timing.  The
+    return value is intentionally discarded.
+    """
+    bcrypt.checkpw(_prepare_bcrypt_input(password), _get_dummy_hash())
+
+
+def _record_login_outcome(
+    conn: sqlite3.Connection, username: str, ok: bool, record_failures: bool
+) -> None:
+    """Persist the success/failure outcome of an authentication attempt."""
+    from mediaman.web.auth.login_lockout import record_failure, record_success
+
+    if ok:
+        record_success(conn, username)
+    elif record_failures:
+        record_failure(conn, username)
+
+
 def authenticate(
     conn: sqlite3.Connection,
     username: str,
@@ -234,85 +236,201 @@ def authenticate(
     """Verify username/password credentials.
 
     Always performs a bcrypt check — even for nonexistent users — to
-    prevent timing-based username enumeration.
-
-    Two short-circuit paths skip the bcrypt cycle deliberately:
-
-    * Empty username — there is no user to authenticate, and burning a
-      bcrypt round per request would let an unauthenticated attacker
-      DoS the server's CPU by streaming empty-username login attempts.
-    * Account already locked — :mod:`mediaman.web.auth.login_lockout`
-      already knows the answer is "no" without re-checking the hash.
-      Skipping bcrypt here cuts the cost of a sustained brute-force
-      hammering a locked account from one bcrypt round per attempt
-      to zero. The ``record_failure`` writer-lock acquisition is
-      retained even on the locked path because the escalation
-      thresholds (5 → 10 → 15 failures → 15 min / 1 h / 24 h) are
-      reachable only while the counter keeps climbing during the
-      lock window — see the C6 test in ``test_login_lockout.py``.
-      Without the continued counter bump the M21 mitigation in
-      :mod:`mediaman.web.auth.login_lockout` cannot escalate to the 1-hour
-      and 24-hour windows.
-
-    The "constant-time" property is preserved across the *meaningful*
-    branches: an attacker sending a real username gets the same
-    bcrypt-cycle latency whether the user exists or not, since the
-    "user not found" path still burns a dummy bcrypt round. The empty
-    and locked paths are a different (and visible) latency, but the
-    information they leak — "you sent no username" or "this account is
-    rate-limited" — is information the attacker already controls or
-    can deduce from response volume anyway.
+    prevent timing-based username enumeration.  Two short-circuit
+    paths skip the bcrypt cycle deliberately: empty usernames (CPU-DoS
+    defence) and already-locked accounts (see C6 in
+    ``test_login_lockout.py`` and the M21 escalation property in
+    :mod:`mediaman.web.auth.login_lockout`).  The "constant-time"
+    property is preserved across the meaningful branches: a real-name
+    probe and a fake-name probe both pay one bcrypt round.
     """
-    from mediaman.web.auth.login_lockout import (
-        is_locked_out,
-        record_failure,
-        record_success,
-    )
-
-    # Reject empty usernames before touching bcrypt. Otherwise an
-    # unauthenticated attacker can stream empty-username requests at
-    # the login endpoint and burn server CPU at one bcrypt round per
-    # request — a cheap CPU-DoS.
+    # Empty username and locked accounts skip bcrypt deliberately — see
+    # the docstring for the CPU-DoS / escalation-counter trade-offs.
     if not username:
         return False
-
-    # Check lockout first. A locked account already has a "no" answer
-    # without re-running bcrypt — skip the dummy round and save the
-    # CPU. We still record the failure so the escalation thresholds
-    # remain reachable (5 → 10 → 15 failures); see C6 in the lockout
-    # tests. record_failure keeps acquiring the writer lock, which is
-    # the price of the escalation property.
-    if is_locked_out(conn, username):
-        if record_failures:
-            record_failure(conn, username)
-        logger.warning("auth.account_locked user=%s reason=lockout_active", username)
+    if _short_circuit_for_lockout(conn, username, record_failures):
         return False
 
     row = conn.execute(
         "SELECT password_hash FROM admin_users WHERE username=?", (username,)
     ).fetchone()
-
     if row is None:
         # Burn a constant-time bcrypt cycle so a real-username probe and
         # a fake-username probe take ~the same wall time and timing
         # cannot enumerate valid usernames.
-        bcrypt.checkpw(_prepare_bcrypt_input(password), _get_dummy_hash())
-        if record_failures:
-            record_failure(conn, username)
+        _verify_against_dummy_hash(password)
+        _record_login_outcome(conn, username, ok=False, record_failures=record_failures)
         return False
 
     ok = bcrypt.checkpw(_prepare_bcrypt_input(password), row["password_hash"].encode())
-    if ok:
-        record_success(conn, username)
-    elif record_failures:
-        record_failure(conn, username)
+    _record_login_outcome(conn, username, ok=ok, record_failures=record_failures)
     return ok
 
 
-# rationale: verify old password, enforce policy, bcrypt the new one, write
-# the hash, rotate the session token, and write an audit row — all must happen
-# in a single DB transaction so a failure between the hash write and the audit
-# write cannot produce an audit-free password change.
+def _reauth_namespace(username: str) -> str:
+    """Return the reauth-lockout namespace for *username* (or empty string)."""
+    from mediaman.web.auth.reauth import REAUTH_LOCKOUT_PREFIX
+
+    return f"{REAUTH_LOCKOUT_PREFIX}{username}" if username else ""
+
+
+def _check_reauth_lockout(
+    conn: sqlite3.Connection, username: str, namespace: str, old_password: str
+) -> bool:
+    """Return ``True`` when *namespace* is locked out for reauth.
+
+    Burns a constant-time bcrypt cycle so timing matches the
+    wrong-password path and bumps the namespace counter so a sustained
+    attack escalates the lock window.
+    """
+    from mediaman.web.auth.login_lockout import is_locked_out, record_failure
+
+    if not namespace or not is_locked_out(conn, namespace):
+        return False
+    bcrypt.checkpw(_prepare_bcrypt_input(old_password), _get_dummy_hash())
+    record_failure(conn, namespace)
+    logger.warning(
+        "password.change_locked user=%s reason=lockout_active",
+        _sanitise_log_field(username),
+    )
+    return True
+
+
+def _verify_old_password(
+    conn: sqlite3.Connection, username: str, namespace: str, old_password: str
+) -> bool:
+    """Return ``True`` when *old_password* matches the stored hash.
+
+    Records a failure on the reauth namespace on mismatch so a stolen
+    session cannot turn this endpoint into an offline password oracle.
+    """
+    from mediaman.web.auth.login_lockout import record_failure
+
+    if authenticate(conn, username, old_password, record_failures=False):
+        return True
+    if namespace:
+        record_failure(conn, namespace)
+    logger.warning(
+        "password.change_failed user=%s reason=wrong_old_password",
+        _sanitise_log_field(username),
+    )
+    return False
+
+
+def _hash_new_password(new_password: str, username: str, *, enforce_policy: bool) -> str:
+    """Run the policy check and return the bcrypt-encoded new password hash.
+
+    Raises :exc:`ValueError` when *enforce_policy* is true and *new_password*
+    fails the strength policy — surfaced to callers as a 400-style error
+    before any DB write happens.
+    """
+    if enforce_policy:
+        from mediaman.web.auth.password_policy import password_issues
+
+        issues = password_issues(new_password, username=username)
+        if issues:
+            raise ValueError("Password does not meet strength policy: " + "; ".join(issues))
+
+    return bcrypt.hashpw(
+        _prepare_bcrypt_input(new_password), bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
+    ).decode()
+
+
+def _write_rotation_audit_row(
+    conn: sqlite3.Connection,
+    *,
+    audit_actor: str,
+    audit_ip: str,
+    audit_event: str,
+    target_username: str,
+) -> None:
+    """Insert the security audit row for a successful password rotation."""
+    from mediaman.audit import security_event_or_raise
+
+    security_event_or_raise(
+        conn,
+        event=audit_event,
+        actor=audit_actor,
+        ip=audit_ip,
+        detail={"target_username": target_username},
+    )
+
+
+def _persist_password_rotation(
+    conn: sqlite3.Connection,
+    username: str,
+    new_hash: str,
+    *,
+    audit_actor: str | None,
+    audit_ip: str,
+    audit_event: str,
+) -> bool:
+    """Apply the password update + session/reauth wipe + audit row atomically.
+
+    Returns ``True`` on success, ``False`` when the TOCTOU guard fires
+    (the user row vanished between authenticate and the UPDATE).
+    """
+    # ``with conn:`` commits on normal exit and rolls back on exception;
+    # BEGIN IMMEDIATE here preserves write-lock semantics. The
+    # _user_vanished flag lets us return False AFTER the with-block
+    # has rolled back via the sentinel raise.
+    _user_vanished = False
+    try:
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.execute(
+                "UPDATE admin_users SET password_hash=?, must_change_password=0 WHERE username=?",
+                (new_hash, username),
+            )
+            # TOCTOU guard: if the user vanished between authenticate() and
+            # this UPDATE, rowcount will be zero. Roll back instead of
+            # claiming success.
+            if cursor.rowcount == 0:
+                _user_vanished = True
+                raise RuntimeError("user_vanished")  # triggers with-block rollback
+            conn.execute("DELETE FROM admin_sessions WHERE username=?", (username,))
+            # Reauth ticket revocation belongs INSIDE the transaction so a
+            # thief holding a reauth ticket cannot redeem it against a
+            # brand-new session re-authenticated with the same username.
+            # ``revoke_all_reauth_for`` commits its own transaction so we
+            # inline the DELETE instead.
+            conn.execute("DELETE FROM reauth_tickets WHERE username = ?", (username,))
+            if audit_actor is not None:
+                _write_rotation_audit_row(
+                    conn,
+                    audit_actor=audit_actor,
+                    audit_ip=audit_ip,
+                    audit_event=audit_event,
+                    target_username=username,
+                )
+    except RuntimeError:
+        if _user_vanished:
+            logger.warning(
+                "password.change_failed user=%s reason=user_vanished",
+                _sanitise_log_field(username),
+            )
+            return False
+        raise
+    return True
+
+
+def _clear_reauth_counter(conn: sqlite3.Connection, namespace: str, username: str) -> None:
+    """Best-effort clear of the reauth failure counter after a successful rotation.
+
+    Done outside the transaction so a counter-write hiccup never blocks
+    a successful password change — the worst case is a stale 1-2 entry
+    sitting around.
+    """
+    if not namespace:
+        return
+    from mediaman.web.auth.login_lockout import record_success
+
+    try:
+        record_success(conn, namespace)
+    except Exception:  # pragma: no cover — counter cleanup is best-effort
+        logger.exception("password.change counter cleanup failed user=%s", username)
+
+
 def change_password(
     conn: sqlite3.Connection,
     username: str,
@@ -329,219 +447,54 @@ def change_password(
     Returns True on success, False if the old password is wrong, the
     user no longer exists (TOCTOU), or the reauth namespace is locked.
 
-    Wrong-old-password attempts are recorded into the
+    Wrong-old-password attempts are recorded against the
     ``reauth:<username>`` namespace of :mod:`mediaman.web.auth.login_lockout`
-    so a stolen session cannot turn this endpoint into an offline-style
-    password oracle — the same escalating 5/10/15 thresholds that gate
-    plain login also gate ``change_password``. The plain-login counter
-    for *username* is intentionally left untouched: otherwise an
-    attacker with a session cookie could lock the legitimate user out
-    of the login flow without ever knowing the password.
+    so a stolen session cannot use this endpoint as an offline password
+    oracle.  The plain-login counter for *username* is intentionally
+    left untouched so a session-holder cannot lock the legitimate user
+    out of the login flow.
 
-    Audit-in-transaction: when *audit_actor* is supplied (typically the
-    same as *username*), a ``sec:<audit_event>`` row is written inside
-    the same ``BEGIN IMMEDIATE`` that flips the password hash, drops
-    sessions, and revokes reauth tickets. If the audit insert fails,
-    the entire rotation rolls back — we never have a "the password
-    changed but no audit trail exists" outcome.
-
-    TOCTOU: between :func:`authenticate` returning True and the UPDATE
-    landing, the user could be deleted by another worker. We detect
-    that via ``cursor.rowcount`` and roll back with ``return False``
-    rather than silently claim success.
-
-    Reauth ticket cleanup is performed inside the same transaction as
-    the session DELETE so a thief who held a reauth ticket cannot
-    redeem it under the freshly-issued sessions that follow the
-    password change.
+    The hash update, session wipe, reauth-ticket revocation, and audit
+    row all run inside one ``BEGIN IMMEDIATE`` — see
+    :func:`_persist_password_rotation` for the rationale (TOCTOU guard,
+    intra-transaction ticket revocation, audit-in-transaction).
     """
-    from mediaman.web.auth.login_lockout import (
-        is_locked_out,
-        record_failure,
-        record_success,
-    )
-    from mediaman.web.auth.reauth import REAUTH_LOCKOUT_PREFIX
+    namespace = _reauth_namespace(username)
 
-    namespace = f"{REAUTH_LOCKOUT_PREFIX}{username}" if username else ""
-
-    if namespace and is_locked_out(conn, namespace):
-        # Burn a constant-time bcrypt cycle so timing matches the
-        # wrong-password path; bump the counter so a sustained attack
-        # escalates the lock window.
-        bcrypt.checkpw(_prepare_bcrypt_input(old_password), _get_dummy_hash())
-        record_failure(conn, namespace)
-        logger.warning(
-            "password.change_locked user=%s reason=lockout_active",
-            _sanitise_log_field(username),
-        )
+    if _check_reauth_lockout(conn, username, namespace, old_password):
         return False
 
-    if not authenticate(conn, username, old_password, record_failures=False):
-        if namespace:
-            record_failure(conn, namespace)
-        logger.warning(
-            "password.change_failed user=%s reason=wrong_old_password",
-            _sanitise_log_field(username),
-        )
+    if not _verify_old_password(conn, username, namespace, old_password):
         return False
 
-    if enforce_policy:
-        from mediaman.web.auth.password_policy import password_issues
+    new_hash = _hash_new_password(new_password, username, enforce_policy=enforce_policy)
 
-        issues = password_issues(new_password, username=username)
-        if issues:
-            raise ValueError("Password does not meet strength policy: " + "; ".join(issues))
+    if not _persist_password_rotation(
+        conn,
+        username,
+        new_hash,
+        audit_actor=audit_actor,
+        audit_ip=audit_ip,
+        audit_event=audit_event,
+    ):
+        return False
 
-    new_hash = bcrypt.hashpw(
-        _prepare_bcrypt_input(new_password), bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
-    ).decode()
-    # ``with conn:`` commits on normal exit and rolls back on exception;
-    # BEGIN IMMEDIATE here preserves write-lock semantics.
-    # The _user_vanished flag signals that the TOCTOU guard fired so we
-    # can return False AFTER the with-block (which rolled back via raise).
-    _user_vanished = False
-    try:
-        with conn:
-            conn.execute("BEGIN IMMEDIATE")
-            cursor = conn.execute(
-                "UPDATE admin_users SET password_hash=?, must_change_password=0 WHERE username=?",
-                (new_hash, username),
-            )
-            # TOCTOU guard: if the user vanished between authenticate() and
-            # this UPDATE, rowcount will be zero. Roll back instead of
-            # claiming success — we just wrote a no-op and would otherwise
-            # also DELETE sessions / mint an audit row for a user who is no
-            # longer there.
-            if cursor.rowcount == 0:
-                _user_vanished = True
-                raise RuntimeError("user_vanished")  # triggers with-block rollback
-            conn.execute("DELETE FROM admin_sessions WHERE username=?", (username,))
-            # Reauth ticket revocation belongs INSIDE the transaction.
-            # Otherwise a thief holding a reauth ticket whose session we
-            # just dropped could redeem the ticket against a brand-new
-            # session that re-authenticates with the same username. We
-            # inline the DELETE rather than calling
-            # ``revoke_all_reauth_for`` because that helper commits its
-            # own transaction, which would prematurely commit the outer
-            # block.
-            conn.execute(
-                "DELETE FROM reauth_tickets WHERE username = ?",
-                (username,),
-            )
-            if audit_actor is not None:
-                from mediaman.core.audit import security_event_or_raise
-
-                security_event_or_raise(
-                    conn,
-                    event=audit_event,
-                    actor=audit_actor,
-                    ip=audit_ip,
-                    detail={"target_username": username},
-                )
-    except RuntimeError:
-        if _user_vanished:
-            logger.warning(
-                "password.change_failed user=%s reason=user_vanished",
-                _sanitise_log_field(username),
-            )
-            return False
-        raise
-    if namespace:
-        # Clear the failure counter outside the transaction so a counter
-        # write failure never blocks a successful rotation. We are
-        # already past the bcrypt+UPDATE so the worst that happens here
-        # is a stale 1-2 entry sitting around.
-        try:
-            record_success(conn, namespace)
-        except Exception:  # pragma: no cover — counter cleanup is best-effort
-            logger.exception("password.change counter cleanup failed user=%s", username)
+    _clear_reauth_counter(conn, namespace, username)
     logger.info("password.changed user=%s sessions_revoked=all", username)
     return True
 
 
-def list_users(conn: sqlite3.Connection) -> list[UserRecord]:
-    """Return all admin users (without password hashes)."""
-    rows = conn.execute("SELECT id, username, created_at FROM admin_users ORDER BY id").fetchall()
-    return [
-        {"id": row["id"], "username": row["username"], "created_at": row["created_at"]}
-        for row in rows
-    ]
-
-
-def find_username_by_user_id(conn: sqlite3.Connection, user_id: int) -> str | None:
-    """Return the username for *user_id*, or ``None`` if no such row exists.
-
-    Centralising this read here keeps SQL against ``admin_users`` inside
-    :mod:`mediaman.web.auth` per §2.7.4 — auth owns the users table and
-    route handlers must go through this helper rather than running their
-    own ``SELECT username FROM admin_users WHERE id=?`` query.
-    """
-    row = conn.execute("SELECT username FROM admin_users WHERE id=?", (user_id,)).fetchone()
-    return row["username"] if row is not None else None
-
-
-def delete_user(
-    conn: sqlite3.Connection,
-    user_id: int,
-    current_username: str,
-    *,
-    audit_actor: str | None = None,
-    audit_ip: str = "",
-) -> bool:
-    """Delete an admin user by ID.
-
-    Refuses to delete the current user or the last remaining admin.
-
-    Audit-in-transaction: when *audit_actor* is supplied, a
-    ``sec:user.deleted`` row is written inside the same
-    ``BEGIN IMMEDIATE`` that drops the session and user rows. If the
-    audit insert blows up, the entire delete rolls back — we never
-    have a "user vanished but no audit trail" outcome.
-    """
-    row = conn.execute("SELECT username FROM admin_users WHERE id=?", (user_id,)).fetchone()
-    if row is None:
-        return False
-    if row["username"] == current_username:
-        return False
-    target_username = row["username"]
-
-    # ``with conn:`` commits on normal exit and rolls back on exception;
-    # BEGIN IMMEDIATE here preserves write-lock semantics.
-    # The _last_user flag signals the "last admin" guard fired so we
-    # return False AFTER the with-block has rolled back via raise.
-    _last_user = False
-    try:
-        with conn:
-            conn.execute("BEGIN IMMEDIATE")
-            conn.execute("DELETE FROM admin_sessions WHERE username=?", (target_username,))
-            cursor = conn.execute(
-                "DELETE FROM admin_users WHERE id = ? AND (SELECT COUNT(*) FROM admin_users) > 1",
-                (user_id,),
-            )
-            if cursor.rowcount == 0:
-                _last_user = True
-                raise RuntimeError("last_user")  # triggers with-block rollback
-            if audit_actor is not None:
-                from mediaman.core.audit import security_event_or_raise
-
-                security_event_or_raise(
-                    conn,
-                    event="user.deleted",
-                    actor=audit_actor,
-                    ip=audit_ip,
-                    detail={"target_id": user_id, "target_username": target_username},
-                )
-    except RuntimeError:
-        if _last_user:
-            return False
-        raise
-    # Best-effort cleanup of any reauth tickets the deleted user held —
-    # done outside the transaction so a tickets-table hiccup never
-    # blocks a successful delete.
-    try:
-        from mediaman.web.auth.reauth import revoke_all_reauth_for
-
-        revoke_all_reauth_for(conn, target_username)
-    except Exception:  # pragma: no cover — never break flow on cleanup failure
-        logger.exception("delete_user reauth cleanup failed user=%s", target_username)
-    return True
+# Public API surface — ``__all__`` documents the back-compat re-export
+# of CRUD helpers from :mod:`mediaman.web.auth.user_crud` so external
+# imports continue to resolve through this module path.
+__all__ = [
+    "BCRYPT_ROUNDS",
+    "UserRecord",
+    "authenticate",
+    "change_password",
+    "create_user",
+    "delete_user",
+    "list_users",
+    "set_must_change_password",
+    "user_must_change_password",
+]
