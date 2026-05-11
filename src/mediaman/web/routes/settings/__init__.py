@@ -47,15 +47,15 @@ from starlette.responses import Response
 
 from mediaman.core.audit import security_event, security_event_or_raise
 from mediaman.core.time import now_iso
-from mediaman.core.url_safety import (
-    is_safe_outbound_url as is_safe_outbound_url,  # re-exported for patch targets
-)
 from mediaman.crypto import decrypt_value, encrypt_value
 from mediaman.db import get_db
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_plex_from_db
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.infra.settings_reader import ConfigDecryptError
+from mediaman.services.infra.url_safety import (
+    is_safe_outbound_url as is_safe_outbound_url,  # re-exported for patch targets
+)
 from mediaman.services.rate_limit import get_client_ip
 from mediaman.services.rate_limit.instances import SETTINGS_TEST_LIMITER as _SETTINGS_TEST_LIMITER
 from mediaman.services.rate_limit.instances import SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER
