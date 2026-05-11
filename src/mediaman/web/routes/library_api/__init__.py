@@ -2,10 +2,14 @@
 
 Package layout:
 
-* :mod:`~mediaman.web.routes.library_api.redownload` — redownload request
-  schema, lookup matching, and audit-ID generation.
-* This module (``__init__``) — rate-limiter constants, route handlers, and
-  re-exports for backwards-compatible imports.
+* :mod:`.delete_intents` — delete-intent durability helpers (record /
+  complete / fail / reconcile).
+* :mod:`.redownload` — redownload request schema, lookup matching, the
+  per-service handlers, and audit-ID generation.
+* This module (``__init__``) — rate-limiter constants, route handlers,
+  the per-service delete helpers (which share the in-flight intent-id
+  bookkeeping with the orchestrator), and re-exports of the above for
+  backwards-compatible imports.
 
 Handles all ``/api/library`` and ``/api/media/…`` JSON routes:
 
@@ -14,65 +18,66 @@ Handles all ``/api/library`` and ``/api/media/…`` JSON routes:
 * POST /api/media/{id}/delete      — delete via Radarr/Sonarr (two-phase)
 * POST /api/media/redownload       — trigger a re-download via Radarr/Sonarr
 
-The browser-facing GET /library page lives in the sibling module
-:mod:`mediaman.web.routes.library`.
-
-SQL for the keep/delete/redownload flows lives in
-:mod:`mediaman.web.repository.library_api`; the delete-intent durability
-journal lives in :mod:`mediaman.web.repository.delete_intents`.
-
-The ``build_radarr_from_db`` and ``build_sonarr_from_db`` names are
-imported at the top of this module and used directly.  Tests that were
-previously patching ``mediaman.web.routes.library.api.build_radarr_from_db``
-have been updated to patch ``mediaman.web.routes.library_api.build_radarr_from_db``.
+The browser-facing GET /library page lives in :mod:`.library`.  Tests
+patch ``mediaman.web.routes.library_api.build_radarr_from_db`` (and
+sister builds) at the package barrel.
 """
-
-# rationale: package barrel + 4 route handlers (keep, delete, redownload, library
-# list); the handlers share rate-limiter singletons and re-export names that tests
-# patch at this module path — splitting further would scatter those patch targets
-# and break the test suite without reducing actual complexity.
 
 from __future__ import annotations
 
 import logging
 import secrets
-from urllib.parse import quote as _url_quote
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import JSONResponse
 
-from mediaman.core.time import now_utc
+from mediaman.audit import log_audit
 from mediaman.db import get_db
+from mediaman.scanner.repository.library_query import (
+    _VALID_SORTS,
+    _VALID_TYPES,
+    fetch_library,
+)
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
-from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.rate_limit import ActionRateLimiter
-from mediaman.services.scheduled_actions import resolve_keep_decision
 from mediaman.web.auth.middleware import get_current_admin
-from mediaman.web.models import VALID_KEEP_DURATIONS
-from mediaman.web.repository.delete_intents import (
+from mediaman.web.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
+from mediaman.web.responses import respond_err, respond_ok
+
+# Re-exports for backwards-compatible imports
+from mediaman.web.routes.library_api.delete_intents import (
     _complete_delete_intent,
     _fail_delete_intent,
     _record_delete_intent,
     reconcile_pending_delete_intents,
 )
-from mediaman.web.repository.library_api import (
-    NotFound,
-    apply_keep_in_tx,
-    finalise_delete_in_tx,
-    record_redownload,
-    snapshot_media_for_delete,
+from mediaman.web.routes.library_api.delete_intents import (
+    finalise_media_delete as _finalise_media_delete,
 )
-from mediaman.web.repository.library_query import (
-    _VALID_SORTS,
-    _VALID_TYPES,
-    fetch_library,
+from mediaman.web.routes.library_api.delete_intents import (
+    handle_radarr_delete as _handle_radarr_delete,
 )
-from mediaman.web.responses import respond_err, respond_ok
+from mediaman.web.routes.library_api.delete_intents import (
+    handle_sonarr_delete as _handle_sonarr_delete,
+)
+from mediaman.web.routes.library_api.delete_intents import (
+    snapshot_media_for_delete as _snapshot_media_for_delete,
+)
 from mediaman.web.routes.library_api.redownload import (
     _REDOWNLOAD_TITLE_SIMILARITY,
     _pick_lookup_match,
     _redownload_audit_id,
     _RedownloadRequest,
+)
+from mediaman.web.routes.library_api.redownload import (
+    try_radarr_redownload as _try_radarr_redownload,
+)
+from mediaman.web.routes.library_api.redownload import (
+    try_sonarr_redownload as _try_sonarr_redownload,
+)
+from mediaman.web.routes.library_api.redownload import (
+    validate_redownload_body as _validate_redownload_body,
 )
 
 logger = logging.getLogger(__name__)
@@ -147,6 +152,63 @@ def api_library(
     )
 
 
+def _resolve_keep_decision(duration: str, now: datetime) -> tuple[str, str | None, str]:
+    """Translate the *duration* form value into ``(action, execute_at, label)``."""
+    if duration == "forever":
+        return ACTION_PROTECTED_FOREVER, None, "forever"
+    days = VALID_KEEP_DURATIONS[duration]
+    assert days is not None  # only "forever" maps to None and is handled above
+    return ACTION_SNOOZED, (now + timedelta(days=int(days))).isoformat(), duration
+
+
+def _apply_keep_action(
+    conn,
+    media_id: str,
+    action: str,
+    execute_at: str | None,
+    now: datetime,
+    snooze_label: str,
+    username: str,
+) -> None:
+    """Upsert ``scheduled_actions`` + write the audit row in one transaction."""
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT id FROM scheduled_actions WHERE media_item_id = ? AND token_used = 0",
+            (media_id,),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE scheduled_actions "
+                "SET action=?, execute_at=?, snoozed_at=?, snooze_duration=?, token_used=0 "
+                "WHERE id=?",
+                (action, execute_at, now.isoformat(), snooze_label, existing["id"]),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO scheduled_actions "
+                "(media_item_id, action, scheduled_at, execute_at, token, token_used, "
+                "snoozed_at, snooze_duration) "
+                "VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
+                (
+                    media_id,
+                    action,
+                    now.isoformat(),
+                    execute_at,
+                    secrets.token_urlsafe(32),
+                    now.isoformat(),
+                    snooze_label,
+                ),
+            )
+        log_audit(
+            conn,
+            media_id,
+            "snoozed",
+            f"Kept for {snooze_label} by admin ({username})",
+            actor=username,
+        )
+
+
 @router.post("/api/media/{media_id}/keep")
 def api_media_keep(
     media_id: str,
@@ -160,30 +222,17 @@ def api_media_keep(
             "too_many_requests", status=429, message="Too many keep operations — slow down"
         )
 
+    conn = get_db()
     if duration not in VALID_KEEP_DURATIONS:
         return respond_err("invalid_duration", status=400)
 
-    now = now_utc()
-    decision = resolve_keep_decision(duration, days=VALID_KEEP_DURATIONS[duration], now=now)
-    action = decision.action
-    execute_at = decision.execute_at
-    snooze_label = "forever" if duration == "forever" else duration
-
-    try:
-        apply_keep_in_tx(
-            get_db(),
-            media_id=media_id,
-            action=action,
-            execute_at=execute_at,
-            now_iso=now.isoformat(),
-            snooze_label=snooze_label,
-            new_token=secrets.token_urlsafe(32),
-            audit_detail=f"Kept for {snooze_label} by admin ({username})",
-            actor=username,
-        )
-    except NotFound:
+    row = conn.execute("SELECT id FROM media_items WHERE id = ?", (media_id,)).fetchone()
+    if row is None:
         return respond_err("not_found", status=404)
 
+    now = datetime.now(UTC)
+    action, execute_at, snooze_label = _resolve_keep_decision(duration, now)
+    _apply_keep_action(conn, media_id, action, execute_at, now, snooze_label, username)
     logger.info("Media item %s protected for %s by %s", media_id, snooze_label, username)
     return respond_ok({"id": media_id, "duration": snooze_label})
 
@@ -200,19 +249,12 @@ def api_media_delete(
 ) -> JSONResponse:
     """Delete a media item via Radarr/Sonarr.
 
-    Two-phase, three-transaction layout — intentionally split:
-
-    1. **Snapshot transaction** (``BEGIN IMMEDIATE`` … ``COMMIT``)
-       — read the media row, capture identifiers, release the lock.
-    2. **External Arr call** (no DB transaction held)
-       — Radarr / Sonarr round-trip can take seconds; holding a SQLite
-       write lock that long would block every other writer in the process.
-       A delete-intent row is persisted *before* this step so a crash
-       between the Arr call returning and the DB cleanup landing can be
-       reconciled by :func:`reconcile_pending_delete_intents` at startup.
-    3. **Cleanup transaction** (``BEGIN IMMEDIATE`` … ``COMMIT``)
-       — write the audit row, prune ``scheduled_actions``, drop the
-       ``media_items`` row, then mark the delete-intent complete.
+    Two-phase, three-transaction layout (snapshot → Arr API call →
+    completion).  The per-service Arr step is split across
+    :func:`_handle_radarr_delete` and :func:`_handle_sonarr_delete`; the
+    cleanup transaction lives in :func:`_finalise_media_delete`.  See the
+    module-level rationale comment for why the intent-id thread must
+    stay in this orchestrator.
     """
     if not _DELETE_LIMITER.check(username):
         logger.warning("media.delete_throttled user=%s", username)
@@ -221,116 +263,44 @@ def api_media_delete(
         )
     conn = get_db()
 
-    try:
-        snapshot = snapshot_media_for_delete(conn, media_id)
-    except NotFound:
-        # Do NOT leak existence/non-existence: returning 404 tells an
-        # attacker which media IDs are valid.  With auth already confirmed,
-        # an unknown id is treated as forbidden access.
-        return respond_err("forbidden", status=403)
+    snapshot, snap_err = _snapshot_media_for_delete(conn, media_id)
+    if snap_err is not None:
+        return snap_err
+    assert snapshot is not None
 
-    title = snapshot.title
     config = request.app.state.config
-    is_movie = snapshot.media_type == "movie"
-
-    def _is_already_gone(exc: Exception) -> bool:
-        resp = getattr(exc, "response", None)
-        status = getattr(resp, "status_code", None) if resp is not None else None
-        return status == 404
-
-    # Tracks the row id of the delete-intent persisted before any external
-    # call.  None means there is no intent to finalise (the no-Arr-id path
-    # skips writing one).
+    is_movie = snapshot["media_type"] == "movie"
     intent_id: int | None = None
-
     if is_movie:
         client = build_radarr_from_db(conn, config.secret_key)
         if client:
-            radarr_id = snapshot.radarr_id
-            if radarr_id:
-                intent_id = _record_delete_intent(conn, media_id, "radarr", radarr_id)
-                try:
-                    client.delete_movie(radarr_id)
-                    logger.info(
-                        "Deleted '%s' via Radarr (id %s, with files + exclusion)", title, radarr_id
-                    )
-                except Exception as exc:
-                    if _is_already_gone(exc):
-                        logger.info(
-                            "Radarr reports id %s already gone for '%s' — idempotent delete",
-                            radarr_id,
-                            title,
-                        )
-                    else:
-                        _fail_delete_intent(conn, intent_id, str(exc))
-                        logger.warning(
-                            "Radarr delete failed for '%s': %s", title, exc, exc_info=True
-                        )
-                        return respond_err(
-                            "upstream_delete_failed",
-                            status=502,
-                            message="Upstream Radarr delete failed — DB row preserved",
-                        )
-            else:
-                logger.info("No stored radarr_id for '%s' — skipping Radarr-level delete.", title)
+            intent_id, err = _handle_radarr_delete(conn, client, media_id, snapshot)
+            if err is not None:
+                return err
     else:
         sonarr_client = build_sonarr_from_db(conn, config.secret_key)
         if sonarr_client:
-            sid = snapshot.sonarr_id
-            season_num = snapshot.season_number
-            if sid and season_num is not None:
-                intent_id = _record_delete_intent(conn, media_id, "sonarr", sid)
-                try:
-                    sonarr_client.delete_episode_files(sid, season_num)
-                    sonarr_client.unmonitor_season(sid, season_num)
-                    logger.info("Deleted season files for '%s' S%s via Sonarr", title, season_num)
-                    if not sonarr_client.has_remaining_files(sid):
-                        sonarr_client.delete_series(sid)
-                        logger.info(
-                            "No files remain for '%s' — deleted series from Sonarr with exclusion",
-                            title,
-                        )
-                except Exception as exc:
-                    if _is_already_gone(exc):
-                        logger.info(
-                            "Sonarr reports id %s already gone for '%s' — idempotent delete",
-                            sid,
-                            title,
-                        )
-                    else:
-                        _fail_delete_intent(conn, intent_id, str(exc))
-                        logger.warning(
-                            "Sonarr delete failed for '%s': %s", title, exc, exc_info=True
-                        )
-                        return respond_err(
-                            "upstream_delete_failed",
-                            status=502,
-                            message="Upstream Sonarr delete failed — DB row preserved",
-                        )
+            intent_id, err = _handle_sonarr_delete(conn, sonarr_client, media_id, snapshot)
+            if err is not None:
+                return err
 
-    rk = snapshot.plex_rating_key or ""
-    detail = f"Deleted '{title}' by {username}"
-    if rk:
-        detail += f" [rk:{rk}]"
-
-    finalise_delete_in_tx(
-        conn,
-        media_id=media_id,
-        audit_detail=detail,
-        space_bytes=snapshot.file_size_bytes,
-        actor=username,
-    )
-
+    _finalise_media_delete(conn, media_id, snapshot, username)
     if intent_id is not None:
         _complete_delete_intent(conn, intent_id)
-    logger.info("Deleted %s (%s) — %s by %s", media_id, title, snapshot.file_path, username)
+    logger.info(
+        "Deleted %s (%s) — %s by %s",
+        media_id,
+        snapshot["title"],
+        snapshot["file_path"],
+        username,
+    )
     return respond_ok({"id": media_id})
 
 
-# rationale: spans Radarr + Sonarr lookup, candidate matching, Arr
-# add-movie/add-series calls, and audit-log writes that all share a single DB
-# connection and must roll back together — splitting the branches into helpers
-# would require threading the connection and rollback state through every call.
+# rationale: orchestrates Radarr lookup → fallback to Sonarr lookup.  The
+# per-service handlers live in :mod:`.redownload`; this orchestrator owns
+# the rate-limit gate, the body validation, the fall-through to Sonarr on
+# a Radarr miss, and the final 404-style response.
 @router.post("/api/media/redownload")
 def api_media_redownload(
     request: Request,
@@ -345,161 +315,27 @@ def api_media_redownload(
             status_code=429,
         )
 
-    title = body.title.strip()[:256]
-    year = body.year
-    tmdb_id = body.tmdb_id
-    tvdb_id = body.tvdb_id
-    imdb_id = body.imdb_id.strip() if body.imdb_id else None
-    if imdb_id == "":
-        imdb_id = None
-
-    if tmdb_id is None and tvdb_id is None and not imdb_id and (not title or year is None):
-        return JSONResponse(
-            {
-                "ok": False,
-                "error": (
-                    "Provide at least one of tmdb_id, tvdb_id, imdb_id; "
-                    "title+year alone is only accepted with an exact "
-                    "year and a confident title match"
-                ),
-            },
-            status_code=400,
-        )
-
-    if not title:
-        return JSONResponse({"ok": False, "error": "No title provided"}, status_code=400)
+    params, validation_err = _validate_redownload_body(body)
+    if validation_err is not None:
+        return validation_err
+    assert params is not None
 
     conn = get_db()
     config = request.app.state.config
 
-    # Try Radarr first (movies)
-    try:
-        client = build_radarr_from_db(conn, config.secret_key)
-        if client:
-            lookup = client.lookup_by_term(_url_quote(title), endpoint="/api/v3/movie/lookup")
-            entry, _err = _pick_lookup_match(
-                lookup or [],
-                title=title,
-                year=year,
-                tmdb_id=tmdb_id,
-                tvdb_id=None,
-                imdb_id=imdb_id,
-                id_keys=("tmdbId", "imdbId"),
-            )
-            if entry is not None:
-                resolved_tmdb = entry.get("tmdbId")
-                if resolved_tmdb:
-                    resolved_title = str(entry.get("title") or title)
-                    resolved_tmdb_int = int(str(resolved_tmdb))
-                    client.add_movie(resolved_tmdb_int, resolved_title)
-                    audit_id = _redownload_audit_id(
-                        media_type="movie",
-                        tmdb_id=resolved_tmdb_int,
-                        tvdb_id=None,
-                        imdb_id=imdb_id,
-                    )
-                    record_redownload(
-                        conn,
-                        audit_id=audit_id,
-                        audit_detail=f"Re-downloaded '{resolved_title}' by {username}",
-                        actor=username,
-                        email=username,
-                        title=resolved_title,
-                        media_type="movie",
-                        tmdb_id=resolved_tmdb_int,
-                        service="radarr",
-                    )
-                    logger.info(
-                        "Re-downloaded '%s' (tmdb=%s) via Radarr by %s",
-                        resolved_title,
-                        resolved_tmdb,
-                        username,
-                    )
-                    return JSONResponse(
-                        {"ok": True, "message": f"Added '{resolved_title}' to Radarr"}
-                    )
-    except SafeHTTPError as exc:
-        if exc.status_code in (409, 422):
-            return JSONResponse({"ok": False, "error": f"'{title}' already exists in Radarr"})
-        # Fall through to try Sonarr
+    radarr_client = build_radarr_from_db(conn, config.secret_key)
+    radarr_response = _try_radarr_redownload(conn, radarr_client, params, username)
+    if radarr_response is not None:
+        return radarr_response
 
-    # Try Sonarr (TV)
-    try:
-        sonarr_client = build_sonarr_from_db(conn, config.secret_key)
-        if sonarr_client:
-            results = sonarr_client.lookup_by_term(
-                _url_quote(title), endpoint="/api/v3/series/lookup"
-            )
-            entry, err = _pick_lookup_match(
-                results or [],
-                title=title,
-                year=year,
-                tmdb_id=tmdb_id,
-                tvdb_id=tvdb_id,
-                imdb_id=imdb_id,
-                id_keys=("tvdbId", "tmdbId", "imdbId"),
-            )
-            if entry is not None:
-                resolved_tvdb = entry.get("tvdbId")
-                if resolved_tvdb:
-                    resolved_title = str(entry.get("title") or title)
-                    resolved_tvdb_int = int(str(resolved_tvdb))
-                    sonarr_client.add_series(resolved_tvdb_int, resolved_title)
-                    resolved_tmdb_sonarr = entry.get("tmdbId")
-                    resolved_tmdb_sonarr_int = (
-                        int(str(resolved_tmdb_sonarr)) if resolved_tmdb_sonarr is not None else None
-                    )
-                    audit_id = _redownload_audit_id(
-                        media_type="tv",
-                        tmdb_id=resolved_tmdb_sonarr_int,
-                        tvdb_id=resolved_tvdb_int,
-                        imdb_id=imdb_id,
-                    )
-                    record_redownload(
-                        conn,
-                        audit_id=audit_id,
-                        audit_detail=f"Re-downloaded '{resolved_title}' by {username}",
-                        actor=username,
-                        email=username,
-                        title=resolved_title,
-                        media_type="tv",
-                        tmdb_id=resolved_tmdb_sonarr_int,
-                        tvdb_id=resolved_tvdb_int,
-                        service="sonarr",
-                    )
-                    logger.info(
-                        "Re-downloaded '%s' (tvdb=%s) via Sonarr by %s",
-                        resolved_title,
-                        resolved_tvdb,
-                        username,
-                    )
-                    return JSONResponse(
-                        {"ok": True, "message": f"Added '{resolved_title}' to Sonarr"}
-                    )
-            if err in ("Ambiguous ID match", "Ambiguous title+year match"):
-                return JSONResponse(
-                    {
-                        "ok": False,
-                        "error": f"Ambiguous match for '{title}' — supply tmdb_id/tvdb_id/imdb_id",
-                    },
-                    status_code=409,
-                )
-    except SafeHTTPError as exc:
-        if exc.status_code in (409, 422):
-            return JSONResponse({"ok": False, "error": f"'{title}' already exists in Sonarr"})
-        logger.warning(
-            "Re-download via Sonarr failed for '%s': HTTP %s", title, exc.status_code, exc_info=True
-        )
-        return JSONResponse(
-            {"ok": False, "error": "Download request failed — check service connectivity"}
-        )
-    except Exception as exc:
-        logger.warning("Re-download via Sonarr failed for '%s': %s", title, exc, exc_info=True)
-        return JSONResponse(
-            {"ok": False, "error": "Download request failed — check service connectivity"}
-        )
+    sonarr_client = build_sonarr_from_db(conn, config.secret_key)
+    sonarr_response = _try_sonarr_redownload(conn, sonarr_client, params, username)
+    if sonarr_response is not None:
+        return sonarr_response
 
-    return JSONResponse({"ok": False, "error": f"'{title}' not found in Radarr or Sonarr"})
+    return JSONResponse(
+        {"ok": False, "error": f"'{params['title']}' not found in Radarr or Sonarr"}
+    )
 
 
 # ---------------------------------------------------------------------------
