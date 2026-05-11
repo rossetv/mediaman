@@ -41,8 +41,6 @@ from mediaman.services.downloads._notification_email import (
 logger = logging.getLogger(__name__)
 
 
-
-
 def record_download_notification(
     conn: sqlite3.Connection,
     *,
