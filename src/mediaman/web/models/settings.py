@@ -174,8 +174,8 @@ class SettingsUpdate(BaseModel):
     dry_run: bool | None = None
     suggestions_enabled: bool | None = None
 
-    # ``disk_thresholds`` is stored as a JSON dict keyed by Plex library
-    # id, whose value is a ``{"path": str, "threshold": int}`` config.
+    # rationale: ``disk_thresholds`` is stored as a JSON dict keyed by Plex
+    # library id, whose value is a ``{"path": str, "threshold": int}`` config.
     # See ``scanner/runner.py`` for the canonical consumer.  We type the
     # field as ``dict[str, Any]`` and validate the shape in
     # ``validate_disk_thresholds`` below — Pydantic's structural typing

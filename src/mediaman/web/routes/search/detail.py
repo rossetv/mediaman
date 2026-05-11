@@ -77,10 +77,11 @@ def _fetch_sonarr_series_detail(
     added = next((s for s in all_series if s.get("tvdbId") == tvdb_id), None)
     if not added:
         return {"tracked": False, "seasons_in_library": set()}
-    in_library = {
-        s.get("seasonNumber")
+    in_library: set[int] = {
+        season_num
         for s in added.get("seasons", [])
         if (s.get("statistics") or {}).get("episodeFileCount", 0) > 0
+        and (season_num := s.get("seasonNumber")) is not None
     }
     return {"tracked": True, "seasons_in_library": in_library}
 
@@ -173,9 +174,13 @@ def api_detail(
     raw_data = client.details(media_type, tmdb_id)
     if raw_data is None:
         return respond_err("tmdb_request_failed", status=502)
-    # The TMDB client returns a generic ``dict[str, object]`` so callers
-    # widen here to ``Any`` for ergonomic access to the well-known fields
-    # below; values are still validated/coerced before use.
+    # rationale: ``TmdbClient.details`` returns ``dict[str, object]`` to
+    # describe the TMDB payload generically; this handler reads dozens of
+    # well-known TMDB fields below (title, release_date, runtime, credits,
+    # videos, seasons, ...).  A TypedDict for the full TMDB detail
+    # response would mirror the dozens of fields TMDB ships across movies
+    # and TV — far more than the ones mediaman reads.  Each access below
+    # is guarded by ``.get()`` and isinstance/type checks before use.
     data = _cast(dict[str, Any], raw_data)
 
     title = data.get("title") or data.get("name") or ""
