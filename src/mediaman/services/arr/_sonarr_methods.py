@@ -12,6 +12,7 @@ import logging
 from typing import Any, cast
 
 from mediaman.services.arr._transport import ArrConfigError, ArrUpstreamError
+from mediaman.services.arr._types import ArrEpisode, ArrEpisodeFile, SonarrSeries
 from mediaman.services.infra.http import SafeHTTPError
 
 logger = logging.getLogger(__name__)
@@ -93,13 +94,13 @@ class _SonarrMixin:
         )
         return bool(efs)
 
-    def get_series(self) -> list[dict[str, Any]]:
+    def get_series(self) -> list[SonarrSeries]:
         """Return all series in the Sonarr library."""
         self._require_series("get_series")  # type: ignore[attr-defined]
         data = self._get("/api/v3/series")  # type: ignore[attr-defined]
-        return cast(list[dict[str, Any]], data) if isinstance(data, list) else []
+        return cast(list[SonarrSeries], data) if isinstance(data, list) else []
 
-    def get_series_by_id(self, series_id: int) -> dict[str, Any]:
+    def get_series_by_id(self, series_id: int) -> SonarrSeries:
         """Return a single series by its Sonarr ID.
 
         Raises :exc:`ValueError` when Sonarr returns a non-dict response.
@@ -110,19 +111,19 @@ class _SonarrMixin:
             raise ArrUpstreamError(
                 f"Sonarr returned unexpected response type for series {series_id}"
             )
-        return cast(dict[str, Any], data)
+        return cast(SonarrSeries, data)
 
-    def get_episodes(self, series_id: int) -> list[dict[str, Any]]:
+    def get_episodes(self, series_id: int) -> list[ArrEpisode]:
         """Return all episodes for a given series."""
         self._require_series("get_episodes")  # type: ignore[attr-defined]
         data = self._get(f"/api/v3/episode?seriesId={series_id}")  # type: ignore[attr-defined]
-        return cast(list[dict[str, Any]], data) if isinstance(data, list) else []
+        return cast(list[ArrEpisode], data) if isinstance(data, list) else []
 
-    def get_episode_files(self, series_id: int) -> list[dict[str, Any]]:
+    def get_episode_files(self, series_id: int) -> list[ArrEpisodeFile]:
         """Return episode file records for a given series."""
         self._require_series("get_episode_files")  # type: ignore[attr-defined]
         data = self._get(f"/api/v3/episodefile?seriesId={series_id}")  # type: ignore[attr-defined]
-        return cast(list[dict[str, Any]], data) if isinstance(data, list) else []
+        return cast(list[ArrEpisodeFile], data) if isinstance(data, list) else []
 
     def unmonitor_season(self, series_id: int, season_number: int, *, max_retries: int = 3) -> None:
         """Set ``monitored=False`` for *season_number* of *series_id*.
