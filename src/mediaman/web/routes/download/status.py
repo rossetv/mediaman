@@ -155,6 +155,11 @@ def _radarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> D
     movie = client.get_movie_by_tmdb(tmdb_id)
     if movie and movie.get("hasFile"):
         title = cast(str, movie.get("title", ""))
+        # rationale: ``RadarrMovie.images`` is typed as ``list[ArrImage]``,
+        # but ``extract_poster_url`` accepts ``Sequence[Mapping[str, object]]``
+        # to support the parallel Sonarr branches that pass through raw
+        # queue dicts.  The runtime values are identical; the cast narrows
+        # the mypy view without a runtime conversion.
         poster_url = extract_poster_url(cast("list[dict[Any, Any]] | None", movie.get("images")))
         return build_item(
             dl_id=f"radarr:{title}",

@@ -128,6 +128,16 @@ class SafeHTTPError(Exception):
 # Low-level transport function
 # ---------------------------------------------------------------------------
 
+# rationale: caller / json / data / auth mirror ``requests.Session.request``
+# (and ``requests.adapters.HTTPAdapter``), which themselves accept ``Any``
+# for these parameters — there is no upstream stub that pins the shape.
+# Tightening here would force every caller in the codebase to either cast
+# or duplicate the requests library's permissive contract. The same
+# applies to ``params: dict[str, Any]``: ``requests`` accepts values of
+# any JSON-serialisable type for query parameters. The rationale below
+# applies to every ``Any`` site in :func:`_dispatch` and the verb methods
+# on :class:`SafeHTTPClient`.
+
 
 def _dispatch(
     caller: Any,
@@ -163,14 +173,6 @@ def _dispatch(
 # ---------------------------------------------------------------------------
 # The client
 # ---------------------------------------------------------------------------
-
-
-# rationale: json/data/auth/caller mirror `requests.Session.request` and
-# `requests.adapters.HTTPAdapter` which themselves take `Any`. There is no
-# upstream stub for these parameters; tightening here would force callers
-# to cast or duplicate the request library's permissive contract.
-# The `params` dict is typed as `dict[str, Any]` for the same reason —
-# `requests` accepts values of any JSON-serialisable type for query params.
 
 
 class SafeHTTPClient:
