@@ -1,0 +1,81 @@
+/* =============================================================
+   HISTORY — audit log rows on the history page. Owns the legacy
+   `.hist*` grid (used in cards) and the newer `.history-*` table
+   layout. Extracted from _base.css per CODE_GUIDELINES.md §3.1.
+   ============================================================= */
+
+/* =============================================================
+   22. HISTORY (audit log)
+   ============================================================= */
+.hist {
+  display: grid;
+  grid-template-columns: 140px 1fr auto;
+  gap: 20px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--hair);
+  align-items: center;
+}
+/* Card variant for history list — no top/bottom padding so rows extend edge-to-edge */
+.card--hist { padding: 0 24px; }
+.hist-date { font-family: var(--font-display); font-size: 13px; color: var(--t3); letter-spacing: -.01em; }
+.hist-msg { font-size: 14px; }
+.hist-msg b { font-weight: 500; }
+.hist-type { color: var(--t3); font-size: 13px; }
+
+.history-table {
+  background: var(--s1);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-lg);
+  padding: 0 24px;
+  overflow: hidden;
+}
+.history-header {
+  display: grid;
+  grid-template-columns: 110px 2fr 1fr;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--hair);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--t3);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.history-header > span:nth-child(1),  /* mobile title */
+.history-header > span:nth-child(3)   /* desktop title */ { display: none; }
+
+.history-row {
+  display: grid;
+  grid-template-columns: 110px 2fr 1fr;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--hair);
+  align-items: center;
+  font-size: 14px;
+}
+.history-row:last-child { border-bottom: 0; }
+.history-row > .history-title-mobile { display: none; }
+.history-title { font-weight: 500; }
+.history-date { font-size: 12px; color: var(--t3); display: block; margin-top: 2px; }
+.history-detail { color: var(--t3); font-size: 13px; }
+.history-space-impact { color: var(--t3); font-size: 12px; margin-left: 6px; }
+
+@media (min-width: 760px) {
+  .history-header > span:nth-child(3) { display: inline; }
+  .history-header { grid-template-columns: 80px 2fr 1fr; }
+  .history-row    { grid-template-columns: 80px 2fr 1fr; }
+}
+@media (max-width: 759px) {
+  .history-header { display: none; }
+  .history-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 14px 0;
+  }
+  .history-row > .history-title-desktop { display: none; }
+  .history-row > .history-title-mobile {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+}

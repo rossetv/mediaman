@@ -1,0 +1,72 @@
+/* =============================================================
+   STORAGE — capacity bar primitives used on the library/dashboard
+   storage card. Owns `.storage*`, the segmented progress bar, and
+   the legend dots. Extracted from _base.css per CODE_GUIDELINES.md
+   §3.1.
+   ============================================================= */
+
+/* =============================================================
+   11. STORAGE BAR
+   ============================================================= */
+.storage,
+.storage-bar-container {
+  background: var(--s2); /* D33: was gradient, replaced per DESIGN.md §7 */
+  border-radius: var(--r-lg);
+  padding: 28px;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--hair);
+}
+.storage-hd,
+.storage-headline {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.storage-num,
+.storage-used {
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: -.03em;
+  line-height: 1;
+}
+.storage-num small,
+.storage-used small {
+  font-size: 16px;
+  color: var(--t3);
+  margin-left: 8px;
+  font-weight: 400;
+}
+.storage-free,
+.storage-avail { font-size: 14px; color: var(--t2); }
+
+.storage-bar {
+  height: 22px;
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  display: flex;
+  background: var(--rgba-overlay-sm);
+  margin-bottom: 18px;
+}
+.storage-bar .seg,
+.storage-bar .segment { height: 100%; flex: 0 0 var(--seg-pct, 0%); transition: flex .3s, width .3s; }
+.storage-bar .seg--mov,    .storage-bar .segment.movies { background: var(--orange); }
+.storage-bar .seg--tv,     .storage-bar .segment.tv     { background: var(--accent); }
+.storage-bar .seg--anime,  .storage-bar .segment.anime  { background: var(--purple); }
+.storage-bar .seg--other,  .storage-bar .segment.other  { background: rgba(255,255,255,.2); }
+
+.storage-legend { display: flex; flex-wrap: wrap; gap: 18px; font-size: 13px; }
+.legend,
+.legend-item { display: flex; align-items: center; gap: 8px; color: var(--t2); }
+.legend .dot,
+.legend-dot { width: 9px; height: 9px; border-radius: 50%; }
+.legend-dot--movies { background: var(--orange); }
+.legend-dot--tv     { background: var(--accent); }
+.legend-dot--anime  { background: var(--purple); }
+.legend-dot--other  { background: rgba(255,255,255,.3); }
+.legend b,
+.legend-item .size { color: var(--t1); font-weight: 500; margin-left: 4px; }
