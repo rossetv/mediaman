@@ -18,6 +18,12 @@ from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.services.infra.settings_reader import get_media_path as _get_media_path
 from mediaman.services.infra.storage import get_aggregate_disk_usage
 from mediaman.web.models import ACTION_SCHEDULED_DELETION
+from mediaman.web.repository.dashboard import (
+    fetch_deleted_audit_batch,
+    fetch_media_type_sizes,
+    fetch_redownload_audit_rows,
+    fetch_scheduled_deletions,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -59,47 +65,27 @@ def _days_until(dt_str: str | None) -> str:
 
 def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
     """Return scheduled-deletion items joined with media_items, enriched for the template."""
-    rows = conn.execute(
-        """
-        SELECT
-            sa.id          AS sa_id,
-            sa.media_item_id,
-            sa.execute_at,
-            mi.title,
-            mi.media_type,
-            mi.show_title,
-            mi.season_number,
-            mi.plex_rating_key,
-            mi.added_at,
-            mi.file_size_bytes
-        FROM scheduled_actions sa
-        JOIN media_items mi ON mi.id = sa.media_item_id
-        WHERE sa.action = ?
-          AND sa.token_used = 0
-        ORDER BY sa.execute_at ASC
-    """,
-        (ACTION_SCHEDULED_DELETION,),
-    ).fetchall()
+    rows = fetch_scheduled_deletions(conn, ACTION_SCHEDULED_DELETION)
 
     items = []
     for r in rows:
-        media_type = r["media_type"] or "movie"
+        media_type = r.media_type
         badge_class, type_label = media_type_badge(media_type)
-        if media_type in ("tv", "anime") and r["season_number"]:
-            type_label = f"{type_label} · S{r['season_number']}"
+        if media_type in ("tv", "anime") and r.season_number:
+            type_label = f"{type_label} · S{r.season_number}"
 
         items.append(
             {
-                "sa_id": r["sa_id"],
-                "media_item_id": r["media_item_id"],
-                "title": r["title"],
-                "plex_rating_key": r["plex_rating_key"],
+                "sa_id": r.sa_id,
+                "media_item_id": r.media_item_id,
+                "title": r.title,
+                "plex_rating_key": r.plex_rating_key,
                 "badge_class": badge_class,
                 "type_label": type_label,
-                "countdown": _days_until(r["execute_at"]),
-                "added_ago": days_ago(r["added_at"]),
-                "file_size": format_bytes(r["file_size_bytes"] or 0),
-                "file_size_bytes": r["file_size_bytes"] or 0,
+                "countdown": _days_until(r.execute_at),
+                "added_ago": days_ago(r.added_at),
+                "file_size": format_bytes(r.file_size_bytes),
+                "file_size_bytes": r.file_size_bytes,
             }
         )
     return items
@@ -126,13 +112,10 @@ def _build_redownload_index(
     now we only match on title.
     """
     by_title_lower: dict[str, str] = {}
-    rows = conn.execute(
-        "SELECT media_item_id, created_at FROM audit_log "
-        "WHERE action IN ('re_downloaded', 'downloaded')"
-    ).fetchall()
+    rows = fetch_redownload_audit_rows(conn)
     for rd in rows:
-        raw = rd["media_item_id"] or ""
-        ts = rd["created_at"]
+        raw = rd.media_item_id
+        ts = rd.created_at
         # Skip prefixed tokens (tmdb:/tvdb:/imdb:) — no title match possible.
         if ":" in raw:
             continue
@@ -184,58 +167,40 @@ def _fetch_recently_deleted(
 
     for batch in range(_RECENT_DELETED_MAX_BATCHES):
         offset = batch * _RECENT_DELETED_BATCH
-        rows = conn.execute(
-            """
-            SELECT
-                al.id,
-                al.media_item_id,
-                al.created_at,
-                al.detail,
-                al.space_reclaimed_bytes,
-                mi.title,
-                mi.media_type,
-                mi.plex_rating_key
-            FROM audit_log al
-            LEFT JOIN media_items mi ON mi.id = al.media_item_id
-            WHERE al.action = 'deleted'
-            ORDER BY al.created_at DESC
-            LIMIT ? OFFSET ?
-            """,
-            (_RECENT_DELETED_BATCH, offset),
-        ).fetchall()
+        rows = fetch_deleted_audit_batch(conn, limit=_RECENT_DELETED_BATCH, offset=offset)
 
         if not rows:
             break
 
         for r in rows:
-            if r["id"] in seen_ids:
+            if r.audit_id in seen_ids:
                 continue
-            seen_ids.add(r["id"])
+            seen_ids.add(r.audit_id)
 
-            title = r["title"]
+            title = r.title
             if not title:
-                title = title_from_audit_detail(r["detail"])
+                title = title_from_audit_detail(r.detail)
             # When the deletion row carries a tmdb_id we can also consult the redownload index
             # by tmdb_id; for now we only match on title.
             if _was_redownloaded_after(
-                r["created_at"],
+                r.created_at,
                 title=title,
                 by_title_lower=by_title_lower,
             ):
                 continue
 
-            rk = r["plex_rating_key"] or rk_from_audit_detail(r["detail"])
+            rk = r.plex_rating_key or rk_from_audit_detail(r.detail)
             poster_url = f"/api/poster/{rk}" if rk else ""
             idx = len(items)
             items.append(
                 {
-                    "id": r["id"],
-                    "media_item_id": r["media_item_id"],
+                    "id": r.audit_id,
+                    "media_item_id": r.media_item_id,
                     "title": title,
-                    "media_type": r["media_type"] or "",
+                    "media_type": r.media_type or "",
                     "poster_url": poster_url,
-                    "deleted_ago": days_ago(r["created_at"]),
-                    "reclaimed": format_bytes(r["space_reclaimed_bytes"] or 0),
+                    "deleted_ago": days_ago(r.created_at),
+                    "reclaimed": format_bytes(r.space_reclaimed_bytes),
                 }
             )
             if not poster_url:
@@ -287,13 +252,9 @@ def _fetch_storage_stats(conn: sqlite3.Connection) -> dict[str, object]:
         total = used = free = 0
 
     # Per-type breakdown from DB
-    type_rows = conn.execute("""
-        SELECT media_type, SUM(file_size_bytes) AS total
-        FROM media_items
-        GROUP BY media_type
-    """).fetchall()
+    type_rows = fetch_media_type_sizes(conn)
 
-    type_sizes = {r["media_type"]: (r["total"] or 0) for r in type_rows}
+    type_sizes = {r.media_type: r.total for r in type_rows}
     movies_bytes = type_sizes.get("movie", 0)
     tv_bytes = (
         type_sizes.get("tv_season", 0) + type_sizes.get("tv", 0) + type_sizes.get("season", 0)

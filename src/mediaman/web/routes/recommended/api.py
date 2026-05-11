@@ -25,8 +25,7 @@ from mediaman.services.openai.recommendations.repository import (
 )
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_admin
-
-from ._query import fetch_recommendations
+from mediaman.web.repository.recommended import fetch_recommendations
 
 logger = logging.getLogger(__name__)
 

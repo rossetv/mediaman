@@ -1,14 +1,16 @@
 """Repository functions for subscriber CRUD operations.
 
 All reads and writes against the ``subscribers`` table live here.
-The route layer retains only auth-style transaction orchestration
-(BEGIN IMMEDIATE / COMMIT / ROLLBACK for the concurrent-insert race).
+The concurrent-insert race window is closed inside the repository
+(``try_add_subscriber`` opens a ``BEGIN IMMEDIATE`` block); the route
+layer no longer issues raw transaction commands.
 """
 
 from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
+from enum import Enum
 
 
 @dataclass(frozen=True)
@@ -19,6 +21,13 @@ class SubscriberRow:
     email: str
     active: bool
     created_at: str
+
+
+class AddSubscriberOutcome(Enum):
+    """Outcome of :func:`try_add_subscriber`."""
+
+    ADDED = "added"
+    ALREADY_SUBSCRIBED = "already_subscribed"
 
 
 # ---------------------------------------------------------------------------
@@ -40,12 +49,6 @@ def list_subscribers(conn: sqlite3.Connection) -> list[SubscriberRow]:
         )
         for r in rows
     ]
-
-
-def find_subscriber_by_email(conn: sqlite3.Connection, email: str) -> int | None:
-    """Return the subscriber id for the given email, or None if not found."""
-    row = conn.execute("SELECT id FROM subscribers WHERE email = ?", (email,)).fetchone()
-    return row["id"] if row is not None else None
 
 
 def find_subscriber_by_id(conn: sqlite3.Connection, subscriber_id: int) -> str | None:
@@ -86,16 +89,38 @@ def fetch_active_subscribers_in(conn: sqlite3.Connection, emails: set[str]) -> l
 # ---------------------------------------------------------------------------
 
 
-def add_subscriber(conn: sqlite3.Connection, *, email: str, now: str) -> None:
-    """Insert a new active subscriber row.
+def try_add_subscriber(conn: sqlite3.Connection, *, email: str, now: str) -> AddSubscriberOutcome:
+    """Insert a subscriber, returning the outcome.
 
-    The caller is responsible for wrapping this in a transaction (BEGIN
-    IMMEDIATE) to prevent a race condition with a concurrent add.
+    Wraps the SELECT-then-INSERT in a ``BEGIN IMMEDIATE`` block so two
+    concurrent admin sessions adding the same email cannot both pass the
+    duplicate-check and then race on the INSERT.  ``BEGIN IMMEDIATE``
+    serialises writers at the SQLite level; the unique index on
+    ``subscribers.email`` is the second line of defence
+    (``IntegrityError`` translates to ``ALREADY_SUBSCRIBED``).
+
+    On any database error the transaction is rolled back and the
+    exception re-raises so the route layer can map it to a 500.
     """
-    conn.execute(
-        "INSERT INTO subscribers (email, active, created_at) VALUES (?, 1, ?)",
-        (email, now),
-    )
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute("SELECT id FROM subscribers WHERE email = ?", (email,)).fetchone()
+        if existing is not None:
+            conn.execute("ROLLBACK")
+            return AddSubscriberOutcome.ALREADY_SUBSCRIBED
+        try:
+            conn.execute(
+                "INSERT INTO subscribers (email, active, created_at) VALUES (?, 1, ?)",
+                (email, now),
+            )
+        except sqlite3.IntegrityError:
+            conn.execute("ROLLBACK")
+            return AddSubscriberOutcome.ALREADY_SUBSCRIBED
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    return AddSubscriberOutcome.ADDED
 
 
 def delete_subscriber(conn: sqlite3.Connection, subscriber_id: int) -> None:
