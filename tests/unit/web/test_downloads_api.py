@@ -1655,7 +1655,6 @@ class TestTriggerPendingSearches:
         conn = MagicMock()
 
         def boom(c, sk):
-            import requests
 
             raise requests.ConnectionError("radarr down")
 
