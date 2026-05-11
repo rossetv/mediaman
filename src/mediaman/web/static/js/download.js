@@ -133,7 +133,7 @@
     var pill = document.createElement('span');
     pill.className = 'dl-state-pill dl-state-' + item.state;
     pill.setAttribute('data-v', 'pill');
-    pill.textContent = stateLabel(item.state);
+    pill.textContent = item.state_label || item.state;
     statusWrap.appendChild(pill);
     info.appendChild(statusWrap);
 
@@ -186,14 +186,9 @@
     wrapper.replaceChildren(hero, hint);
   }
 
-  function stateLabel(state) {
-    if (state === 'searching') return 'Looking for the best version';
-    if (state === 'queued') return 'Queued — waiting on indexer';
-    if (state === 'downloading') return 'Downloading';
-    if (state === 'almost_ready') return 'Almost ready';
-    if (state === 'ready') return 'Ready';
-    return state;
-  }
+  // State labels come from the server (item.state_label). Fall back to the
+  // raw state string only if the server didn't supply one (defensive — shouldn't
+  // happen). The canonical map lives in services/downloads/download_format/_types.py.
 
   /* ── Poll download status ── */
   function pollStatus() {
@@ -216,7 +211,7 @@
         var pill = wrapper.querySelector('[data-v="pill"]');
         if (pill) {
           pill.className = 'dl-state-pill dl-state-' + data.state;
-          pill.textContent = stateLabel(data.state);
+          pill.textContent = data.state_label || data.state;
         }
 
         var progressWrap = wrapper.querySelector('[data-v="progress-wrap"]');

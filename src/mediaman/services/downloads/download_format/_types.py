@@ -4,6 +4,24 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
+#: Canonical state → user-visible label map. Single source of truth shared by
+#: Jinja templates (via ``state_label`` field on the rendered item) and the
+#: poll-loop JS (via the same field on the JSON response). Order matters
+#: only as documentation; lookup is by key.
+DOWNLOAD_STATE_LABELS: dict[str, str] = {
+    "searching": "Looking for the best version",
+    "queued": "Queued — waiting on indexer",
+    "downloading": "Downloading",
+    "almost_ready": "Almost ready",
+    "ready": "Ready",
+    "upcoming": "",
+}
+
+
+def state_label(state: str) -> str:
+    """Return the user-visible label for a download state, or the state itself if unknown."""
+    return DOWNLOAD_STATE_LABELS.get(state, state)
+
 
 class DownloadItem(TypedDict):
     """A single item on the downloads page, as returned by build_item()."""
@@ -13,6 +31,7 @@ class DownloadItem(TypedDict):
     media_type: str
     poster_url: str
     state: str
+    state_label: str
     progress: int
     eta: str
     size_done: str
