@@ -30,11 +30,19 @@ Invariants
 
 from __future__ import annotations
 
+import importlib
 import sqlite3
 from collections.abc import Callable
 
-from mediaman.db.migrations import v35
 from mediaman.db.schema_definition import _SCHEMA, CUTOVER_VERSION, DB_SCHEMA_VERSION
+
+# Post-cutover migration filenames begin with a zero-padded numeric prefix
+# (§9.2) — e.g. ``0035_aes_v1_sunset`` — which is not a valid Python
+# identifier, so we cannot use a plain ``from . import 0035_aes_v1_sunset``
+# statement.  ``importlib.import_module`` is the standard escape hatch and
+# the conventional pattern when migration files follow Django/Alembic
+# naming.
+_m0035_aes_v1_sunset = importlib.import_module("mediaman.db.migrations.0035_aes_v1_sunset")
 
 
 class SchemaTooOldError(RuntimeError):
@@ -62,7 +70,7 @@ class SchemaFromFutureError(RuntimeError):
 #: :data:`CUTOVER_VERSION` (i.e. the first entry's target_version is
 #: ``CUTOVER_VERSION + 1``).
 _POST_CUTOVER: list[tuple[int, Callable[[sqlite3.Connection], None]]] = [
-    (35, v35.apply),
+    (35, _m0035_aes_v1_sunset.apply),
 ]
 
 
