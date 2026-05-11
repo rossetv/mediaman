@@ -24,9 +24,9 @@ from mediaman.web.auth.session_store import (
     destroy_all_sessions_for,
     list_sessions_for,
 )
+from mediaman.web.cookies import is_request_secure, set_session_cookie
 from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.responses import respond_ok
-from mediaman.web.routes._helpers import set_session_cookie
 from mediaman.web.routes.users.rate_limits import _SESSIONS_LIST_LIMITER
 
 logger = logging.getLogger(__name__)
@@ -94,8 +94,6 @@ def api_revoke_other_sessions(
         user_agent=request.headers.get("user-agent", ""),
         client_ip=client_ip,
     )
-
-    from mediaman.web.routes.auth import is_request_secure
 
     response = respond_ok(
         {

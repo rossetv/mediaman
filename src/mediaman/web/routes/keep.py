@@ -39,9 +39,9 @@ from mediaman.services.scheduled_actions import (
     token_hash,
 )
 from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.middleware import is_admin as _is_admin
 from mediaman.web.models import VALID_KEEP_DURATIONS
 from mediaman.web.responses import respond_err, respond_ok
-from mediaman.web.routes._helpers import is_admin as _is_admin
 
 router = APIRouter()
 

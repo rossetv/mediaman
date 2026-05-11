@@ -33,7 +33,7 @@ from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.web.auth.middleware import resolve_page_session
 from mediaman.web.auth.password_hash import change_password
 from mediaman.web.auth.password_policy import password_issues, policy_summary
-from mediaman.web.routes._helpers import set_session_cookie
+from mediaman.web.cookies import is_request_secure, set_session_cookie
 
 logger = logging.getLogger(__name__)
 
@@ -175,8 +175,6 @@ def force_change_submit(
         user_agent=request.headers.get("user-agent", ""),
         client_ip=client_ip,
     )
-
-    from mediaman.web.routes.auth import is_request_secure
 
     response = RedirectResponse("/", status_code=302)
     set_session_cookie(response, new_token, secure=is_request_secure(request))

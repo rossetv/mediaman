@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
-from functools import lru_cache
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -16,8 +14,6 @@ from mediaman.db import get_db
 from mediaman.services.rate_limit import (
     RateLimiter,
     get_client_ip,
-    peer_is_trusted,
-    trusted_proxies,
 )
 from mediaman.web.auth.password_hash import (
     _sanitise_log_field,
@@ -31,8 +27,8 @@ from mediaman.web.auth.session_store import (
     destroy_session,
     validate_session,
 )
+from mediaman.web.cookies import is_request_secure, set_session_cookie
 from mediaman.web.responses import respond_err
-from mediaman.web.routes._helpers import set_session_cookie
 
 logger = logging.getLogger(__name__)
 
@@ -69,78 +65,6 @@ def _ua_hash(user_agent: str) -> str:
     fingerprints and other identifying noise).
     """
     return hashlib.sha256((user_agent or "").encode("utf-8", errors="ignore")).hexdigest()[:16]
-
-
-@lru_cache(maxsize=1)
-def _secure_cookie_override() -> str | None:
-    """Return the resolved value of ``MEDIAMAN_FORCE_SECURE_COOKIES``.
-
-    Cached at first call: the env var is read once and not re-checked
-    on every request.  Tests that mutate the env mid-process must call
-    :func:`_secure_cookie_override.cache_clear` to invalidate.
-
-    Returns ``"true"``, ``"false"``, or ``None`` (meaning "not set" /
-    fall through to scheme detection).
-    """
-    raw = os.environ.get("MEDIAMAN_FORCE_SECURE_COOKIES", "").strip().lower()
-    if raw in ("true", "false"):
-        return raw
-    return None
-
-
-def is_request_secure(request: Request) -> bool:
-    """Return True when the effective scheme is HTTPS.
-
-    Resolution order:
-
-    1. ``MEDIAMAN_FORCE_SECURE_COOKIES=true`` — unconditional yes.
-    2. ``MEDIAMAN_FORCE_SECURE_COOKIES=false`` — unconditional no
-       (development / plaintext loopback).
-    3. Otherwise default to **secure**. Mediaman is intended to be
-       served over HTTPS on any public deployment, and failing open
-       to plaintext cookies is exactly the scenario that turns a
-       misconfigured reverse proxy into session theft. The uvicorn
-       ``proxy_headers`` / ``forwarded_allow_ips`` machinery already
-       rewrites ``request.url.scheme`` to match ``X-Forwarded-Proto``
-       when a trusted peer sets it, and the per-app override below
-       is a belt-and-braces check: if the app genuinely sees an HTTP
-       request AND the operator hasn't opted out, we STILL set the
-       cookie Secure so it can't be sent on a plaintext loopback.
-    """
-    override = _secure_cookie_override()
-    if override == "true":
-        return True
-    if override == "false":
-        return False
-
-    # Best-effort scheme detection: honour X-Forwarded-Proto from a
-    # trusted peer if the uvicorn rewrite didn't already promote the
-    # scheme (e.g. deployment didn't pass ``forwarded_allow_ips``).
-    if request.url.scheme == "https":
-        return True
-    peer = request.client.host if request.client else None
-    trusted = trusted_proxies()
-    if peer_is_trusted(peer, trusted):
-        forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
-        if forwarded_proto == "https":
-            return True
-
-    # Default to True on a public-facing app — operators who genuinely
-    # need plaintext (localhost-only dev) can set
-    # ``MEDIAMAN_FORCE_SECURE_COOKIES=false``.
-    return True
-
-
-# Startup warning: log once when an operator has explicitly opted out of
-# Secure cookies.  This is fine for local dev / loopback but a bad idea
-# in any deployment that is reachable over the network — the admin's
-# session cookie will travel in plaintext on every request.
-if _secure_cookie_override() == "false":
-    logger.warning(
-        "auth.secure_cookies_disabled — MEDIAMAN_FORCE_SECURE_COOKIES=false; "
-        "session cookies will NOT carry the Secure flag.  Only safe for "
-        "loopback / development.  Unset the env var to restore the default."
-    )
 
 
 @router.get("/login", response_class=HTMLResponse)

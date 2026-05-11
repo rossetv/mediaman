@@ -46,7 +46,7 @@ class TestSessionLifecycle:
         # stale value from earlier tests in the process. The unit-test suite
         # does this via an autouse fixture; integration tests have no such
         # hook, so we invalidate explicitly.
-        from mediaman.web.routes.auth import _secure_cookie_override
+        from mediaman.web.cookies import _secure_cookie_override
 
         _secure_cookie_override.cache_clear()
 

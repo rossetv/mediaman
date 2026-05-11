@@ -1,23 +1,20 @@
-"""Tests for :mod:`mediaman.web.routes._helpers`.
+"""Tests for :mod:`mediaman.web.cookies`.
 
-Covers the three exported symbols:
+Covers the public surface of the cookies module:
   - ``SESSION_COOKIE_MAX_AGE`` — constant sanity
   - ``set_session_cookie`` — cookie attributes applied correctly
-  - ``is_admin`` — delegates to auth middleware with correct cookie name
-  - ``fail`` — standardised JSON error envelope
+
+``is_request_secure`` and ``_secure_cookie_override`` are exercised by
+:mod:`tests.unit.web.test_auth_routes` which still owns the broader
+secure-cookie scheme behaviour suite (kept there to minimise churn when
+the function moved out of ``mediaman.web.routes.auth``).
 """
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
 from fastapi.responses import JSONResponse
 
-from mediaman.web.routes._helpers import (
-    SESSION_COOKIE_MAX_AGE,
-    is_admin,
-    set_session_cookie,
-)
+from mediaman.web.cookies import SESSION_COOKIE_MAX_AGE, set_session_cookie
 
 # ---------------------------------------------------------------------------
 # SESSION_COOKIE_MAX_AGE
@@ -89,68 +86,3 @@ class TestSetSessionCookie:
         set_session_cookie(resp, token, secure=True)
         header = resp.headers.get("set-cookie", "")
         assert f"session_token={token}" in header
-
-
-# ---------------------------------------------------------------------------
-# is_admin
-# ---------------------------------------------------------------------------
-
-
-class TestIsAdmin:
-    def _make_request(self, session_token: str | None) -> MagicMock:
-        req = MagicMock()
-        req.cookies = {"session_token": session_token} if session_token else {}
-        return req
-
-    def test_returns_true_when_middleware_returns_user(self):
-        """is_admin returns True when get_optional_admin_from_token returns a username."""
-        req = self._make_request("valid-token")
-        with patch(
-            "mediaman.web.auth.middleware.get_optional_admin_from_token",
-            return_value="admin",
-        ):
-            assert is_admin(req) is True
-
-    def test_returns_false_when_middleware_returns_none(self):
-        """is_admin returns False when no valid session exists."""
-        req = self._make_request(None)
-        with patch(
-            "mediaman.web.auth.middleware.get_optional_admin_from_token",
-            return_value=None,
-        ):
-            assert is_admin(req) is False
-
-    def test_passes_cookie_value_to_middleware(self):
-        """is_admin must pass the session_token cookie value to the middleware function."""
-        req = self._make_request("my-session-token")
-        with patch(
-            "mediaman.web.auth.middleware.get_optional_admin_from_token",
-            return_value=None,
-        ) as mock_fn:
-            is_admin(req)
-            mock_fn.assert_called_once()
-            # First positional arg must be the token string
-            assert mock_fn.call_args[0][0] == "my-session-token"
-
-    def test_missing_cookie_passes_none_to_middleware(self):
-        """When no cookie is present, None is passed to the middleware function."""
-        req = self._make_request(None)
-        with patch(
-            "mediaman.web.auth.middleware.get_optional_admin_from_token",
-            return_value=None,
-        ) as mock_fn:
-            is_admin(req)
-            assert mock_fn.call_args[0][0] is None
-
-
-# ---------------------------------------------------------------------------
-# fail
-# ---------------------------------------------------------------------------
-
-
-# `fail()` was an attempt at a unified error envelope helper (Domain 12)
-# that was never adopted by any route. Routes hand-roll their own
-# JSONResponse shapes; tightening that to a single envelope would
-# touch ~27 call sites plus the tests that assert their existing
-# shapes. Deleted in 2026-05 along with this test class — see commit
-# message for the rationale.

@@ -23,6 +23,7 @@ from mediaman.db import get_db
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.scheduled_actions import format_expiry, resolve_keep_decision
 from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.middleware import is_admin as _is_admin
 from mediaman.web.models import ACTION_PROTECTED_FOREVER, VALID_KEEP_DURATIONS
 from mediaman.web.repository.kept import (
     delete_kept_show,
@@ -41,7 +42,6 @@ from mediaman.web.repository.kept import (
     upsert_kept_show,
 )
 from mediaman.web.responses import respond_err, respond_ok
-from mediaman.web.routes._helpers import is_admin as _is_admin
 
 # Canonical list of TV / anime season media_type values, shared with the
 # library type filter. Keeping the list co-located with
