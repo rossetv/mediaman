@@ -207,7 +207,7 @@ def create_user(
                 (username, password_hash, now),
             )
             if audit_actor is not None:
-                from mediaman.audit import security_event_or_raise
+                from mediaman.core.audit import security_event_or_raise
 
                 security_event_or_raise(
                     conn,
@@ -429,7 +429,7 @@ def change_password(
                 (username,),
             )
             if audit_actor is not None:
-                from mediaman.audit import security_event_or_raise
+                from mediaman.core.audit import security_event_or_raise
 
                 security_event_or_raise(
                     conn,
@@ -522,7 +522,7 @@ def delete_user(
                 _last_user = True
                 raise RuntimeError("last_user")  # triggers with-block rollback
             if audit_actor is not None:
-                from mediaman.audit import security_event_or_raise
+                from mediaman.core.audit import security_event_or_raise
 
                 security_event_or_raise(
                     conn,

@@ -371,7 +371,7 @@ class TestClearScheduledAuditLog:
 
         # The audit insert now lives inside scanner.repository.scheduled_actions;
         # patch it at the source so the in-transaction insert blows up.
-        import mediaman.audit as audit_module
+        import mediaman.core.audit as audit_module
 
         def boom(*_a, **_k):
             raise RuntimeError("simulated audit failure")

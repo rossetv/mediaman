@@ -21,7 +21,7 @@ import sqlite3
 from datetime import UTC, datetime
 from typing import Any, TypedDict
 
-from mediaman.audit import log_audit
+from mediaman.core.audit import log_audit
 from mediaman.scanner import repository
 from mediaman.services.infra.storage import delete_path
 

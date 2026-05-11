@@ -11,7 +11,7 @@ import pytest
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from mediaman.audit import security_event
+from mediaman.core.audit import security_event
 from mediaman.crypto import (
     decrypt_value,
     encrypt_value,

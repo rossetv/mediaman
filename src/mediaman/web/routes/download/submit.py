@@ -11,7 +11,7 @@ import requests
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from mediaman.audit import log_audit
+from mediaman.core.audit import log_audit
 from mediaman.crypto import generate_poll_token, validate_download_token
 from mediaman.crypto.tokens import DownloadTokenPayload
 from mediaman.db import get_db
