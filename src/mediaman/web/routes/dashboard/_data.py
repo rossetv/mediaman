@@ -5,16 +5,16 @@ from __future__ import annotations
 import sqlite3
 import threading
 import time
-from datetime import UTC, datetime
 
 from mediaman.core.format import (
     days_ago,
     format_bytes,
     media_type_badge,
+    relative_day_label,
     rk_from_audit_detail,
     title_from_audit_detail,
 )
-from mediaman.core.time import parse_iso_utc
+from mediaman.core.time import now_utc, parse_iso_utc
 from mediaman.services.infra.settings_reader import get_media_path as _get_media_path
 from mediaman.services.infra.storage import get_aggregate_disk_usage
 from mediaman.web.models import ACTION_SCHEDULED_DELETION
@@ -48,12 +48,13 @@ def _days_until(dt_str: str | None) -> str:
     execute_at = parse_iso_utc(dt_str)
     if execute_at is None:
         return ""
-    delta = (execute_at - datetime.now(UTC)).days
-    if delta <= 0:
-        return "Deletes today"
-    if delta == 1:
-        return "Deletes tomorrow"
-    return f"Deletes in {delta} days"
+    return relative_day_label(
+        execute_at,
+        now=now_utc(),
+        today="Deletes today",
+        tomorrow="Deletes tomorrow",
+        future=lambda days: f"Deletes in {days} days",
+    )
 
 
 def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:

@@ -19,13 +19,12 @@ between FastAPI and that service.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.responses import Response
 
 from mediaman.audit import log_audit
+from mediaman.core.time import now_utc
 from mediaman.db import get_db
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.services.scheduled_actions import (
@@ -103,7 +102,7 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
         )
 
     # Determine state.
-    now = datetime.now(UTC)
+    now = now_utc()
     execute_at = parse_execute_at(row["execute_at"], default=now)
 
     if execute_at < now:
@@ -172,32 +171,32 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
     if not _KEEP_POST_LIMITER.check(get_client_ip(request)):
         return HTMLResponse("Too many requests. Try again later.", status_code=429)
     if len(token) > 4096:
-        return HTMLResponse('{"error":"invalid_or_expired"}', status_code=400)
+        return respond_err("invalid_or_expired", status=400)
 
     # Reject unknown durations early; also reject "forever" — that lives on
     # the admin-only endpoint for privileged users only.
     if duration not in VALID_KEEP_DURATIONS or duration == "forever":
-        return HTMLResponse('{"error":"invalid_or_expired"}', status_code=400)
+        return respond_err("invalid_or_expired", status=400)
 
     # HMAC-verify the token and confirm it maps to an existing action.
     # Any failure here (bad signature, expired payload, row absent) → 400.
     verified = lookup_verified_action(conn, token, config.secret_key)
     if verified is None:
-        return HTMLResponse('{"error":"invalid_or_expired"}', status_code=400)
+        return respond_err("invalid_or_expired", status=400)
 
-    now = datetime.now(UTC)
+    now = now_utc()
 
     # Check the token-used table first so replays get 409, not 400.
     if not mark_token_consumed(conn, token, now):
         conn.commit()
-        return HTMLResponse('{"error":"already_processed"}', status_code=409)
+        return respond_err("already_processed", status=409)
 
     # Finding 13: confirm the action is still pending and the deadline has
     # not passed.  If the deadline has already passed, return the same
     # "invalid_or_expired" error so callers get a clear signal.
     if not is_pending_unexpired(verified, now):
         conn.rollback()
-        return HTMLResponse('{"error":"invalid_or_expired"}', status_code=400)
+        return respond_err("invalid_or_expired", status=400)
 
     # ``duration`` is non-"forever" by the early reject above, so the
     # mapping is guaranteed to yield an int.
@@ -215,7 +214,7 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
         # The scheduled_actions row was already token_used=1, delete_status
         # has advanced, or the deadline passed between our check and here.
         conn.commit()
-        return HTMLResponse('{"error":"already_processed"}', status_code=409)
+        return respond_err("already_processed", status=409)
 
     # Audit log only fires for the winning request.
     log_audit(conn, verified["media_item_id"], "snoozed", f"Kept for {duration}")
@@ -253,7 +252,7 @@ def keep_forever(
     if verified is None:
         return respond_err("invalid_or_expired", status=400)
 
-    now = datetime.now(UTC)
+    now = now_utc()
 
     # Check replay first so replays get 409, not 400.
     if not mark_token_consumed(conn, token, now):

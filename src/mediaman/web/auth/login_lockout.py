@@ -49,8 +49,9 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
+from mediaman.core.time import now_utc
 from mediaman.core.time import parse_iso_utc as _parse_iso
 
 logger = logging.getLogger(__name__)
@@ -78,7 +79,7 @@ _DECAY_HOURS = 24
 
 
 def _now() -> datetime:
-    return datetime.now(UTC)
+    return now_utc()
 
 
 def _iso(dt: datetime) -> str:

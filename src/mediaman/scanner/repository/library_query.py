@@ -22,11 +22,11 @@ Constants
 from __future__ import annotations
 
 import sqlite3
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
-from mediaman.core.format import days_ago, format_bytes
+from mediaman.core.format import days_ago, format_bytes, relative_day_label
 from mediaman.core.scheduled_action_kinds import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED
-from mediaman.core.time import parse_iso_utc
+from mediaman.core.time import now_utc, parse_iso_strict_utc, parse_iso_utc
 from mediaman.services.infra.settings_reader import get_int_setting
 
 # ---------------------------------------------------------------------------
@@ -67,7 +67,7 @@ def _days_ago(dt_str: str | None) -> str:
     dt = parse_iso_utc(dt_str)
     if dt is None:
         return ""
-    delta = (datetime.now(UTC) - dt).days
+    delta = (now_utc() - dt).days
     if delta > 3650:
         return ""
     return days_ago(dt_str)
@@ -89,16 +89,24 @@ def _protection_label(sa_action: str | None, sa_execute_at: str | None) -> str |
     if sa_action == ACTION_PROTECTED_FOREVER:
         return "Kept forever"
     if sa_action == ACTION_SNOOZED and sa_execute_at:
-        try:
-            execute_at = datetime.fromisoformat(sa_execute_at)
-            if execute_at.tzinfo is None:
-                execute_at = execute_at.replace(tzinfo=UTC)
-            delta = (execute_at - datetime.now(UTC)).days
-            if delta <= 0:
-                return None
-            return f"Kept for {delta} more day{'s' if delta != 1 else ''}"
-        except (ValueError, TypeError):
+        execute_at = parse_iso_strict_utc(sa_execute_at)
+        if execute_at is None:
             return None
+        # ``_protection_label`` returns None for today/past dates rather
+        # than a string, so we pre-filter and only invoke
+        # :func:`relative_day_label` on future deadlines.  The helper's
+        # tomorrow case is the singular "1 more day"; its future arm
+        # plural.
+        now = now_utc()
+        if (execute_at - now).days <= 0:
+            return None
+        return relative_day_label(
+            execute_at,
+            now=now,
+            today="",  # unreachable: filtered above
+            tomorrow="Kept for 1 more day",
+            future=lambda days: f"Kept for {days} more days",
+        )
     return None
 
 
@@ -133,7 +141,7 @@ def _build_where_clause(
     elif media_type == "stale":
         _min_age = get_int_setting(conn, "min_age_days", default=30)
         _inactivity = get_int_setting(conn, "inactivity_days", default=30)
-        _now = datetime.now(UTC)
+        _now = now_utc()
         age_cutoff = (_now - timedelta(days=_min_age)).isoformat()
         watch_cutoff = (_now - timedelta(days=_inactivity)).isoformat()
         where_clauses.append("added_at < ?")

@@ -17,17 +17,20 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-from datetime import UTC, datetime, timedelta
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 
-from mediaman.core.format import format_day_month
+from mediaman.core.format import format_day_month, relative_day_label
 from mediaman.core.scheduled_action_kinds import (
     ACTION_PROTECTED_FOREVER,
     ACTION_SCHEDULED_DELETION,
     ACTION_SNOOZED,
 )
+from mediaman.core.time import now_iso, now_utc, parse_iso_strict_utc
 from mediaman.crypto import validate_keep_token
 
 __all__ = [
+    "KeepDecision",
     "apply_keep_forever",
     "apply_keep_snooze",
     "find_active_keep_action_by_id_and_token",
@@ -37,8 +40,44 @@ __all__ = [
     "lookup_verified_action",
     "mark_token_consumed",
     "parse_execute_at",
+    "resolve_keep_decision",
     "token_hash",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class KeepDecision:
+    """Resolved outcome of a keep-duration choice.
+
+    ``action`` is one of :data:`ACTION_PROTECTED_FOREVER` /
+    :data:`ACTION_SNOOZED`.  ``execute_at`` is the ISO UTC deadline for
+    a finite snooze, ``None`` for forever.  ``snooze_duration_days`` is
+    the integer day count for a finite snooze, ``None`` for forever.
+    """
+
+    action: str
+    execute_at: str | None
+    snooze_duration_days: int | None
+
+
+def resolve_keep_decision(duration: str, *, days: int | None, now: datetime) -> KeepDecision:
+    """Resolve the keep-duration ladder once.
+
+    Two route handlers previously duplicated this if/else chain:
+    ``web/routes/library_api/__init__.py`` (``api_media_keep``) and
+    ``web/routes/kept.py`` (``api_keep_show``).  ``duration`` must be a
+    value already validated against :data:`VALID_KEEP_DURATIONS`;
+    ``days`` is the integer day count from the same lookup
+    (``VALID_KEEP_DURATIONS[duration]``) — ``None`` only when
+    ``duration == "forever"``.  Passing them separately rather than
+    importing :data:`VALID_KEEP_DURATIONS` here keeps Ring-2 services
+    free of any Ring-3 ``web.models`` dependency.
+    """
+    if duration == "forever":
+        return KeepDecision(ACTION_PROTECTED_FOREVER, None, None)
+    assert days is not None, "non-forever durations must have a day count"
+    execute_at = (now + timedelta(days=days)).isoformat()
+    return KeepDecision(ACTION_SNOOZED, execute_at, days)
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +160,7 @@ def find_active_keep_action_by_id_and_token(
     column for rows not yet migrated to ``token_hash``.
     """
     th = token_hash(token)
-    now = datetime.now(UTC).isoformat()
+    now = now_iso()
     row = conn.execute(
         "SELECT * FROM scheduled_actions "
         "WHERE id = ? AND token_hash = ? "
@@ -171,21 +210,14 @@ def parse_execute_at(raw: object, *, default: datetime) -> datetime:
     unparseable, or otherwise invalid — this is the same fallback the
     keep routes used inline before extraction.
 
-    Uses the strict :func:`datetime.fromisoformat` rather than
-    :func:`parse_iso_utc` to preserve the previous inline behaviour
+    Delegates to :func:`mediaman.core.time.parse_iso_strict_utc`, which
+    preserves the previous inline ``datetime.fromisoformat`` behaviour
     exactly: any value that the old code treated as "unparseable →
     expired" still is.  Naive datetimes are stamped UTC.
     """
     text = str(raw or "")
-    if not text:
-        return default
-    try:
-        parsed = datetime.fromisoformat(text)
-    except (ValueError, TypeError):
-        return default
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return parsed
+    parsed = parse_iso_strict_utc(text)
+    return parsed if parsed is not None else default
 
 
 def is_pending_unexpired(verified: sqlite3.Row, now: datetime) -> bool:
@@ -287,27 +319,19 @@ def format_expiry(action: str | None, execute_at: str | None) -> str:
     * ``"Expires today"`` / ``"Expires tomorrow"`` / ``"Expires in N days"``
       for snoozed items with a parseable future deadline.
     * ``"Unknown"`` for missing or unparseable deadlines.
-
-    Uses strict :func:`datetime.fromisoformat` to preserve the prior
-    inline behaviour exactly — values that previously fell through to
-    ``"Unknown"`` still do.
     """
     if action == ACTION_PROTECTED_FOREVER:
         return "Forever"
-    if not execute_at:
+    dt = parse_iso_strict_utc(execute_at)
+    if dt is None:
         return "Unknown"
-    try:
-        dt = datetime.fromisoformat(execute_at)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=UTC)
-        delta = (dt - datetime.now(UTC)).days
-        if delta <= 0:
-            return "Expires today"
-        if delta == 1:
-            return "Expires tomorrow"
-        return f"Expires in {delta} days"
-    except (ValueError, TypeError):
-        return "Unknown"
+    return relative_day_label(
+        dt,
+        now=now_utc(),
+        today="Expires today",
+        tomorrow="Expires tomorrow",
+        future=lambda days: f"Expires in {days} days",
+    )
 
 
 def format_added_display(raw_added: object) -> str:
@@ -318,16 +342,15 @@ def format_added_display(raw_added: object) -> str:
     characters of the raw string when parsing fails so the template
     still has *something* to render.
 
-    Uses the strict :func:`datetime.fromisoformat` rather than
-    :func:`parse_iso_utc` to preserve the previous inline behaviour
+    Delegates to :func:`mediaman.core.time.parse_iso_strict_utc`, which
+    preserves the previous inline ``datetime.fromisoformat`` behaviour
     exactly: any value that the old code would have routed to the
     string-slice fallback still does.
     """
     text = str(raw_added or "")
     if not text:
         return ""
-    try:
-        parsed = datetime.fromisoformat(text)
-    except (ValueError, TypeError):
+    parsed = parse_iso_strict_utc(text)
+    if parsed is None:
         return text[:10]
     return format_day_month(parsed, long_month=True)

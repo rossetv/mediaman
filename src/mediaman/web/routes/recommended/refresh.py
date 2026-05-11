@@ -10,11 +10,11 @@ from __future__ import annotations
 import contextlib
 import logging
 import threading
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
+from mediaman.core.time import now_utc
 from mediaman.db import (
     finish_refresh_run,
     get_db,
@@ -71,7 +71,7 @@ def api_refresh_recommendations(
     # Cooldown — enforced before we touch OpenAI / Plex / the lock.
     cooldown = refresh_cooldown_remaining(conn)
     if cooldown is not None:
-        next_at = (datetime.now(UTC) + cooldown).isoformat()
+        next_at = (now_utc() + cooldown).isoformat()
         return JSONResponse(
             {
                 "ok": False,
@@ -122,7 +122,7 @@ def api_refresh_recommendations(
                     # failure must not lock the user out for 24h. Record
                     # the timestamp here, after the work returned without
                     # raising.
-                    record_manual_refresh(thread_conn, datetime.now(UTC))
+                    record_manual_refresh(thread_conn, now_utc())
                     manual_refresh_recorded = True
                     finish_refresh_run(thread_conn, run_id, "done")
                 else:
@@ -174,7 +174,7 @@ def api_refresh_status(admin: str = Depends(get_current_admin)) -> JSONResponse:
     cooldown_payload: dict[str, object] = {"manual_refresh_available": cooldown is None}
     if cooldown is not None:
         cooldown_payload["cooldown_seconds"] = int(cooldown.total_seconds())
-        cooldown_payload["next_available_at"] = (datetime.now(UTC) + cooldown).isoformat()
+        cooldown_payload["next_available_at"] = (now_utc() + cooldown).isoformat()
 
     if running:
         return JSONResponse({"status": "running", **cooldown_payload})

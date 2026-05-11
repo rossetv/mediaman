@@ -16,13 +16,44 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 
+def now_utc() -> datetime:
+    """Return ``datetime.now(UTC)``.
+
+    The canonical clock surface used across mediaman; monkey-patch this
+    in tests rather than reaching for the stdlib directly.  Centralising
+    the clock call also means a future migration to a different timezone
+    convention (UTC offset, leap-second handling, etc.) touches one line
+    instead of forty.
+    """
+    return datetime.now(UTC)
+
+
 def now_iso() -> str:
     """Return the current UTC time as an ISO-8601 string.
 
     Equivalent to ``datetime.now(timezone.utc).isoformat()`` but defined
     once so all call sites read the same clock call and format.
     """
-    return datetime.now(UTC).isoformat()
+    return now_utc().isoformat()
+
+
+def parse_iso_strict_utc(value: str | None) -> datetime | None:
+    """Strict ISO-8601 parse: return ``None`` on missing/invalid input, or
+    a tz-aware UTC datetime on success.
+
+    Unlike :func:`parse_iso_utc` this rejects subtly malformed strings
+    (trailing ``Z``, oversized fractional seconds, etc.) rather than
+    coercing them — use it where the previous inline code path treated
+    "unparseable" as "treat as expired / unknown".  Naive datetimes are
+    interpreted as UTC, matching :func:`parse_iso_utc`'s convention.
+    """
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
 
 
 def parse_iso_utc(value: str | None) -> datetime | None:

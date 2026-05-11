@@ -21,13 +21,14 @@ import directly from that path continue to work.
 from __future__ import annotations
 
 import sqlite3
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.responses import Response
 
 from mediaman.core.format import format_bytes
+from mediaman.core.time import now_utc
 from mediaman.scanner.repository.library_query import (
     _MAX_SEARCH_TERM_LEN as _MAX_SEARCH_TERM_LEN,
 )
@@ -103,7 +104,7 @@ def fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
     min_age = get_int_setting(conn, "min_age_days", default=30)
     inactivity = get_int_setting(conn, "inactivity_days", default=30)
 
-    now = datetime.now(UTC)
+    now = now_utc()
     age_cutoff = (now - timedelta(days=min_age)).isoformat()
     watch_cutoff = (now - timedelta(days=inactivity)).isoformat()
 

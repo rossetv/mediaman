@@ -34,6 +34,8 @@ import threading
 import time
 from datetime import UTC, datetime
 
+from mediaman.core.time import now_iso as _now_iso
+
 logger = logging.getLogger(__name__)
 
 _USED_TOKENS_LOCK = threading.Lock()
@@ -94,7 +96,7 @@ def _persist_used_token(conn: sqlite3.Connection, digest: str, exp: int) -> bool
     already taken the slot.
     """
     expires_at = datetime.fromtimestamp(exp, tz=UTC).isoformat()
-    used_at = datetime.now(UTC).isoformat()
+    used_at = _now_iso()
     cursor = conn.execute(
         "INSERT OR IGNORE INTO used_download_tokens "
         "(token_hash, expires_at, used_at) VALUES (?, ?, ?)",
@@ -139,7 +141,7 @@ def gc_expired_tokens(conn: sqlite3.Connection | None = None) -> None:
         conn = _get_db_or_none()
         if conn is None:
             return
-    now_iso = datetime.now(UTC).isoformat()
+    now_iso = _now_iso()
     try:
         conn.execute("DELETE FROM used_download_tokens WHERE expires_at < ?", (now_iso,))
         conn.commit()
