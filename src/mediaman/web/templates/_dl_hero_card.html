@@ -2,6 +2,7 @@
    Context: item (dict with id, title, media_type, poster_url, state,
    progress, eta, size_done, size_total, episodes, episode_summary,
    search_hint, arr_link, arr_source). #}
+{% import "_components.html" as c %}
 <div class="dl-hero dl-card-enter" data-dl-id="{{ item.id }}">
   <div class="dl-hero-bg" {% if item.poster_url %}data-bg-url="{{ item.poster_url }}"{% endif %}></div>
   {# H67: background-image is set via JS (dl-poster.js) using style.setProperty + JSON.stringify,
@@ -10,17 +11,10 @@
 
   {% if item.abandon_visible %}
   <div class="dl-hero-abandon">
-    <button type="button"
-            class="btn btn--icon btn--ghost"
-            data-abandon-trigger
-            data-dl-id="{{ item.id }}"
-            data-kind="{{ 'series' if item.media_type != 'movie' else 'movie' }}"
-            data-title="{{ item.title }}"
-            data-stuck-seasons='{{ item.stuck_seasons|tojson }}'
-            aria-label="Abandon search"
-            title="Abandon search">
-      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
-    </button>
+    {{ c.abandon_btn(item.id,
+                     kind=('series' if item.media_type != 'movie' else 'movie'),
+                     title=item.title,
+                     stuck_seasons=item.stuck_seasons|tojson) }}
   </div>
   {% endif %}
 
@@ -35,7 +29,8 @@
 
     <div class="dl-hero-info">
       <div class="pill-row u-mb-12">
-        <span class="pill pill--{{ 'movie' if item.media_type == 'movie' else 'tv' }}">{{ 'Movie' if item.media_type == 'movie' else 'TV' }}</span>
+        {{ c.pill(('Movie' if item.media_type == 'movie' else 'TV'),
+                  variant=('movie' if item.media_type == 'movie' else 'tv')) }}
       </div>
 
       <div class="dl-hero-title">{{ item.title }}</div>

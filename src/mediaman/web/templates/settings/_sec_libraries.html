@@ -8,7 +8,7 @@
   {% set lib_actions %}
     <span class="sub lib-pill-count" id="lib-pill-count">—</span>
   {% endset %}
-  {% call c.setg_card_v2(title="Libraries to scan",
+  {% call c.setg_card(title="Libraries to scan",
                          sub="Click a library to include it in weekly scans. Unselected libraries are ignored.",
                          header_actions=lib_actions, pad=True) %}
     <div class="lib-pills" id="plex-library-pills">
@@ -16,7 +16,7 @@
     </div>
   {% endcall %}
 
-  {% call c.setg_card_v2(title="Paths & disk thresholds",
+  {% call c.setg_card(title="Paths & disk thresholds",
                          sub="Filesystem path Mediaman uses to measure disk usage — must match what Plex sees. Scan runs only when usage crosses the threshold.",
                          pad=True) %}
     <div id="disk-threshold-rows">

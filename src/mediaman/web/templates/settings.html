@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_components.html" as c %}
 
 {% block title %}Settings · Mediaman{% endblock %}
 
@@ -35,8 +36,8 @@
       <span class="sb-dot"></span>
       <span class="sb-msg">Unsaved changes</span>
       <span class="sb-sub" id="save-status">Edits apply to every section at once.</span>
-      <button type="button" class="btn btn--ghost btn--sm" id="btn-discard">Discard</button>
-      <button type="button" class="btn btn--primary btn--sm" id="btn-save">Save Settings</button>
+      {{ c.btn("Discard", variant="ghost", size="sm", id="btn-discard") }}
+      {{ c.btn("Save Settings", variant="primary", size="sm", id="btn-save") }}
     </div>
   </div>
 </div>

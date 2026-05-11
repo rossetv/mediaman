@@ -14,7 +14,8 @@
         <span><span class="chip-dot chip-dot--loading"></span>Loading…</span>
       </div>
       <div class="ov-foot">
-        <a href="#setg-libraries" class="btn btn--secondary btn--sm">Configure paths &amp; thresholds</a>
+        {{ c.btn("Configure paths & thresholds", variant="secondary", size="sm",
+                 tag="a", href="#setg-libraries") }}
       </div>
     </div>
 
@@ -24,7 +25,8 @@
       <div class="when" id="ov-scan-when">—</div>
       <div class="support">Runs weekly. A library is scanned only if its disk is above its threshold.</div>
       <div class="ov-foot">
-        <a href="#setg-general" class="btn btn--ghost btn--sm">Edit schedule</a>
+        {{ c.btn("Edit schedule", variant="ghost", size="sm",
+                 tag="a", href="#setg-general") }}
       </div>
     </div>
   </div>
