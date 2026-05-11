@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 
@@ -180,7 +180,7 @@ def _enrich_ratings(results: list[dict], request: Request) -> None:
                 probe["media_type"],
                 omdb_key=resolved_omdb_key,
             )
-        except Exception:
+        except (SafeHTTPError, _requests.RequestException, ValueError, TypeError):
             logger.debug("Ratings fetch failed for %r — skipping", probe["title"], exc_info=True)
             data = {}
         return key, group, data
@@ -192,7 +192,7 @@ def _enrich_ratings(results: list[dict], request: Request) -> None:
         for fut in as_completed(futures, timeout=_ENRICH_BUDGET_SECONDS):
             try:
                 key, group, data = fut.result()
-            except Exception:
+            except (SafeHTTPError, _requests.RequestException, ValueError, CancelledError):
                 continue
             rt = data.get("rt")
             imdb = data.get("imdb")

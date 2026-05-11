@@ -210,7 +210,11 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
         def _host_of(url: str) -> str:
             try:
                 return _normalise_origin(url, default_scheme=request_scheme)[1]
-            except Exception:
+            except ValueError:
+                # Malformed Origin/Referer header — urlsplit / .port raised
+                # for an invalid IPv6 host or a non-numeric port. Treat as
+                # an empty host so the CSRF comparison fails closed (the
+                # request will be rejected as a mismatch).
                 return ""
 
         if origin and _host_of(origin) != expected_host:

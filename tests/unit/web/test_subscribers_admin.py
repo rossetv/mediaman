@@ -255,9 +255,11 @@ class TestSendNewsletter:
         conn = app.state.db
         _insert_subscriber(conn, "ok@example.com", active=1)
 
+        import requests as _requests
+
         with patch(
             "mediaman.services.mail.newsletter.send_newsletter",
-            side_effect=Exception("SMTP failure"),
+            side_effect=_requests.ConnectionError("SMTP failure"),
         ):
             resp = authed_client.post(
                 "/api/newsletter/send",

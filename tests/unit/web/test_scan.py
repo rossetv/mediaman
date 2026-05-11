@@ -274,8 +274,11 @@ class TestLibrarySync:
         conn = init_db(str(db_path))
         app = _make_app(conn, secret_key, str(db_path))
         client = _auth_client(app, conn)
+        import requests as _requests
+
         with patch(
-            "mediaman.scanner.runner.run_library_sync", side_effect=RuntimeError("plex down")
+            "mediaman.scanner.runner.run_library_sync",
+            side_effect=_requests.ConnectionError("plex down"),
         ):
             resp = client.post("/api/library/sync")
         assert resp.status_code == 200
@@ -369,14 +372,14 @@ class TestClearScheduledAuditLog:
         )
         conn.commit()
 
-        # The audit insert now lives inside scanner.repository.scheduled_actions;
-        # patch it at the source so the in-transaction insert blows up.
-        import mediaman.core.audit as audit_module
+        import sqlite3 as _sqlite3
+
+        from mediaman.web.routes import scan as scan_module
 
         def boom(*_a, **_k):
-            raise RuntimeError("simulated audit failure")
+            raise _sqlite3.OperationalError("simulated audit failure")
 
-        monkeypatch.setattr(audit_module, "security_event_or_raise", boom)
+        monkeypatch.setattr(scan_module, "security_event_or_raise", boom)
 
         resp = client.post("/api/scan/clear-scheduled")
         assert resp.status_code == 500

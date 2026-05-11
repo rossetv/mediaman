@@ -83,11 +83,11 @@ def _get_db_or_none() -> sqlite3.Connection | None:
     """
     try:
         from mediaman.db import get_db
-    except Exception:
+    except ImportError:
         return None
     try:
         return get_db()
-    except Exception:
+    except RuntimeError:
         return None
 
 
@@ -111,8 +111,8 @@ def _release_used_token(conn: sqlite3.Connection, digest: str) -> None:
     """
     try:
         release_download_token(conn, digest)
-    except Exception:
-        logger.warning("download token release failed for digest=%s", digest, exc_info=True)
+    except sqlite3.Error:
+        logger.exception("download token release failed for digest=%s", digest)
 
 
 def gc_expired_tokens(conn: sqlite3.Connection | None = None) -> None:
@@ -138,7 +138,7 @@ def gc_expired_tokens(conn: sqlite3.Connection | None = None) -> None:
     now_iso = _now_iso()
     try:
         purge_expired_download_tokens(conn, now_iso=now_iso)
-    except Exception:
+    except sqlite3.Error:
         logger.debug("download token GC failed", exc_info=True)
 
 
@@ -216,7 +216,7 @@ def _mark_token_used(token: str, exp: int) -> bool:
 
     try:
         claimed = _persist_used_token(conn, digest, exp)
-    except Exception:
+    except sqlite3.Error:
         # DB failure on the authoritative claim path — refuse the
         # claim outcome rather than letting a replay slip through on
         # an unverified cache write. The caller translates the

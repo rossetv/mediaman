@@ -203,8 +203,10 @@ class TestMediaDeleteTransactional:
         app = _make_app(conn, secret_key)
         client = _auth_client(app, conn)
 
+        import requests as _requests
+
         mock_radarr = MagicMock()
-        mock_radarr.delete_movie.side_effect = RuntimeError("Radarr exploded")
+        mock_radarr.delete_movie.side_effect = _requests.ConnectionError("Radarr exploded")
 
         with patch(
             "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
@@ -248,8 +250,13 @@ class TestMediaDeleteTransactional:
         app = _make_app(conn, secret_key)
         client = _auth_client(app, conn)
 
+        import requests as _requests
+
         mock_radarr = MagicMock()
-        mock_radarr.delete_movie.side_effect = [RuntimeError("first fails"), None]
+        mock_radarr.delete_movie.side_effect = [
+            _requests.ConnectionError("first fails"),
+            None,
+        ]
 
         with patch(
             "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr

@@ -227,14 +227,14 @@ class TestSettingsAuditInTransaction:
         app = _make_app(conn, secret_key)
         client = _client(app, conn, with_reauth=True)
 
-        # The audit insert now lives inside web.repository.settings; patch it
-        # at the source so the in-transaction insert blows up.
-        import mediaman.core.audit as audit_module
+        import sqlite3 as _sqlite3
+
+        from mediaman.web.routes import settings as settings_module
 
         def boom(*_args, **_kwargs):
-            raise RuntimeError("simulated audit failure")
+            raise _sqlite3.OperationalError("simulated audit failure")
 
-        monkeypatch.setattr(audit_module, "security_event_or_raise", boom)
+        monkeypatch.setattr(settings_module, "security_event_or_raise", boom)
 
         resp = client.put("/api/settings", json={"plex_url": "https://plex.example.com"})
         assert resp.status_code == 500

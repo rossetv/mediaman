@@ -73,7 +73,11 @@ class ForcePasswordChangeMiddleware(BaseHTTPMiddleware):
             from mediaman.services.rate_limit import get_client_ip
             from mediaman.web.auth.password_hash import user_must_change_password
             from mediaman.web.auth.session_store import validate_session
-        except Exception:
+        except ImportError:
+            # If the DB / auth submodules cannot even be imported the whole
+            # app is in a broken state — the middleware cannot meaningfully
+            # gate the request, so fall through. Anything more aggressive
+            # would mask the real startup failure with a misleading 500.
             return await call_next(request)
 
         try:
