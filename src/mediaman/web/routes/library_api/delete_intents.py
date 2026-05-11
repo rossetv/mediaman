@@ -7,7 +7,7 @@ import logging
 import sqlite3
 from datetime import UTC, datetime
 
-from mediaman.audit import log_audit
+from mediaman.core.audit import log_audit
 from mediaman.db import get_db
 
 logger = logging.getLogger(__name__)

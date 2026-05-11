@@ -45,14 +45,14 @@ from fastapi import APIRouter, Cookie, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.responses import Response
 
-from mediaman.audit import security_event, security_event_or_raise
+from mediaman.core.audit import security_event, security_event_or_raise
 from mediaman.core.time import now_iso
 from mediaman.core.url_safety import (
     is_safe_outbound_url as is_safe_outbound_url,  # re-exported for patch targets
 )
 from mediaman.crypto import decrypt_value, encrypt_value
 from mediaman.db import get_db
-from mediaman.services.arr._client_base import ArrError
+from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_plex_from_db
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.infra.settings_reader import ConfigDecryptError
@@ -62,6 +62,9 @@ from mediaman.services.rate_limit.instances import SETTINGS_WRITE_LIMITER as _SE
 from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.web.auth.reauth import has_recent_reauth
 from mediaman.web.models import SettingsUpdate
+from mediaman.web.repository.settings import (
+    fetch_encrypted_key_set as _encrypted_keys,
+)
 from mediaman.web.responses import respond_err, respond_ok
 
 # ---------------------------------------------------------------------------
@@ -93,9 +96,6 @@ from mediaman.web.routes.settings.secrets import (
 )
 from mediaman.web.routes.settings.secrets import (
     SECRET_PLACEHOLDER as _SECRET_PLACEHOLDER,
-)
-from mediaman.web.routes.settings.secrets import (
-    encrypted_keys as _encrypted_keys,
 )
 from mediaman.web.routes.settings.secrets import (
     has_sensitive_key_changes as _touches_sensitive_keys,
