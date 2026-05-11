@@ -1,529 +1,40 @@
 /**
- * downloads.js — polling + DOM updates for the /downloads dashboard.
+ * downloads.js — page entry point for /downloads.
  *
- * Polls /api/downloads on a 2 s cadence (with exponential backoff on
- * failure), updates the hero card / queue / upcoming / recent grid in
- * place, and reacts to the `mediaman:poll:now` custom event so external
- * scripts (e.g. dl-abandon.js) can trigger an immediate refresh. Moved
- * out of the inline <script> in downloads.html for CSP-friendliness.
+ * Polls /api/downloads on a 2 s cadence and updates the hero / queue /
+ * upcoming / recent grid in place. After Phase 8B the heavy lifting
+ * lives in:
+ *   - downloads/build_dom.js     — DOM helpers + placeholder builders
+ *   - downloads/render_hero.js   — patch the hero card in place
+ *   - downloads/render_row.js    — patch compact + upcoming rows
+ *   - downloads/render_recent.js — recently-added grid + upcoming list
+ *   - downloads/poll.js          — fetch loop + visibility/poll:now
+ *
+ * This file owns the cross-module wiring: it owns the root element, the
+ * episode-toggle click delegation, and the `update(data)` reducer that
+ * fans the poll payload out to the renderer modules.
+ *
+ * Cross-module dependencies:
+ *   MM.downloads.buildDom
+ *   MM.downloads.renderHero
+ *   MM.downloads.renderRow
+ *   MM.downloads.renderRecent
+ *   MM.downloads.poll
  */
 (function () {
   'use strict';
 
-  var POLL_MS = 2000;
   var root = document.getElementById('dl-root');
   if (!root) return;
-  var polling = false;
 
-  /* ── DOM helpers — thin aliases to shared MM.dom primitives. ── */
-  var q = MM.dom.q;
-  var setText = MM.dom.setText;
-
-  /* State labels come from the server (item.state_label). The canonical map
-     lives in services/downloads/download_format/_types.py. */
-
-  /* ── Update hero card in-place ── */
-  function updateHero(container, item) {
-    if (!item || !container) return;
-    var card = container.querySelector('.dl-hero');
-    if (!card) return;
-
-    /* Update poster backdrop */
-    var bg = q('.dl-hero-bg', card);
-    if (bg && item.poster_url) {
-      /* H67: set via DLPoster.apply to avoid CSS string injection. */
-      bg.setAttribute('data-bg-url', item.poster_url);
-      if (window.DLPoster) window.DLPoster.apply(bg);
-    }
-
-    /* Update poster img */
-    var posterDiv = q('.dl-hero-poster', card);
-    if (posterDiv && item.poster_url) {
-      var img = posterDiv.querySelector('img');
-      if (img) { if (img.src !== item.poster_url) img.src = item.poster_url; }
-      else {
-        var ph = posterDiv.querySelector('.dl-hero-poster-placeholder');
-        if (ph) posterDiv.removeChild(ph);
-        img = document.createElement('img');
-        img.src = item.poster_url;
-        img.alt = '';
-        posterDiv.appendChild(img);
-      }
-    }
-
-    /* Title */
-    setText(q('.dl-hero-title', card), item.title);
-
-    /* Episode summary */
-    var epSum = q('.dl-hero-ep-summary', card);
-    if (item.episode_summary) {
-      if (!epSum) {
-        epSum = document.createElement('div');
-        epSum.className = 'dl-hero-ep-summary';
-        var info = q('.dl-hero-info', card);
-        var status = q('.dl-hero-status', info);
-        if (info && status) info.insertBefore(epSum, status);
-      }
-      setText(epSum, item.episode_summary);
-    } else if (epSum) {
-      epSum.parentNode.removeChild(epSum);
-    }
-
-    /* State pill */
-    var pill = q('.dl-state-pill', card);
-    if (pill) {
-      pill.className = 'dl-state-pill dl-state-' + item.state;
-      setText(pill, item.state_label || item.state);
-    }
-
-    updateSearchHint(card, item);
-
-    /* Progress wrap (hide entirely while searching) */
-    var progressWrap = q('[data-v="progress-wrap"]', card);
-    if (progressWrap) progressWrap.style.display = (item.state === 'searching') ? 'none' : '';
-
-    /* Progress bar */
-    var fill = q('[data-v="fill"]', card);
-    if (fill) {
-      fill.style.width = item.progress + '%';
-      fill.className = 'dl-hero-fill' + (item.state === 'almost_ready' ? ' green' : '');
-    }
-
-    /* Progress details */
-    var pct = q('[data-v="pct"]', card);
-    if (pct) setText(pct, item.progress + '%');
-    var sizeDone = q('[data-v="size-done"]', card);
-    if (sizeDone) setText(sizeDone, item.size_done || '');
-    var sizeTotal = q('[data-v="size-total"]', card);
-    if (sizeTotal) setText(sizeTotal, item.size_total || '');
-    var eta = q('[data-v="eta"]', card);
-    if (eta) setText(eta, item.eta || '');
-
-    /* Update episode rows if present */
-    if (item.episodes) {
-      for (var i = 0; i < item.episodes.length; i++) {
-        var ep = item.episodes[i];
-        var epRow = MM.dom.findByAttr(card, 'data-ep', ep.label);
-        if (!epRow) continue;
-        var epFill = q('[data-v="ep-fill"]', epRow);
-        if (epFill) {
-          epFill.style.width = ep.progress + '%';
-          epFill.className = 'dl-ep-mini-fill' + (ep.state === 'ready' ? ' green' : '');
-        }
-        var epPill = q('.dl-ep-status-pill', epRow);
-        if (epPill) {
-          epPill.className = 'dl-ep-status-pill ' + ep.state;
-          if (ep.state === 'ready') setText(epPill, 'Ready');
-          else if (ep.state === 'downloading') setText(epPill, ep.progress + '%');
-          else if (ep.state === 'queued') setText(epPill, 'Queued');
-          else setText(epPill, 'Searching');
-        }
-      }
-    }
-
-    /* Update data-dl-id if hero changed */
-    if (card.getAttribute('data-dl-id') !== item.id) {
-      card.setAttribute('data-dl-id', item.id);
-    }
-  }
-
-  /* ── Refresh the "Searched N× · last attempt Xm ago · View in Radarr" line.
-         Kept alongside the state pill so the user has visible proof that
-         mediaman *is* poking Radarr/Sonarr on a cadence — absence of Activity
-         in *arr does not mean nothing is happening. Only shown in the
-         `searching` state; hidden otherwise so it doesn't linger after the
-         item starts downloading. ── */
-  function updateSearchHint(card, item) {
-    var hint = q('[data-v="search-hint"]', card);
-    if (!hint) return;
-    if (item.state !== 'searching' || (!item.search_hint && !item.arr_link)) {
-      hint.style.display = 'none';
-      return;
-    }
-    hint.style.display = '';
-    while (hint.firstChild) hint.removeChild(hint.firstChild);
-    if (item.search_hint) {
-      var text = document.createElement('span');
-      text.setAttribute('data-v', 'search-hint-text');
-      text.textContent = item.search_hint;
-      hint.appendChild(text);
-    }
-    if (item.arr_link) {
-      if (item.search_hint) hint.appendChild(document.createTextNode(' · '));
-      var a = document.createElement('a');
-      a.className = 'dl-arr-link';
-      a.setAttribute('data-v', 'arr-link');
-      a.href = item.arr_link;
-      a.target = '_blank';
-      a.rel = 'noopener';
-      a.textContent = 'View in ' + (item.arr_source || 'Radarr/Sonarr') + ' ↗';
-      hint.appendChild(a);
-    }
-  }
-
-  /* ── Update compact row in-place ── */
-  function updateCompactRow(row, item) {
-    setText(q('.dl-compact-title', row), item.title);
-    var pill = q('.dl-state-pill', row);
-    if (pill) {
-      pill.className = 'dl-state-pill dl-state-' + item.state;
-      pill.style.fontSize = '9px';
-      setText(pill, item.state_label || item.state);
-    }
-    updateSearchHint(row, item);
-    var fill = q('[data-v="fill"]', row);
-    if (fill) {
-      fill.style.width = item.progress + '%';
-      fill.className = 'dl-compact-fill' + (item.state === 'almost_ready' ? ' green' : '');
-    }
-    var pct = q('[data-v="pct"]', row);
-    if (pct) setText(pct, item.progress > 0 ? (item.progress + '%') : '—');
-    var sizeInfo = q('[data-v="size-info"]', row);
-    if (sizeInfo) sizeInfo.style.display = (item.state === 'searching') ? 'none' : '';
-    var sizeDone = q('[data-v="size-done"]', row);
-    if (sizeDone) setText(sizeDone, item.size_done || '');
-    var sizeTotal = q('[data-v="size-total"]', row);
-    if (sizeTotal) setText(sizeTotal, item.size_total || '');
-    var eta = q('[data-v="eta"]', row);
-    if (eta) setText(eta, item.eta || '');
-
-    /* Update episode rows (same shape as hero) */
-    if (item.episodes) {
-      for (var i = 0; i < item.episodes.length; i++) {
-        var ep = item.episodes[i];
-        var epRow = MM.dom.findByAttr(row, 'data-ep', ep.label);
-        if (!epRow) continue;
-        var epFill = q('[data-v="ep-fill"]', epRow);
-        if (epFill) {
-          epFill.style.width = ep.progress + '%';
-          epFill.className = 'dl-ep-mini-fill' + (ep.state === 'ready' ? ' green' : '');
-        }
-        var epPill = q('.dl-ep-status-pill', epRow);
-        if (epPill) {
-          epPill.className = 'dl-ep-status-pill ' + ep.state;
-          if (ep.state === 'ready') setText(epPill, 'Ready');
-          else if (ep.state === 'downloading') setText(epPill, ep.progress + '%');
-          else if (ep.state === 'queued') setText(epPill, 'Queued');
-          else setText(epPill, 'Searching');
-        }
-      }
-    }
-  }
-
-  /* ── Build a recent item element safely ── */
-  function buildRecentItem(r) {
-    var item = document.createElement('div');
-    item.className = 'dl-recent-item';
-
-    var poster = document.createElement('div');
-    poster.className = 'dl-recent-poster';
-    if (r.poster_url) {
-      var img = document.createElement('img');
-      img.src = r.poster_url;
-      img.alt = '';
-      poster.appendChild(img);
-    }
-    var badge = document.createElement('div');
-    badge.className = 'dl-recent-badge';
-    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('width', '14');
-    svg.setAttribute('height', '14');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('fill', 'none');
-    svg.setAttribute('stroke', '#fff');
-    svg.setAttribute('stroke-width', '3');
-    svg.setAttribute('stroke-linecap', 'round');
-    svg.setAttribute('stroke-linejoin', 'round');
-    var polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-    polyline.setAttribute('points', '20 6 9 17 4 12');
-    svg.appendChild(polyline);
-    badge.appendChild(svg);
-    poster.appendChild(badge);
-    item.appendChild(poster);
-
-    var title = document.createElement('div');
-    title.className = 'dl-recent-title';
-    title.textContent = r.title;
-    item.appendChild(title);
-
-    var sub = document.createElement('div');
-    sub.className = 'dl-recent-sub';
-    sub.textContent = 'Ready to watch';
-    item.appendChild(sub);
-
-    return item;
-  }
-
-  /* ── Update recently added grid ── */
-  function updateRecent(container, recent) {
-    if (!container) return;
-    if (!recent || recent.length === 0) {
-      while (container.firstChild) container.removeChild(container.firstChild);
-      return;
-    }
-    /* Rebuild the recent grid using safe DOM methods */
-    var section = document.createElement('div');
-    section.className = 'dl-recent-section';
-    section.id = 'dl-recent';
-
-    var header = document.createElement('div');
-    header.className = 'dl-recent-header';
-    header.textContent = 'Recently added';
-    section.appendChild(header);
-
-    var grid = document.createElement('div');
-    grid.className = 'dl-recent-grid';
-    for (var i = 0; i < recent.length; i++) {
-      grid.appendChild(buildRecentItem(recent[i]));
-    }
-    section.appendChild(grid);
-
-    while (container.firstChild) container.removeChild(container.firstChild);
-    container.appendChild(section);
-  }
-
-  /* ── Build empty state element safely ── */
-  function buildEmptyState() {
-    var el = document.createElement('div');
-    el.className = 'dl-empty-message';
-    el.id = 'dl-empty';
-
-    var icon = document.createElement('div');
-    icon.className = 'empty-state__icon';
-    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('width', '28');
-    svg.setAttribute('height', '28');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('fill', 'none');
-    svg.setAttribute('stroke', 'currentColor');
-    svg.setAttribute('stroke-width', '1.5');
-    svg.setAttribute('stroke-linecap', 'round');
-    svg.setAttribute('stroke-linejoin', 'round');
-    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4');
-    svg.appendChild(path);
-    var poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-    poly.setAttribute('points', '7 10 12 15 17 10');
-    svg.appendChild(poly);
-    var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('x1', '12');
-    line.setAttribute('y1', '15');
-    line.setAttribute('x2', '12');
-    line.setAttribute('y2', '3');
-    svg.appendChild(line);
-    icon.appendChild(svg);
-    el.appendChild(icon);
-
-    var p = document.createElement('p');
-    p.textContent = 'All caught up — nothing downloading right now.';
-    el.appendChild(p);
-
-    return el;
-  }
-
-  /* ── Build hero placeholder safely ── */
-  function buildHeroPlaceholder(id) {
-    var card = document.createElement('div');
-    card.className = 'dl-hero dl-card-enter';
-    card.setAttribute('data-dl-id', id);
-
-    var bg = document.createElement('div');
-    bg.className = 'dl-hero-bg';
-    card.appendChild(bg);
-
-    var overlay = document.createElement('div');
-    overlay.className = 'dl-hero-overlay';
-    card.appendChild(overlay);
-
-    var content = document.createElement('div');
-    content.className = 'dl-hero-content';
-
-    var poster = document.createElement('div');
-    poster.className = 'dl-hero-poster';
-    content.appendChild(poster);
-
-    var info = document.createElement('div');
-    info.className = 'dl-hero-info';
-
-    var title = document.createElement('div');
-    title.className = 'dl-hero-title';
-    info.appendChild(title);
-
-    var status = document.createElement('div');
-    status.className = 'dl-hero-status';
-    var pill = document.createElement('span');
-    pill.className = 'dl-state-pill';
-    status.appendChild(pill);
-    info.appendChild(status);
-
-    /* Empty hint container — updateSearchHint fills it in on first poll. */
-    var hint = document.createElement('div');
-    hint.className = 'dl-search-hint';
-    hint.setAttribute('data-v', 'search-hint');
-    hint.style.display = 'none';
-    info.appendChild(hint);
-
-    var progress = document.createElement('div');
-    progress.className = 'dl-hero-progress';
-    var bar = document.createElement('div');
-    bar.className = 'dl-hero-bar';
-    var fill = document.createElement('div');
-    fill.className = 'dl-hero-fill';
-    fill.setAttribute('data-v', 'fill');
-    fill.style.width = '0%';
-    bar.appendChild(fill);
-    progress.appendChild(bar);
-
-    var details = document.createElement('div');
-    details.className = 'dl-hero-details';
-    var pctWrap = document.createElement('span');
-    var pct = document.createElement('span');
-    pct.className = 'dl-hero-pct';
-    pct.setAttribute('data-v', 'pct');
-    pct.textContent = '0%';
-    pctWrap.appendChild(pct);
-    details.appendChild(pctWrap);
-    var eta = document.createElement('span');
-    eta.setAttribute('data-v', 'eta');
-    details.appendChild(eta);
-    progress.appendChild(details);
-    info.appendChild(progress);
-
-    content.appendChild(info);
-    card.appendChild(content);
-
-    return card;
-  }
-
-  /* ── Update upcoming row in-place ── */
-  function updateUpcomingRow(row, item) {
-    setText(q('.dl-compact-title', row), item.title);
-    var pill = q('[data-v="release-label"]', row);
-    if (pill) setText(pill, item.release_label || '');
-  }
-
-  /* ── Build upcoming row element ── */
-  function buildUpcomingRow(item) {
-    var row = document.createElement('div');
-    row.className = 'dl-compact-row dl-row dl-upcoming-row dl-row--has-abandon dl-card-enter';
-    row.setAttribute('data-dl-id', item.id);
-
-    var poster = document.createElement('div');
-    poster.className = 'dl-compact-poster dl-row-poster';
-    if (item.poster_url) {
-      var img = document.createElement('img');
-      img.src = item.poster_url;
-      img.alt = '';
-      poster.appendChild(img);
-    }
-    row.appendChild(poster);
-
-    var info = document.createElement('div');
-    info.className = 'dl-compact-info dl-row-info';
-
-    var title = document.createElement('div');
-    title.className = 'dl-compact-title dl-row-title';
-    title.textContent = item.title;
-    info.appendChild(title);
-
-    var meta = document.createElement('div');
-    meta.className = 'dl-compact-meta dl-row-meta';
-    var pill = document.createElement('span');
-    pill.className = 'dl-state-pill dl-state-pill--xs dl-state-upcoming';
-    pill.setAttribute('data-v', 'release-label');
-    pill.textContent = item.release_label || '';
-    meta.appendChild(pill);
-    info.appendChild(meta);
-
-    row.appendChild(info);
-
-    var scheduled = document.createElement('span');
-    scheduled.className = 'pill pill--neutral';
-    scheduled.textContent = 'Scheduled';
-    row.appendChild(scheduled);
-
-    var abandonWrap = document.createElement('div');
-    abandonWrap.className = 'dl-row-abandon';
-    var btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'btn btn--icon btn--ghost';
-    btn.setAttribute('data-abandon-trigger', '');
-    btn.setAttribute('data-abandon-upcoming', '1');
-    btn.setAttribute('data-dl-id', item.id);
-    btn.setAttribute('data-kind', item.media_type === 'movie' ? 'movie' : 'series');
-    btn.setAttribute('data-title', item.title || '');
-    btn.setAttribute('data-stuck-seasons', '[]');
-    btn.setAttribute('aria-label', 'Stop tracking');
-    btn.setAttribute('title', 'Stop tracking');
-    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', 'M6 6l12 12M18 6L6 18');
-    svg.appendChild(path);
-    btn.appendChild(svg);
-    abandonWrap.appendChild(btn);
-    row.appendChild(abandonWrap);
-
-    return row;
-  }
-
-  /* ── Update upcoming list ── */
-  function updateUpcomingList(data) {
-    var container = document.getElementById('dl-upcoming-container');
-    var upcoming = data.upcoming || [];
-
-    if (upcoming.length === 0) {
-      if (container) container.parentNode.removeChild(container);
-      return;
-    }
-
-    if (!container) {
-      container = document.createElement('div');
-      container.id = 'dl-upcoming-container';
-      var header = document.createElement('div');
-      header.className = 'dl-compact-header';
-      header.textContent = 'Coming soon';
-      container.appendChild(header);
-      var list = document.createElement('div');
-      list.className = 'dl-compact-list';
-      list.id = 'dl-upcoming-list';
-      container.appendChild(list);
-
-      /* Insert before the recent container */
-      var recent = document.getElementById('dl-recent-container');
-      if (recent && recent.parentNode) {
-        recent.parentNode.insertBefore(container, recent);
-      } else {
-        root.appendChild(container);
-      }
-    }
-
-    var list = document.getElementById('dl-upcoming-list');
-    if (!list) return;
-
-    var activeIds = {};
-    for (var i = 0; i < upcoming.length; i++) {
-      var item = upcoming[i];
-      activeIds[item.id] = true;
-      var row = MM.dom.findByAttr(list, 'data-dl-id', item.id);
-      if (row) {
-        updateUpcomingRow(row, item);
-      } else {
-        list.appendChild(buildUpcomingRow(item));
-      }
-    }
-    /* Remove departed rows */
-    var rows = list.querySelectorAll('.dl-upcoming-row');
-    for (var j = 0; j < rows.length; j++) {
-      var id = rows[j].getAttribute('data-dl-id');
-      if (id && !activeIds[id]) {
-        rows[j].parentNode.removeChild(rows[j]);
-      }
-    }
-  }
+  function buildDom()     { return MM.downloads.buildDom; }
+  function renderHero()   { return MM.downloads.renderHero; }
+  function renderRow()    { return MM.downloads.renderRow; }
+  function renderRecent() { return MM.downloads.renderRecent; }
 
   /* ── Main update ── */
   function update(data) {
+    var dom = buildDom();
     var heroContainer = document.getElementById('dl-hero-container');
     var queueContainer = document.getElementById('dl-queue-container');
     var emptyEl = document.getElementById('dl-empty');
@@ -536,9 +47,9 @@
     /* Update subtitle */
     if (subtitle) {
       if (totalActive > 0) {
-        setText(subtitle, totalActive + ' item' + (totalActive !== 1 ? 's' : '') + ' in progress');
+        dom.setText(subtitle, totalActive + ' item' + (totalActive !== 1 ? 's' : '') + ' in progress');
       } else {
-        setText(subtitle, '');
+        dom.setText(subtitle, '');
       }
     }
 
@@ -547,10 +58,10 @@
       if (!heroContainer) {
         heroContainer = document.createElement('div');
         heroContainer.id = 'dl-hero-container';
-        heroContainer.appendChild(buildHeroPlaceholder(data.hero.id));
+        heroContainer.appendChild(dom.buildHeroPlaceholder(data.hero.id));
         if (header) header.after(heroContainer);
       }
-      updateHero(heroContainer, data.hero);
+      renderHero().updateHero(heroContainer, data.hero);
       /* Remove empty state */
       if (emptyEl) { emptyEl.style.display = 'none'; }
     } else {
@@ -579,9 +90,9 @@
         var activeIds = {};
         for (var i = 0; i < data.queue.length; i++) {
           activeIds[data.queue[i].id] = true;
-          var row = MM.dom.findByAttr(list, 'data-dl-id', data.queue[i].id);
+          var row = dom.findByDlId(list, data.queue[i].id);
           if (row) {
-            updateCompactRow(row, data.queue[i]);
+            renderRow().updateCompactRow(row, data.queue[i]);
           }
           /* New items will appear on next full page load — keep it simple */
         }
@@ -591,8 +102,8 @@
           var id = rows[j].getAttribute('data-dl-id');
           if (id && !activeIds[id]) {
             rows[j].classList.add('dl-card-exit');
-            (function(el) {
-              el.addEventListener('animationend', function() {
+            (function (el) {
+              el.addEventListener('animationend', function () {
                 if (el.parentNode) el.parentNode.removeChild(el);
               }, { once: true });
             })(rows[j]);
@@ -610,7 +121,7 @@
     /* Empty state */
     if (!data.hero && (!data.queue || data.queue.length === 0)) {
       if (!emptyEl) {
-        emptyEl = buildEmptyState();
+        emptyEl = dom.buildEmptyState();
         var afterHeader = heroContainer || queueContainer || header;
         if (afterHeader) afterHeader.after(emptyEl);
       }
@@ -618,14 +129,14 @@
     }
 
     /* Upcoming */
-    updateUpcomingList(data);
+    renderRecent().updateUpcomingList(root, data);
 
     /* Recent */
-    updateRecent(recentContainer, data.recent);
+    renderRecent().updateRecent(recentContainer, data.recent);
   }
 
   /* ── Episode toggle ── */
-  document.addEventListener('click', function(e) {
+  document.addEventListener('click', function (e) {
     var toggle = e.target.closest('[data-v="ep-toggle"]');
     if (!toggle) return;
     toggle.classList.toggle('open');
@@ -635,50 +146,6 @@
     }
   });
 
-  /* ── Poll with exponential backoff on failure ── */
-  var consecutiveFailures = 0;
-  var intervalId = null;
-
-  function scheduleNextPoll(ms) {
-    if (intervalId !== null) { clearTimeout(intervalId); }
-    intervalId = setTimeout(function() { intervalId = null; poll(); }, ms);
-  }
-
-  function poll() {
-    if (polling) return;
-    polling = true;
-    MM.api.get('/api/downloads')
-      .then(function(data) {
-        if (data) update(data);
-        consecutiveFailures = 0;
-        scheduleNextPoll(POLL_MS);
-      })
-      .catch(function(err) {
-        /* Session expired — bounce to /login rather than tight-looping
-           on 401s. APIError.status is the HTTP status from MM.api. */
-        if (err instanceof MM.api.APIError && (err.status === 401 || err.status === 403)) {
-          window.location.href = '/login';
-          return;
-        }
-        consecutiveFailures += 1;
-        var backoff = Math.min(POLL_MS * Math.pow(2, consecutiveFailures), 30000);
-        scheduleNextPoll(backoff);
-      })
-      .finally(function() { polling = false; });
-  }
-
-  scheduleNextPoll(POLL_MS);
-  document.addEventListener('visibilitychange', function() {
-    if (document.hidden) {
-      if (intervalId !== null) { clearTimeout(intervalId); intervalId = null; }
-    } else if (intervalId === null) {
-      poll();
-    }
-  });
-
-  /* Allow external code (e.g. dl-abandon.js) to request an immediate poll. */
-  document.addEventListener('mediaman:poll:now', function () {
-    if (intervalId !== null) { clearTimeout(intervalId); intervalId = null; }
-    poll();
-  });
+  /* Kick off the polling loop. */
+  MM.downloads.poll.start(update);
 }());

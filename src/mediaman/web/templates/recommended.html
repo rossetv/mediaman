@@ -87,5 +87,9 @@
    no CSP nonce is required. recommended.js parses textContent to bootstrap
    the modal data. #}
 <script id="rec-data" type="application/json">{{ all_recommendations_json | safe }}</script>
+{# Helper modules must register on MM.recommended before recommended.js
+   wires them into the page. #}
+<script src="/static/js/recommended/refresh.js" defer></script>
+<script src="/static/js/recommended/poll.js" defer></script>
 <script src="/static/js/recommended.js" defer></script>
 {% endblock %}
