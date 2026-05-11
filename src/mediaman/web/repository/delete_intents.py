@@ -1,4 +1,11 @@
-"""Delete-intent durability helpers: record, complete, fail, and reconcile pending intents."""
+"""Repository functions for delete-intent durability rows.
+
+The ``delete_intents`` table is a journal used to detect crashes that land
+between the external Radarr/Sonarr delete call and the local DB cleanup
+transaction. Every write here is committed immediately so a process kill
+between record and cleanup leaves a recoverable trail for
+:func:`reconcile_pending_delete_intents` on the next start.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +24,7 @@ def _record_delete_intent(
     conn: sqlite3.Connection,
     media_item_id: str,
     target_kind: str,
-    target_id: str,
+    target_id: str | int,
 ) -> int:
     """Insert a delete intent row and return its ``id``.
 
