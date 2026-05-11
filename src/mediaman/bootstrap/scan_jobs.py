@@ -7,13 +7,13 @@ import threading
 
 from fastapi import FastAPI
 
-from mediaman.config import Config
-from mediaman.validators import (
+from mediaman.bootstrap.validators import (
     validate_scan_day,
     validate_scan_time,
     validate_scan_timezone,
     validate_sync_interval,
 )
+from mediaman.config import Config
 
 logger = logging.getLogger(__name__)
 
