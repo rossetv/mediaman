@@ -14,8 +14,8 @@ import sys
 from pathlib import Path
 
 from mediaman.app_factory import create_app
+from mediaman.bootstrap.validators import enforce_single_worker, sanitise_trusted_proxies
 from mediaman.config import ConfigError, load_config
-from mediaman.validators import enforce_single_worker, sanitise_trusted_proxies
 
 # Back-compat aliases — tests (and external callers) import these under
 # their old underscore-prefixed names from mediaman.main.
@@ -62,7 +62,7 @@ def cli_main() -> None:
     # direct peer is in ``forwarded_allow_ips``. The second rewrite is a
     # rate-limit-bypass footgun, so only enable proxy_headers when the
     # operator has EXPLICITLY set ``MEDIAMAN_TRUSTED_PROXIES`` to a
-    # non-wildcard value (see :func:`mediaman.validators.sanitise_trusted_proxies`).
+    # non-wildcard value (see :func:`mediaman.bootstrap.validators.sanitise_trusted_proxies`).
     if trusted_proxies:
         uvicorn.run(
             app,
