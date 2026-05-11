@@ -3,7 +3,6 @@ import pytest
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.mail.mailgun import (
     MailgunClient,
-    _retry_with_jitter,
     _validate_header_value,
     _validate_recipient,
 )
@@ -69,104 +68,100 @@ class TestMailgunSend:
         assert len([c for c in fake_http.calls if c[0] == "POST"]) == 2
 
 
-class TestRetryWithJitter:
-    """H57: jittered backoff helper for transient POST failures."""
+class TestMailgunRetryPolicy:
+    """The mailgun POST shares :func:`dispatch_loop` with every other
+    outbound caller, opting into full-jitter backoff and a 2-consecutive-5xx
+    early abort.  These tests pin the user-visible behaviour rather than
+    the internal helper that previously implemented it.
 
-    def test_succeeds_immediately_on_first_try(self):
-        calls = []
+    All tests stub out the sleep and jitter sources so the suite stays
+    deterministic and fast.
+    """
 
-        def fn():
-            calls.append(1)
-            return "ok"
+    @pytest.fixture(autouse=True)
+    def _no_sleep(self, monkeypatch):
+        # Both the retry module's ``time.sleep`` and ``random.uniform``
+        # are exercised by every retry path; replace both with no-op /
+        # deterministic stubs so we test orchestration, not timing.
+        monkeypatch.setattr("mediaman.services.infra.http.retry.time.sleep", lambda _: None)
+        monkeypatch.setattr("mediaman.services.infra.http.retry.random.uniform", lambda _a, _b: 0.0)
 
-        result = _retry_with_jitter(fn, attempts=3)
-        assert result == "ok"
-        assert len(calls) == 1
+    def _client(self) -> MailgunClient:
+        return MailgunClient("example.com", "key-xxx", "noreply@example.com", region="eu")
 
-    def test_retries_on_429(self, monkeypatch):
-        """A 429 response triggers a retry."""
-        monkeypatch.setattr("mediaman.services.mail.mailgun.time.sleep", lambda _: None)
-        calls = []
-
-        def fn():
-            calls.append(1)
-            if len(calls) < 2:
-                raise SafeHTTPError(429, "Too Many Requests", "https://api.mailgun.net")
-            return "ok"
-
-        result = _retry_with_jitter(fn, attempts=3)
-        assert result == "ok"
-        assert len(calls) == 2
-
-    def test_retries_on_503(self, monkeypatch):
-        """A 503 response triggers a retry."""
-        monkeypatch.setattr("mediaman.services.mail.mailgun.time.sleep", lambda _: None)
-        calls = []
-
-        def fn():
-            calls.append(1)
-            if len(calls) < 2:
-                raise SafeHTTPError(503, "Service Unavailable", "https://api.mailgun.net")
-            return "ok"
-
-        result = _retry_with_jitter(fn, attempts=3)
-        assert result == "ok"
-        assert len(calls) == 2
-
-    def test_aborts_after_two_consecutive_5xx(self, monkeypatch):
-        """Two consecutive 5xx responses abort immediately — no further attempts."""
-        monkeypatch.setattr("mediaman.services.mail.mailgun.time.sleep", lambda _: None)
-        calls = []
-
-        def fn():
-            calls.append(1)
-            raise SafeHTTPError(500, "Internal Server Error", "https://api.mailgun.net")
-
-        with pytest.raises(SafeHTTPError) as exc_info:
-            _retry_with_jitter(fn, attempts=5)
-
-        assert exc_info.value.status_code == 500
-        # Must abort after exactly 2 attempts (two consecutive 5xx)
-        assert len(calls) == 2
-
-    def test_does_not_retry_non_transient_errors(self):
-        """Errors outside the retryable set propagate immediately without retry."""
-        calls = []
-
-        def fn():
-            calls.append(1)
-            raise SafeHTTPError(401, "Unauthorised", "https://api.mailgun.net")
-
-        with pytest.raises(SafeHTTPError) as exc_info:
-            _retry_with_jitter(fn, attempts=3)
-
-        assert exc_info.value.status_code == 401
-        assert len(calls) == 1
-
-    def test_exhausts_attempts_and_raises(self, monkeypatch):
-        """After all attempts are spent, the last exception is re-raised."""
-        monkeypatch.setattr("mediaman.services.mail.mailgun.time.sleep", lambda _: None)
-        calls = []
-
-        def fn():
-            calls.append(1)
-            raise SafeHTTPError(429, "Too Many Requests", "https://api.mailgun.net")
-
-        with pytest.raises(SafeHTTPError):
-            _retry_with_jitter(fn, attempts=3)
-
-        assert len(calls) == 3
-
-    def test_send_retries_on_429(self, monkeypatch, fake_http, fake_response):
-        """MailgunClient.send retries when it receives a 429."""
-        monkeypatch.setattr("mediaman.services.mail.mailgun.time.sleep", lambda _: None)
-        client = MailgunClient("example.com", "key-xxx", "noreply@example.com", region="eu")
-        # First call returns 429, second succeeds.
+    def test_send_retries_on_429(self, fake_http, fake_response):
+        """A 429 response triggers a retry; the second 2xx call wins."""
+        client = self._client()
         fake_http.queue("POST", fake_response(status=429, text="Too Many Requests"))
         fake_http.queue("POST", fake_response(status=200, content=b""))
         client.send(to="user@example.com", subject="Test", html="<p>Hi</p>")
         post_calls = [c for c in fake_http.calls if c[0] == "POST"]
         assert len(post_calls) == 2
+
+    def test_send_retries_on_503(self, fake_http, fake_response):
+        """A 503 response triggers a retry; the second 2xx call wins."""
+        client = self._client()
+        fake_http.queue("POST", fake_response(status=503, text="Unavailable"))
+        fake_http.queue("POST", fake_response(status=200, content=b""))
+        client.send(to="user@example.com", subject="Test", html="<p>Hi</p>")
+        post_calls = [c for c in fake_http.calls if c[0] == "POST"]
+        assert len(post_calls) == 2
+
+    def test_send_retries_on_500(self, fake_http, fake_response):
+        """500 is in the mailgun retryable-statuses override (not in the
+        default :data:`_RETRYABLE_STATUSES`).
+        """
+        client = self._client()
+        fake_http.queue("POST", fake_response(status=500, text="Boom"))
+        fake_http.queue("POST", fake_response(status=200, content=b""))
+        client.send(to="user@example.com", subject="Test", html="<p>Hi</p>")
+        post_calls = [c for c in fake_http.calls if c[0] == "POST"]
+        assert len(post_calls) == 2
+
+    def test_send_aborts_after_two_consecutive_5xx(self, fake_http, fake_response):
+        """Two consecutive 5xx responses abort the retry loop early.
+
+        The third attempt budgeted by the default schedule is never used —
+        the mailgun policy gives up because a genuinely unhealthy upstream
+        is unlikely to flip green within a couple of seconds.
+        """
+        client = self._client()
+        fake_http.queue("POST", fake_response(status=500, text="boom"))
+        fake_http.queue("POST", fake_response(status=500, text="boom"))
+        # Queue a 200 so we can prove it's NOT consumed.
+        fake_http.queue("POST", fake_response(status=200, content=b""))
+        with pytest.raises(SafeHTTPError) as exc_info:
+            client.send(to="user@example.com", subject="Test", html="<p>Hi</p>")
+        assert exc_info.value.status_code == 500
+        post_calls = [c for c in fake_http.calls if c[0] == "POST"]
+        assert len(post_calls) == 2  # aborted before consuming the third response
+
+    def test_send_does_not_retry_401(self, fake_http, fake_response):
+        """401 is not in the retryable set and propagates immediately."""
+        client = self._client()
+        fake_http.queue("POST", fake_response(status=401, text="Unauthorised"))
+        with pytest.raises(SafeHTTPError) as exc_info:
+            client.send(to="user@example.com", subject="Test", html="<p>Hi</p>")
+        assert exc_info.value.status_code == 401
+        # Only one POST attempted — no retry against the alternate region either.
+        post_calls = [c for c in fake_http.calls if c[0] == "POST"]
+        assert len(post_calls) == 1
+
+    def test_send_exhausts_retries_on_persistent_429(self, fake_http, fake_response):
+        """Three 429 responses exhaust the attempt budget and propagate.
+
+        Mailgun only falls back to the alternate region on 404 (a domain
+        registered in the other region); 429 propagates after the
+        per-region retry budget is spent, so the total POST count is
+        ``1 region × 3 attempts == 3``.
+        """
+        client = self._client()
+        fake_http.default(fake_response(status=429, text="Too Many Requests"))
+        with pytest.raises(SafeHTTPError) as exc_info:
+            client.send(to="user@example.com", subject="Test", html="<p>Hi</p>")
+        assert exc_info.value.status_code == 429
+        post_calls = [c for c in fake_http.calls if c[0] == "POST"]
+        assert len(post_calls) == 3
 
 
 class TestMailgunValidation:

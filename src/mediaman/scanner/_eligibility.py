@@ -13,6 +13,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from mediaman.core.format import ensure_tz as _ensure_tz
+from mediaman.core.time import now_utc
 
 
 def is_old_enough(added_at: datetime, min_age_days: int) -> bool:
@@ -30,7 +31,7 @@ def is_old_enough(added_at: datetime, min_age_days: int) -> bool:
     Returns:
         ``True`` when the item has been in the library at least *min_age_days*.
     """
-    now = datetime.now(UTC)
+    now = now_utc()
     if added_at.tzinfo is None:
         added_at = added_at.replace(tzinfo=UTC)
     return (now - added_at).days >= min_age_days
@@ -63,7 +64,7 @@ def is_inactive(watch_history: list[dict[str, object]], inactivity_days: int) ->
     """
     if not watch_history:
         return True
-    now = datetime.now(UTC)
+    now = now_utc()
     timestamps = [
         _ensure_tz(viewed)
         for h in watch_history

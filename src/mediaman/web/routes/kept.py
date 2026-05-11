@@ -10,21 +10,20 @@ from __future__ import annotations
 import logging
 import secrets
 import sqlite3
-from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from mediaman.audit import log_audit
+from mediaman.core.format import days_ago, media_type_badge
 from mediaman.core.format import format_bytes as _format_bytes
-from mediaman.core.format import media_type_badge
-from mediaman.core.time import now_iso
+from mediaman.core.time import now_iso, now_utc
 from mediaman.db import get_db
 from mediaman.services.rate_limit import ActionRateLimiter
-from mediaman.services.scheduled_actions import format_expiry
+from mediaman.services.scheduled_actions import format_expiry, resolve_keep_decision
 from mediaman.web.auth.middleware import get_current_admin
-from mediaman.web.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
+from mediaman.web.models import ACTION_PROTECTED_FOREVER, VALID_KEEP_DURATIONS
 from mediaman.web.repository.kept import (
     delete_kept_show,
     delete_protection,
@@ -213,21 +212,7 @@ def api_show_seasons(
     seasons = []
     for r in season_rows:
         lw = r.last_watched_at
-        last_watched = None
-        if lw:
-            try:
-                lw_dt = datetime.fromisoformat(str(lw))
-                if lw_dt.tzinfo is None:
-                    lw_dt = lw_dt.replace(tzinfo=UTC)
-                delta = (datetime.now(UTC) - lw_dt).days
-                if delta == 0:
-                    last_watched = "today"
-                elif delta == 1:
-                    last_watched = "yesterday"
-                else:
-                    last_watched = f"{delta} days ago"
-            except (ValueError, TypeError):
-                pass
+        last_watched = days_ago(lw) or None
 
         seasons.append(
             {
@@ -311,15 +296,10 @@ def api_keep_show(
             "seasons_not_owned", status=400, message="Seasons do not belong to this show"
         )
 
-    days = VALID_KEEP_DURATIONS.get(duration)
-
-    now = datetime.now(UTC)
-    if duration == "forever":
-        action = ACTION_PROTECTED_FOREVER
-        execute_at = None
-    else:
-        action = ACTION_SNOOZED
-        execute_at = (now + timedelta(days=days)).isoformat() if days else None
+    now = now_utc()
+    decision = resolve_keep_decision(duration, days=VALID_KEEP_DURATIONS.get(duration), now=now)
+    action = decision.action
+    execute_at = decision.execute_at
 
     title_row = conn.execute(
         "SELECT show_title FROM media_items WHERE show_rating_key = ? LIMIT 1",

@@ -49,6 +49,7 @@ from datetime import UTC, datetime, timedelta
 
 import bcrypt
 
+from mediaman.core.time import now_utc
 from mediaman.web.auth._token_hashing import hash_token as _hash_token
 
 logger = logging.getLogger(__name__)
@@ -92,7 +93,7 @@ def reauth_window_seconds() -> int:
 
 
 def _now() -> datetime:
-    return datetime.now(UTC)
+    return now_utc()
 
 
 def _ensure_table(conn: sqlite3.Connection) -> None:
