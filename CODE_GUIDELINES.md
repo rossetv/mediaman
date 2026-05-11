@@ -251,8 +251,11 @@ is a leaf.
 **Forbidden patterns.** No I/O. No logging side-effects at import time. No global mutable
 state. No `requests`, no `sqlite3`, no `apscheduler`.
 
-**Naming.** Flat module per concern: `core/time.py`, `core/url_safety.py`, `core/format.py`.
-A function in `core` must be testable in five lines without any fixture.
+**Naming.** Flat module per concern: `core/time.py`, `core/format.py`,
+`core/backoff.py`. A function in `core` must be testable in five lines without
+any fixture. URL-safety validation lives in
+`services/infra/url_safety.py` (depends on `idna` + `socket.getaddrinfo`,
+so `core/` is the wrong home); see [§2.6](#26-services).
 
 ### 2.2 `crypto/`
 
@@ -1359,7 +1362,7 @@ library on disk. Every change to a route, a token format, or a deletion path is 
 security change. Treat the threat model in `DESIGN.md` as a living constraint, not a
 backstop.
 
-### 10.1 URL, path, and command inputs go through `core/url_safety.py`
+### 10.1 URL, path, and command inputs go through the safety helpers
 
 A URL accepted from configuration or a request must be validated for SSRF before any
 outbound call. A filesystem path accepted from anywhere must be validated against
@@ -1368,10 +1371,11 @@ can skip this" — defence in depth means the admin is treated as the threat too
 
 ```python
 # Good
-from mediaman.core.url_safety import validate_outbound_url
+from mediaman.services.infra.url_safety import is_safe_outbound_url
 
-url = validate_outbound_url(raw_url)  # raises SsrfRefused on private IPs, schemes, ...
-response = client.get(url, timeout=10.0)
+if not is_safe_outbound_url(raw_url):
+    raise SsrfRefused(raw_url)  # refused on private IPs, bad schemes, ...
+response = client.get(raw_url, timeout=10.0)
 
 # Bad
 response = client.get(raw_url, timeout=10.0)
@@ -1440,7 +1444,8 @@ Outbound traffic is allowed only to:
 
 A new outbound destination is added to the allowlist in the same PR that introduces it.
 Wildcards are forbidden; the deny-by-default rule for outbound IP ranges
-(RFC1918, link-local, loopback, IPv6 ULA) is enforced in `core/url_safety.py`.
+(RFC1918, link-local, loopback, IPv6 ULA) is enforced in
+`services/infra/url_safety.py`.
 
 ### 10.7 Rate limiting at the boundary
 

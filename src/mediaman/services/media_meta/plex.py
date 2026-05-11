@@ -50,11 +50,11 @@ with _warnings.catch_warnings():
     defusedxml.defuse_stdlib()
 
 from mediaman.core.scrub_filter import ScrubFilter, register_secret
-from mediaman.core.url_safety import resolve_safe_outbound_url
 from mediaman.services.infra.http import (
     SafeHTTPClient,
     SafeHTTPError,
 )
+from mediaman.services.infra.url_safety import resolve_safe_outbound_url
 from mediaman.services.media_meta._plex_session import (  # noqa: F401
     _PLEX_MAX_BYTES,
     _PLEX_TIMEOUT_SECONDS,

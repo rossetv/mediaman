@@ -6,7 +6,7 @@ import socket
 
 import pytest
 
-from mediaman.core.url_safety import (
+from mediaman.services.infra.url_safety import (
     is_safe_outbound_url,
     resolve_safe_outbound_url,
 )
@@ -262,7 +262,7 @@ class TestIdnNormalisation:
         Confirms the normalised form is what gets checked, not just the raw
         parsed hostname, so a UTS-46 mapping cannot slip past the ASCII list.
         """
-        from mediaman.core.url_safety import _host_is_metadata, _normalise_host
+        from mediaman.services.infra.url_safety import _host_is_metadata, _normalise_host
 
         # A clean ASCII hostname normalises to itself.
         assert _normalise_host("radarr.example.com") == "radarr.example.com"
