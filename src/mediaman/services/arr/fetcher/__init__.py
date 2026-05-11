@@ -16,6 +16,9 @@ from __future__ import annotations
 import logging
 import sqlite3
 
+import requests
+
+from mediaman.services.arr._client_base import ArrError
 from mediaman.services.arr.fetcher._base import (
     ArrCard,
     ArrEpisodeEntry,
@@ -24,6 +27,8 @@ from mediaman.services.arr.fetcher._base import (
 )
 from mediaman.services.arr.fetcher._radarr import fetch_radarr_queue
 from mediaman.services.arr.fetcher._sonarr import fetch_sonarr_queue
+from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.infra.settings_reader import ConfigDecryptError
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +59,13 @@ def fetch_arr_queue_result(conn: sqlite3.Connection, secret_key: str) -> FetchRe
         radarr_client = build_radarr_from_db(conn, secret_key)
         if radarr_client is not None:
             result.cards.extend(fetch_radarr_queue(radarr_client))
-    except Exception as exc:
+    except (
+        SafeHTTPError,
+        requests.RequestException,
+        ArrError,
+        sqlite3.Error,
+        ConfigDecryptError,
+    ) as exc:
         msg = f"Radarr fetch failed: {exc}"
         logger.warning("Failed to fetch Radarr queue: %s", exc, exc_info=True)
         result.errors.append(msg)
@@ -63,7 +74,13 @@ def fetch_arr_queue_result(conn: sqlite3.Connection, secret_key: str) -> FetchRe
         sonarr_client = build_sonarr_from_db(conn, secret_key)
         if sonarr_client is not None:
             result.cards.extend(fetch_sonarr_queue(sonarr_client))
-    except Exception as exc:
+    except (
+        SafeHTTPError,
+        requests.RequestException,
+        ArrError,
+        sqlite3.Error,
+        ConfigDecryptError,
+    ) as exc:
         msg = f"Sonarr fetch failed: {exc}"
         logger.warning("Failed to fetch Sonarr queue: %s", exc, exc_info=True)
         result.errors.append(msg)

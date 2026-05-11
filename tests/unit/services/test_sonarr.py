@@ -2,7 +2,7 @@
 
 import pytest
 
-from mediaman.services.arr.base import ArrClient, ArrConfigError
+from mediaman.services.arr.base import ArrClient, ArrConfigError, ArrUpstreamError
 from mediaman.services.arr.spec import SONARR_SPEC
 
 
@@ -81,7 +81,7 @@ class TestArrClientSonarr:
                 }
             ),
         )
-        with pytest.raises(ValueError, match="no season 99"):
+        with pytest.raises(ArrUpstreamError, match="no season 99"):
             client.unmonitor_season(series_id=1, season_number=99)
 
     def test_unmonitor_season_retries_on_concurrent_modification(

@@ -217,6 +217,3 @@ def call_openai(
     except (ValueError, KeyError) as exc:
         logger.exception("Failed to parse OpenAI response: %s", exc)
         return []
-    except Exception:
-        logger.exception("OpenAI API call failed unexpectedly")
-        return []

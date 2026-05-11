@@ -140,7 +140,7 @@ def _safe_path(url: str) -> str:
         parsed = urlparse(url)
         host = parsed.hostname or "?"
         return f"{host}{parsed.path or '/'}"
-    except Exception:
+    except ValueError:
         return "?"
 
 

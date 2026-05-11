@@ -13,6 +13,7 @@ import sqlite3
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
 from mediaman.db import init_db
 from mediaman.services.arr.completion import (
@@ -287,7 +288,7 @@ class TestRecordVerifiedCompletions:
     def test_arr_network_error_skips_item_without_false_positive_log(self, conn, monkeypatch):
         """When the arr client raises, the item is skipped — not logged as 'no files confirmed'."""
         mock_radarr = MagicMock()
-        mock_radarr.get_movies.side_effect = ConnectionError("network error")
+        mock_radarr.get_movies.side_effect = requests.ConnectionError("network error")
         monkeypatch.setattr(
             "mediaman.services.arr.build.build_radarr_from_db",
             lambda *a, **kw: mock_radarr,
@@ -316,7 +317,7 @@ class TestRecordVerifiedCompletions:
         def mock_get_movies():
             call_count["n"] += 1
             if call_count["n"] == 1:
-                raise ConnectionError("transient error")
+                raise requests.ConnectionError("transient error")
             return [{"title": "Dune", "hasFile": True}]
 
         mock_radarr = MagicMock()

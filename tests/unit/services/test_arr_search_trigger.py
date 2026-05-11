@@ -8,11 +8,13 @@ _trigger_sonarr_partial_missing, and reset_search_triggers.
 
 from __future__ import annotations
 
+import sqlite3
 import time
 import time as _time
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
 from mediaman.db import init_db
 from mediaman.services.arr.search_trigger import (
@@ -347,9 +349,9 @@ class TestThrottleDbPersistence:
             _load_throttle_from_db(bad_conn, "radarr:X")
 
     def test_save_swallows_db_error(self):
-        """_save_trigger_to_db is best-effort; never raises on DB failure."""
+        """_save_trigger_to_db is best-effort; never raises on transient DB failure."""
         bad_conn = MagicMock()
-        bad_conn.execute.side_effect = Exception("write failed")
+        bad_conn.execute.side_effect = sqlite3.OperationalError("write failed")
         _save_trigger_to_db(bad_conn, "radarr:X", 999.0, 1)  # must not raise
 
     def test_maybe_trigger_search_persists_to_db(self, db_conn, monkeypatch):
@@ -556,7 +558,7 @@ class TestLockReleasedDuringNetwork:
         from mediaman.services.arr import search_trigger as _st
 
         client = MagicMock()
-        client.search_movie.side_effect = RuntimeError("Radarr down")
+        client.search_movie.side_effect = requests.ConnectionError("Radarr down")
         monkeypatch.setattr(
             "mediaman.services.arr.search_trigger.build_radarr_from_db",
             lambda c, sk: client,
@@ -621,7 +623,7 @@ class TestLockReleasedDuringNetwork:
             with _st._state_lock:
                 _st._last_search_trigger["radarr:RaceMe"] = sibling_now
                 _st._reservation_tokens["radarr:RaceMe"] = sibling_token
-            raise RuntimeError("our network call failed AFTER sibling overwrote")
+            raise requests.ConnectionError("our network call failed AFTER sibling overwrote")
 
         client.search_movie.side_effect = overwrite_then_fail
 
