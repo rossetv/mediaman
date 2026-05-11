@@ -1,7 +1,7 @@
 /**
  * downloads/render_hero.js — patch the hero card from a poll payload.
  *
- * Reuses MM.downloads.buildDom for DOM helpers and `stateLabel`. The
+ * Reuses MM.downloads.buildDom for DOM helpers. The
  * caller (downloads.js) owns container lookup; this module only touches
  * the hero card in place.
  *
@@ -107,7 +107,7 @@
     var pill = d.q('.dl-state-pill', card);
     if (pill) {
       pill.className = 'dl-state-pill dl-state-' + item.state;
-      d.setText(pill, d.stateLabel(item.state));
+      d.setText(pill, item.state_label || item.state);
     }
 
     updateSearchHint(card, item);

@@ -10,7 +10,6 @@
  *   MM.downloads.buildDom.setText(el, txt)
  *   MM.downloads.buildDom.findByDlId(container, dlId)
  *   MM.downloads.buildDom.findByEp(container, label)
- *   MM.downloads.buildDom.stateLabel(state)
  *   MM.downloads.buildDom.buildHeroPlaceholder(id)
  *   MM.downloads.buildDom.buildRecentItem(r)
  *   MM.downloads.buildDom.buildEmptyState()
@@ -45,14 +44,8 @@
     return null;
   }
 
-  function stateLabel(state) {
-    if (state === 'searching') return 'Looking for the best version';
-    if (state === 'downloading') return 'Downloading';
-    if (state === 'almost_ready') return 'Almost ready';
-    if (state === 'ready') return 'Ready to watch';
-    if (state === 'upcoming') return '';
-    return '';
-  }
+  /* State labels come from the server (item.state_label). The canonical map
+     lives in services/downloads/download_format/_types.py. */
 
   /* Build a recent item element safely. */
   function buildRecentItem(r) {
@@ -281,7 +274,6 @@
     setText: setText,
     findByDlId: findByDlId,
     findByEp: findByEp,
-    stateLabel: stateLabel,
     buildHeroPlaceholder: buildHeroPlaceholder,
     buildRecentItem: buildRecentItem,
     buildEmptyState: buildEmptyState,

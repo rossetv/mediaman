@@ -26,7 +26,7 @@
     if (pill) {
       pill.className = 'dl-state-pill dl-state-' + item.state;
       pill.style.fontSize = '9px';
-      d.setText(pill, d.stateLabel(item.state));
+      d.setText(pill, item.state_label || item.state);
     }
     if (hero().updateSearchHint) hero().updateSearchHint(row, item);
     var fill = d.q('[data-v="fill"]', row);
