@@ -1309,8 +1309,8 @@ class TestRunScanDryRun:
         mock_plex.get_watch_history.return_value = []
 
         with (
-            patch("mediaman.scanner.engine._send_newsletter") as mock_news,
-            patch("mediaman.scanner.engine._refresh_recommendations") as mock_recs,
+            patch("mediaman.scanner._post_scan._send_newsletter") as mock_news,
+            patch("mediaman.scanner._post_scan._refresh_recommendations") as mock_recs,
         ):
             engine = ScanEngine(
                 conn=conn,
@@ -1371,8 +1371,8 @@ class TestRunScanDryRun:
         mock_plex.get_watch_history.return_value = []
 
         with (
-            patch("mediaman.scanner.engine._send_newsletter"),
-            patch("mediaman.scanner.engine._refresh_recommendations"),
+            patch("mediaman.scanner._post_scan._send_newsletter"),
+            patch("mediaman.scanner._post_scan._refresh_recommendations"),
         ):
             engine = ScanEngine(
                 conn=conn,
@@ -1392,8 +1392,8 @@ class TestRunScanDryRun:
     def test_dry_run_does_not_send_newsletter(self, conn, mock_plex):
         """The mailer must not be invoked in dry_run mode (D05 finding 1)."""
         with (
-            patch("mediaman.scanner.engine._send_newsletter") as mock_news,
-            patch("mediaman.scanner.engine._refresh_recommendations"),
+            patch("mediaman.scanner._post_scan._send_newsletter") as mock_news,
+            patch("mediaman.scanner._post_scan._refresh_recommendations"),
         ):
             engine = ScanEngine(
                 conn=conn,
@@ -1431,8 +1431,8 @@ class TestRunScanDryRun:
         conn.commit()
 
         with (
-            patch("mediaman.scanner.engine._send_newsletter"),
-            patch("mediaman.scanner.engine._refresh_recommendations"),
+            patch("mediaman.scanner._post_scan._send_newsletter"),
+            patch("mediaman.scanner._post_scan._refresh_recommendations"),
         ):
             engine = ScanEngine(
                 conn=conn,
@@ -1583,8 +1583,8 @@ class TestPerLibraryOrphanGuard:
         mock_plex.get_movie_items.side_effect = get_movies
 
         with (
-            patch("mediaman.scanner.engine._send_newsletter"),
-            patch("mediaman.scanner.engine._refresh_recommendations"),
+            patch("mediaman.scanner._post_scan._send_newsletter"),
+            patch("mediaman.scanner._post_scan._refresh_recommendations"),
         ):
             engine = ScanEngine(
                 conn=conn,
@@ -1619,8 +1619,8 @@ class TestUnknownLibraryType:
         caplog,
     ):
         with (
-            patch("mediaman.scanner.engine._send_newsletter"),
-            patch("mediaman.scanner.engine._refresh_recommendations"),
+            patch("mediaman.scanner._post_scan._send_newsletter"),
+            patch("mediaman.scanner._post_scan._refresh_recommendations"),
         ):
             engine = ScanEngine(
                 conn=conn,
@@ -1643,8 +1643,8 @@ class TestUnknownLibraryType:
         caplog,
     ):
         with (
-            patch("mediaman.scanner.engine._send_newsletter"),
-            patch("mediaman.scanner.engine._refresh_recommendations"),
+            patch("mediaman.scanner._post_scan._send_newsletter"),
+            patch("mediaman.scanner._post_scan._refresh_recommendations"),
         ):
             engine = ScanEngine(
                 conn=conn,
