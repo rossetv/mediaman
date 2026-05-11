@@ -230,3 +230,45 @@ def cleanup_expired_snoozes(conn: sqlite3.Connection, now_iso: str) -> None:
         "DELETE FROM scheduled_actions WHERE action = 'snoozed' AND execute_at < ?",
         (now_iso,),
     )
+
+
+def clear_pending_deletions(
+    conn: sqlite3.Connection,
+    *,
+    audit_actor: str | None = None,
+    audit_ip: str = "",
+) -> int:
+    """Delete every pending ``scheduled_deletion`` row in one transaction.
+
+    Returns the number of rows removed so callers can surface the count
+    in their HTTP response. Snoozes and protect-forever rows are
+    untouched — this only sweeps pending deletions whose token has not
+    yet been used.
+
+    Audit-in-transaction: when *audit_actor* is supplied, a
+    ``sec:scan.cleared`` row is written inside the same
+    ``BEGIN IMMEDIATE`` that deletes the rows. The pre-delete count
+    lands in the audit detail. If the audit insert raises, the entire
+    delete rolls back — we never end up with rows removed but no audit
+    trail (M27 fail-closed contract).
+    """
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        cleared = conn.execute(
+            "SELECT COUNT(*) FROM scheduled_actions "
+            "WHERE action='scheduled_deletion' AND token_used=0"
+        ).fetchone()[0]
+        conn.execute(
+            "DELETE FROM scheduled_actions WHERE action='scheduled_deletion' AND token_used=0"
+        )
+        if audit_actor is not None:
+            from mediaman.audit import security_event_or_raise
+
+            security_event_or_raise(
+                conn,
+                event="scan.cleared",
+                actor=audit_actor,
+                ip=audit_ip,
+                detail={"count": int(cleared)},
+            )
+    return int(cleared)

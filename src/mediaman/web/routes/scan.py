@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
-from mediaman.audit import security_event, security_event_or_raise
+from mediaman.audit import security_event
 from mediaman.db import (
     finish_scan_run,
     get_db,
@@ -19,6 +19,7 @@ from mediaman.db import (
     open_thread_connection,
     start_scan_run,
 )
+from mediaman.scanner.repository.scheduled_actions import clear_pending_deletions
 from mediaman.services.rate_limit import get_client_ip
 from mediaman.services.rate_limit.instances import (
     SCAN_TRIGGER_LIMITER as _SCAN_TRIGGER_LIMITER,
@@ -128,11 +129,11 @@ def clear_scheduled(
 ) -> Response | dict[str, object]:
     """Delete all pending scheduled_deletion actions.
 
-    Destructive admin action — wrapped in ``BEGIN IMMEDIATE`` and the
-    audit insert lives in the same transaction via
-    :func:`security_event_or_raise`, so a "rows deleted but no audit
-    trail" outcome is impossible. If the audit blows up, the delete
-    rolls back.
+    Destructive admin action — the delete + audit insert run inside a
+    single transaction owned by
+    :func:`mediaman.scanner.repository.scheduled_actions.clear_pending_deletions`,
+    so a "rows deleted but no audit trail" outcome is impossible. If
+    the audit blows up, the delete rolls back.
 
     Rate-limited per-admin (3/min, 20/day) so a leaked session cookie
     cannot be used to repeatedly nuke the scheduled queue.
@@ -144,26 +145,11 @@ def clear_scheduled(
         )
     conn = get_db()
     try:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            cleared = conn.execute(
-                "SELECT COUNT(*) FROM scheduled_actions "
-                "WHERE action='scheduled_deletion' AND token_used=0"
-            ).fetchone()[0]
-            conn.execute(
-                "DELETE FROM scheduled_actions WHERE action='scheduled_deletion' AND token_used=0"
-            )
-            security_event_or_raise(
-                conn,
-                event="scan.cleared",
-                actor=admin,
-                ip=get_client_ip(request),
-                detail={"count": cleared},
-            )
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
+        cleared = clear_pending_deletions(
+            conn,
+            audit_actor=admin,
+            audit_ip=get_client_ip(request),
+        )
     except Exception:
         logger.exception("scan.clear failed user=%s", admin)
         return respond_err("internal_error", status=500)

@@ -373,3 +373,39 @@ def admin_unlock(conn: sqlite3.Connection, username: str) -> bool:
         (username,),
     )
     return (cur.rowcount or 0) > 0
+
+
+def admin_unlock_with_audit(
+    conn: sqlite3.Connection,
+    target_username: str,
+    *,
+    audit_actor: str,
+    audit_ip: str = "",
+    target_id: int,
+) -> bool:
+    """Clear *target_username*'s lock and audit-log the unlock atomically.
+
+    Wraps :func:`admin_unlock` and :func:`security_event_or_raise` in a
+    single ``BEGIN IMMEDIATE`` block so the unlock and the audit row
+    land together — if the audit insert fails, the unlock rolls back
+    (M27 fail-closed contract). Returns the value of
+    :func:`admin_unlock` so the caller knows whether there was a lock
+    to clear.
+    """
+    with conn:
+        conn.execute("BEGIN IMMEDIATE")
+        cleared = admin_unlock(conn, target_username)
+        from mediaman.audit import security_event_or_raise
+
+        security_event_or_raise(
+            conn,
+            event="user.unlocked",
+            actor=audit_actor,
+            ip=audit_ip,
+            detail={
+                "target_id": target_id,
+                "target_username": target_username,
+                "had_lock": cleared,
+            },
+        )
+    return cleared

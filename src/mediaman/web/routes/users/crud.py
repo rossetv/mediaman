@@ -15,12 +15,17 @@ import logging
 from fastapi import APIRouter, Cookie, Depends, Header, Request
 from starlette.responses import Response
 
-from mediaman.audit import security_event, security_event_or_raise
+from mediaman.audit import security_event
 from mediaman.db import get_db
 from mediaman.services.rate_limit import get_client_ip
-from mediaman.web.auth.login_lockout import admin_unlock
+from mediaman.web.auth.login_lockout import admin_unlock_with_audit
 from mediaman.web.auth.middleware import get_current_admin
-from mediaman.web.auth.password_hash import create_user, delete_user, list_users
+from mediaman.web.auth.password_hash import (
+    create_user,
+    delete_user,
+    find_username_by_user_id,
+    list_users,
+)
 from mediaman.web.auth.reauth import has_recent_reauth, verify_reauth_password
 from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.models.users import CreateUserBody
@@ -222,35 +227,20 @@ def api_unlock_user(
         logger.warning("user.unlock_rejected actor=%s reason=reauth_required", admin)
         return _unauthorised_reauth()
 
-    row = conn.execute(
-        "SELECT username FROM admin_users WHERE id=?",
-        (user_id,),
-    ).fetchone()
-    if row is None:
+    target_username = find_username_by_user_id(conn, user_id)
+    if target_username is None:
         return respond_err("not_found", status=404, message="User not found")
-    target_username = row["username"]
     if target_username == admin:
         return respond_err("cannot_unlock_self", status=400, message="Cannot unlock yourself")
 
     try:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            cleared = admin_unlock(conn, target_username)
-            security_event_or_raise(
-                conn,
-                event="user.unlocked",
-                actor=admin,
-                ip=get_client_ip(request),
-                detail={
-                    "target_id": user_id,
-                    "target_username": target_username,
-                    "had_lock": cleared,
-                },
-            )
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
+        cleared = admin_unlock_with_audit(
+            conn,
+            target_username,
+            audit_actor=admin,
+            audit_ip=get_client_ip(request),
+            target_id=user_id,
+        )
     except Exception:
         logger.exception("user.unlock failed actor=%s target_id=%d", admin, user_id)
         return respond_err("internal_error", status=500, message="Internal error during unlock")
