@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, cast
 
 import requests
 
+from mediaman.services.arr._types import ArrEpisode
 from mediaman.services.arr.fetcher._base import (
     ArrCard,
     ArrEpisodeEntry,
@@ -232,7 +233,7 @@ def fetch_sonarr_queue(client: ArrClient) -> list[ArrCard]:
             continue
 
         series_id = series.get("id", 0)
-        episodes_raw: list[dict] = []
+        episodes_raw: list[ArrEpisode] = []
         try:
             episodes_raw = client.get_episodes(series_id)
         except (requests.RequestException, SafeHTTPError):

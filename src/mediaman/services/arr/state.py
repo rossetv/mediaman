@@ -19,7 +19,14 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from typing import TYPE_CHECKING, Any, Final, TypedDict
+from typing import TYPE_CHECKING, Final, TypedDict
+
+from mediaman.services.arr._types import (
+    ArrSeason,
+    ArrSeasonStatistics,
+    RadarrMovie,
+    SonarrSeries,
+)
 
 if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient
@@ -43,14 +50,14 @@ ACTION_QUEUED: Final = "queued"
 class RadarrCaches(TypedDict):
     """Cache fragment returned by :func:`build_radarr_cache`."""
 
-    radarr_movies: dict[int, dict[str, Any]]
+    radarr_movies: dict[int, RadarrMovie]
     radarr_queue_tmdb_ids: set[int]
 
 
 class SonarrCaches(TypedDict):
     """Cache fragment returned by :func:`build_sonarr_cache`."""
 
-    sonarr_series: dict[int, dict[str, Any]]
+    sonarr_series: dict[int, SonarrSeries]
     sonarr_queue_tmdb_ids: set[int]
 
 
@@ -58,7 +65,7 @@ class ArrCaches(RadarrCaches, SonarrCaches):
     """Full merged cache; produced by ``{**build_radarr_cache(), **build_sonarr_cache()}``."""
 
 
-def series_has_files(series_data: dict[str, Any]) -> bool:
+def series_has_files(series_data: SonarrSeries) -> bool:
     """Return True if Sonarr reports at least one episode file is present."""
     return (series_data.get("statistics") or {}).get("episodeFileCount", 0) > 0
 
@@ -96,10 +103,11 @@ def compute_download_state(media_type: str, tmdb_id: int, caches: ArrCaches) -> 
     if series is None:
         return None
 
-    def _stats(season: dict) -> dict[str, Any]:
-        return season.get("statistics") or {}
+    def _stats(season: ArrSeason) -> ArrSeasonStatistics:
+        stats = season.get("statistics")
+        return stats if isinstance(stats, dict) else ArrSeasonStatistics()
 
-    def _has_aired(season: dict) -> bool:
+    def _has_aired(season: ArrSeason) -> bool:
         """Return True if Sonarr signals at least one episode has aired.
 
         Sonarr v3 exposes this as ``previousAiring`` on the season's
@@ -164,7 +172,7 @@ def build_radarr_cache(client: ArrClient | None) -> RadarrCaches:
     """
     if client is None:
         return {"radarr_movies": {}, "radarr_queue_tmdb_ids": set()}
-    movies: dict[int, dict[str, Any]] = {}
+    movies: dict[int, RadarrMovie] = {}
     for m in client.get_movies():
         tid = m.get("tmdbId")
         if not tid:
@@ -197,7 +205,7 @@ def build_sonarr_cache(client: ArrClient | None) -> SonarrCaches:
     """
     if client is None:
         return {"sonarr_series": {}, "sonarr_queue_tmdb_ids": set()}
-    series: dict[int, dict[str, Any]] = {}
+    series: dict[int, SonarrSeries] = {}
     for s in client.get_series():
         tid = s.get("tmdbId")
         if not tid:

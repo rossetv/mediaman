@@ -3,10 +3,18 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 
 from mediaman.core.format import format_day_month
 from mediaman.core.time import parse_iso_utc
+
+# rationale: these helpers consume *arr response shapes that are described
+# by TypedDicts in :mod:`mediaman.services.arr._types`, but mypy treats a
+# `TypedDict` value as not assignable to a `dict[str, object]` parameter.
+# Annotating as `Mapping[str, object]` accepts both the TypedDicts and any
+# plain dict the tests build, without falling back to `dict[Any, Any]`.
+_ArrLike = Mapping[str, object]
 
 # Maximum number of years into the future that a release date is trusted.
 # TMDB sometimes stores year 9999 for unreleased titles — such values should
@@ -19,7 +27,7 @@ _MAX_FUTURE_YEARS = 100
 logger = logging.getLogger(__name__)
 
 
-def extract_poster_url(images: list[dict] | None) -> str:
+def extract_poster_url(images: Sequence[_ArrLike] | None) -> str:
     """Return the first poster remoteUrl from an *arr images list, or ``""``.
 
     Iterates the ``images`` list (as returned by Radarr/Sonarr API responses)
@@ -28,8 +36,9 @@ def extract_poster_url(images: list[dict] | None) -> str:
     ``images`` is falsy — callers no longer need ``or ""`` patches.
     """
     for img in images or []:
-        if img.get("coverType") == "poster" and img.get("remoteUrl"):
-            return img["remoteUrl"]
+        remote_url = img.get("remoteUrl")
+        if img.get("coverType") == "poster" and isinstance(remote_url, str) and remote_url:
+            return remote_url
     return ""
 
 
@@ -42,7 +51,7 @@ def _format_release_date(dt: datetime) -> str:
     return format_day_month(dt)
 
 
-def compute_movie_released_at(movie: dict) -> float:
+def compute_movie_released_at(movie: _ArrLike) -> float:
     """Return the earliest known release-date epoch for a Radarr movie, or 0.0.
 
     Looks at ``digitalRelease``, ``physicalRelease`` and ``inCinemas`` and
@@ -59,7 +68,8 @@ def compute_movie_released_at(movie: dict) -> float:
     max_year = now.year + _MAX_FUTURE_YEARS
     candidates: list[datetime] = []
     for key in ("digitalRelease", "physicalRelease", "inCinemas"):
-        dt = parse_iso_utc(movie.get(key, ""))
+        raw = movie.get(key, "")
+        dt = parse_iso_utc(raw if isinstance(raw, str) else "")
         if dt and dt.year <= max_year:
             candidates.append(dt)
     if not candidates:
@@ -67,7 +77,7 @@ def compute_movie_released_at(movie: dict) -> float:
     return min(candidates).timestamp()
 
 
-def compute_series_released_at(episodes: list[dict]) -> float:
+def compute_series_released_at(episodes: Sequence[_ArrLike]) -> float:
     """Return the most recent past airing epoch across *episodes*, or 0.0.
 
     Used by auto-abandon to gate "too fresh to abandon" decisions. The
@@ -83,7 +93,8 @@ def compute_series_released_at(episodes: list[dict]) -> float:
     now = datetime.now(UTC)
     latest: datetime | None = None
     for ep in episodes:
-        dt = parse_iso_utc(ep.get("airDateUtc", ""))
+        raw = ep.get("airDateUtc", "")
+        dt = parse_iso_utc(raw if isinstance(raw, str) else "")
         if dt is None or dt > now:
             continue
         if latest is None or dt > latest:
@@ -93,7 +104,7 @@ def compute_series_released_at(episodes: list[dict]) -> float:
     return latest.timestamp()
 
 
-def classify_movie_upcoming(movie: dict) -> tuple[bool, str]:
+def classify_movie_upcoming(movie: _ArrLike) -> tuple[bool, str]:
     """Classify a Radarr movie as upcoming and build its release label.
 
     Returns (is_upcoming, release_label). Label is "" when not upcoming.
@@ -109,7 +120,8 @@ def classify_movie_upcoming(movie: dict) -> tuple[bool, str]:
     max_year = now.year + _MAX_FUTURE_YEARS
     candidates = []
     for key in ("digitalRelease", "physicalRelease", "inCinemas"):
-        dt = parse_iso_utc(movie.get(key, ""))
+        raw = movie.get(key, "")
+        dt = parse_iso_utc(raw if isinstance(raw, str) else "")
         if dt and dt > now and dt.year <= max_year:
             candidates.append(dt)
 
@@ -119,7 +131,7 @@ def classify_movie_upcoming(movie: dict) -> tuple[bool, str]:
     return True, "Not yet released"
 
 
-def classify_series_upcoming(series: dict, episodes: list[dict]) -> tuple[bool, str]:
+def classify_series_upcoming(series: _ArrLike, episodes: Sequence[_ArrLike]) -> tuple[bool, str]:
     """Classify a Sonarr series as upcoming and build its premiere label.
 
     Returns ``(is_upcoming, release_label)``. Label is ``""`` when not upcoming.
@@ -134,12 +146,15 @@ def classify_series_upcoming(series: dict, episodes: list[dict]) -> tuple[bool, 
     """
     if not series.get("monitored"):
         return False, ""
-    stats = series.get("statistics") or {}
-    if stats.get("episodeFileCount", 0) > 0:
+    stats_raw = series.get("statistics") or {}
+    stats = stats_raw if isinstance(stats_raw, Mapping) else {}
+    file_count = stats.get("episodeFileCount", 0)
+    if isinstance(file_count, int) and file_count > 0:
         return False, ""
 
     now = datetime.now(UTC)
-    status = (series.get("status") or "").lower()
+    status_raw = series.get("status") or ""
+    status = status_raw.lower() if isinstance(status_raw, str) else ""
 
     has_aired = False
     future_airs: list[datetime] = []
@@ -147,7 +162,7 @@ def classify_series_upcoming(series: dict, episodes: list[dict]) -> tuple[bool, 
 
     for e in episodes:
         raw = e.get("airDateUtc", "")
-        if not raw:
+        if not isinstance(raw, str) or not raw:
             unknown_count += 1
             continue
         dt = parse_iso_utc(raw)
@@ -220,7 +235,7 @@ def map_arr_status(status: str, tracked_state: str = "") -> str:
     return "searching"
 
 
-def map_episode_state(ep: dict) -> str:
+def map_episode_state(ep: _ArrLike) -> str:
     """Map a Sonarr episode entry to a simplified state.
 
     Returns one of: "ready", "downloading", "queued", "searching".
@@ -230,10 +245,14 @@ def map_episode_state(ep: dict) -> str:
     ``queued`` or ``delay`` — calling those "downloading" overstates
     what's actually happening, so they get a distinct "queued" label.
     """
-    progress = ep.get("progress", 0)
-    sizeleft = ep.get("sizeleft", 0)
-    size = ep.get("size", 0)
-    status = (ep.get("status") or "").lower()
+    progress_raw = ep.get("progress", 0)
+    progress = progress_raw if isinstance(progress_raw, int) else 0
+    sizeleft_raw = ep.get("sizeleft", 0)
+    sizeleft = sizeleft_raw if isinstance(sizeleft_raw, int) else 0
+    size_raw = ep.get("size", 0)
+    size = size_raw if isinstance(size_raw, int) else 0
+    status_raw = ep.get("status") or ""
+    status = status_raw.lower() if isinstance(status_raw, str) else ""
 
     if progress == 100 or (sizeleft == 0 and size > 0):
         return "ready"
