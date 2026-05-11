@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 import sqlite3
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -32,39 +31,16 @@ from mediaman.services.downloads._notification_claims import (
     _release_claims_bulk,
     reconcile_stranded_notifications,
 )
-from mediaman.services.downloads.download_format import extract_poster_url
+from mediaman.services.downloads._notification_email import (
+    build_email_payload as _build_email_payload,
+)
+from mediaman.services.downloads._notification_email import (
+    get_notification_template as _get_notification_template,
+)
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Module-cached Jinja environment.
-#
-# ``check_download_notifications`` is called once per library sync. Building
-# a fresh ``Environment`` (filesystem walk + template compilation) every tick
-# was wasted work, so we cache one env per process and reuse it for every
-# call. The download-ready template lives next to the newsletter templates
-# under ``mediaman/web/templates`` and never changes at runtime.
-# ---------------------------------------------------------------------------
-_NOTIFICATION_ENV = None
-_NOTIFICATION_TEMPLATE = None
-
-
-def _get_notification_template():
-    """Return the cached ``email/download_ready.html`` Jinja template.
-
-    Built lazily on first use rather than at import time so unit tests
-    that never trigger this code path don't pay the Jinja import cost.
-    """
-    global _NOTIFICATION_ENV, _NOTIFICATION_TEMPLATE
-    if _NOTIFICATION_TEMPLATE is not None:
-        return _NOTIFICATION_TEMPLATE
-    from jinja2 import Environment, FileSystemLoader
-
-    template_dir = Path(__file__).parent.parent.parent / "web" / "templates"
-    _NOTIFICATION_ENV = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
-    _NOTIFICATION_TEMPLATE = _NOTIFICATION_ENV.get_template("email/download_ready.html")
-    return _NOTIFICATION_TEMPLATE
 
 
 def record_download_notification(
@@ -200,6 +176,56 @@ def _fetch_suggestions_batch(
 _ARR_UNREACHABLE = object()  # sentinel returned by _check_arr_availability on outage
 
 
+def _check_radarr_movie(arr: Any, row_id: Any, tmdb_id: Any) -> tuple[bool, Any, bool]:
+    """Probe Radarr for a single movie's file availability.
+
+    Returns ``(ready, movie_obj, arr_unreachable)``.  Network/HTTP
+    errors from Radarr surface as ``arr_unreachable=True`` so the
+    caller can apply backoff and release the claim.
+    """
+    radarr_client = arr.radarr()
+    if not (radarr_client and tmdb_id):
+        return False, None, False
+    try:
+        movie = radarr_client.get_movie_by_tmdb(tmdb_id)
+    except Exception:
+        # Network/HTTP errors propagate from Radarr — treat
+        # as a transient outage so the backoff kicks in.
+        logger.warning(
+            "Radarr lookup failed for notification id=%s tmdb=%s",
+            row_id,
+            tmdb_id,
+            exc_info=True,
+        )
+        return False, None, True
+    return bool(movie and movie.get("hasFile")), movie, False
+
+
+def _check_sonarr_series(arr: Any, row_id: Any, tvdb_id: Any, tmdb_id: Any) -> tuple[bool, bool]:
+    """Probe Sonarr for a series' episode-file availability.
+
+    Returns ``(ready, arr_unreachable)``.  Sonarr does not return a
+    movie payload so the second element matches the Radarr helper's
+    return shape via the caller's tuple unpacking.
+    """
+    sonarr_client = arr.sonarr()
+    # Match on TVDB id first (authoritative for Sonarr); fall back
+    # to TMDB for series added via TMDB lookup where the Sonarr
+    # record happens to carry both.
+    if not (sonarr_client and (tvdb_id or tmdb_id)):
+        return False, False
+    try:
+        ready = _sonarr_has_files(sonarr_client, tvdb_id=tvdb_id, tmdb_id=tmdb_id)
+    except Exception:
+        logger.warning(
+            "Sonarr lookup failed for notification id=%s",
+            row_id,
+            exc_info=True,
+        )
+        return False, True
+    return ready, False
+
+
 def _check_arr_availability(
     row: sqlite3.Row,
     arr: Any,
@@ -210,51 +236,17 @@ def _check_arr_availability(
 
     Returns ``(ready, movie_obj)``.  On *arr unreachability, records the
     failure, releases the claim, and returns ``(False, _ARR_UNREACHABLE)``.
-    # rationale: two separate service branches (radarr/sonarr) each with
-    # their own try/except — splitting further would separate the except
-    # from its try across function boundaries.
     """
     row_id = row["id"]
-    tmdb_id = row["tmdb_id"]
-    tvdb_id = row["tvdb_id"]
     service = row["service"]
 
-    ready = False
-    movie = None
-    arr_unreachable = False
-
     if service == "radarr":
-        radarr_client = arr.radarr()
-        if radarr_client and tmdb_id:
-            try:
-                movie = radarr_client.get_movie_by_tmdb(tmdb_id)
-            except Exception:
-                # Network/HTTP errors propagate from Radarr — treat
-                # as a transient outage so the backoff kicks in.
-                arr_unreachable = True
-                logger.warning(
-                    "Radarr lookup failed for notification id=%s tmdb=%s",
-                    row_id,
-                    tmdb_id,
-                    exc_info=True,
-                )
-            else:
-                ready = bool(movie and movie.get("hasFile"))
+        ready, movie, arr_unreachable = _check_radarr_movie(arr, row_id, row["tmdb_id"])
     elif service == "sonarr":
-        sonarr_client = arr.sonarr()
-        # Match on TVDB id first (authoritative for Sonarr); fall
-        # back to TMDB for series added via TMDB lookup where the
-        # Sonarr record happens to carry both.
-        if sonarr_client and (tvdb_id or tmdb_id):
-            try:
-                ready = _sonarr_has_files(sonarr_client, tvdb_id=tvdb_id, tmdb_id=tmdb_id)
-            except Exception:
-                arr_unreachable = True
-                logger.warning(
-                    "Sonarr lookup failed for notification id=%s",
-                    row_id,
-                    exc_info=True,
-                )
+        ready, arr_unreachable = _check_sonarr_series(arr, row_id, row["tvdb_id"], row["tmdb_id"])
+        movie = None
+    else:
+        ready, movie, arr_unreachable = False, None, False
 
     if arr_unreachable:
         _record_arr_failure(int(row_id), now_dt)
@@ -262,103 +254,6 @@ def _check_arr_availability(
         return False, _ARR_UNREACHABLE
 
     return ready, movie
-
-
-def _gather_email_meta(
-    row: sqlite3.Row,
-    movie: Any,
-    suggestions_by_tmdb: dict[int, sqlite3.Row],
-) -> dict[str, str]:
-    """Assemble rich metadata dict for a notification email.
-
-    Merges the suggestions-cache row (batch-fetched upstream) with a
-    Radarr poster fallback.  Returns a flat dict of string values safe to
-    pass directly to the Jinja template.
-    """
-    tmdb_id = row["tmdb_id"]
-    service = row["service"]
-
-    # Gather rich metadata for the email
-    meta: dict[str, str] = {
-        "year": "",
-        "runtime": "",
-        "director": "",
-        "description": "",
-        "rating": "",
-        "imdb_rating": "",
-        "rt_rating": "",
-        "poster_url": "",
-    }
-
-    # Recommendations cache lookup — pulled from the batch fetch
-    # above so we don't do per-row queries.
-    rec_row = suggestions_by_tmdb.get(int(tmdb_id)) if tmdb_id else None
-    if rec_row:
-        for k in meta:
-            if rec_row[k]:
-                meta[k] = rec_row[k]
-
-    # Fall back to Radarr/Sonarr for poster if missing
-    if not meta["poster_url"]:
-        try:
-            if service == "radarr" and movie:
-                images = movie.get("images")
-                url = extract_poster_url(images if isinstance(images, list) else None)
-                if url:
-                    meta["poster_url"] = url
-        except (TypeError, KeyError):
-            logger.warning("Failed to extract Radarr poster for notification", exc_info=True)
-
-    return meta
-
-
-def _build_email_payload(
-    row: sqlite3.Row,
-    movie: Any,
-    suggestions_by_tmdb: dict[int, sqlite3.Row],
-    template: Any,
-) -> tuple[str, str]:
-    """Build the email subject and rendered HTML body for a ready notification.
-
-    Returns ``(subject, html)``.
-    """
-    title = row["title"]
-    media_type = row["media_type"]
-
-    meta = _gather_email_meta(row, movie, suggestions_by_tmdb)
-    media_label = "Movie" if media_type == "movie" else "TV"
-
-    # Pass structured data to the template so Jinja's autoescape can
-    # safely escape every user/TMDB-sourced field. Building raw HTML
-    # strings in Python and rendering them with |safe risks XSS when
-    # any TMDB field (e.g. director free-text) contains markup.
-    meta_ctx = {
-        "year": str(meta["year"]) if meta["year"] else "",
-        "media_label": media_label,
-        "runtime": meta["runtime"],
-        "director": meta["director"],
-    }
-    ratings_ctx = {
-        "rating": meta["rating"],
-        "imdb_rating": meta["imdb_rating"],
-        "rt_rating": meta["rt_rating"],
-    }
-
-    # Poster source — constrained to 240px height in the template.
-    # Upgrade small TMDB posters to w500 for better-looking emails.
-    poster_src = meta["poster_url"]
-    if poster_src:
-        poster_src = poster_src.replace("/w300", "/w500").replace("/w200", "/w500")
-
-    subject = f"'{title}' is now available to watch"
-    html = template.render(
-        title=title,
-        poster_src=poster_src,
-        meta=meta_ctx,
-        ratings=ratings_ctx,
-        description=meta["description"],
-    )
-    return subject, html
 
 
 def _process_one_notification(
