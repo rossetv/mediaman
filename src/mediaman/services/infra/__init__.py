@@ -58,8 +58,8 @@ from mediaman.services.infra.url_safety import (
 )
 
 __all__ = [
-    "ConfigDecryptError",
     "PINNED_EXTERNAL_HOSTS",
+    "ConfigDecryptError",
     "SafeHTTPClient",
     "SafeHTTPError",
     "allowed_outbound_hosts",

@@ -19,7 +19,7 @@ credential service.  The helpers here form the first line of defence:
   ``Content-Type: text/html`` through the proxy — a stored-XSS vector.
 * :func:`is_allowed_poster_host` performs exact hostname matching plus
   a DNS-resolved public-IP check via
-  :func:`mediaman.core.url_safety.is_safe_outbound_url`.
+  :func:`mediaman.services.infra.url_safety.is_safe_outbound_url`.
 * :func:`sanitise_plex_url` re-validates the DB-stored ``plex_url`` on
   every request because a settings-write compromise could otherwise
   swap it for a hostile target.
@@ -34,11 +34,11 @@ from urllib.parse import urlparse
 import requests
 from fastapi.responses import Response
 
-from mediaman.core.url_safety import is_safe_outbound_url
 from mediaman.crypto import decrypt_value
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.download_format import extract_poster_url
 from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
+from mediaman.services.infra.url_safety import is_safe_outbound_url
 from mediaman.web.routes.poster.cache import ALLOWED_IMAGE_MIMES
 
 logger = logging.getLogger(__name__)
