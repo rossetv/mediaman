@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 import requests
 
-from mediaman.services.arr._client_base import ArrError
+from mediaman.services.arr.base import ArrError
 from mediaman.services.infra.http import SafeHTTPError
 
 if TYPE_CHECKING:

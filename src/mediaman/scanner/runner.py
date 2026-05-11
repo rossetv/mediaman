@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, NamedTuple, TypedDict, cast
 
 import requests
 
-from mediaman.services.arr._client_base import ArrError
+from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import (
     build_plex_from_db as _build_plex,
 )
