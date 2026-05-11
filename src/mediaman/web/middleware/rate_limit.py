@@ -69,6 +69,18 @@ _logger = logging.getLogger(__name__)
 _AnyLimiter = ActionRateLimiter | RateLimiter
 
 
+# rationale: every ``Any`` in this decorator is intentional structural
+# typing.  ``rate_limit`` wraps arbitrary FastAPI route handlers whose
+# signatures vary per route — kwargs include the Depends-resolved
+# ``admin`` (str), the ``request`` (Request), the handler's pydantic
+# body, path parameters, and so on.  A tighter type for ``*args``,
+# ``**kwargs``, or the wrapped function would force every decorated
+# handler to share one signature, which would in turn force every route
+# to thread its true arguments through a ``**kwargs`` bag — strictly
+# worse than the current ``Any`` boundary.  The return value of the
+# wrapped function is also handler-dependent (JSONResponse, Response,
+# HTMLResponse, ...), so the outer return type stays ``Any`` for the
+# same reason.
 def rate_limit(
     limiter: _AnyLimiter,
     *,
