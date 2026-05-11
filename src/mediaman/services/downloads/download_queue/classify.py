@@ -14,6 +14,7 @@ import logging
 import sqlite3
 
 from mediaman.services.downloads.download_format import format_relative_time
+from mediaman.services.infra.settings_reader import ConfigDecryptError
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +117,7 @@ def arr_base_urls(conn: sqlite3.Connection, secret_key: str) -> dict[str, str]:
             chosen = public.strip() or internal.strip()
             out[service] = chosen.rstrip("/")
         return out
-    except Exception:
+    except (sqlite3.Error, ConfigDecryptError):
         logger.warning("Failed to load arr base URLs for deep links", exc_info=True)
         return {"radarr": "", "sonarr": ""}
 

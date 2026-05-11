@@ -12,9 +12,13 @@ import sqlite3
 from dataclasses import dataclass, field
 from typing import cast
 
+import requests
+
+from mediaman.services.arr._client_base import ArrError
 from mediaman.services.arr.base import ArrClient
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.search_trigger import clear_throttle
+from mediaman.services.infra.http import SafeHTTPError
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +63,7 @@ def abandon_movie(
     client = cast(ArrClient, raw_client)
     try:
         client.unmonitor_movie(arr_id)
-    except Exception:
+    except (SafeHTTPError, requests.RequestException, ArrError):
         logger.warning("abandon_movie: unmonitor_movie failed for %s", dl_id, exc_info=True)
         return AbandonResult(kind="movie", failed=[0], dl_id=dl_id)
     clear_throttle(conn, dl_id)
@@ -89,7 +93,7 @@ def abandon_series(
     client = cast(ArrClient, raw_client)
     try:
         series = client.get_series_by_id(series_id)
-    except Exception:
+    except (SafeHTTPError, requests.RequestException, ArrError):
         logger.warning("abandon_series: get_series_by_id failed for %s", dl_id, exc_info=True)
         return AbandonResult(kind="series", failed=[0], dl_id=dl_id)
 
@@ -157,7 +161,7 @@ def abandon_seasons(
         try:
             client.unmonitor_season(series_id, season)
             succeeded.append(season)
-        except Exception:
+        except (SafeHTTPError, requests.RequestException, ArrError):
             logger.warning(
                 "abandon_seasons: unmonitor_season failed for %s season %s",
                 dl_id,

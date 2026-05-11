@@ -29,6 +29,9 @@ import sqlite3
 import threading
 from typing import cast
 
+import requests
+
+from mediaman.services.arr._client_base import ArrError
 from mediaman.services.arr.build import build_nzbget_from_db
 from mediaman.services.arr.completion import (
     detect_completed,
@@ -57,6 +60,7 @@ from mediaman.services.downloads.download_queue.queue import (
 from mediaman.services.downloads.download_queue.queue import (
     parse_nzb_queue as _parse_nzb_queue,
 )
+from mediaman.services.infra.http import SafeHTTPError
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +161,7 @@ def _enrich_with_tmdb_ids(
                     tid = m.get("tmdbId")
                     if isinstance(aid, int) and isinstance(tid, int):
                         radarr_tmdb_by_arr_id[aid] = tid
-        except Exception:
+        except (SafeHTTPError, requests.RequestException, ArrError):
             logger.warning("tmdb-id enrichment: Radarr lookup failed", exc_info=True)
 
     if arr_ids_sonarr:
@@ -172,7 +176,7 @@ def _enrich_with_tmdb_ids(
                     tid = s.get("tmdbId")
                     if isinstance(aid, int) and isinstance(tid, int):
                         sonarr_tmdb_by_arr_id[aid] = tid
-        except Exception:
+        except (SafeHTTPError, requests.RequestException, ArrError):
             logger.warning("tmdb-id enrichment: Sonarr lookup failed", exc_info=True)
 
     for v in current_map.values():
@@ -266,7 +270,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
         try:
             nzb_status = nzb_client.get_status()
             nzb_queue = nzb_client.get_queue()
-        except Exception:
+        except (SafeHTTPError, requests.RequestException):
             logger.warning("Failed to fetch NZBGet queue/status", exc_info=True)
 
     raw_download_rate = nzb_status.get("DownloadRate", 0)

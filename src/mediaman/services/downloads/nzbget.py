@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from mediaman.services.infra.http import SafeHTTPClient
+from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ def _is_lan_host(url: str) -> bool:
     """
     try:
         host = urlparse(url).hostname or ""
-    except Exception:
+    except ValueError:
         return False
     if not host:
         return False
@@ -107,9 +107,15 @@ class NzbgetClient:
         return result if isinstance(result, list) else []
 
     def is_reachable(self) -> bool:
-        """Return True if NZBGet is reachable and responding."""
+        """Return True if NZBGet is reachable and responding.
+
+        Catches :exc:`SafeHTTPError` (non-2xx responses) and
+        :exc:`~requests.RequestException` (network/transport errors) only —
+        not the broad ``Exception`` which would swallow ``SystemExit``,
+        ``KeyboardInterrupt``, and programming errors.
+        """
         try:
             self.get_status()
             return True
-        except Exception:
+        except (SafeHTTPError, requests.RequestException):
             return False

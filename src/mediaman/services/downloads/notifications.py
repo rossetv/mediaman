@@ -12,6 +12,11 @@ import sqlite3
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+import requests
+
+from mediaman.services.arr._client_base import ArrError
+from mediaman.services.infra.http import SafeHTTPError
+
 if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient
 
@@ -302,7 +307,7 @@ def _process_one_notification(
         _clear_backoff(int(row_id))
         logger.info("Download notification sent to %s for '%s'", email, title)
 
-    except Exception:
+    except Exception:  # rationale: §6.4 site 2 — scheduler must survive a single bad row
         logger.exception("Failed to process download notification id=%s for '%s'", row_id, title)
         # Mailgun (or another downstream) failed — apply the same
         # backoff as for *arr outages so a Mailgun-down period

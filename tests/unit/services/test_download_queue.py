@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import requests
+
 from mediaman.services.downloads.download_queue import build_episode_dicts, nzb_matches_arr
 
 
@@ -158,7 +160,7 @@ class TestEnrichWithTmdbIds:
         import mediaman.services.downloads.download_queue as dq
 
         mock_radarr = MagicMock()
-        mock_radarr.get_movies.side_effect = ConnectionError("boom")
+        mock_radarr.get_movies.side_effect = requests.ConnectionError("boom")
 
         current_map: dict[str, dict[str, object]] = {
             "radarr:Dune": {

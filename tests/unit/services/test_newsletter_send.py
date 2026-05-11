@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from mediaman.db import init_db
 from mediaman.services.mail.newsletter import NewsletterConfigError, send_newsletter
@@ -261,7 +262,7 @@ class TestSendNewsletterWithScheduledItems:
         _add_scheduled_item(conn)
 
         mock_mailgun_instance = MagicMock()
-        mock_mailgun_instance.send.side_effect = RuntimeError("Mailgun is down")
+        mock_mailgun_instance.send.side_effect = requests.ConnectionError("Mailgun is down")
 
         # Should not raise
         with patch(_PATCH_MAILGUN, return_value=mock_mailgun_instance):
@@ -323,7 +324,7 @@ class TestPartialDeliveryFailure:
 
         def fake_send(*, to, subject, html):
             if to in bad_targets:
-                raise RuntimeError("Mailgun rejected this recipient")
+                raise requests.ConnectionError("Mailgun rejected this recipient")
             sent_to.append(to)
 
         mock_mailgun_instance = MagicMock()
@@ -395,7 +396,7 @@ class TestPartialDeliveryFailure:
 
         def first_send(*, to, subject, html):
             if to == "bob@example.com":
-                raise RuntimeError("transient")
+                raise requests.ConnectionError("transient")
             first_pass_sent.append(to)
 
         mock_first = MagicMock()
