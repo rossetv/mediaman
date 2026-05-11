@@ -1,4 +1,4 @@
-"""Ring 0: SSRF guard for admin-configured outbound service URLs.
+"""SSRF guard for admin-configured outbound service URLs.
 
 Mediaman accepts URLs from the admin settings page (Radarr, Sonarr,
 Plex, NZBGet, Mailgun webhook base URL, etc.) and then makes outbound
@@ -25,12 +25,10 @@ users run Radarr/Sonarr/Plex on the LAN. Operators who want stricter
 egress should set ``MEDIAMAN_STRICT_EGRESS=1`` in the environment or
 pass ``strict_egress=True`` per-call.
 
-Ring 0 contract: no I/O beyond DNS resolution (``socket.getaddrinfo``),
-no imports from other mediaman modules.  The sole third-party dependency
-is ``idna`` — a pure-Python IDNA codec with no I/O and no side-effects.
-
-Canonical home: ``mediaman.core.url_safety``.
-Back-compat shim: ``mediaman.services.infra.url_safety``.
+Lives under ``services/infra/`` because the implementation depends on
+``idna`` (a pure-Python IDNA codec) and performs DNS resolution via
+``socket.getaddrinfo``. ``core/`` is stdlib-only and I/O-free, so this
+module belongs alongside its sibling ``services/infra/path_safety.py``.
 """
 
 from __future__ import annotations
