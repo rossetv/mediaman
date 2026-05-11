@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import socket
+import sqlite3
 
 import pytest
 
 from mediaman.services.infra.url_safety import (
+    PINNED_EXTERNAL_HOSTS,
+    allowed_outbound_hosts,
     is_safe_outbound_url,
     resolve_safe_outbound_url,
 )
@@ -331,3 +334,148 @@ class TestResolveSafeOutboundUrl:
         )
         assert safe is False
         assert ip is None
+
+
+# ---------------------------------------------------------------------------
+# Allowlist (opt-in)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def settings_db():
+    """A throwaway in-memory SQLite DB with just the ``settings`` table.
+
+    Built locally rather than through ``init_db`` to keep the test
+    independent of the migration runner; the schema mirrors what
+    ``allowed_outbound_hosts`` actually reads.
+    """
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, "
+        "encrypted INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT '')"
+    )
+    yield conn
+    conn.close()
+
+
+class TestAllowedOutboundHosts:
+    """``allowed_outbound_hosts(conn)`` returns the pinned externals plus
+    the configured integration hostnames from ``settings``.
+    """
+
+    def test_empty_settings_returns_pinned_externals_only(self, settings_db):
+        hosts = allowed_outbound_hosts(settings_db)
+        assert hosts == PINNED_EXTERNAL_HOSTS
+
+    def test_pinned_externals_always_present(self, settings_db):
+        hosts = allowed_outbound_hosts(settings_db)
+        assert "api.themoviedb.org" in hosts
+        assert "image.tmdb.org" in hosts
+        assert "www.omdbapi.com" in hosts
+        assert "api.mailgun.net" in hosts
+        assert "api.eu.mailgun.net" in hosts
+        assert "api.openai.com" in hosts
+
+    def test_configured_integration_urls_added_by_hostname(self, settings_db):
+        for key, val in [
+            ("plex_url", "http://plex.lan:32400/"),
+            ("radarr_url", "https://radarr.example.com:7878/"),
+            ("sonarr_url", "http://192.168.1.20:8989/"),
+            ("nzbget_url", "http://nzb.lan:6789/"),
+        ]:
+            settings_db.execute(
+                "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, '')",
+                (key, val),
+            )
+        hosts = allowed_outbound_hosts(settings_db)
+        assert "plex.lan" in hosts
+        assert "radarr.example.com" in hosts
+        assert "192.168.1.20" in hosts
+        assert "nzb.lan" in hosts
+
+    def test_empty_string_value_is_skipped(self, settings_db):
+        settings_db.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, '', 0, '')",
+            ("plex_url",),
+        )
+        hosts = allowed_outbound_hosts(settings_db)
+        assert hosts == PINNED_EXTERNAL_HOSTS
+
+    def test_unparseable_url_is_silently_skipped(self, settings_db):
+        settings_db.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, '')",
+            ("radarr_url", "not a url at all"),
+        )
+        hosts = allowed_outbound_hosts(settings_db)
+        # The pinned externals still apply; the bogus radarr_url is dropped.
+        assert "radarr.example.com" not in hosts
+        assert hosts >= PINNED_EXTERNAL_HOSTS
+
+
+class TestIsSafeOutboundUrlAllowlist:
+    """When ``allowed_hosts`` is provided, the URL hostname must be in the
+    set (or in the pinned externals); otherwise the URL is refused even if
+    it would pass the deny-list checks.
+    """
+
+    def test_none_disables_allowlist(self, clean_dns):
+        # Default behaviour: deny-list only, allowlist not consulted.
+        assert is_safe_outbound_url("http://random-host.example.com/")
+
+    def test_allowlist_blocks_unlisted_host(self, clean_dns):
+        assert not is_safe_outbound_url(
+            "http://random-host.example.com/",
+            allowed_hosts=frozenset({"radarr.example.com"}),
+        )
+
+    def test_allowlist_permits_listed_host(self, clean_dns):
+        assert is_safe_outbound_url(
+            "http://radarr.example.com/",
+            allowed_hosts=frozenset({"radarr.example.com"}),
+        )
+
+    def test_allowlist_permits_pinned_external_even_without_explicit_entry(self, clean_dns):
+        # An empty per-call allowlist still permits TMDB/OMDb/Mailgun/OpenAI.
+        assert is_safe_outbound_url(
+            "https://api.themoviedb.org/3/movie/123",
+            allowed_hosts=frozenset(),
+        )
+
+    def test_allowlist_does_not_override_deny_list(self, fake_dns):
+        """An allowlisted host that resolves to a metadata IP must still
+        be refused — the allowlist is composed on top of, not in place of,
+        the deny-list.
+        """
+        fake_dns(["169.254.169.254"])
+        assert not is_safe_outbound_url(
+            "http://radarr.example.com/",
+            allowed_hosts=frozenset({"radarr.example.com"}),
+        )
+
+    def test_allowlist_case_insensitive(self, clean_dns):
+        assert is_safe_outbound_url(
+            "http://Radarr.Example.COM/",
+            allowed_hosts=frozenset({"radarr.example.com"}),
+        )
+
+    def test_allowlist_trailing_dot_normalised(self, clean_dns):
+        assert is_safe_outbound_url(
+            "http://radarr.example.com./",
+            allowed_hosts=frozenset({"radarr.example.com"}),
+        )
+
+    def test_idn_allowlist_match(self, clean_dns):
+        """A Unicode hostname IDN-normalised to a punycode entry in the
+        allowlist must be accepted. The reverse — a punycode URL whose
+        ASCII form is not in the allowlist — must be refused.
+        """
+        # bücher → xn--bcher-kva
+        assert is_safe_outbound_url(
+            "http://xn--bcher-kva.example.com/",
+            allowed_hosts=frozenset({"xn--bcher-kva.example.com"}),
+        )
+        assert not is_safe_outbound_url(
+            "http://xn--bcher-kva.example.com/",
+            allowed_hosts=frozenset({"other.example.com"}),
+        )
