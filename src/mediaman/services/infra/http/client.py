@@ -87,7 +87,7 @@ def _build_user_agent() -> str:
         from mediaman import __version__ as version
 
         return f"mediaman/{version}"
-    except Exception:
+    except ImportError:
         return "mediaman/dev"
 
 

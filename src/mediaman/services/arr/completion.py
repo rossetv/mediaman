@@ -17,9 +17,13 @@ import logging
 import sqlite3
 from typing import Any, NotRequired, TypedDict, cast
 
+import requests
+
+from mediaman.services.arr._client_base import ArrError
 from mediaman.services.arr.fetcher import ArrCard
 from mediaman.services.arr.state import series_has_files
 from mediaman.services.downloads.download_format import extract_poster_url
+from mediaman.services.infra.http import SafeHTTPError
 
 logger = logging.getLogger(__name__)
 
@@ -205,7 +209,7 @@ def _batch_insert_completions(conn: sqlite3.Connection, to_insert: list[tuple]) 
             to_insert,
         )
         conn.commit()
-    except Exception:
+    except sqlite3.Error:
         logger.warning(
             "Failed to record %d completed download(s)",
             len(to_insert),
@@ -240,7 +244,7 @@ def record_verified_completions(
     for c in completed:
         try:
             verified = _check_item_verified(c, idx)
-        except Exception:
+        except (SafeHTTPError, requests.RequestException, ArrError):
             # Skip rather than log "no files confirmed" — the real cause is a network error
             logger.warning(
                 "Failed to verify completion for %s — skipping", c["dl_id"], exc_info=True
@@ -300,7 +304,7 @@ def fetch_and_sync_recent_downloads(
                         url = extract_poster_url(e.get("images"))
                         if url:
                             cache[t] = url
-            except Exception:
+            except (SafeHTTPError, requests.RequestException, ArrError):
                 logger.warning(
                     "Failed to fetch %s posters for backfill",
                     service,
@@ -337,7 +341,7 @@ def fetch_and_sync_recent_downloads(
                         (poster_url, r["id"]),
                     )
                     conn.commit()
-                except Exception:
+                except sqlite3.Error:
                     logger.warning(
                         "Failed to backfill poster for %s",
                         r["title"],
