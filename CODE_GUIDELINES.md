@@ -260,8 +260,28 @@ A function in `core` must be testable in five lines without any fixture.
 
 **Allowed deps.** `cryptography`, stdlib `secrets`/`hmac`/`hashlib`, and `core/`.
 
-**Forbidden patterns.** No DB access — keys live in env or are passed in. No logging of key
-material, plaintexts, ciphertexts, or HMACs (except prefix-truncated for forensics).
+**Allowed DB access.** Crypto owns two specific `settings` rows and reads/writes
+them itself rather than going through a repository:
+
+- `aes_canary_v1` — the encrypted-canary ciphertext used by
+  :func:`is_canary_valid` to detect a `MEDIAMAN_SECRET_KEY` mismatch at
+  boot. Read on every startup; written on first run via `INSERT OR IGNORE`.
+- `aes_salt_v1` — the per-install HKDF salt used to derive the AES key.
+  Read on every encrypt/decrypt; written on first run via `INSERT OR IGNORE`.
+
+These rows are the storage for the crypto module's own state — they are
+not domain data and have no repository elsewhere. Pushing them through
+`db/` would invert the dependency (`db/` would import `crypto/`) and add
+indirection with no security benefit, since the SQL is exactly two
+`SELECT … FROM settings WHERE key=?` statements plus the matching
+seed-on-first-run `INSERT OR IGNORE`. The legacy-ciphertext migration in
+`crypto/_aes_migrate.py` also reads the `settings` table — same
+exception applies there, because the rows being migrated are the
+crypto-owned encrypted-settings rows.
+
+**Forbidden patterns.** No DB access beyond the rows named above. No
+logging of key material, plaintexts, ciphertexts, or HMACs (except
+prefix-truncated for forensics).
 
 **Naming.** `generate_*`, `sign_*`, `verify_*`, `encrypt_*`, `decrypt_*`. A function that
 returns sensitive bytes must be named so it is impossible to confuse with a logging helper.
@@ -281,8 +301,10 @@ request handlers. Idempotency is a goal, not an excuse to invoke them at runtime
 **Purpose.** SQLite schema, migration runner, connection lifecycle, WAL configuration. Owns
 the only `sqlite3.connect` call in the production codebase.
 
-**Allowed deps.** `sqlite3`, `core/`, `crypto/` (for the canary). `db/migrations/` may import
-nothing outside `db/` — migrations must be hermetic.
+**Allowed deps.** `sqlite3`, `core/`. `crypto/` reads/writes its own
+canary and salt rows in the `settings` table itself (see [§2.2](#22-crypto));
+`db/` does not import `crypto/`. `db/migrations/` may import nothing
+outside `db/` — migrations must be hermetic.
 
 **Forbidden patterns.** No business logic. No queries against domain tables — those live in
 the `repository/` of the owning package. No reading of the connection from a global.
