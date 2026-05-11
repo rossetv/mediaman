@@ -1,4 +1,4 @@
-"""Tests for :mod:`mediaman.web.routes.auth_routes` helpers.
+"""Tests for the auth-routes helper surface.
 
 ``is_request_secure`` now defaults to True on a public deployment
 (the common case); operators who genuinely need plaintext cookies in
@@ -6,17 +6,22 @@ local dev can set ``MEDIAMAN_FORCE_SECURE_COOKIES=false``. This is
 the opposite of the previous default — accepting the previous
 "fail-open to plaintext" behaviour was the root cause of the cookie
 downgrade bug found in the security audit.
+
+``is_request_secure`` and ``_secure_cookie_override`` were moved out of
+``mediaman.web.routes.auth`` into the shared ``mediaman.web.cookies``
+module so that four route modules (auth, force-password-change,
+users.passwords, users.sessions) no longer need to import a peer route
+just to ask the cookie-scheme question.
 """
 
 from unittest.mock import MagicMock
 
 import pytest
 
+from mediaman.web.cookies import _secure_cookie_override, is_request_secure
 from mediaman.web.routes.auth import (
     _sanitise_log_field,
-    _secure_cookie_override,
     _ua_hash,
-    is_request_secure,
 )
 
 
