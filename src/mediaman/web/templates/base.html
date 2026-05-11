@@ -11,14 +11,27 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Mediaman{% endblock %}</title>
-  <!-- CSS is split into per-concern fragments under static/css/. -->
+  <!-- CSS is split into per-concern fragments under static/css/.
+       Order: tokens first, then _base.css (reset + layout primitives),
+       then concern-specific files. Cascade follows source order, so
+       later rules win when specificity is equal. -->
   <link rel="stylesheet" href="/static/css/_tokens.css">
   <link rel="stylesheet" href="/static/css/_base.css">
+  <link rel="stylesheet" href="/static/css/_forms.css">
+  <link rel="stylesheet" href="/static/css/_search.css">
+  <link rel="stylesheet" href="/static/css/_tables.css">
+  <link rel="stylesheet" href="/static/css/_storage.css">
+  <link rel="stylesheet" href="/static/css/_history.css">
+  <link rel="stylesheet" href="/static/css/_modal.css">
+  <link rel="stylesheet" href="/static/css/_login.css">
   <link rel="stylesheet" href="/static/css/_nav.css">
   <link rel="stylesheet" href="/static/css/_buttons.css">
   <link rel="stylesheet" href="/static/css/_tiles.css">
   <link rel="stylesheet" href="/static/css/_dl.css">
+  <link rel="stylesheet" href="/static/css/_download_page.css">
   <link rel="stylesheet" href="/static/css/_settings.css">
+  <link rel="stylesheet" href="/static/css/_settings_pg.css">
+  <link rel="stylesheet" href="/static/css/_settings_pg_panels.css">
   <link rel="stylesheet" href="/static/css/_keep.css">
   <link rel="stylesheet" href="/static/css/_ui_feedback.css">
   <link rel="stylesheet" href="/static/css/_utilities.css">

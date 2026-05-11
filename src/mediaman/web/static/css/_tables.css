@@ -1,0 +1,303 @@
+/* =============================================================
+   TABLES — library/history table primitives, stat cards, and the
+   legacy lib-* grid layout used by the library page. Covers
+   `.tbl`, `.thumb`/`.lib-thumb`, stat cards (`.stats`/`.lib-stats`),
+   the `.lib-table`/`.lib-row` grid, the snooze-dropdown menu, and
+   pagination. Extracted from _base.css per CODE_GUIDELINES.md §3.1.
+   ============================================================= */
+
+/* =============================================================
+   10. TABLES (library, history)
+   ============================================================= */
+.tbl { width: 100%; border-collapse: collapse; }
+.tbl .col-thumb { width: 60px; } /* thumbnail column */
+.tbl thead th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--t3);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--hair);
+}
+.tbl thead th.sortable { cursor: pointer; padding: 0; }
+.tbl thead th.sortable:hover { color: var(--t1); }
+/* Finding 10 (a11y): the sortable headers wrap their content in a real
+   <button> so keyboard users can trigger the sort. The button stretches
+   to fill the cell and inherits the th's typography so the visual is
+   indistinguishable from the previous click-on-th implementation. */
+.tbl thead th.sortable .th-sort {
+  display: block;
+  width: 100%;
+  text-align: inherit;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  padding: 10px 14px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.tbl thead th.sortable .th-sort:hover { color: var(--t1); }
+.tbl tbody td {
+  padding: 14px;
+  border-bottom: 1px solid var(--hair);
+  vertical-align: middle;
+  font-size: 14px;
+}
+.tbl tbody tr { transition: background .15s; }
+.tbl tbody tr:hover { background: var(--s1); }
+.tbl tbody tr:last-child td { border-bottom: 0; }
+
+.thumb,
+.lib-thumb {
+  width: 44px;
+  height: 66px;
+  border-radius: var(--r-xs);
+  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
+  overflow: hidden;
+  flex-shrink: 0;
+  display: block;
+}
+.thumb img,
+.lib-thumb { object-fit: cover; }
+img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
+.title-cell { font-weight: 500; color: var(--t1); }
+.title-cell .sub {
+  font-size: 12px;
+  color: var(--t3);
+  font-weight: 400;
+  margin-top: 2px;
+  letter-spacing: -.005em;
+}
+
+/* =============================================================
+   12. STAT CARDS (library)
+   ============================================================= */
+.stats,
+.lib-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 28px;
+}
+.stat,
+.lib-stat {
+  background: var(--s1);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-lg);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+  text-decoration: none;
+  color: inherit;
+}
+.stat:hover,
+.lib-stat:hover { background: var(--s2); border-color: var(--hair-strong); }
+.stat.on,
+.lib-stat-active { background: var(--s2); border-color: var(--accent); }
+
+.stat-num,
+.lib-stat-value {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -.03em;
+  line-height: 1;
+}
+.stat-lbl,
+.lib-stat-label { font-size: 12px; color: var(--t3); letter-spacing: -.005em; }
+.stat--stale .stat-num,
+.lib-stat-value--stale { color: var(--danger); }
+
+/* =============================================================
+   21. LIBRARY TABLE (legacy lib-* grid layout)
+   ============================================================= */
+.toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+.toolbar-row .search-box,
+.toolbar-row .search-wrap { flex: 1; min-width: 260px; }
+.filter-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.lib-table {
+  background: var(--s1);
+  border: 1px solid var(--hair);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.lib-header {
+  display: grid;
+  grid-template-columns: 60px 2fr 80px 100px 140px 1fr;
+  gap: 14px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--hair);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--t3);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  align-items: center;
+}
+.lib-sort-col { cursor: pointer; }
+.lib-sort-col:hover { color: var(--t1); }
+
+.lib-row {
+  display: grid;
+  grid-template-columns: 60px 2fr 80px 100px 140px 1fr;
+  gap: 14px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--hair);
+  align-items: center;
+  font-size: 14px;
+  transition: background .15s;
+}
+.lib-row:hover { background: var(--s2); }
+.lib-row:last-child { border-bottom: 0; }
+.lib-row-protected { background: rgba(48,209,88,.04); }
+
+.lib-title-col { min-width: 0; }
+.lib-title { font-weight: 500; }
+.lib-subtitle {
+  font-size: 12px;
+  color: var(--t3);
+  margin-top: 2px;
+  letter-spacing: -.005em;
+}
+.lib-row-meta { display: none; }
+.lib-protection-label { color: var(--success); }
+.watchlist-none { color: var(--danger); }
+
+.lib-size,
+.lib-watch-info { font-size: 13px; color: var(--t2); }
+.lib-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.btn-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+  transition: background .15s;
+  letter-spacing: -.01em;
+}
+
+/* Snooze dropdown (split-button menu used by library + dashboard) */
+.keep-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.snooze-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 160px;
+  background: var(--s2);
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
+  padding: 6px;
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+}
+.keep-wrapper.is-open .snooze-dropdown { display: flex; }
+
+.snooze-option {
+  text-align: left;
+  padding: 7px 12px;
+  border-radius: var(--r-xs);
+  font-size: 13px;
+  color: var(--t2);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+  white-space: nowrap;
+}
+.snooze-option:hover,
+.snooze-option:focus-visible { background: var(--s3); color: var(--t1); }
+.snooze-option--forever,
+.snooze-option.forever { color: var(--success); }
+.snooze-option--remove { color: var(--danger); border-top: 1px solid var(--hair); margin-top: 4px; padding-top: 10px; }
+.snooze-option--remove:hover,
+.snooze-option--remove:focus-visible { background: rgba(255,69,58,.1); color: var(--danger); }
+
+/* Mobile sort */
+.lib-mobile-sort { display: none; gap: 8px; align-items: center; margin-bottom: 16px; }
+.lib-mobile-sort-label { font-size: 12px; color: var(--t3); }
+
+@media (max-width: 760px) {
+  .lib-header { display: none; }
+  .lib-row {
+    grid-template-columns: 60px 1fr;
+    gap: 12px;
+  }
+  .lib-row > .lib-type-wrap,
+  .lib-row > .lib-size,
+  .lib-row > .lib-watch-info { display: none; }
+  .lib-row > .lib-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    margin-top: 4px;
+  }
+  .lib-row-meta {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--t3);
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .lib-mobile-sort { display: flex; }
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+.page-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  color: var(--t2);
+  background: var(--s1);
+  border: 1px solid var(--hair);
+  text-decoration: none;
+  transition: background .15s, color .15s;
+}
+.page-btn:hover { background: var(--s2); color: var(--t1); }
+.page-btn.active { background: var(--accent); color: #001424; border-color: var(--accent); }
+.page-btn.disabled { opacity: .4; pointer-events: none; }
+.page-btn--ellipsis { background: transparent; border: 0; }
+.page-info { margin-left: 8px; color: var(--t3); font-size: 12px; }

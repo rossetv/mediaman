@@ -1,0 +1,392 @@
+/* =============================================================
+   MODALS — the detail modal (hero + body + ratings + cast + seasons
+   + progress + success), the generic delete-confirm overlay, and the
+   keep-dialog used to extend protection windows. Owns
+   `.modal-backdrop`/`.modal-sheet`, the `.detail-modal-*` family,
+   `.delete-modal-*`, and `.keep-dialog*`. Extracted from _base.css
+   per CODE_GUIDELINES.md §3.1.
+   ============================================================= */
+
+/* =============================================================
+   23. DETAIL MODAL — restyled with card / btn / pill primitives
+   ============================================================= */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0,0,0,.7);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 60px 20px 20px;
+  overflow-y: auto;
+}
+.modal-sheet {
+  background: var(--s2);
+  border-radius: var(--r-lg);
+  max-width: 880px;
+  width: 100%;
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+  position: relative;
+}
+.modal-close-bar {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: var(--r-pill);
+  background: rgba(0,0,0,.6);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  backdrop-filter: blur(8px);
+  transition: background .15s;
+}
+.modal-close-bar:hover { background: rgba(0,0,0,.8); }
+
+.detail-modal-hero {
+  position: relative;
+  height: 280px;
+  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
+  overflow: hidden;
+}
+.detail-modal-hero img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.detail-modal-hero-gradient {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 30%, rgba(0,0,0,.85) 100%);
+}
+.detail-modal-hero-info {
+  position: absolute;
+  left: 28px;
+  right: 28px;
+  bottom: 24px;
+}
+.detail-modal-hero-title {
+  font-family: var(--font-display);
+  font-size: clamp(26px, 3.2vw, 36px);
+  font-weight: 600;
+  letter-spacing: -.025em;
+  line-height: 1.05;
+}
+.detail-modal-hero-title .year { color: var(--t3); font-weight: 400; margin-left: 4px; }
+
+.detail-modal-body { padding: 24px 28px 28px; display: flex; flex-direction: column; gap: 16px; }
+.detail-modal-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--t2);
+}
+.detail-modal-quick .type-pill,
+.type-pill {
+  display: inline-flex;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: rgba(41,151,255,.18);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+.meta-text { color: var(--t2); font-size: 13px; }
+.meta-dot { color: var(--t4); }
+
+.detail-modal-ratings { display: flex; flex-wrap: wrap; gap: 6px; }
+.rating-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  font-size: 12px;
+  font-weight: 600;
+}
+.rating-pill.r-tmdb,
+.rating-pill.r-imdb { background: rgba(255,159,10,.15); color: var(--orange); }
+.rating-pill.r-rt   { background: rgba(255,69,58,.15); color: var(--danger); }
+.rating-pill.r-meta { background: rgba(48,209,88,.15); color: var(--success); }
+.rating-icon { font-size: 12px; }
+
+.detail-modal-tagline { font-style: italic; color: var(--t2); font-size: 14px; }
+.detail-modal-description { color: var(--t1); font-size: 14px; line-height: 1.55; }
+.detail-modal-reason {
+  padding: 10px 12px;
+  background: rgba(41,151,255,.08);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 var(--r-xs) var(--r-xs) 0;
+  font-size: 13px;
+  color: var(--t2);
+  line-height: 1.5;
+}
+
+.detail-modal-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--t3);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-top: 8px;
+}
+
+.detail-modal-trailer {
+  width: 100%;
+  aspect-ratio: 16/9;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: #000;
+}
+.detail-modal-trailer iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+.trailer-link { color: var(--accent); font-size: 13px; }
+
+.detail-modal-cast {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 12px;
+}
+.cast-item { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; }
+.cast-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--t2);
+  overflow: hidden;
+}
+.cast-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.cast-name { font-size: 12px; font-weight: 500; line-height: 1.3; }
+.cast-char { font-size: 11px; color: var(--t3); line-height: 1.3; }
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+/* Dynamically-created loading / error states inside modal-actions */
+.modal-loading { padding: 24px; color: var(--t4); }
+.modal-error   { padding: 24px; color: var(--danger); }
+.modal-err-close {
+  margin-left: 10px;
+  padding: 6px 14px;
+  background: rgba(255,255,255,.08);
+  color: var(--t1);
+  border: none;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.btn-download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 22px;
+  border-radius: var(--r-pill);
+  background: var(--accent-cta);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  flex: 1;
+  min-width: 180px;
+  transition: background .15s;
+}
+.btn-download:hover { background: var(--accent-hi); }
+.btn-download:disabled { opacity: .55; cursor: not-allowed; }
+.btn-download.ready,
+.btn-download.queued {
+  background: var(--rgba-success-bg);
+  color: var(--success);
+}
+.btn-download.queued { background: rgba(255,214,10,.14); color: var(--warning); }
+.btn-download.adding { background: rgba(41,151,255,.18); color: var(--accent); }
+
+.btn-share {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 22px;
+  border-radius: var(--r-pill);
+  background: var(--s3);
+  color: var(--t1);
+  font-size: 14px;
+  font-weight: 500;
+  transition: background .15s;
+}
+.btn-share:hover { background: var(--s4); }
+
+.detail-modal-progress {
+  background: var(--s1);
+  border-radius: var(--r-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.progress-status { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--t1); }
+.progress-icon .spinner { animation: spin 1s linear infinite; }
+.progress-bar-track { height: 4px; background: rgba(255,255,255,.08); border-radius: var(--r-pill); overflow: hidden; }
+.progress-bar-fill  { height: 100%; background: var(--accent); transition: width .3s; }
+.progress-detail    { font-size: 12px; color: var(--t3); }
+.progress-hint      { font-size: 12px; color: var(--t3); line-height: 1.45; }
+
+.detail-modal-success {
+  text-align: center;
+  padding: 24px 16px;
+  background: rgba(48,209,88,.08);
+  border-radius: var(--r-md);
+}
+.success-icon { display: grid; place-items: center; margin-bottom: 8px; }
+.success-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+.success-detail { font-size: 13px; color: var(--t2); }
+
+.detail-modal-seasons {
+  background: var(--s1);
+  border-radius: var(--r-md);
+  padding: 16px;
+}
+.detail-modal-seasons-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.detail-modal-seasons-title { font-size: 13px; font-weight: 500; color: var(--t2); }
+.detail-modal-seasons-link {
+  font-size: 12px;
+  color: var(--accent);
+  background: transparent;
+  padding: 4px 8px;
+  border-radius: var(--r-pill);
+  margin-left: 6px;
+}
+.detail-modal-seasons-link:hover { background: rgba(41,151,255,.1); }
+.detail-modal-seasons-link--clear { color: var(--t3); }
+.detail-modal-seasons-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px;
+}
+.detail-modal-season {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--s2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background .15s;
+}
+.detail-modal-season:hover { background: var(--s3); }
+.detail-modal-season-check {
+  width: 16px; height: 16px;
+  border-radius: 4px;
+  border: 1px solid var(--hair-strong);
+  display: grid;
+  place-items: center;
+}
+.detail-modal-season.checked .detail-modal-season-check {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.detail-modal-season.checked .detail-modal-season-check::after {
+  content: "";
+  width: 8px;
+  height: 4px;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+.detail-modal-season.already {
+  cursor: not-allowed;
+  opacity: .55;
+}
+.detail-modal-season.already .detail-modal-season-check {
+  background: var(--success);
+  border-color: var(--success);
+}
+.detail-modal-season-name { font-size: 13px; font-weight: 500; }
+.detail-modal-season-sub  { font-size: 11px; color: var(--t3); margin-top: 2px; }
+.detail-modal-season-summary {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--t3);
+  line-height: 1.5;
+}
+.detail-modal-season-summary strong { color: var(--t1); font-weight: 500; }
+
+/* Generic delete-confirm + keep dialog */
+.delete-modal-overlay,
+.keep-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  background: rgba(0,0,0,.6);
+  backdrop-filter: blur(6px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.delete-modal-overlay.is-visible,
+.keep-dialog-overlay.active { display: flex; }
+.delete-modal-card,
+.keep-dialog {
+  background: var(--s2);
+  border: 1px solid var(--hair-strong);
+  border-radius: var(--r-lg);
+  padding: 24px;
+  max-width: 480px;
+  width: 100%;
+  box-shadow: var(--shadow-card);
+}
+.delete-modal-title { font-size: 18px; font-weight: 600; letter-spacing: -.02em; margin-bottom: 8px; }
+.delete-modal-body { color: var(--t2); font-size: 14px; line-height: 1.5; margin-bottom: 18px; }
+.delete-modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.keep-dialog { max-width: 540px; }
+.keep-dialog h3 { font-size: 18px; font-weight: 600; letter-spacing: -.02em; margin-bottom: 14px; }
+.keep-duration-bar { display: flex; gap: 6px; padding: 4px; background: var(--s1); border-radius: var(--r-pill); margin-bottom: 14px; flex-wrap: wrap; }
+.keep-dur-btn { padding: 6px 12px; border-radius: var(--r-pill); font-size: 12px; color: var(--t2); transition: background .15s, color .15s; }
+.keep-dur-btn:hover { color: var(--t1); }
+.keep-dur-btn.active { background: var(--s3); color: var(--t1); font-weight: 500; }
+
+.keep-season-list { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 4px 0; }
+.keep-season-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--s1);
+  border-radius: var(--r-sm);
+  font-size: 13px;
+}
+.keep-season-item label { flex-shrink: 0; }
+.keep-season-details { font-size: 12px; color: var(--t3); margin-left: auto; white-space: nowrap; }
+.keep-all-row { background: var(--s3); font-weight: 500; }
+.keep-dialog-actions { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
+.u-flex-1 { flex: 1; }
+
+#keep-dialog-remove { display: none; }
+#keep-dialog-remove.is-visible { display: inline-flex; }
