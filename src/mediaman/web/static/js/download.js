@@ -28,16 +28,6 @@
   var _downloadState = boot.download_state || '';
   var _pollInterval = null;
 
-  /* Find element by data-ep without selector injection */
-  function findByEp(container, label) {
-    if (!container) return null;
-    var rows = container.querySelectorAll('[data-ep]');
-    for (var i = 0; i < rows.length; i++) {
-      if (rows[i].getAttribute('data-ep') === label) return rows[i];
-    }
-    return null;
-  }
-
   /* ── Download button click handler ── */
   function triggerDownload() {
     var btn = document.getElementById('btn-download');
@@ -45,46 +35,45 @@
     btn.disabled = true;
     btn.style.opacity = '0.6';
 
-    fetch('/download/' + _token, { method: 'POST' })
-      .then(function(r) { return r.json(); })
+    MM.api.post('/download/' + _token)
       .then(function(data) {
-        if (data.ok) {
-          _service = data.service;
-          _tmdbId = data.tmdb_id;
-          if (data.poll_token) _pollToken = data.poll_token;
+        _service = data.service;
+        _tmdbId = data.tmdb_id;
+        if (data.poll_token) _pollToken = data.poll_token;
 
-          /* Hide cinematic metadata, show hero card wrapper */
-          var cinema = document.getElementById('dl-cinema');
-          var content = document.getElementById('dl-content');
-          if (cinema) cinema.style.display = 'none';
-          if (content) content.style.display = 'none';
+        /* Hide cinematic metadata, show hero card wrapper */
+        var cinema = document.getElementById('dl-cinema');
+        var content = document.getElementById('dl-content');
+        if (cinema) cinema.style.display = 'none';
+        if (content) content.style.display = 'none';
 
-          var wrapper = document.getElementById('dl-hero-wrapper');
-          buildHeroCard(wrapper, {
-            id: _service + ':' + _title,
-            title: _title,
-            media_type: _mediaType,
-            poster_url: _posterUrl,
-            state: 'searching',
-            progress: 0,
-            eta: '',
-            size_done: '',
-            size_total: '',
-            episodes: null,
-            episode_summary: ''
-          });
-          wrapper.style.display = '';
+        var wrapper = document.getElementById('dl-hero-wrapper');
+        buildHeroCard(wrapper, {
+          id: _service + ':' + _title,
+          title: _title,
+          media_type: _mediaType,
+          poster_url: _posterUrl,
+          state: 'searching',
+          progress: 0,
+          eta: '',
+          size_done: '',
+          size_total: '',
+          episodes: null,
+          episode_summary: ''
+        });
+        wrapper.style.display = '';
 
-          document.getElementById('download-action').style.display = 'none';
+        document.getElementById('download-action').style.display = 'none';
 
-          pollStatus();
-          _pollInterval = setInterval(pollStatus, 4000);
-        } else {
-          showResult(false, data.error || 'Download failed');
-        }
+        pollStatus();
+        _pollInterval = setInterval(pollStatus, 4000);
       })
-      .catch(function() {
-        showResult(false, 'Network error — please try again');
+      .catch(function(err) {
+        if (err instanceof MM.api.APIError) {
+          showResult(false, err.message || 'Download failed');
+        } else {
+          showResult(false, 'Network error — please try again');
+        }
       });
   }
 
@@ -194,9 +183,7 @@
     hint.appendChild(hintLine2);
 
     /* Clear wrapper and append */
-    while (wrapper.firstChild) wrapper.removeChild(wrapper.firstChild);
-    wrapper.appendChild(hero);
-    wrapper.appendChild(hint);
+    wrapper.replaceChildren(hero, hint);
   }
 
   function stateLabel(state) {
@@ -214,8 +201,7 @@
     /* Finding 14: use the short-lived poll_token, not the long-lived download token. */
     var url = '/api/download/status?service=' + _service + '&tmdb_id=' + _tmdbId
       + (_pollToken ? '&poll_token=' + encodeURIComponent(_pollToken) : '');
-    fetch(url)
-      .then(function(r) { return r.json(); })
+    MM.api.get(url)
       .then(function(data) {
         if (data.state === 'ready') {
           clearInterval(_pollInterval);
@@ -308,7 +294,7 @@
       /* Update existing episode rows */
       for (var j = 0; j < episodes.length; j++) {
         var ep = episodes[j];
-        var row = findByEp(wrapper, ep.label);
+        var row = MM.dom.findByAttr(wrapper, 'data-ep', ep.label);
         if (!row) continue;
         var epFill = row.querySelector('[data-v="ep-fill"]');
         if (epFill) {
@@ -386,7 +372,7 @@
     if (heroWrapper) heroWrapper.style.display = 'none';
 
     var resultEl = document.getElementById('download-result');
-    while (resultEl.firstChild) resultEl.removeChild(resultEl.firstChild);
+    resultEl.replaceChildren();
 
     var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('viewBox', '0 0 24 24');

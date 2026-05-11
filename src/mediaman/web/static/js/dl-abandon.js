@@ -14,21 +14,32 @@
 (function () {
   'use strict';
 
-  var _q = (window.MM && window.MM.dom)
-    ? function (sel, ctx) { return window.MM.dom.q(sel, ctx); }
-    : function (sel, ctx) { return (ctx || document).querySelector(sel); };
-
   var modal = document.getElementById('abandon-modal');
   if (!modal) return;
 
   var titleEl     = document.getElementById('abandon-modal-title');
   var copyEl      = document.getElementById('abandon-modal-copy');
   var listEl      = document.getElementById('abandon-season-list');
-  var cancelBtn   = _q('[data-abandon-cancel]', modal);
-  var confirmBtn  = _q('[data-abandon-confirm]', modal);
-  var confirmLabel = _q('[data-confirm-label]', confirmBtn);
+  var confirmBtn  = MM.dom.q('[data-abandon-confirm]', modal);
+  var confirmLabel = MM.dom.q('[data-confirm-label]', confirmBtn);
 
   var current = null;  // { dlId, kind, title, stuckSeasons, upcoming }
+
+  /* This modal does its own ESC + focus handling and intentionally
+     does NOT lock body scroll. We use MM.modal.setupDetail for the
+     display:flex/none + aria-hidden lifecycle (so backdrop click and
+     the cancel button are handled centrally), but turn off ModalA11y
+     and body-overflow management so its existing behaviour is preserved
+     bit-for-bit. */
+  var _abandonModal = MM.modal.setupDetail(modal, {
+    useModalA11y: false,
+    manageBodyOverflow: false,
+    closeSelectors: ['[data-abandon-cancel]'],
+    onClose: function () {
+      current = null;
+      document.removeEventListener('keydown', onEscape);
+    },
+  });
 
   function open(trigger) {
     var dlId = trigger.dataset.dlId;
@@ -46,7 +57,7 @@
       ? 'Stop tracking ' + title + '?'
       : 'Abandon search for ' + title + '?';
 
-    while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
+    listEl.replaceChildren();
 
     if (upcoming || kind === 'movie' || stuck.length <= 1) {
       copyEl.textContent = upcoming
@@ -68,8 +79,7 @@
       updateConfirmLabel();
     }
 
-    modal.style.display = 'flex';
-    modal.setAttribute('aria-hidden', 'false');
+    _abandonModal.open();
     document.addEventListener('keydown', onEscape);
   }
 
@@ -111,12 +121,7 @@
     return row;
   }
 
-  function close() {
-    modal.style.display = 'none';
-    modal.setAttribute('aria-hidden', 'true');
-    current = null;
-    document.removeEventListener('keydown', onEscape);
-  }
+  function close() { _abandonModal.close(); }
 
   function onEscape(e) { if (e.key === 'Escape') close(); }
 
@@ -153,43 +158,28 @@
     confirmBtn.setAttribute('aria-disabled', 'true');
 
     var endpoint = '/api/downloads/' + encodeURIComponent(current.dlId) + '/abandon';
-    var api = window.MM && window.MM.api;
-
-    var request = api
-      ? api.post(endpoint, { seasons: seasons })
-      : fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ seasons: seasons }),
-          credentials: 'same-origin',
-        }).then(function (r) {
-          if (!r.ok) {
-            return Promise.reject(new Error('HTTP ' + r.status));
-          }
-          return r.json();
-        });
-
-    request.then(function () {
-      close();
-      document.dispatchEvent(new CustomEvent('mediaman:downloads:refresh'));
-    }).catch(function (err) {
-      if (window.mediamanToast) {
-        window.mediamanToast(
-          'Couldn’t abandon: ' + (err.message || err), { kind: 'error' }
-        );
-      } else {
-        console.error('abandon failed', err);
-      }
-      confirmBtn.setAttribute('aria-disabled', 'false');
-    });
+    MM.api.post(endpoint, { seasons: seasons })
+      .then(function () {
+        close();
+        document.dispatchEvent(new CustomEvent('mediaman:downloads:refresh'));
+      })
+      .catch(function (err) {
+        if (window.mediamanToast) {
+          window.mediamanToast(
+            'Couldn’t abandon: ' + (err.message || err), { kind: 'error' }
+          );
+        } else {
+          console.error('abandon failed', err);
+        }
+        confirmBtn.setAttribute('aria-disabled', 'false');
+      });
   }
 
+  /* Backdrop click and the cancel button are owned by MM.modal.setupDetail. */
   document.addEventListener('click', function (e) {
     var trigger = e.target.closest('[data-abandon-trigger]');
-    if (trigger) { open(trigger); return; }
-    if (e.target === modal) { close(); return; }
+    if (trigger) open(trigger);
   });
-  cancelBtn.addEventListener('click', close);
   confirmBtn.addEventListener('click', doConfirm);
 
   /* Trigger an immediate poll when the abandon succeeds, so the page
