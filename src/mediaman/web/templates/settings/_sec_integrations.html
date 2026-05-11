@@ -1,139 +1,143 @@
-{# Integrations — 8 external services, one card each, all via c.intg_card().
-   Secret fields use inp_secret (masked with "****" server-side). #}
+{# Integrations — 8 external services, one card each, all via c.service_card.
+   `fields` is a list-of-lists describing the form rows; see _components.html
+   for the schema. Secret fields use inp_secret (masked with "****" server-side).
+   `sub` strings may contain inline HTML (e.g. links) — never feed user input. #}
 {% import "_components.html" as c %}
 
 {% call c.setg_block("setg-integrations", "Integrations", "External services Mediaman talks to") %}
 
   {# ===== PLEX ===== #}
-  {% call c.intg_card("plex", "P", "plex", "Plex", "Media server connection for library scanning and watch history.") %}
-    <div class="fld-row">
-      {% call c.fld("Plex URL", "Internal address Mediaman uses to reach Plex (container-to-container).") %}
-        <input class="inp" id="plex_url" type="text"
-               value="{{ settings.get('plex_url', '') }}" placeholder="http://plex:32400">
-      {% endcall %}
-      {% call c.fld("Public URL", "External URL for &quot;Open in Plex&quot; links shown to users. Leave blank to reuse the internal URL.", optional=True) %}
-        <input class="inp" id="plex_public_url" type="text"
-               value="{{ settings.get('plex_public_url', '') }}" placeholder="https://plex.example.com">
-      {% endcall %}
-    </div>
-    <div class="fld-row fld-row--full">
-      {% call c.fld("Plex Token", "Found in Plex settings or Preferences.xml.") %}
-        {{ c.inp_secret("plex_token", value=settings.get("plex_token", ""), placeholder="Your X-Plex-Token") }}
-      {% endcall %}
-    </div>
-  {% endcall %}
+  {{ c.service_card("plex", "P", "plex", "Plex",
+      "Media server connection for library scanning and watch history.",
+      fields=[
+        [
+          {"kind": "text", "id": "plex_url", "label": "Plex URL",
+           "sub": "Internal address Mediaman uses to reach Plex (container-to-container).",
+           "placeholder": "http://plex:32400"},
+          {"kind": "text", "id": "plex_public_url", "label": "Public URL",
+           "sub": "External URL for &quot;Open in Plex&quot; links shown to users. Leave blank to reuse the internal URL.",
+           "placeholder": "https://plex.example.com", "optional": True},
+        ],
+        [
+          {"kind": "secret", "id": "plex_token", "label": "Plex Token",
+           "sub": "Found in Plex settings or Preferences.xml.",
+           "placeholder": "Your X-Plex-Token"},
+        ],
+      ],
+      settings=settings) }}
 
   {# ===== SONARR ===== #}
-  {% call c.intg_card("sonarr", "S", "sonarr", "Sonarr", "TV show management — used for unmonitoring and re-downloading.") %}
-    <div class="fld-row">
-      {% call c.fld("Sonarr URL", "Used by Mediaman to reach Sonarr.") %}
-        <input class="inp" id="sonarr_url" type="text"
-               value="{{ settings.get('sonarr_url', '') }}" placeholder="http://sonarr:8989">
-      {% endcall %}
-      {% call c.fld("Public URL", "External URL for &quot;View in Sonarr&quot; links.", optional=True) %}
-        <input class="inp" id="sonarr_public_url" type="text"
-               value="{{ settings.get('sonarr_public_url', '') }}" placeholder="https://sonarr.example.com">
-      {% endcall %}
-    </div>
-    <div class="fld-row fld-row--full">
-      {% call c.fld("API Key") %}
-        {{ c.inp_secret("sonarr_api_key", value=settings.get("sonarr_api_key", ""), placeholder="Sonarr API key") }}
-      {% endcall %}
-    </div>
-  {% endcall %}
+  {{ c.service_card("sonarr", "S", "sonarr", "Sonarr",
+      "TV show management — used for unmonitoring and re-downloading.",
+      fields=[
+        [
+          {"kind": "text", "id": "sonarr_url", "label": "Sonarr URL",
+           "sub": "Used by Mediaman to reach Sonarr.",
+           "placeholder": "http://sonarr:8989"},
+          {"kind": "text", "id": "sonarr_public_url", "label": "Public URL",
+           "sub": "External URL for &quot;View in Sonarr&quot; links.",
+           "placeholder": "https://sonarr.example.com", "optional": True},
+        ],
+        [
+          {"kind": "secret", "id": "sonarr_api_key", "label": "API Key",
+           "placeholder": "Sonarr API key"},
+        ],
+      ],
+      settings=settings) }}
 
   {# ===== RADARR ===== #}
-  {% call c.intg_card("radarr", "R", "radarr", "Radarr", "Movie management — used for unmonitoring and re-downloading.") %}
-    <div class="fld-row">
-      {% call c.fld("Radarr URL", "Used by Mediaman to reach Radarr.") %}
-        <input class="inp" id="radarr_url" type="text"
-               value="{{ settings.get('radarr_url', '') }}" placeholder="http://radarr:7878">
-      {% endcall %}
-      {% call c.fld("Public URL", "External URL for &quot;View in Radarr&quot; links.", optional=True) %}
-        <input class="inp" id="radarr_public_url" type="text"
-               value="{{ settings.get('radarr_public_url', '') }}" placeholder="https://radarr.example.com">
-      {% endcall %}
-    </div>
-    <div class="fld-row fld-row--full">
-      {% call c.fld("API Key") %}
-        {{ c.inp_secret("radarr_api_key", value=settings.get("radarr_api_key", ""), placeholder="Radarr API key") }}
-      {% endcall %}
-    </div>
-  {% endcall %}
+  {{ c.service_card("radarr", "R", "radarr", "Radarr",
+      "Movie management — used for unmonitoring and re-downloading.",
+      fields=[
+        [
+          {"kind": "text", "id": "radarr_url", "label": "Radarr URL",
+           "sub": "Used by Mediaman to reach Radarr.",
+           "placeholder": "http://radarr:7878"},
+          {"kind": "text", "id": "radarr_public_url", "label": "Public URL",
+           "sub": "External URL for &quot;View in Radarr&quot; links.",
+           "placeholder": "https://radarr.example.com", "optional": True},
+        ],
+        [
+          {"kind": "secret", "id": "radarr_api_key", "label": "API Key",
+           "placeholder": "Radarr API key"},
+        ],
+      ],
+      settings=settings) }}
 
   {# ===== NZBGET ===== #}
-  {% call c.intg_card("nzbget", "N", "nzbget", "NZBGet", "Download client for re-downloading deleted media.") %}
-    <div class="fld-row">
-      {% call c.fld("NZBGet URL", "Used by Mediaman to reach NZBGet.") %}
-        <input class="inp" id="nzbget_url" type="text"
-               value="{{ settings.get('nzbget_url', '') }}" placeholder="http://nzbget:6789">
-      {% endcall %}
-      {% call c.fld("Public URL", "External URL for &quot;Open in NZBGet&quot; links.", optional=True) %}
-        <input class="inp" id="nzbget_public_url" type="text"
-               value="{{ settings.get('nzbget_public_url', '') }}" placeholder="https://nzbget.example.com">
-      {% endcall %}
-    </div>
-    <div class="fld-row">
-      {% call c.fld("Username") %}
-        <input class="inp" id="nzbget_username" type="text"
-               value="{{ settings.get('nzbget_username', '') }}" placeholder="nzbget">
-      {% endcall %}
-      {% call c.fld("Password") %}
-        {{ c.inp_secret("nzbget_password", value=settings.get("nzbget_password", ""), placeholder="NZBGet password") }}
-      {% endcall %}
-    </div>
-  {% endcall %}
+  {{ c.service_card("nzbget", "N", "nzbget", "NZBGet",
+      "Download client for re-downloading deleted media.",
+      fields=[
+        [
+          {"kind": "text", "id": "nzbget_url", "label": "NZBGet URL",
+           "sub": "Used by Mediaman to reach NZBGet.",
+           "placeholder": "http://nzbget:6789"},
+          {"kind": "text", "id": "nzbget_public_url", "label": "Public URL",
+           "sub": "External URL for &quot;Open in NZBGet&quot; links.",
+           "placeholder": "https://nzbget.example.com", "optional": True},
+        ],
+        [
+          {"kind": "text", "id": "nzbget_username", "label": "Username",
+           "placeholder": "nzbget"},
+          {"kind": "secret", "id": "nzbget_password", "label": "Password",
+           "placeholder": "NZBGet password"},
+        ],
+      ],
+      settings=settings) }}
 
   {# ===== MAILGUN ===== #}
-  {% call c.intg_card("mailgun", "M", "mailgun", "Email (Mailgun)", "Newsletter delivery for deletion notifications.") %}
-    <div class="fld-row">
-      {% call c.fld("Mailgun Domain") %}
-        <input class="inp" id="mailgun_domain" type="text"
-               value="{{ settings.get('mailgun_domain', '') }}" placeholder="mg.example.com">
-      {% endcall %}
-      {% call c.fld("From Address") %}
-        <input class="inp" id="mailgun_from_address" type="text"
-               value="{{ settings.get('mailgun_from_address', '') }}" placeholder="mediaman@example.com">
-      {% endcall %}
-    </div>
-    <div class="fld-row fld-row--full">
-      {% call c.fld("Mailgun API Key") %}
-        {{ c.inp_secret("mailgun_api_key", value=settings.get("mailgun_api_key", ""), placeholder="key-…") }}
-      {% endcall %}
-    </div>
-  {% endcall %}
+  {{ c.service_card("mailgun", "M", "mailgun", "Email (Mailgun)",
+      "Newsletter delivery for deletion notifications.",
+      fields=[
+        [
+          {"kind": "text", "id": "mailgun_domain", "label": "Mailgun Domain",
+           "placeholder": "mg.example.com"},
+          {"kind": "text", "id": "mailgun_from_address", "label": "From Address",
+           "placeholder": "mediaman@example.com"},
+        ],
+        [
+          {"kind": "secret", "id": "mailgun_api_key", "label": "Mailgun API Key",
+           "placeholder": "key-…"},
+        ],
+      ],
+      settings=settings) }}
 
   {# ===== OPENAI ===== #}
-  {% call c.intg_card("openai", "AI", "openai", "OpenAI", "Powers AI media recommendations.") %}
-    <div class="fld-row fld-row--full">
-      {% call c.fld("API Key",
-          sub='From <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a>.') %}
-        {{ c.inp_secret("openai_api_key", value=settings.get("openai_api_key", ""), placeholder="sk-…") }}
-      {% endcall %}
-    </div>
-  {% endcall %}
+  {{ c.service_card("openai", "AI", "openai", "OpenAI",
+      "Powers AI media recommendations.",
+      fields=[
+        [
+          {"kind": "secret", "id": "openai_api_key", "label": "API Key",
+           "sub": "From <a href=\"https://platform.openai.com/api-keys\" target=\"_blank\" rel=\"noopener\">platform.openai.com/api-keys</a>.",
+           "placeholder": "sk-…"},
+        ],
+      ],
+      settings=settings) }}
 
   {# ===== TMDB ===== #}
-  {% call c.intg_card("tmdb", "T", "tmdb", "TMDB", "Poster images for media recommendations.") %}
-    <div class="fld-row">
-      {% call c.fld("API Key") %}
-        {{ c.inp_secret("tmdb_api_key", value=settings.get("tmdb_api_key", ""), placeholder="TMDB API key (v3 auth)") }}
-      {% endcall %}
-      {% call c.fld("API Read Token",
-          sub='Get both from <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">themoviedb.org/settings/api</a>.') %}
-        {{ c.inp_secret("tmdb_read_token", value=settings.get("tmdb_read_token", ""), placeholder="eyJhbGci…") }}
-      {% endcall %}
-    </div>
-  {% endcall %}
+  {{ c.service_card("tmdb", "T", "tmdb", "TMDB",
+      "Poster images for media recommendations.",
+      fields=[
+        [
+          {"kind": "secret", "id": "tmdb_api_key", "label": "API Key",
+           "placeholder": "TMDB API key (v3 auth)"},
+          {"kind": "secret", "id": "tmdb_read_token", "label": "API Read Token",
+           "sub": "Get both from <a href=\"https://www.themoviedb.org/settings/api\" target=\"_blank\" rel=\"noopener\">themoviedb.org/settings/api</a>.",
+           "placeholder": "eyJhbGci…"},
+        ],
+      ],
+      settings=settings) }}
 
   {# ===== OMDB ===== #}
-  {% call c.intg_card("omdb", "O", "omdb", "OMDB", "Rotten Tomatoes ratings for media recommendations.") %}
-    <div class="fld-row fld-row--full">
-      {% call c.fld("API Key",
-          sub='Free key from <a href="https://www.omdbapi.com/apikey.aspx" target="_blank" rel="noopener">omdbapi.com</a>.') %}
-        {{ c.inp_secret("omdb_api_key", value=settings.get("omdb_api_key", ""), placeholder="OMDb API key") }}
-      {% endcall %}
-    </div>
-  {% endcall %}
+  {{ c.service_card("omdb", "O", "omdb", "OMDB",
+      "Rotten Tomatoes ratings for media recommendations.",
+      fields=[
+        [
+          {"kind": "secret", "id": "omdb_api_key", "label": "API Key",
+           "sub": "Free key from <a href=\"https://www.omdbapi.com/apikey.aspx\" target=\"_blank\" rel=\"noopener\">omdbapi.com</a>.",
+           "placeholder": "OMDb API key"},
+        ],
+      ],
+      settings=settings) }}
 
 {% endcall %}

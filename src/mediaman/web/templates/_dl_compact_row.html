@@ -1,5 +1,6 @@
 {# Compact row — small poster, title, progress, ETA.
    Context: item (same dict shape as hero card). #}
+{% import "_components.html" as c %}
 <div class="dl-compact dl-card-enter" data-dl-id="{{ item.id }}">
   <div class="dl-compact-row dl-row{% if item.abandon_visible %} dl-row--has-abandon{% endif %}">
     <div class="dl-compact-poster dl-row-poster">
@@ -38,17 +39,10 @@
     </div>
     {% if item.abandon_visible %}
     <div class="dl-row-abandon">
-      <button type="button"
-              class="btn btn--icon btn--ghost"
-              data-abandon-trigger
-              data-dl-id="{{ item.id }}"
-              data-kind="{{ 'series' if item.media_type != 'movie' else 'movie' }}"
-              data-title="{{ item.title }}"
-              data-stuck-seasons='{{ item.stuck_seasons|tojson }}'
-              aria-label="Abandon search"
-              title="Abandon search">
-        <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
-      </button>
+      {{ c.abandon_btn(item.id,
+                       kind=('series' if item.media_type != 'movie' else 'movie'),
+                       title=item.title,
+                       stuck_seasons=item.stuck_seasons|tojson) }}
     </div>
     {% endif %}
   </div>

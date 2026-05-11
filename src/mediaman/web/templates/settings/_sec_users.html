@@ -8,7 +8,7 @@
 
   {# ----- Signed-in user (self card). Action buttons live inside the
          card body (usr-self-actions), not in the card header. ----- #}
-  {% call c.setg_card_v2(title="Your account", sub="The account you're signed in with.", pad=True) %}
+  {% call c.setg_card(title="Your account", sub="The account you're signed in with.", pad=True) %}
     <div class="usr-self-head">
       <div class="av">{{ user_initial }}</div>
       <div class="usr-meta">
@@ -16,8 +16,8 @@
         <div class="usr-sub">Admin · signed in</div>
       </div>
       <div class="usr-self-actions">
-        <button type="button" class="btn btn--secondary btn--sm" id="btn-change-password">Change password</button>
-        <button type="button" class="btn btn--ghost btn--sm" id="btn-revoke-others">Sign out other devices</button>
+        {{ c.btn("Change password", variant="secondary", size="sm", id="btn-change-password") }}
+        {{ c.btn("Sign out other devices", variant="ghost", size="sm", id="btn-revoke-others") }}
       </div>
     </div>
 
@@ -40,8 +40,8 @@
         </label>
       </div>
       <div class="inline-form-actions">
-        <button type="button" class="btn btn--ghost btn--sm" id="btn-cancel-password">Cancel</button>
-        <button type="button" class="btn btn--primary btn--sm" id="btn-submit-password">Update password</button>
+        {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-password") }}
+        {{ c.btn("Update password", variant="primary", size="sm", id="btn-submit-password") }}
         <span class="inline-form-msg" id="password-result"></span>
       </div>
     </div>
@@ -49,12 +49,10 @@
 
   {# ----- Team members ----- #}
   {% set team_actions %}
-    <button type="button" class="btn btn--primary btn--sm" id="btn-add-user">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      Add user
-    </button>
+    {{ c.btn("Add user", variant="primary", size="sm", id="btn-add-user",
+             icon='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> ') }}
   {% endset %}
-  {% call c.setg_card_v2(title="Team", sub="Every account below has full admin access.",
+  {% call c.setg_card(title="Team", sub="Every account below has full admin access.",
                          header_actions=team_actions, pad=True) %}
     <div class="inline-form inline-form--two" id="add-user-form" hidden>
       <div class="inline-form-grid">
@@ -70,8 +68,8 @@
         </label>
       </div>
       <div class="inline-form-actions">
-        <button type="button" class="btn btn--ghost btn--sm" id="btn-cancel-add-user">Cancel</button>
-        <button type="button" class="btn btn--primary btn--sm" id="btn-submit-add-user">Create user</button>
+        {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-add-user") }}
+        {{ c.btn("Create user", variant="primary", size="sm", id="btn-submit-add-user") }}
         <span class="inline-form-msg" id="create-user-result"></span>
       </div>
     </div>

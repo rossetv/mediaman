@@ -1,5 +1,6 @@
 {# _dl_abandon_modal.html — confirm sheet for the abandon-search action.
    Hidden by default; opened by static/js/dl-abandon.js. #}
+{% import "_components.html" as c %}
 <div class="modal-backdrop" id="abandon-modal" style="display:none;"
      role="dialog" aria-modal="true" aria-labelledby="abandon-modal-title" aria-hidden="true">
   <div class="modal-sheet" style="max-width:560px">
@@ -12,7 +13,12 @@
       <div class="dl-abandon-list" id="abandon-season-list" style="display:none;"></div>
 
       <div class="modal-actions abandon-modal-actions">
-        <button type="button" class="btn btn--ghost" data-abandon-cancel>Cancel</button>
+        {{ c.btn("Cancel", variant="ghost",
+                 data_attrs={"abandon-cancel": ""}) }}
+        {# TODO: confirm button hosts a <span data-confirm-label> child that
+           JS rewrites at open time. c.btn's `label` param is escaped text,
+           not HTML, so this stays inline until the macro grows a content
+           slot. #}
         <button type="button" class="btn btn--danger" data-abandon-confirm aria-disabled="false">
           <span data-confirm-label>Abandon</span>
         </button>

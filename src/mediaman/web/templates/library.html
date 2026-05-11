@@ -41,6 +41,9 @@
                autocomplete="off">
       </div>
       <div class="pill-row">
+        {# TODO: c.fpill emits `type="button"`, but these submit a form so they
+           need `type="submit"` plus `name=type` `value=…`. Until the macro
+           supports submit-style fpills, leaving inline. #}
         <button type="submit" name="type" value=""      class="fpill {% if not current_type %}on{% endif %}">All</button>
         <button type="submit" name="type" value="movie" class="fpill fpill--movie {% if current_type == 'movie' %}on{% endif %}">Movies</button>
         <button type="submit" name="type" value="tv"    class="fpill fpill--tv    {% if current_type == 'tv' %}on{% endif %}">TV</button>
@@ -122,7 +125,7 @@
             </div>
           </td>
           <td>
-            <span class="pill pill--{{ 'movie' if item.type_label|lower == 'movie' else ('tv' if item.type_label|lower == 'tv' else 'anime') }}">{{ item.type_label }}</span>
+            {{ c.pill(item.type_label, variant=('movie' if item.type_label|lower == 'movie' else ('tv' if item.type_label|lower == 'tv' else 'anime'))) }}
           </td>
           <td>{{ item.file_size }}</td>
           <td class="u-small">
@@ -164,6 +167,8 @@
                   <button class="snooze-option snooze-option--forever" role="menuitem" tabindex="-1" data-keep-dur="forever">Forever</button>
                 </div>
               </div>
+              {# TODO: c.btn data_attrs uses `| e` escaping; this button needs
+                 `| tojson`-encoded data-title for JSON.parse downstream. #}
               <button class="btn btn--danger btn--sm"
                 data-id="{{ item.id }}" data-title="{{ item.title | tojson }}"
                 data-action="confirm-delete">Delete</button>
@@ -207,13 +212,9 @@
 
   {% else %}
   {# Empty state #}
-  <div class="empty">
-    <h3>{% if q or current_type %}No results{% else %}Your library is empty{% endif %}</h3>
-    <p>
-      {% if q or current_type %}Try adjusting your search or filters.
-      {% else %}Run a scan to pull in media from Plex.{% endif %}
-    </p>
-  </div>
+  {% set _empty_headline = "No results" if (q or current_type) else "Your library is empty" %}
+  {% set _empty_sub = "Try adjusting your search or filters." if (q or current_type) else "Run a scan to pull in media from Plex." %}
+  {{ c.empty(_empty_headline, sub=_empty_sub) }}
   {% endif %}
 
   <div class="page-bottom-spacer"></div>
@@ -226,8 +227,9 @@
     <h3 id="delete-modal-heading" class="delete-modal-title">Delete item?</h3>
     <p id="delete-modal-body" class="delete-modal-body"></p>
     <div class="delete-modal-actions">
-      <button class="btn btn--ghost" data-action="close-delete-modal">Cancel</button>
-      <button id="delete-confirm-btn" class="btn btn--danger">Delete</button>
+      {{ c.btn("Cancel", variant="ghost",
+               data_attrs={"action": "close-delete-modal"}) }}
+      {{ c.btn("Delete", variant="danger", id="delete-confirm-btn") }}
     </div>
   </div>
 </div>
@@ -245,10 +247,11 @@
     </div>
     <div class="keep-season-list" id="keep-season-list"></div>
     <div class="keep-dialog-actions">
-      <button class="btn btn--danger btn--sm" id="keep-dialog-remove">Remove all keeps</button>
+      {{ c.btn("Remove all keeps", variant="danger", size="sm", id="keep-dialog-remove") }}
       <div class="u-flex-1"></div>
-      <button class="btn btn--ghost btn--sm" data-action="close-keep-dialog">Cancel</button>
-      <button class="btn btn--primary btn--sm" id="keep-dialog-confirm">Update</button>
+      {{ c.btn("Cancel", variant="ghost", size="sm",
+               data_attrs={"action": "close-keep-dialog"}) }}
+      {{ c.btn("Update", variant="primary", size="sm", id="keep-dialog-confirm") }}
     </div>
   </div>
 </div>

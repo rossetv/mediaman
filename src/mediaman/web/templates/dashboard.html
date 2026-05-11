@@ -18,16 +18,19 @@
         {% endif %}
       </div>
       <div class="u-flex">
-        <button id="scan-btn" type="button" class="btn btn--ghost" data-action="trigger-scan">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-          Scan now
-        </button>
+        {{ c.btn("Scan now", variant="ghost", id="scan-btn",
+                 data_attrs={"action": "trigger-scan"},
+                 icon='<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> ') }}
         <span id="scan-status" class="scan-status"></span>
       </div>
     </div>
   </div>
 
-  {# Storage #}
+  {# Storage — bespoke layout (storage-num has nested <small>, legend dots use
+     CSS-classed helpers rather than inline colours). Macro c.storage uses a
+     {color, value} schema that doesn't fit, so we keep the inline markup.
+     TODO: macro c.storage needs a "structured num" + class-based legend
+     option for this site. #}
   <section class="section">
     {{ c.sec_hd("Storage", "Across your selected libraries") }}
     <div class="storage">
@@ -57,7 +60,8 @@
       <div class="u-flex u-gap-md">
         {% if scheduled_count > 0 %}
         <span class="sub">{{ scheduled_count }} item{{ 's' if scheduled_count != 1 }} · {{ scheduled_size }} to reclaim</span>
-        <button class="btn btn--danger btn--sm" type="button" data-action="clear-scheduled">Clear all</button>
+        {{ c.btn("Clear all", variant="danger", size="sm",
+                 data_attrs={"action": "clear-scheduled"}) }}
         {% endif %}
       </div>
     </div>
@@ -71,8 +75,8 @@
           <img src="/api/poster/{{ item.plex_rating_key }}" alt="" loading="lazy">
           {% endif %}
           <div class="tile-pills">
-            <span class="pill pill--{{ 'movie' if item.media_type == 'movie' else ('tv' if item.media_type == 'tv' else 'anime') }}">{{ item.type_label }}</span>
-            {% if item.countdown %}<span class="countdown">{{ item.countdown }}</span>{% endif %}
+            {{ c.pill(item.type_label, variant=('movie' if item.media_type == 'movie' else ('tv' if item.media_type == 'tv' else 'anime'))) }}
+            {% if item.countdown %}{{ c.countdown(item.countdown) }}{% endif %}
           </div>
         </div>
         <div>
@@ -82,8 +86,10 @@
         <div class="keep-wrapper tile-actions"
              data-id="{{ item.media_item_id }}" data-tv="{{ (item.media_type == 'tv') | tojson }}"
              data-show-rk="{{ item.show_rating_key or '' }}" data-show-title="{{ item.show_title_raw or item.title | e }}">
-          <button class="btn btn--accent-soft btn--sm" type="button"
-                  data-action="keep-tile" data-duration="30d">Keep</button>
+          {{ c.btn("Keep", variant="accent-soft", size="sm",
+                   data_attrs={"action": "keep-tile", "duration": "30d"}) }}
+          {# TODO: c.btn doesn't expose aria-haspopup/aria-expanded — the caret
+             button needs those for the dropdown menu pattern. Leaving inline. #}
           <button type="button" class="btn btn--icon btn--secondary btn-sm-caret"
                   aria-haspopup="menu" aria-expanded="false"
                   aria-label="More keep options">
@@ -100,10 +106,8 @@
       {% endfor %}
     </div>
     {% else %}
-    <div class="empty">
-      <h3>Nothing scheduled for deletion</h3>
-      <p>Library is healthy — next scan will look again.</p>
-    </div>
+    {{ c.empty("Nothing scheduled for deletion",
+               sub="Library is healthy — next scan will look again.") }}
     {% endif %}
   </section>
 
@@ -111,12 +115,8 @@
 
   {# Recently deleted — flat list #}
   <section class="section">
-    <div class="sec-hd">
-      <h2>Recently deleted</h2>
-      {% if reclaimed_total != '0 B' %}
-      <span class="sub">{{ reclaimed_total }} reclaimed total</span>
-      {% endif %}
-    </div>
+    {{ c.sec_hd("Recently deleted",
+                sub=reclaimed_total ~ " reclaimed total" if reclaimed_total != '0 B' else "") }}
 
     {% if recently_deleted %}
     <div class="dlist">
@@ -130,7 +130,11 @@
           <div class="u-small">Deleted {{ item.deleted_ago }}</div>
         </div>
         <div class="u-small">{{ item.reclaimed }}</div>
-        {# Finding 34: pass stable identifiers; button is disabled when no identifier is available. #}
+        {# Finding 34: pass stable identifiers; button is disabled when no identifier is available.
+           TODO: c.btn's data_attrs auto-escapes with `| e`, which breaks the
+           `| tojson`-encoded values these buttons rely on (JS reads
+           dataset.title via JSON.parse). Until the macro supports raw-value
+           data-attrs, this stays inline. #}
         <button class="btn btn--secondary btn--sm" type="button"
                 data-action="redownload"
                 data-title="{{ item.title | tojson }}"
@@ -141,10 +145,8 @@
       {% endfor %}
     </div>
     {% else %}
-    <div class="empty">
-      <h3>No deletion history yet</h3>
-      <p>When mediaman reclaims space, you'll see it here.</p>
-    </div>
+    {{ c.empty("No deletion history yet",
+               sub="When mediaman reclaims space, you'll see it here.") }}
     {% endif %}
   </section>
 

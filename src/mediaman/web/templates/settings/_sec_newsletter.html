@@ -3,7 +3,7 @@
 
 {% call c.setg_block("setg-newsletter", "Newsletter", "Email addresses that receive the weekly deletion digest") %}
 
-  {% call c.setg_card_v2(title="Subscribers",
+  {% call c.setg_card(title="Subscribers",
                          sub="Subscribers receive the weekly newsletter when a scan finds items to review.",
                          pad=True) %}
     <div class="sub-list" id="subscriber-list">
@@ -11,21 +11,21 @@
     </div>
     <div class="sub-add">
       <input class="inp" type="email" id="new-subscriber-email" placeholder="Add email address…">
-      <button type="button" class="btn btn--primary btn--sm" id="btn-add-subscriber">Add</button>
+      {{ c.btn("Add", variant="primary", size="sm", id="btn-add-subscriber") }}
     </div>
   {% endcall %}
 
   {% set send_actions %}
     <button type="button" class="btn-test" id="btn-send-newsletter">Select recipients</button>
   {% endset %}
-  {% call c.setg_card_v2(title="Send newsletter",
+  {% call c.setg_card(title="Send newsletter",
                          sub="Send the current newsletter to selected subscribers without affecting the automated schedule.",
                          header_actions=send_actions, pad=True) %}
     <div id="newsletter-send-panel" hidden>
       <div id="newsletter-recipient-list" class="recipient-list"></div>
       <div class="inline-form-actions">
-        <button type="button" class="btn btn--primary btn--sm" id="btn-confirm-newsletter">Send newsletter</button>
-        <button type="button" class="btn btn--ghost btn--sm" id="btn-cancel-newsletter">Cancel</button>
+        {{ c.btn("Send newsletter", variant="primary", size="sm", id="btn-confirm-newsletter") }}
+        {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-newsletter") }}
         <span class="inline-form-msg" id="newsletter-send-status"></span>
       </div>
     </div>

@@ -19,19 +19,30 @@
    sizes: sm, lg. Pass `tag="a"` for an anchor, `extra_class` for one-off
    layout helpers, `data_attrs` for a dict of data-* attributes (auto-escaped),
    `icon` for a trusted SVG string (caller must pass a literal only).
+   `id`, `aria_label`, `title` are escaped attribute strings; `disabled` is a
+   boolean that also sets `aria-disabled="true"` for AT users.
    Note: `attrs` (raw HTML string) and `sub` (raw HTML) have been removed to
    prevent XSS — use explicit parameters or `data_attrs` dict instead.
 #}
-{% macro btn(label, variant="secondary", size="", tag="button", href="", extra_class="", data_attrs=none, icon="") -%}
+{% macro btn(label, variant="secondary", size="", tag="button", href="", extra_class="", data_attrs=none, icon="", id="", aria_label="", title="", disabled=false, target="", rel="") -%}
   {%- set classes = ["btn", "btn--" ~ variant] -%}
   {%- if size %}{% set _ = classes.append("btn--" ~ size) %}{% endif -%}
   {%- if extra_class %}{% set _ = classes.append(extra_class) %}{% endif -%}
   {%- if tag == "a" -%}
     <a class="{{ classes | join(' ') }}" href="{{ href }}"
-       {%- if data_attrs %}{% for k, v in data_attrs.items() %} data-{{ k | e }}="{{ v | e }}"{% endfor %}{% endif %}>{% if icon %}{{ icon|safe }}{% endif %}{{ label }}</a>
+       {%- if id %} id="{{ id }}"{% endif %}
+       {%- if aria_label %} aria-label="{{ aria_label }}"{% endif %}
+       {%- if title %} title="{{ title }}"{% endif %}
+       {%- if target %} target="{{ target }}"{% endif %}
+       {%- if rel %} rel="{{ rel }}"{% endif %}
+       {%- if data_attrs %}{% for k, v in data_attrs.items() %} data-{{ k | e }}{% if v != "" %}="{{ v | e }}"{% endif %}{% endfor %}{% endif %}>{% if icon %}{{ icon|safe }}{% endif %}{{ label }}</a>
   {%- else -%}
     <button type="button" class="{{ classes | join(' ') }}"
-            {%- if data_attrs %}{% for k, v in data_attrs.items() %} data-{{ k | e }}="{{ v | e }}"{% endfor %}{% endif %}>{% if icon %}{{ icon|safe }}{% endif %}{{ label }}</button>
+            {%- if id %} id="{{ id }}"{% endif %}
+            {%- if aria_label %} aria-label="{{ aria_label }}"{% endif %}
+            {%- if title %} title="{{ title }}"{% endif %}
+            {%- if disabled %} disabled aria-disabled="true"{% endif %}
+            {%- if data_attrs %}{% for k, v in data_attrs.items() %} data-{{ k | e }}{% if v != "" %}="{{ v | e }}"{% endif %}{% endfor %}{% endif %}>{% if icon %}{{ icon|safe }}{% endif %}{{ label }}</button>
   {%- endif -%}
 {%- endmacro %}
 
@@ -103,36 +114,6 @@
 {%- endmacro %}
 
 
-{# Settings card — wraps a card body, optional header with title + slot.
-   Use as: {% call c.setg_card(title="…") %} … rows … {% endcall %} #}
-{% macro setg_card(title="", subtitle="", header_extra="") -%}
-<div class="setg-card">
-  {% if title or subtitle or header_extra %}
-  <div class="setg-hd">
-    <div>
-      {% if title %}<h3>{{ title }}</h3>{% endif %}
-      {% if subtitle %}<div class="u-small">{{ subtitle }}</div>{% endif %}
-    </div>
-    {% if header_extra %}{{ header_extra|safe }}{% endif %}
-  </div>
-  {% endif %}
-  {{ caller() }}
-</div>
-{%- endmacro %}
-
-
-{# Settings row — two-column label / control layout. #}
-{% macro setg_row(label, sub="") -%}
-<div class="setg-row">
-  <div>
-    <div class="setg-row-lbl">{{ label }}</div>
-    {% if sub %}<div class="setg-row-sub">{{ sub }}</div>{% endif %}
-  </div>
-  <div>{{ caller() }}</div>
-</div>
-{%- endmacro %}
-
-
 {# Toggle switch — checkbox with id, optional `on` for default state.
    The old `attrs` raw-HTML parameter has been removed to prevent XSS. #}
 {% macro tog(id, on=false) -%}
@@ -181,9 +162,9 @@
 {%- endmacro %}
 
 
-{# Empty state. #}
-{% macro empty(headline, sub="", icon_svg="") -%}
-<div class="empty">
+{# Empty state. `extra_class` is a layout helper (e.g. "empty-state--lg"). #}
+{% macro empty(headline, sub="", icon_svg="", extra_class="") -%}
+<div class="empty{% if extra_class %} {{ extra_class }}{% endif %}">
   {% if icon_svg %}<div class="empty-ico">{{ icon_svg|safe }}</div>{% endif %}
   <h3>{{ headline }}</h3>
   {% if sub %}<p>{{ sub|safe }}</p>{% endif %}
@@ -233,8 +214,10 @@
 {%- endmacro %}
 
 
-{# Card with header (title + sub + optional actions). Use via {% call %}. #}
-{% macro setg_card_v2(title="", sub="", header_actions="", pad=false) -%}
+{# Settings card — wraps a card body with optional header (title + sub +
+   header_actions slot). `pad` adds inner padding to the body. Use via
+   {% call c.setg_card(...) %} … {% endcall %}. #}
+{% macro setg_card(title="", sub="", header_actions="", pad=false) -%}
 <div class="setg-card">
   {% if title or sub or header_actions %}
   <div class="setg-card-hd">
@@ -250,8 +233,8 @@
 {%- endmacro %}
 
 
-{# Row (label + sub + control slot). Use via {% call %}. #}
-{% macro setg_row_v2(label, sub="") -%}
+{# Settings row — label + sub + control slot. Use via {% call c.setg_row(...) %}. #}
+{% macro setg_row(label, sub="") -%}
 <div class="setg-row">
   <div>
     <div class="setg-row-lbl">{{ label }}</div>
@@ -315,4 +298,65 @@
     {{ caller() }}
   </div>
 </div>
+{%- endmacro %}
+
+
+{# Integration service card — wraps intg_card with the standard form-field
+   pattern shared by every integration (Plex, Sonarr, Radarr, NZBGet, TMDB,
+   OMDb, OpenAI, Mailgun).
+
+   `fields` is a list-of-lists describing the body. Each inner list is one
+   .fld-row; each item is a dict with:
+     kind:      "text" | "secret"  (required)
+     id:        input id / settings key (required)
+     label:     visible label text (required)
+     placeholder: input placeholder (optional)
+     sub:       helper text under the input — supports inline HTML (optional)
+     optional:  True to render the "optional" badge in the label (default False)
+   A row with a single field is rendered .fld-row--full; two-field rows lay
+   out side-by-side. Values are read from the `settings` dict in the caller's
+   scope, which is passed in via the `settings` arg.
+
+   The `sub` slot is treated as trusted HTML (passed through inp_secret /
+   fld macros which `|safe`-pipe it); never feed user-supplied strings in.
+#}
+{% macro service_card(service, glyph, glyph_kind, title, sub="", fields=none, settings=none, include_test=true) -%}
+{% call intg_card(service, glyph, glyph_kind, title, sub, include_test=include_test) %}
+  {% for row in (fields or []) %}
+  <div class="fld-row{% if row|length == 1 %} fld-row--full{% endif %}">
+    {% for f in row %}
+    {% call fld(f.label, sub=f.sub|default(""), optional=f.optional|default(false)) %}
+      {% if f.kind == "secret" %}
+        {{ inp_secret(f.id, value=settings.get(f.id, "") if settings else "", placeholder=f.placeholder|default("")) }}
+      {% else %}
+        <input class="inp" id="{{ f.id }}" type="text"
+               value="{{ settings.get(f.id, '') if settings else '' }}"
+               placeholder="{{ f.placeholder|default('') }}">
+      {% endif %}
+    {% endcall %}
+    {% endfor %}
+  </div>
+  {% endfor %}
+{% endcall %}
+{%- endmacro %}
+
+
+{# Abandon-search icon button — used on download rows / hero / upcoming.
+   `kind` is "movie" or "series"; `stuck_seasons` is a JSON string of seasons
+   (pass "[]" for upcoming items). `upcoming` flag adds data-abandon-upcoming.
+   The icon and aria-label vary slightly between active and upcoming variants
+   so callers pass `label` ("Abandon search" or "Stop tracking"). #}
+{% macro abandon_btn(dl_id, kind, title, stuck_seasons="[]", upcoming=false, label="Abandon search") -%}
+<button type="button"
+        class="btn btn--icon btn--ghost"
+        data-abandon-trigger
+        {% if upcoming %}data-abandon-upcoming="1"{% endif %}
+        data-dl-id="{{ dl_id }}"
+        data-kind="{{ kind }}"
+        data-title="{{ title }}"
+        data-stuck-seasons='{{ stuck_seasons }}'
+        aria-label="{{ label }}"
+        title="{{ label }}">
+  <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+</button>
 {%- endmacro %}

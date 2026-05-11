@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_components.html" as c %}
 
 {% block title %}Recommended · Mediaman{% endblock %}
 {% block nav %}{% include "_nav.html" %}{% endblock %}
@@ -14,10 +15,9 @@
       </div>
       {% if enabled %}
         {% if manual_refresh_available %}
-        <button id="refresh-btn" type="button" class="btn btn--ghost" data-action="refresh-recommendations">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-          Fetch new suggestions
-        </button>
+        {{ c.btn("Fetch new suggestions", variant="ghost", id="refresh-btn",
+                 data_attrs={"action": "refresh-recommendations"},
+                 icon='<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> ') }}
         {% else %}
         <span id="refresh-cooldown" class="sub" data-next-at="{{ next_manual_refresh_at }}">
           Next refresh available in <span data-cooldown-clock>24h</span>
@@ -36,17 +36,8 @@
   <div id="refresh-error" class="inline-error"></div>
 
   {% if not batches %}
-  <div class="empty empty-state--lg">
-    <h3>No recommendations yet</h3>
-    <p>
-      {% if manual_refresh_available %}
-      Hit "Fetch new suggestions" above to generate AI-powered recommendations, or wait for the next scheduled scan.
-      {% else %}
-      A refresh has already run today — the next batch will arrive on the next scheduled scan.
-      {% endif %}
-      Requires an OpenAI API key configured in <a href="/settings">Settings → Integrations</a>.
-    </p>
-  </div>
+  {% set _rec_sub %}{% if manual_refresh_available %}Hit "Fetch new suggestions" above to generate AI-powered recommendations, or wait for the next scheduled scan.{% else %}A refresh has already run today — the next batch will arrive on the next scheduled scan.{% endif %} Requires an OpenAI API key configured in <a href="/settings">Settings → Integrations</a>.{% endset %}
+  {{ c.empty("No recommendations yet", sub=_rec_sub, extra_class="empty-state--lg") }}
   {% else %}
 
   {% for batch in batches %}
