@@ -19,7 +19,7 @@ import logging
 import os
 import sqlite3
 from datetime import UTC, datetime
-from typing import Any, TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 import requests
 
@@ -28,6 +28,9 @@ from mediaman.scanner import repository
 from mediaman.services.arr.base import ArrError
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.infra.storage import DeletionRefused, delete_path
+
+if TYPE_CHECKING:
+    from mediaman.services.arr.base import ArrClient
 
 logger = logging.getLogger(__name__)
 
@@ -206,8 +209,8 @@ def _commit_deletion(conn: sqlite3.Connection, row: sqlite3.Row) -> None:
 
 def _unmonitor_arr(
     row: sqlite3.Row,
-    radarr_client: Any,
-    sonarr_client: Any,
+    radarr_client: ArrClient | None,
+    sonarr_client: ArrClient | None,
 ) -> None:
     """Send best-effort unmonitor calls to Radarr/Sonarr.
 
@@ -268,8 +271,8 @@ class DeletionExecutor:
         conn: sqlite3.Connection,
         dry_run: bool = False,
         cleanup_snoozes: bool = True,
-        sonarr_client: Any = None,
-        radarr_client: Any = None,
+        sonarr_client: ArrClient | None = None,
+        radarr_client: ArrClient | None = None,
     ) -> None:
         self._conn = conn
         self._dry_run = dry_run

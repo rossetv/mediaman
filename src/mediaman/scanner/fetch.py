@@ -9,7 +9,16 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING
+
+from mediaman.services.media_meta.plex import (
+    PlexMovieItem,
+    PlexSeasonItem,
+    PlexWatchEntry,
+)
+
+if TYPE_CHECKING:
+    from mediaman.services.media_meta.plex import PlexClient
 
 import requests
 from plexapi.exceptions import PlexApiException
@@ -27,10 +36,10 @@ class _PlexItemFetch:
     the critical path of any HTTP round-trip.
     """
 
-    item: dict
+    item: PlexMovieItem | PlexSeasonItem
     library_id: str
     media_type: str
-    watch_history: list[dict]
+    watch_history: list[PlexWatchEntry]
 
 
 class PlexFetcher:
@@ -45,7 +54,7 @@ class PlexFetcher:
     def __init__(
         self,
         *,
-        plex_client: Any,
+        plex_client: PlexClient,
         library_types: dict[str, str],
         library_titles: dict[str, str] | None = None,
     ) -> None:

@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
-from typing import Any, TypedDict, cast
+from collections.abc import Callable, Mapping, Sequence
+from typing import TypedDict, cast
 
 from mediaman.core.format import format_bytes
 from mediaman.services.arr.fetcher._base import ArrCard, ArrEpisodeEntry
@@ -66,7 +66,7 @@ def nzb_matches_arr(nzb_t_norm: str, arr_candidates: list[str]) -> bool:
 
 
 def _stuck_seasons_from_episodes(
-    episodes: list[ArrEpisodeEntry] | list[dict[str, Any]],
+    episodes: Sequence[Mapping[str, object]],
 ) -> list[dict[str, int]]:
     """Group queue episodes by season_number and count missing episodes.
 
@@ -76,7 +76,8 @@ def _stuck_seasons_from_episodes(
     """
     by_season: dict[int, int] = {}
     for ep in episodes:
-        s = int(ep.get("season_number") or 0)
+        raw = ep.get("season_number") or 0
+        s = int(raw) if isinstance(raw, int | float | str) else 0
         by_season[s] = by_season.get(s, 0) + 1
     return [{"number": s, "missing_episodes": n} for s, n in sorted(by_season.items())]
 
@@ -108,21 +109,35 @@ def build_episode_dicts(
 
 def build_matched_item(
     arr: ArrCard,
-    matched_nzb: dict[str, Any],
+    matched_nzb: Mapping[str, object],
     state: str,
     eta: str,
     download_rate: int,
 ) -> DownloadItem:
     """Build a download-card item for an *arr entry that matched an NZBGet item."""
+    # The NZBGet matched-entry dict is constructed by ``parse_nzb_queue`` in
+    # queue.py with values typed as ``object``; coerce each field to its
+    # expected runtime type at the boundary so downstream code stays typed.
+    nzb_dl_id = matched_nzb["dl_id"] if isinstance(matched_nzb["dl_id"], str) else ""
+    nzb_title = matched_nzb["title"] if isinstance(matched_nzb["title"], str) else ""
+    nzb_progress = (
+        int(matched_nzb["progress"]) if isinstance(matched_nzb["progress"], int | float) else 0
+    )
+    nzb_done_mb = (
+        float(matched_nzb["done_mb"]) if isinstance(matched_nzb["done_mb"], int | float) else 0.0
+    )
+    nzb_file_mb = (
+        float(matched_nzb["file_mb"]) if isinstance(matched_nzb["file_mb"], int | float) else 0.0
+    )
     if arr.get("kind") == "series":
         episodes = build_episode_dicts(arr.get("episodes", []))
         return build_item(
-            dl_id=arr.get("dl_id", matched_nzb["dl_id"]),
-            title=arr.get("title") or matched_nzb["title"],
+            dl_id=arr.get("dl_id", nzb_dl_id),
+            title=arr.get("title") or nzb_title,
             media_type="series",
             poster_url=arr.get("poster_url") or "",
             state=state,
-            progress=arr.get("progress", matched_nzb["progress"]),
+            progress=arr.get("progress", nzb_progress),
             eta=eta,
             size_done=arr.get("done_str", ""),
             size_total=arr.get("size_str", ""),
@@ -133,15 +148,15 @@ def build_matched_item(
             kind="series",
         )
     return build_item(
-        dl_id=arr.get("dl_id", matched_nzb["dl_id"]),
-        title=arr.get("title") or matched_nzb["title"],
+        dl_id=arr.get("dl_id", nzb_dl_id),
+        title=arr.get("title") or nzb_title,
         media_type="movie",
         poster_url=arr.get("poster_url") or "",
         state=state,
-        progress=matched_nzb["progress"],
+        progress=nzb_progress,
         eta=eta,
-        size_done=format_bytes(matched_nzb["done_mb"] * 1024 * 1024),
-        size_total=format_bytes(matched_nzb["file_mb"] * 1024 * 1024),
+        size_done=format_bytes(int(nzb_done_mb * 1024 * 1024)),
+        size_total=format_bytes(int(nzb_file_mb * 1024 * 1024)),
         arr_id=arr.get("arr_id") or 0,
         kind="movie",
     )

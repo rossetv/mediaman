@@ -16,6 +16,13 @@ from mediaman.services.media_meta.item_enrichment import apply_tmdb_detail
 from mediaman.services.openai.recommendations.prompts import strip_season_suffix
 
 
+# rationale: ``recommendations`` is the in-flight dict the OpenAI prompt
+# pipeline builds and mutates in-place — every step (TMDB enrichment, OMDb
+# rating fallback, season-stripping fixups) adds heterogeneous keys whose
+# value types differ per phase (int, str, float, dict).  A TypedDict would
+# either be a ``total=False`` bag identical to ``dict[str, Any]`` in spirit
+# or force every contributor to declare every intermediate field upfront;
+# pinning the persisted shape happens once at ``persist_recommendations``.
 def enrich_recommendations(
     recommendations: list[dict[str, Any]],
     conn: sqlite3.Connection,

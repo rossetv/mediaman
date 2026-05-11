@@ -150,6 +150,12 @@ class TmdbClient:
     # Network calls
     # ------------------------------------------------------------------
 
+    # rationale: returns resp.json() whose runtime type varies per endpoint
+    # (dict for single-item endpoints, list for collection endpoints). Each
+    # public method narrows the result via .get() or isinstance guards and
+    # returns a fully-typed value; annotating _get as Any avoids cascading
+    # casts across every caller while keeping all public API return types
+    # concrete.
     def _get(self, path: str, params: dict[str, object] | None = None) -> Any:
         """Perform an authenticated GET against *path* and return the parsed JSON.
 
@@ -164,13 +170,6 @@ class TmdbClient:
         ``json.JSONDecodeError``) — neither subclass of
         :class:`requests.RequestException` — so the per-method ``except``
         clauses must cover it explicitly via :class:`ValueError`.
-
-        # rationale: returns resp.json() whose runtime type varies per endpoint
-        # (dict for single-item endpoints, list for collection endpoints). Each
-        # public method narrows the result via .get() or isinstance guards and
-        # returns a fully-typed value; annotating _get as Any avoids cascading
-        # casts across every caller while keeping all public API return types
-        # concrete.
         """
         return self._http.get(path, headers=self._headers, params=params or {}).json()
 
@@ -338,6 +337,12 @@ class TmdbClient:
     # Shaping helpers — pure functions, no side effects
     # ------------------------------------------------------------------
 
+    # rationale: ``data`` is a TMDB ``/search/{movie,tv}`` or ``/{movie,tv}/{id}``
+    # response.  Both endpoints emit dozens of fields beyond what mediaman reads;
+    # describing the full shape in a TypedDict would be busywork against an
+    # upstream contract that frequently grows new keys.  The shape helpers below
+    # access individual fields with ``.get()`` and isinstance guards, so the
+    # ``Any`` value-side is contained inside this method body.
     @staticmethod
     def shape_card(data: dict[str, Any]) -> TmdbCard:
         """Return the compact-card shape for a TMDB search / details payload.
@@ -377,6 +382,9 @@ class TmdbClient:
             "description": data.get("overview") or "",
         }
 
+    # rationale: same reason as :meth:`shape_card` — TMDB's ``/{movie,tv}/{id}``
+    # detail response is wide and frequently extended.  Field access is guarded
+    # by ``.get()`` plus isinstance checks within the body.
     @staticmethod
     def shape_detail(data: dict[str, Any], *, media_type: str) -> TmdbDetail:
         """Return the rich-detail shape for a TMDB ``details`` payload.

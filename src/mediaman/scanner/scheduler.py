@@ -12,7 +12,7 @@ import logging
 import sqlite3
 import threading
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -23,12 +23,10 @@ logger = logging.getLogger(__name__)
 # in practice ``start_scheduler`` and ``stop_scheduler`` are only ever called
 # from the FastAPI lifespan (single-threaded startup / shutdown), but the
 # lock makes the contract explicit and protects against a future caller
-# that drives the scheduler from a worker thread.
-#
-# Typed as ``Any`` so static-checkers don't trip on the deferred apscheduler
-# import — pulling ``BackgroundScheduler`` in just for typing would defeat
-# the lazy-import contract this module advertises in its docstring.
-_scheduler: Any = None
+# that drives the scheduler from a worker thread.  ``BackgroundScheduler``
+# is imported under ``TYPE_CHECKING`` so the lazy-import contract in the
+# module docstring is preserved — annotations are strings at runtime.
+_scheduler: BackgroundScheduler | None = None
 _scheduler_lock = threading.Lock()
 
 # Track every DB connection opened by background scheduler jobs so they
