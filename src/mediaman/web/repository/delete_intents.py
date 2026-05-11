@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, TypedDict
 
 from fastapi.responses import JSONResponse
 
-from mediaman.audit import log_audit
+from mediaman.core.audit import log_audit
 from mediaman.db import get_db
 from mediaman.web.responses import respond_err
 
