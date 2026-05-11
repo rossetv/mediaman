@@ -245,7 +245,7 @@ class TestBootstrapCryptoFailClosed:
 
     def test_canary_ok_starts_false_on_import_failure(self, db_path, monkeypatch):
         """An import-time exception must leave canary_ok=False."""
-        from mediaman.app_factory import bootstrap_crypto
+        from mediaman.bootstrap.crypto import bootstrap_crypto
 
         class _State:
             pass
