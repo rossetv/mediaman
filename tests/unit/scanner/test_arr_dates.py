@@ -6,6 +6,8 @@ error tolerance).
 
 from unittest.mock import MagicMock
 
+import requests
+
 from mediaman.scanner.arr_dates import ArrDateCache, normalise_path
 
 # ---------------------------------------------------------------------------
@@ -95,7 +97,7 @@ class TestArrDateCacheRadarr:
 
     def test_radarr_exception_does_not_raise(self):
         radarr = MagicMock()
-        radarr.get_movies.side_effect = RuntimeError("network error")
+        radarr.get_movies.side_effect = requests.ConnectionError("network error")
         cache = ArrDateCache(radarr_client=radarr)
         # Must not propagate — logs a warning and falls back to empty.
         cache.ensure_loaded()
@@ -150,7 +152,7 @@ class TestArrDateCacheSonarr:
 
     def test_sonarr_exception_does_not_raise(self):
         sonarr = MagicMock()
-        sonarr.get_series.side_effect = RuntimeError("API down")
+        sonarr.get_series.side_effect = requests.ConnectionError("API down")
         cache = ArrDateCache(sonarr_client=sonarr)
         cache.ensure_loaded()  # must not propagate
         assert cache._dates == {}

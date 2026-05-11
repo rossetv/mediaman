@@ -144,7 +144,7 @@ def security_event(
     try:
         _insert_security_event(conn, event=event, actor=actor, ip=ip, detail=detail)
         conn.commit()
-    except Exception:  # pragma: no cover — never break flow on log failure
+    except Exception:  # pragma: no cover; rationale: best-effort audit write — never break the user-facing flow on log failure
         logger.exception("security_event write failed event=%s", event)
 
 

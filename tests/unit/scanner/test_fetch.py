@@ -6,6 +6,8 @@ including watch-history error tolerance.
 
 from unittest.mock import MagicMock
 
+import requests
+
 from mediaman.scanner.fetch import PlexFetcher
 
 
@@ -62,7 +64,7 @@ class TestFetchMovieLibrary:
         plex = _make_plex(movies=[_make_movie("1"), _make_movie("2")])
         # Fail on the first item; second item should still come through.
         plex.get_watch_history.side_effect = [
-            RuntimeError("Plex unavailable"),
+            requests.ConnectionError("Plex unavailable"),
             [],  # second call succeeds
         ]
         fetcher = PlexFetcher(plex_client=plex, library_types={"10": "movie"})
@@ -132,7 +134,7 @@ class TestFetchShowLibrary:
         """
         plex = _make_plex(seasons=[_make_season("201"), _make_season("202")])
         plex.get_season_watch_history.side_effect = [
-            RuntimeError("timeout"),
+            requests.Timeout("timeout"),
             [],  # second call succeeds
         ]
         fetcher = PlexFetcher(plex_client=plex, library_types={"20": "show"})

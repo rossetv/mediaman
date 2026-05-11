@@ -6,6 +6,7 @@ from datetime import UTC
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from mediaman.db import init_db
 from mediaman.services.openai.recommendations.persist import refresh_recommendations
@@ -192,9 +193,7 @@ class TestRefreshRecommendations:
     def test_plex_rating_failure_does_not_crash(self, conn):
         """If Plex raises during get_user_ratings, refresh must still proceed."""
         client = MagicMock()
-        client.get_user_ratings.side_effect = __import__(
-            "plexapi.exceptions", fromlist=["PlexApiException"]
-        ).PlexApiException("Plex connection error")
+        client.get_user_ratings.side_effect = requests.ConnectionError("Plex connection error")
 
         with (
             patch(

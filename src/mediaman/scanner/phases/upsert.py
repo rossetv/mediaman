@@ -142,7 +142,7 @@ def schedule_deletion(
             "UPDATE scheduled_actions SET token_hash = ?, token = NULL WHERE id = ?",
             (token_hash, action_id),
         )
-    except Exception:
+    except sqlite3.OperationalError:
         # Pre-migration-28 schema: token column is NOT NULL; just write the hash.
         conn.execute(
             "UPDATE scheduled_actions SET token_hash = ? WHERE id = ?",

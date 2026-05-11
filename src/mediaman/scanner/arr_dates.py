@@ -17,6 +17,11 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+import requests
+
+from mediaman.services.arr._client_base import ArrError
+from mediaman.services.infra.http import SafeHTTPError
+
 if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient
 
@@ -120,7 +125,7 @@ class ArrDateCache:
                     if mf and mf.get("path") and mf.get("dateAdded"):
                         key = normalise_path(mf["path"])
                         self._dates[key] = mf["dateAdded"]
-            except Exception:
+            except (SafeHTTPError, requests.RequestException, ArrError):
                 logger.warning(
                     "Failed to fetch Radarr dates — falling back to Plex",
                     exc_info=True,
@@ -153,13 +158,13 @@ class ArrDateCache:
                                 existing_dt = _parse_arr_iso(existing) if existing else None
                                 if existing_dt is None or new_dt > existing_dt:
                                     self._dates[key] = date_added
-                    except Exception:
+                    except (SafeHTTPError, requests.RequestException, ArrError):
                         logger.warning(
                             "Failed to fetch episode files for series %s",
                             series.get("id"),
                             exc_info=True,
                         )
-            except Exception:
+            except (SafeHTTPError, requests.RequestException, ArrError):
                 logger.warning(
                     "Failed to fetch Sonarr dates — falling back to Plex",
                     exc_info=True,

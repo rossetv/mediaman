@@ -84,7 +84,7 @@ class ScrubFilter(logging.Filter):
                         k: self._scrub(v) if isinstance(v, str) else v
                         for k, v in record.args.items()
                     }
-        except Exception:
+        except Exception:  # rationale: don't break logging if scrub raises — emit the (possibly unscrubbed) record rather than silence it
             # A filter that raises silences the log record entirely.
             # Swallow all errors and let the (possibly unscrubbed) record
             # through rather than breaking application logging.
