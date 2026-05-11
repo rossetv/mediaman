@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, cast
 
 import requests
 
-from mediaman.services.arr._client_base import ArrError
+from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
     build_radarr_cache,

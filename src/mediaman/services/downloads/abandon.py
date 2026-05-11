@@ -14,8 +14,7 @@ from typing import cast
 
 import requests
 
-from mediaman.services.arr._client_base import ArrError
-from mediaman.services.arr.base import ArrClient
+from mediaman.services.arr.base import ArrClient, ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.search_trigger import clear_throttle
 from mediaman.services.infra.http import SafeHTTPError

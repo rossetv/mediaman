@@ -12,11 +12,6 @@ import sqlite3
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-import requests
-
-from mediaman.services.arr._client_base import ArrError
-from mediaman.services.infra.http import SafeHTTPError
-
 if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient
 

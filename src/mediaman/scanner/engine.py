@@ -553,9 +553,7 @@ class ScanEngine:
                 return None  # show is protected; skip all its seasons
             return evaluate_season(
                 added_at=added_at,
-                episode_count=season.get("episode_count", 0),
                 watch_history=watch_history,
-                has_future_episodes=False,
                 min_age_days=self._min_age_days,
                 inactivity_days=self._inactivity_days,
             )

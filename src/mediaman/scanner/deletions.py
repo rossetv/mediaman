@@ -23,9 +23,9 @@ from typing import Any, TypedDict
 
 import requests
 
-from mediaman.audit import log_audit
+from mediaman.core.audit import log_audit
 from mediaman.scanner import repository
-from mediaman.services.arr._client_base import ArrError
+from mediaman.services.arr.base import ArrError
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.infra.storage import DeletionRefused, delete_path
 
