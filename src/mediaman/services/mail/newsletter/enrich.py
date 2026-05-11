@@ -6,12 +6,16 @@ import logging
 import sqlite3
 from typing import TYPE_CHECKING, cast
 
+import requests
+
+from mediaman.services.arr._client_base import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
     build_radarr_cache,
     build_sonarr_cache,
     compute_download_state,
 )
+from mediaman.services.infra.http import SafeHTTPError
 
 if TYPE_CHECKING:
     from mediaman.services.arr.state import ArrCaches
@@ -34,14 +38,14 @@ def _annotate_rec_download_states(
     sonarr_client = build_sonarr_from_db(conn, secret_key)
     try:
         radarr_cache = build_radarr_cache(radarr_client)
-    except Exception:
+    except (SafeHTTPError, requests.RequestException, ArrError):
         logger.warning(
             "Failed to build Radarr cache for newsletter; skipping download states", exc_info=True
         )
         radarr_cache = build_radarr_cache(None)
     try:
         sonarr_cache = build_sonarr_cache(sonarr_client)
-    except Exception:
+    except (SafeHTTPError, requests.RequestException, ArrError):
         logger.warning(
             "Failed to build Sonarr cache for newsletter; skipping download states", exc_info=True
         )

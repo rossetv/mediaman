@@ -6,8 +6,11 @@ import logging
 import sqlite3
 from urllib.parse import quote as _url_quote
 
+import requests
+
 from mediaman.core.time import now_iso
 from mediaman.crypto import generate_download_token, generate_unsubscribe_token
+from mediaman.services.infra.http import SafeHTTPError
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +68,7 @@ def _record_delivery_attempt(
             ],
         )
         conn.commit()
-    except Exception:
+    except sqlite3.Error:
         logger.warning(
             "newsletter delivery record failed recipient=%s actions=%d",
             recipient,
@@ -184,7 +187,7 @@ def _send_to_recipients(
                     success=True,
                     error=None,
                 )
-        except Exception as exc:
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
             logger.exception("Newsletter send failed for %s — continuing", email)
             if conn is not None:
                 _record_delivery_attempt(
