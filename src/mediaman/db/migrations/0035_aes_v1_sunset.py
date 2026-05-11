@@ -1,4 +1,4 @@
-"""Migration v35 — AES v1 ciphertext sunset marker.
+"""0035: AES v1 ciphertext sunset marker.
 
 A no-op at the SQL level. The actual work — re-encrypting any
 ``v1`` (no-AAD) ciphertext rows in ``settings`` — is done by
