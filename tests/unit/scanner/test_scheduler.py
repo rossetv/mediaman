@@ -328,7 +328,7 @@ class TestValidateScanTime:
     """H64: scan_time must be validated as a proper HH:MM 24-hour time."""
 
     def test_valid_times_parse_correctly(self):
-        from mediaman.validators import validate_scan_time as _validate_scan_time
+        from mediaman.bootstrap.validators import validate_scan_time as _validate_scan_time
 
         assert _validate_scan_time("09:00") == (9, 0)
         assert _validate_scan_time("00:00") == (0, 0)
@@ -336,32 +336,32 @@ class TestValidateScanTime:
         assert _validate_scan_time("12:30") == (12, 30)
 
     def test_rejects_invalid_hour(self):
-        from mediaman.validators import validate_scan_time as _validate_scan_time
+        from mediaman.bootstrap.validators import validate_scan_time as _validate_scan_time
 
         with pytest.raises(ValueError):
             _validate_scan_time("25:00")
 
     def test_rejects_invalid_minute(self):
-        from mediaman.validators import validate_scan_time as _validate_scan_time
+        from mediaman.bootstrap.validators import validate_scan_time as _validate_scan_time
 
         with pytest.raises(ValueError):
             _validate_scan_time("09:60")
 
     def test_rejects_wrong_format(self):
-        from mediaman.validators import validate_scan_time as _validate_scan_time
+        from mediaman.bootstrap.validators import validate_scan_time as _validate_scan_time
 
         with pytest.raises(ValueError):
             _validate_scan_time("9:00")
 
     def test_rejects_garbage_input(self):
-        from mediaman.validators import validate_scan_time as _validate_scan_time
+        from mediaman.bootstrap.validators import validate_scan_time as _validate_scan_time
 
         with pytest.raises(ValueError):
             _validate_scan_time("not-a-time")
 
     def test_rejects_24_00(self):
         """24:00 is not a valid 24-hour clock time."""
-        from mediaman.validators import validate_scan_time as _validate_scan_time
+        from mediaman.bootstrap.validators import validate_scan_time as _validate_scan_time
 
         with pytest.raises(ValueError):
             _validate_scan_time("24:00")
