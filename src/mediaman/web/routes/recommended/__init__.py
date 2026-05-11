@@ -5,7 +5,9 @@ Thin aggregator over focused submodules:
 * :mod:`.pages`   — GET /recommended page, batch grouping, relative labels.
 * :mod:`.api`     — JSON API: list, download trigger, share-token mint.
 * :mod:`.refresh` — background refresh thread, status polling.
-* :mod:`._query`  — shared DB helper.
+
+The shared ``suggestions`` SELECT lives in
+:mod:`mediaman.web.repository.recommended.fetch_recommendations`.
 
 Callers should keep importing ``router`` from this package.  Anything else
 lives on the submodule that owns it — tests patch the submodule directly.

@@ -29,20 +29,25 @@ from mediaman.web.repository.kept import (
     delete_protection,
     fetch_active_protection,
     fetch_existing_actions_for_seasons,
+    fetch_owned_season_ids,
     fetch_protected_items,
     fetch_seasons_for_show,
     fetch_show_keep_row,
     fetch_show_kept_status,
+    fetch_show_title,
+    fetch_unkeyed_media_ids,
     set_protected_state,
+    show_rating_key_exists,
     upsert_kept_show,
 )
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes._helpers import is_admin as _is_admin
 
 # Canonical list of TV / anime season media_type values, shared with the
-# library type filter. Keeping the list co-located with library/_query.py
-# would create a circular import; instead we redeclare the same tuple here
-# and rely on the unit test to detect drift.
+# library type filter. Keeping the list co-located with
+# mediaman.web.repository.library_query would create a circular import;
+# instead we redeclare the same tuple here and rely on the unit test to
+# detect drift.
 _TV_SEASON_TYPES: tuple[str, ...] = ("tv_season", "tv", "season")
 _ANIME_SEASON_TYPES: tuple[str, ...] = ("anime_season", "anime")
 _ALL_SEASON_TYPES: tuple[str, ...] = _TV_SEASON_TYPES + _ANIME_SEASON_TYPES
@@ -71,11 +76,7 @@ def _resolve_show_rating_key(
     """
     key = (supplied_key or "").strip()
     if key:
-        row = conn.execute(
-            "SELECT 1 FROM media_items WHERE show_rating_key = ? LIMIT 1",
-            (key,),
-        ).fetchone()
-        if row is not None:
+        if show_rating_key_exists(conn, key):
             return key, None
         return None, "Unknown show_rating_key"
     return None, "show_rating_key required"
@@ -203,11 +204,7 @@ def api_show_seasons(
 
     show_title = ""
     if season_rows:
-        raw = conn.execute(
-            "SELECT show_title FROM media_items WHERE show_rating_key = ? LIMIT 1",
-            (show_rating_key,),
-        ).fetchone()
-        show_title = raw["show_title"] if raw else ""
+        show_title = fetch_show_title(conn, show_rating_key) or ""
 
     seasons = []
     for r in season_rows:
@@ -270,27 +267,18 @@ def api_keep_show(
         )
         return respond_err(err or "unknown_show", status=409)
 
-    placeholders = ",".join("?" * len(season_ids))
-    owned = conn.execute(
-        f"SELECT id FROM media_items WHERE id IN ({placeholders}) AND show_rating_key = ?",
-        (*tuple(season_ids), resolved_key),
-    ).fetchall()
-    owned_ids = {r["id"] for r in owned}
+    owned_ids = fetch_owned_season_ids(conn, season_ids, resolved_key)
     if owned_ids != set(season_ids):
         missing = set(season_ids) - owned_ids
         if missing:
-            unkeyed = conn.execute(
-                f"SELECT id FROM media_items WHERE id IN ({','.join('?' * len(missing))}) "
-                f"AND (show_rating_key IS NULL OR show_rating_key = '')",
-                tuple(missing),
-            ).fetchall()
-            if unkeyed:
+            unkeyed_ids = fetch_unkeyed_media_ids(conn, missing)
+            if unkeyed_ids:
                 logger.warning(
                     "keep_show.fallback_would_have_triggered user=%s "
                     "show_rating_key=%s unkeyed_ids=%s",
                     admin,
                     resolved_key,
-                    [r["id"] for r in unkeyed],
+                    unkeyed_ids,
                 )
         return respond_err(
             "seasons_not_owned", status=400, message="Seasons do not belong to this show"
@@ -301,11 +289,7 @@ def api_keep_show(
     action = decision.action
     execute_at = decision.execute_at
 
-    title_row = conn.execute(
-        "SELECT show_title FROM media_items WHERE show_rating_key = ? LIMIT 1",
-        (resolved_key,),
-    ).fetchone()
-    show_title = title_row["show_title"] if title_row else "Unknown"
+    show_title = fetch_show_title(conn, resolved_key) or "Unknown"
 
     upsert_kept_show(
         conn,

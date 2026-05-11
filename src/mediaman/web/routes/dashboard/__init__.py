@@ -3,14 +3,16 @@
 Owns the admin dashboard route (``GET /``) and four supporting JSON API
 routes: ``/api/dashboard/stats``, ``/api/dashboard/scheduled``,
 ``/api/dashboard/deleted``, and ``/api/dashboard/reclaimed-chart``. Heavy
-data fetching is delegated to ``_data`` and ``_poster_fanout`` sub-modules so
-this file stays a thin routing layer.
+view-model shaping lives in ``_data`` and ``_poster_fanout`` sub-modules
+so this file stays a thin routing layer.
 
 Allowed dependencies: ``mediaman.web.auth``, ``mediaman.db``,
+``mediaman.web.repository.dashboard``,
 ``mediaman.web.routes.dashboard._data``, ``mediaman.core.format``.
 
-Forbidden patterns: do not embed SQL here — all queries live in ``_data.py``
-so the dashboard page logic remains readable at a glance.
+Forbidden patterns: do not embed SQL here — every query lives in
+``mediaman.web.repository.dashboard`` so the dashboard page logic
+remains readable at a glance.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from starlette.responses import Response
 from mediaman.core.format import format_bytes
 from mediaman.db import get_db
 from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
+from mediaman.web.repository.dashboard import fetch_reclaimed_chart, sum_reclaimed_bytes
 from mediaman.web.routes.dashboard._data import (
     _fetch_recently_deleted,
     _fetch_scheduled,
@@ -60,10 +63,7 @@ def dashboard_page(request: Request) -> Response:
     )
 
     # SUM always returns a row; value is NULL when audit_log is empty.
-    reclaimed_total_row = conn.execute(
-        "SELECT SUM(space_reclaimed_bytes) AS total FROM audit_log WHERE action='deleted'"
-    ).fetchone()
-    reclaimed_total = format_bytes(reclaimed_total_row["total"] or 0)
+    reclaimed_total = format_bytes(sum_reclaimed_bytes(conn))
 
     templates = request.app.state.templates
     return templates.TemplateResponse(
@@ -93,10 +93,7 @@ def api_dashboard_stats(username: str = Depends(get_current_admin)) -> JSONRespo
     conn = get_db()
     storage = _fetch_storage_stats(conn)
 
-    row = conn.execute(
-        "SELECT SUM(space_reclaimed_bytes) AS total FROM audit_log WHERE action='deleted'"
-    ).fetchone()
-    reclaimed_bytes = row["total"] or 0
+    reclaimed_bytes = sum_reclaimed_bytes(conn)
 
     return JSONResponse(
         {
@@ -131,25 +128,15 @@ def api_dashboard_reclaimed_chart(username: str = Depends(get_current_admin)) ->
     Each row: { week: 'YYYY-WNN', reclaimed_bytes: int, reclaimed: str }
     """
     conn = get_db()
-    rows = conn.execute("""
-        SELECT
-            strftime('%Y-W%W', created_at) AS week,
-            SUM(space_reclaimed_bytes)     AS reclaimed_bytes
-        FROM audit_log
-        WHERE action = 'deleted'
-          AND space_reclaimed_bytes IS NOT NULL
-        GROUP BY week
-        ORDER BY week DESC
-        LIMIT 12
-    """).fetchall()
+    weeks = fetch_reclaimed_chart(conn, limit=12)
 
     data = [
         {
-            "week": r["week"],
-            "reclaimed_bytes": r["reclaimed_bytes"] or 0,
-            "reclaimed": format_bytes(r["reclaimed_bytes"] or 0),
+            "week": w.week,
+            "reclaimed_bytes": w.reclaimed_bytes,
+            "reclaimed": format_bytes(w.reclaimed_bytes),
         }
-        for r in rows
+        for w in weeks
     ]
     return JSONResponse({"weeks": data})
 

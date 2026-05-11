@@ -43,11 +43,6 @@ from fastapi.responses import JSONResponse
 
 from mediaman.core.time import now_utc
 from mediaman.db import get_db
-from mediaman.scanner.repository.library_query import (
-    _VALID_SORTS,
-    _VALID_TYPES,
-    fetch_library,
-)
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.rate_limit import ActionRateLimiter
@@ -66,6 +61,11 @@ from mediaman.web.repository.library_api import (
     finalise_delete_in_tx,
     record_redownload,
     snapshot_media_for_delete,
+)
+from mediaman.web.repository.library_query import (
+    _VALID_SORTS,
+    _VALID_TYPES,
+    fetch_library,
 )
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.library_api.redownload import (

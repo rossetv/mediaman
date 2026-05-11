@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 import re
-import sqlite3
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -27,14 +26,14 @@ from mediaman.services.rate_limit.instances import (
 )
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.repository.subscribers import (
-    add_subscriber,
+    AddSubscriberOutcome,
     deactivate_subscriber,
     delete_subscriber,
     fetch_active_subscribers_in,
-    find_subscriber_by_email,
     find_subscriber_by_id,
     find_subscriber_status_by_email,
     list_subscribers,
+    try_add_subscriber,
 )
 from mediaman.web.responses import respond_err, respond_ok
 
@@ -91,9 +90,9 @@ def api_add_subscriber(
 ) -> JSONResponse:
     """Add a new subscriber.
 
-    The SELECT-then-INSERT path is wrapped in BEGIN IMMEDIATE so two
-    concurrent admin sessions adding the same email cannot both pass the
-    SELECT and then race on the INSERT.
+    The SELECT-then-INSERT race is closed inside the repository
+    function ``try_add_subscriber`` (BEGIN IMMEDIATE + unique-index
+    fallback); the route only translates outcomes into HTTP responses.
     """
     if not _SUBSCRIBER_WRITE_LIMITER.check(username):
         logger.warning("subscriber.add_throttled user=%s", username)
@@ -107,28 +106,13 @@ def api_add_subscriber(
     conn = get_db()
     now = now_iso()
     try:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            existing_id = find_subscriber_by_email(conn, email)
-            if existing_id is not None:
-                conn.execute("ROLLBACK")
-                return respond_err(
-                    "already_subscribed", status=409, message="Email already subscribed"
-                )
-            try:
-                add_subscriber(conn, email=email, now=now)
-            except sqlite3.IntegrityError:
-                conn.execute("ROLLBACK")
-                return respond_err(
-                    "already_subscribed", status=409, message="Email already subscribed"
-                )
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
+        outcome = try_add_subscriber(conn, email=email, now=now)
     except Exception:
         logger.exception("subscriber.add failed user=%s", username)
         return respond_err("internal_error", status=500)
+
+    if outcome is AddSubscriberOutcome.ALREADY_SUBSCRIBED:
+        return respond_err("already_subscribed", status=409, message="Email already subscribed")
 
     logger.info("Subscriber added: %s by %s", email, username)
     security_event(

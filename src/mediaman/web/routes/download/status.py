@@ -28,6 +28,7 @@ from mediaman.services.downloads.download_queue import build_episode_dicts
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.web.auth.middleware import get_optional_admin
+from mediaman.web.repository.download import fetch_recent_download
 from mediaman.web.responses import respond_err
 
 logger = logging.getLogger(__name__)
@@ -197,16 +198,13 @@ def _radarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> D
 
     title = cast(str, (movie or {}).get("title", ""))
     if title:
-        recent = conn.execute(
-            "SELECT dl_id, title, poster_url FROM recent_downloads WHERE dl_id = ?",
-            (f"radarr:{title}",),
-        ).fetchone()
-        if recent:
+        recent = fetch_recent_download(conn, f"radarr:{title}")
+        if recent is not None:
             return build_item(
-                dl_id=recent["dl_id"],
-                title=recent["title"],
+                dl_id=recent.dl_id,
+                title=recent.title,
                 media_type="movie",
-                poster_url=recent["poster_url"] or "",
+                poster_url=recent.poster_url,
                 state="ready",
                 progress=100,
                 eta="",
@@ -332,16 +330,13 @@ def _sonarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> D
                 size_total="",
             )
 
-        recent = conn.execute(
-            "SELECT dl_id, title, poster_url FROM recent_downloads WHERE dl_id = ?",
-            (f"sonarr:{s_title}",),
-        ).fetchone()
-        if recent:
+        recent = fetch_recent_download(conn, f"sonarr:{s_title}")
+        if recent is not None:
             return build_item(
-                dl_id=recent["dl_id"],
-                title=recent["title"],
+                dl_id=recent.dl_id,
+                title=recent.title,
                 media_type="series",
-                poster_url=recent["poster_url"] or "",
+                poster_url=recent.poster_url,
                 state="ready",
                 progress=100,
                 eta="",

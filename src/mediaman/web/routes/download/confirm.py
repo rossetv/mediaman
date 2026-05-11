@@ -30,6 +30,10 @@ from mediaman.services.downloads.download_format import build_item
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.media_meta.item_enrichment import enrich_redownload_item
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
+from mediaman.web.repository.download import (
+    SuggestionEnrichment,
+    fetch_suggestion_enrichment,
+)
 
 # YouTube video IDs are exactly 11 URL-safe base64 characters.
 _YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -167,26 +171,26 @@ def _base_download_item(payload: Mapping[str, object]) -> dict[str, object]:
 
 
 def _build_item_from_suggestion(
-    payload: Mapping[str, object], row: sqlite3.Row
+    payload: Mapping[str, object], enrichment: SuggestionEnrichment
 ) -> dict[str, object]:
-    """Build a fully-populated download item from a suggestions DB row."""
+    """Build a fully-populated download item from a suggestions row."""
     item = _base_download_item(payload)
     item.update(
         {
-            "poster_url": row["poster_url"],
-            "year": row["year"],
-            "description": row["description"],
-            "reason": row["reason"],
-            "rating": row["rating"],
-            "rt_rating": row["rt_rating"],
-            "tagline": row["tagline"],
-            "runtime": row["runtime"],
-            "genres": row["genres"],
-            "cast_json": row["cast_json"],
-            "director": row["director"],
-            "trailer_key": validate_youtube_id(row["trailer_key"]),
-            "imdb_rating": row["imdb_rating"],
-            "metascore": row["metascore"],
+            "poster_url": enrichment.poster_url,
+            "year": enrichment.year,
+            "description": enrichment.description,
+            "reason": enrichment.reason,
+            "rating": enrichment.rating,
+            "rt_rating": enrichment.rt_rating,
+            "tagline": enrichment.tagline,
+            "runtime": enrichment.runtime,
+            "genres": enrichment.genres,
+            "cast_json": enrichment.cast_json,
+            "director": enrichment.director,
+            "trailer_key": validate_youtube_id(enrichment.trailer_key),
+            "imdb_rating": enrichment.imdb_rating,
+            "metascore": enrichment.metascore,
         }
     )
     return item
@@ -212,14 +216,11 @@ def _build_item_from_payload(
         except (TypeError, ValueError):
             sid_int = None
         if sid_int is not None:
-            row = conn.execute(
-                "SELECT poster_url, year, description, reason, rating, rt_rating, "
-                "tagline, runtime, genres, cast_json, director, trailer_key, imdb_rating, metascore "
-                "FROM suggestions WHERE id = ?",
-                (sid_int,),
-            ).fetchone()
+            enrichment = fetch_suggestion_enrichment(conn, sid_int)
             return (
-                _build_item_from_suggestion(payload, row) if row else _base_download_item(payload)
+                _build_item_from_suggestion(payload, enrichment)
+                if enrichment is not None
+                else _base_download_item(payload)
             )
         return _base_download_item(payload)
     if payload.get("act") == "redownload":

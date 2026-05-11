@@ -69,6 +69,7 @@ from mediaman.services.rate_limit.instances import (
     POSTER_PUBLIC_LIMITER as _POSTER_PUBLIC_LIMITER,
 )
 from mediaman.web.auth.middleware import get_optional_admin
+from mediaman.web.repository.poster import fetch_arr_ids, fetch_plex_credentials
 
 # Import pure helpers from submodules.
 from mediaman.web.routes.poster.cache import (
@@ -309,17 +310,14 @@ def _fetch_arr_poster(
     request handler to avoid redundant ``load_config()`` calls per
     request (H25).
     """
-    row = conn.execute(
-        "SELECT title, media_type, radarr_id, sonarr_id FROM media_items WHERE id = ?",
-        (rating_key,),
-    ).fetchone()
-    if not row:
+    row = fetch_arr_ids(conn, rating_key)
+    if row is None:
         return None, None
 
-    title = row["title"]
-    media_type = row["media_type"] or "movie"
-    radarr_id = row["radarr_id"]
-    sonarr_id = row["sonarr_id"]
+    title = row.title
+    media_type = row.media_type
+    radarr_id = row.radarr_id
+    sonarr_id = row.sonarr_id
 
     poster_url = None
 
@@ -450,15 +448,12 @@ def _load_plex_credentials(conn, secret_key: str) -> tuple[str | None, str | Non
 
     Returns (plex_base, plex_token, None) on success, or (None, None, error_response).
     """
-    plex_url_row = conn.execute("SELECT value FROM settings WHERE key='plex_url'").fetchone()
-    plex_token_row = conn.execute(
-        "SELECT value, encrypted FROM settings WHERE key='plex_token'"
-    ).fetchone()
-    if not plex_url_row or not plex_token_row:
+    creds = fetch_plex_credentials(conn)
+    if creds is None:
         return None, None, Response(status_code=404)
-    plex_url = plex_url_row["value"]
-    plex_token = plex_token_row["value"]
-    if plex_token_row["encrypted"]:
+    plex_url = creds.url
+    plex_token = creds.token_ciphertext
+    if creds.token_encrypted and plex_token is not None:
         plex_token = decrypt_value(plex_token, secret_key, conn=conn, aad=b"plex_token")
     # Re-validate plex_url on every call — it sits in the DB for weeks
     # and an attacker who lands a settings write could have swapped it

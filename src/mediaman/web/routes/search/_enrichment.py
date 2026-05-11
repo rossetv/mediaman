@@ -33,6 +33,7 @@ from mediaman.services.arr.state import (
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.media_meta.omdb import fetch_ratings, get_omdb_key
 from mediaman.services.rate_limit import ActionRateLimiter
+from mediaman.web.repository.search import fetch_ratings_cache, upsert_ratings_cache
 
 logger = logging.getLogger(__name__)
 
@@ -152,23 +153,13 @@ def _enrich_ratings(results: list[dict], request: Request) -> None:
             if imdb:
                 item["imdb_rating"] = imdb
 
-    placeholders = ",".join(["(?, ?)"] * len(by_key))
-    flat: list = []
-    for tmdb_id, media_type in by_key:
-        flat.extend([tmdb_id, media_type])
-    rows = conn.execute(
-        f"SELECT tmdb_id, media_type, imdb_rating, rt_rating, metascore, fetched_at "
-        f"FROM ratings_cache WHERE (tmdb_id, media_type) IN ({placeholders})",
-        flat,
-    ).fetchall()
+    rows = fetch_ratings_cache(conn, list(by_key.keys()))
 
     misses: list[tuple[tuple[int, str], list[dict]]] = []
     for key, group in by_key.items():
-        cached = next(
-            (r for r in rows if r["tmdb_id"] == key[0] and r["media_type"] == key[1]), None
-        )
-        if cached and cached["fetched_at"] >= cutoff:
-            _apply(group, rt=cached["rt_rating"], imdb=cached["imdb_rating"])
+        cached = next((r for r in rows if r.tmdb_id == key[0] and r.media_type == key[1]), None)
+        if cached and cached.fetched_at >= cutoff:
+            _apply(group, rt=cached.rt_rating, imdb=cached.imdb_rating)
         else:
             misses.append((key, group))
 
@@ -220,12 +211,6 @@ def _enrich_ratings(results: list[dict], request: Request) -> None:
         )
     if pending_writes:
         try:
-            conn.executemany(
-                "INSERT OR REPLACE INTO ratings_cache "
-                "(tmdb_id, media_type, imdb_rating, rt_rating, metascore, fetched_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                pending_writes,
-            )
-            conn.commit()
+            upsert_ratings_cache(conn, pending_writes)
         except sqlite3.Error:
             logger.debug("ratings_cache batch write failed", exc_info=True)

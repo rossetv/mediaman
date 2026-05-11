@@ -194,6 +194,58 @@ def fetch_show_keep_row(conn: sqlite3.Connection, show_rating_key: str) -> tuple
     return row["id"], row["show_title"]
 
 
+def show_rating_key_exists(conn: sqlite3.Connection, show_rating_key: str) -> bool:
+    """Return True if any media_items row carries the given show_rating_key."""
+    row = conn.execute(
+        "SELECT 1 FROM media_items WHERE show_rating_key = ? LIMIT 1",
+        (show_rating_key,),
+    ).fetchone()
+    return row is not None
+
+
+def fetch_show_title(conn: sqlite3.Connection, show_rating_key: str) -> str | None:
+    """Return the show_title for the first media_items row with the given key, or None."""
+    row = conn.execute(
+        "SELECT show_title FROM media_items WHERE show_rating_key = ? LIMIT 1",
+        (show_rating_key,),
+    ).fetchone()
+    if row is None:
+        return None
+    return row["show_title"]
+
+
+def fetch_owned_season_ids(
+    conn: sqlite3.Connection, season_ids: list[str], show_rating_key: str
+) -> set[str]:
+    """Return the subset of ``season_ids`` whose media_items row is owned by ``show_rating_key``."""
+    if not season_ids:
+        return set()
+    placeholders = ",".join("?" * len(season_ids))
+    rows = conn.execute(
+        f"SELECT id FROM media_items WHERE id IN ({placeholders}) AND show_rating_key = ?",
+        (*tuple(season_ids), show_rating_key),
+    ).fetchall()
+    return {r["id"] for r in rows}
+
+
+def fetch_unkeyed_media_ids(conn: sqlite3.Connection, candidate_ids: set[str]) -> list[str]:
+    """Return the subset of ``candidate_ids`` whose media_items row has NULL/empty show_rating_key.
+
+    Used by the keep-show flow to surface a diagnostic warning when the
+    supplied seasons would have triggered the (removed) show_title
+    fallback.
+    """
+    if not candidate_ids:
+        return []
+    placeholders = ",".join("?" * len(candidate_ids))
+    rows = conn.execute(
+        f"SELECT id FROM media_items WHERE id IN ({placeholders}) "
+        f"AND (show_rating_key IS NULL OR show_rating_key = '')",
+        tuple(candidate_ids),
+    ).fetchall()
+    return [r["id"] for r in rows]
+
+
 # ---------------------------------------------------------------------------
 # Writes
 # ---------------------------------------------------------------------------
