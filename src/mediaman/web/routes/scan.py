@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
-from mediaman.audit import security_event, security_event_or_raise
+from mediaman.core.audit import security_event, security_event_or_raise
 from mediaman.db import (
     finish_scan_run,
     get_db,

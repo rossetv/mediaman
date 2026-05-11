@@ -675,7 +675,7 @@ class TestSettingsTestServiceScopedDecryption:
 
         # Decryption now happens inside web.repository.settings — patch the
         # name on that module so the recording callable intercepts the call.
-        from mediaman.web.repository import settings as settings_repo
+        from mediaman.web.routes import settings as settings_repo
 
         seen_keys: list[bytes] = []
         original_decrypt = settings_repo.decrypt_value
@@ -742,7 +742,7 @@ class TestSettingsApiGetSkipsDecryption:
         from datetime import datetime
 
         # Decryption lives in web.repository.settings; patch the symbol there.
-        from mediaman.web.repository import settings as settings_repo
+        from mediaman.web.routes import settings as settings_repo
 
         now = datetime.now(UTC).isoformat()
         ct = encrypt_value("very-secret", secret_key, conn=conn, aad=b"plex_token")

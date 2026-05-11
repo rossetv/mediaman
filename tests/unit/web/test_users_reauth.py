@@ -370,7 +370,7 @@ class TestCreateUserAuditInTransaction:
         # Patch it there so the in-transaction insert blows up.
         import sqlite3 as _sqlite3
 
-        import mediaman.audit as audit_module
+        import mediaman.core.audit as audit_module
 
         def boom(*_args, **_kwargs):
             raise _sqlite3.OperationalError("simulated audit failure")
