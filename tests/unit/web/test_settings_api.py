@@ -671,17 +671,19 @@ class TestSettingsTestServiceScopedDecryption:
         )
         conn.commit()
 
-        from mediaman.web.routes import settings as settings_module
+        # Decryption now happens inside web.repository.settings — patch the
+        # name on that module so the recording callable intercepts the call.
+        from mediaman.web.repository import settings as settings_repo
 
         seen_keys: list[bytes] = []
-        original_decrypt = settings_module.decrypt_value
+        original_decrypt = settings_repo.decrypt_value
 
         def recording_decrypt(value, sk, *, conn=None, aad=None):
             if aad is not None:
                 seen_keys.append(aad)
             return original_decrypt(value, sk, conn=conn, aad=aad)
 
-        monkeypatch.setattr(settings_module, "decrypt_value", recording_decrypt)
+        monkeypatch.setattr(settings_repo, "decrypt_value", recording_decrypt)
 
         app = _make_app(conn, secret_key)
         client = _auth_client(app, conn)
@@ -737,7 +739,8 @@ class TestSettingsApiGetSkipsDecryption:
     def test_get_does_not_decrypt_secrets(self, conn, secret_key, monkeypatch):
         from datetime import datetime
 
-        from mediaman.web.routes import settings as settings_module
+        # Decryption lives in web.repository.settings; patch the symbol there.
+        from mediaman.web.repository import settings as settings_repo
 
         now = datetime.now(UTC).isoformat()
         ct = encrypt_value("very-secret", secret_key, conn=conn, aad=b"plex_token")
@@ -748,14 +751,14 @@ class TestSettingsApiGetSkipsDecryption:
         conn.commit()
 
         seen: list[bytes] = []
-        original = settings_module.decrypt_value
+        original = settings_repo.decrypt_value
 
         def recording(value, sk, *, conn=None, aad=None):
             if aad is not None:
                 seen.append(aad)
             return original(value, sk, conn=conn, aad=aad)
 
-        monkeypatch.setattr(settings_module, "decrypt_value", recording)
+        monkeypatch.setattr(settings_repo, "decrypt_value", recording)
 
         app = _make_app(conn, secret_key)
         client = _auth_client(app, conn)

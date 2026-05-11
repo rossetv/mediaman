@@ -3,16 +3,14 @@
 Owns:
 - The canonical sets of secret, sensitive, and all-known settings keys.
 - Sentinel values for "unchanged" and "delete" secret writes.
-- Pure helper functions for masking secret fields and reading the
-  encrypted-key set from the database — no network, no crypto.
+- Pure helper functions for masking secret fields.
 
-Nothing in this module performs decryption or writes to the DB, so
-it is safe to import from anywhere without side effects.
+Nothing in this module performs decryption, encryption or DB I/O so it
+is safe to import from anywhere without side effects. Reads against the
+``settings`` table live in :mod:`mediaman.web.repository.settings`.
 """
 
 from __future__ import annotations
-
-import sqlite3
 
 #: Sentinel value displayed in the UI and sent back when a secret field is
 #: unchanged — never persisted to the database.
@@ -110,19 +108,6 @@ def has_sensitive_key_changes(body: dict) -> bool:
             continue
         return True
     return False
-
-
-def encrypted_keys(conn: sqlite3.Connection) -> set[str]:
-    """Return the set of keys in the ``settings`` table that are stored encrypted.
-
-    Used by the masking layer of GET /api/settings so we never pay the
-    cost of decrypting a secret just to immediately mask it. The
-    distinction "is this key encrypted on disk?" is enough — we don't
-    need the plaintext.
-    """
-    return {
-        row["key"] for row in conn.execute("SELECT key FROM settings WHERE encrypted=1").fetchall()
-    }
 
 
 def mask_secrets(settings: dict[str, object]) -> dict[str, object]:

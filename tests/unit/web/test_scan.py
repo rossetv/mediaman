@@ -369,12 +369,14 @@ class TestClearScheduledAuditLog:
         )
         conn.commit()
 
-        from mediaman.web.routes import scan as scan_module
+        # The audit insert now lives inside scanner.repository.scheduled_actions;
+        # patch it at the source so the in-transaction insert blows up.
+        import mediaman.audit as audit_module
 
         def boom(*_a, **_k):
             raise RuntimeError("simulated audit failure")
 
-        monkeypatch.setattr(scan_module, "security_event_or_raise", boom)
+        monkeypatch.setattr(audit_module, "security_event_or_raise", boom)
 
         resp = client.post("/api/scan/clear-scheduled")
         assert resp.status_code == 500
