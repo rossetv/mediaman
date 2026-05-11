@@ -76,8 +76,7 @@
     btn.style.opacity = '0.6';
 
     var poll = setInterval(function () {
-      fetch('/api/recommended/refresh/status')
-        .then(function (r) { return r.json(); })
+      MM.api.get('/api/recommended/refresh/status')
         .then(function (st) {
           if (st.status === 'done') {
             clearInterval(poll);
@@ -106,34 +105,34 @@
     btn.style.opacity = '0.6';
     document.getElementById('refresh-error').style.display = 'none';
 
-    fetch('/api/recommended/refresh', { method: 'POST' })
-      .then(function (r) {
-        var status = r.status;
-        return r.json().then(function (data) { return { status: status, data: data }; });
-      })
-      .then(function (resp) {
-        var data = resp.data;
-        if (resp.status === 429) {
-          // Server-side cooldown — hide button + start the countdown.
-          var nextAt = data.next_available_at || new Date(Date.now() + (data.cooldown_seconds || 0) * 1000).toISOString();
-          _swapButtonForCooldown(nextAt);
-          var errEl = document.getElementById('refresh-error');
-          errEl.textContent = data.error || 'Refresh is on cooldown.';
-          errEl.style.display = 'block';
-          return;
-        }
+    MM.api.post('/api/recommended/refresh')
+      .then(function (data) {
         if (data.status === 'started' || data.status === 'already_running') {
           _startRefreshPolling(btn);
-        } else if (data.ok === false) {
-          btn.textContent = 'Fetch new suggestions';
-          btn.style.opacity = '1';
-          btn.disabled = false;
-          var errEl2 = document.getElementById('refresh-error');
-          errEl2.textContent = data.error || "Couldn't refresh recommendations.";
-          errEl2.style.display = 'block';
         }
       })
-      .catch(function () { btn.textContent = 'Fetch new suggestions'; btn.style.opacity = '1'; btn.disabled = false; });
+      .catch(function (err) {
+        btn.textContent = 'Fetch new suggestions';
+        btn.style.opacity = '1';
+        btn.disabled = false;
+
+        /* Distinguish a structured APIError (server replied, just unhappy)
+           from a bare network failure (no .status field). The network case
+           stays silent — matches the pre-MM.api behaviour. */
+        if (!(err instanceof MM.api.APIError)) return;
+
+        var data = (err && err.data) || {};
+        if (err.status === 429) {
+          /* Server-side cooldown — read structured fields (next_available_at,
+             cooldown_seconds) from err.data and start the countdown. */
+          var nextAt = data.next_available_at ||
+            new Date(Date.now() + (data.cooldown_seconds || 0) * 1000).toISOString();
+          _swapButtonForCooldown(nextAt);
+        }
+        var errEl = document.getElementById('refresh-error');
+        errEl.textContent = err.message || "Couldn't refresh recommendations.";
+        errEl.style.display = 'block';
+      });
   }
 
   /* Wire the refresh button via data-action instead of onclick. */
@@ -148,8 +147,7 @@
   // server reports an active cooldown but the button is somehow visible
   // (race during navigation), swap it for the countdown.
   (function () {
-    fetch('/api/recommended/refresh/status')
-      .then(function (r) { return r.json(); })
+    MM.api.get('/api/recommended/refresh/status')
       .then(function (st) {
         var btn = document.getElementById('refresh-btn');
         if (st.status === 'running' && btn) { _startRefreshPolling(btn); return; }
@@ -167,24 +165,29 @@
     btn.textContent = 'Adding…';
     btn.style.opacity = '0.6';
 
-    fetch('/api/recommended/' + id + '/download', { method: 'POST' })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (data.ok) {
-          btn.textContent = 'Queued ✓';
-          btn.classList.remove('btn--primary');
-          btn.classList.add('btn--success');
-          btn.style.opacity = '1';
-        } else {
-          btn.textContent = data.error && data.error.length < 30 ? data.error : 'Failed';
+    MM.api.post('/api/recommended/' + id + '/download')
+      .then(function () {
+        btn.textContent = 'Queued ✓';
+        btn.classList.remove('btn--primary');
+        btn.classList.add('btn--success');
+        btn.style.opacity = '1';
+      })
+      .catch(function (err) {
+        if (err instanceof MM.api.APIError) {
+          var msg = err.message || 'Failed';
+          btn.textContent = msg.length < 30 ? msg : 'Failed';
+          btn.title = msg;
           btn.classList.remove('btn--primary');
           btn.classList.add('btn--danger');
           btn.style.opacity = '1';
           btn.disabled = false;
-          btn.title = data.error || '';
+        } else {
+          btn.textContent = 'Error';
+          btn.classList.add('btn--danger');
+          btn.style.opacity = '1';
+          btn.disabled = false;
         }
-      })
-      .catch(function () { btn.textContent = 'Error'; btn.classList.add('btn--danger'); btn.style.opacity = '1'; btn.disabled = false; });
+      });
   }
 
   /* H66: parse from application/json script tag — textContent is safe because the
@@ -222,8 +225,23 @@
     }
   });
 
-  function _clear(el) { while (el.firstChild) el.removeChild(el.firstChild); }
   function _parseJSON(s) { try { return JSON.parse(s || '[]'); } catch (e) { return []; } }
+
+  /* ── Detail-modal lifecycle (MM.modal.setupDetail).
+       The `onClose` hook handles per-page state: clearing the trailer
+       iframe, cancelling the in-flight progress poll, and stripping the
+       deep-link hash from the URL. setupDetail itself owns the
+       display:flex/none + aria-hidden + body overflow + ModalA11y dance. */
+  var _detailModalEl = document.getElementById('detail-modal');
+  var _detailModal = _detailModalEl ? MM.modal.setupDetail(_detailModalEl, {
+    onClose: function () {
+      var trailer = document.getElementById('modal-trailer');
+      if (trailer) trailer.replaceChildren();
+      if (_modalPollInterval) { clearInterval(_modalPollInterval); _modalPollInterval = null; }
+      _modalRecId = null;
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    },
+  }) : null;
   function _addRating(parent, text, klass) {
     var span = document.createElement('span');
     span.className = 'rating-pill ' + klass;
@@ -243,7 +261,7 @@
     history.replaceState(null, '', '#recommendation-' + id);
 
     var heroEl = document.getElementById('modal-hero');
-    _clear(heroEl);
+    heroEl.replaceChildren();
     if (s.poster_url) {
       var heroImg = document.createElement('img');
       heroImg.src = s.poster_url.replace('/w300', '/w780').replace('/w200', '/w780');
@@ -271,7 +289,7 @@
     heroEl.appendChild(heroInfo);
 
     var quickEl = document.getElementById('modal-quick');
-    _clear(quickEl);
+    quickEl.replaceChildren();
     var typePill = document.createElement('span');
     typePill.className = 'type-pill';
     typePill.textContent = s.media_type === 'movie' ? 'MOVIE' : 'TV';
@@ -293,7 +311,7 @@
     });
 
     var ratingsEl = document.getElementById('modal-ratings');
-    _clear(ratingsEl);
+    ratingsEl.replaceChildren();
     if (s.rating) _addRating(ratingsEl, '★ ' + s.rating, 'r-tmdb');
     if (s.imdb_rating) _addRating(ratingsEl, 'IMDb ' + s.imdb_rating, 'r-imdb');
     if (s.rt_rating) _addRating(ratingsEl, '🍅 ' + s.rt_rating, 'r-rt');
@@ -313,8 +331,8 @@
     var trailerEl = document.getElementById('modal-trailer');
     var trailerLabel = document.getElementById('modal-trailer-label');
     var trailerFallback = document.getElementById('modal-trailer-fallback');
-    _clear(trailerEl);
-    _clear(trailerFallback);
+    trailerEl.replaceChildren();
+    trailerFallback.replaceChildren();
 
     /* Finding 19: enforce exactly-11-char pattern before building iframe.
        Finding 18: only emit fallback link if URL is a YouTube HTTPS URL. */
@@ -326,7 +344,7 @@
       iframe.setAttribute('allow', 'autoplay; encrypted-media; fullscreen');
       iframe.setAttribute('referrerpolicy', 'strict-origin');
       iframe.setAttribute('loading', 'lazy');
-      _clear(trailerEl);
+      trailerEl.replaceChildren();
       trailerEl.appendChild(iframe);
       trailerEl.style.display = '';
       trailerLabel.style.display = '';
@@ -340,7 +358,7 @@
       link.rel = 'noopener noreferrer';
       link.className = 'trailer-link';
       link.textContent = '▶ Watch trailer on YouTube';
-      _clear(trailerFallback);
+      trailerFallback.replaceChildren();
       trailerFallback.appendChild(link);
       trailerFallback.style.display = '';
     } else {
@@ -351,7 +369,7 @@
 
     var castEl = document.getElementById('modal-cast');
     var castLabel = document.getElementById('modal-cast-label');
-    _clear(castEl);
+    castEl.replaceChildren();
     var castData = _parseJSON(s.cast_json);
     castData.forEach(function (cm) {
       var div = document.createElement('div');
@@ -377,7 +395,7 @@
     document.getElementById('modal-success').style.display = 'none';
 
     var actionsEl = document.getElementById('modal-actions');
-    _clear(actionsEl);
+    actionsEl.replaceChildren();
 
     if (s.download_state === 'in_library') {
       var libBtn = document.createElement('button');
@@ -412,25 +430,24 @@
     shareBtn.onclick = function () {
       shareBtn.disabled = true;
       shareBtn.textContent = 'Generating…';
-      fetch('/api/recommended/' + s.id + '/share-token', { method: 'POST' })
-        .then(function (r) { return r.json(); })
+      MM.api.post('/api/recommended/' + s.id + '/share-token')
         .then(function (data) {
-          if (data.ok && data.share_url) {
-            navigator.clipboard.writeText(data.share_url).then(function () {
-              shareBtn.textContent = 'Copied!';
-              shareBtn.disabled = false;
-              setTimeout(function () { shareBtn.textContent = 'Share'; }, 1500);
-            }).catch(function () {
-              // Clipboard denied — fall back to prompt
-              window.prompt('Copy the share link:', data.share_url);
-              shareBtn.textContent = 'Share';
-              shareBtn.disabled = false;
-            });
-          } else {
+          if (!data.share_url) {
             shareBtn.textContent = 'Failed';
             shareBtn.disabled = false;
             setTimeout(function () { shareBtn.textContent = 'Share'; }, 2000);
+            return;
           }
+          navigator.clipboard.writeText(data.share_url).then(function () {
+            shareBtn.textContent = 'Copied!';
+            shareBtn.disabled = false;
+            setTimeout(function () { shareBtn.textContent = 'Share'; }, 1500);
+          }).catch(function () {
+            // Clipboard denied — fall back to prompt
+            window.prompt('Copy the share link:', data.share_url);
+            shareBtn.textContent = 'Share';
+            shareBtn.disabled = false;
+          });
         })
         .catch(function () {
           shareBtn.textContent = 'Error';
@@ -440,27 +457,24 @@
     };
     actionsEl.appendChild(shareBtn);
 
-    var dm = document.getElementById('detail-modal');
-    dm.style.display = 'flex';
-    dm.setAttribute('aria-hidden', 'false');
-    document.body.style.overflow = 'hidden';
-    if (window.ModalA11y) window.ModalA11y.onOpened('detail-modal');
+    if (_detailModal) _detailModal.open();
   }
 
   function _modalDownload(btn, s) {
     btn.textContent = 'Adding to ' + (s.media_type === 'movie' ? 'Radarr' : 'Sonarr') + '…';
     btn.className = 'btn-download adding';
 
-    fetch('/api/recommended/' + s.id + '/download', { method: 'POST' })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (data.ok) {
-          btn.textContent = 'Queued';
-          btn.className = 'btn-download queued';
-          s.downloaded_at = new Date().toISOString();
-          _startModalPolling(s);
-        } else {
-          btn.textContent = data.error && data.error.length < 40 ? data.error : 'Failed';
+    MM.api.post('/api/recommended/' + s.id + '/download')
+      .then(function () {
+        btn.textContent = 'Queued';
+        btn.className = 'btn-download queued';
+        s.downloaded_at = new Date().toISOString();
+        _startModalPolling(s);
+      })
+      .catch(function (err) {
+        if (err instanceof MM.api.APIError) {
+          var msg = err.message || 'Failed';
+          btn.textContent = msg.length < 40 ? msg : 'Failed';
           btn.className = 'btn-download';
           btn.style.background = 'rgba(255,69,58,0.12)';
           btn.style.color = 'var(--danger)';
@@ -471,9 +485,11 @@
             btn.className = 'btn-download';
             btn.onclick = function () { _modalDownload(btn, s); };
           }, 3000);
+        } else {
+          btn.textContent = 'Error';
+          btn.className = 'btn-download';
         }
-      })
-      .catch(function () { btn.textContent = 'Error'; btn.className = 'btn-download'; });
+      });
   }
 
   function _startModalPolling(s) {
@@ -482,7 +498,7 @@
     if (!tmdbId) return;
 
     var progressEl = document.getElementById('modal-progress');
-    _clear(progressEl);
+    progressEl.replaceChildren();
 
     var statusDiv = document.createElement('div');
     statusDiv.className = 'progress-status';
@@ -530,15 +546,14 @@
 
     if (_modalPollInterval) clearInterval(_modalPollInterval);
     _modalPollInterval = setInterval(function () {
-      fetch('/api/download/status?service=' + service + '&tmdb_id=' + tmdbId)
-        .then(function (r) { return r.json(); })
+      MM.api.get('/api/download/status?service=' + service + '&tmdb_id=' + tmdbId)
         .then(function (data) {
           if (data.state === 'ready') {
             clearInterval(_modalPollInterval);
             _modalPollInterval = null;
             progressEl.style.display = 'none';
             var successEl = document.getElementById('modal-success');
-            _clear(successEl);
+            successEl.replaceChildren();
             var svgOk = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
             svgOk.setAttribute('viewBox', '0 0 24 24');
             svgOk.setAttribute('width', '48'); svgOk.setAttribute('height', '48');
@@ -589,18 +604,8 @@
     }, 4000);
   }
 
-  function closeModal() {
-    var dm = document.getElementById('detail-modal');
-    dm.style.display = 'none';
-    dm.setAttribute('aria-hidden', 'true');
-    document.body.style.overflow = '';
-    _clear(document.getElementById('modal-trailer'));
-    if (_modalPollInterval) { clearInterval(_modalPollInterval); _modalPollInterval = null; }
-    _modalRecId = null;
-    history.replaceState(null, '', window.location.pathname + window.location.search);
-    if (window.ModalA11y) window.ModalA11y.onClosed('detail-modal');
-  }
-  if (window.ModalA11y) window.ModalA11y.register('detail-modal', closeModal);
+  /* Backdrop click + ESC + ModalA11y registration are all handled by
+     MM.modal.setupDetail above. */
 
   (function () {
     var hash = window.location.hash;
@@ -609,8 +614,4 @@
       if (id) setTimeout(function () { openModal(id); }, 200);
     }
   })();
-
-  document.getElementById('detail-modal').addEventListener('click', function (e) {
-    if (e.target === this) closeModal();
-  });
 })();
