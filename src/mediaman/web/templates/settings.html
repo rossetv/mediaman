@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% import "_components.html" as c %}
 
 {% block title %}Settings · Mediaman{% endblock %}
 
@@ -36,8 +35,8 @@
       <span class="sb-dot"></span>
       <span class="sb-msg">Unsaved changes</span>
       <span class="sb-sub" id="save-status">Edits apply to every section at once.</span>
-      {{ c.btn("Discard", variant="ghost", size="sm", id="btn-discard") }}
-      {{ c.btn("Save Settings", variant="primary", size="sm", id="btn-save") }}
+      <button type="button" class="btn btn--ghost btn--sm" id="btn-discard">Discard</button>
+      <button type="button" class="btn btn--primary btn--sm" id="btn-save">Save Settings</button>
     </div>
   </div>
 </div>
@@ -52,8 +51,17 @@
   "scan_time": settings.get('scan_time', '09:00'),
   "scan_timezone": settings.get('scan_timezone', 'UTC')
 } | tojson | safe }}</script>
-{# Core helpers (MM.api, MM.dom, MM.modal, MM.tiles) load globally from base.html. #}
-{# Settings modules — order matters: general exposes shared state read by others. #}
+{# Core helpers must load before the settings modules. #}
+<script src="/static/js/core/api.js" defer></script>
+<script src="/static/js/core/dom.js" defer></script>
+<script src="/static/js/core/modal.js" defer></script>
+{# Settings modules — order matters: the savebar/overview/disk-thresholds
+   /toggles modules must register on the MM namespace before general.js
+   orchestrates them inside init(). #}
+<script src="/static/js/settings/savebar.js" defer></script>
+<script src="/static/js/settings/disk_thresholds.js" defer></script>
+<script src="/static/js/settings/overview.js" defer></script>
+<script src="/static/js/settings/toggles.js" defer></script>
 <script src="/static/js/settings/general.js" defer></script>
 <script src="/static/js/settings/integrations.js" defer></script>
 <script src="/static/js/settings/users.js" defer></script>
