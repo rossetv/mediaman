@@ -12,14 +12,14 @@ def _reset_poster_module_state():
     ordering does not cause spurious failures (cache dir, GC counter,
     public-IP rate limiter)."""
     from mediaman.services.rate_limit.instances import POSTER_PUBLIC_LIMITER
-    from mediaman.web.routes import poster as poster_mod
+    from mediaman.web.routes.poster import cache as cache_mod
 
-    poster_mod._cache_dir = None
-    poster_mod._cache_gc_counter = 0
+    cache_mod._cache_dir = None
+    cache_mod._cache_gc_counter = 0
     POSTER_PUBLIC_LIMITER.reset()
     yield
-    poster_mod._cache_dir = None
-    poster_mod._cache_gc_counter = 0
+    cache_mod._cache_dir = None
+    cache_mod._cache_gc_counter = 0
     POSTER_PUBLIC_LIMITER.reset()
 
 
@@ -141,7 +141,7 @@ class TestAllowedPosterHost:
 
         from mediaman.web.routes.poster import _is_allowed_poster_host
 
-        with patch("mediaman.web.routes.poster.is_safe_outbound_url", return_value=True):
+        with patch("mediaman.web.routes.poster.fetch.is_safe_outbound_url", return_value=True):
             return _is_allowed_poster_host(url)
 
     def _deny(self, url: str) -> bool:
@@ -197,7 +197,7 @@ class TestAllowedPosterHost:
 
         from mediaman.web.routes.poster import _is_allowed_poster_host
 
-        with patch("mediaman.web.routes.poster.is_safe_outbound_url", return_value=False):
+        with patch("mediaman.web.routes.poster.fetch.is_safe_outbound_url", return_value=False):
             assert not _is_allowed_poster_host("https://image.tmdb.org/t/p/w500/x.jpg")
 
 
@@ -239,9 +239,9 @@ class TestPosterEndpointAuth:
             (cache_dir / f"{safe_name}.jpg").write_bytes(b"fake-jpg")
 
         # Reset the module-level cache dir so the new data_dir wins.
-        import mediaman.web.routes.poster as poster_mod
+        from mediaman.web.routes.poster import cache as cache_mod
 
-        poster_mod._cache_dir = None
+        cache_mod._cache_dir = None
 
         return client, conn
 
@@ -334,7 +334,7 @@ class TestArrPosterByStoredId:
 
         config = load_config()
 
-        bytes_, ctype = _fetch_arr_poster(conn, "r1", None, config)
+        bytes_, ctype = _fetch_arr_poster(conn, "r1", config)
         assert bytes_ is None
         assert ctype is None
 
@@ -387,16 +387,18 @@ class TestArrPosterByStoredId:
         config = load_config()
 
         with (
-            patch("mediaman.web.routes.poster.build_radarr_from_db", return_value=mock_radarr),
-            patch("mediaman.web.routes.poster._POSTER_HTTP") as mock_http,
-            patch("mediaman.web.routes.poster.is_safe_outbound_url", return_value=True),
+            patch(
+                "mediaman.web.routes.poster.fetch.build_radarr_from_db", return_value=mock_radarr
+            ),
+            patch("mediaman.web.routes.poster.fetch._POSTER_HTTP") as mock_http,
+            patch("mediaman.web.routes.poster.fetch.is_safe_outbound_url", return_value=True),
         ):
             mock_resp = MagicMock()
             mock_resp.content = b"right"
             mock_resp.headers = {"Content-Type": "image/jpeg"}
             mock_http.get.return_value = mock_resp
 
-            bytes_, ctype = _fetch_arr_poster(conn, "r1", None, config)
+            bytes_, ctype = _fetch_arr_poster(conn, "r1", config)
 
             # The fetched URL must be the RIGHT one (matching stored id 2020).
             assert mock_http.get.call_args[0][0].endswith("RIGHT.jpg")
@@ -489,9 +491,9 @@ class TestPosterCacheAtomicWrite:
         app.state.config = load_config()
         app.include_router(router)
 
-        import mediaman.web.routes.poster as poster_mod
+        from mediaman.web.routes.poster import cache as cache_mod
 
-        poster_mod._cache_dir = None
+        cache_mod._cache_dir = None
 
         return TestClient(app), conn
 
@@ -522,10 +524,11 @@ class TestPosterCacheAtomicWrite:
         mock_resp.headers = {"Content-Type": "image/jpeg"}
 
         with (
-            patch("mediaman.web.routes.poster._POSTER_HTTP") as mock_http,
-            patch("mediaman.web.routes.poster.is_safe_outbound_url", return_value=True),
+            patch("mediaman.web.routes.poster.fetch._POSTER_HTTP") as mock_http,
+            patch("mediaman.web.routes.poster.fetch.is_safe_outbound_url", return_value=True),
             patch(
-                "mediaman.web.routes.poster._sanitise_plex_url", return_value="https://localhost"
+                "mediaman.web.routes.poster.fetch.sanitise_plex_url",
+                return_value="https://localhost",
             ),
         ):
             mock_http.get.return_value = mock_resp
@@ -564,9 +567,9 @@ class TestPosterTimeoutFallback:
         app.state.config = load_config()
         app.include_router(router)
 
-        import mediaman.web.routes.poster as poster_mod
+        from mediaman.web.routes.poster import cache as cache_mod
 
-        poster_mod._cache_dir = None
+        cache_mod._cache_dir = None
 
         return TestClient(app), conn
 
@@ -592,9 +595,10 @@ class TestPosterTimeoutFallback:
         conn.commit()
 
         with (
-            patch("mediaman.web.routes.poster._POSTER_HTTP") as mock_http,
+            patch("mediaman.web.routes.poster.fetch._POSTER_HTTP") as mock_http,
             patch(
-                "mediaman.web.routes.poster._sanitise_plex_url", return_value="https://localhost"
+                "mediaman.web.routes.poster.fetch.sanitise_plex_url",
+                return_value="https://localhost",
             ),
             patch("mediaman.web.routes.poster._fetch_arr_poster", return_value=(None, None)),
         ):
@@ -645,9 +649,9 @@ class TestPosterPublicRateLimit:
         safe_name = _hashlib.sha256(b"12345").hexdigest()
         (cache_dir / f"{safe_name}.jpg").write_bytes(b"fake-jpg")
 
-        import mediaman.web.routes.poster as poster_mod
+        from mediaman.web.routes.poster import cache as cache_mod
 
-        poster_mod._cache_dir = None
+        cache_mod._cache_dir = None
         return TestClient(app), POSTER_PUBLIC_LIMITER
 
     def test_unauthenticated_burst_is_throttled(self, tmp_path):
@@ -714,9 +718,9 @@ class TestPosterCacheSidecarMime:
         app.state.config = load_config()
         app.include_router(router)
 
-        import mediaman.web.routes.poster as poster_mod
+        from mediaman.web.routes.poster import cache as cache_mod
 
-        poster_mod._cache_dir = None
+        cache_mod._cache_dir = None
         return TestClient(app), conn
 
     def test_png_first_fetch_persists_sidecar_and_serves_correct_mime(self, tmp_path):
@@ -745,9 +749,9 @@ class TestPosterCacheSidecarMime:
         mock_resp.headers = {"Content-Type": "image/png"}
 
         with (
-            patch("mediaman.web.routes.poster._POSTER_HTTP") as mock_http,
+            patch("mediaman.web.routes.poster.fetch._POSTER_HTTP") as mock_http,
             patch(
-                "mediaman.web.routes.poster._sanitise_plex_url",
+                "mediaman.web.routes.poster.fetch.sanitise_plex_url",
                 return_value="https://localhost",
             ),
         ):
@@ -812,15 +816,15 @@ class TestPosterCacheLruCap:
         import os as _os
         import time
 
-        from mediaman.web.routes import poster as poster_mod
+        from mediaman.web.routes.poster import cache as cache_mod
 
         cache_dir = tmp_path / "poster_cache"
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Set a very small cap so a 200-byte payload trips it.
-        monkeypatch.setattr(poster_mod, "_CACHE_DIR_MAX_BYTES", 200)
-        monkeypatch.setattr(poster_mod, "_CACHE_GC_RECHECK_EVERY", 1)
-        monkeypatch.setattr(poster_mod, "_cache_gc_counter", 0, raising=False)
+        monkeypatch.setattr(cache_mod, "_CACHE_DIR_MAX_BYTES", 200)
+        monkeypatch.setattr(cache_mod, "_CACHE_GC_RECHECK_EVERY", 1)
+        monkeypatch.setattr(cache_mod, "_cache_gc_counter", 0, raising=False)
 
         # Oldest first.
         for i in range(5):
@@ -829,7 +833,7 @@ class TestPosterCacheLruCap:
             mtime = time.time() - (5 - i) * 60  # 5 mins, 4 mins, ...
             _os.utime(str(f), (mtime, mtime))
 
-        poster_mod._maybe_sweep_cache(cache_dir)
+        cache_mod.maybe_sweep_cache(cache_dir)
 
         survivors = sorted(p.name for p in cache_dir.iterdir())
         # 5 files * 100 bytes = 500 bytes; cap 200 → target 180 → keep at most one.
@@ -839,14 +843,14 @@ class TestPosterCacheLruCap:
         import os as _os
         import time
 
-        from mediaman.web.routes import poster as poster_mod
+        from mediaman.web.routes.poster import cache as cache_mod
 
         cache_dir = tmp_path / "poster_cache"
         cache_dir.mkdir(parents=True, exist_ok=True)
 
-        monkeypatch.setattr(poster_mod, "_CACHE_DIR_MAX_BYTES", 50)
-        monkeypatch.setattr(poster_mod, "_CACHE_GC_RECHECK_EVERY", 1)
-        monkeypatch.setattr(poster_mod, "_cache_gc_counter", 0, raising=False)
+        monkeypatch.setattr(cache_mod, "_CACHE_DIR_MAX_BYTES", 50)
+        monkeypatch.setattr(cache_mod, "_CACHE_GC_RECHECK_EVERY", 1)
+        monkeypatch.setattr(cache_mod, "_cache_gc_counter", 0, raising=False)
 
         old_jpg = cache_dir / "old.jpg"
         old_jpg.write_bytes(b"x" * 100)
@@ -857,7 +861,7 @@ class TestPosterCacheLruCap:
         mtime = time.time() - 600
         _os.utime(str(old_jpg), (mtime, mtime))
 
-        poster_mod._maybe_sweep_cache(cache_dir)
+        cache_mod.maybe_sweep_cache(cache_dir)
 
         # Both the jpg and its sidecar should be gone.
         assert not old_jpg.exists()
@@ -895,7 +899,9 @@ class TestPosterTempCleanupOnFailure:
         app.include_router(poster_mod.router)
         client = TestClient(app)
 
-        poster_mod._cache_dir = None
+        from mediaman.web.routes.poster import cache as cache_mod
+
+        cache_mod._cache_dir = None
 
         from mediaman.services.rate_limit.instances import POSTER_PUBLIC_LIMITER
 
@@ -923,12 +929,12 @@ class TestPosterTempCleanupOnFailure:
             raise OSError("simulated replace failure")
 
         with (
-            patch("mediaman.web.routes.poster._POSTER_HTTP") as mock_http,
+            patch("mediaman.web.routes.poster.fetch._POSTER_HTTP") as mock_http,
             patch(
-                "mediaman.web.routes.poster._sanitise_plex_url",
+                "mediaman.web.routes.poster.fetch.sanitise_plex_url",
                 return_value="https://localhost",
             ),
-            patch("mediaman.web.routes.poster.os.replace", side_effect=fail_replace),
+            patch("mediaman.web.routes.poster.cache.os.replace", side_effect=fail_replace),
         ):
             mock_http.get.return_value = mock_resp
             signed = sign_poster_url("44455", self._KEY)
