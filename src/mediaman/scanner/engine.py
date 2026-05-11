@@ -31,16 +31,16 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import requests
 from plexapi.exceptions import PlexApiException
 
 if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient
-    from mediaman.services.media_meta.plex import PlexClient
+    from mediaman.services.media_meta.plex import PlexClient, PlexSeasonItem
 
 from mediaman.core.format import ensure_tz as _ensure_tz
 from mediaman.core.time import parse_iso_utc as _parse_iso_utc
@@ -367,7 +367,7 @@ class ScanEngine:
     # Internal helpers — scan orchestration
     # ------------------------------------------------------------------
 
-    def _resolve_added_at(self, item: dict[str, object]) -> datetime:
+    def _resolve_added_at(self, item: Mapping[str, object]) -> datetime:
         """Return the best available 'added' datetime for a media item.
 
         Prefers the Arr download date (looked up by normalised file
@@ -414,7 +414,9 @@ class ScanEngine:
         self,
         fetched: list[_PlexItemFetch],
         media_type_fn: Callable[[_PlexItemFetch], str],
-        evaluate_fn: Callable[[_PlexItemFetch, datetime, list[dict[str, object]]], str | None],
+        evaluate_fn: Callable[
+            [_PlexItemFetch, datetime, Sequence[Mapping[str, object]]], str | None
+        ],
         item_label: str,
         library_id: str,
         summary: dict[str, int],
@@ -515,7 +517,7 @@ class ScanEngine:
         def _evaluate(
             f: _PlexItemFetch,
             added_at: datetime,
-            watch_history: list[dict[str, object]],
+            watch_history: Sequence[Mapping[str, object]],
         ) -> str | None:
             return evaluate_movie(
                 added_at=added_at,
@@ -546,9 +548,14 @@ class ScanEngine:
         def _evaluate(
             f: _PlexItemFetch,
             added_at: datetime,
-            watch_history: list[dict[str, object]],
+            watch_history: Sequence[Mapping[str, object]],
         ) -> str | None:
-            season = f.item
+            # The TV scan path receives PlexSeasonItem entries exclusively
+            # (built by ``PlexFetcher.fetch_library_items`` for show
+            # libraries); the union with PlexMovieItem on ``_PlexItemFetch.item``
+            # is the movies branch. Narrow here so the typed-dict access
+            # below sees concrete fields.
+            season = cast("PlexSeasonItem", f.item)
             if repository.is_show_kept(self._conn, season.get("show_rating_key")):
                 return None  # show is protected; skip all its seasons
             return evaluate_season(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 
 from mediaman.core.format import ensure_tz as _ensure_tz
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 def upsert_media_item(
     conn: sqlite3.Connection,
     *,
-    item: dict,
+    item: Mapping[str, object],
     library_id: str,
     media_type: str,
     arr_date: str | None,
@@ -77,7 +78,11 @@ def upsert_media_item(
     )
 
 
-def update_last_watched(conn: sqlite3.Connection, media_id: str, watch_history: list[dict]) -> None:
+def update_last_watched(
+    conn: sqlite3.Connection,
+    media_id: str,
+    watch_history: Sequence[Mapping[str, object]],
+) -> None:
     """Store the most recent watch timestamp for a media item.
 
     Monotonic: the stored ``last_watched_at`` is only advanced, never
@@ -89,14 +94,13 @@ def update_last_watched(conn: sqlite3.Connection, media_id: str, watch_history: 
     """
     if not watch_history:
         return
-    latest = max(
-        (h["viewed_at"] for h in watch_history if h.get("viewed_at")),
-        default=None,
-    )
-    if latest is None:
+    viewed_ats = [h["viewed_at"] for h in watch_history if isinstance(h.get("viewed_at"), datetime)]
+    if not viewed_ats:
         return
-    latest = _ensure_tz(latest)
-    latest_iso = latest.isoformat()
+    # mypy can't see through the isinstance filter above into the comprehension,
+    # so narrow once more here. Each entry is guaranteed datetime by the guard.
+    latest_dt = max(v for v in viewed_ats if isinstance(v, datetime))
+    latest_iso = _ensure_tz(latest_dt).isoformat()
     # Use MAX(...) so we never rewind: if the existing value is later
     # (or equal) the column is left unchanged; NULL is treated as
     # ``-infinity`` via COALESCE so a first write always sticks.

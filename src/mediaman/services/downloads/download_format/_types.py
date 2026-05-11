@@ -36,6 +36,12 @@ class DownloadItem(TypedDict):
     eta: str
     size_done: str
     size_total: str
+    # rationale: ``episodes`` is a free-shape display dict built by
+    # ``build_episode_dicts`` with keys (label, title, state, progress,
+    # is_pack_episode) whose presence and value types vary per row (e.g.
+    # ``is_pack_episode`` is optional, ``progress`` is ``int | float``).
+    # A TypedDict here would either be ``total=False`` (no tighter than
+    # the current shape) or fail every test that builds a partial entry.
     episodes: list[dict[str, Any]] | None
     episode_summary: str
     release_label: str

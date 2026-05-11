@@ -95,6 +95,11 @@ class _SafePlexSession(http_requests.Session):
         self,
         method: str,
         url: str,
+        # rationale: this method overrides ``requests.Session.request`` whose
+        # base contract accepts ``**kwargs: Any`` to allow caller-supplied
+        # transport options (timeout, allow_redirects, stream, verify, cert,
+        # proxies, hooks, ...).  Narrowing here would break the inheritance
+        # contract; plexapi passes a handful of these keys at call time.
         **kwargs: Any,
     ) -> http_requests.Response:
         # 1. SSRF re-validation. Re-runs at every request so DNS-rebind
