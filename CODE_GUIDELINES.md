@@ -9,13 +9,30 @@
 > errors designed at the same time as the success path. When two of those tug against
 > each other, the values in [§1](#1-philosophy) decide.
 
-> **Aspirational, not retrospective.** These guidelines describe the target state.
-> The current codebase has known carve-outs — most notably a handful of files that
-> still exceed the 500-line ceiling ([§3.1](#31-file-size)) and a tail of functions
-> that exceed the 60-line ceiling ([§3.2](#32-function-size)). Those are tracked as
-> ongoing work; new code must conform from day one, and changes that extend an
-> existing carve-out are blocked. Apply the rules to every PR; reduce the carve-out
-> set over time.
+> **Current standard, not aspirational.** These guidelines describe what is true
+> in the codebase today, not a target to drift toward. Every rule applies to every
+> PR. A handful of long-lived files still exceed the 500-line ceiling and each
+> carries a `# rationale:` header at the top explaining why the split would do
+> more harm than good — those carve-outs are the *only* exceptions and they are
+> listed below; do not add another without writing the rationale first and
+> updating this list in the same PR.
+>
+> Files presently over the 500-line ceiling, with rationale on file:
+>
+> - `scanner/engine.py` — atomic per-library transaction discipline.
+> - `services/arr/base.py` — `_ArrClientBase` + `ArrClient` form one HTTP surface; splitting them re-introduces the back-compat shim layer the audit deleted.
+> - `services/downloads/notifications.py` — two-branch poll loop (Radarr + Sonarr) shares state and templates.
+> - `web/auth/password_hash.py` — bcrypt hashing + rotation + change-password flow; the rotation path is one cohesive transaction.
+> - `web/routes/library_api/__init__.py` — package barrel hosting four route handlers, each pinned by transaction layout.
+> - `web/routes/poster/__init__.py` — proxy + on-disk cache + per-thread GC counter.
+> - `web/routes/settings/__init__.py` — package barrel + six route handlers + `_load_settings`.
+>
+> No function in the codebase exceeds the 60-line ceiling without a `# rationale:`
+> header. Module-level mutable state is permitted only with a `threading.Lock`
+> and a `# rationale:` comment ([§8.5](#85-module-level-mutable-state-is-forbidden-by-default));
+> broad `except Exception:` is permitted only at the four §6.4 outer-boundary
+> sites or with a `# rationale:` comment naming the failure mode. The rules
+> below are enforced, not encouraged.
 
 ## TL;DR — the ten rules most often violated
 

@@ -33,6 +33,13 @@ Back-compat: tests and other callers import :class:`_ArrClientBase`,
 module path.  Each name is re-exported below.
 """
 
+# rationale: `_ArrClientBase` and `ArrClient` together form one HTTP-facing
+# surface for the *arr family — the base owns the request plumbing and
+# `last_error` discipline; the spec-driven subclass owns the kind-aware
+# routing. Splitting the file would either reintroduce the back-compat shim
+# layer Phase 3 deleted (one module per kind plus a re-export module) or
+# spread `last_error` mutation across two files with no clear owner.
+
 from __future__ import annotations
 
 import logging
