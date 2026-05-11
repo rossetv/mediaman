@@ -4,9 +4,11 @@ from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from mediaman.db import finish_scan_run, init_db, is_scan_running, start_scan_run
 from mediaman.scanner.engine import ScanEngine
+from mediaman.services.infra.storage import DeletionRefused
 
 
 @pytest.fixture
@@ -635,7 +637,8 @@ class TestExecuteDeletions:
         self._insert_scheduled_deletion(conn, "930", past)
 
         mock_radarr = MagicMock()
-        mock_radarr.unmonitor_movie.side_effect = RuntimeError("radarr down")
+        # Simulate transport failure — narrowed except handles requests.RequestException.
+        mock_radarr.unmonitor_movie.side_effect = requests.ConnectionError("radarr down")
 
         with patch("mediaman.scanner.deletions.delete_path"):
             engine = ScanEngine(
@@ -1066,7 +1069,7 @@ class TestTwoPhaseDelete:
 
         with patch(
             "mediaman.scanner.deletions.delete_path",
-            side_effect=ValueError("outside allowed roots"),
+            side_effect=DeletionRefused("outside allowed roots"),
         ):
             engine = ScanEngine(
                 conn=conn,

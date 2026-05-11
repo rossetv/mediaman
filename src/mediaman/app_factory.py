@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sqlite3
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -132,7 +133,7 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
                     ip="",
                     detail={"reason": reason},
                 )
-            except Exception:  # pragma: no cover
+            except sqlite3.Error:  # pragma: no cover
                 logger.exception("aes.canary_failed audit write failed reason=%s", reason)
 
         def _on_migration_complete(migrated_count: int) -> None:
@@ -145,7 +146,7 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
                     ip="",
                     detail={"migrated_count": migrated_count},
                 )
-            except Exception:  # pragma: no cover
+            except sqlite3.Error:  # pragma: no cover
                 logger.exception("aes.v35_migration_complete audit write failed")
 
         canary_ok = bool(is_canary_valid(db, config.secret_key, on_failure=_on_canary_failure))
@@ -154,6 +155,7 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
             # ciphertexts to v2+AAD. Safe to call on every startup —
             # already-migrated rows are skipped. Errors are logged but do
             # not abort startup.
+            # rationale: §6.4 site 4 — cold-start recovery; migration is non-fatal.
             try:
                 n = migrate_legacy_ciphertexts(
                     db, config.secret_key, on_complete=_on_migration_complete
@@ -162,6 +164,7 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
                     logger.info("bootstrap_crypto: migrated %d legacy settings row(s) to v2+AAD", n)
             except Exception:
                 logger.exception("bootstrap_crypto: migrate_legacy_ciphertexts failed (non-fatal)")
+    # rationale: §6.4 site 4 — cold-start recovery; canary failure leaves the flag fail-closed.
     except Exception:
         logger.exception("AES canary check failed unexpectedly")
         canary_ok = False
@@ -208,6 +211,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # regardless of the logger hierarchy depth.
     install_root_filter()
 
+    # rationale: §6.4 site 4 — fatal cold-start; convert startup failure into one log line.
     try:
         bootstrap_db(app, config)
     except DataDirNotWritableError as exc:
@@ -217,9 +221,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.critical("Database bootstrap failed at startup: %s", exc, exc_info=True)
         sys.exit(1)
 
+    # rationale: §6.4 site 4 — bootstrap_crypto already swallows internally; defence in depth.
     try:
         bootstrap_crypto(app, config)
-    except Exception as exc:  # pragma: no cover — bootstrap_crypto already swallows
+    except Exception as exc:  # pragma: no cover
         logger.critical("Crypto bootstrap failed at startup: %s", exc, exc_info=True)
         sys.exit(1)
 
@@ -234,7 +239,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         reconciled = reconcile_pending_delete_intents()
         if reconciled:
             logger.info("Reconciled %d pending delete intent(s) at startup", reconciled)
-    except Exception:
+    except Exception:  # rationale: §6.4 site 4 — cold-start recovery
         logger.exception("delete-intent reconciliation failed at startup; continuing")
 
     # Reconcile download_notifications rows stranded at notified=2 by a
@@ -247,7 +252,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         reset = reconcile_stranded_notifications(app.state.db)
         if reset:
             logger.info("Reconciled %d stranded download notification(s) at startup", reset)
-    except Exception:
+    except Exception:  # rationale: §6.4 site 4 — cold-start recovery
         logger.exception("download-notification reconciliation failed at startup; continuing")
 
     logger.info("Mediaman started on port %s", config.port)

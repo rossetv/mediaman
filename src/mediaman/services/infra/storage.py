@@ -9,6 +9,30 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
+class PathSafetyError(Exception):
+    """Base class for any path-safety refusal raised by this module.
+
+    Raised when the allowlist is malformed (e.g. an entry is empty,
+    relative, a symlink, or matches a forbidden top-level path), or when
+    a deletion target violates the strict-descendant / same-device /
+    no-symlink rules. Distinct from :class:`ValueError` so a generic
+    ``except ValueError`` cannot catch a security refusal — callers that
+    want to surface a refusal in the UI must catch this type explicitly.
+    """
+
+
+class DeletionRefused(PathSafetyError):
+    """Raised by :func:`delete_path` (and helpers) when a deletion is refused.
+
+    Used uniformly for every safety check during the deletion path:
+    invalid allowlist, target not under any allowed root, target is a
+    symlink, cross-device descent, missing-root re-check, etc. Catch this
+    in the deletion executor to roll the row back to ``pending`` rather
+    than ``deleted``.
+    """
+
+
 #: Paths that must never be configured as a delete root. A misconfigured
 #: ``delete_allowed_roots = ["/"]`` (or any system directory) would let a
 #: crafted Plex part-path escalate cleanup into a system-wide ``rmtree``,
@@ -57,7 +81,7 @@ _FORBIDDEN_ROOTS: frozenset[str] = frozenset(
 def _validate_delete_roots(roots: list[str]) -> list[Path]:
     """Resolve and sanity-check the configured delete-root allowlist.
 
-    Returns the list of resolved root paths, or raises :class:`ValueError`
+    Returns the list of resolved root paths, or raises :class:`DeletionRefused`
     if any root is empty, relative, a symlink, or matches one of the
     well-known top-level system directories in :data:`_FORBIDDEN_ROOTS`.
 
@@ -74,7 +98,7 @@ def _validate_delete_roots(roots: list[str]) -> list[Path]:
     nothing can swap it after the open.
     """
     if not roots:
-        raise ValueError(
+        raise DeletionRefused(
             "delete_allowed_roots not configured; refusing deletion. "
             "Set the delete_allowed_roots setting (JSON list) or the "
             "MEDIAMAN_DELETE_ROOTS env var (colon-separated)."
@@ -82,14 +106,14 @@ def _validate_delete_roots(roots: list[str]) -> list[Path]:
     resolved: list[Path] = []
     for raw in roots:
         if not raw or not isinstance(raw, str):
-            raise ValueError(
+            raise DeletionRefused(
                 "Refusing to delete: an entry in delete_allowed_roots is "
                 "empty or not a string. Configure delete_allowed_roots "
                 "with absolute directory paths only."
             )
         candidate = Path(raw)
         if not candidate.is_absolute():
-            raise ValueError(
+            raise DeletionRefused(
                 f"Refusing to delete: allowed root '{raw}' is not an "
                 "absolute path. Configure delete_allowed_roots with "
                 "absolute directory paths only."
@@ -104,12 +128,12 @@ def _validate_delete_roots(roots: list[str]) -> list[Path]:
         try:
             real = candidate.resolve()
         except (OSError, RuntimeError) as exc:
-            raise ValueError(
+            raise DeletionRefused(
                 f"Refusing to delete: allowed root '{raw}' could not be resolved: {exc}"
             ) from exc
         normalised = str(real)
         if normalised in _FORBIDDEN_ROOTS:
-            raise ValueError(
+            raise DeletionRefused(
                 f"Refusing to delete: allowed root '{raw}' resolves to "
                 f"'{normalised}', a system / mount-root path that must not "
                 "be a delete root. Configure delete_allowed_roots with "
@@ -146,21 +170,21 @@ def _validate_delete_roots(roots: list[str]) -> list[Path]:
                 import stat as _stat
 
                 if lst is not None and _stat.S_ISLNK(lst.st_mode):
-                    raise ValueError(
+                    raise DeletionRefused(
                         f"Refusing to delete: allowed root '{raw}' is a symlink. "
                         "Configure delete_allowed_roots with real directories only."
                     ) from None
                 if exc.errno == _errno.ELOOP:
-                    raise ValueError(
+                    raise DeletionRefused(
                         f"Refusing to delete: allowed root '{raw}' is a symlink. "
                         "Configure delete_allowed_roots with real directories only."
                     ) from None
                 if exc.errno == _errno.ENOTDIR:
-                    raise ValueError(
+                    raise DeletionRefused(
                         f"Refusing to delete: allowed root '{raw}' is not a directory."
                     ) from None
                 # Anything else (EACCES, etc.) — operator config error.
-                raise ValueError(
+                raise DeletionRefused(
                     f"Refusing to delete: allowed root '{raw}' cannot be opened: {exc}"
                 ) from exc
             else:
@@ -210,9 +234,10 @@ def delete_path(path: str, *, allowed_roots: list[str] | None = None) -> None:
     """Delete a file or directory, with mandatory path validation.
 
     ``allowed_roots`` is required and must be a non-empty list. Raises
-    ``ValueError`` if it is missing or empty, if any root is itself a
-    forbidden top-level path (``/``, ``/etc``, ``/data``, etc.), or if
-    the resolved target is not a *strict descendant* of one of the roots.
+    :class:`DeletionRefused` if it is missing or empty, if any root is
+    itself a forbidden top-level path (``/``, ``/etc``, ``/data``, etc.),
+    or if the resolved target is not a *strict descendant* of one of the
+    roots.
 
     The strict-descendant rule is critical: if ``allowed_roots == ["/media"]``
     we must refuse a target equal to ``/media`` itself, because a
@@ -227,12 +252,12 @@ def delete_path(path: str, *, allowed_roots: list[str] | None = None) -> None:
     deletion at CWD.
     """
     if allowed_roots is None:
-        raise ValueError(
+        raise DeletionRefused(
             "delete_path requires allowed_roots — refusing deletion until "
             "a trusted allowlist is supplied."
         )
     if not isinstance(path, str) or not Path(path).is_absolute():
-        raise ValueError(
+        raise DeletionRefused(
             f"Refusing to delete '{path}' — target must be an absolute path. "
             "Relative paths anchor on the current working directory which "
             "is unsafe for a destructive operation."
@@ -247,7 +272,7 @@ def delete_path(path: str, *, allowed_roots: list[str] | None = None) -> None:
     # target that *is* the root would let an attacker (or buggy Plex
     # response) rmtree the entire allowlisted mount.
     if not any(root in p.parents for root in resolved_roots):
-        raise ValueError(
+        raise DeletionRefused(
             f"Refusing to delete '{p}' — must be a strict descendant of "
             f"an allowed root, not the root itself. Allowed roots: "
             f"{[str(r) for r in resolved_roots]}"
@@ -257,7 +282,7 @@ def delete_path(path: str, *, allowed_roots: list[str] | None = None) -> None:
     # target, not the link. A symlink passed as the deletion target is
     # always suspicious regardless of where it points.
     if raw.is_symlink():
-        raise ValueError(f"Refusing to delete '{raw}' — target path is a symlink.")
+        raise DeletionRefused(f"Refusing to delete '{raw}' — target path is a symlink.")
     _safe_rmtree(p, resolved_roots, original_allowed_roots=allowed_roots)
 
 
@@ -300,7 +325,7 @@ def _safe_rmtree(
     # so a TOCTOU swap that leaves the target equal to a configured
     # root is still refused.
     if not any(root in resolved.parents for root in allowed_roots):
-        raise ValueError(
+        raise DeletionRefused(
             f"Refusing to delete '{resolved}' — must be a strict "
             "descendant of an allowed root on re-check. Allowed roots: "
             f"{[str(r) for r in allowed_roots]}"
@@ -312,7 +337,7 @@ def _safe_rmtree(
     # bypass delete_path (and hence need the extra defence).
     for raw_root in original_allowed_roots or []:
         if Path(raw_root).is_symlink():
-            raise ValueError(
+            raise DeletionRefused(
                 f"Refusing to delete: allowed root '{raw_root}' is a symlink. "
                 "Configure delete_allowed_roots with real directories only."
             )
@@ -327,7 +352,7 @@ def _safe_rmtree(
     # swap the intended directory for a link to / after the containment
     # check.
     if os.path.islink(str(resolved)):
-        raise ValueError(f"Refusing to delete '{resolved}' — target is a symlink.")
+        raise DeletionRefused(f"Refusing to delete '{resolved}' — target is a symlink.")
 
     # Identify which root we're rooted under so we can pin to its
     # device. When two roots share a parent (e.g. ``/media`` and
@@ -340,18 +365,18 @@ def _safe_rmtree(
     if not matching_roots:
         # Should be unreachable — ``delete_path`` already enforced the
         # strict-descendant rule. Belt-and-braces nonetheless.
-        raise ValueError(f"Refusing to delete '{resolved}' — no matching allowed root found.")
+        raise DeletionRefused(f"Refusing to delete '{resolved}' — no matching allowed root found.")
     pinned_root = max(matching_roots, key=lambda r: len(str(r)))
     try:
         root_dev = os.stat(str(pinned_root)).st_dev
     except FileNotFoundError as exc:
-        raise ValueError(
+        raise DeletionRefused(
             f"Refusing to delete '{resolved}' — allowed root '{pinned_root}' no longer exists."
         ) from exc
 
     # Must live on the same device as the root (defeats mount-swap).
     if lst.st_dev != root_dev:
-        raise ValueError(
+        raise DeletionRefused(
             f"Refusing to delete '{resolved}' — different device from allowed root '{pinned_root}'."
         )
 
@@ -361,7 +386,7 @@ def _safe_rmtree(
         os.unlink(str(resolved))
         return
     if not _stat.S_ISDIR(lst.st_mode):
-        raise ValueError(f"Refusing to delete '{resolved}' — not a regular file or directory.")
+        raise DeletionRefused(f"Refusing to delete '{resolved}' — not a regular file or directory.")
 
     # Walk bottom-up, never following symlinks. Every entry is checked
     # against the root device and must not be a symlink before we unlink
@@ -382,11 +407,11 @@ def _safe_rmtree(
             try:
                 dev = os.fstat(dirfd).st_dev
             except OSError as exc:
-                raise ValueError(
+                raise DeletionRefused(
                     f"Refusing to delete '{resolved}' — cannot stat '{dirpath}': {exc}"
                 ) from exc
             if dev != root_dev:
-                raise ValueError(
+                raise DeletionRefused(
                     f"Refusing to delete '{resolved}' — '{dirpath}' is on a "
                     "different device than the allowed root."
                 )
@@ -400,7 +425,7 @@ def _safe_rmtree(
                     os.unlink(name, dir_fd=dirfd)
                     continue
                 if entry_stat.st_dev != root_dev:
-                    raise ValueError(
+                    raise DeletionRefused(
                         f"Refusing to delete '{resolved}' — entry '{name}' in "
                         f"'{dirpath}' is on a different device."
                     )
@@ -414,7 +439,7 @@ def _safe_rmtree(
                     os.unlink(name, dir_fd=dirfd)
                     continue
                 if entry_stat.st_dev != root_dev:
-                    raise ValueError(
+                    raise DeletionRefused(
                         f"Refusing to delete '{resolved}' — subdirectory "
                         f"'{name}' in '{dirpath}' is on a different device."
                     )

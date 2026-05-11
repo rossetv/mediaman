@@ -14,6 +14,16 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from mediaman.core.time import now_iso as _now_iso
 
+
+class CryptoError(Exception):
+    """Base class for cryptography-subsystem failures.
+
+    Raised by HKDF salt management (corrupt / tampered salt rows) and any
+    other ``crypto/`` failure that callers may want to handle distinctly
+    from ``cryptography.exceptions.InvalidTag``.
+    """
+
+
 # ---------------------------------------------------------------------------
 # AES / GCM / HKDF constants
 # ---------------------------------------------------------------------------
@@ -158,7 +168,7 @@ def _load_or_create_salt(conn: sqlite3.Connection) -> bytes:
     only one INSERT wins and both then read back the same persisted value.
 
     Raises:
-        RuntimeError: If the stored salt is corrupt (cannot be base64-decoded),
+        CryptoError: If the stored salt is corrupt (cannot be base64-decoded),
             has an unexpected length (indicating possible database tampering),
             or if the salt persisted on first run has an unexpected length
             after the INSERT/re-read cycle.
@@ -174,9 +184,9 @@ def _load_or_create_salt(conn: sqlite3.Connection) -> bytes:
         try:
             decoded = base64.b64decode(row["value"])
         except (ValueError, TypeError) as exc:
-            raise RuntimeError(f"Stored HKDF salt is corrupt and cannot be decoded: {exc}") from exc
+            raise CryptoError(f"Stored HKDF salt is corrupt and cannot be decoded: {exc}") from exc
         if len(decoded) != 16:
-            raise RuntimeError(
+            raise CryptoError(
                 "Stored HKDF salt has unexpected length — refusing to "
                 "proceed. This indicates database tampering."
             )
@@ -200,7 +210,7 @@ def _load_or_create_salt(conn: sqlite3.Connection) -> bytes:
     row = conn.execute("SELECT value FROM settings WHERE key=?", (_SALT_SETTING_KEY,)).fetchone()
     decoded = base64.b64decode(row["value"])
     if len(decoded) != 16:
-        raise RuntimeError(
+        raise CryptoError(
             "Stored HKDF salt has unexpected length after first-run insert — refusing to proceed."
         )
     if cache_key:

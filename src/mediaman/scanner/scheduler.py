@@ -79,6 +79,7 @@ def _close_tracked_connections() -> None:
         connections = list(_scheduler_connections)
         _scheduler_connections.clear()
     for conn in connections:
+        # rationale: shutdown path — close every connection regardless of individual failures.
         try:
             conn.close()
         except Exception:

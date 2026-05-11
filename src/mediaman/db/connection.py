@@ -188,7 +188,7 @@ def _job_owner_id() -> str:
     """
     try:
         host = socket.gethostname()
-    except Exception:
+    except OSError:
         host = "unknown"
     return f"{host}:{os.getpid()}"
 
@@ -235,8 +235,8 @@ def _start_job_run(conn: sqlite3.Connection, table: str) -> int | None:
         run_id = cursor.lastrowid
         conn.execute("COMMIT")
         return run_id
-    except Exception:
-        with contextlib.suppress(Exception):
+    except sqlite3.Error:
+        with contextlib.suppress(sqlite3.Error):
             conn.execute("ROLLBACK")
         raise
 
@@ -274,7 +274,7 @@ def _heartbeat_job_run(conn: sqlite3.Connection, table: str, run_id: int) -> Non
             (now_iso(), run_id),
         )
         conn.commit()
-    except Exception:
+    except sqlite3.Error:
         logger.warning("job heartbeat failed table=%s id=%s", table, run_id, exc_info=True)
 
 

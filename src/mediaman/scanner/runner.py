@@ -15,6 +15,9 @@ import sqlite3
 import threading
 from typing import TYPE_CHECKING, NamedTuple, TypedDict, cast
 
+import requests
+
+from mediaman.services.arr._client_base import ArrError
 from mediaman.services.arr.build import (
     build_plex_from_db as _build_plex,
 )
@@ -24,6 +27,7 @@ from mediaman.services.arr.build import (
 from mediaman.services.arr.build import (
     build_sonarr_from_db as _build_sonarr,
 )
+from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.infra.settings_reader import get_int_setting as _get_int_setting
 
 if TYPE_CHECKING:
@@ -364,7 +368,7 @@ def run_library_sync(conn: sqlite3.Connection, secret_key: str) -> ScanSummary:
         from mediaman.services.downloads.notifications import check_download_notifications
 
         check_download_notifications(conn, secret_key)
-    except Exception:
+    except (sqlite3.Error, requests.RequestException, SafeHTTPError, ArrError):
         logger.exception("Download notification check failed — sync results unaffected")
 
     return cast(ScanSummary, result)

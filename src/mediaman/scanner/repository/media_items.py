@@ -174,7 +174,7 @@ def delete_media_items(conn: sqlite3.Connection, ids: list[str]) -> None:
             )
             if not in_outer_txn:
                 conn.execute("COMMIT")
-        except Exception:
+        except sqlite3.Error:
             if not in_outer_txn:
                 conn.execute("ROLLBACK")
             raise

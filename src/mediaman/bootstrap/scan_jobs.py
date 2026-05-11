@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 import threading
 
 from fastapi import FastAPI
@@ -66,7 +67,7 @@ def _run_scheduled_scan(db_path: str | None, secret_key: str) -> None:
             return
         try:
             hb_conn = open_thread_connection(db_path)
-        except Exception:
+        except sqlite3.Error:
             logger.warning("scan heartbeat thread could not open DB", exc_info=True)
             return
         try:
@@ -75,7 +76,7 @@ def _run_scheduled_scan(db_path: str | None, secret_key: str) -> None:
         finally:
             try:
                 hb_conn.close()
-            except Exception:  # pragma: no cover — best-effort close
+            except sqlite3.Error:  # pragma: no cover — best-effort close
                 logger.debug("scan heartbeat close failed", exc_info=True)
 
     heartbeat_thread = threading.Thread(target=_heartbeat_loop, name="scan-heartbeat", daemon=True)
@@ -83,10 +84,10 @@ def _run_scheduled_scan(db_path: str | None, secret_key: str) -> None:
     try:
         run_scan_from_db(db_conn, secret_key)
         finish_scan_run(db_conn, run_id, "done")
-    except Exception as exc:
+    except Exception as exc:  # rationale: §6.4 site 2 — scheduler must survive a single bad row
         try:
             finish_scan_run(db_conn, run_id, "error", str(exc))
-        except Exception:  # pragma: no cover — finish is best-effort here
+        except sqlite3.Error:  # pragma: no cover — finish is best-effort here
             logger.debug("scan finish (error path) failed", exc_info=True)
         logger.exception("Scheduled scan failed")
     finally:
@@ -102,7 +103,7 @@ def _run_library_sync_job(secret_key: str) -> None:
     try:
         db_conn = get_db()
         run_library_sync(db_conn, secret_key)
-    except Exception:
+    except Exception:  # rationale: §6.4 site 2 — scheduler must survive a single bad row
         logger.exception("Library sync failed")
 
 
@@ -140,7 +141,7 @@ def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
 
             _recover_stuck_deletions(conn)
             _stuck_deletion_failures = 0
-        except Exception:
+        except Exception:  # rationale: §6.4 site 4 — cold-start recovery
             _stuck_deletion_failures += 1
             if _stuck_deletion_failures > 1:
                 logger.critical(
@@ -196,6 +197,7 @@ def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
             sync_interval,
         )
         return True
+    # rationale: §6.4 site 4 — cold-start recovery; app stays up so the operator can investigate.
     except Exception as e:
         logger.exception("Could not start scheduler: %s", e)
         app.state.scheduler_error = str(e) or e.__class__.__name__
@@ -221,6 +223,7 @@ def shutdown_scheduling() -> None:
     done = threading.Event()
 
     def _drain() -> None:
+        # rationale: shutdown path — log and proceed so SIGTERM completes.
         try:
             stop_scheduler()
         except Exception:  # pragma: no cover — best-effort shutdown

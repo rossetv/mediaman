@@ -257,5 +257,5 @@ def _invoke_on_failure(
         return
     try:
         on_failure(reason)
-    except Exception:  # pragma: no cover — never break the canary check on audit failure
+    except Exception:  # pragma: no cover; rationale: best-effort audit write — never override the canary's security verdict because the audit callback raised
         logger.exception("canary on_failure callback raised reason=%s", reason)
