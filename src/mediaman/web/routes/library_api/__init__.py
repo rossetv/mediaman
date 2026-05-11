@@ -42,20 +42,20 @@ import requests
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import JSONResponse
 
-from mediaman.audit import log_audit
+from mediaman.core.audit import log_audit
 from mediaman.db import get_db
-from mediaman.scanner.repository.library_query import (
-    _VALID_SORTS,
-    _VALID_TYPES,
-    fetch_library,
-)
-from mediaman.services.arr._client_base import ArrError
+from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
+from mediaman.web.repository.library_query import (
+    _VALID_SORTS,
+    _VALID_TYPES,
+    fetch_library,
+)
 from mediaman.web.responses import respond_err, respond_ok
 
 # Re-exports for backwards-compatible imports
