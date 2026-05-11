@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from datetime import UTC, datetime
 
+from mediaman.core.time import now_utc
 from mediaman.core.time import parse_iso_utc as parse_iso_utc
 
 # ---------------------------------------------------------------------------
@@ -225,6 +227,36 @@ def media_type_badge(media_type: str | None) -> tuple[str, str]:
     return badge, mt.upper()
 
 
+def relative_day_label(
+    target: datetime,
+    *,
+    now: datetime,
+    today: str = "today",
+    tomorrow: str = "tomorrow",
+    future: Callable[[int], str],
+    past: Callable[[int], str] | None = None,
+) -> str:
+    """Render *target* relative to *now* as a short English phrase.
+
+    Three sites previously duplicated this with drifting prose; callers
+    now supply only the strings.  ``future(days)`` produces the label
+    for "in N days"; ``past`` (optional) for "N days ago".  When
+    ``past`` is ``None``, past dates collapse to the ``today`` label
+    (matching the historical "Expires today" / "Deletes today" rule
+    where a passed-deadline still renders as the today phrase).
+    """
+    delta = (target - now).days
+    if delta == 0 or (delta < 0 and past is None):
+        return today
+    if delta == 1:
+        return tomorrow
+    if delta > 0:
+        return future(delta)
+    # delta < 0 and past is not None — checked above.
+    assert past is not None
+    return past(-delta)
+
+
 def days_ago(value: str | None) -> str:
     """Return a human-readable "N days ago" string for an ISO timestamp.
 
@@ -235,7 +267,7 @@ def days_ago(value: str | None) -> str:
     dt = parse_iso_utc(value)
     if dt is None:
         return ""
-    delta = (datetime.now(UTC) - dt).days
+    delta = (now_utc() - dt).days
     if delta <= 0:
         return "today"
     if delta == 1:

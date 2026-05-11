@@ -247,6 +247,25 @@ class TmdbClient:
             return None
         return results[0] if results else None
 
+    def _get_results(
+        self, path: str, *, params: dict[str, object], label: str
+    ) -> list[dict[str, object]]:
+        """Fetch *path* and return its ``results`` list, ``[]`` on any failure.
+
+        Four collection-endpoint methods previously duplicated the same
+        try/except/.get("results") block (search_multi_paged, trending,
+        popular_movies, popular_tv).  Returns an empty list on transport
+        failure, HTTP error, JSON decode failure, or a payload that isn't
+        a dict — never raises.
+        """
+        try:
+            payload = self._get(path, params)
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            self._log_request_failure(label, exc)
+            return []
+        results = payload.get("results") if isinstance(payload, dict) else None
+        return results if isinstance(results, list) else []
+
     def search_multi_paged(self, query: str, page: int = 1) -> list[dict[str, object]]:
         """Return one page of ``/search/multi`` results as a raw list.
 
@@ -255,17 +274,11 @@ class TmdbClient:
         themselves. Returns an empty list on error or when TMDB returns
         no hits — never raises.
         """
-        try:
-            return (
-                self._get(
-                    "/search/multi",
-                    {"query": query, "include_adult": False, "page": page},
-                ).get("results")
-                or []
-            )
-        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
-            self._log_request_failure(f"search/multi paged({query!r}, page={page})", exc)
-            return []
+        return self._get_results(
+            "/search/multi",
+            params={"query": query, "include_adult": False, "page": page},
+            label=f"search/multi paged({query!r}, page={page})",
+        )
 
     def trending(self, page: int = 1) -> list[dict[str, object]]:
         """Return one page of ``/trending/all/week`` results.
@@ -273,11 +286,11 @@ class TmdbClient:
         TMDB recomputes this daily so the caller may cache aggressively.
         Returns an empty list on error — never raises.
         """
-        try:
-            return self._get("/trending/all/week", {"page": page}).get("results") or []
-        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
-            self._log_request_failure(f"trending(page={page})", exc)
-            return []
+        return self._get_results(
+            "/trending/all/week",
+            params={"page": page},
+            label=f"trending(page={page})",
+        )
 
     def popular_movies(self, page: int = 1) -> list[dict[str, object]]:
         """Return one page of ``/movie/popular`` results.
@@ -286,11 +299,11 @@ class TmdbClient:
         it must inject ``"movie"`` themselves.
         Returns an empty list on error — never raises.
         """
-        try:
-            return self._get("/movie/popular", {"page": page}).get("results") or []
-        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
-            self._log_request_failure(f"movie/popular(page={page})", exc)
-            return []
+        return self._get_results(
+            "/movie/popular",
+            params={"page": page},
+            label=f"movie/popular(page={page})",
+        )
 
     def popular_tv(self, page: int = 1) -> list[dict[str, object]]:
         """Return one page of ``/tv/popular`` results.
@@ -299,11 +312,11 @@ class TmdbClient:
         it must inject ``"tv"`` themselves.
         Returns an empty list on error — never raises.
         """
-        try:
-            return self._get("/tv/popular", {"page": page}).get("results") or []
-        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
-            self._log_request_failure(f"tv/popular(page={page})", exc)
-            return []
+        return self._get_results(
+            "/tv/popular",
+            params={"page": page},
+            label=f"tv/popular(page={page})",
+        )
 
     def details(self, media_type: str, tmdb_id: int) -> dict[str, object] | None:
         """Return the raw TMDB details payload with videos + credits appended.

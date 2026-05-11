@@ -34,13 +34,13 @@ from __future__ import annotations
 
 import logging
 import secrets
-from datetime import UTC, datetime, timedelta
 from urllib.parse import quote as _url_quote
 
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import JSONResponse
 
 from mediaman.audit import log_audit
+from mediaman.core.time import now_utc
 from mediaman.db import get_db
 from mediaman.scanner.repository.library_query import (
     _VALID_SORTS,
@@ -51,8 +51,9 @@ from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_
 from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.rate_limit import ActionRateLimiter
+from mediaman.services.scheduled_actions import resolve_keep_decision
 from mediaman.web.auth.middleware import get_current_admin
-from mediaman.web.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
+from mediaman.web.models import VALID_KEEP_DURATIONS
 from mediaman.web.responses import respond_err, respond_ok
 
 # Re-exports for backwards-compatible imports
@@ -163,18 +164,11 @@ def api_media_keep(
     if row is None:
         return respond_err("not_found", status=404)
 
-    now = datetime.now(UTC)
-
-    if duration == "forever":
-        action = ACTION_PROTECTED_FOREVER
-        execute_at = None
-        snooze_label = "forever"
-    else:
-        days = VALID_KEEP_DURATIONS[duration]
-        assert days is not None  # only "forever" maps to None and is handled above
-        action = ACTION_SNOOZED
-        execute_at = (now + timedelta(days=int(days))).isoformat()
-        snooze_label = duration
+    now = now_utc()
+    decision = resolve_keep_decision(duration, days=VALID_KEEP_DURATIONS[duration], now=now)
+    action = decision.action
+    execute_at = decision.execute_at
+    snooze_label = "forever" if duration == "forever" else duration
 
     # ``with conn:`` commits on normal exit and rolls back on exception;
     # BEGIN IMMEDIATE here preserves write-lock semantics.

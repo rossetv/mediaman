@@ -20,9 +20,10 @@ import hashlib
 import logging
 import secrets
 import sqlite3
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from mediaman.audit import log_audit
+from mediaman.core.time import now_utc
 from mediaman.crypto import generate_keep_token
 from mediaman.scanner import repository
 from mediaman.scanner.arr_dates import ArrDateCache
@@ -96,7 +97,7 @@ def schedule_deletion(
         already inserted an active deletion for the same ``media_id``
         (the partial unique index raises ``IntegrityError`` in that case).
     """
-    now = datetime.now(UTC)
+    now = now_utc()
     execute_at = now + timedelta(days=grace_days)
     expires_at = int((now + timedelta(days=_TOKEN_TTL_DAYS)).timestamp())
 
