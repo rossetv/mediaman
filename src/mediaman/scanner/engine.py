@@ -189,36 +189,55 @@ class ScanEngine:
            worth of writes at a time.
         """
         summary = {"synced": 0, "errors": 0, "removed": 0}
+        per_lib_fetches = self._sync_phase_fetch(summary)
+        self._sync_phase_write(per_lib_fetches, summary)
+        logger.info(
+            "Library sync complete: %d synced, %d orphans removed, %d errors",
+            summary["synced"],
+            summary["removed"],
+            summary["errors"],
+        )
+        return summary
 
-        # Phase 1: network reads. No DB writes, no lock.
-        # Group fetches by library so phase 2 can commit per library —
-        # an OOM kill mid-scan won't roll back already-synced libraries.
+    def _sync_phase_fetch(self, summary: dict[str, int]) -> dict[str, list[_PlexItemFetch]]:
+        """Pull every library's items + watch history from Plex into memory.
+
+        Returns a ``lib_id -> [PlexItemFetch]`` mapping. No DB writes
+        happen here. Fetch failures are logged per-library and
+        accumulate into ``summary["errors"]`` so a single bad library
+        cannot abort the whole sync. The mapping only contains
+        successfully-fetched libraries so the write phase will not
+        observe a partial fetch.
+        """
         per_lib_fetches: dict[str, list[_PlexItemFetch]] = {}
-        successfully_scanned: list[str] = []
         for lib_id in self._library_ids:
             try:
                 per_lib_fetches[lib_id] = self._fetcher.fetch_library_items(lib_id)
-                successfully_scanned.append(lib_id)
             except (PlexApiException, requests.RequestException, sqlite3.Error):
                 # skip-one-bad-library — a fetch failure must not abort other libraries
                 logger.exception("Library sync failed for library %s", lib_id)
                 summary["errors"] += 1
+        return per_lib_fetches
 
-        # Phase 2: per-library write transactions. No network calls
-        # happen past this point, so the write lock is held only for
-        # one library's UPSERTs at a time.
-        for lib_id in successfully_scanned:
-            fetches = per_lib_fetches.get(lib_id, [])
+    def _sync_phase_write(
+        self,
+        per_lib_fetches: dict[str, list[_PlexItemFetch]],
+        summary: dict[str, int],
+    ) -> None:
+        """Apply per-library UPSERTs + orphan cleanup, one transaction each.
+
+        No network calls happen here, so the SQLite write lock is held
+        only for one library's UPSERTs at a time. A malformed ``lib_id``
+        (rare — would mean the Plex section tree contains a non-numeric
+        key, which the API does not currently emit but could on a
+        corrupted server) skips orphan removal for that library rather
+        than crashing the whole sync.
+        """
+        for lib_id, fetches in per_lib_fetches.items():
             seen_lib_keys: set[str] = {f.item["plex_rating_key"] for f in fetches}
             for f in fetches:
                 _phase_upsert_item(self._conn, f, self._arr_cache, f.media_type)
                 summary["synced"] += 1
-            # Per-library orphan cleanup so an empty result on one
-            # library cannot wipe items belonging to another.  A malformed
-            # ``lib_id`` (rare — would mean the Plex section tree contains
-            # a non-numeric key, which the API does not currently emit but
-            # could on a corrupted server) skips orphan removal for this
-            # library rather than crashing the whole sync.
             try:
                 lib_set = _coerce_lib_ids([lib_id])
             except ValueError:
@@ -231,14 +250,6 @@ class ScanEngine:
                 continue
             summary["removed"] += self._remove_orphaned_items(seen_lib_keys, lib_set)
             self._conn.commit()
-
-        logger.info(
-            "Library sync complete: %d synced, %d orphans removed, %d errors",
-            summary["synced"],
-            summary["removed"],
-            summary["errors"],
-        )
-        return summary
 
     def run_scan(self) -> dict[str, int]:
         """Execute a full scan and return a summary dict.
@@ -261,18 +272,28 @@ class ScanEngine:
             "errors": 0,
             "removed": 0,
         }
-        # Per-library accumulator so the orphan safeguard is evaluated
-        # against each library independently — a single library's empty
-        # result cannot wipe items belonging to another library.
-        seen_by_lib: dict[str, set[str]] = {}
+        seen_by_lib = self._scan_all_libraries(summary)
+        self._cleanup_orphans_per_library(seen_by_lib, summary)
+        self._record_deletion_outcome(summary)
+        self._run_post_scan_followups()
+        return summary
 
+    def _scan_all_libraries(self, summary: dict[str, int]) -> dict[str, set[str]]:
+        """Run the per-library scan and return the ``lib_id -> seen-keys`` map.
+
+        Each library commits separately (per-library commit boundary) so
+        a SIGKILL mid-scan can only roll back the in-flight library, not
+        every successful upsert from earlier libraries. Libraries with
+        unknown or unsupported types are logged and skipped — an
+        unmapped library would silently default to ``"movie"``, so a
+        Plex library that has been re-typed (e.g. moved to ``"music"``
+        or ``"photo"``) would be scanned as if it were a movie
+        collection.
+        """
+        seen_by_lib: dict[str, set[str]] = {}
         for lib_id in self._library_ids:
             lib_type = self._library_types.get(lib_id)
             if lib_type is None:
-                # An unmapped library would silently default to "movie",
-                # so a Plex library that has been re-typed (e.g. moved to
-                # "music" or "photo") would be scanned as if it were a
-                # movie collection. Skip loudly instead.
                 logger.warning(
                     "engine.run_scan.unknown_library_type lib_id=%s — skipping; "
                     "Plex library type is unknown to the scanner. "
@@ -295,60 +316,70 @@ class ScanEngine:
                 scan_tv_library(self, lib_id, summary, seen)
             else:
                 scan_movie_library(self, lib_id, summary, seen)
-
-            # Per-library commit: bound the SQLite write-lock duration so a
-            # SIGKILL mid-scan can only roll back the in-flight library, not
-            # every successful upsert from earlier libraries.
             self._conn.commit()
+        return seen_by_lib
 
-        # Per-library orphan cleanup so a single library's empty result
-        # cannot wipe items belonging to another library.
+    def _cleanup_orphans_per_library(
+        self, seen_by_lib: dict[str, set[str]], summary: dict[str, int]
+    ) -> None:
+        """Remove orphan ``media_items`` rows for each library independently.
+
+        Each library is evaluated alone so a single library's empty
+        result cannot wipe items belonging to another library. Skipped
+        entirely in dry-run mode.
+        """
         if self._dry_run:
             logger.info("engine.run_scan.dry_run skipping orphan removal")
-        else:
-            for lib_id, seen in seen_by_lib.items():
-                try:
-                    lib_set = _coerce_lib_ids([lib_id])
-                except ValueError:
-                    logger.warning(
-                        "scanner.run_scan.malformed_lib_id lib_id=%r — "
-                        "skipping orphan removal for this library",
-                        lib_id,
-                    )
-                    continue
-                summary["removed"] += self._remove_orphaned_items(seen, lib_set)
-            self._conn.commit()
+            return
+        for lib_id, seen in seen_by_lib.items():
+            try:
+                lib_set = _coerce_lib_ids([lib_id])
+            except ValueError:
+                logger.warning(
+                    "scanner.run_scan.malformed_lib_id lib_id=%r — "
+                    "skipping orphan removal for this library",
+                    lib_id,
+                )
+                continue
+            summary["removed"] += self._remove_orphaned_items(seen, lib_set)
+        self._conn.commit()
 
+    def _record_deletion_outcome(self, summary: dict[str, int]) -> None:
+        """Execute pending deletions and record their counts in *summary*."""
         deletion_result = self.execute_deletions()
         summary["deleted"] = deletion_result["deleted"]
         summary["reclaimed_bytes"] = deletion_result["reclaimed_bytes"]
 
+    def _run_post_scan_followups(self) -> None:
+        """Refresh AI recommendations and send the deletion-warning newsletter.
+
+        Recommendations refresh runs FIRST so the newsletter reflects
+        this week's picks rather than last week's stale batch — the
+        cards are loaded from the ``suggestions`` table that
+        :func:`_refresh_recommendations` rewrites. Both calls are
+        wrapped in narrow exception handlers because either failing
+        must not abort a successful scan. Skipped entirely in dry-run
+        mode.
+        """
         if self._dry_run:
             logger.info("engine.run_scan.dry_run skipping newsletter + recommendations refresh")
-        else:
-            # Refresh AI recommendations BEFORE sending the newsletter so the
-            # email reflects this week's picks rather than last week's stale
-            # batch.  The newsletter's recommendation cards are loaded from the
-            # ``suggestions`` table that ``_refresh_recommendations`` rewrites.
-            if _get_bool_setting(self._conn, "suggestions_enabled", default=True):
-                try:
-                    _refresh_recommendations(self._conn, self._plex, secret_key=self._secret_key)
-                except (PlexApiException, requests.RequestException, sqlite3.Error):
-                    # best-effort post-scan followup — must not abort scan summary
-                    logger.exception("Recommendation generation failed — scan results unaffected")
-
+            return
+        if _get_bool_setting(self._conn, "suggestions_enabled", default=True):
             try:
-                _send_newsletter(
-                    conn=self._conn,
-                    secret_key=self._secret_key,
-                    dry_run=self._dry_run,
-                    grace_days=self._grace_days,
-                )
+                _refresh_recommendations(self._conn, self._plex, secret_key=self._secret_key)
             except (PlexApiException, requests.RequestException, sqlite3.Error):
                 # best-effort post-scan followup — must not abort scan summary
-                logger.exception("Newsletter sending failed — scan results unaffected")
-
-        return summary
+                logger.exception("Recommendation generation failed — scan results unaffected")
+        try:
+            _send_newsletter(
+                conn=self._conn,
+                secret_key=self._secret_key,
+                dry_run=self._dry_run,
+                grace_days=self._grace_days,
+            )
+        except (PlexApiException, requests.RequestException, sqlite3.Error):
+            # best-effort post-scan followup — must not abort scan summary
+            logger.exception("Newsletter sending failed — scan results unaffected")
 
     def execute_deletions(self) -> DeletionResult:
         """Execute pending deletions where the grace period has passed.

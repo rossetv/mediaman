@@ -47,91 +47,112 @@ def scan_items(
     """Shared iteration skeleton for movie and TV scan passes.
 
     Iterates *fetched* items, upserts each one, applies the common
-    protection/schedule guards, then delegates per-item evaluation to
-    *evaluate_fn*. The two callers differ only in ``media_type_fn``
-    (which selects the media type string from the fetch record) and
-    ``evaluate_fn`` (which calls the appropriate evaluator and applies
-    any domain-specific pre-skip logic such as the TV show-kept
-    check).
+    protection/schedule guards via :func:`_evaluate_scan_item`, then
+    routes the per-item ``decision`` through :func:`_apply_scan_decision`.
+    The two callers differ only in *media_type_fn* (selects the media
+    type string) and *evaluate_fn* (returns ``"schedule_deletion"``, a
+    skip marker, or ``None`` for an evaluator-driven early skip such as
+    the TV show-kept check).
 
-    Args:
-        engine: The owning :class:`ScanEngine` — provides DB connection,
-            Arr-date cache, secret key, dry-run flag, and the
-            ``_resolve_added_at`` helper.
-        fetched: Pre-fetched items from the fetch phase.
-        media_type_fn: Callable that returns the media_type string for
-            a :class:`_PlexItemFetch` record.
-        evaluate_fn: Callable ``(fetch, added_at, watch_history) ->
-            decision`` where decision is ``"schedule_deletion"`` or any
-            other value meaning "skip". May return ``None`` to signal
-            an early skip (e.g. show-kept check failed before
-            evaluation).
-        item_label: Human-readable label used in exception log messages
-            (e.g. ``"Movie"`` or ``"TV"``).
-        library_id: Plex section ID — reserved for future use; the
-            current body does not consume it, but keeping it in the
-            signature mirrors the per-library shape of the callers and
-            avoids churn in the rest of the call graph.
-        summary: Mutable summary counter dict (``scanned``,
-            ``scheduled``, ``skipped``, ``errors``).
-        seen_keys: If provided, the item's Plex rating key is added so
-            orphan detection can exclude it later.
+    *library_id* is reserved for future use — kept in the signature to
+    mirror the per-library shape of the callers and avoid churn in the
+    rest of the call graph. *seen_keys*, when provided, accumulates Plex
+    rating keys so orphan detection can exclude them later.
     """
     del library_id  # reserved; see docstring
-    conn = engine._conn
     for f in fetched:
         summary["scanned"] += 1
-        item = f.item
-        watch_history = f.watch_history
         try:
-            media_id = item["plex_rating_key"]
-            if seen_keys is not None:
-                seen_keys.add(media_id)
-            _phase_upsert_item(conn, f, engine._arr_cache, media_type_fn(f))
-            repository.update_last_watched(conn, media_id, watch_history)
-
-            if repository.is_protected(conn, media_id):
+            media_id, decision = _evaluate_scan_item(
+                engine, f, media_type_fn, evaluate_fn, seen_keys
+            )
+            if decision is None or decision == _SKIP:
+                # ``None`` = evaluator early-skip (e.g. show-kept);
+                # ``_SKIP`` = guard-driven skip (protected / already scheduled).
                 summary["skipped"] += 1
                 continue
-
-            if repository.is_already_scheduled(conn, media_id):
-                summary["skipped"] += 1
-                continue
-
-            added_at = engine._resolve_added_at(cast(dict[str, object], item))
-            decision = evaluate_fn(f, added_at, watch_history)
-
-            if decision is None:
-                # evaluate_fn signalled an early skip (e.g. show-kept).
-                summary["skipped"] += 1
-                continue
-
-            if decision == "schedule_deletion":
-                if engine._dry_run:
-                    # Dry-run preview: count what *would* be scheduled
-                    # but write nothing. Both ``scheduled_actions`` and
-                    # the audit_log row inside ``schedule_deletion``
-                    # are skipped.
-                    summary["scheduled"] += 1
-                else:
-                    is_reentry = repository.has_expired_snooze(conn, media_id)
-                    _phase_schedule_deletion(
-                        conn,
-                        media_id=media_id,
-                        is_reentry=is_reentry,
-                        grace_days=engine._grace_days,
-                        secret_key=engine._secret_key,
-                    )
-                    summary["scheduled"] += 1
-            else:
-                summary["skipped"] += 1
+            _apply_scan_decision(engine, media_id, decision, summary)
         except Exception:
+            # broad — per-item failures must not abort the rest of the library
             summary["errors"] += 1
             logger.exception(
                 "%s scan item failed (plex_rating_key=%s)",
                 item_label,
-                item.get("plex_rating_key", "?"),
+                f.item.get("plex_rating_key", "?"),
             )
+
+
+# Sentinel returned by _evaluate_scan_item when a guard short-circuits
+# evaluation. Kept distinct from None (evaluator early-skip) and from any
+# real evaluator string so scan_items can distinguish the two skip paths.
+_SKIP = "_skip"
+
+
+def _evaluate_scan_item(
+    engine: ScanEngine,
+    f: _PlexItemFetch,
+    media_type_fn: Callable[[_PlexItemFetch], str],
+    evaluate_fn: Callable[[_PlexItemFetch, datetime, Sequence[Mapping[str, object]]], str | None],
+    seen_keys: set[str] | None,
+) -> tuple[str, str | None]:
+    """Upsert one item and return ``(media_id, decision)``.
+
+    ``decision`` is the evaluator's return value
+    (``"schedule_deletion"``, a skip marker, or ``None`` for an
+    evaluator-driven early skip such as the TV show-kept check). When
+    the protection / already-scheduled guards fire we return
+    ``(media_id, _SKIP)`` so the caller bumps the skipped counter
+    without invoking the evaluator.
+    """
+    conn = engine._conn
+    item = f.item
+    media_id = item["plex_rating_key"]
+    if seen_keys is not None:
+        seen_keys.add(media_id)
+    _phase_upsert_item(conn, f, engine._arr_cache, media_type_fn(f))
+    repository.update_last_watched(conn, media_id, f.watch_history)
+
+    if repository.is_protected(conn, media_id):
+        return media_id, _SKIP
+    if repository.is_already_scheduled(conn, media_id):
+        return media_id, _SKIP
+
+    added_at = engine._resolve_added_at(cast(dict[str, object], item))
+    decision = evaluate_fn(f, added_at, f.watch_history)
+    return media_id, decision
+
+
+def _apply_scan_decision(
+    engine: ScanEngine,
+    media_id: str,
+    decision: str,
+    summary: dict[str, int],
+) -> None:
+    """Apply a per-item decision (``schedule_deletion`` or skip).
+
+    Branches on dry-run mode and re-entry status; bumps the matching
+    summary counter. Any decision other than ``"schedule_deletion"`` is
+    treated as a skip so the caller doesn't have to duplicate the
+    bookkeeping.
+    """
+    if decision != "schedule_deletion":
+        summary["skipped"] += 1
+        return
+    if engine._dry_run:
+        # Dry-run preview: count what *would* be scheduled but write
+        # nothing. Both ``scheduled_actions`` and the audit_log row
+        # inside ``schedule_deletion`` are skipped.
+        summary["scheduled"] += 1
+        return
+    is_reentry = repository.has_expired_snooze(engine._conn, media_id)
+    _phase_schedule_deletion(
+        engine._conn,
+        media_id=media_id,
+        is_reentry=is_reentry,
+        grace_days=engine._grace_days,
+        secret_key=engine._secret_key,
+    )
+    summary["scheduled"] += 1
 
 
 def scan_movie_library(
