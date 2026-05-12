@@ -8,6 +8,7 @@ handling of encrypt/decrypt failures) only need to be made once.
 
 from __future__ import annotations
 
+import binascii
 import json
 import logging
 import os
@@ -100,7 +101,13 @@ def get_setting(
                 conn=conn,
                 aad=key.encode(),
             )
-        except (sqlite3.OperationalError, sqlite3.DatabaseError, InvalidTag, CryptoInputError):
+        except (
+            sqlite3.OperationalError,
+            sqlite3.DatabaseError,
+            InvalidTag,
+            CryptoInputError,
+            binascii.Error,
+        ):
             # Narrow exception list:
             # * sqlite3.* — salt lookup failed (corrupted bootstrap
             #   row, locked DB, schema drift)
@@ -109,6 +116,8 @@ def get_setting(
             #   already retried before this fires)
             # * CryptoInputError — malformed ciphertext (empty or
             #   exceeds max length)
+            # * binascii.Error — ciphertext is not valid base64 (e.g.
+            #   incorrect padding from a truncated or corrupted value)
             #
             # The previous ``except Exception`` swallowed everything
             # including programmer errors (e.g. a typo in the call

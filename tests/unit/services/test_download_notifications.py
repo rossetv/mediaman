@@ -186,8 +186,14 @@ class TestSonarrSeriesMatching:
         conn, sent = self._setup(tmp_path, monkeypatch)
 
         # Insert a pending Sonarr row with only a TVDB id.
-        insert_download_notification(conn, email="user@example.com", title="Severance",
-                                     media_type="tv", tvdb_id=370524, service="sonarr")
+        insert_download_notification(
+            conn,
+            email="user@example.com",
+            title="Severance",
+            media_type="tv",
+            tvdb_id=370524,
+            service="sonarr",
+        )
 
         # Sonarr reports the series with tmdbId=None but a matching tvdbId.
         sonarr_client = MagicMock()
@@ -224,8 +230,14 @@ class TestSonarrSeriesMatching:
 
         conn, sent = self._setup(tmp_path, monkeypatch)
 
-        insert_download_notification(conn, email="user@example.com", title="Nobody Home",
-                                     media_type="tv", tvdb_id=999999, service="sonarr")
+        insert_download_notification(
+            conn,
+            email="user@example.com",
+            title="Nobody Home",
+            media_type="tv",
+            tvdb_id=999999,
+            service="sonarr",
+        )
 
         sonarr_client = MagicMock()
         sonarr_client.get_series.return_value = [

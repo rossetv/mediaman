@@ -86,7 +86,9 @@ def _fetch_sonarr_series_detail(
     return {"tracked": True, "seasons_in_library": in_library}
 
 
-def _extract_credits(data: dict[str, Any], media_type: str) -> tuple[int | None, str | None, list[dict[str, object]]]:
+def _extract_credits(
+    data: dict[str, Any], media_type: str
+) -> tuple[int | None, str | None, list[dict[str, object]]]:
     if media_type == "movie":
         runtime = data.get("runtime")
         director: str | None = next(

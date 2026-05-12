@@ -28,6 +28,7 @@ class SchedulerStartupRefused(Exception):
     the container.
     """
 
+
 # Bounded wait at shutdown so a SIGTERM can't be wedged forever by a
 # long-running scan job. 30 s is comfortably longer than the
 # inter-request work each scan loop iteration performs (DB write +

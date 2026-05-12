@@ -274,7 +274,9 @@ class TestApiRemoveShowKeep:
         _insert_season(conn, "m-X", "rk-show-X", "Galaxy Quest", season=1)
 
         # Create a keep rule first
-        insert_kept_show(conn, show_rating_key="rk-show-X", show_title="Galaxy Quest", action="protected_forever")
+        insert_kept_show(
+            conn, show_rating_key="rk-show-X", show_title="Galaxy Quest", action="protected_forever"
+        )
 
         app = app_factory(kept_router, conn=conn)
         client = authed_client(app, conn)

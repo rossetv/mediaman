@@ -107,7 +107,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _fetch_protected(conn: sqlite3.Connection) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+def _fetch_protected(
+    conn: sqlite3.Connection,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     """Return (forever_items, snoozed_items) from scheduled_actions joined with media_items."""
     now = now_iso()
     rows = fetch_protected_items(conn, now)
