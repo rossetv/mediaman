@@ -23,7 +23,7 @@ from collections.abc import Iterable
 
 from cryptography.exceptions import InvalidTag
 
-from mediaman.crypto import decrypt_value, encrypt_value
+from mediaman.crypto import CryptoInputError, decrypt_value, encrypt_value
 from mediaman.services.infra.settings_reader import ConfigDecryptError
 
 #: Sentinel value displayed in the UI and sent back when a secret field is
@@ -119,11 +119,11 @@ def load_settings(
                 )
             # rationale: tightened to the exact exception set raised by
             # the AES-GCM decrypt path — InvalidTag for AAD/ciphertext
-            # corruption, ValueError for malformed length / unknown
-            # version envelopes, binascii.Error for base64 decode failure.
+            # corruption, CryptoInputError for malformed length / empty
+            # ciphertext, binascii.Error for base64 decode failure.
             # A broader ``except Exception`` would swallow programmer
             # bugs (TypeError, AttributeError) in the same banner.
-            except (InvalidTag, ValueError, binascii.Error) as exc:
+            except (InvalidTag, CryptoInputError, binascii.Error) as exc:
                 logger.warning(
                     "Failed to decrypt setting %r — surfacing error to caller",
                     row["key"],

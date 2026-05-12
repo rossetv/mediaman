@@ -46,6 +46,7 @@ from ._aes_key import (  # noqa: F401
     _MIN_URLSAFE_UNIQUE,
     _SALT_SETTING_KEY,
     _V2_PREFIX,
+    CryptoInputError,
     _db_path,
     _derive_aes_key_hkdf,
     _load_or_create_salt,
@@ -124,15 +125,15 @@ def decrypt_value(
             settings row's key name.
 
     Raises:
-        ValueError: If *encrypted* is empty or exceeds the maximum
+        CryptoInputError: If *encrypted* is empty or exceeds the maximum
             ciphertext length.
         InvalidTag: When the ciphertext fails authentication, or when a
             v1 ciphertext is presented (run migration v35 first).
     """
     if not encrypted:
-        raise ValueError("decrypt_value: empty ciphertext")
+        raise CryptoInputError("decrypt_value: empty ciphertext")
     if len(encrypted) > _MAX_CIPHERTEXT_LEN:
-        raise ValueError("decrypt_value: ciphertext exceeds max length")
+        raise CryptoInputError("decrypt_value: ciphertext exceeds max length")
 
     raw = base64.urlsafe_b64decode(encrypted)
 

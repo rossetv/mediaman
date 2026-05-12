@@ -18,6 +18,16 @@ from mediaman.config import Config
 
 logger = logging.getLogger(__name__)
 
+
+class SchedulerStartupRefused(Exception):
+    """Raised when the scheduler cannot start due to a fatal pre-flight failure.
+
+    Callers (the FastAPI lifespan) catch this to record the refusal reason on
+    ``app.state.scheduler_error`` and continue serving the web UI — the
+    operator can then investigate via ``/readyz`` without having to restart
+    the container.
+    """
+
 # Bounded wait at shutdown so a SIGTERM can't be wedged forever by a
 # long-running scan job. 30 s is comfortably longer than the
 # inter-request work each scan loop iteration performs (DB write +
@@ -127,7 +137,7 @@ def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
 
     try:
         if not canary_ok:
-            raise RuntimeError(
+            raise SchedulerStartupRefused(
                 "Refusing to start scheduler: AES canary check failed. "
                 "Fix MEDIAMAN_SECRET_KEY (or re-enter encrypted settings) "
                 "and restart. The web UI is still accessible so an admin "
@@ -243,6 +253,7 @@ def shutdown_scheduling() -> None:
 
 __all__ = [
     "_SHUTDOWN_TIMEOUT_SECONDS",
+    "SchedulerStartupRefused",
     "_run_library_sync_job",
     "_run_scheduled_scan",
     "_stuck_deletion_failures",

@@ -67,6 +67,17 @@ from mediaman.services.infra._url_safety_blocks import (
 
 logger = logging.getLogger(__name__)
 
+
+class SSRFRefused(Exception):
+    """Raised when a URL fails the SSRF guard and the caller cannot proceed.
+
+    Distinct from the bool return of :func:`is_safe_outbound_url` — use this
+    when the refusal must propagate up the call stack as a typed exception
+    rather than a falsy return value.  Callers catch ``SSRFRefused`` to log
+    and skip rather than letting a generic ``ValueError`` bubble through
+    framework error handlers.
+    """
+
 #: External hosts mediaman speaks to that are NOT configured by the
 #: operator. These are static for the lifetime of the codebase and are
 #: always trusted when the allowlist is enforced. Adding to this list

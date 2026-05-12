@@ -57,6 +57,15 @@ from mediaman.web.auth._password_hash_helpers import (
 logger = logging.getLogger(__name__)
 
 
+class UserExistsError(Exception):
+    """Raised by :func:`create_user` when *username* is already taken.
+
+    Callers can catch this specifically instead of a generic ``ValueError``
+    so the HTTP layer can map it to a 409 without accidentally swallowing
+    unrelated ``ValueError`` exceptions from deeper in the stack.
+    """
+
+
 class UserRecord(TypedDict):
     """A single admin user row returned by :func:`list_users`."""
 
@@ -140,7 +149,7 @@ def create_user(
     except sqlite3.IntegrityError as exc:
         message = (exc.args[0] if exc.args else "").lower()
         if "unique" in message and "admin_users.username" in message:
-            raise ValueError(f"User '{username}' already exists") from exc
+            raise UserExistsError(f"User '{username}' already exists") from exc
         logger.error("create_user integrity_error user=%s detail=%s", username, exc)
         raise
 
