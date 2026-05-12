@@ -231,7 +231,7 @@ defect. The diagram is the contract.
 
 ### 2.1 `core/`
 
-**Purpose.** Pure, dependency-free utilities: time parsing, URL safety, formatting, small
+**Purpose.** Pure, dependency-free utilities: time parsing, formatting, small
 data primitives.
 
 **Allowed deps.** Standard library only. No third-party imports. No internal imports — `core`
@@ -255,10 +255,10 @@ so `core/` is the wrong home); see [§2.6](#26-services).
 **Allowed DB access.** Crypto owns two specific `settings` rows and reads/writes
 them itself rather than going through a repository:
 
-- `aes_canary_v1` — the encrypted-canary ciphertext used by
+- `aes_kdf_canary` — the encrypted-canary ciphertext used by
   :func:`is_canary_valid` to detect a `MEDIAMAN_SECRET_KEY` mismatch at
   boot. Read on every startup; written on first run via `INSERT OR IGNORE`.
-- `aes_salt_v1` — the per-install HKDF salt used to derive the AES key.
+- `aes_kdf_salt` — the per-install HKDF salt used to derive the AES key.
   Read on every encrypt/decrypt; written on first run via `INSERT OR IGNORE`.
 
 These rows are the storage for the crypto module's own state — they are
@@ -334,8 +334,8 @@ through the documented public surface of that sibling.
 **Subpackages:**
 
 - `services/infra/` — shared plumbing: `http/client.py` (the only `requests.Session` allowed
-  in the codebase), `settings_reader.py`, `storage.py`, `format.py`. Other services import
-  `infra`; `infra` imports nothing from a sibling.
+  in the codebase), `settings_reader.py`, `storage.py`, `format.py`, `url_safety.py`,
+  `path_safety.py`. Other services import `infra`; `infra` imports nothing from a sibling.
 - `services/arr/` — Sonarr + Radarr. Driven by a single `spec` so client divergence stays
   declarative. `base.ArrClient` is the only HTTP-facing class; `sonarr.py` and `radarr.py`
   are thin shims for backwards-compatible imports.
