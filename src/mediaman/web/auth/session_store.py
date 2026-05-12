@@ -15,6 +15,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import TypedDict
 
+from mediaman.core.time import parse_iso_strict_utc
 from mediaman.core.time import parse_iso_utc as _parse_iso_aware
 from mediaman.crypto import generate_session_token
 from mediaman.web.auth._session_fingerprint import (
@@ -114,15 +115,14 @@ def _parse_last_used(raw: str | None, username: str) -> datetime | None:
     """
     if not raw:
         return None
-    try:
-        return datetime.fromisoformat(raw)
-    except ValueError:
+    dt = parse_iso_strict_utc(raw)
+    if dt is None:
         logger.warning(
             "session.corrupt_last_used user=%s last_used_at=%r",
             username,
             raw,
         )
-        return None
+    return dt
 
 
 def _exec_with_commit(conn: sqlite3.Connection, sql: str, params: tuple) -> None:

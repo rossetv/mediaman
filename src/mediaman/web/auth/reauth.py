@@ -45,11 +45,11 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import bcrypt
 
-from mediaman.core.time import now_utc
+from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.web.auth._token_hashing import hash_token as _hash_token
 
 logger = logging.getLogger(__name__)
@@ -294,15 +294,10 @@ def has_recent_reauth(
     if row["username"] != username:
         return False
     now = _now()
-    try:
-        granted = datetime.fromisoformat(row["granted_at"])
-        expires = datetime.fromisoformat(row["expires_at"])
-    except (TypeError, ValueError):
+    granted = parse_iso_strict_utc(row["granted_at"])
+    expires = parse_iso_strict_utc(row["expires_at"])
+    if granted is None or expires is None:
         return False
-    if granted.tzinfo is None:
-        granted = granted.replace(tzinfo=UTC)
-    if expires.tzinfo is None:
-        expires = expires.replace(tzinfo=UTC)
     # Honour both the stored expiry AND the per-call max_age clamp so a
     # caller can demand a stricter window than the original grant.
     if now > expires:
