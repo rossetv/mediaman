@@ -133,11 +133,10 @@ def clear_scheduled(
 ) -> Response | dict[str, object]:
     """Delete all pending scheduled_deletion actions.
 
-    Destructive admin action — wrapped in ``BEGIN IMMEDIATE`` and the
-    audit insert lives in the same transaction via
-    :func:`security_event_or_raise`, so a "rows deleted but no audit
-    trail" outcome is impossible. If the audit blows up, the delete
-    rolls back.
+    Destructive admin action — :func:`clear_pending_deletions` opens
+    ``BEGIN IMMEDIATE`` and writes the audit row in the same transaction,
+    so a "rows deleted but no audit trail" outcome is impossible. If the
+    audit blows up, the delete rolls back.
 
     Rate-limited per-admin (3/min, 20/day) so a leaked session cookie
     cannot be used to repeatedly nuke the scheduled queue.
@@ -149,9 +148,7 @@ def clear_scheduled(
         )
     conn = get_db()
     try:
-        cleared = clear_pending_deletions(
-            conn, audit_actor=admin, audit_ip=get_client_ip(request)
-        )
+        cleared = clear_pending_deletions(conn, audit_actor=admin, audit_ip=get_client_ip(request))
     except sqlite3.Error:
         logger.exception("scan.clear failed user=%s", admin)
         return respond_err("internal_error", status=500)
