@@ -160,9 +160,7 @@ def send_newsletter(
     else:
         has_recommendations = False
 
-    scheduled_items = _load_scheduled_items(
-        conn, secret_key, base_url, now_utc(), mark_notified
-    )
+    scheduled_items = _load_scheduled_items(conn, secret_key, base_url, now_utc(), mark_notified)
     if not scheduled_items and not has_recommendations:
         logger.debug("Newsletter skipped — nothing to report")
         return
