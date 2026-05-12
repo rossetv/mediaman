@@ -551,3 +551,82 @@ class TestTrustedProxiesParser:
 
         with caplog.at_level(logging.CRITICAL, logger=ip_resolver_module.__name__):
             assert cloudflare_proxies() == []
+
+
+# ---------------------------------------------------------------------------
+# XFF right-to-left walk (prevents leftmost-spoof bypass)
+# ---------------------------------------------------------------------------
+
+
+class TestXffRightmostWalk:
+    def test_attacker_cannot_spoof_leftmost_xff(self, monkeypatch):
+        """Right-to-left walk ignores an attacker-prepended leftmost entry."""
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
+
+        class FakeRequest:
+            headers = {"x-forwarded-for": "1.2.3.4, 198.51.100.7, 10.0.0.1"}
+            client = type("C", (), {"host": "10.0.0.1"})()
+
+        # Must return the real client (rightmost non-trusted) — 198.51.100.7.
+        # Previous naive implementation returned 1.2.3.4.
+        assert get_client_ip(FakeRequest()) == "198.51.100.7"
+
+    def test_all_trusted_falls_back_to_peer(self, monkeypatch):
+        """If every XFF entry is a trusted proxy, fall back to the direct peer."""
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
+
+        class FakeRequest:
+            headers = {"x-forwarded-for": "10.0.0.1, 10.0.0.2"}
+            client = type("C", (), {"host": "10.0.0.2"})()
+
+        assert get_client_ip(FakeRequest()) == "10.0.0.2"
+
+
+# ---------------------------------------------------------------------------
+# CF-Connecting-IP header handling
+# ---------------------------------------------------------------------------
+
+
+class TestCfConnectingIp:
+    def test_cf_connecting_ip_preferred(self, monkeypatch):
+        # cf-connecting-ip is honoured ONLY when the peer is in the dedicated
+        # MEDIAMAN_CLOUDFLARE_PROXIES list (not the broader TRUSTED_PROXIES).
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
+        monkeypatch.setenv("MEDIAMAN_CLOUDFLARE_PROXIES", "10.0.0.0/8")
+
+        class FakeRequest:
+            headers = {
+                "cf-connecting-ip": "198.51.100.7",
+                "x-forwarded-for": "1.2.3.4, 10.0.0.1",
+            }
+            client = type("C", (), {"host": "10.0.0.1"})()
+
+        # CF-Connecting-IP beats XFF when peer is in the Cloudflare allowlist.
+        assert get_client_ip(FakeRequest()) == "198.51.100.7"
+
+    def test_cf_connecting_ip_ignored_if_peer_not_cloudflare(self, monkeypatch):
+        # Peer is in TRUSTED_PROXIES but NOT in CLOUDFLARE_PROXIES — XFF wins,
+        # cf-connecting-ip is ignored. This guards against a non-Cloudflare
+        # reverse proxy spoofing client IPs via the CF header.
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
+        monkeypatch.delenv("MEDIAMAN_CLOUDFLARE_PROXIES", raising=False)
+
+        class FakeRequest:
+            headers = {
+                "cf-connecting-ip": "198.51.100.7",
+                "x-forwarded-for": "1.2.3.4, 10.0.0.1",
+            }
+            client = type("C", (), {"host": "10.0.0.1"})()
+
+        assert get_client_ip(FakeRequest()) == "1.2.3.4"
+
+    def test_cf_connecting_ip_ignored_if_peer_untrusted(self, monkeypatch):
+        monkeypatch.delenv("MEDIAMAN_TRUSTED_PROXIES", raising=False)
+        monkeypatch.delenv("MEDIAMAN_CLOUDFLARE_PROXIES", raising=False)
+
+        class FakeRequest:
+            headers = {"cf-connecting-ip": "1.1.1.1"}
+            client = type("C", (), {"host": "203.0.113.99"})()
+
+        # Untrusted peer → ignore any forwarded header, return the peer.
+        assert get_client_ip(FakeRequest()) == "203.0.113.99"

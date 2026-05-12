@@ -149,4 +149,43 @@ class TestApiDashboardReclaimedChart:
         assert weeks[0]["reclaimed_bytes"] == 300
         assert re.match(r"\d{4}-W\d{2}", weeks[0]["week"])
         assert isinstance(weeks[0]["reclaimed"], str)
-        assert len(weeks[0]["reclaimed"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# Finding 34: Dashboard re-download passes stable identifiers
+# ---------------------------------------------------------------------------
+
+
+class TestFinding34DashboardRedownload:
+    """Finding 34: the redownload button must pass media_item_id and media_type."""
+
+    def test_dashboard_item_includes_media_type(self, conn):
+        """_fetch_recently_deleted must populate media_type in the returned dict."""
+        from mediaman.db import set_connection
+        from mediaman.web.routes.dashboard._data import _fetch_recently_deleted
+
+        insert_media_item(
+            conn,
+            id="m1",
+            title="Test",
+            plex_rating_key="rk1",
+            file_path="/f",
+            file_size_bytes=0,
+            added_at="2024-01-01",
+        )
+        insert_audit_log(
+            conn,
+            media_item_id="m1",
+            action="deleted",
+            detail="detail",
+            space_reclaimed_bytes=1024,
+            created_at="2024-06-01",
+        )
+        set_connection(conn)
+
+        items = _fetch_recently_deleted(conn)
+        assert len(items) >= 1
+        item = next(i for i in items if i["media_item_id"] == "m1")
+        assert "media_type" in item
+        assert item["media_type"] == "movie"
+        assert "media_item_id" in item

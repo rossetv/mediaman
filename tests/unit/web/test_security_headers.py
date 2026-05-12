@@ -830,3 +830,108 @@ class TestForcePasswordChangeHealthExempt:
         client.cookies.set("session_token", "any-stale-cookie")
         resp = client.get("/readyz")
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# CSP directive content checks
+# ---------------------------------------------------------------------------
+
+
+class TestCspDirectives:
+    """Spot-checks on the static _CSP constant in security_headers."""
+
+    def test_img_src_permissive_but_scoped(self):
+        """img-src allows any HTTPS (posters come from many CDNs).
+
+        The attack surface from a permissive img-src is limited —
+        images can't execute code — and a strict allowlist breaks
+        the Downloads/Library/Recommended pages whenever Radarr or
+        Sonarr return a poster from a CDN we didn't enumerate.
+        """
+        from mediaman.web.middleware.security_headers import _CSP
+
+        # img-src accepts self, inline data, blobs, and any https: origin.
+        assert "img-src 'self' data: blob: https:" in _CSP
+        # script-src remains scoped (no wildcards beyond unsafe-inline).
+        assert " https:" not in _CSP.split("script-src")[1].split(";")[0]
+
+    def test_object_src_none(self):
+        from mediaman.web.middleware.security_headers import _CSP
+
+        assert "object-src 'none'" in _CSP
+
+    def test_frame_ancestors_none(self):
+        from mediaman.web.middleware.security_headers import _CSP
+
+        assert "frame-ancestors 'none'" in _CSP
+
+
+# ---------------------------------------------------------------------------
+# Finding 20: CSP img-src tightened
+# ---------------------------------------------------------------------------
+
+
+class TestFinding20CspImgSrc:
+    """Finding 20: CSP img-src must not allow arbitrary https: images."""
+
+    def test_csp_does_not_allow_arbitrary_https(self):
+        # Parse out the img-src directive value and check it is not the
+        # permissive bare-https: wildcard.  The new CSP has individual HTTPS
+        # host entries; "https:" without a host suffix would match anything.
+        import re
+
+        from mediaman.web.middleware.security_headers import _CSP
+
+        m = re.search(r"img-src ([^;]+)", _CSP)
+        assert m, "img-src directive not found in CSP"
+        img_src_value = m.group(1).strip()
+        # The bare scheme token "https:" allows any HTTPS host.
+        # Ensure no bare https: appears (host-qualified https://host is fine).
+        tokens = img_src_value.split()
+        assert "https:" not in tokens, (
+            f"img-src still contains bare 'https:' wildcard — tokens: {tokens}"
+        )
+
+    def test_csp_allows_tmdb(self):
+        from mediaman.web.middleware.security_headers import _CSP
+
+        assert "image.tmdb.org" in _CSP
+
+    def test_csp_allows_ytimg(self):
+        from mediaman.web.middleware.security_headers import _CSP
+
+        assert "i.ytimg.com" in _CSP
+
+
+# ---------------------------------------------------------------------------
+# 405 → 401 oracle obscure middleware
+# ---------------------------------------------------------------------------
+
+
+class TestObscure405:
+    def test_api_405_becomes_401(self):
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.get("/api/thing")
+        def _thing():
+            return {"ok": True}
+
+        c = TestClient(app)
+        # DELETE on a GET-only route is a 405 at FastAPI level — our
+        # middleware rewrites to 401 on /api/* paths to close the oracle.
+        resp = c.delete("/api/thing")
+        assert resp.status_code == 401
+
+    def test_non_api_405_preserved(self):
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.get("/page")
+        def _page():
+            return {"ok": True}
+
+        c = TestClient(app)
+        # Non-/api path should still see a real 405.
+        resp = c.delete("/page")
+        assert resp.status_code == 405
