@@ -103,7 +103,7 @@ class _SonarrMixin:
     def get_series_by_id(self, series_id: int) -> SonarrSeries:
         """Return a single series by its Sonarr ID.
 
-        Raises :exc:`ValueError` when Sonarr returns a non-dict response.
+        Raises :exc:`ArrUpstreamError` when Sonarr returns a non-dict response.
         """
         self._require_series("get_series_by_id")  # type: ignore[attr-defined]
         data = self._get(f"/api/v3/series/{series_id}")  # type: ignore[attr-defined]
