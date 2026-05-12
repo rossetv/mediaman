@@ -15,6 +15,13 @@ from mediaman.web.routes.search import (
     _download_dedup,
 )
 
+# NOTE: this file deliberately keeps its own ``app`` / ``authed_client``
+# fixtures rather than adopting the shared ``app_factory`` / ``authed_client``
+# in tests/unit/web/conftest.py. The rate-limit and dedup tests have to
+# go through the CSRF middleware that ``create_app()`` mounts (otherwise
+# the unsafe POST is refused before the limiter sees it), so the
+# router-only shared factory cannot stand in.
+
 
 @pytest.fixture
 def app(db_path, secret_key):

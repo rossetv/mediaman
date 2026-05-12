@@ -11,6 +11,12 @@ from fastapi.testclient import TestClient
 from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
 
+# NOTE: this file deliberately keeps its own ``app`` / ``authed_client``
+# fixtures rather than adopting the shared ``app_factory`` / ``authed_client``
+# in tests/unit/web/conftest.py. The show-keep flow leans on Origin-header
+# checks and other middleware from ``create_app()``; the router-level
+# shared fixture omits those.
+
 
 @pytest.fixture
 def app(db_path, secret_key):

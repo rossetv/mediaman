@@ -21,6 +21,13 @@ from mediaman.services.openai.recommendations import throttle as _throttle
 from mediaman.web.routes.recommended import api as _rec_api
 from mediaman.web.routes.recommended import refresh as _rec_refresh
 
+# NOTE: this file deliberately keeps its own ``app`` / ``authed_client``
+# fixtures rather than adopting the shared ``app_factory`` / ``authed_client``
+# in tests/unit/web/conftest.py. The recommended page test
+# (test_page_does_not_embed_share_urls) renders the live ``/recommended``
+# template, and the rate-limit tests have to pass through the CSRF
+# middleware on unsafe POSTs — both need the full ``create_app()`` stack.
+
 
 @pytest.fixture
 def app(db_path, secret_key):

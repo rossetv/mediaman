@@ -17,12 +17,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mediaman.config import Config
 from mediaman.crypto import generate_download_token, validate_poll_token
-from mediaman.db import init_db, set_connection
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.web.routes.download._tokens import _USED_TOKENS, _USED_TOKENS_LOCK
 from mediaman.web.routes.download.submit import (
@@ -36,15 +33,6 @@ from mediaman.web.routes.download.submit import (
 def _clear_used_tokens():
     with _USED_TOKENS_LOCK:
         _USED_TOKENS.clear()
-
-
-def _make_app(conn, secret_key: str) -> FastAPI:
-    app = FastAPI()
-    app.include_router(submit_router)
-    app.state.config = Config(secret_key=secret_key)
-    app.state.db = conn
-    set_connection(conn)
-    return app
 
 
 def _make_token(
@@ -64,34 +52,35 @@ def _make_token(
     )
 
 
+def _app(app_factory, conn):
+    return app_factory(submit_router, conn=conn)
+
+
 class TestDownloadSubmitValidation:
     def setup_method(self):
         _clear_used_tokens()
         _DOWNLOAD_LIMITER_POST._attempts.clear()
 
-    def test_invalid_token_returns_410(self, db_path, secret_key):
+    def test_invalid_token_returns_410(self, app_factory, conn):
         """A tampered/invalid token is rejected with 410."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
 
         resp = client.post("/download/this-is-garbage")
         assert resp.status_code == 410
         assert resp.json()["ok"] is False
 
-    def test_overlong_token_returns_410(self, db_path, secret_key):
+    def test_overlong_token_returns_410(self, app_factory, conn):
         """A token over 4096 chars is rejected with 410 without signature check."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
 
         resp = client.post(f"/download/{'x' * 4097}")
         assert resp.status_code == 410
 
-    def test_token_replay_returns_409(self, db_path, secret_key):
+    def test_token_replay_returns_409(self, app_factory, conn, secret_key):
         """Using the same token a second time returns 409."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
         token = _make_token(secret_key)
 
@@ -115,10 +104,9 @@ class TestDownloadSubmitMovie:
         _clear_used_tokens()
         _DOWNLOAD_LIMITER_POST._attempts.clear()
 
-    def test_movie_token_calls_radarr_add_movie(self, db_path, secret_key):
+    def test_movie_token_calls_radarr_add_movie(self, app_factory, conn, secret_key):
         """A movie token results in Radarr.add_movie being called."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
         token = _make_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
 
@@ -136,10 +124,9 @@ class TestDownloadSubmitMovie:
         assert data["service"] == "radarr"
         mock_radarr.add_movie.assert_called_once_with(42, "Dune")
 
-    def test_movie_response_includes_poll_token(self, db_path, secret_key):
+    def test_movie_response_includes_poll_token(self, app_factory, conn, secret_key):
         """Successful movie submit returns a valid poll token."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
         token = _make_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
 
@@ -158,10 +145,9 @@ class TestDownloadSubmitMovie:
         assert poll_payload.get("svc") == "radarr"
         assert poll_payload.get("tmdb") == 42
 
-    def test_radarr_not_configured_returns_503(self, db_path, secret_key):
+    def test_radarr_not_configured_returns_503(self, app_factory, conn, secret_key):
         """When Radarr is not configured, submit returns 503 and token is unmarked."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
         token = _make_token(secret_key, media_type="movie", tmdb_id=42)
 
@@ -177,10 +163,11 @@ class TestDownloadSubmitMovie:
             digest = hashlib.sha256(token.encode()).hexdigest()
             assert digest not in _USED_TOKENS
 
-    def test_radarr_409_safe_http_error_returns_conflict_with_poll_token(self, db_path, secret_key):
+    def test_radarr_409_safe_http_error_returns_conflict_with_poll_token(
+        self, app_factory, conn, secret_key
+    ):
         """If Radarr raises SafeHTTPError 409 (already exists), returns 409 with poll token."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
         token = _make_token(secret_key, media_type="movie", tmdb_id=42)
 
@@ -200,10 +187,9 @@ class TestDownloadSubmitMovie:
         assert "already exists" in body["error"]
         assert "poll_token" in body
 
-    def test_radarr_502_returns_error_and_token_unmarked(self, db_path, secret_key):
+    def test_radarr_502_returns_error_and_token_unmarked(self, app_factory, conn, secret_key):
         """A non-409 Arr error returns 502 and the token is unmarked for retry."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
         token = _make_token(secret_key, media_type="movie", tmdb_id=42)
 
@@ -225,10 +211,9 @@ class TestDownloadSubmitMovie:
         with _USED_TOKENS_LOCK:
             assert digest not in _USED_TOKENS
 
-    def test_notification_recorded_on_success(self, db_path, secret_key):
+    def test_notification_recorded_on_success(self, app_factory, conn, secret_key):
         """A successful submit records a download notification in the DB."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
         token = _make_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
 
@@ -252,10 +237,9 @@ class TestDownloadSubmitTV:
         _clear_used_tokens()
         _DOWNLOAD_LIMITER_POST._attempts.clear()
 
-    def test_tv_token_calls_sonarr_add_series(self, db_path, secret_key):
+    def test_tv_token_calls_sonarr_add_series(self, app_factory, conn, secret_key):
         """A TV token results in Sonarr.add_series being called."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
         token = _make_token(secret_key, title="Severance", media_type="tv", tmdb_id=136315)
 
@@ -274,10 +258,9 @@ class TestDownloadSubmitTV:
         assert data["service"] == "sonarr"
         mock_sonarr.add_series.assert_called_once_with(999, "Severance")
 
-    def test_sonarr_no_tvdb_id_returns_422(self, db_path, secret_key):
+    def test_sonarr_no_tvdb_id_returns_422(self, app_factory, conn, secret_key):
         """If the Sonarr lookup result has no tvdbId, submit returns 422 and unmarks token."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
         token = _make_token(secret_key, title="Mystery Show", media_type="tv", tmdb_id=999)
 
@@ -292,10 +275,9 @@ class TestDownloadSubmitTV:
         assert resp.status_code == 422
         assert resp.json()["ok"] is False
 
-    def test_sonarr_not_configured_returns_503(self, db_path, secret_key):
+    def test_sonarr_not_configured_returns_503(self, app_factory, conn, secret_key):
         """When Sonarr is not configured, TV submit returns 503."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
         token = _make_token(secret_key, media_type="tv", tmdb_id=42)
 
@@ -318,9 +300,10 @@ class TestDownloadSubmitRefusesMissingTmdbId:
         _clear_used_tokens()
         _DOWNLOAD_LIMITER_POST._attempts.clear()
 
-    def test_movie_without_tmdb_returns_422_and_does_not_call_radarr(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+    def test_movie_without_tmdb_returns_422_and_does_not_call_radarr(
+        self, app_factory, conn, secret_key
+    ):
+        app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
         token = _make_token(secret_key, title="Ambiguous Title", media_type="movie", tmdb_id=None)
 
@@ -339,9 +322,10 @@ class TestDownloadSubmitRefusesMissingTmdbId:
         mock_radarr.lookup_by_term.assert_not_called()
         mock_radarr.add_movie.assert_not_called()
 
-    def test_tv_without_tmdb_returns_422_and_does_not_call_sonarr(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+    def test_tv_without_tmdb_returns_422_and_does_not_call_sonarr(
+        self, app_factory, conn, secret_key
+    ):
+        app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
         token = _make_token(secret_key, title="Ambiguous Show", media_type="tv", tmdb_id=None)
 
@@ -358,15 +342,14 @@ class TestDownloadSubmitRefusesMissingTmdbId:
         mock_sonarr.lookup_by_term.assert_not_called()
         mock_sonarr.add_series.assert_not_called()
 
-    def test_token_is_released_after_422_so_admin_can_re_issue(self, db_path, secret_key):
+    def test_token_is_released_after_422_so_admin_can_re_issue(self, app_factory, conn, secret_key):
         """After a 422 from a missing-id token, the token slot is released.
 
         The original token cannot be reused (it had no identifier), but the
         in-process replay set must not retain it — otherwise a re-issued link
         with the same email/title key would also be blocked.
         """
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
         token = _make_token(secret_key, title="Some Title", media_type="movie", tmdb_id=None)
 

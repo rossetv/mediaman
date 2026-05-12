@@ -8,15 +8,8 @@ not already covered.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mediaman.config import Config
-from mediaman.db import init_db, set_connection
-from mediaman.web.auth.password_hash import create_user
-from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.library_api import (
     _DELETE_LIMITER,
     _KEEP_LIMITER,
@@ -25,36 +18,19 @@ from mediaman.web.routes.library_api import (
 from mediaman.web.routes.library_api import (
     router as api_router,
 )
-
-
-def _make_app(conn, secret_key: str) -> FastAPI:
-    app = FastAPI()
-    app.include_router(api_router)
-    app.state.config = Config(secret_key=secret_key)
-    app.state.db = conn
-    set_connection(conn)
-    return app
-
-
-def _auth_client(app: FastAPI, conn) -> TestClient:
-    create_user(conn, "admin", "password1234", enforce_policy=False)
-    token = create_session(conn, "admin")
-    client = TestClient(app, raise_server_exceptions=True)
-    client.cookies.set("session_token", token)
-    return client
-
-
-def _now_iso() -> str:
-    return datetime.now(UTC).isoformat()
+from tests.helpers.factories import insert_media_item
 
 
 def _insert_movie(conn, media_id: str, title: str = "Test Movie") -> None:
-    conn.execute(
-        "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key, "
-        "added_at, file_path, file_size_bytes) VALUES (?, ?, 'movie', 1, ?, ?, '/f', 1000000)",
-        (media_id, title, f"rk-{media_id}", _now_iso()),
+    insert_media_item(
+        conn,
+        id=media_id,
+        title=title,
+        media_type="movie",
+        plex_rating_key=f"rk-{media_id}",
+        file_path="/f",
+        file_size_bytes=1_000_000,
     )
-    conn.commit()
 
 
 class TestPickLookupMatch:
@@ -165,17 +141,15 @@ class TestApiLibraryList:
         _DELETE_LIMITER.reset()
         _KEEP_LIMITER.reset()
 
-    def test_requires_auth(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+    def test_requires_auth(self, app_factory, conn):
+        app = app_factory(api_router, conn=conn)
         client = TestClient(app, raise_server_exceptions=True)
         resp = client.get("/api/library")
         assert resp.status_code == 401
 
-    def test_returns_paginated_response(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_returns_paginated_response(self, app_factory, authed_client, conn):
+        app = app_factory(api_router, conn=conn)
+        client = authed_client(app, conn)
         _insert_movie(conn, "m1", "Dune")
         resp = client.get("/api/library")
         assert resp.status_code == 200
@@ -185,18 +159,16 @@ class TestApiLibraryList:
         assert "page" in body
         assert "total_pages" in body
 
-    def test_empty_library_returns_zero_total(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_empty_library_returns_zero_total(self, app_factory, authed_client, conn):
+        app = app_factory(api_router, conn=conn)
+        client = authed_client(app, conn)
         resp = client.get("/api/library")
         assert resp.status_code == 200
         assert resp.json()["total"] == 0
 
-    def test_search_query_filters_results(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_search_query_filters_results(self, app_factory, authed_client, conn):
+        app = app_factory(api_router, conn=conn)
+        client = authed_client(app, conn)
         _insert_movie(conn, "m1", "Inception")
         _insert_movie(conn, "m2", "Dune")
         resp = client.get("/api/library?q=Inception")
@@ -205,19 +177,17 @@ class TestApiLibraryList:
         assert body["total"] == 1
         assert body["items"][0]["title"] == "Inception"
 
-    def test_invalid_sort_falls_back_gracefully(self, db_path, secret_key):
+    def test_invalid_sort_falls_back_gracefully(self, app_factory, authed_client, conn):
         """An unrecognised sort value does not crash; defaults to added_desc."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        app = app_factory(api_router, conn=conn)
+        client = authed_client(app, conn)
         _insert_movie(conn, "m1", "Dune")
         resp = client.get("/api/library?sort=bogus_sort")
         assert resp.status_code == 200
 
-    def test_pagination_respected(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_pagination_respected(self, app_factory, authed_client, conn):
+        app = app_factory(api_router, conn=conn)
+        client = authed_client(app, conn)
         for i in range(5):
             _insert_movie(conn, f"m{i}", f"Film {i}")
         resp = client.get("/api/library?per_page=2&page=2")
@@ -226,29 +196,26 @@ class TestApiLibraryList:
         assert body["total"] == 5
         assert len(body["items"]) == 2
 
-    def test_type_filter_movie(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_type_filter_movie(self, app_factory, authed_client, conn):
+        app = app_factory(api_router, conn=conn)
+        client = authed_client(app, conn)
         _insert_movie(conn, "m1", "Dune")
         resp = client.get("/api/library?type=movie")
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
 
-    def test_type_filter_invalid_returns_all(self, db_path, secret_key):
+    def test_type_filter_invalid_returns_all(self, app_factory, authed_client, conn):
         """An unrecognised type value is silently ignored — all items returned."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        app = app_factory(api_router, conn=conn)
+        client = authed_client(app, conn)
         _insert_movie(conn, "m1", "Dune")
         resp = client.get("/api/library?type=nonsense")
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
 
-    def test_per_page_capped_at_100(self, db_path, secret_key):
+    def test_per_page_capped_at_100(self, app_factory, authed_client, conn):
         """per_page values above 100 are rejected with 422."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        app = app_factory(api_router, conn=conn)
+        client = authed_client(app, conn)
         resp = client.get("/api/library?per_page=9999")
         assert resp.status_code == 422

@@ -4,32 +4,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mediaman.config import Config
-from mediaman.db import init_db, set_connection
 from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.history import _PER_PAGE_DEFAULT, _PER_PAGE_MAX
 from mediaman.web.routes.history import router as history_router
-
-
-def _make_app(conn, secret_key: str) -> FastAPI:
-    app = FastAPI()
-    app.include_router(history_router)
-    app.state.config = Config(secret_key=secret_key)
-    app.state.db = conn
-    set_connection(conn)
-    return app
-
-
-def _auth_client(app: FastAPI, conn) -> TestClient:
-    create_user(conn, "admin", "password1234", enforce_policy=False)
-    token = create_session(conn, "admin")
-    client = TestClient(app, raise_server_exceptions=True)
-    client.cookies.set("session_token", token)
-    return client
+from tests.helpers.factories import insert_media_item
 
 
 def _insert_audit_row(conn, action: str = "scanned", media_item_id: str = "m1") -> None:
@@ -41,17 +22,15 @@ def _insert_audit_row(conn, action: str = "scanned", media_item_id: str = "m1") 
 
 
 class TestApiHistory:
-    def test_history_requires_auth(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+    def test_history_requires_auth(self, app_factory, conn):
+        app = app_factory(history_router, conn=conn)
         client = TestClient(app, raise_server_exceptions=True)
         resp = client.get("/api/history")
         assert resp.status_code == 401
 
-    def test_history_empty_returns_valid_shape(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_history_empty_returns_valid_shape(self, app_factory, authed_client, conn):
+        app = app_factory(history_router, conn=conn)
+        client = authed_client(app, conn)
         resp = client.get("/api/history")
         assert resp.status_code == 200
         body = resp.json()
@@ -61,10 +40,9 @@ class TestApiHistory:
         assert "per_page" in body
         assert "total_pages" in body
 
-    def test_history_returns_rows(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_history_returns_rows(self, app_factory, authed_client, conn):
+        app = app_factory(history_router, conn=conn)
+        client = authed_client(app, conn)
         for action in ("scanned", "deleted", "kept"):
             _insert_audit_row(conn, action=action)
         resp = client.get("/api/history")
@@ -76,10 +54,9 @@ class TestApiHistory:
         assert "action" in item
         assert "created_at" in item
 
-    def test_history_action_filter(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_history_action_filter(self, app_factory, authed_client, conn):
+        app = app_factory(history_router, conn=conn)
+        client = authed_client(app, conn)
         _insert_audit_row(conn, action="deleted", media_item_id="m1")
         _insert_audit_row(conn, action="deleted", media_item_id="m2")
         _insert_audit_row(conn, action="scanned", media_item_id="m3")
@@ -89,10 +66,9 @@ class TestApiHistory:
         assert body["total"] == 2
         assert all(i["action"] == "deleted" for i in body["items"])
 
-    def test_history_invalid_action_filter_ignored(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_history_invalid_action_filter_ignored(self, app_factory, authed_client, conn):
+        app = app_factory(history_router, conn=conn)
+        client = authed_client(app, conn)
         _insert_audit_row(conn, action="scanned", media_item_id="m1")
         _insert_audit_row(conn, action="deleted", media_item_id="m2")
         resp = client.get("/api/history?action=bogus_action_xyz")
@@ -100,10 +76,9 @@ class TestApiHistory:
         # Invalid filter is silently dropped — all rows returned
         assert resp.json()["total"] == 2
 
-    def test_history_pagination(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_history_pagination(self, app_factory, authed_client, conn):
+        app = app_factory(history_router, conn=conn)
+        client = authed_client(app, conn)
         for i in range(5):
             _insert_audit_row(conn, media_item_id=f"m{i}")
 
@@ -116,21 +91,19 @@ class TestApiHistory:
         assert resp.status_code == 200
         assert len(resp.json()["items"]) == 1
 
-    def test_per_page_max_enforced(self, db_path, secret_key):
+    def test_per_page_max_enforced(self, app_factory, authed_client, conn):
         """per_page above the maximum must be clamped/rejected by the Query constraint."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        app = app_factory(history_router, conn=conn)
+        client = authed_client(app, conn)
 
         resp = client.get(f"/api/history?per_page={_PER_PAGE_MAX + 1}")
         # FastAPI Query(le=...) returns 422 Unprocessable Entity for out-of-range values.
         assert resp.status_code == 422
 
-    def test_per_page_zero_rejected(self, db_path, secret_key):
+    def test_per_page_zero_rejected(self, app_factory, authed_client, conn):
         """per_page=0 must be rejected."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        app = app_factory(history_router, conn=conn)
+        client = authed_client(app, conn)
         resp = client.get("/api/history?per_page=0")
         assert resp.status_code == 422
 
@@ -156,20 +129,6 @@ def _insert_audit_full(
     conn.commit()
 
 
-def _insert_media_item(conn, *, id_: str, title: str, media_type: str = "movie") -> None:
-    """Insert a minimal media_items row so the JOIN can resolve a title."""
-    conn.execute(
-        """
-        INSERT INTO media_items
-            (id, title, media_type, plex_library_id, plex_rating_key,
-             added_at, file_path, file_size_bytes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (id_, title, media_type, 1, id_, "2025-01-01T00:00:00Z", "/tmp/x", 0),
-    )
-    conn.commit()
-
-
 def _insert_kept_show(conn, *, rating_key: str, title: str) -> None:
     """Insert a kept_shows row so the show-action JOIN can resolve."""
     conn.execute(
@@ -188,12 +147,11 @@ class TestHistoryPageClamp:
     or hostile URL doesn't run a wasteful OFFSET sweep AND doesn't render
     a misleading ``Page 9999 of 1`` footer."""
 
-    def _make_page_app(self, conn):
+    def _make_page_app(self, app_factory, conn):
         from unittest.mock import MagicMock
 
         from fastapi.responses import HTMLResponse
 
-        app = _make_app(conn, "0123456789abcdef" * 4)
         mock_templates = MagicMock()
 
         def fake_template_response(request, template_name, ctx):
@@ -205,11 +163,9 @@ class TestHistoryPageClamp:
             )
 
         mock_templates.TemplateResponse.side_effect = fake_template_response
-        app.state.templates = mock_templates
-        return app
+        return app_factory(history_router, conn=conn, state_extras={"templates": mock_templates})
 
-    def test_page_clamped_to_total_pages(self, db_path):
-        conn = init_db(str(db_path))
+    def test_page_clamped_to_total_pages(self, app_factory, conn):
         create_user(conn, "admin", "password1234", enforce_policy=False)
         token = create_session(conn, "admin")
 
@@ -217,7 +173,7 @@ class TestHistoryPageClamp:
         for i in range(3):
             _insert_audit_row(conn, media_item_id=f"m{i}")
 
-        app = self._make_page_app(conn)
+        app = self._make_page_app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
         client.cookies.set("session_token", token)
 
@@ -227,14 +183,13 @@ class TestHistoryPageClamp:
         assert "page=1;" in resp.text
         assert "total_pages=1" in resp.text
 
-    def test_negative_page_clamped_to_one(self, db_path):
-        conn = init_db(str(db_path))
+    def test_negative_page_clamped_to_one(self, app_factory, conn):
         create_user(conn, "admin", "password1234", enforce_policy=False)
         token = create_session(conn, "admin")
 
         _insert_audit_row(conn, media_item_id="m0")
 
-        app = self._make_page_app(conn)
+        app = self._make_page_app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
         client.cookies.set("session_token", token)
 
@@ -248,13 +203,21 @@ class TestKeptShowJoinDoesNotLeakMovieTitle:
     the rating-key namespaces collide (defensive: today's Plex doesn't
     surface that, but a future migration could)."""
 
-    def test_kept_show_resolves_to_show_title(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_kept_show_resolves_to_show_title(self, app_factory, authed_client, conn):
+        app = app_factory(history_router, conn=conn)
+        client = authed_client(app, conn)
 
         # Same rating-key value exists as both a movie and a show.
-        _insert_media_item(conn, id_="42", title="Wrong Movie Title", media_type="movie")
+        insert_media_item(
+            conn,
+            id="42",
+            title="Wrong Movie Title",
+            media_type="movie",
+            plex_rating_key="42",
+            added_at=datetime(2025, 1, 1, tzinfo=UTC),
+            file_path="/tmp/x",
+            file_size_bytes=0,
+        )
         _insert_kept_show(conn, rating_key="42", title="Right Show Title")
         _insert_audit_full(conn, action="kept_show", media_item_id="42")
 
@@ -265,14 +228,22 @@ class TestKeptShowJoinDoesNotLeakMovieTitle:
         # The kept_show JOIN must produce the show title, not the movie title.
         assert items[0]["title"] == "Right Show Title"
 
-    def test_movie_kept_does_not_pull_show_title(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_movie_kept_does_not_pull_show_title(self, app_factory, authed_client, conn):
+        app = app_factory(history_router, conn=conn)
+        client = authed_client(app, conn)
 
         # Set up a movie audit row whose rating-key happens to collide
         # with a kept_show entry.
-        _insert_media_item(conn, id_="99", title="Real Movie", media_type="movie")
+        insert_media_item(
+            conn,
+            id="99",
+            title="Real Movie",
+            media_type="movie",
+            plex_rating_key="99",
+            added_at=datetime(2025, 1, 1, tzinfo=UTC),
+            file_path="/tmp/x",
+            file_size_bytes=0,
+        )
         _insert_kept_show(conn, rating_key="99", title="Wrong Show")
         _insert_audit_full(conn, action="kept", media_item_id="99")
 
@@ -290,10 +261,9 @@ class TestDetailControlByteScrubbing:
     JSON API.  A future audit row whose detail carried a CR/LF or a
     terminal escape must not corrupt either."""
 
-    def test_control_bytes_removed_from_response(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_control_bytes_removed_from_response(self, app_factory, authed_client, conn):
+        app = app_factory(history_router, conn=conn)
+        client = authed_client(app, conn)
 
         _insert_audit_full(
             conn,
@@ -311,10 +281,9 @@ class TestDetailControlByteScrubbing:
         assert "\x1b" not in detail
         assert "\x07" not in detail
 
-    def test_visible_whitespace_preserved(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_visible_whitespace_preserved(self, app_factory, authed_client, conn):
+        app = app_factory(history_router, conn=conn)
+        client = authed_client(app, conn)
 
         _insert_audit_full(
             conn,
@@ -335,12 +304,13 @@ class TestSecurityTitleHoist:
     parsed snippet of the detail — even when the detail happens to
     contain a single-quoted phrase that the regex would otherwise grab."""
 
-    def test_security_title_does_not_pull_quoted_string_from_detail(self, db_path, secret_key):
+    def test_security_title_does_not_pull_quoted_string_from_detail(
+        self, app_factory, authed_client, conn
+    ):
         from mediaman.core.audit import security_event
 
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        app = app_factory(history_router, conn=conn)
+        client = authed_client(app, conn)
 
         # Detail body contains a single-quoted phrase that the legacy
         # regex would have lifted into the page title.

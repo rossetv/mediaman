@@ -11,14 +11,13 @@ import time as _time
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
-import pytest
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.testclient import TestClient
 
 from mediaman.config import Config
 from mediaman.crypto import generate_download_token, generate_keep_token, generate_poll_token
-from mediaman.db import init_db, set_connection
+from mediaman.db import set_connection
 from mediaman.web import register_security_middleware
 from mediaman.web.auth.middleware import get_current_admin, get_optional_admin
 from mediaman.web.routes.download import status as _status_module
@@ -32,13 +31,6 @@ SECRET = "a" * 64
 # ---------------------------------------------------------------------------
 # Helpers shared by multiple tests
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def conn(tmp_path) -> sqlite3.Connection:
-    db = init_db(str(tmp_path / "mediaman.db"))
-    yield db
-    db.close()
 
 
 def _insert_media_item(conn: sqlite3.Connection, media_id: str = "mi1") -> None:
@@ -82,17 +74,20 @@ def _make_keep_token(conn: sqlite3.Connection, media_id: str, action_id: int) ->
     return token
 
 
-def _make_keep_app(conn: sqlite3.Connection) -> tuple[FastAPI, TestClient]:
-    app = FastAPI()
-    app.include_router(keep_router)
-    app.state.config = Config(secret_key=SECRET)
-    app.state.db = conn
-    set_connection(conn)
+def _make_keep_app(app_factory, conn: sqlite3.Connection) -> tuple[FastAPI, TestClient]:
     mock_templates = MagicMock()
     mock_templates.TemplateResponse.side_effect = lambda req, tmpl, ctx: HTMLResponse(
         json.dumps({k: str(v) for k, v in ctx.items() if k != "item"}), 200
     )
+    # The keep app uses the SECRET constant rather than the conftest secret_key,
+    # so build the app with a Config override rather than the shared factory's
+    # default secret_key.
+    app = FastAPI()
+    app.include_router(keep_router)
+    app.state.config = Config(secret_key=SECRET)
+    app.state.db = conn
     app.state.templates = mock_templates
+    set_connection(conn)
     return app, TestClient(app, raise_server_exceptions=True)
 
 
@@ -172,12 +167,12 @@ class TestFinding11CSRFNoOriginWithCookie:
 class TestFinding12ForeverEndpointSeparation:
     """Finding 12: forever must be refused on the public keep POST."""
 
-    def test_forever_duration_rejected_on_public_post(self, conn):
+    def test_forever_duration_rejected_on_public_post(self, app_factory, conn):
         _insert_media_item(conn)
         action_id = _insert_scheduled_action(conn)
         token = _make_keep_token(conn, "mi1", action_id)
 
-        _, client = _make_keep_app(conn)
+        _, client = _make_keep_app(app_factory, conn)
         resp = client.post(f"/keep/{token}", data={"duration": "forever"})
 
         assert resp.status_code == 400
@@ -193,13 +188,13 @@ class TestFinding12ForeverEndpointSeparation:
             f"No 'forever' route found in keep router routes: {routes}"
         )
 
-    def test_unauthenticated_forever_returns_401(self, conn):
+    def test_unauthenticated_forever_returns_401(self, app_factory, conn):
         """Un-authed POST to /api/keep/{token}/forever must return 401."""
         _insert_media_item(conn)
         action_id = _insert_scheduled_action(conn)
         token = _make_keep_token(conn, "mi1", action_id)
 
-        _, client = _make_keep_app(conn)
+        _, client = _make_keep_app(app_factory, conn)
         resp = client.post(f"/api/keep/{token}/forever")
         assert resp.status_code == 401
 
@@ -212,52 +207,52 @@ class TestFinding12ForeverEndpointSeparation:
 class TestFinding13KeepDeadlineCheck:
     """Finding 13: keep_submit must reject rows that have expired or are not pending."""
 
-    def test_expired_action_returns_400(self, conn):
+    def test_expired_action_returns_400(self, app_factory, conn):
         """A keep POST where execute_at is in the past must return 400."""
         _insert_media_item(conn)
         action_id = _insert_scheduled_action(conn, execute_at_offset_days=-1)
         token = _make_keep_token(conn, "mi1", action_id)
 
-        _, client = _make_keep_app(conn)
+        _, client = _make_keep_app(app_factory, conn)
         resp = client.post(f"/keep/{token}", data={"duration": "30 days"})
 
         assert resp.status_code == 400
         body = json.loads(resp.text)
         assert body["error"] == "invalid_or_expired"
 
-    def test_non_pending_delete_status_returns_400(self, conn):
+    def test_non_pending_delete_status_returns_400(self, app_factory, conn):
         """A row with delete_status='deleting' must be refused."""
         _insert_media_item(conn)
         action_id = _insert_scheduled_action(conn, delete_status="deleting")
         token = _make_keep_token(conn, "mi1", action_id)
 
-        _, client = _make_keep_app(conn)
+        _, client = _make_keep_app(app_factory, conn)
         resp = client.post(f"/keep/{token}", data={"duration": "30 days"})
 
         assert resp.status_code == 400
         body = json.loads(resp.text)
         assert body["error"] == "invalid_or_expired"
 
-    def test_non_deletion_action_returns_400(self, conn):
+    def test_non_deletion_action_returns_400(self, app_factory, conn):
         """A keep POST against a 'snoozed' action (not 'scheduled_deletion') must fail."""
         _insert_media_item(conn)
         action_id = _insert_scheduled_action(conn, action="snoozed")
         token = _make_keep_token(conn, "mi1", action_id)
 
-        _, client = _make_keep_app(conn)
+        _, client = _make_keep_app(app_factory, conn)
         resp = client.post(f"/keep/{token}", data={"duration": "30 days"})
 
         assert resp.status_code == 400
         body = json.loads(resp.text)
         assert body["error"] == "invalid_or_expired"
 
-    def test_valid_pending_action_succeeds(self, conn):
+    def test_valid_pending_action_succeeds(self, app_factory, conn):
         """A valid keep POST against a pending scheduled_deletion must succeed."""
         _insert_media_item(conn)
         action_id = _insert_scheduled_action(conn)
         token = _make_keep_token(conn, "mi1", action_id)
 
-        _, client = _make_keep_app(conn)
+        _, client = _make_keep_app(app_factory, conn)
         resp = client.post(f"/keep/{token}", data={"duration": "30 days"})
 
         assert resp.status_code in (200, 302, 307)
@@ -272,6 +267,10 @@ class TestFinding14PollTokenRequired:
     """Finding 14: unauthenticated status polling must use poll_token, not download token."""
 
     def _make_status_app(self, conn: sqlite3.Connection) -> TestClient:
+        # This test wires up a status-router-only app with a dependency override
+        # to short-circuit the optional-admin lookup. The shared factory injects
+        # the same wiring but cannot install ``dependency_overrides`` from the
+        # outside, so we keep the local stand-up.
         app = FastAPI()
         from mediaman.web.routes.download import status as status_mod
 
@@ -359,6 +358,9 @@ class TestFinding15MintRequiresTmdbId:
     """Finding 15: share-token mint must refuse recommendations without a TMDB id."""
 
     def _make_rec_app(self, conn: sqlite3.Connection) -> TestClient:
+        # The recommended-api app uses ``dependency_overrides`` to short-circuit
+        # the admin lookup — same reason as TestFinding14PollTokenRequired, this
+        # has to be stood up locally rather than via the shared factory.
         app = FastAPI()
         app.include_router(rec_router)
         app.state.config = Config(secret_key=SECRET)
@@ -614,7 +616,7 @@ class TestFinding20CspImgSrc:
 class TestFinding34DashboardRedownload:
     """Finding 34: the redownload button must pass media_item_id and media_type."""
 
-    def test_dashboard_item_includes_media_type(self, conn, tmp_path):
+    def test_dashboard_item_includes_media_type(self, conn):
         """_fetch_recently_deleted must populate media_type in the returned dict."""
         from mediaman.web.routes.dashboard._data import _fetch_recently_deleted
 

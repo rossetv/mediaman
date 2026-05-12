@@ -9,6 +9,13 @@ from fastapi.testclient import TestClient
 from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
 
+# NOTE: this file deliberately keeps its own ``app`` / ``authed_client``
+# fixtures rather than adopting the shared ``app_factory`` / ``authed_client``
+# in tests/unit/web/conftest.py. Search routes depend on the full
+# ``create_app()`` lifespan: templates for ``/search``, security
+# middleware (Origin header check), and the lifespan-built static
+# mounts. The router-level shared fixture omits all of that.
+
 
 @pytest.fixture
 def app(db_path, secret_key):

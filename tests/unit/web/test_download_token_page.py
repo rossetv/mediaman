@@ -5,36 +5,25 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.testclient import TestClient
 
-from mediaman.config import Config
 from mediaman.crypto import generate_download_token, validate_poll_token
-from mediaman.db import init_db, set_connection
 from mediaman.web.routes.download import _tokens as _download_tokens
 from mediaman.web.routes.download import confirm as _download_confirm
 from mediaman.web.routes.download import router as download_router
 from mediaman.web.routes.download import submit as _download_submit
 
 
-def _make_app(conn, secret_key: str) -> FastAPI:
-    """Build a minimal FastAPI app wired to *conn* for testing."""
-    app = FastAPI()
-    app.include_router(download_router)
-    app.state.config = Config(secret_key=secret_key)
-    app.state.db = conn
-    set_connection(conn)
-
-    # Mock the templates so TemplateResponse calls are inspectable
+def _make_app(app_factory, conn):
+    """Build the download app + a JSON-echoing templates stub."""
     mock_templates = MagicMock()
 
     def fake_template_response(request, template_name, ctx):
         return HTMLResponse(json.dumps(ctx), status_code=200)
 
     mock_templates.TemplateResponse.side_effect = fake_template_response
-    app.state.templates = mock_templates
-    return app
+    return app_factory(download_router, conn=conn, state_extras={"templates": mock_templates})
 
 
 def _valid_token(
@@ -59,10 +48,9 @@ class TestDownloadPageGet:
         _download_submit._DOWNLOAD_LIMITER_POST._attempts.clear()
         _download_confirm._reset_arr_cache_for_tests()
 
-    def test_valid_token_renders_confirm_state(self, db_path, secret_key):
+    def test_valid_token_renders_confirm_state(self, app_factory, conn, secret_key):
         """GET with a valid token returns state=confirm with item details."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _make_app(app_factory, conn)
         client = TestClient(app)
 
         token = _valid_token(secret_key)
@@ -81,10 +69,9 @@ class TestDownloadPageGet:
         assert ctx["item"] is not None
         assert ctx["item"]["title"] == "Dune"
 
-    def test_invalid_token_renders_expired_state(self, db_path, secret_key):
+    def test_invalid_token_renders_expired_state(self, app_factory, conn):
         """GET with an invalid/tampered token returns state=expired."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _make_app(app_factory, conn)
         client = TestClient(app)
 
         resp = client.get("/download/this.is.not.a.valid.token")
@@ -94,10 +81,9 @@ class TestDownloadPageGet:
         assert ctx["state"] == "expired"
         assert ctx["item"] is None
 
-    def test_overlong_token_renders_expired_state(self, db_path, secret_key):
+    def test_overlong_token_renders_expired_state(self, app_factory, conn):
         """GET with a token over 4096 chars returns state=expired without decoding."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _make_app(app_factory, conn)
         client = TestClient(app)
 
         long_token = "x" * 4097
@@ -107,10 +93,9 @@ class TestDownloadPageGet:
         ctx = resp.json()
         assert ctx["state"] == "expired"
 
-    def test_valid_token_for_movie_already_in_library(self, db_path, secret_key):
+    def test_valid_token_for_movie_already_in_library(self, app_factory, conn, secret_key):
         """When Radarr says hasFile=True, download_state is in_library."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _make_app(app_factory, conn)
         client = TestClient(app)
 
         token = _valid_token(secret_key)
@@ -128,10 +113,9 @@ class TestDownloadPageGet:
         assert ctx["state"] == "confirm"
         assert ctx["item"]["download_state"] == "in_library"
 
-    def test_rate_limiter_blocks_excess_get_requests(self, db_path, secret_key):
+    def test_rate_limiter_blocks_excess_get_requests(self, app_factory, conn, secret_key):
         """GET rate limiter fires after max_attempts is exceeded."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _make_app(app_factory, conn)
         client = TestClient(app)
 
         _download_confirm._DOWNLOAD_LIMITER_GET._attempts.clear()
@@ -164,10 +148,9 @@ class TestDownloadPagePost:
         _download_submit._DOWNLOAD_LIMITER_POST._attempts.clear()
         _download_confirm._reset_arr_cache_for_tests()
 
-    def test_post_valid_movie_token_calls_radarr(self, db_path, secret_key):
+    def test_post_valid_movie_token_calls_radarr(self, app_factory, conn, secret_key):
         """POST with a valid movie token triggers Radarr add_movie."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _make_app(app_factory, conn)
         client = TestClient(app)
 
         token = _valid_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
@@ -186,10 +169,9 @@ class TestDownloadPagePost:
         assert data["service"] == "radarr"
         mock_radarr.add_movie.assert_called_once_with(42, "Dune")
 
-    def test_post_valid_tv_token_calls_sonarr(self, db_path, secret_key):
+    def test_post_valid_tv_token_calls_sonarr(self, app_factory, conn, secret_key):
         """POST with a valid TV token triggers Sonarr add_series."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _make_app(app_factory, conn)
         client = TestClient(app)
 
         token = _valid_token(secret_key, title="Severance", media_type="tv", tmdb_id=99)
@@ -209,10 +191,9 @@ class TestDownloadPagePost:
         assert data["service"] == "sonarr"
         mock_sonarr.add_series.assert_called_once()
 
-    def test_post_with_already_used_token_returns_409(self, db_path, secret_key):
+    def test_post_with_already_used_token_returns_409(self, app_factory, conn, secret_key):
         """POST with a token that's already been used returns HTTP 409."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _make_app(app_factory, conn)
         client = TestClient(app)
 
         token = _valid_token(secret_key)
@@ -234,10 +215,9 @@ class TestDownloadPagePost:
         assert resp2.status_code == 409
         assert resp2.json()["ok"] is False
 
-    def test_post_invalid_token_returns_410(self, db_path, secret_key):
+    def test_post_invalid_token_returns_410(self, app_factory, conn):
         """POST with an invalid token returns HTTP 410."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _make_app(app_factory, conn)
         client = TestClient(app)
 
         resp = client.post("/download/not.a.real.token")
@@ -246,10 +226,9 @@ class TestDownloadPagePost:
         data = resp.json()
         assert data["ok"] is False
 
-    def test_post_rate_limiter_blocks_excess_requests(self, db_path, secret_key):
+    def test_post_rate_limiter_blocks_excess_requests(self, app_factory, conn, secret_key):
         """POST rate limiter fires after max_attempts is exceeded."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _make_app(app_factory, conn)
         client = TestClient(app)
 
         _download_submit._DOWNLOAD_LIMITER_POST._attempts.clear()
@@ -303,12 +282,11 @@ class TestTwoPhaseConsumption:
         _download_submit._DOWNLOAD_LIMITER_POST._attempts.clear()
         _download_confirm._reset_arr_cache_for_tests()
 
-    def test_token_released_on_radarr_exception(self, db_path, secret_key):
+    def test_token_released_on_radarr_exception(self, app_factory, conn, secret_key):
         """A transient exception from Radarr must not permanently burn the token."""
         import requests
 
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _make_app(app_factory, conn)
         client = TestClient(app)
 
         token = _valid_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
@@ -339,12 +317,11 @@ class TestTwoPhaseConsumption:
         assert resp2.status_code == 200
         assert resp2.json()["ok"] is True
 
-    def test_token_released_on_sonarr_exception(self, db_path, secret_key):
+    def test_token_released_on_sonarr_exception(self, app_factory, conn, secret_key):
         """A transient exception from Sonarr must not permanently burn the token."""
         import requests
 
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _make_app(app_factory, conn)
         client = TestClient(app)
 
         token = _valid_token(secret_key, title="Severance", media_type="tv", tmdb_id=99)
@@ -373,12 +350,11 @@ class TestTwoPhaseConsumption:
         assert resp2.status_code == 200
         assert resp2.json()["ok"] is True
 
-    def test_token_not_released_on_409(self, db_path, secret_key):
+    def test_token_not_released_on_409(self, app_factory, conn, secret_key):
         """A SafeHTTPError 409 from Radarr means the item already exists — token stays consumed."""
         from mediaman.services.infra.http import SafeHTTPError
 
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _make_app(app_factory, conn)
         client = TestClient(app)
 
         token = _valid_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
@@ -405,7 +381,7 @@ class TestTwoPhaseConsumption:
 
         assert resp2.status_code == 409
 
-    def test_redownload_token_released_on_409(self, db_path, secret_key):
+    def test_redownload_token_released_on_409(self, app_factory, conn, secret_key):
         """For a re-download link, a 409 from Radarr means the item is already
         in the library — exactly the state the user wants to re-grab. The
         token MUST be released so the page can immediately retry rather than
@@ -413,8 +389,7 @@ class TestTwoPhaseConsumption:
         from mediaman.crypto import generate_download_token
         from mediaman.services.infra.http import SafeHTTPError
 
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _make_app(app_factory, conn)
         client = TestClient(app)
 
         # Use the redownload action — same crypto helper, action="redownload".
@@ -464,10 +439,9 @@ class TestPollingCapability:
         _download_submit._DOWNLOAD_LIMITER_POST._attempts.clear()
         _download_confirm._reset_arr_cache_for_tests()
 
-    def test_successful_post_returns_poll_token(self, db_path, secret_key):
+    def test_successful_post_returns_poll_token(self, app_factory, conn, secret_key):
         """A successful POST /download/{token} for a movie includes a poll_token."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _make_app(app_factory, conn)
         client = TestClient(app)
 
         token = _valid_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
@@ -489,10 +463,9 @@ class TestPollingCapability:
         assert poll_payload.get("svc") == "radarr"
         assert poll_payload.get("tmdb") == 42
 
-    def test_poll_token_validates_wrong_service(self, db_path, secret_key):
+    def test_poll_token_validates_wrong_service(self, app_factory, conn, secret_key):
         """A radarr poll_token must not validate for sonarr."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _make_app(app_factory, conn)
         client = TestClient(app)
 
         token = _valid_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
@@ -511,10 +484,9 @@ class TestPollingCapability:
         assert not (poll_payload.get("svc") == "sonarr" and poll_payload.get("tmdb") == 42)
         assert not (poll_payload.get("svc") == "radarr" and poll_payload.get("tmdb") == 99)
 
-    def test_status_endpoint_accepts_poll_token(self, db_path, secret_key):
+    def test_status_endpoint_accepts_poll_token(self, app_factory, conn, secret_key):
         """GET /api/download/status with a valid poll_token returns 200 without admin session."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _make_app(app_factory, conn)
         client = TestClient(app)
 
         # Mint a poll_token via a download
@@ -548,10 +520,9 @@ class TestPollingCapability:
         assert status_resp.status_code == 200
         assert status_resp.json()["state"] == "ready"
 
-    def test_status_endpoint_rejects_mismatched_poll_token(self, db_path, secret_key):
+    def test_status_endpoint_rejects_mismatched_poll_token(self, app_factory, conn, secret_key):
         """A poll_token for tmdb_id=99 must be rejected for a query on tmdb_id=42."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _make_app(app_factory, conn)
         client = TestClient(app)
 
         # Mint token for tmdb_id=99
@@ -573,10 +544,9 @@ class TestPollingCapability:
         )
         assert status_resp.status_code == 401
 
-    def test_status_endpoint_rejects_no_auth(self, db_path, secret_key):
+    def test_status_endpoint_rejects_no_auth(self, app_factory, conn):
         """GET /api/download/status with no token of any kind returns 401."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _make_app(app_factory, conn)
         client = TestClient(app)
 
         resp = client.get(
@@ -637,10 +607,9 @@ class TestYoutubeTrailerKeyValidation:
 
         assert _validate_youtube_id("abc-efg_hij") == "abc-efg_hij"
 
-    def test_suggestion_trailer_key_validated_on_page_load(self, db_path, secret_key):
+    def test_suggestion_trailer_key_validated_on_page_load(self, app_factory, conn, secret_key):
         """A malicious trailer_key from the DB is sanitised to None before rendering."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _make_app(app_factory, conn)
         client = TestClient(app)
 
         # Insert a suggestion with a malicious trailer_key

@@ -6,14 +6,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
-from mediaman.config import Config
-from mediaman.db import init_db, set_connection
-from mediaman.web.auth.password_hash import create_user
-from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.subscribers import _validate_email
 from mediaman.web.routes.subscribers import (
     router as subscribers_router,
@@ -24,21 +19,10 @@ _TEMPLATE_DIR = (
 )
 
 
-def _make_app(conn, secret_key: str) -> FastAPI:
-    app = FastAPI()
-    app.include_router(subscribers_router)
-    app.state.config = Config(secret_key=secret_key)
-    app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
-    set_connection(conn)
-    return app
-
-
-def _auth_client(app: FastAPI, conn) -> TestClient:
-    create_user(conn, "admin", "password1234", enforce_policy=False)
-    token = create_session(conn, "admin")
-    client = TestClient(app, raise_server_exceptions=True)
-    client.cookies.set("session_token", token)
-    return client
+def _templates_state() -> dict[str, object]:
+    """Subscriber routes render via app.state.templates; the shared factory
+    does not wire one up by default, so pass it as ``state_extras``."""
+    return {"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))}
 
 
 def _insert_subscriber(conn, email: str, active: int = 1) -> None:
@@ -68,12 +52,11 @@ class TestUnsubscribeHtmlEscaping:
 
         return generate_unsubscribe_token(email=email, secret_key=self._KEY)
 
-    def test_confirm_page_escapes_email_from_token(self, db_path):
+    def test_confirm_page_escapes_email_from_token(self, app_factory, conn):
         """A malicious email payload baked into a valid token must be
         HTML-escaped by the Jinja2 template — no raw ``<script>`` ever
         reaches the rendered page."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, self._KEY)
+        app = app_factory(subscribers_router, conn=conn, state_extras=_templates_state())
         client = TestClient(app)
 
         malicious = '"><script>alert(1)</script>@evil.com'
@@ -89,12 +72,11 @@ class TestUnsubscribeHtmlEscaping:
         # 500ing.
         assert resp.status_code == 200
 
-    def test_result_page_escapes_message(self, db_path):
+    def test_result_page_escapes_message(self, app_factory, conn):
         """The unsubscribe result page must HTML-escape the rendered
         message so an attacker cannot land an ``<img onerror>`` in the
         confirmation banner."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, self._KEY)
+        app = app_factory(subscribers_router, conn=conn, state_extras=_templates_state())
 
         # Render the result template directly to assert the auto-escape
         # behaviour without needing to manufacture a 429 path.
@@ -129,16 +111,15 @@ class TestNewsletterRecipientHeaderInjection:
 
         _NEWSLETTER_LIMITER.reset()
 
-    def test_crlf_recipient_rejected_but_valid_still_sent(self, db_path):
+    def test_crlf_recipient_rejected_but_valid_still_sent(self, app_factory, authed_client, conn):
         """A subscriber row with embedded \\r\\n is skipped; clean rows still send."""
-        conn = init_db(str(db_path))
         # Clean row
         _insert_subscriber(conn, "good@example.com")
         # Poisoned row — simulates a DB compromise writing CRLF into the email.
         _insert_subscriber(conn, "evil@example.com\r\nBcc: attacker@evil.com")
 
-        app = _make_app(conn, self._KEY)
-        client = _auth_client(app, conn)
+        app = app_factory(subscribers_router, conn=conn, state_extras=_templates_state())
+        client = authed_client(app, conn)
 
         captured: dict = {}
 
@@ -161,12 +142,11 @@ class TestNewsletterRecipientHeaderInjection:
             assert "\r" not in email
             assert "\n" not in email
 
-    def test_only_poisoned_recipient_returns_400(self, db_path):
+    def test_only_poisoned_recipient_returns_400(self, app_factory, authed_client, conn):
         """If every matching row is poisoned, caller gets 400 — no send."""
-        conn = init_db(str(db_path))
         _insert_subscriber(conn, "evil@example.com\r\nBcc: attacker@evil.com")
-        app = _make_app(conn, self._KEY)
-        client = _auth_client(app, conn)
+        app = app_factory(subscribers_router, conn=conn, state_extras=_templates_state())
+        client = authed_client(app, conn)
 
         resp = client.post(
             "/api/newsletter/send",

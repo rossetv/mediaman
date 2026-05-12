@@ -7,19 +7,13 @@ from datetime import UTC
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mediaman.config import Config
 from mediaman.crypto import encrypt_value
-from mediaman.db import init_db, set_connection
 from mediaman.services.rate_limit.instances import (
     SETTINGS_TEST_LIMITER,
     SETTINGS_WRITE_LIMITER,
 )
-from mediaman.web.auth.password_hash import create_user
-from mediaman.web.auth.reauth import grant_recent_reauth
-from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.settings import _TEST_CACHE, router
 
 
@@ -38,44 +32,19 @@ def _reset_limiters():
     _TEST_CACHE.clear()
 
 
-def _make_app(conn, secret_key: str) -> FastAPI:
-    """Build a minimal FastAPI app wired to *conn* for testing.
-
-    Bypasses the full lifespan/config machinery so tests run without env vars.
-    """
-    app = FastAPI()
-    app.include_router(router)
-    app.state.config = Config(secret_key=secret_key)
-    app.state.db = conn
-    # Override the module-level get_db() so all route code uses the test DB.
-    set_connection(conn)
-    return app
+def _app(app_factory, conn):
+    return app_factory(router, conn=conn)
 
 
-def _auth_client(app: FastAPI, conn, *, with_reauth: bool = True) -> TestClient:
-    """Return a TestClient with a valid admin session cookie set.
-
-    When *with_reauth* is True (the default for legacy tests that don't
-    care about the gate), a recent-reauth ticket is granted for the
-    session so PUT ``/api/settings`` against sensitive keys is allowed.
-    Tests that exercise the reauth gate itself pass ``with_reauth=False``.
-    """
-    create_user(conn, "admin", "password1234", enforce_policy=False)
-    token = create_session(conn, "admin")
-    if with_reauth:
-        grant_recent_reauth(conn, token, "admin")
-    client = TestClient(app, raise_server_exceptions=True)
-    client.cookies.set("session_token", token)
-    return client
-
-
-@pytest.fixture
-def conn(db_path):
-    return init_db(str(db_path))
+def _client(app_factory, authed_client, conn, *, with_reauth: bool = True):
+    """Shorthand: build the app + an admin client. ``with_reauth`` defaults
+    to True because the bulk of these tests exercise sensitive settings
+    writes; the reauth-gate tests opt out explicitly."""
+    return authed_client(_app(app_factory, conn), conn, with_reauth=with_reauth)
 
 
 class TestPlexLibrariesEndpoint:
-    def test_returns_libraries_from_plex(self, conn, secret_key):
+    def test_returns_libraries_from_plex(self, app_factory, authed_client, conn, secret_key):
         """Happy path: Plex is configured and reachable."""
         # Store Plex settings in the test DB.
         from datetime import datetime
@@ -92,8 +61,7 @@ class TestPlexLibrariesEndpoint:
         )
         conn.commit()
 
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        client = _client(app_factory, authed_client, conn)
 
         fake_libraries = [
             {"id": "1", "type": "movie", "title": "Movies"},
@@ -112,10 +80,9 @@ class TestPlexLibrariesEndpoint:
         assert data["libraries"] == fake_libraries
         assert "error" not in data
 
-    def test_returns_error_when_plex_not_configured(self, conn, secret_key):
+    def test_returns_error_when_plex_not_configured(self, app_factory, authed_client, conn):
         """No Plex settings in DB — returns empty list with an error message."""
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        client = _client(app_factory, authed_client, conn)
 
         resp = client.get("/api/plex/libraries")
 
@@ -125,7 +92,7 @@ class TestPlexLibrariesEndpoint:
         assert "error" in data
         assert data["error"]  # non-empty error string
 
-    def test_returns_error_on_plex_exception(self, conn, secret_key):
+    def test_returns_error_on_plex_exception(self, app_factory, authed_client, conn, secret_key):
         """PlexClient raises — returns empty list with error message."""
         from datetime import datetime
 
@@ -141,8 +108,7 @@ class TestPlexLibrariesEndpoint:
         )
         conn.commit()
 
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        client = _client(app_factory, authed_client, conn)
 
         with patch("mediaman.web.routes.settings.build_plex_from_db") as mock_build:
             import requests as _requests
@@ -158,9 +124,9 @@ class TestPlexLibrariesEndpoint:
         assert data["libraries"] == []
         assert data["error"] == "fetch_failed"
 
-    def test_requires_auth(self, conn, secret_key):
+    def test_requires_auth(self, app_factory, conn):
         """Unauthenticated request is rejected with 401."""
-        app = _make_app(conn, secret_key)
+        app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
 
         resp = client.get("/api/plex/libraries")
@@ -169,10 +135,9 @@ class TestPlexLibrariesEndpoint:
 
 
 class TestDiskUsageAPI:
-    def test_returns_disk_usage_for_valid_path(self, conn, secret_key):
+    def test_returns_disk_usage_for_valid_path(self, app_factory, authed_client, conn):
         """Happy path: returns total_bytes, used_bytes, free_bytes, usage_pct."""
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        client = _client(app_factory, authed_client, conn)
 
         fake_usage = type(shutil.disk_usage("/"))(1000, 400, 600)
 
@@ -189,31 +154,30 @@ class TestDiskUsageAPI:
         assert data["free_bytes"] == 600
         assert data["usage_pct"] == 40.0
 
-    def test_returns_error_for_missing_path_param(self, conn, secret_key):
+    def test_returns_error_for_missing_path_param(self, app_factory, authed_client, conn):
         """No path param — expects 400."""
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        client = _client(app_factory, authed_client, conn)
 
         resp = client.get("/api/settings/disk-usage")
 
         assert resp.status_code == 400
         assert "error" in resp.json()
 
-    def test_rejects_path_outside_allowlist(self, conn, secret_key):
+    def test_rejects_path_outside_allowlist(self, app_factory, authed_client, conn):
         """Paths outside the allow-list are refused with a generic 404 (not 403)
         so the endpoint cannot be used as a path-existence oracle."""
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        client = _client(app_factory, authed_client, conn)
 
         resp = client.get("/api/settings/disk-usage?path=/nonexistent")
         assert resp.status_code == 404
         assert resp.json().get("error") == "not_found"
 
-    def test_returns_error_for_nonexistent_allowlisted_path(self, conn, secret_key, monkeypatch):
+    def test_returns_error_for_nonexistent_allowlisted_path(
+        self, app_factory, authed_client, conn, monkeypatch
+    ):
         """When the path IS in the allow-list but stat fails, response is generic 404."""
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/nonexistent-but-allowed")
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        client = _client(app_factory, authed_client, conn)
 
         with patch(
             "mediaman.web.routes.settings.shutil.disk_usage",
@@ -224,7 +188,7 @@ class TestDiskUsageAPI:
         assert resp.status_code == 404
         assert resp.json().get("error") == "not_found"
 
-    def test_rejects_symlink_path(self, conn, secret_key, tmp_path, monkeypatch):
+    def test_rejects_symlink_path(self, app_factory, authed_client, conn, tmp_path, monkeypatch):
         """A path that is or contains a symlink is rejected with a generic 404."""
         # Create a real dir inside an allowed root candidate, then a symlink to it.
         real_dir = tmp_path / "real"
@@ -234,16 +198,15 @@ class TestDiskUsageAPI:
 
         # Make the parent tmp_path an allowed root.
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(tmp_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        client = _client(app_factory, authed_client, conn)
 
         resp = client.get(f"/api/settings/disk-usage?path={link}")
         assert resp.status_code == 404
         assert resp.json().get("error") == "not_found"
 
-    def test_requires_auth(self, conn, secret_key):
+    def test_requires_auth(self, app_factory, conn):
         """Unauthenticated request is rejected with 401."""
-        app = _make_app(conn, secret_key)
+        app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
 
         resp = client.get("/api/settings/disk-usage?path=/media/movies")
@@ -256,9 +219,8 @@ class TestSettingsPutSsrfGuard:
     or link-local addresses. LAN addresses stay allowed — that is the
     common self-hosted deployment."""
 
-    def test_rejects_aws_metadata_url(self, conn, secret_key):
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_rejects_aws_metadata_url(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn)
 
         resp = client.put(
             "/api/settings",
@@ -268,9 +230,8 @@ class TestSettingsPutSsrfGuard:
         assert resp.status_code == 400
         assert "blocked" in resp.json().get("error", "").lower()
 
-    def test_rejects_gcp_metadata_hostname(self, conn, secret_key):
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_rejects_gcp_metadata_hostname(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn)
 
         resp = client.put(
             "/api/settings",
@@ -279,9 +240,8 @@ class TestSettingsPutSsrfGuard:
 
         assert resp.status_code == 400
 
-    def test_rejects_file_scheme(self, conn, secret_key):
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_rejects_file_scheme(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn)
 
         resp = client.put(
             "/api/settings",
@@ -293,9 +253,8 @@ class TestSettingsPutSsrfGuard:
         # status signals rejection — what matters is it is not 200.
         assert resp.status_code in (400, 422)
 
-    def test_allows_lan_address(self, conn, secret_key):
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_allows_lan_address(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn)
 
         resp = client.put(
             "/api/settings",
@@ -355,45 +314,44 @@ class TestSettingsPutPersistsEveryDeclaredKey:
         "omdb_api_key": "omdb-key-yz01",
     }
 
-    def _put_and_get(self, conn, secret_key, payload: dict):
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def _put_and_get(self, app_factory, authed_client, conn, payload: dict):
+        client = _client(app_factory, authed_client, conn)
         put_resp = client.put("/api/settings", json=payload)
         assert put_resp.status_code == 200, put_resp.json()
         get_resp = client.get("/api/settings")
         assert get_resp.status_code == 200
         return get_resp.json()
 
-    def test_put_persists_plain_fields(self, conn, secret_key):
+    def test_put_persists_plain_fields(self, app_factory, authed_client, conn):
         """All plain (non-secret, non-URL) keys round-trip correctly."""
-        data = self._put_and_get(conn, secret_key, self._PLAIN_FIELDS)
+        data = self._put_and_get(app_factory, authed_client, conn, self._PLAIN_FIELDS)
         for key, expected in self._PLAIN_FIELDS.items():
             assert key in data, f"key {key!r} missing from GET response"
             assert data[key] == expected, f"{key}: expected {expected!r}, got {data[key]!r}"
 
-    def test_put_persists_url_fields(self, conn, secret_key):
+    def test_put_persists_url_fields(self, app_factory, authed_client, conn):
         """All URL-shaped settings keys round-trip correctly."""
-        data = self._put_and_get(conn, secret_key, self._URL_FIELDS)
+        data = self._put_and_get(app_factory, authed_client, conn, self._URL_FIELDS)
         for key, expected in self._URL_FIELDS.items():
             assert key in data, f"key {key!r} missing from GET response"
             assert data[key] == expected, f"{key}: expected {expected!r}, got {data[key]!r}"
 
-    def test_put_persists_secret_fields_as_masked(self, conn, secret_key):
+    def test_put_persists_secret_fields_as_masked(self, app_factory, authed_client, conn):
         """Secret keys are stored; GET returns '****' for each non-empty one."""
-        data = self._put_and_get(conn, secret_key, self._SECRET_FIELDS)
+        data = self._put_and_get(app_factory, authed_client, conn, self._SECRET_FIELDS)
         for key in self._SECRET_FIELDS:
             assert key in data, f"secret key {key!r} missing from GET response"
             assert data[key] == "****", (
                 f"secret key {key!r} should be masked as '****' in GET, got {data[key]!r}"
             )
 
-    def test_put_persists_plex_libraries(self, conn, secret_key):
+    def test_put_persists_plex_libraries(self, app_factory, authed_client, conn):
         """plex_libraries (a list) round-trips correctly."""
         payload = {"plex_libraries": ["1", "2", "3"]}
-        data = self._put_and_get(conn, secret_key, payload)
+        data = self._put_and_get(app_factory, authed_client, conn, payload)
         assert data.get("plex_libraries") == ["1", "2", "3"]
 
-    def test_put_persists_disk_thresholds(self, conn, secret_key):
+    def test_put_persists_disk_thresholds(self, app_factory, authed_client, conn):
         """disk_thresholds (nested {lib_id: {path, threshold}}) round-trips."""
         payload = {
             "disk_thresholds": {
@@ -401,50 +359,45 @@ class TestSettingsPutPersistsEveryDeclaredKey:
                 "2": {"path": "/media/anime", "threshold": 90},
             }
         }
-        data = self._put_and_get(conn, secret_key, payload)
+        data = self._put_and_get(app_factory, authed_client, conn, payload)
         assert data.get("disk_thresholds") == payload["disk_thresholds"]
 
-    def test_put_rejects_unknown_key_with_422(self, conn, secret_key):
+    def test_put_rejects_unknown_key_with_422(self, app_factory, authed_client, conn):
         """Unknown key must be rejected at the Pydantic layer (HTTP 422)."""
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        client = _client(app_factory, authed_client, conn)
         resp = client.put("/api/settings", json={"not_a_real_setting": "oops"})
         assert resp.status_code == 422
 
-    def test_put_rejects_crlf_in_plain_string(self, conn, secret_key):
+    def test_put_rejects_crlf_in_plain_string(self, app_factory, authed_client, conn):
         """CR/LF in a plain string field must be rejected (HTTP 422)."""
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        client = _client(app_factory, authed_client, conn)
         resp = client.put(
             "/api/settings",
             json={"scan_day": "Monday\r\nX-Injected: evil"},
         )
         assert resp.status_code == 422
 
-    def test_put_rejects_crlf_in_api_key(self, conn, secret_key):
+    def test_put_rejects_crlf_in_api_key(self, app_factory, authed_client, conn):
         """CR/LF in a secret field must be rejected (HTTP 422)."""
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        client = _client(app_factory, authed_client, conn)
         resp = client.put(
             "/api/settings",
             json={"openai_api_key": "sk-valid\nevil"},
         )
         assert resp.status_code == 422
 
-    def test_put_rejects_invalid_timezone(self, conn, secret_key):
+    def test_put_rejects_invalid_timezone(self, app_factory, authed_client, conn):
         """An unrecognised IANA timezone must be rejected (HTTP 422)."""
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        client = _client(app_factory, authed_client, conn)
         resp = client.put(
             "/api/settings",
             json={"scan_timezone": "Moon/FarSide"},
         )
         assert resp.status_code == 422
 
-    def test_put_rejects_library_sync_interval_out_of_range(self, conn, secret_key):
+    def test_put_rejects_library_sync_interval_out_of_range(self, app_factory, authed_client, conn):
         """library_sync_interval outside 0–1440 minutes must be rejected (HTTP 422)."""
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        client = _client(app_factory, authed_client, conn)
         resp = client.put("/api/settings", json={"library_sync_interval": 1441})
         assert resp.status_code == 422
 
@@ -452,10 +405,6 @@ class TestSettingsPutPersistsEveryDeclaredKey:
 class TestApiTestServiceOpenAiTmdbOmdb:
     """api_test_service for openai/tmdb/omdb must use SafeHTTPClient and
     validate API-key character set before placing the key in a header."""
-
-    def _client(self, conn, secret_key):
-        app = _make_app(conn, secret_key)
-        return _auth_client(app, conn)
 
     def _store_setting(self, conn, key, value):
         from datetime import datetime
@@ -468,57 +417,57 @@ class TestApiTestServiceOpenAiTmdbOmdb:
         )
         conn.commit()
 
-    def test_openai_missing_key_returns_error(self, conn, secret_key):
-        client = self._client(conn, secret_key)
+    def test_openai_missing_key_returns_error(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn)
         resp = client.post("/api/settings/test/openai")
         assert resp.status_code == 200
         assert resp.json()["ok"] is False
         assert "required" in resp.json()["error"].lower()
 
-    def test_tmdb_missing_key_returns_error(self, conn, secret_key):
-        client = self._client(conn, secret_key)
+    def test_tmdb_missing_key_returns_error(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn)
         resp = client.post("/api/settings/test/tmdb")
         assert resp.status_code == 200
         assert resp.json()["ok"] is False
 
-    def test_omdb_missing_key_returns_error(self, conn, secret_key):
-        client = self._client(conn, secret_key)
+    def test_omdb_missing_key_returns_error(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn)
         resp = client.post("/api/settings/test/omdb")
         assert resp.status_code == 200
         assert resp.json()["ok"] is False
 
-    def test_openai_invalid_key_charset_rejected(self, conn, secret_key):
+    def test_openai_invalid_key_charset_rejected(self, app_factory, authed_client, conn):
         """Non-ASCII characters in an OpenAI key must be caught before the header is set."""
         self._store_setting(conn, "openai_api_key", "sk-\x00evil")
-        client = self._client(conn, secret_key)
+        client = _client(app_factory, authed_client, conn)
         resp = client.post("/api/settings/test/openai")
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is False
         assert "auth_failed" in data["error"]
 
-    def test_tmdb_invalid_key_charset_rejected(self, conn, secret_key):
+    def test_tmdb_invalid_key_charset_rejected(self, app_factory, authed_client, conn):
         self._store_setting(conn, "tmdb_read_token", "bad\nevil")
-        client = self._client(conn, secret_key)
+        client = _client(app_factory, authed_client, conn)
         resp = client.post("/api/settings/test/tmdb")
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is False
         assert "auth_failed" in data["error"]
 
-    def test_omdb_invalid_key_charset_rejected(self, conn, secret_key):
+    def test_omdb_invalid_key_charset_rejected(self, app_factory, authed_client, conn):
         self._store_setting(conn, "omdb_api_key", "bad\x00key")
-        client = self._client(conn, secret_key)
+        client = _client(app_factory, authed_client, conn)
         resp = client.post("/api/settings/test/omdb")
         assert resp.status_code == 200
         data = resp.json()
         assert data["ok"] is False
         assert "auth_failed" in data["error"]
 
-    def test_openai_success_via_safe_http_client(self, conn, secret_key):
+    def test_openai_success_via_safe_http_client(self, app_factory, authed_client, conn):
         """A 200 from the SafeHTTPClient returns ok=True."""
         self._store_setting(conn, "openai_api_key", "sk-validkey1234")
-        client = self._client(conn, secret_key)
+        client = _client(app_factory, authed_client, conn)
 
         from unittest.mock import MagicMock, patch
 
@@ -533,10 +482,10 @@ class TestApiTestServiceOpenAiTmdbOmdb:
 
         assert resp.json()["ok"] is True
 
-    def test_openai_auth_failure_classified(self, conn, secret_key):
+    def test_openai_auth_failure_classified(self, app_factory, authed_client, conn):
         """A 401 from the backend must be classified as auth_failed."""
         self._store_setting(conn, "openai_api_key", "sk-badkey9999")
-        client = self._client(conn, secret_key)
+        client = _client(app_factory, authed_client, conn)
 
         from unittest.mock import patch
 
@@ -552,10 +501,10 @@ class TestApiTestServiceOpenAiTmdbOmdb:
         assert data["ok"] is False
         assert "auth_failed" in data["error"]
 
-    def test_openai_connection_error_classified(self, conn, secret_key):
+    def test_openai_connection_error_classified(self, app_factory, authed_client, conn):
         """A transport error must be classified as connection_refused."""
         self._store_setting(conn, "openai_api_key", "sk-goodkey1234")
-        client = self._client(conn, secret_key)
+        client = _client(app_factory, authed_client, conn)
 
         from unittest.mock import patch
 
@@ -573,10 +522,10 @@ class TestApiTestServiceOpenAiTmdbOmdb:
         assert data["ok"] is False
         assert "connection_refused" in data["error"]
 
-    def test_openai_ssrf_classified(self, conn, secret_key):
+    def test_openai_ssrf_classified(self, app_factory, authed_client, conn):
         """SSRF guard refusal must surface as ssrf_refused."""
         self._store_setting(conn, "openai_api_key", "sk-goodkey1234")
-        client = self._client(conn, secret_key)
+        client = _client(app_factory, authed_client, conn)
 
         from unittest.mock import patch
 
@@ -599,9 +548,8 @@ class TestSettingsTestServiceRateLimit:
     """Service-test endpoint must be admin-keyed rate-limited so a leaked
     session cookie cannot chain test calls to flood Plex / Mailgun."""
 
-    def test_eleventh_call_in_window_is_429(self, conn, secret_key):
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_eleventh_call_in_window_is_429(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn)
         # Limiter is 10/min — eleventh call must be throttled.
         # Clear the result cache between calls so each one hits the
         # tester (and therefore the limiter) rather than returning the
@@ -620,7 +568,9 @@ class TestSettingsTestServiceTimeout:
     """Each tester runs under a hard wall-clock cap so an unreachable
     Plex cannot pin the request thread for 35+ seconds."""
 
-    def test_long_running_tester_returns_timeout(self, conn, secret_key, monkeypatch):
+    def test_long_running_tester_returns_timeout(
+        self, app_factory, authed_client, conn, monkeypatch
+    ):
         import threading
 
         from mediaman.web.routes import settings as settings_module
@@ -638,8 +588,7 @@ class TestSettingsTestServiceTimeout:
         monkeypatch.setattr(settings_module, "_TESTER_TIMEOUT_SECONDS", 0.1)
         monkeypatch.setitem(settings_module._SERVICE_TESTERS, "plex", slow_tester)
 
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        client = _client(app_factory, authed_client, conn)
 
         resp = client.post("/api/settings/test/plex")
         assert resp.status_code == 200
@@ -653,7 +602,9 @@ class TestSettingsTestServiceScopedDecryption:
     the DB. The route restricts ``_load_settings`` to the keys that
     tester actually needs."""
 
-    def test_openai_test_does_not_touch_plex_token(self, conn, secret_key, monkeypatch):
+    def test_openai_test_does_not_touch_plex_token(
+        self, app_factory, authed_client, conn, secret_key, monkeypatch
+    ):
         """Patch the decrypt function and assert it's only called for
         ``openai_api_key`` when the openai tester runs."""
         from datetime import datetime
@@ -687,8 +638,7 @@ class TestSettingsTestServiceScopedDecryption:
 
         monkeypatch.setattr(settings_repo, "decrypt_value", recording_decrypt)
 
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        client = _client(app_factory, authed_client, conn)
 
         # Stub the actual SafeHTTP call so we don't hit the network.
         with patch(
@@ -738,7 +688,9 @@ class TestSettingsApiGetSkipsDecryption:
     are masked as '****' regardless of plaintext, so the decryption
     cost is wasted and a needless plaintext exposure window."""
 
-    def test_get_does_not_decrypt_secrets(self, conn, secret_key, monkeypatch):
+    def test_get_does_not_decrypt_secrets(
+        self, app_factory, authed_client, conn, secret_key, monkeypatch
+    ):
         from datetime import datetime
 
         # Decryption lives in web.repository.settings; patch the symbol there.
@@ -762,8 +714,7 @@ class TestSettingsApiGetSkipsDecryption:
 
         monkeypatch.setattr(settings_repo, "decrypt_value", recording)
 
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        client = _client(app_factory, authed_client, conn)
 
         resp = client.get("/api/settings")
         assert resp.status_code == 200
@@ -778,10 +729,9 @@ class TestSettingsClearSentinel:
     row — without it, a stored credential cannot be erased through the
     UI."""
 
-    def test_clear_sentinel_deletes_secret_row(self, conn, secret_key):
+    def test_clear_sentinel_deletes_secret_row(self, app_factory, authed_client, conn):
         # Seed a stored secret.
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn, with_reauth=True)
+        client = _client(app_factory, authed_client, conn, with_reauth=True)
 
         resp = client.put("/api/settings", json={"plex_token": "real-token-1234"})
         assert resp.status_code == 200
@@ -794,9 +744,8 @@ class TestSettingsClearSentinel:
         row = conn.execute("SELECT value FROM settings WHERE key='plex_token'").fetchone()
         assert row is None
 
-    def test_clear_sentinel_requires_reauth(self, conn, secret_key):
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn, with_reauth=False)
+    def test_clear_sentinel_requires_reauth(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn, with_reauth=False)
 
         resp = client.put("/api/settings", json={"plex_token": "__CLEAR__"})
         assert resp.status_code == 403
@@ -807,9 +756,8 @@ class TestSettingsThrottleAuditLog:
     written so operators can see the throttled attempt — not just a log
     line in app stdout."""
 
-    def test_throttled_write_records_security_event(self, conn, secret_key):
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_throttled_write_records_security_event(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn)
 
         # Burn through the burst window (20/min).
         for _ in range(20):
@@ -830,14 +778,13 @@ class TestSsrfBlockedLogScrubs:
     query strings can carry credentials and the candidate is
     user-controlled."""
 
-    def test_userinfo_stripped_from_log(self, conn, secret_key, caplog):
+    def test_userinfo_stripped_from_log(self, app_factory, authed_client, conn, caplog):
         from mediaman.web.routes import settings as settings_module
 
         # Force the URL into the SSRF-blocked path by stubbing
         # is_safe_outbound_url to refuse it.
         with patch.object(settings_module, "is_safe_outbound_url", return_value=False):
-            app = _make_app(conn, secret_key)
-            client = _auth_client(app, conn)
+            client = _client(app_factory, authed_client, conn)
             with caplog.at_level("WARNING"):
                 resp = client.put(
                     "/api/settings",
@@ -856,9 +803,8 @@ class TestSsrfBlockedLogScrubs:
 class TestAutoAbandonSetting:
     """auto_abandon_enabled is the new boolean replacing the three count-based knobs."""
 
-    def test_round_trip_enabled(self, conn, secret_key):
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_round_trip_enabled(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn)
         put_resp = client.put("/api/settings", json={"auto_abandon_enabled": "true"})
         assert put_resp.status_code == 200, put_resp.json()
         response = client.get("/api/settings")
@@ -867,20 +813,18 @@ class TestAutoAbandonSetting:
         # response deserialises the stored row back to a JSON boolean.
         assert response.json().get("auto_abandon_enabled") is True
 
-    def test_default_when_unset(self, conn, secret_key):
+    def test_default_when_unset(self, app_factory, authed_client, conn):
         # Fresh DB, no setting written — the route either omits the key or returns a falsy default.
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        client = _client(app_factory, authed_client, conn)
         response = client.get("/api/settings")
         assert response.status_code == 200
         val = response.json().get("auto_abandon_enabled")
         assert val in (None, False, "false", "0", ""), f"unexpected default: {val!r}"
 
-    def test_deprecated_keys_are_rejected(self, conn, secret_key):
+    def test_deprecated_keys_are_rejected(self, app_factory, authed_client, conn):
         # The three legacy keys were removed from SettingsUpdate (extra="forbid"),
         # so sending them now returns 422 — they are never persisted.
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        client = _client(app_factory, authed_client, conn)
         for key in (
             "abandon_search_visible_at",
             "abandon_search_escalate_at",

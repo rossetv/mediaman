@@ -2,16 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
-from mediaman.config import Config
-from mediaman.db import init_db, set_connection
-from mediaman.web.auth.password_hash import create_user
-from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.library import router as library_router
 from mediaman.web.routes.library_api import (
     _DELETE_LIMITER,
@@ -20,44 +12,30 @@ from mediaman.web.routes.library_api import (
     reconcile_pending_delete_intents,
 )
 from mediaman.web.routes.library_api import router as library_api_router
-
-
-def _make_app(conn, secret_key: str) -> FastAPI:
-    app = FastAPI()
-    app.include_router(library_router)
-    app.include_router(library_api_router)
-    app.state.config = Config(secret_key=secret_key)
-    app.state.db = conn
-    set_connection(conn)
-    return app
-
-
-def _auth_client(app: FastAPI, conn) -> TestClient:
-    create_user(conn, "admin", "password1234", enforce_policy=False)
-    token = create_session(conn, "admin")
-    client = TestClient(app, raise_server_exceptions=True)
-    client.cookies.set("session_token", token)
-    return client
+from tests.helpers.factories import insert_media_item
 
 
 def _insert_movie(conn, media_id: str = "m1", radarr_id: int | None = 101) -> None:
-    now = datetime.now(UTC).isoformat()
-    conn.execute(
-        "INSERT INTO media_items "
-        "(id, title, media_type, plex_library_id, plex_rating_key, added_at, "
-        "file_path, file_size_bytes, radarr_id) "
-        "VALUES (?, 'Test Movie', 'movie', 1, 'rk1', ?, '/media/movie.mkv', 1000000, ?)",
-        (media_id, now, radarr_id),
+    insert_media_item(
+        conn,
+        id=media_id,
+        title="Test Movie",
+        media_type="movie",
+        plex_rating_key="rk1",
+        file_path="/media/movie.mkv",
+        file_size_bytes=1_000_000,
+        radarr_id=radarr_id,
     )
-    conn.commit()
+
+
+def _app(app_factory, conn):
+    return app_factory(library_router, library_api_router, conn=conn)
 
 
 class TestRecordDeleteIntent:
     """Unit tests for the delete-intent DB helpers."""
 
-    def test_record_creates_pending_row(self, db_path):
-        conn = init_db(str(db_path))
-        set_connection(conn)
+    def test_record_creates_pending_row(self, conn):
         intent_id = _record_delete_intent(conn, "m1", "radarr", 101)
         row = conn.execute("SELECT * FROM delete_intents WHERE id = ?", (intent_id,)).fetchone()
         assert row is not None
@@ -67,9 +45,7 @@ class TestRecordDeleteIntent:
         assert row["completed_at"] is None
         assert row["started_at"] is not None
 
-    def test_complete_sets_completed_at(self, db_path):
-        conn = init_db(str(db_path))
-        set_connection(conn)
+    def test_complete_sets_completed_at(self, conn):
         intent_id = _record_delete_intent(conn, "m1", "radarr", 101)
         _complete_delete_intent(conn, intent_id)
         row = conn.execute(
@@ -84,12 +60,11 @@ class TestDeleteIntentPersistence:
     def setup_method(self):
         _DELETE_LIMITER.reset()
 
-    def test_intent_created_before_radarr_call(self, db_path, secret_key):
+    def test_intent_created_before_radarr_call(self, app_factory, authed_client, conn):
         """An intent row is written before the Radarr call; verified by checking DB after delete."""
-        conn = init_db(str(db_path))
         _insert_movie(conn)
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        app = _app(app_factory, conn)
+        client = authed_client(app, conn)
 
         mock_radarr = MagicMock()
 
@@ -108,12 +83,11 @@ class TestDeleteIntentPersistence:
         assert len(all_intents) >= 1
         assert all(row["completed_at"] is not None for row in all_intents)
 
-    def test_intent_completed_after_successful_delete(self, db_path, secret_key):
+    def test_intent_completed_after_successful_delete(self, app_factory, authed_client, conn):
         """After a successful delete the intent row is marked completed."""
-        conn = init_db(str(db_path))
         _insert_movie(conn)
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        app = _app(app_factory, conn)
+        client = authed_client(app, conn)
 
         mock_radarr = MagicMock()
         with patch(
@@ -127,12 +101,11 @@ class TestDeleteIntentPersistence:
         ).fetchall()
         assert len(pending) == 0, "No intent rows should remain pending after a clean delete"
 
-    def test_intent_remains_pending_when_radarr_fails(self, db_path, secret_key):
+    def test_intent_remains_pending_when_radarr_fails(self, app_factory, authed_client, conn):
         """When the Radarr call fails the intent stays unresolved."""
-        conn = init_db(str(db_path))
         _insert_movie(conn)
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        app = _app(app_factory, conn)
+        client = authed_client(app, conn)
 
         import requests as _requests
 
@@ -157,10 +130,8 @@ class TestReconcilePendingDeleteIntents:
     def setup_method(self):
         _DELETE_LIMITER.reset()
 
-    def test_reconcile_clears_intent_when_item_already_gone(self, db_path):
+    def test_reconcile_clears_intent_when_item_already_gone(self, conn):
         """If the media row is already gone the intent is just completed."""
-        conn = init_db(str(db_path))
-        set_connection(conn)
         # Insert an intent without a corresponding media_items row.
         intent_id = _record_delete_intent(conn, "ghost-m1", "radarr", 99)
         resolved = reconcile_pending_delete_intents()
@@ -170,10 +141,8 @@ class TestReconcilePendingDeleteIntents:
         ).fetchone()
         assert row["completed_at"] is not None
 
-    def test_reconcile_removes_orphaned_media_row(self, db_path):
+    def test_reconcile_removes_orphaned_media_row(self, conn):
         """An unresolved intent for an existing media row is cleaned up."""
-        conn = init_db(str(db_path))
-        set_connection(conn)
         _insert_movie(conn, "m2", radarr_id=None)
         _record_delete_intent(conn, "m2", "radarr", "none")
 
@@ -184,10 +153,8 @@ class TestReconcilePendingDeleteIntents:
         row = conn.execute("SELECT id FROM media_items WHERE id = 'm2'").fetchone()
         assert row is None
 
-    def test_reconcile_is_idempotent(self, db_path):
+    def test_reconcile_is_idempotent(self, conn):
         """Running reconcile twice is safe; second run resolves nothing new."""
-        conn = init_db(str(db_path))
-        set_connection(conn)
         _record_delete_intent(conn, "gone-m3", "radarr", 42)
 
         first = reconcile_pending_delete_intents()
