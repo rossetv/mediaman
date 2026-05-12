@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mediaman.services.downloads.download_format._parsing import (
+from mediaman.services.downloads.download_format import (
     format_episode_label,
     format_eta,
     format_relative_time,

@@ -137,6 +137,8 @@ def insert_scheduled_action(conn: sqlite3.Connection, **fields) -> int:
     (defaults to ``"pending"``).  Pass *scheduled_at* to override the
     timestamp of when the action was created.
     """
+    # rationale: scheduled_actions.token_hash stores SHA-256(token); the
+    # factory must compute the same value to produce realistic DB fixtures.
     from mediaman.web.auth._token_hashing import hash_token
 
     defaults = {**make_scheduled_action(), "delete_status": "pending"}

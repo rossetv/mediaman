@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+# rationale: make_arr_card is an internal helper not in fetcher/__all__;
+# it is the canonical way to build ArrCard dicts for unit tests of queue items.
 from mediaman.services.arr.fetcher._base import make_arr_card
 from mediaman.services.downloads.download_queue.items import (
     build_episode_dicts,

@@ -5,6 +5,10 @@ Covers: is_old_enough and is_inactive.
 
 from datetime import UTC, datetime, timedelta
 
+# rationale: is_old_enough and is_inactive are internal scanner helpers not
+# re-exported via scanner/__init__.py; they encapsulate deletion-eligibility
+# logic (time-based and watch-history thresholds) that is critical enough to
+# test directly rather than only through the full scan pipeline.
 from mediaman.scanner._eligibility import is_inactive, is_old_enough
 
 

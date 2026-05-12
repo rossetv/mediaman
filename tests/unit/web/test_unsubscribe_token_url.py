@@ -94,7 +94,8 @@ class TestUnsubscribeUrlFormat:
 class TestUnsubscribeRoute:
     """The unsubscribe GET/POST routes must work with token-only URLs."""
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_limiter(self):
         _setup_limiter()
 
     def test_get_with_token_only_shows_confirmation(self, client, app, secret_key):

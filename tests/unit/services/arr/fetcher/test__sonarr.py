@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+# rationale: make_arr_card, fetch_sonarr_queue, and _aggregate_pack_episodes
+# are internal helpers not in __all__; _aggregate_pack_episodes in particular
+# encapsulates a non-trivial pack-detection and size-dedup algorithm whose
+# correctness cannot be observed through the public fetch_arr_queue surface.
 from mediaman.services.arr.fetcher._base import make_arr_card
 from mediaman.services.arr.fetcher._sonarr import (
     _aggregate_pack_episodes,

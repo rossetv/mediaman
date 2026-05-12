@@ -68,7 +68,8 @@ def _setup_limiters():
 class TestSearchDownloadRateLimit:
     """POST /api/search/download must enforce per-admin and per-IP limits."""
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_limiters(self):
         _setup_limiters()
 
     def test_normal_request_succeeds(self, authed_client):
@@ -117,7 +118,8 @@ class TestSearchDownloadRateLimit:
 class TestSearchDownloadDedup:
     """Duplicate (username, tmdb_id, media_type) requests are suppressed."""
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_limiters(self):
         _setup_limiters()
 
     def test_duplicate_request_returns_429(self, authed_client):

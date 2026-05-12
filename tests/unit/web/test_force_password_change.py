@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.web.routes.force_password_change import (
@@ -43,7 +44,8 @@ class TestForceChangeGet:
 
 
 class TestForceChangePost:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_limiters_fixture(self):
         _reset_limiters()
 
     def _post(self, app, **form):

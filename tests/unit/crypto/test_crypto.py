@@ -22,7 +22,17 @@ from mediaman.crypto import (
     migrate_legacy_ciphertexts,
     validate_keep_token,
 )
-from mediaman.crypto._aes_key import _derive_aes_key_hkdf, _load_or_create_salt
+
+# rationale: _derive_aes_key_hkdf, _load_or_create_salt, and
+# _secret_key_looks_strong are cryptographic primitives and security-critical
+# heuristics. Testing them directly is necessary to verify HKDF derivation
+# correctness, salt persistence/caching behaviour, and entropy boundary values —
+# the public encrypt/decrypt surface does not expose these internals.
+from mediaman.crypto._aes_key import (
+    _derive_aes_key_hkdf,
+    _load_or_create_salt,
+    _secret_key_looks_strong,
+)
 from mediaman.db import init_db
 from tests.helpers.factories import insert_settings
 
@@ -318,6 +328,8 @@ class TestCiphertextCap:
         """Ciphertexts that exceed _MAX_CIPHERTEXT_LEN must be rejected."""
         import base64
 
+        # rationale: _MAX_CIPHERTEXT_LEN is the exact threshold; testing the
+        # boundary requires the constant directly — no public API exposes it.
         from mediaman.crypto._aes_key import _MAX_CIPHERTEXT_LEN
 
         # Build a base64 string that decodes to more than _MAX_CIPHERTEXT_LEN bytes.
@@ -328,6 +340,7 @@ class TestCiphertextCap:
 
     def test_ciphertext_at_exact_cap_is_rejected(self, secret_key, conn):
         """A base64 string that decodes to exactly _MAX_CIPHERTEXT_LEN + 1 bytes fails."""
+        # rationale: same boundary-value test; requires the constant directly.
         from mediaman.crypto._aes_key import _MAX_CIPHERTEXT_LEN
 
         # The cap is checked on the base64 *string* length, not the raw bytes.
@@ -342,6 +355,8 @@ class TestSaltCache:
 
     def test_salt_cached_after_first_call(self, conn):
         """Subsequent calls to _load_or_create_salt return cached value without DB hit."""
+        # rationale: verifying the salt cache state requires inspecting _salt_cache
+        # and _db_path directly; the public surface offers no way to observe caching.
         from mediaman.crypto._aes_key import _db_path, _load_or_create_salt, _salt_cache
 
         first = _load_or_create_salt(conn)
@@ -352,6 +367,8 @@ class TestSaltCache:
 
     def test_cache_invalidated_on_canary_key_mismatch(self, conn, secret_key):
         """is_canary_valid returning False (key mismatch) must evict the cached salt."""
+        # rationale: cache eviction on canary mismatch is internal behaviour;
+        # verifying it requires direct access to _salt_cache and _db_path.
         from mediaman.crypto._aes_key import _db_path, _load_or_create_salt, _salt_cache
 
         # Prime the cache.
@@ -397,40 +414,35 @@ class TestSecretKeyEntropyHardened:
     entropy bar implied by the URL-safe shape. The hardened rule must
     reject the audit's worked example and any structurally similar
     low-entropy input.
+
+    # rationale: _secret_key_looks_strong is a security-critical entropy
+    # heuristic; its exact pass/fail thresholds must be verified against
+    # known examples. The public surface (is_canary_valid) wraps this but
+    # requires a full DB + AES round-trip that obscures boundary behaviour.
     """
 
     def test_rejects_audit_low_unique_43_char_case(self):
         """The audit's example: 43 chars, 10 unique — must be refused."""
-        from mediaman.crypto._aes_key import _secret_key_looks_strong
-
         bad = "abcdefghij" * 4 + "abc"  # 43 chars, 10 unique
         assert len(bad) == 43
         assert _secret_key_looks_strong(bad) is False
 
     def test_rejects_8_unique_64_char_hex(self):
         """64 hex chars but only 8 unique digits is structured low-entropy."""
-        from mediaman.crypto._aes_key import _secret_key_looks_strong
-
         bad = "deadbeef" * 8  # 64 hex chars, 8 unique
         assert _secret_key_looks_strong(bad) is False
 
     def test_rejects_single_char_repeat(self):
-        from mediaman.crypto._aes_key import _secret_key_looks_strong
-
         assert _secret_key_looks_strong("a" * 64) is False
         assert _secret_key_looks_strong("0" * 64) is False
 
     def test_rejects_short_input(self):
-        from mediaman.crypto._aes_key import _secret_key_looks_strong
-
         assert _secret_key_looks_strong("") is False
         assert _secret_key_looks_strong("short") is False
         assert _secret_key_looks_strong("a" * 31) is False
 
     def test_rejects_43_char_decoding_to_too_few_bytes(self):
         """The base64url path requires ≥32 decoded bytes (token_urlsafe(32)+)."""
-        from mediaman.crypto._aes_key import _secret_key_looks_strong
-
         # 43-char string with high unique count BUT only when decoded as
         # base64url it yields ≥32 bytes. token_urlsafe(31) yields 42
         # chars, not 43, so we synthesise a string with the right shape
@@ -443,8 +455,6 @@ class TestSecretKeyEntropyHardened:
         """Real-world ``secrets.token_hex(32)`` keys must always pass."""
         import secrets
 
-        from mediaman.crypto._aes_key import _secret_key_looks_strong
-
         # 1000 samples — one rejection here would be a regression.
         for _ in range(1000):
             assert _secret_key_looks_strong(secrets.token_hex(32)) is True
@@ -453,16 +463,12 @@ class TestSecretKeyEntropyHardened:
         """Real-world ``secrets.token_urlsafe(32)`` keys must always pass."""
         import secrets
 
-        from mediaman.crypto._aes_key import _secret_key_looks_strong
-
         for _ in range(1000):
             assert _secret_key_looks_strong(secrets.token_urlsafe(32)) is True
 
     def test_accepts_test_fixture_value(self):
         """The widely-used test fixture (``"0123456789abcdef" * 4``) must
         keep passing — too many call sites depend on it for a bump now."""
-        from mediaman.crypto._aes_key import _secret_key_looks_strong
-
         assert _secret_key_looks_strong("0123456789abcdef" * 4) is True
 
 
@@ -767,6 +773,8 @@ class TestSaltCacheBounded:
     """
 
     def test_cache_holds_single_entry(self, tmp_path):
+        # rationale: verifying the single-entry cache invariant requires
+        # direct access to _salt_cache; no public API exposes cache size.
         from mediaman.crypto._aes_key import _load_or_create_salt, _salt_cache
         from mediaman.db import init_db
 
@@ -798,6 +806,8 @@ class TestRaceFreeSaltSeed:
     def test_concurrent_callers_agree_on_salt(self, tmp_path):
         """Two distinct connections to the same DB must both return
         the same salt even if neither finds the row at first read."""
+        # rationale: reproducing the race requires bypassing the cache by
+        # clearing _salt_cache directly; no public surface supports this.
         from mediaman.crypto._aes_key import _load_or_create_salt, _salt_cache
         from mediaman.db import init_db
 
@@ -826,6 +836,8 @@ class TestCiphertextCapTightened:
     """
 
     def test_max_cap_is_64kib(self):
+        # rationale: asserting the exact cap value requires the constant;
+        # the public surface only raises CryptoInputError above the cap.
         from mediaman.crypto._aes_key import _MAX_CIPHERTEXT_LEN
 
         assert _MAX_CIPHERTEXT_LEN == 65_536

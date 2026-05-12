@@ -8,6 +8,7 @@ not already covered.
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.web.routes.library_api import (
@@ -137,7 +138,8 @@ class TestPickLookupMatch:
 class TestApiLibraryList:
     """GET /api/library endpoint tests."""
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_limiters(self):
         _DELETE_LIMITER.reset()
         _KEEP_LIMITER.reset()
 

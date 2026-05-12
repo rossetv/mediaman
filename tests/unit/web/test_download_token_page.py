@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.crypto import generate_download_token, validate_poll_token
@@ -29,7 +30,8 @@ def _valid_token(
 
 
 class TestDownloadPageGet:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _clear_state(self):
         """Clear in-memory state between tests."""
         _download_tokens._USED_TOKENS.clear()
         _download_confirm._DOWNLOAD_LIMITER_GET._attempts.clear()
@@ -133,7 +135,8 @@ class TestDownloadPageGet:
 
 
 class TestDownloadPagePost:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _clear_state(self):
         """Clear in-memory state between tests."""
         _download_tokens._USED_TOKENS.clear()
         _download_confirm._DOWNLOAD_LIMITER_GET._attempts.clear()
@@ -274,7 +277,8 @@ class TestDownloadPagePost:
 class TestTwoPhaseConsumption:
     """C14 — token must be released back on transient Radarr/Sonarr errors."""
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _clear_state(self):
         _download_tokens._USED_TOKENS.clear()
         _download_confirm._DOWNLOAD_LIMITER_GET._attempts.clear()
         _download_submit._DOWNLOAD_LIMITER_POST._attempts.clear()
@@ -434,7 +438,8 @@ class TestTwoPhaseConsumption:
 class TestPollingCapability:
     """C24 — POST /download/{token} issues a poll_token; status endpoint requires it."""
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _clear_state(self):
         _download_tokens._USED_TOKENS.clear()
         _download_confirm._DOWNLOAD_LIMITER_GET._attempts.clear()
         _download_submit._DOWNLOAD_LIMITER_POST._attempts.clear()

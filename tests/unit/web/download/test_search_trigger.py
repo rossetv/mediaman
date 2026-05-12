@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
 import requests
 
 from mediaman.services.arr.search_trigger import (
@@ -21,7 +22,8 @@ from mediaman.services.arr.search_trigger import (
 
 
 class TestSearchTriggerThrottle:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_triggers(self):
         reset_search_triggers()
 
     def test_stale_released_movie_triggers_search(self, monkeypatch):
@@ -265,7 +267,8 @@ class TestSearchTriggerThrottle:
 
 
 class TestTriggerPendingSearches:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_triggers(self):
         reset_search_triggers()
 
     def test_iterates_arr_items_and_pokes_search(self, monkeypatch):

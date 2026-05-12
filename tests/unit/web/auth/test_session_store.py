@@ -690,6 +690,9 @@ class TestSharedHashTokenModule:
     """
 
     def test_session_store_and_reauth_use_same_helper(self):
+        # rationale: verifying that two modules share the same hash_token
+        # object requires importing the canonical implementation directly;
+        # no public surface exposes this identity check.
         from mediaman.web.auth import reauth as reauth_mod
         from mediaman.web.auth import session_store as session_mod
         from mediaman.web.auth._token_hashing import hash_token
@@ -700,6 +703,8 @@ class TestSharedHashTokenModule:
         assert reauth_mod._hash_token is hash_token
 
     def test_shared_helper_matches_sha256_hex(self):
+        # rationale: verifying the algorithm (SHA-256) requires direct access
+        # to the private hashing helper; public session creation hides the hash.
         from mediaman.web.auth._token_hashing import hash_token
 
         assert hash_token("token-1") == hashlib.sha256(b"token-1").hexdigest()

@@ -450,7 +450,8 @@ class TestSearchPage:
 
 
 class TestDownloadEndpoint:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _clear_limiters(self):
         from mediaman.web.routes.search import (
             _DOWNLOAD_ADMIN_LIMITER,
             _DOWNLOAD_IP_LIMITER,
@@ -655,7 +656,8 @@ class TestSearchQueryCap:
 class TestDownloadNotifiesRequestingAdmin:
     """H24 — download notification must go to the requesting admin, not first subscriber."""
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _clear_limiters(self):
         from mediaman.web.routes.search import (
             _DOWNLOAD_ADMIN_LIMITER,
             _DOWNLOAD_IP_LIMITER,
