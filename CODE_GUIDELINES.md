@@ -11,19 +11,10 @@
 
 > **Current standard, not aspirational.** These guidelines describe what is true
 > in the codebase today, not a target to drift toward. Every rule applies to every
-> PR. A handful of long-lived files still exceed the 500-line ceiling and each
-> carries a `# rationale:` header at the top explaining why the split would do
-> more harm than good — those carve-outs are the *only* exceptions and they are
-> listed below; do not add another without writing the rationale first and
-> updating this list in the same PR.
->
-> Files presently over the 500-line ceiling, with rationale on file:
->
-> - `scanner/engine.py` — atomic per-library transaction discipline.
-> - `services/infra/url_safety.py` — single SSRF analysis pipeline (deny-list + allowlist + DNS pinning); the cross-checks share state so splitting deny vs. allow would force callers to know which half they need.
-> - `web/auth/password_hash.py` — bcrypt hashing + rotation + change-password flow; the rotation path is one cohesive transaction.
-> - `web/routes/library_api/__init__.py` — package barrel hosting four route handlers, each pinned by transaction layout.
-> - `web/routes/settings/__init__.py` — package barrel + six route handlers + `_load_settings`.
+> PR. No file in the codebase exceeds the 500-line ceiling; if a future PR needs
+> to add one, write a `# rationale:` header at the top of the file explaining why
+> the split would do more harm than good and add the file to a carve-out list in
+> this preamble in the same PR.
 >
 > No function in the codebase exceeds the 60-line ceiling without a `# rationale:`
 > header. Module-level mutable state is permitted only with a `threading.Lock`

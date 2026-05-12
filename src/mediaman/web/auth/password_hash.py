@@ -17,39 +17,42 @@ the result into bcrypt. Two distinct long passwords therefore have
 distinct SHA-256 digests and bcrypt sees full-entropy inputs.
 
 The gate is keyed on input length so existing ``admin_users`` rows
-hashed before this change continue to verify: any password short enough
-for bcrypt to accept directly (≤ 72 bytes) bypasses the pre-hash on
-both the set and verify paths and hits the same bytes the original
+hashed before this change landed continue to verify: any password short
+enough for bcrypt to accept directly (≤ 72 bytes) bypasses the pre-hash
+on both the set and verify paths and hits the same bytes the original
 ``hashpw`` did. No backfill or lazy migration is required — the only
 behaviour change is for pathological inputs over 72 bytes, which
 nobody could ever have logged in with reliably anyway.
 
+The bcrypt-input preparation pipeline (NFKC normalise → SHA-256 +
+base64 for oversize), the cached dummy hash, the rollback sentinels,
+and the log-field sanitiser live in
+:mod:`mediaman.web.auth._password_hash_helpers`. This file owns the
+user CRUD operations on top of those helpers.
+
 Both ``hashpw`` and ``checkpw`` callers MUST go through
-:func:`_prepare_bcrypt_input` so the pre-hash logic is applied
+``_prepare_bcrypt_input`` so the pre-hash logic is applied
 symmetrically. A mismatch (pre-hash on set, raw on verify or vice
 versa) would lock everyone out.
 """
 
-# rationale: combines user CRUD (create, list, delete, change-password) with
-# bcrypt helpers because the helpers are intrinsic to each CRUD operation and
-# the test suite patches ``mediaman.web.auth.password_hash.bcrypt`` at module
-# scope — splitting bcrypt helpers into a separate file would move the patch
-# target and break all password tests without reducing complexity.
-
 from __future__ import annotations
 
-import base64
-import hashlib
 import logging
-import re as _re
 import sqlite3
-import threading
-import unicodedata
 from typing import TypedDict
 
 import bcrypt
 
 from mediaman.core.time import now_iso
+from mediaman.web.auth._password_hash_helpers import (
+    BCRYPT_ROUNDS,
+    _get_dummy_hash,
+    _LastUser,
+    _prepare_bcrypt_input,
+    _sanitise_log_field,
+    _UserVanished,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,109 +63,6 @@ class UserRecord(TypedDict):
     id: int
     username: str
     created_at: str
-
-
-#: Single source of truth for the bcrypt cost factor. Tied together so
-#: the dummy hash and every real hash use the same work factor — a
-#: drift here would create a measurable timing channel between
-#: nonexistent-user and real-user code paths.
-BCRYPT_ROUNDS = 12
-
-#: Hard cap on bcrypt input. ``bcrypt.hashpw`` silently truncates above
-#: this; we redirect oversized inputs through a SHA-256 pre-hash so the
-#: full input contributes to the final digest.
-_BCRYPT_MAX_INPUT_BYTES = 72
-
-
-# Characters allowed in sanitised log fields. Anything else is stripped
-# before interpolation so usernames cannot inject CR/LF or control
-# characters into log lines. ``web.routes.auth`` imports this as the
-# canonical definition — having the regex here (in the auth package)
-# rather than in the route module is the correct direction and avoids
-# any import cycle.
-_LOG_FIELD_RE = _re.compile(r"[^A-Za-z0-9._@\-]")
-
-
-def _sanitise_log_field(value: str, limit: int = 64) -> str:
-    """Strip non-safe characters from *value* and truncate to *limit*."""
-    truncated = len(value) > limit
-    sanitised = _LOG_FIELD_RE.sub("", value)[:limit]
-    return sanitised + "..." if truncated else sanitised
-
-
-def _normalise_password(password: str) -> str:
-    """NFKC-normalise *password* so visually-identical strings agree.
-
-    Different OSes / IMEs emit different byte sequences for the same
-    visible character — e.g. ``é`` may arrive as a single precomposed
-    code point or as ``e`` + combining acute. Without normalisation,
-    those two strings hash to different bcrypt outputs, so a user who
-    set their password on one platform cannot log in from another.
-    NFKC also folds compatibility forms (full-width digits, ligatures,
-    etc.) so the normalised representation is stable across input
-    methods.
-    """
-    return unicodedata.normalize("NFKC", password)
-
-
-def _prepare_bcrypt_input(password: str) -> bytes:
-    """Return the bytes that should be fed into ``bcrypt.hashpw``/``checkpw``.
-
-    Inputs that fit within bcrypt's 72-byte limit (after NFKC
-    normalisation) are passed straight through, so existing hashes that
-    were generated before this defence landed continue to verify
-    against the same bytes. Inputs that exceed the limit are pre-hashed
-    with SHA-256 and base64-encoded — the result is 44 bytes, well
-    under bcrypt's threshold, so the full entropy of the original
-    password reaches the final digest.
-
-    Both ``hashpw`` and ``checkpw`` MUST route through this helper so
-    the encoding stays symmetric. A mismatch would lock every user out.
-    """
-    normalised = _normalise_password(password)
-    encoded = normalised.encode("utf-8")
-    if len(encoded) <= _BCRYPT_MAX_INPUT_BYTES:
-        return encoded
-    digest = hashlib.sha256(encoded).digest()
-    # base64 of a 32-byte digest is 44 chars — comfortably under bcrypt's
-    # 72-byte limit. We keep the b64 padding (rather than stripping it)
-    # so the encoding is exactly what stdlib base64 produces, leaving
-    # zero ambiguity when re-deriving on verify.
-    return base64.b64encode(digest)
-
-
-class _UserVanished(Exception):
-    """TOCTOU sentinel: the target user was deleted between the auth check and the UPDATE.
-
-    Used inside :func:`change_password` to abort the ``with conn:`` block
-    (forcing rollback of the half-written transaction) and signal back to
-    the outer handler that the change should return ``False`` instead of
-    claiming success. Private because the public contract is ``return
-    False`` — callers must never see this exception.
-    """
-
-
-class _LastUser(Exception):
-    """Last-admin guard sentinel: refused to delete the only remaining admin.
-
-    Used inside :func:`delete_user` to abort the ``with conn:`` block
-    (forcing rollback of the half-written transaction) and signal back to
-    the outer handler that the delete should return ``False``. Private —
-    the public contract is ``return False``.
-    """
-
-
-_DUMMY_HASH: bytes | None = None
-_DUMMY_HASH_LOCK = threading.Lock()
-
-
-def _get_dummy_hash() -> bytes:
-    """Lazily compute the bcrypt dummy hash the first time it's needed."""
-    global _DUMMY_HASH
-    with _DUMMY_HASH_LOCK:
-        if _DUMMY_HASH is None:
-            _DUMMY_HASH = bcrypt.hashpw(b"dummy", bcrypt.gensalt(rounds=BCRYPT_ROUNDS))
-        return _DUMMY_HASH
 
 
 def user_must_change_password(conn: sqlite3.Connection, username: str) -> bool:
@@ -197,7 +97,7 @@ def create_user(
     """Insert an admin user with a bcrypt-hashed password.
 
     The bcrypt cost is :data:`BCRYPT_ROUNDS`. Passwords are routed
-    through :func:`_prepare_bcrypt_input` first so inputs over 72 bytes
+    through ``_prepare_bcrypt_input`` first so inputs over 72 bytes
     preserve full entropy (see module docstring).
 
     Audit-in-transaction: when *audit_actor* is supplied, a
