@@ -78,7 +78,7 @@ def _scrub_detail(detail: str | None) -> str:
     return _CONTROL_BYTES_RE.sub("", detail)
 
 
-def _build_item(r) -> dict:
+def _build_item(r) -> dict[str, object]:
     """Render an audit_log row into the dict the template/JSON expects."""
     action = r["action"]
     is_security = isinstance(action, str) and action.startswith("sec:")
@@ -114,7 +114,7 @@ def _build_item(r) -> dict:
     }
 
 
-def _fetch_rows(conn, *, action: str | None, page: int, per_page: int) -> list[dict]:
+def _fetch_rows(conn, *, action: str | None, page: int, per_page: int) -> list[dict[str, object]]:
     """Dispatch to the security-only or media-events row fetcher."""
     if action == "security":
         rows = fetch_security_audit_rows(conn, page=page, per_page=per_page)
@@ -123,7 +123,7 @@ def _fetch_rows(conn, *, action: str | None, page: int, per_page: int) -> list[d
     return [_build_item(r) for r in rows]
 
 
-def _fetch_history(conn, action: str | None, page: int, per_page: int) -> tuple[list[dict], int]:
+def _fetch_history(conn, action: str | None, page: int, per_page: int) -> tuple[list[dict[str, object]], int]:
     """Return (items, total_count) for the audit log."""
     total = count_audit_rows(conn, action)
     items = _fetch_rows(conn, action=action, page=page, per_page=per_page)

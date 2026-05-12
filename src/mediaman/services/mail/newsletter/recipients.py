@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from typing import cast
 from urllib.parse import quote as _url_quote
 
 import requests
@@ -11,6 +12,8 @@ import requests
 from mediaman.core.time import now_iso
 from mediaman.crypto import generate_download_token, generate_unsubscribe_token
 from mediaman.services.infra.http import SafeHTTPError
+
+from ._types import DeletedNewsletterItem, NewsletterRecItem, ScheduledNewsletterItem, StorageStats
 
 logger = logging.getLogger(__name__)
 
@@ -80,10 +83,10 @@ def _record_delivery_attempt(
 def _send_to_recipients(
     *,
     recipient_emails: list[str],
-    scheduled_items: list[dict],
-    deleted_items: list[dict],
-    this_week_items: list[dict],
-    storage: dict,
+    scheduled_items: list[ScheduledNewsletterItem],
+    deleted_items: list[DeletedNewsletterItem],
+    this_week_items: list[NewsletterRecItem],
+    storage: StorageStats,
     reclaimed_week: int,
     reclaimed_month: int,
     reclaimed_total: int,
@@ -121,45 +124,49 @@ def _send_to_recipients(
 
         # Build per-recipient shallow copies so token URLs don't bleed between recipients.
         # Without this, recipient N's tokens overwrite recipient N-1's in the shared dicts.
-        recipient_deleted = [dict(item) for item in deleted_items]
-        recipient_this_week = [dict(item) for item in this_week_items]
+        recipient_deleted: list[DeletedNewsletterItem] = [
+            cast(DeletedNewsletterItem, dict(item)) for item in deleted_items
+        ]
+        recipient_this_week: list[NewsletterRecItem] = [
+            cast(NewsletterRecItem, dict(item)) for item in this_week_items
+        ]
 
-        for item in recipient_deleted:
+        for del_item in recipient_deleted:
             # Finding 15: only mint a public re-download token when we have a
             # stable TMDB identifier on the deleted item.  Without one, the
             # public submit endpoint would have to fall back to title lookup,
             # which can enqueue the wrong film/show.  When tmdb_id is missing
             # the template's ``{% if item.redownload_url %}`` guard hides the
             # button rather than render a link that would fail at submit.
-            item_tmdb = item.get("tmdb_id")
+            item_tmdb = del_item.get("tmdb_id")
             if base_url and item_tmdb:
                 token = generate_download_token(
                     email=email,
                     action="redownload",
-                    title=item["title"],
-                    media_type=item.get("media_type", "movie"),
+                    title=del_item["title"],
+                    media_type=del_item.get("media_type", "movie"),
                     tmdb_id=item_tmdb,
                     recommendation_id=None,
                     secret_key=secret_key,
                 )
-                item["redownload_url"] = f"{base_url}/download/{token}"
+                del_item["redownload_url"] = f"{base_url}/download/{token}"
             else:
-                item["redownload_url"] = ""
+                del_item["redownload_url"] = ""
 
-        for item in recipient_this_week:
+        for rec_item in recipient_this_week:
             if base_url:
                 token = generate_download_token(
                     email=email,
                     action="download",
-                    title=item["title"],
-                    media_type=item["media_type"],
-                    tmdb_id=item.get("tmdb_id"),
-                    recommendation_id=item.get("id"),
+                    title=rec_item["title"],
+                    media_type=rec_item["media_type"],
+                    tmdb_id=rec_item.get("tmdb_id"),
+                    recommendation_id=rec_item.get("id"),
                     secret_key=secret_key,
                 )
-                item["download_url"] = f"{base_url}/download/{token}"
+                rec_item["download_url"] = f"{base_url}/download/{token}"
             else:
-                item["download_url"] = ""
+                rec_item["download_url"] = ""
 
         html = template.render(
             report_date=report_date,

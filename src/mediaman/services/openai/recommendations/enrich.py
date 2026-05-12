@@ -9,22 +9,16 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
-from typing import Any
+from typing import cast
 from urllib.parse import quote as urlquote
 
 from mediaman.services.media_meta.item_enrichment import apply_tmdb_detail
+from mediaman.services.openai.recommendations._types import RecommendationItem
 from mediaman.services.openai.recommendations.prompts import strip_season_suffix
 
 
-# rationale: ``recommendations`` is the in-flight dict the OpenAI prompt
-# pipeline builds and mutates in-place — every step (TMDB enrichment, OMDb
-# rating fallback, season-stripping fixups) adds heterogeneous keys whose
-# value types differ per phase (int, str, float, dict).  A TypedDict would
-# either be a ``total=False`` bag identical to ``dict[str, Any]`` in spirit
-# or force every contributor to declare every intermediate field upfront;
-# pinning the persisted shape happens once at ``persist_recommendations``.
 def enrich_recommendations(
-    recommendations: list[dict[str, Any]],
+    recommendations: list[RecommendationItem],
     conn: sqlite3.Connection,
     secret_key: str,
 ) -> None:
@@ -80,7 +74,10 @@ def enrich_recommendations(
             if tmdb_id:
                 data = client.details(s["media_type"], tmdb_id)
                 if data:
-                    apply_tmdb_detail(s, TmdbClient.shape_detail(data, media_type=s["media_type"]))
+                    apply_tmdb_detail(
+                        cast(dict[str, object], s),
+                        TmdbClient.shape_detail(data, media_type=s["media_type"]),
+                    )
 
         title = s.get("title")
         if not title:

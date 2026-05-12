@@ -11,6 +11,7 @@ from mediaman.core.format import title_from_audit_detail as _extract_title_from_
 from mediaman.crypto import sign_poster_url
 
 from ._time import _parse_days_ago
+from ._types import DeletedNewsletterItem, NewsletterRecItem, StorageStats
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ def _load_deleted_items(
     secret_key: str,
     base_url: str,
     now: datetime,
-) -> list[dict]:
+) -> list[DeletedNewsletterItem]:
     """Query and build the recently-deleted card list (last 7 days).
 
     Items that were re-downloaded after their deletion timestamp are silently
@@ -60,7 +61,7 @@ def _load_deleted_items(
         if key not in redownload_times or rd["created_at"] > redownload_times[key]:
             redownload_times[key] = rd["created_at"]
 
-    items = []
+    items: list[DeletedNewsletterItem] = []
     for row in deleted_rows:
         title = row["title"] or _extract_title_from_detail(row["detail"])
 
@@ -114,7 +115,7 @@ def _load_deleted_items(
     return items
 
 
-def _load_storage_stats(conn: sqlite3.Connection, now: datetime) -> tuple[dict, int, int, int]:
+def _load_storage_stats(conn: sqlite3.Connection, now: datetime) -> tuple[StorageStats, int, int, int]:
     """Build storage stats and reclaimed-space totals.
 
     Returns ``(storage_dict, reclaimed_week, reclaimed_month, reclaimed_total)``.
@@ -148,7 +149,7 @@ def _load_storage_stats(conn: sqlite3.Connection, now: datetime) -> tuple[dict, 
     except OSError:
         logger.warning("Failed to fetch disk usage for newsletter", exc_info=True)
 
-    storage = {
+    storage: StorageStats = {
         "total_bytes": total_bytes,
         "used_bytes": used_bytes,
         "free_bytes": free_bytes,
@@ -176,7 +177,7 @@ def _load_storage_stats(conn: sqlite3.Connection, now: datetime) -> tuple[dict, 
     return storage, reclaimed_week, reclaimed_month, reclaimed_total
 
 
-def _load_recommendations(conn: sqlite3.Connection) -> list[dict]:
+def _load_recommendations(conn: sqlite3.Connection) -> list[NewsletterRecItem]:
     """Load the most recent suggestion batch if the feature is enabled.
 
     Returns an empty list when suggestions are disabled or there are no rows.

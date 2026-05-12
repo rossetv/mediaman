@@ -8,6 +8,7 @@ from datetime import datetime
 from mediaman.crypto import sign_poster_url
 
 from ._time import _parse_days_ago
+from ._types import ScheduledNewsletterItem
 
 
 def _load_scheduled_items(
@@ -16,7 +17,7 @@ def _load_scheduled_items(
     base_url: str,
     now: datetime,
     mark_notified: bool,
-) -> list[dict]:
+) -> list[ScheduledNewsletterItem]:
     """Query and build the scheduled-deletion card list.
 
     When *mark_notified* is True (automated send), only unnotified rows are
@@ -41,7 +42,7 @@ def _load_scheduled_items(
             "WHERE sa.action='scheduled_deletion' AND sa.token_used=0"
         ).fetchall()
 
-    items = []
+    items: list[ScheduledNewsletterItem] = []
     for row in rows:
         added_days_ago = _parse_days_ago(row["added_at"], now)
         rating_key = row["plex_rating_key"] or ""
@@ -94,7 +95,7 @@ def _load_scheduled_items(
 
 def _mark_notified(
     conn: sqlite3.Connection,
-    scheduled_items: list[dict],
+    scheduled_items: list[ScheduledNewsletterItem],
     *,
     active_recipients: list[str] | None = None,
 ) -> None:
