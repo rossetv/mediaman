@@ -237,6 +237,125 @@ def _try_delete_session(conn: sqlite3.Connection, token_hash: str, *, reason: st
         )
 
 
+def _fetch_session_row(conn: sqlite3.Connection, token_hash: str) -> sqlite3.Row | None:
+    """Phase 1: read-only SELECT of the session row.
+
+    No BEGIN IMMEDIATE here — a vanilla SELECT against a WAL-mode SQLite
+    is concurrent with writers.
+    """
+    return conn.execute(
+        "SELECT username, expires_at, last_used_at, fingerprint "
+        "FROM admin_sessions WHERE token_hash = ? LIMIT 1",
+        (token_hash,),
+    ).fetchone()
+
+
+def _idle_expired(
+    conn: sqlite3.Connection,
+    row: sqlite3.Row,
+    last_dt: datetime | None,
+    token_hash: str,
+    now_dt: datetime,
+) -> bool:
+    """Phase 2: idle-expiry check; delete the session and return True when expired.
+
+    Returns ``True`` if the caller must treat the session as invalid
+    (corrupt timestamp or beyond the idle window) and a delete has been
+    issued. Returns ``False`` when the session is still within its idle
+    window.
+    """
+    if last_dt is None and row["last_used_at"]:
+        # Corrupt timestamp — fail closed.
+        logger.info("session.idle_expired user=%s reason=corrupt_timestamp", row["username"])
+        _try_delete_session(conn, token_hash, reason="corrupt_timestamp")
+        return True
+    if last_dt is not None and now_dt - last_dt > timedelta(hours=_IDLE_TIMEOUT_HOURS):
+        logger.info("session.idle_expired user=%s", row["username"])
+        _try_delete_session(conn, token_hash, reason="idle_expired")
+        return True
+    return False
+
+
+def _fingerprint_mismatch(
+    conn: sqlite3.Connection,
+    row: sqlite3.Row,
+    token_hash: str,
+    user_agent: str | None,
+    client_ip: str | None,
+) -> bool:
+    """Phase 3: fingerprint check; delete the session and return True on mismatch.
+
+    A read-only comparison by default; only the mismatch branch reaches
+    for the writer lock to evict the bound session.
+    """
+    stored_fp = row["fingerprint"]
+    mode = _fingerprint_mode()
+    if mode != "off" and stored_fp and user_agent is not None and client_ip is not None:
+        current_fp = _client_fingerprint(user_agent, client_ip, mode=mode)
+        if current_fp != stored_fp:
+            logger.warning(
+                "session.fingerprint_mismatch user=%s expected=%s got=%s ip=%s mode=%s",
+                row["username"],
+                stored_fp,
+                current_fp,
+                client_ip,
+                mode,
+            )
+            _try_delete_session(conn, token_hash, reason="fingerprint_mismatch")
+            return True
+    return False
+
+
+def _maybe_refresh_last_used(
+    conn: sqlite3.Connection,
+    row: sqlite3.Row,
+    last_dt: datetime | None,
+    token_hash: str,
+    now_dt: datetime,
+    now_iso: str,
+) -> None:
+    """Phase 4: refresh ``last_used_at`` only when the throttle interval has elapsed.
+
+    Throttling keeps a rapid burst of requests from queueing up serial
+    write transactions on the same session.
+    """
+    needs_refresh = last_dt is None or now_dt - last_dt >= _SESSION_REFRESH_MIN_INTERVAL
+    if not needs_refresh:
+        return
+    try:
+        _refresh_last_used_with_commit(conn, token_hash, now_iso)
+    # rationale: best-effort session writes — refreshing last_used_at
+    # is a freshness signal, not a correctness gate; never fail the
+    # request because the timestamp didn't update.
+    except Exception:
+        logger.warning(
+            "session.last_used_at_refresh_failed user=%s",
+            row["username"],
+            exc_info=True,
+        )
+
+
+def _maybe_sweep_expired(conn: sqlite3.Connection, now_iso: str) -> None:
+    """Phase 5: opportunistic expired-row sweep gated to ≤ once per minute.
+
+    Invariant: stamp ``_last_cleanup_at`` with the moment the cleanup
+    FINISHED, not the moment :func:`validate_session` was entered.
+    Otherwise a slow sweep would let the next request fire another sweep
+    almost immediately after this one returned, defeating the
+    once-per-minute throttle.
+    """
+    global _last_cleanup_at
+    mono = time.monotonic()
+    if mono - _last_cleanup_at < _EXPIRED_CLEANUP_INTERVAL:
+        return
+    with _cleanup_lock:
+        if mono - _last_cleanup_at >= _EXPIRED_CLEANUP_INTERVAL:
+            try:
+                _cleanup_expired_with_commit(conn, now_iso)
+            finally:
+                _last_cleanup_at = time.monotonic()
+
+
 def validate_session(
     conn: sqlite3.Connection,
     token: str,
@@ -257,18 +376,11 @@ def validate_session(
     if not token or not _SESSION_TOKEN_RE.fullmatch(token):
         return None
 
-    global _last_cleanup_at
     now_dt = datetime.now(UTC)
     now_iso = now_dt.isoformat()
     token_hash = _hash_token(token)
 
-    # Phase 1: read-only inspection. No BEGIN IMMEDIATE here — a vanilla
-    # SELECT against a WAL-mode SQLite is concurrent with writers.
-    row = conn.execute(
-        "SELECT username, expires_at, last_used_at, fingerprint "
-        "FROM admin_sessions WHERE token_hash = ? LIMIT 1",
-        (token_hash,),
-    ).fetchone()
+    row = _fetch_session_row(conn, token_hash)
     if row is None:
         return None
     expires_dt = _parse_iso_aware(row["expires_at"])
@@ -277,70 +389,13 @@ def validate_session(
 
     last_dt: datetime | None = _parse_last_used(row["last_used_at"], row["username"])
 
-    # Phase 2: idle-expiry — short write transaction only when the
-    # session actually has to be invalidated.
-    if last_dt is None and row["last_used_at"]:
-        # Corrupt timestamp — fail closed.
-        logger.info("session.idle_expired user=%s reason=corrupt_timestamp", row["username"])
-        _try_delete_session(conn, token_hash, reason="corrupt_timestamp")
+    if _idle_expired(conn, row, last_dt, token_hash, now_dt):
         return None
-    if last_dt is not None and now_dt - last_dt > timedelta(hours=_IDLE_TIMEOUT_HOURS):
-        logger.info("session.idle_expired user=%s", row["username"])
-        _try_delete_session(conn, token_hash, reason="idle_expired")
+    if _fingerprint_mismatch(conn, row, token_hash, user_agent, client_ip):
         return None
 
-    # Phase 3: fingerprint check — read-only comparison; only the
-    # mismatch branch reaches for the writer lock.
-    stored_fp = row["fingerprint"]
-    mode = _fingerprint_mode()
-    if mode != "off" and stored_fp and user_agent is not None and client_ip is not None:
-        current_fp = _client_fingerprint(user_agent, client_ip, mode=mode)
-        if current_fp != stored_fp:
-            logger.warning(
-                "session.fingerprint_mismatch user=%s expected=%s got=%s ip=%s mode=%s",
-                row["username"],
-                stored_fp,
-                current_fp,
-                client_ip,
-                mode,
-            )
-            _try_delete_session(conn, token_hash, reason="fingerprint_mismatch")
-            return None
-
-    # Phase 4: last_used_at refresh — only writes when the throttle
-    # interval has actually elapsed, so a rapid burst of requests by
-    # the same session never queues up serial write transactions.
-    needs_refresh = last_dt is None or now_dt - last_dt >= _SESSION_REFRESH_MIN_INTERVAL
-    if needs_refresh:
-        try:
-            _refresh_last_used_with_commit(conn, token_hash, now_iso)
-        # rationale: best-effort session writes — refreshing last_used_at
-        # is a freshness signal, not a correctness gate; never fail the
-        # request because the timestamp didn't update.
-        except Exception:
-            logger.warning(
-                "session.last_used_at_refresh_failed user=%s",
-                row["username"],
-                exc_info=True,
-            )
-
-    # Phase 5: opportunistic expired-row sweep, gated on a monotonic
-    # counter so it runs at most once per minute regardless of request
-    # rate.
-    #
-    # Invariant: stamp _last_cleanup_at with the moment the cleanup
-    # FINISHED, not the moment validate_session was entered.  Otherwise a
-    # slow sweep would let the next request fire another sweep almost
-    # immediately after this one returned, defeating the once-per-minute
-    # throttle.
-    mono = time.monotonic()
-    if mono - _last_cleanup_at >= _EXPIRED_CLEANUP_INTERVAL:
-        with _cleanup_lock:
-            if mono - _last_cleanup_at >= _EXPIRED_CLEANUP_INTERVAL:
-                try:
-                    _cleanup_expired_with_commit(conn, now_iso)
-                finally:
-                    _last_cleanup_at = time.monotonic()
+    _maybe_refresh_last_used(conn, row, last_dt, token_hash, now_dt, now_iso)
+    _maybe_sweep_expired(conn, now_iso)
 
     return row["username"]
 
