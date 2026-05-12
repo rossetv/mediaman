@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
-from mediaman.core.audit import security_event, security_event_or_raise
+from mediaman.core.audit import security_event
 from mediaman.db import (
     finish_scan_run,
     get_db,
@@ -21,6 +21,7 @@ from mediaman.db import (
     open_thread_connection,
     start_scan_run,
 )
+from mediaman.scanner.repository.scheduled_actions import clear_pending_deletions
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.infra.settings_reader import ConfigDecryptError
 from mediaman.services.rate_limit import get_client_ip
@@ -148,26 +149,9 @@ def clear_scheduled(
         )
     conn = get_db()
     try:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            cleared = conn.execute(
-                "SELECT COUNT(*) FROM scheduled_actions "
-                "WHERE action='scheduled_deletion' AND token_used=0"
-            ).fetchone()[0]
-            conn.execute(
-                "DELETE FROM scheduled_actions WHERE action='scheduled_deletion' AND token_used=0"
-            )
-            security_event_or_raise(
-                conn,
-                event="scan.cleared",
-                actor=admin,
-                ip=get_client_ip(request),
-                detail={"count": cleared},
-            )
-            conn.execute("COMMIT")
-        except sqlite3.Error:
-            conn.execute("ROLLBACK")
-            raise
+        cleared = clear_pending_deletions(
+            conn, audit_actor=admin, audit_ip=get_client_ip(request)
+        )
     except sqlite3.Error:
         logger.exception("scan.clear failed user=%s", admin)
         return respond_err("internal_error", status=500)
