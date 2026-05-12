@@ -255,15 +255,13 @@
           confirmLabel: 'Delete user',
           dangerConfirm: true,
           onSubmit: function (pw) {
-            return fetch('/api/users/' + user.id, {
-              method: 'DELETE',
-              credentials: 'same-origin',
+            return MM.api.delete('/api/users/' + user.id, {
               headers: { 'X-Confirm-Password': pw },
-            }).then(function (r) {
-              return r.json().catch(function () { return {}; }).then(function (data) {
-                if (data && data.ok) { loadUsers(); return { ok: true }; }
-                return { ok: false, error: (data && data.error) || 'Delete failed' };
-              });
+            }).then(function (data) {
+              if (data && data.ok) { loadUsers(); return { ok: true }; }
+              return { ok: false, error: (data && data.error) || 'Delete failed' };
+            }).catch(function (err) {
+              return { ok: false, error: (err && err.message) || 'Delete failed' };
             });
           },
         });

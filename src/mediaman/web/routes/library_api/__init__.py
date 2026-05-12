@@ -37,20 +37,21 @@ from __future__ import annotations
 import logging
 import secrets
 import sqlite3
-from datetime import UTC, datetime, timedelta
 from urllib.parse import quote as _url_quote
 
 import requests
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import JSONResponse
 
+from mediaman.core.time import now_utc
 from mediaman.db import get_db
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.rate_limit import ActionRateLimiter
+from mediaman.services.scheduled_actions import resolve_keep_decision
 from mediaman.web.auth.middleware import get_current_admin
-from mediaman.web.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
+from mediaman.web.models import VALID_KEEP_DURATIONS
 from mediaman.web.repository.delete_intents import (
     _complete_delete_intent,
     _fail_delete_intent,
@@ -167,18 +168,9 @@ def api_media_keep(
     if duration not in VALID_KEEP_DURATIONS:
         return respond_err("invalid_duration", status=400)
 
-    now = datetime.now(UTC)
-
-    if duration == "forever":
-        action = ACTION_PROTECTED_FOREVER
-        execute_at = None
-        snooze_label = "forever"
-    else:
-        days = VALID_KEEP_DURATIONS[duration]
-        assert days is not None  # only "forever" maps to None and is handled above
-        action = ACTION_SNOOZED
-        execute_at = (now + timedelta(days=int(days))).isoformat()
-        snooze_label = duration
+    now = now_utc()
+    decision = resolve_keep_decision(duration, days=VALID_KEEP_DURATIONS[duration], now=now)
+    snooze_label = "forever" if duration == "forever" else duration
 
     # rationale: the helper takes the media-existence check, scheduled_actions
     # UPSERT, and audit row inside one ``BEGIN IMMEDIATE`` block so the SELECT
@@ -187,8 +179,8 @@ def api_media_keep(
         apply_keep_in_tx(
             conn,
             media_id=media_id,
-            action=action,
-            execute_at=execute_at,
+            action=decision.action,
+            execute_at=decision.execute_at,
             now_iso=now.isoformat(),
             snooze_label=snooze_label,
             new_token=secrets.token_urlsafe(32),
