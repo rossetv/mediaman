@@ -168,7 +168,9 @@ def _check_dedup(admin: str, body: _DownloadRequest) -> JSONResponse | None:
     return None
 
 
-def _submit_movie(conn: sqlite3.Connection, secret_key: str, body: _DownloadRequest, notify_email: str) -> JSONResponse:
+def _submit_movie(
+    conn: sqlite3.Connection, secret_key: str, body: _DownloadRequest, notify_email: str
+) -> JSONResponse:
     """Add a movie to Radarr and record the download notification."""
     radarr = build_radarr_from_db(conn, secret_key)
     if not radarr:
@@ -225,7 +227,9 @@ def _submit_movie(conn: sqlite3.Connection, secret_key: str, body: _DownloadRequ
     return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Radarr"})
 
 
-def _resolve_tvdb_id(sonarr: ArrClient, body: _DownloadRequest) -> tuple[int | None, JSONResponse | None]:
+def _resolve_tvdb_id(
+    sonarr: ArrClient, body: _DownloadRequest
+) -> tuple[int | None, JSONResponse | None]:
     """Look up the TVDB ID for a series via Sonarr. Return (tvdb_id, None) or (None, error)."""
     try:
         lookup = sonarr.lookup_series_by_tmdb(body.tmdb_id)
@@ -244,7 +248,9 @@ def _resolve_tvdb_id(sonarr: ArrClient, body: _DownloadRequest) -> tuple[int | N
     return tvdb_id_raw, None
 
 
-def _submit_tv(conn: sqlite3.Connection, secret_key: str, body: _DownloadRequest, notify_email: str) -> JSONResponse:
+def _submit_tv(
+    conn: sqlite3.Connection, secret_key: str, body: _DownloadRequest, notify_email: str
+) -> JSONResponse:
     """Add a series to Sonarr and record the download notification."""
     sonarr = build_sonarr_from_db(conn, secret_key)
     if not sonarr:
