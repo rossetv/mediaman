@@ -213,3 +213,99 @@ class TestDownloadStatusRadarr:
 
         assert resp.status_code == 200
         assert resp.json()["state"] == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Finding 14: status polling requires poll_token, not download token
+# ---------------------------------------------------------------------------
+
+_STATUS_SECRET = "a" * 64
+
+
+def _make_status_app_finding14(conn) -> TestClient:
+    """Stand up a status-router app with get_optional_admin always returning None."""
+
+    from fastapi import FastAPI
+
+    from mediaman.config import Config
+    from mediaman.db import set_connection
+    from mediaman.web.auth.middleware import get_optional_admin
+    from mediaman.web.routes.download import status as status_mod
+
+    app = FastAPI()
+    app.include_router(status_mod.router)
+    app.state.config = Config(secret_key=_STATUS_SECRET)
+    app.state.db = conn
+    set_connection(conn)
+    app.dependency_overrides[get_optional_admin] = lambda: None
+    return TestClient(app, raise_server_exceptions=True)
+
+
+class TestFinding14PollTokenRequired:
+    """Finding 14: unauthenticated status polling must use poll_token, not download token."""
+
+    def test_no_token_returns_401(self, conn):
+        """Calling /api/download/status without any token must return 401."""
+        client = _make_status_app_finding14(conn)
+        resp = client.get("/api/download/status", params={"service": "radarr", "tmdb_id": 42})
+        assert resp.status_code == 401
+
+    def test_download_token_no_longer_accepted(self, conn):
+        """The long-lived download token must not be accepted for polling (finding 14)."""
+        download_token = generate_download_token(
+            email="test@example.com",
+            action="download",
+            title="Test",
+            media_type="movie",
+            tmdb_id=42,
+            recommendation_id=None,
+            secret_key=_STATUS_SECRET,
+        )
+        client = _make_status_app_finding14(conn)
+        # Passing the download token in the 'token' param must now be ignored
+        # (the 'token' param was removed; the endpoint only knows poll_token).
+        resp = client.get(
+            "/api/download/status",
+            params={"service": "radarr", "tmdb_id": 42, "token": download_token},
+        )
+        # Must not authenticate — 401 expected
+        assert resp.status_code == 401
+
+    def test_valid_poll_token_accepted(self, conn):
+        """A valid poll_token bound to the correct service/tmdb must authenticate."""
+        from mediaman.web.routes.download import status as status_mod
+
+        poll_token = generate_poll_token(
+            media_item_id="radarr:Test",
+            service="radarr",
+            tmdb_id=42,
+            secret_key=_STATUS_SECRET,
+        )
+        client = _make_status_app_finding14(conn)
+
+        # Patch the service lookup so we don't need a real Radarr client
+        with patch.object(
+            status_mod,
+            "_radarr_status",
+            return_value={"state": "searching"},
+        ):
+            resp = client.get(
+                "/api/download/status",
+                params={"service": "radarr", "tmdb_id": 42, "poll_token": poll_token},
+            )
+        assert resp.status_code == 200
+
+    def test_poll_token_wrong_service_rejected(self, conn):
+        """A poll_token issued for 'sonarr' must not authenticate a 'radarr' request."""
+        poll_token = generate_poll_token(
+            media_item_id="sonarr:Test",
+            service="sonarr",
+            tmdb_id=42,
+            secret_key=_STATUS_SECRET,
+        )
+        client = _make_status_app_finding14(conn)
+        resp = client.get(
+            "/api/download/status",
+            params={"service": "radarr", "tmdb_id": 42, "poll_token": poll_token},
+        )
+        assert resp.status_code == 401

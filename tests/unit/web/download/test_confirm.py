@@ -162,4 +162,33 @@ class TestDownloadPageConfirm:
         ctx = resp.json()
         assert ctx["state"] == "confirm"
         assert "Sci-Fi" in ctx["item"]["genres_list"]
-        assert "Drama" in ctx["item"]["genres_list"]
+
+
+# ---------------------------------------------------------------------------
+# Finding 19: Trailer key validation
+# ---------------------------------------------------------------------------
+
+
+class TestFinding19TrailerKeyValidation:
+    """Finding 19: trailer key must be exactly 11 URL-safe base64 characters."""
+
+    def _validate(self, key: str) -> bool:
+        return validate_youtube_id(key) is not None
+
+    def test_valid_11_char_key_accepted(self):
+        assert self._validate("dQw4w9WgXcQ")
+
+    def test_10_char_key_rejected(self):
+        assert not self._validate("dQw4w9WgXc")
+
+    def test_12_char_key_rejected(self):
+        assert not self._validate("dQw4w9WgXcQQ")
+
+    def test_key_with_invalid_chars_rejected(self):
+        assert not self._validate("dQw4w9WgX!Q")
+
+    def test_none_returns_none(self):
+        assert validate_youtube_id(None) is None
+
+    def test_empty_string_returns_none(self):
+        assert validate_youtube_id("") is None

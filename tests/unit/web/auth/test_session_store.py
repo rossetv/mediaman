@@ -703,3 +703,111 @@ class TestSharedHashTokenModule:
         from mediaman.web.auth._token_hashing import hash_token
 
         assert hash_token("token-1") == hashlib.sha256(b"token-1").hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Session fingerprint binding
+# ---------------------------------------------------------------------------
+
+
+class TestSessionFingerprint:
+    def _conn(self, tmp_path):
+        from mediaman.db import init_db
+
+        return init_db(str(tmp_path / "mm.db"))
+
+    def test_fingerprint_rejects_different_client(self, tmp_path):
+        from mediaman.web.auth.password_hash import create_user
+        from mediaman.web.auth.session_store import create_session, validate_session
+
+        conn = self._conn(tmp_path)
+        create_user(conn, "alice", "test-password-long-enough", enforce_policy=False)
+        token = create_session(
+            conn,
+            "alice",
+            user_agent="Mozilla/5.0 X",
+            client_ip="192.0.2.1",
+        )
+
+        # Same UA, same /24 — OK.
+        assert (
+            validate_session(
+                conn,
+                token,
+                user_agent="Mozilla/5.0 X",
+                client_ip="192.0.2.99",
+            )
+            == "alice"
+        )
+
+        # Different UA — cookie theft → reject.
+        assert (
+            validate_session(
+                conn,
+                token,
+                user_agent="Chrome attacker",
+                client_ip="192.0.2.1",
+            )
+            is None
+        )
+
+    def test_unbound_session_works_without_fingerprint(self, tmp_path):
+        """Sessions created with no UA/IP (CLI, tests, legacy) are unbound."""
+        from mediaman.web.auth.password_hash import create_user
+        from mediaman.web.auth.session_store import create_session, validate_session
+
+        conn = self._conn(tmp_path)
+        create_user(conn, "bob", "test-password-long-enough", enforce_policy=False)
+        token = create_session(conn, "bob")
+
+        # No fingerprint stored → any client succeeds.
+        assert (
+            validate_session(
+                conn,
+                token,
+                user_agent="anything",
+                client_ip="1.2.3.4",
+            )
+            == "bob"
+        )
+
+    def test_token_stored_as_hash(self, tmp_path):
+        """Raw token must not be the primary key — token_hash is stored."""
+        from mediaman.web.auth.password_hash import create_user
+        from mediaman.web.auth.session_store import create_session
+
+        conn = self._conn(tmp_path)
+        create_user(conn, "carol", "test-password-long-enough", enforce_policy=False)
+        create_session(conn, "carol", user_agent="UA", client_ip="1.1.1.1")
+
+        row = conn.execute(
+            "SELECT token_hash, fingerprint, issued_ip FROM admin_sessions"
+        ).fetchone()
+        # token_hash is populated
+        assert row["token_hash"] is not None
+        assert len(row["token_hash"]) == 64
+        # fingerprint captured
+        assert row["fingerprint"]
+        # issued_ip captured
+        assert row["issued_ip"] == "1.1.1.1"
+
+
+class TestSessionIdleTimeout:
+    def test_idle_session_expires(self, tmp_path):
+        from datetime import UTC, datetime, timedelta
+
+        from mediaman.db import init_db
+        from mediaman.web.auth.password_hash import create_user
+        from mediaman.web.auth.session_store import create_session, validate_session
+
+        conn = init_db(str(tmp_path / "mm.db"))
+        create_user(conn, "dan", "test-password-long-enough", enforce_policy=False)
+        token = create_session(conn, "dan")
+
+        # Poke last_used_at into the past (25 h ago — beyond idle window).
+        past = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
+        conn.execute("UPDATE admin_sessions SET last_used_at = ?", (past,))
+        conn.commit()
+
+        # Should now be rejected.
+        assert validate_session(conn, token) is None

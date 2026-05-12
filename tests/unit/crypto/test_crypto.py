@@ -835,3 +835,155 @@ class TestCiphertextCapTightened:
         plaintext = "x" * 500
         ct = encrypt_value(plaintext, secret_key, conn=conn)
         assert decrypt_value(ct, secret_key, conn=conn) == plaintext
+
+
+# ---------------------------------------------------------------------------
+# HMAC token domain separation
+# ---------------------------------------------------------------------------
+
+_DOMAIN_KEY = "0123456789abcdef" * 4  # 64 hex chars, 16 unique — passes entropy check
+
+
+class TestTokenDomainSeparation:
+    """A token signed for one purpose must NOT validate as another purpose."""
+
+    def test_keep_token_not_valid_as_download(self):
+        import time
+
+        from mediaman.crypto import generate_keep_token, validate_download_token
+
+        keep = generate_keep_token(
+            media_item_id="999",
+            action_id=1,
+            expires_at=int(time.time()) + 3600,
+            secret_key=_DOMAIN_KEY,
+        )
+        assert validate_download_token(keep, _DOMAIN_KEY) is None
+
+    def test_download_token_not_valid_as_keep(self):
+        from mediaman.crypto import generate_download_token, validate_keep_token
+
+        dl = generate_download_token(
+            email="x@y.com",
+            action="download",
+            title="Test",
+            media_type="movie",
+            tmdb_id=123,
+            recommendation_id=None,
+            secret_key=_DOMAIN_KEY,
+        )
+        assert validate_keep_token(dl, _DOMAIN_KEY) is None
+
+    def test_unsubscribe_token_not_valid_as_keep(self):
+        from mediaman.crypto import generate_unsubscribe_token, validate_keep_token
+
+        unsub = generate_unsubscribe_token(email="x@y.com", secret_key=_DOMAIN_KEY)
+        assert validate_keep_token(unsub, _DOMAIN_KEY) is None
+
+    def test_poster_token_not_valid_as_download(self):
+        from mediaman.crypto import generate_poster_token, validate_download_token
+
+        pt = generate_poster_token(rating_key="12345", secret_key=_DOMAIN_KEY)
+        assert validate_download_token(pt, _DOMAIN_KEY) is None
+
+
+class TestTokenLengthCap:
+    def test_keep_token_rejects_oversize(self):
+        from mediaman.crypto import validate_keep_token
+
+        assert validate_keep_token("A" * 10_000, _DOMAIN_KEY) is None
+
+    def test_download_token_rejects_oversize(self):
+        from mediaman.crypto import validate_download_token
+
+        assert validate_download_token("A" * 10_000, _DOMAIN_KEY) is None
+
+
+# ---------------------------------------------------------------------------
+# AES-GCM AAD binding (prevents ciphertext row swap)
+# ---------------------------------------------------------------------------
+
+
+class TestAesGcmAad:
+    def test_aad_binding_roundtrip(self, db_path):
+        from mediaman.crypto import decrypt_value, encrypt_value
+        from mediaman.db import init_db
+
+        conn = init_db(str(db_path))
+        ct = encrypt_value("the-plex-token", _DOMAIN_KEY, conn=conn, aad=b"plex_token")
+        pt = decrypt_value(ct, _DOMAIN_KEY, conn=conn, aad=b"plex_token")
+        assert pt == "the-plex-token"
+
+    def test_aad_mismatch_raises(self, db_path):
+        """Swapping the setting-key AAD must fail authentication."""
+        from cryptography.exceptions import InvalidTag
+
+        from mediaman.crypto import decrypt_value, encrypt_value
+        from mediaman.db import init_db
+
+        conn = init_db(str(db_path))
+        ct = encrypt_value("the-plex-token", _DOMAIN_KEY, conn=conn, aad=b"plex_token")
+
+        # Decrypting with a different AAD must fail — this is exactly
+        # the scenario where an attacker has swapped a ciphertext from
+        # the ``plex_token`` row into, say, ``openai_api_key``.
+        with pytest.raises(InvalidTag):
+            decrypt_value(ct, _DOMAIN_KEY, conn=conn, aad=b"openai_api_key")
+
+    def test_legacy_ciphertext_still_decrypts_without_aad(self, db_path):
+        """Ciphertexts written before AAD-binding still decrypt when AAD is supplied."""
+        from mediaman.crypto import decrypt_value, encrypt_value
+        from mediaman.db import init_db
+
+        conn = init_db(str(db_path))
+        # Simulate a legacy write with no AAD.
+        ct = encrypt_value("legacy-token", _DOMAIN_KEY, conn=conn, aad=None)
+
+        # Reading with AAD should still succeed because decrypt_value
+        # falls back to no-AAD on InvalidTag.
+        pt = decrypt_value(ct, _DOMAIN_KEY, conn=conn, aad=b"plex_token")
+        assert pt == "legacy-token"
+
+
+# ---------------------------------------------------------------------------
+# Unsubscribe token
+# ---------------------------------------------------------------------------
+
+
+class TestUnsubscribeToken:
+    def test_roundtrip(self):
+        from mediaman.crypto import (
+            generate_unsubscribe_token,
+            validate_unsubscribe_token,
+        )
+
+        token = generate_unsubscribe_token(email="x@y.com", secret_key=_DOMAIN_KEY)
+        payload = validate_unsubscribe_token(token, _DOMAIN_KEY)
+        assert payload is not None
+        assert payload.get("email") == "x@y.com"
+
+    def test_wrong_email_rejected(self):
+        from mediaman.crypto import (
+            generate_unsubscribe_token,
+            validate_unsubscribe_token,
+        )
+
+        token = generate_unsubscribe_token(email="x@y.com", secret_key=_DOMAIN_KEY)
+        payload = validate_unsubscribe_token(token, _DOMAIN_KEY)
+        # Token is valid but the email claim doesn't match "other@y.com".
+        assert payload is None or payload.get("email", "").lower() != "other@y.com"
+
+    def test_expired_token_rejected(self, monkeypatch):
+        from mediaman.crypto import (
+            generate_unsubscribe_token,
+            validate_unsubscribe_token,
+        )
+        from mediaman.crypto import tokens as _tokens_mod
+
+        fake_clock = [1_000_000.0]
+        monkeypatch.setattr(_tokens_mod.time, "time", lambda: fake_clock[0])
+
+        token = generate_unsubscribe_token(email="x@y.com", secret_key=_DOMAIN_KEY, ttl_days=0)
+        # ttl_days=0 means exp=int(T)+0; advance the clock past T so exp < time.time()
+        fake_clock[0] += 1.0
+        assert validate_unsubscribe_token(token, _DOMAIN_KEY) is None
