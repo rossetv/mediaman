@@ -18,7 +18,7 @@ from typing import cast
 
 import requests
 
-from mediaman.services.infra.http import SafeHTTPClient
+from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
 
 logger = logging.getLogger(__name__)
 
@@ -92,9 +92,9 @@ class _TransportMixin:
             if result is None:
                 raise ArrUpstreamError(f"Arr returned null for {path}")
             return result
-        # rationale: preserve-and-rethrow — record the failure string so
-        # the UI can surface "last_error" without losing the exception type.
-        except Exception as exc:
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            # preserve-and-rethrow — record the failure string so the UI can
+            # surface "last_error" without losing the exception type.
             self.last_error = str(exc)
             raise
 
@@ -103,8 +103,8 @@ class _TransportMixin:
         try:
             self._http.put(path, headers=self._headers, json=data)
             self.last_error = None
-        # rationale: preserve-and-rethrow — see _get.
-        except Exception as exc:
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            # preserve-and-rethrow — see _get.
             self.last_error = str(exc)
             raise
 
@@ -114,8 +114,8 @@ class _TransportMixin:
             resp = self._http.post(path, headers=self._headers, json=data)
             self.last_error = None
             return resp.json()
-        # rationale: preserve-and-rethrow — see _get.
-        except Exception as exc:
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            # preserve-and-rethrow — see _get.
             self.last_error = str(exc)
             raise
 
@@ -124,8 +124,8 @@ class _TransportMixin:
         try:
             self._http.delete(path, headers=self._headers)
             self.last_error = None
-        # rationale: preserve-and-rethrow — see _get.
-        except Exception as exc:
+        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
+            # preserve-and-rethrow — see _get.
             self.last_error = str(exc)
             raise
 
@@ -174,11 +174,10 @@ class _TransportMixin:
             try:
                 self._put(put_url, cast(dict, entity))
                 return
-            # rationale: retry-on-any-failure — the unmonitor flow is a
-            # read-modify-write loop; any failure on this attempt yields
-            # to a fresh re-read on the next pass, so swallow until we
-            # exhaust max_retries.
-            except Exception:
+            except (SafeHTTPError, requests.RequestException, ValueError):
+                # retry-on-transport-failure — the unmonitor flow is a
+                # read-modify-write loop; any transport failure on this attempt
+                # yields to a fresh re-read on the next pass.
                 if attempt + 1 >= max_retries:
                     raise
                 logger.warning(
