@@ -163,9 +163,7 @@ class TestDownloadPagePost:
         assert data["service"] == "radarr"
         mock_radarr.add_movie.assert_called_once_with(42, "Dune")
 
-    def test_post_valid_tv_token_calls_sonarr(
-        self, app_factory, conn, secret_key, templates_stub
-    ):
+    def test_post_valid_tv_token_calls_sonarr(self, app_factory, conn, secret_key, templates_stub):
         """POST with a valid TV token triggers Sonarr add_series."""
         app = app_factory(download_router, conn=conn, state_extras={"templates": templates_stub})
         client = TestClient(app)
