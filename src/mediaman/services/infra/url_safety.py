@@ -1,3 +1,11 @@
+# rationale: single SSRF analysis pipeline — deny-list checks, allowlist
+# composition, hostname extraction, DNS resolution + pinning, and IDN
+# normalisation share enough state and helper functions that splitting
+# into ``_deny.py`` + ``_allow.py`` siblings would force every caller
+# to know which half it needs, and the deny-list check still runs after
+# the allowlist passes so they are not independently usable. CODE_GUIDELINES
+# §3.1 carve-out list (preamble) admits this file.
+
 """SSRF guard for admin-configured outbound service URLs.
 
 Mediaman accepts URLs from the admin settings page (Radarr, Sonarr,
@@ -22,7 +30,9 @@ Two layers of defence
    deny-list. Callers compose the configured-integration set via
    :func:`allowed_outbound_hosts`, which reads the current
    ``plex_url`` / ``radarr_url`` / ``sonarr_url`` / ``nzbget_url`` and
-   the Mailgun region hostname out of the ``settings`` table.
+   the configured integration URLs out of the ``settings`` table.
+   Mailgun's regional hostnames are pinned statically — they are not
+   loaded from the settings table.
 
 Hostnames are resolved via ``socket.getaddrinfo`` and *every* returned
 address is checked against the deny list, so an attacker cannot smuggle
