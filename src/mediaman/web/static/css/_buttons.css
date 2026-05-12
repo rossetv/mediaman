@@ -136,12 +136,12 @@
   border-radius: var(--r-pill);
   letter-spacing: .02em;
 }
-.pill--movie  { background: rgba(255,159,10,.18); color: var(--orange); }
-.pill--tv     { background: rgba(41,151,255,.18); color: var(--accent); }
-.pill--anime  { background: rgba(191,90,242,.18); color: var(--purple); }
-.pill--kept   { background: rgba(48,209,88,.18); color: var(--success); }
-.pill--stale  { background: rgba(255,69,58,.18); color: var(--danger); }
-.pill--queued { background: rgba(255,214,10,.18); color: var(--warning); }
+.pill--movie  { background: var(--rgba-orange-bg);  color: var(--orange); }
+.pill--tv     { background: rgba(41,151,255,.18);   color: var(--accent); }
+.pill--anime  { background: var(--rgba-purple-bg);  color: var(--purple); }
+.pill--kept   { background: rgba(48,209,88,.18);    color: var(--success); }
+.pill--stale  { background: rgba(255,69,58,.18);    color: var(--danger); }
+.pill--queued { background: var(--rgba-warning-bg); color: var(--warning); }
 .pill--neutral{ background: rgba(255,255,255,.08); color: var(--t2); }
 
 .pill-row { display: flex; gap: 6px; flex-wrap: wrap; }
