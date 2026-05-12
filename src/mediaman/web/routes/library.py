@@ -4,18 +4,13 @@ Handles the browser-facing GET /library page.  All JSON API endpoints
 (``/api/library``, ``/api/media/…``) live in the sibling module
 :mod:`mediaman.web.routes.library_api`.
 
-Query helpers (``fetch_library``, private helpers) and the shared
-constants (``_VALID_SORTS``, ``_VALID_TYPES``, ``TV_SEASON_TYPES``,
+Query helpers (``fetch_library``, public helpers) and the shared
+constants (``VALID_SORTS``, ``VALID_TYPES``, ``TV_SEASON_TYPES``,
 etc.) now live in the canonical location
 :mod:`mediaman.web.repository.library_query` so that
 :mod:`mediaman.web.routes.library_api` can import them without
 creating a peer-route import (§2.8.6).  This module re-exports them
-so existing external importers (tests, app_factory) continue to work.
-
-The private names remain importable under the old
-``mediaman.web.routes.library._query`` path via the ``_query``
-attribute shim at the bottom of this file so existing tests that
-import directly from that path continue to work.
+so external importers (tests, app_factory) continue to work.
 """
 
 from __future__ import annotations
@@ -32,31 +27,22 @@ from mediaman.core.time import now_utc
 from mediaman.services.infra.settings_reader import get_int_setting
 from mediaman.web.auth.middleware import resolve_page_session
 from mediaman.web.repository.library_query import (
-    _MAX_SEARCH_TERM_LEN as _MAX_SEARCH_TERM_LEN,
-)
-from mediaman.web.repository.library_query import (
-    _VALID_SORTS as _VALID_SORTS,
-)
-from mediaman.web.repository.library_query import (
-    _VALID_TYPES as _VALID_TYPES,
-)
-from mediaman.web.repository.library_query import (
     ALL_SEASON_TYPES as ALL_SEASON_TYPES,
 )
 from mediaman.web.repository.library_query import (
     ANIME_SEASON_TYPES as ANIME_SEASON_TYPES,
 )
 from mediaman.web.repository.library_query import (
+    MAX_SEARCH_TERM_LEN as MAX_SEARCH_TERM_LEN,
+)
+from mediaman.web.repository.library_query import (
     TV_SEASON_TYPES as TV_SEASON_TYPES,
 )
 from mediaman.web.repository.library_query import (
-    _days_ago as _days_ago,
+    VALID_SORTS as VALID_SORTS,
 )
 from mediaman.web.repository.library_query import (
-    _protection_label as _protection_label,
-)
-from mediaman.web.repository.library_query import (
-    _type_css as _type_css,
+    VALID_TYPES as VALID_TYPES,
 )
 from mediaman.web.repository.library_query import (
     count_anime_shows,
@@ -66,7 +52,16 @@ from mediaman.web.repository.library_query import (
     sum_total_size_bytes,
 )
 from mediaman.web.repository.library_query import (
+    days_ago as days_ago,
+)
+from mediaman.web.repository.library_query import (
     fetch_library as fetch_library,
+)
+from mediaman.web.repository.library_query import (
+    protection_label as protection_label,
+)
+from mediaman.web.repository.library_query import (
+    type_css as type_css,
 )
 
 
@@ -135,8 +130,8 @@ def library_page(
 
     # Sort/type silently reset to defaults — these are vocabulary fields and an
     # unknown value is treated as "no filter" rather than an outright error.
-    sort = sort if sort in _VALID_SORTS else "added_desc"
-    media_type = type if type in _VALID_TYPES else ""
+    sort = sort if sort in VALID_SORTS else "added_desc"
+    media_type = type if type in VALID_TYPES else ""
 
     items, total = fetch_library(
         conn, q=q, media_type=media_type, sort=sort, page=page, per_page=per_page
@@ -167,30 +162,3 @@ def library_page(
             "page_end": page_end,
         },
     )
-
-
-# ---------------------------------------------------------------------------
-# Compatibility shim — tests that were written against the old package
-# structure import from ``mediaman.web.routes.library._query``.  Expose a
-# ``_query`` attribute on this module so those imports continue to work
-# without needing to migrate every test.
-# ---------------------------------------------------------------------------
-
-import types as _types  # noqa: E402
-
-_query = _types.ModuleType("mediaman.web.routes.library._query")
-_query._VALID_SORTS = _VALID_SORTS  # type: ignore[attr-defined]
-_query._VALID_TYPES = _VALID_TYPES  # type: ignore[attr-defined]
-_query._MAX_SEARCH_TERM_LEN = _MAX_SEARCH_TERM_LEN  # type: ignore[attr-defined]
-_query.TV_SEASON_TYPES = TV_SEASON_TYPES  # type: ignore[attr-defined]
-_query.ANIME_SEASON_TYPES = ANIME_SEASON_TYPES  # type: ignore[attr-defined]
-_query.ALL_SEASON_TYPES = ALL_SEASON_TYPES  # type: ignore[attr-defined]
-_query._days_ago = _days_ago  # type: ignore[attr-defined]
-_query._type_css = _type_css  # type: ignore[attr-defined]
-_query._protection_label = _protection_label  # type: ignore[attr-defined]
-_query.fetch_library = fetch_library  # type: ignore[attr-defined]
-_query.fetch_stats = fetch_stats  # type: ignore[attr-defined]
-
-import sys as _sys  # noqa: E402
-
-_sys.modules.setdefault("mediaman.web.routes.library._query", _query)

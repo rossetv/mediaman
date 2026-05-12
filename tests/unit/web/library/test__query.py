@@ -1,7 +1,7 @@
 """Tests for :mod:`mediaman.web.routes.library._query`.
 
 Direct unit tests against fetch_library, fetch_stats, and the private
-helper functions (_days_ago, _type_css, _protection_label). No HTTP
+helper functions (days_ago, type_css, protection_label). No HTTP
 client — these are pure DB-query helpers.
 """
 
@@ -11,10 +11,10 @@ from datetime import UTC, datetime, timedelta
 
 from mediaman.db import init_db, set_connection
 from mediaman.web.routes.library import (
-    _protection_label,
-    _type_css,
     fetch_library,
     fetch_stats,
+    protection_label,
+    type_css,
 )
 
 
@@ -74,56 +74,56 @@ def _insert_tv_season(
 
 class TestTypeCss:
     def test_movie_returns_type_mov(self):
-        assert _type_css("movie") == "type-mov"
+        assert type_css("movie") == "type-mov"
 
     def test_tv_season_returns_type_tv(self):
-        assert _type_css("tv_season") == "type-tv"
+        assert type_css("tv_season") == "type-tv"
 
     def test_season_returns_type_tv(self):
-        assert _type_css("season") == "type-tv"
+        assert type_css("season") == "type-tv"
 
     def test_tv_returns_type_tv(self):
-        assert _type_css("tv") == "type-tv"
+        assert type_css("tv") == "type-tv"
 
     def test_anime_returns_type_anime(self):
-        assert _type_css("anime") == "type-anime"
+        assert type_css("anime") == "type-anime"
 
     def test_anime_season_returns_type_anime(self):
-        assert _type_css("anime_season") == "type-anime"
+        assert type_css("anime_season") == "type-anime"
 
     def test_unknown_type_returns_type_mov(self):
-        assert _type_css("unknown") == "type-mov"
+        assert type_css("unknown") == "type-mov"
 
 
 class TestProtectionLabel:
     def test_none_action_returns_none(self):
-        assert _protection_label(None, None) is None
+        assert protection_label(None, None) is None
 
     def test_protected_forever_returns_label(self):
-        label = _protection_label("protected_forever", None)
+        label = protection_label("protected_forever", None)
         assert label == "Kept forever"
 
     def test_snoozed_future_date_returns_label(self):
         future = (datetime.now(UTC) + timedelta(days=10)).isoformat()
-        label = _protection_label("snoozed", future)
+        label = protection_label("snoozed", future)
         assert label is not None
         assert "10" in label or "day" in label
 
     def test_snoozed_past_date_returns_none(self):
         """An expired snooze is not shown as protected."""
         past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
-        label = _protection_label("snoozed", past)
+        label = protection_label("snoozed", past)
         assert label is None
 
     def test_snoozed_no_execute_at_returns_none(self):
-        assert _protection_label("snoozed", None) is None
+        assert protection_label("snoozed", None) is None
 
     def test_snoozed_invalid_date_returns_none(self):
-        assert _protection_label("snoozed", "not-a-date") is None
+        assert protection_label("snoozed", "not-a-date") is None
 
     def test_1_day_remaining_is_singular(self):
         future = (datetime.now(UTC) + timedelta(hours=25)).isoformat()
-        label = _protection_label("snoozed", future)
+        label = protection_label("snoozed", future)
         # Should say "1 day" (not "1 days")
         assert label is not None
         assert "days" not in label or "1 day" in label
