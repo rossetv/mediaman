@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import requests
 
 from mediaman.db import init_db
+from tests.helpers.factories import insert_recent_download
 
 
 class TestRecentDownloadsTable:
@@ -597,17 +599,11 @@ class TestRecentDownloadsCleanup:
     def test_cleanup_removes_old_rows(self, db_path):
         """Rows older than 7 days are purged."""
         conn = init_db(str(db_path))
+        ten_days_ago = (datetime.now(UTC) - timedelta(days=10)).isoformat()
         # Insert a row dated 10 days ago
-        conn.execute(
-            "INSERT INTO recent_downloads (dl_id, title, media_type, completed_at) VALUES (?, ?, ?, datetime('now', '-10 days'))",
-            ("radarr:Old", "Old Movie", "movie"),
-        )
+        insert_recent_download(conn, dl_id="radarr:Old", title="Old Movie", media_type="movie", completed_at=ten_days_ago)
         # Insert a row from today
-        conn.execute(
-            "INSERT INTO recent_downloads (dl_id, title, media_type) VALUES (?, ?, ?)",
-            ("radarr:New", "New Movie", "movie"),
-        )
-        conn.commit()
+        insert_recent_download(conn, dl_id="radarr:New", title="New Movie", media_type="movie")
 
         from mediaman.services.arr.completion import cleanup_recent_downloads
 

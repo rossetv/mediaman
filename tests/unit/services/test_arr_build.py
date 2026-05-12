@@ -7,6 +7,7 @@ import pytest
 from mediaman.crypto import encrypt_value
 from mediaman.db import init_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
+from tests.helpers.factories import insert_settings
 
 SECRET = "test-secret-32-chars-XXXXXXXXXX"
 
@@ -19,11 +20,7 @@ def conn(tmp_path) -> sqlite3.Connection:
 
 
 def _put(conn, key: str, value: str, encrypted: int = 0) -> None:
-    conn.execute(
-        "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, ?, '2026-01-01')",
-        (key, value, encrypted),
-    )
-    conn.commit()
+    insert_settings(conn, **{key: value}, encrypted=encrypted, updated_at="2026-01-01")
 
 
 class TestBuildRadarr:

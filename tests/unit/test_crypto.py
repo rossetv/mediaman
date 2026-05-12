@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from mediaman.core.audit import security_event
 from mediaman.crypto import (
+    CryptoInputError,
     decrypt_value,
     encrypt_value,
     generate_keep_token,
@@ -23,6 +24,7 @@ from mediaman.crypto import (
 )
 from mediaman.crypto._aes_key import _derive_aes_key_hkdf, _load_or_create_salt
 from mediaman.db import init_db
+from tests.helpers.factories import insert_settings
 
 
 def _make_canary_audit_callback(conn: sqlite3.Connection):
@@ -246,12 +248,7 @@ class TestCanaryNoReseedOnTamper:
         from mediaman.crypto import encrypt_value
 
         ct = encrypt_value("api-key-value", secret_key, conn=conn)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) "
-            "VALUES ('plex_token', ?, 1, '2026-01-01')",
-            (ct,),
-        )
-        conn.commit()
+        insert_settings(conn, plex_token=ct, encrypted=1, updated_at="2026-01-01")
 
         # No canary row exists yet. is_canary_valid must refuse to seed
         # and must return False.
@@ -267,12 +264,7 @@ class TestCanaryNoReseedOnTamper:
         from mediaman.crypto import encrypt_value
 
         ct = encrypt_value("api-key-value", secret_key, conn=conn)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) "
-            "VALUES ('plex_token', ?, 1, '2026-01-01')",
-            (ct,),
-        )
-        conn.commit()
+        insert_settings(conn, plex_token=ct, encrypted=1, updated_at="2026-01-01")
 
         assert is_canary_valid(conn, secret_key) is False
         assert is_canary_valid(conn, secret_key) is False
@@ -331,7 +323,7 @@ class TestCiphertextCap:
         # Build a base64 string that decodes to more than _MAX_CIPHERTEXT_LEN bytes.
         raw_len = _MAX_CIPHERTEXT_LEN + 1
         oversize = base64.urlsafe_b64encode(b"A" * raw_len).decode()
-        with pytest.raises(ValueError, match="exceeds max length"):
+        with pytest.raises(CryptoInputError, match="exceeds max length"):
             decrypt_value(oversize, secret_key, conn=conn)
 
     def test_ciphertext_at_exact_cap_is_rejected(self, secret_key, conn):
@@ -341,7 +333,7 @@ class TestCiphertextCap:
         # The cap is checked on the base64 *string* length, not the raw bytes.
         # Build a string whose length is _MAX_CIPHERTEXT_LEN + 1.
         over = "A" * (_MAX_CIPHERTEXT_LEN + 1)
-        with pytest.raises(ValueError, match="exceeds max length"):
+        with pytest.raises(CryptoInputError, match="exceeds max length"):
             decrypt_value(over, secret_key, conn=conn)
 
 
@@ -525,12 +517,7 @@ class TestV35MigrateLegacyCiphertexts:
         to the original plaintext.
         """
         v1_ct = self._v1_encrypt("my-api-key", secret_key)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) "
-            "VALUES ('plex_token', ?, 1, '2026-01-01')",
-            (v1_ct,),
-        )
-        conn.commit()
+        insert_settings(conn, plex_token=v1_ct, encrypted=1, updated_at="2026-01-01")
 
         # Before migration: v1 is rejected by decrypt_value.
         with pytest.raises(InvalidTag):
@@ -557,12 +544,7 @@ class TestV35MigrateLegacyCiphertexts:
         migrate_legacy_ciphertexts to a v2+AAD ciphertext.
         """
         no_aad_ct = encrypt_value("token-value", secret_key, conn=conn, aad=None)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) "
-            "VALUES ('sonarr_api_key', ?, 1, '2026-01-01')",
-            (no_aad_ct,),
-        )
-        conn.commit()
+        insert_settings(conn, sonarr_api_key=no_aad_ct, encrypted=1, updated_at="2026-01-01")
 
         count = migrate_legacy_ciphertexts(conn, secret_key)
         assert count == 1
@@ -581,12 +563,7 @@ class TestV35MigrateLegacyCiphertexts:
         """Already-migrated rows (v2+AAD) must not be re-encrypted."""
         aad = b"plex_token"
         good_ct = encrypt_value("api-key", secret_key, conn=conn, aad=aad)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) "
-            "VALUES ('plex_token', ?, 1, '2026-01-01')",
-            (good_ct,),
-        )
-        conn.commit()
+        insert_settings(conn, plex_token=good_ct, encrypted=1, updated_at="2026-01-01")
 
         count = migrate_legacy_ciphertexts(conn, secret_key)
         assert count == 0
@@ -600,12 +577,7 @@ class TestV35MigrateLegacyCiphertexts:
         second run must return 0 (nothing to do).
         """
         v1_ct = self._v1_encrypt("secret", secret_key)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) "
-            "VALUES ('radarr_api_key', ?, 1, '2026-01-01')",
-            (v1_ct,),
-        )
-        conn.commit()
+        insert_settings(conn, radarr_api_key=v1_ct, encrypted=1, updated_at="2026-01-01")
 
         first = migrate_legacy_ciphertexts(conn, secret_key)
         second = migrate_legacy_ciphertexts(conn, secret_key)
@@ -615,12 +587,7 @@ class TestV35MigrateLegacyCiphertexts:
     def test_migration_audit_row_written(self, conn, secret_key):
         """A successful migration must write an audit row for the event."""
         v1_ct = self._v1_encrypt("val", secret_key)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) "
-            "VALUES ('tmdb_api_key', ?, 1, '2026-01-01')",
-            (v1_ct,),
-        )
-        conn.commit()
+        insert_settings(conn, tmdb_api_key=v1_ct, encrypted=1, updated_at="2026-01-01")
 
         # Pass the audit callback — audit writing was moved out of crypto/ to
         # the caller layer to satisfy the §2.2 leaf-package invariant.
@@ -779,12 +746,7 @@ class TestCanaryFailureAudits:
 
     def test_canary_missing_with_encrypted_rows_audits(self, conn, secret_key):
         ct = encrypt_value("api-key", secret_key, conn=conn)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) "
-            "VALUES ('plex_token', ?, 1, '2026-01-01')",
-            (ct,),
-        )
-        conn.commit()
+        insert_settings(conn, plex_token=ct, encrypted=1, updated_at="2026-01-01")
 
         # Supply the audit callback — see §2.2 leaf-package rule.
         ok = is_canary_valid(conn, secret_key, on_failure=_make_canary_audit_callback(conn))

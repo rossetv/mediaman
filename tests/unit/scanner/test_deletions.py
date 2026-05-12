@@ -11,6 +11,7 @@ import pytest
 
 from mediaman.db import init_db
 from mediaman.scanner.deletions import DeletionExecutor, _recover_stuck_deletions
+from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 
 @pytest.fixture
@@ -19,11 +20,13 @@ def conn(db_path):
 
 
 def _insert_media(conn, *, media_id="m1", title="Test Film", file_path="/tmp/test.mkv"):
-    conn.execute(
-        "INSERT INTO media_items "
-        "(id, title, media_type, plex_library_id, plex_rating_key, added_at, file_path, file_size_bytes) "
-        "VALUES (?, ?, 'movie', 1, ?, '2020-01-01', ?, 1000000)",
-        (media_id, title, media_id, file_path),
+    insert_media_item(
+        conn,
+        id=media_id,
+        title=title,
+        plex_rating_key=media_id,
+        file_path=file_path,
+        file_size_bytes=1000000,
     )
 
 
@@ -31,13 +34,15 @@ def _insert_pending_deletion(conn, *, media_id="m1", execute_at=None):
     """Insert a scheduled_deletion row with execute_at in the past."""
     if execute_at is None:
         execute_at = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
-    conn.execute(
-        "INSERT INTO scheduled_actions "
-        "(media_item_id, action, scheduled_at, execute_at, token, token_used, delete_status) "
-        "VALUES (?, 'scheduled_deletion', '2020-01-01', ?, 'tok-' || ?, 0, 'pending')",
-        (media_id, execute_at, media_id),
+    insert_scheduled_action(
+        conn,
+        media_item_id=media_id,
+        action="scheduled_deletion",
+        token=f"tok-{media_id}",
+        execute_at=execute_at,
+        token_used=False,
+        delete_status="pending",
     )
-    conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -153,19 +158,24 @@ class TestSuccessfulDeletion:
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(tmp_path))
 
         # Give the media item a radarr_id.
-        conn.execute(
-            "INSERT INTO media_items "
-            "(id, title, media_type, plex_library_id, plex_rating_key, added_at, "
-            "file_path, file_size_bytes, radarr_id) "
-            "VALUES ('r1', 'Radarr Film', 'movie', 1, 'r1', '2020-01-01', ?, 100, 42)",
-            (str(real_file),),
+        insert_media_item(
+            conn,
+            id="r1",
+            title="Radarr Film",
+            plex_rating_key="r1",
+            file_path=str(real_file),
+            file_size_bytes=100,
+            radarr_id=42,
         )
-        conn.execute(
-            "INSERT INTO scheduled_actions "
-            "(media_item_id, action, scheduled_at, execute_at, token, token_used, delete_status) "
-            "VALUES ('r1', 'scheduled_deletion', '2020-01-01', '2020-01-01', 'tok-r1', 0, 'pending')"
+        insert_scheduled_action(
+            conn,
+            media_item_id="r1",
+            action="scheduled_deletion",
+            token="tok-r1",
+            execute_at="2020-01-01",
+            token_used=False,
+            delete_status="pending",
         )
-        conn.commit()
 
         fake_radarr = MagicMock()
         DeletionExecutor(conn=conn, dry_run=False, radarr_client=fake_radarr).execute()
@@ -206,12 +216,15 @@ class TestRecoverStuckDeletions:
 
         # Need a row — insert one manually in deleting state.
         _insert_media(conn, media_id="m2", file_path=str(real_file))
-        conn.execute(
-            "INSERT INTO scheduled_actions "
-            "(media_item_id, action, scheduled_at, token, token_used, delete_status) "
-            "VALUES ('m2', 'scheduled_deletion', '2020-01-01', 'tok-m2', 0, 'deleting')"
+        insert_scheduled_action(
+            conn,
+            media_item_id="m2",
+            action="scheduled_deletion",
+            token="tok-m2",
+            execute_at="2020-01-01",
+            token_used=False,
+            delete_status="deleting",
         )
-        conn.commit()
 
         _recover_stuck_deletions(conn)
 
@@ -225,12 +238,15 @@ class TestRecoverStuckDeletions:
         missing_path = str(tmp_path / "already_gone.mkv")
 
         _insert_media(conn, media_id="m3", file_path=missing_path)
-        conn.execute(
-            "INSERT INTO scheduled_actions "
-            "(media_item_id, action, scheduled_at, token, token_used, delete_status) "
-            "VALUES ('m3', 'scheduled_deletion', '2020-01-01', 'tok-m3', 0, 'deleting')"
+        insert_scheduled_action(
+            conn,
+            media_item_id="m3",
+            action="scheduled_deletion",
+            token="tok-m3",
+            execute_at="2020-01-01",
+            token_used=False,
+            delete_status="deleting",
         )
-        conn.commit()
 
         _recover_stuck_deletions(conn)
 

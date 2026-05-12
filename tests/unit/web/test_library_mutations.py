@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
@@ -10,7 +9,7 @@ from fastapi.testclient import TestClient
 from mediaman.web.routes.library import router as library_router
 from mediaman.web.routes.library_api import _DELETE_LIMITER, _KEEP_LIMITER
 from mediaman.web.routes.library_api import router as library_api_router
-from tests.helpers.factories import insert_media_item
+from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 
 def _insert_movie(conn, media_id: str = "m1", radarr_id: int | None = 101) -> None:
@@ -143,14 +142,13 @@ class TestMediaDelete:
     def test_delete_also_removes_scheduled_actions(self, app_factory, authed_client, conn):
         """Deleting a media item also prunes its associated scheduled_actions rows."""
         _insert_movie(conn)
-        now = datetime.now(UTC).isoformat()
-        conn.execute(
-            """INSERT INTO scheduled_actions
-               (media_item_id, action, scheduled_at, token, token_used)
-               VALUES ('m1', 'snoozed', ?, 'tok1', 0)""",
-            (now,),
+        insert_scheduled_action(
+            conn,
+            media_item_id="m1",
+            action="snoozed",
+            token="tok1",
+            token_used=False,
         )
-        conn.commit()
 
         app = _app(app_factory, conn)
         client = authed_client(app, conn)

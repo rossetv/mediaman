@@ -12,6 +12,7 @@ from mediaman.services.media_meta.item_enrichment import (
     enrich_item_with_tmdb,
     enrich_redownload_item,
 )
+from tests.helpers.factories import insert_suggestion
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -187,35 +188,26 @@ class TestEnrichRedownloadItem:
 
     def test_enrichment_uses_suggestions_cache_when_available(self, conn):
         """Cache hit: suggestions row with a poster_url populates item fields."""
-        conn.execute(
-            """
-            INSERT INTO suggestions
-                (title, media_type, poster_url, year, description, reason,
-                 rating, rt_rating, tagline, runtime, genres, cast_json,
-                 director, trailer_key, imdb_rating, metascore, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                "Inception",
-                "movie",
-                "https://example.com/inception.jpg",
-                2010,
-                "A dream within a dream.",
-                "Mind-bending heist.",
-                8.8,
-                "87%",
-                "Your mind is the scene of the crime.",
-                148,
-                '["Sci-Fi"]',
-                "[]",
-                "Christopher Nolan",
-                "trailer-key-123",
-                "8.8",
-                "74",
-                "2026-01-01T00:00:00",
-            ),
+        insert_suggestion(
+            conn,
+            title="Inception",
+            media_type="movie",
+            poster_url="https://example.com/inception.jpg",
+            year=2010,
+            description="A dream within a dream.",
+            reason="Mind-bending heist.",
+            rating=8.8,
+            rt_rating="87%",
+            tagline="Your mind is the scene of the crime.",
+            runtime=148,
+            genres='["Sci-Fi"]',
+            cast_json="[]",
+            director="Christopher Nolan",
+            trailer_key="trailer-key-123",
+            imdb_rating="8.8",
+            metascore="74",
+            created_at="2026-01-01T00:00:00",
         )
-        conn.commit()
 
         item = {"title": "Inception", "media_type": "movie"}
         enrich_redownload_item(item, conn, SECRET)
@@ -234,35 +226,25 @@ class TestEnrichRedownloadItem:
     @patch("mediaman.services.media_meta.item_enrichment.enrich_item_with_tmdb")
     def test_enrichment_skips_tmdb_when_cache_has_poster(self, mock_fetch, conn):
         """Cache hit with poster_url bypasses TMDB entirely."""
-        conn.execute(
-            """
-            INSERT INTO suggestions
-                (title, media_type, poster_url, year, description, reason,
-                 rating, rt_rating, tagline, runtime, genres, cast_json,
-                 director, trailer_key, imdb_rating, metascore, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                "Cached Film",
-                "movie",
-                "https://example.com/cached.jpg",
-                2022,
-                "Great film.",
-                "Top pick.",
-                9.0,
-                "95%",
-                "Extraordinary.",
-                120,
-                "[]",
-                "[]",
-                "Director Name",
-                None,
-                "9.0",
-                "90",
-                "2026-01-01T00:00:00",
-            ),
+        insert_suggestion(
+            conn,
+            title="Cached Film",
+            media_type="movie",
+            poster_url="https://example.com/cached.jpg",
+            year=2022,
+            description="Great film.",
+            reason="Top pick.",
+            rating=9.0,
+            rt_rating="95%",
+            tagline="Extraordinary.",
+            runtime=120,
+            genres="[]",
+            cast_json="[]",
+            director="Director Name",
+            imdb_rating="9.0",
+            metascore="90",
+            created_at="2026-01-01T00:00:00",
         )
-        conn.commit()
 
         item = {"title": "Cached Film", "media_type": "movie"}
         enrich_redownload_item(item, conn, SECRET)
@@ -272,35 +254,17 @@ class TestEnrichRedownloadItem:
     @patch("mediaman.services.media_meta.item_enrichment.enrich_item_with_tmdb")
     def test_enrichment_falls_back_when_cache_row_has_no_poster(self, mock_fetch, conn):
         """Cache row with a NULL/empty poster_url still triggers TMDB fallback."""
-        conn.execute(
-            """
-            INSERT INTO suggestions
-                (title, media_type, poster_url, year, description, reason,
-                 rating, rt_rating, tagline, runtime, genres, cast_json,
-                 director, trailer_key, imdb_rating, metascore, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                "Incomplete Cache",
-                "movie",
-                "",  # empty poster_url
-                2020,
-                "Desc.",
-                "Reason.",
-                7.0,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                "2026-01-01T00:00:00",
-            ),
+        insert_suggestion(
+            conn,
+            title="Incomplete Cache",
+            media_type="movie",
+            poster_url="",  # empty poster_url triggers TMDB fallback
+            year=2020,
+            description="Desc.",
+            reason="Reason.",
+            rating=7.0,
+            created_at="2026-01-01T00:00:00",
         )
-        conn.commit()
 
         item = {"title": "Incomplete Cache", "media_type": "movie"}
         enrich_redownload_item(item, conn, SECRET)

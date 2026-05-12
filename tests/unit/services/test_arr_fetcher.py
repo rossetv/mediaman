@@ -10,6 +10,7 @@ import requests
 
 from mediaman.db import init_db
 from mediaman.services.arr.fetcher import FetchResult, fetch_arr_queue, fetch_arr_queue_result
+from tests.helpers.factories import insert_settings
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -21,11 +22,7 @@ def _make_conn(tmp_path) -> sqlite3.Connection:
 
 
 def _put(conn: sqlite3.Connection, key: str, value: str) -> None:
-    conn.execute(
-        "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, '2026-01-01')",
-        (key, value),
-    )
-    conn.commit()
+    insert_settings(conn, **{key: value}, updated_at="2026-01-01")
 
 
 def _configure_radarr(conn: sqlite3.Connection) -> None:
