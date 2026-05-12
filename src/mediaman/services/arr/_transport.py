@@ -13,8 +13,8 @@ transport, lookup, add-flow, and per-service mixins.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
-from typing import cast
+from collections.abc import Callable, Mapping
+from typing import Any
 
 import requests
 
@@ -98,7 +98,7 @@ class _TransportMixin:
             self.last_error = str(exc)
             raise
 
-    def _put(self, path: str, data: dict) -> None:
+    def _put(self, path: str, data: Mapping[str, Any]) -> None:
         """Perform an authenticated PUT.  Sets :attr:`last_error` on failure."""
         try:
             self._http.put(path, headers=self._headers, json=data)
@@ -108,7 +108,7 @@ class _TransportMixin:
             self.last_error = str(exc)
             raise
 
-    def _post(self, path: str, data: dict) -> dict | list:
+    def _post(self, path: str, data: Mapping[str, Any]) -> dict | list:
         """Perform an authenticated POST.  Sets :attr:`last_error` on failure."""
         try:
             resp = self._http.post(path, headers=self._headers, json=data)
@@ -132,10 +132,10 @@ class _TransportMixin:
     def _unmonitor_with_retry(
         self,
         *,
-        fetch_entity: Callable[[], dict],
+        fetch_entity: Callable[[], Mapping[str, Any]],
         put_url: str,
-        is_already_unmonitored: Callable[[dict], bool],
-        apply_unmonitor: Callable[[dict], None],
+        is_already_unmonitored: Callable[[Mapping[str, Any]], bool],
+        apply_unmonitor: Callable[[Mapping[str, Any]], None],
         log_prefix: str,
         log_id: str,
         max_retries: int = 3,
@@ -172,7 +172,7 @@ class _TransportMixin:
                 attempt + 1,
             )
             try:
-                self._put(put_url, cast(dict, entity))
+                self._put(put_url, entity)
                 return
             except (SafeHTTPError, requests.RequestException, ValueError):
                 # retry-on-transport-failure — the unmonitor flow is a

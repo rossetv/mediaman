@@ -9,10 +9,10 @@ shape.
 from __future__ import annotations
 
 import logging
-from typing import Any, cast
+from typing import cast
 
 from mediaman.services.arr._transport import ArrConfigError, ArrUpstreamError
-from mediaman.services.arr._types import ArrEpisode, ArrEpisodeFile, SonarrSeries
+from mediaman.services.arr._types import ArrEpisode, ArrEpisodeFile, ArrLookupResult, SonarrSeries
 from mediaman.services.infra.http import SafeHTTPError
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ class _SonarrMixin:
         """
         self._require_series("delete_episode_files")  # type: ignore[attr-defined]
         efs = cast(
-            list[dict[str, Any]],
+            list[ArrEpisodeFile],
             self._get(f"/api/v3/episodefile?seriesId={series_id}"),  # type: ignore[attr-defined]
         )
         ids = [
@@ -89,7 +89,7 @@ class _SonarrMixin:
         """Return True if the series still has any episode files on disk."""
         self._require_series("has_remaining_files")  # type: ignore[attr-defined]
         efs = cast(
-            list[dict[str, object]],
+            list[ArrEpisodeFile],
             self._get(f"/api/v3/episodefile?seriesId={series_id}"),  # type: ignore[attr-defined]
         )
         return bool(efs)
@@ -134,23 +134,23 @@ class _SonarrMixin:
         """
         self._require_series("unmonitor_season")  # type: ignore[attr-defined]
 
-        def fetch_entity() -> dict:
+        def fetch_entity() -> SonarrSeries:
             series = self.get_series_by_id(series_id)
             seasons = series.get("seasons")
             if not isinstance(seasons, list):
                 raise ArrUpstreamError(f"Sonarr series {series_id} has no 'seasons' list")
             if not any(s.get("seasonNumber") == season_number for s in seasons):
                 raise ArrUpstreamError(f"Sonarr series {series_id} has no season {season_number}")
-            return cast(dict, series)
+            return series
 
-        def is_already_unmonitored(entity: dict) -> bool:
+        def is_already_unmonitored(entity: SonarrSeries) -> bool:
             seasons = entity.get("seasons", [])
             target = next((s for s in seasons if s.get("seasonNumber") == season_number), None)
             if target is None:
                 raise ArrUpstreamError(f"Sonarr series {series_id} has no season {season_number}")
             return not bool(target.get("monitored", False))
 
-        def apply_unmonitor(entity: dict) -> None:
+        def apply_unmonitor(entity: SonarrSeries) -> None:
             seasons = entity.get("seasons", [])
             target = next((s for s in seasons if s.get("seasonNumber") == season_number), None)
             if target is not None:
@@ -176,7 +176,7 @@ class _SonarrMixin:
         for season in seasons:
             if season["seasonNumber"] == season_number:
                 season["monitored"] = True
-        self._put(f"/api/v3/series/{series_id}", cast(dict, series))  # type: ignore[attr-defined]
+        self._put(f"/api/v3/series/{series_id}", series)  # type: ignore[attr-defined]
         self._post(  # type: ignore[attr-defined]
             "/api/v3/command",
             {"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number},
@@ -219,7 +219,7 @@ class _SonarrMixin:
 
     def add_series(
         self, tvdb_id: int, title: str, quality_profile_id: int | None = None
-    ) -> dict[str, object]:
+    ) -> SonarrSeries:
         """Add a TV series by TVDB ID and trigger a search.
 
         ``quality_profile_id`` is selected via
@@ -244,7 +244,7 @@ class _SonarrMixin:
             "seasonFolder": True,
             "addOptions": {"searchForMissingEpisodes": True},
         }
-        return cast(dict[str, object], self._post("/api/v3/series", series_data))  # type: ignore[attr-defined]
+        return cast(SonarrSeries, self._post("/api/v3/series", series_data))  # type: ignore[attr-defined]
 
     def add_series_with_seasons(
         self,
@@ -253,7 +253,7 @@ class _SonarrMixin:
         monitored_seasons: list[int],
         search_seasons: list[int],
         quality_profile_id: int | None = None,
-    ) -> dict[str, object]:
+    ) -> SonarrSeries:
         """Add a series with an explicit per-season monitor/search plan.
 
         Seasons listed in *monitored_seasons* are added with
@@ -268,7 +268,7 @@ class _SonarrMixin:
         body = self._prepare_series_with_seasons_body(
             tvdb_id, title, monitored_seasons, quality_profile_id
         )
-        new_series = cast(dict[str, object], self._post("/api/v3/series", body))  # type: ignore[attr-defined]
+        new_series = cast(SonarrSeries, self._post("/api/v3/series", body))  # type: ignore[attr-defined]
         series_id = new_series.get("id")
         for season_number in search_seasons:
             self._post(  # type: ignore[attr-defined]
@@ -291,7 +291,7 @@ class _SonarrMixin:
         )
 
         lookup = cast(
-            list[dict[str, Any]],
+            list[ArrLookupResult],
             self._get(f"/api/v3/series/lookup?term=tvdb:{tvdb_id}"),  # type: ignore[attr-defined]
         )
         if not lookup:
@@ -320,7 +320,7 @@ class _SonarrMixin:
             },
         }
 
-    def lookup_series_by_tmdb(self, tmdb_id: int) -> dict[str, object] | None:
+    def lookup_series_by_tmdb(self, tmdb_id: int) -> ArrLookupResult | None:
         """Look up a series by TMDB ID via Sonarr's lookup endpoint.
 
         Returns the first match or ``None`` if Sonarr's metadata provider
