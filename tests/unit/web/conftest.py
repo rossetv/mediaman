@@ -117,14 +117,17 @@ def conn(db_path):
 @pytest.fixture
 def freezer():
     """Freeze ``datetime.now`` (and the stdlib ``time`` family) at a fixed UTC
-    instant. Tests that need a different starting point pass ``time_to_freeze``
-    via ``with freezer.tick(seconds=...)`` or by re-entering with a new value.
+    instant. Advance the clock with ``freezer.tick(delta)`` — ``delta`` is a
+    positional ``timedelta`` or a float of seconds (freezegun's signature),
+    not a keyword argument.
 
     Usage::
 
+        from datetime import timedelta
+
         def test_lockout_releases_after_window(freezer):
             ...  # initial state
-            freezer.tick(seconds=601)  # past the 10-minute window
+            freezer.tick(timedelta(seconds=601))  # past the 10-minute window
             ...  # post-window state
 
     Prefer this over reaching for ``datetime.now(UTC)`` directly: tests that

@@ -25,19 +25,19 @@
 
   var current = null;  // { dlId, kind, title, stuckSeasons, upcoming }
 
-  /* This modal does its own ESC + focus handling and intentionally
-     does NOT lock body scroll. We use MM.modal.setupDetail for the
-     display:flex/none + aria-hidden lifecycle (so backdrop click and
-     the cancel button are handled centrally), but turn off ModalA11y
-     and body-overflow management so its existing behaviour is preserved
-     bit-for-bit. */
+  /* This modal intentionally does NOT lock body scroll. We use
+     MM.modal.setupDetail for the display:flex/none + aria-hidden
+     lifecycle (so backdrop click, the cancel button, AND the ESC
+     keypress are handled centrally). useModalA11y=false skips the
+     ModalA11y focus-trap; setupDetail still attaches its own ESC
+     fallback listener in that branch, so we don't need to add one
+     here. */
   var _abandonModal = MM.modal.setupDetail(modal, {
     useModalA11y: false,
     manageBodyOverflow: false,
     closeSelectors: ['[data-abandon-cancel]'],
     onClose: function () {
       current = null;
-      document.removeEventListener('keydown', onEscape);
     },
   });
 
@@ -80,7 +80,6 @@
     }
 
     _abandonModal.open();
-    document.addEventListener('keydown', onEscape);
   }
 
   function buildSeasonRow(s) {
@@ -122,8 +121,6 @@
   }
 
   function close() { _abandonModal.close(); }
-
-  function onEscape(e) { if (e.key === 'Escape') close(); }
 
   function selectedSeasons() {
     return Array.from(listEl.querySelectorAll('[data-season-row]'))

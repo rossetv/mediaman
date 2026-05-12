@@ -160,7 +160,12 @@ def _compute_delay(
     schedule used by every mediaman outbound caller historically.
     ``"full"`` returns :func:`random.uniform(0, 2**attempt)` — full-jitter
     exponential backoff used by the mailgun POST path so a thundering
-    herd of failed sends doesn't synchronise on the retry window.
+    herd of failed sends doesn't synchronise on the retry window.  This
+    matches the pre-consolidation mailgun formula exactly: both
+    ``_retry_with_jitter`` (now removed) and this helper iterate
+    ``attempt`` from ``0`` upwards via ``range(attempts)``, so the
+    expected sleep is the same — ``E[uniform(0, 2**attempt)] = 2**(attempt-1)``
+    seconds, starting at 0.5s for the first retry.
     """
     if jitter_strategy == "full":
         return random.uniform(0, 2**attempt)
