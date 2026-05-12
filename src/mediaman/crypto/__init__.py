@@ -11,7 +11,7 @@ to import every symbol from :mod:`mediaman.crypto`.
 # the test suite monkeypatches this attribute on the package.
 import hmac
 
-from ._aes_key import CryptoError
+from ._aes_key import CryptoError, CryptoInputError
 from .aes import (
     decrypt_value,
     encrypt_value,
@@ -35,6 +35,7 @@ from .tokens import (
 
 __all__ = [
     "CryptoError",
+    "CryptoInputError",
     "decrypt_value",
     "encrypt_value",
     "generate_download_token",

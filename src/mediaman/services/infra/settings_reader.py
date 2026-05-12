@@ -15,7 +15,7 @@ import sqlite3
 
 from cryptography.exceptions import InvalidTag
 
-from mediaman.crypto import decrypt_value
+from mediaman.crypto import CryptoInputError, decrypt_value
 
 # Type alias for values that json.loads can return.
 _JsonValue = str | int | float | bool | list[object] | dict[str, object] | None
@@ -100,14 +100,15 @@ def get_setting(
                 conn=conn,
                 aad=key.encode(),
             )
-        except (sqlite3.OperationalError, sqlite3.DatabaseError, InvalidTag, ValueError):
+        except (sqlite3.OperationalError, sqlite3.DatabaseError, InvalidTag, CryptoInputError):
             # Narrow exception list:
             # * sqlite3.* — salt lookup failed (corrupted bootstrap
             #   row, locked DB, schema drift)
             # * InvalidTag — wrong key, tampered ciphertext, or
             #   missing AAD (the no-AAD fallback inside decrypt_value
             #   already retried before this fires)
-            # * ValueError — malformed ciphertext / bad b64
+            # * CryptoInputError — malformed ciphertext (empty or
+            #   exceeds max length)
             #
             # The previous ``except Exception`` swallowed everything
             # including programmer errors (e.g. a typo in the call
