@@ -19,6 +19,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import UTC, datetime, timedelta
 
+from mediaman.core.time import parse_iso_strict_utc
 from mediaman.services.infra.settings_reader import get_string_setting
 
 #: Hours a manually-triggered refresh blocks further manual refreshes.
@@ -32,10 +33,7 @@ def last_manual_refresh(conn: sqlite3.Connection) -> datetime | None:
     val = get_string_setting(conn, _LAST_REFRESH_KEY)
     if not val:
         return None
-    try:
-        return datetime.fromisoformat(val)
-    except (TypeError, ValueError):
-        return None
+    return parse_iso_strict_utc(val)
 
 
 def refresh_cooldown_remaining(conn: sqlite3.Connection) -> timedelta | None:
