@@ -17,6 +17,7 @@ from fastapi.responses import HTMLResponse
 
 from mediaman.crypto import generate_poll_token, validate_download_token
 from mediaman.db import get_db
+from mediaman.services.arr import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
     ArrCaches,
@@ -284,7 +285,7 @@ def _resolve_download_state(
         state = compute_download_state(mt, tmdb_id, caches)
         if state is not None:
             item["download_state"] = state
-    except (requests.RequestException, SafeHTTPError):
+    except (requests.RequestException, SafeHTTPError, ArrError):
         logger.warning("Failed to check Arr library status for tmdb_id=%s", tmdb_id, exc_info=True)
 
 
