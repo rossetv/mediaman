@@ -54,7 +54,7 @@ from mediaman.services.infra.http import (
     SafeHTTPClient,
     SafeHTTPError,
 )
-from mediaman.services.infra.url_safety import resolve_safe_outbound_url
+from mediaman.services.infra.url_safety import SSRFRefused, resolve_safe_outbound_url
 from mediaman.services.media_meta._plex_session import (  # noqa: F401
     _PLEX_MAX_BYTES,
     _PLEX_TIMEOUT_SECONDS,
@@ -96,7 +96,7 @@ class PlexClient:
         The configured URL is **revalidated at construction time** —
         an admin URL persisted in the DB before SSRF checks tightened,
         or a host that has since started resolving to an internal
-        address, is refused here. ``ValueError`` is raised in that
+        address, is refused here. ``SSRFRefused`` is raised in that
         case; the caller is expected to surface it as a configuration
         error rather than silently fall back to insecure behaviour.
         """
@@ -109,7 +109,7 @@ class PlexClient:
             # Use a generic message — the URL itself may be sensitive
             # (LAN hostname / port topology) but we still want operators
             # to see the failure at startup.
-            raise ValueError(
+            raise SSRFRefused(
                 "Refusing to construct PlexClient: configured plex_url "
                 "failed the SSRF guard. Verify the URL points to a "
                 "reachable Plex server and is not an internal admin / "

@@ -24,6 +24,17 @@ class CryptoError(Exception):
     """
 
 
+class CryptoInputError(CryptoError):
+    """Raised when a caller passes an invalid ciphertext to a crypto function.
+
+    Covers structural problems that are detectable before attempting
+    decryption — e.g. an empty ciphertext or one that exceeds the
+    maximum length.  Distinct from :class:`CryptoError` so callers that
+    want to distinguish a malformed-input condition from a key-management
+    failure can do so without catching the broad base class.
+    """
+
+
 # ---------------------------------------------------------------------------
 # AES / GCM / HKDF constants
 # ---------------------------------------------------------------------------

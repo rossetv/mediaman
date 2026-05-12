@@ -21,7 +21,7 @@ from mediaman.db import get_db
 from mediaman.services.rate_limit import get_client_ip
 from mediaman.web.auth.login_lockout import admin_unlock_with_audit
 from mediaman.web.auth.middleware import get_current_admin
-from mediaman.web.auth.password_hash import create_user, delete_user, list_users
+from mediaman.web.auth.password_hash import UserExistsError, create_user, delete_user, list_users
 from mediaman.web.auth.reauth import has_recent_reauth, verify_reauth_password
 from mediaman.web.auth.user_crud import find_username_by_user_id
 from mediaman.web.middleware.rate_limit import rate_limit
@@ -107,7 +107,7 @@ def api_create_user(
             audit_actor=admin,
             audit_ip=get_client_ip(request),
         )
-    except ValueError as e:
+    except UserExistsError as e:
         return respond_err(str(e), status=409)
     except sqlite3.Error:
         logger.exception("user.create failed actor=%s username=%s", admin, username)

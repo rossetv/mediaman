@@ -29,6 +29,7 @@ from mediaman.services.arr.build import (
 )
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.infra.settings_reader import get_int_setting as _get_int_setting
+from mediaman.services.infra.url_safety import SSRFRefused
 
 if TYPE_CHECKING:
     from mediaman.services.media_meta.plex import PlexClient
@@ -203,7 +204,7 @@ def _get_or_build_plex(conn: sqlite3.Connection, secret_key: str) -> PlexClient 
     Cache key: SHA-256 of (raw ``plex_url`` value, raw encrypted
     ``plex_token`` value). Any settings change invalidates the entry.
 
-    Returns ``None`` when Plex is unconfigured. Re-raises ``ValueError``
+    Returns ``None`` when Plex is unconfigured. Re-raises ``SSRFRefused``
     from the SSRF guard to the caller so it can log + skip.
 
     Avoids the per-invocation cost of SSRF re-validation and token
@@ -255,7 +256,7 @@ def _build_plex_client(conn: sqlite3.Connection, secret_key: str) -> PlexClientB
     """
     try:
         plex = _get_or_build_plex(conn, secret_key)
-    except ValueError:
+    except SSRFRefused:
         # PlexClient constructor refused the URL (SSRF guard). Log
         # without surfacing the URL itself — it may carry topology
         # information — and skip the scan rather than crash.
