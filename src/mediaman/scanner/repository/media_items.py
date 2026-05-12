@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import sqlite3
 from collections.abc import Mapping, Sequence
@@ -180,5 +181,6 @@ def delete_media_items(conn: sqlite3.Connection, ids: list[str]) -> None:
                 conn.execute("COMMIT")
         except sqlite3.Error:
             if not in_outer_txn:
-                conn.execute("ROLLBACK")
+                with contextlib.suppress(sqlite3.Error):
+                    conn.execute("ROLLBACK")
             raise

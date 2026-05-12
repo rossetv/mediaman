@@ -8,6 +8,7 @@ layer no longer issues raw transaction commands.
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from dataclasses import dataclass
 from enum import Enum
@@ -121,7 +122,8 @@ def try_add_subscriber(conn: sqlite3.Connection, *, email: str, now: str) -> Add
     # transaction is unwound; the original error is re-raised so the
     # route layer can map it to a 500.
     except Exception:
-        conn.execute("ROLLBACK")
+        with contextlib.suppress(Exception):
+            conn.execute("ROLLBACK")
         raise
     return AddSubscriberOutcome.ADDED
 
