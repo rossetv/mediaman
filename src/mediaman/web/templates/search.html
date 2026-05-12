@@ -24,5 +24,8 @@
 
 {% include "_detail_modal.html" %}
 
+{# Sub-modules must register on MM.search before search.js wires them up. #}
+<script src="/static/js/search/shelves.js" defer></script>
+<script src="/static/js/search/detail_modal.js" defer></script>
 <script src="/static/js/search.js" defer></script>
 {% endblock %}
