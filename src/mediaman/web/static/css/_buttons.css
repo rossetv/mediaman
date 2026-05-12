@@ -147,8 +147,7 @@
 .pill-row { display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* Countdown badge — pulsing red dot */
-.countdown,
-.countdown-badge {
+.countdown {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -161,8 +160,7 @@
   color: #fff;
   backdrop-filter: blur(8px);
 }
-.countdown::before,
-.countdown-badge::before {
+.countdown::before {
   content: "";
   width: 5px; height: 5px;
   border-radius: 50%;
@@ -172,8 +170,7 @@
 @keyframes countdown-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
 
 /* Filter pill (segmented) — used on Library, Search, History */
-.fpill,
-.filter-pill {
+.fpill {
   display: inline-flex;
   align-items: center;
   padding: 8px 14px;
@@ -189,50 +186,11 @@
   white-space: nowrap;
   text-decoration: none;
 }
-.fpill:hover,
-.filter-pill:hover { color: var(--t1); background: rgba(255,255,255,.04); }
+.fpill:hover { color: var(--t1); background: rgba(255,255,255,.04); }
 
-.fpill.on,
-.filter-pill.active { background: var(--t1); color: #000; }
-.fpill--movie.on,
-.filter-pill.active-orange { background: var(--orange); color: #1a0d00; }
-.fpill--tv.on,
-.filter-pill.active-blue   { background: var(--accent); color: #001424; }
-.fpill--anime.on,
-.filter-pill.active-purple { background: var(--purple); color: #1a0025; }
-.fpill--kept.on,
-.filter-pill.active-green  { background: var(--success); color: #002210; }
-.fpill--stale.on,
-.filter-pill.active-red    { background: var(--danger); color: #2a0706; }
-
-/* Segmented (settings tab bar) — same shape as filter-pills */
-.tab-bar {
-  position: sticky;
-  top: var(--nav-h);
-  z-index: 5;
-  background: rgba(0,0,0,.85);
-  backdrop-filter: saturate(180%) blur(20px);
-  border-bottom: 1px solid var(--hair);
-  padding: 12px var(--pad);
-}
-.segmented {
-  display: inline-flex;
-  gap: 4px;
-  background: var(--s2);
-  padding: 4px;
-  border-radius: var(--r-pill);
-}
-.seg-btn {
-  padding: 7px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--t2);
-  border-radius: var(--r-pill);
-  transition: background .15s, color .15s;
-}
-.seg-btn:hover { color: var(--t1); }
-.seg-btn.active { background: var(--s3); color: var(--t1); }
-
-.tab-panel { display: none; }
-.tab-panel.active { display: block; }
-
+.fpill.on { background: var(--t1); color: #000; }
+.fpill--movie.on { background: var(--orange); color: #1a0d00; }
+.fpill--tv.on    { background: var(--accent); color: #001424; }
+.fpill--anime.on { background: var(--purple); color: #1a0025; }
+.fpill--kept.on  { background: var(--success); color: #002210; }
+.fpill--stale.on { background: var(--danger); color: #2a0706; }
