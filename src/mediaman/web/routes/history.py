@@ -123,7 +123,9 @@ def _fetch_rows(conn, *, action: str | None, page: int, per_page: int) -> list[d
     return [_build_item(r) for r in rows]
 
 
-def _fetch_history(conn, action: str | None, page: int, per_page: int) -> tuple[list[dict[str, object]], int]:
+def _fetch_history(
+    conn, action: str | None, page: int, per_page: int
+) -> tuple[list[dict[str, object]], int]:
     """Return (items, total_count) for the audit log."""
     total = count_audit_rows(conn, action)
     items = _fetch_rows(conn, action=action, page=page, per_page=per_page)

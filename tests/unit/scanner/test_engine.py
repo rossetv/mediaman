@@ -61,11 +61,18 @@ class TestScanEngine:
 
     def test_scan_skips_protected_items(self, conn, mock_plex):
         now = datetime.now(UTC)
-        insert_media_item(conn, id="100", title="Protected Movie", plex_rating_key="100",
-                          added_at=now - timedelta(days=60), file_path="/media/movies/Protected",
-                          file_size_bytes=5_000_000_000)
-        insert_scheduled_action(conn, media_item_id="100", action="protected_forever",
-                                token="tok-123")
+        insert_media_item(
+            conn,
+            id="100",
+            title="Protected Movie",
+            plex_rating_key="100",
+            added_at=now - timedelta(days=60),
+            file_path="/media/movies/Protected",
+            file_size_bytes=5_000_000_000,
+        )
+        insert_scheduled_action(
+            conn, media_item_id="100", action="protected_forever", token="tok-123"
+        )
 
         mock_plex.get_movie_items.return_value = [
             {
@@ -117,9 +124,15 @@ class TestScanEngine:
     def test_scan_skips_already_scheduled(self, conn, mock_plex):
         """Items with an existing scheduled_deletion action are not re-scheduled."""
         now = datetime.now(UTC)
-        insert_media_item(conn, id="300", title="Already Scheduled", plex_rating_key="300",
-                          added_at=now - timedelta(days=90), file_path="/media/movies/Scheduled",
-                          file_size_bytes=2_000_000_000)
+        insert_media_item(
+            conn,
+            id="300",
+            title="Already Scheduled",
+            plex_rating_key="300",
+            added_at=now - timedelta(days=90),
+            file_path="/media/movies/Scheduled",
+            file_size_bytes=2_000_000_000,
+        )
         insert_scheduled_action(conn, media_item_id="300", token="tok-already")
 
         mock_plex.get_movie_items.return_value = [
@@ -150,14 +163,25 @@ class TestScanEngine:
     def test_scan_flags_reentry(self, conn, mock_plex):
         """An item whose snooze has expired is scheduled and marked as re-entry."""
         now = datetime.now(UTC)
-        insert_media_item(conn, id="400", title="Snoozed Movie", plex_rating_key="400",
-                          added_at=now - timedelta(days=120), file_path="/media/movies/Snoozed",
-                          file_size_bytes=4_000_000_000)
+        insert_media_item(
+            conn,
+            id="400",
+            title="Snoozed Movie",
+            plex_rating_key="400",
+            added_at=now - timedelta(days=120),
+            file_path="/media/movies/Snoozed",
+            file_size_bytes=4_000_000_000,
+        )
         # A snooze that has already expired (token_used=1, execute_at in the past)
-        insert_scheduled_action(conn, media_item_id="400", action="snoozed",
-                                scheduled_at=(now - timedelta(days=60)).isoformat(),
-                                execute_at=(now - timedelta(days=30)).isoformat(),
-                                token="tok-old", token_used=True)
+        insert_scheduled_action(
+            conn,
+            media_item_id="400",
+            action="snoozed",
+            scheduled_at=(now - timedelta(days=60)).isoformat(),
+            execute_at=(now - timedelta(days=30)).isoformat(),
+            token="tok-old",
+            token_used=True,
+        )
 
         mock_plex.get_movie_items.return_value = [
             {
@@ -281,11 +305,23 @@ class TestScanEngine:
         """Items snoozed via the newsletter keep flow (token_used=1, future execute_at) are not re-scheduled."""
         now = datetime.now(UTC)
         future = (now + timedelta(days=25)).isoformat()
-        insert_media_item(conn, id="1001", title="Kept Movie", plex_rating_key="1001",
-                          added_at=now - timedelta(days=90), file_path="/media/movies/Kept",
-                          file_size_bytes=3_000_000_000)
-        insert_scheduled_action(conn, media_item_id="1001", action="snoozed",
-                                execute_at=future, token="tok-newsletter", token_used=True)
+        insert_media_item(
+            conn,
+            id="1001",
+            title="Kept Movie",
+            plex_rating_key="1001",
+            added_at=now - timedelta(days=90),
+            file_path="/media/movies/Kept",
+            file_size_bytes=3_000_000_000,
+        )
+        insert_scheduled_action(
+            conn,
+            media_item_id="1001",
+            action="snoozed",
+            execute_at=future,
+            token="tok-newsletter",
+            token_used=True,
+        )
 
         mock_plex.get_movie_items.return_value = [
             {
@@ -312,12 +348,24 @@ class TestScanEngine:
         """Items with an expired snooze (token_used=1, past execute_at) are scheduled for deletion."""
         now = datetime.now(UTC)
         past = (now - timedelta(days=5)).isoformat()
-        insert_media_item(conn, id="1002", title="Expired Snooze Movie", plex_rating_key="1002",
-                          added_at=now - timedelta(days=120), file_path="/media/movies/ExpiredSnooze",
-                          file_size_bytes=5_000_000_000)
-        insert_scheduled_action(conn, media_item_id="1002", action="snoozed",
-                                scheduled_at=(now - timedelta(days=35)).isoformat(),
-                                execute_at=past, token="tok-expired", token_used=True)
+        insert_media_item(
+            conn,
+            id="1002",
+            title="Expired Snooze Movie",
+            plex_rating_key="1002",
+            added_at=now - timedelta(days=120),
+            file_path="/media/movies/ExpiredSnooze",
+            file_size_bytes=5_000_000_000,
+        )
+        insert_scheduled_action(
+            conn,
+            media_item_id="1002",
+            action="snoozed",
+            scheduled_at=(now - timedelta(days=35)).isoformat(),
+            execute_at=past,
+            token="tok-expired",
+            token_used=True,
+        )
 
         mock_plex.get_movie_items.return_value = [
             {
@@ -455,8 +503,15 @@ class TestExecuteDeletions:
         past = (now - timedelta(seconds=1)).isoformat()
 
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/tmp")
-        insert_media_item(conn, id="910", title="Radarr Movie", plex_rating_key="910",
-                          file_path="/tmp/fake", file_size_bytes=500_000, radarr_id=42)
+        insert_media_item(
+            conn,
+            id="910",
+            title="Radarr Movie",
+            plex_rating_key="910",
+            file_path="/tmp/fake",
+            file_size_bytes=500_000,
+            radarr_id=42,
+        )
         self._insert_scheduled_deletion(conn, "910", past)
 
         mock_radarr = MagicMock()
@@ -480,9 +535,17 @@ class TestExecuteDeletions:
         past = (now - timedelta(seconds=1)).isoformat()
 
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/tmp")
-        insert_media_item(conn, id="920", title="Sonarr Show S1", media_type="season",
-                          plex_rating_key="920", file_path="/tmp/fake", file_size_bytes=800_000,
-                          sonarr_id=99, season_number=1)
+        insert_media_item(
+            conn,
+            id="920",
+            title="Sonarr Show S1",
+            media_type="season",
+            plex_rating_key="920",
+            file_path="/tmp/fake",
+            file_size_bytes=800_000,
+            sonarr_id=99,
+            season_number=1,
+        )
         self._insert_scheduled_deletion(conn, "920", past)
 
         mock_sonarr = MagicMock()
@@ -506,8 +569,15 @@ class TestExecuteDeletions:
         past = (now - timedelta(seconds=1)).isoformat()
 
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/tmp")
-        insert_media_item(conn, id="930", title="Exploding Movie", plex_rating_key="930",
-                          file_path="/tmp/fake", file_size_bytes=100_000, radarr_id=7)
+        insert_media_item(
+            conn,
+            id="930",
+            title="Exploding Movie",
+            plex_rating_key="930",
+            file_path="/tmp/fake",
+            file_size_bytes=100_000,
+            radarr_id=7,
+        )
         self._insert_scheduled_deletion(conn, "930", past)
 
         mock_radarr = MagicMock()
@@ -606,8 +676,9 @@ class TestExecuteDeletions:
         past = (now - timedelta(seconds=1)).isoformat()
 
         self._insert_item(conn, "940", "Snoozed Item")
-        insert_scheduled_action(conn, media_item_id="940", action="snoozed",
-                                execute_at=past, token="tok-snooze-940")
+        insert_scheduled_action(
+            conn, media_item_id="940", action="snoozed", execute_at=past, token="tok-snooze-940"
+        )
 
         engine = ScanEngine(
             conn=conn,
@@ -627,8 +698,9 @@ class TestExecuteDeletions:
         future = (now + timedelta(days=7)).isoformat()
 
         self._insert_item(conn, "950", "Active Snooze Item")
-        insert_scheduled_action(conn, media_item_id="950", action="snoozed",
-                                execute_at=future, token="tok-snooze-950")
+        insert_scheduled_action(
+            conn, media_item_id="950", action="snoozed", execute_at=future, token="tok-snooze-950"
+        )
 
         engine = ScanEngine(
             conn=conn,
@@ -678,8 +750,9 @@ class TestShowLevelKeep:
 
     def test_kept_show_skips_all_seasons(self, conn, mock_plex):
         now = datetime.now(UTC)
-        insert_kept_show(conn, show_rating_key="599", show_title="Test Show",
-                         action="protected_forever")
+        insert_kept_show(
+            conn, show_rating_key="599", show_title="Test Show", action="protected_forever"
+        )
 
         mock_plex.get_show_seasons.return_value = [
             {
@@ -711,8 +784,9 @@ class TestShowLevelKeep:
     def test_expired_show_snooze_allows_scan(self, conn, mock_plex):
         now = datetime.now(UTC)
         past = (now - timedelta(days=1)).isoformat()
-        insert_kept_show(conn, show_rating_key="599", show_title="Test Show",
-                         action="snoozed", execute_at=past)
+        insert_kept_show(
+            conn, show_rating_key="599", show_title="Test Show", action="snoozed", execute_at=past
+        )
 
         mock_plex.get_show_seasons.return_value = [
             {
@@ -992,9 +1066,16 @@ class TestOrphanGuard:
 
     def _populate_items(self, conn, lib_id, n):
         for i in range(n):
-            insert_media_item(conn, id=f"item-{lib_id}-{i}", title=f"t-{i}",
-                              plex_library_id=lib_id, plex_rating_key=f"item-{lib_id}-{i}",
-                              added_at="2026-01-01", file_path=f"/media/{i}", file_size_bytes=1)
+            insert_media_item(
+                conn,
+                id=f"item-{lib_id}-{i}",
+                title=f"t-{i}",
+                plex_library_id=lib_id,
+                plex_rating_key=f"item-{lib_id}-{i}",
+                added_at="2026-01-01",
+                file_path=f"/media/{i}",
+                file_size_bytes=1,
+            )
 
     def test_empty_scan_against_populated_lib_refuses_orphan_removal(
         self,
@@ -1192,9 +1273,15 @@ class TestRunScanDryRun:
         # Seed 50 prior items so the orphan-guard ratio check would
         # otherwise pass once Plex returns nothing.
         for i in range(50):
-            insert_media_item(conn, id=f"orphan-{i}", title=f"Title {i}",
-                              plex_rating_key=f"orphan-{i}", added_at="2026-01-01",
-                              file_path=f"/media/{i}", file_size_bytes=1)
+            insert_media_item(
+                conn,
+                id=f"orphan-{i}",
+                title=f"Title {i}",
+                plex_rating_key=f"orphan-{i}",
+                added_at="2026-01-01",
+                file_path=f"/media/{i}",
+                file_size_bytes=1,
+            )
 
         # Plex returns one current item — without the dry_run guard,
         # the other 49 would be eligible for orphan removal.
@@ -1247,10 +1334,18 @@ class TestRunScanDryRun:
         now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
         # Seed a media item + expired snooze.
-        insert_media_item(conn, id="m1", title="Snoozed", plex_rating_key="m1",
-                          added_at=now, file_path="/m1", file_size_bytes=0)
-        insert_scheduled_action(conn, media_item_id="m1", action="snoozed",
-                                execute_at=past, token="tok-snz")
+        insert_media_item(
+            conn,
+            id="m1",
+            title="Snoozed",
+            plex_rating_key="m1",
+            added_at=now,
+            file_path="/m1",
+            file_size_bytes=0,
+        )
+        insert_scheduled_action(
+            conn, media_item_id="m1", action="snoozed", execute_at=past, token="tok-snz"
+        )
 
         with (
             patch("mediaman.scanner.engine._send_newsletter"),
@@ -1337,9 +1432,16 @@ class TestPerLibraryOrphanGuard:
 
     def _populate_items(self, conn, lib_id, n):
         for i in range(n):
-            insert_media_item(conn, id=f"item-{lib_id}-{i}", title=f"t-{i}",
-                              plex_library_id=lib_id, plex_rating_key=f"item-{lib_id}-{i}",
-                              added_at="2026-01-01", file_path=f"/media/{i}", file_size_bytes=1)
+            insert_media_item(
+                conn,
+                id=f"item-{lib_id}-{i}",
+                title=f"t-{i}",
+                plex_library_id=lib_id,
+                plex_rating_key=f"item-{lib_id}-{i}",
+                added_at="2026-01-01",
+                file_path=f"/media/{i}",
+                file_size_bytes=1,
+            )
 
     def test_empty_library_does_not_wipe_when_sibling_full(
         self,

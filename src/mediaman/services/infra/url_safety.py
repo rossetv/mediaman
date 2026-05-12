@@ -78,6 +78,7 @@ class SSRFRefused(Exception):
     framework error handlers.
     """
 
+
 #: External hosts mediaman speaks to that are NOT configured by the
 #: operator. These are static for the lifetime of the codebase and are
 #: always trusted when the allowlist is enforced. Adding to this list

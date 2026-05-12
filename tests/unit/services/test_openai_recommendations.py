@@ -159,7 +159,9 @@ class TestWebSearchGating:
         """When ``openai_web_search_enabled`` is set to true, tools key is included."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
         insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
-        insert_settings(conn, openai_web_search_enabled="true", updated_at="2026-04-18T00:00:00+00:00")
+        insert_settings(
+            conn, openai_web_search_enabled="true", updated_at="2026-04-18T00:00:00+00:00"
+        )
 
         fake_http.queue("POST", fake_response(json_data={"output": []}))
         openai_recommendations._call_openai("hello", conn, use_web_search=True)
@@ -174,7 +176,9 @@ class TestWebSearchGating:
         """Even with the setting enabled, passing ``use_web_search=False`` omits tools."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
         insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
-        insert_settings(conn, openai_web_search_enabled="true", updated_at="2026-04-18T00:00:00+00:00")
+        insert_settings(
+            conn, openai_web_search_enabled="true", updated_at="2026-04-18T00:00:00+00:00"
+        )
 
         fake_http.queue("POST", fake_response(json_data={"output": []}))
         openai_recommendations._call_openai("hello", conn, use_web_search=False)
@@ -206,7 +210,9 @@ class TestWebSearchTitleValidation:
         """When web search is active and a title fails validation, the whole batch is rejected."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
         insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
-        insert_settings(conn, openai_web_search_enabled="true", updated_at="2026-04-18T00:00:00+00:00")
+        insert_settings(
+            conn, openai_web_search_enabled="true", updated_at="2026-04-18T00:00:00+00:00"
+        )
 
         # One clean title, one adversarial title — the whole batch must be rejected.
         bad_batch = [
@@ -237,7 +243,9 @@ class TestWebSearchTitleValidation:
         """A fully safe batch passes validation when web search is active."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
         insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
-        insert_settings(conn, openai_web_search_enabled="true", updated_at="2026-04-18T00:00:00+00:00")
+        insert_settings(
+            conn, openai_web_search_enabled="true", updated_at="2026-04-18T00:00:00+00:00"
+        )
 
         safe_batch = [
             {"title": "Inception", "media_type": "movie", "reason": "great film"},

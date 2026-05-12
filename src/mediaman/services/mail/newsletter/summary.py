@@ -115,7 +115,9 @@ def _load_deleted_items(
     return items
 
 
-def _load_storage_stats(conn: sqlite3.Connection, now: datetime) -> tuple[StorageStats, int, int, int]:
+def _load_storage_stats(
+    conn: sqlite3.Connection, now: datetime
+) -> tuple[StorageStats, int, int, int]:
     """Build storage stats and reclaimed-space totals.
 
     Returns ``(storage_dict, reclaimed_week, reclaimed_month, reclaimed_total)``.

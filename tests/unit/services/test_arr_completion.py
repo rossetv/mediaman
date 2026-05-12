@@ -136,7 +136,13 @@ class TestCleanupRecentDownloads:
     def test_removes_only_expired_rows(self, conn):
         """Only rows older than 7 days are purged; fresh rows survive."""
         ten_days_ago = (datetime.now(UTC) - timedelta(days=10)).isoformat()
-        insert_recent_download(conn, dl_id="radarr:OldFilm", title="Old Film", media_type="movie", completed_at=ten_days_ago)
+        insert_recent_download(
+            conn,
+            dl_id="radarr:OldFilm",
+            title="Old Film",
+            media_type="movie",
+            completed_at=ten_days_ago,
+        )
         insert_recent_download(conn, dl_id="radarr:NewFilm", title="New Film", media_type="movie")
 
         deleted = cleanup_recent_downloads(conn)

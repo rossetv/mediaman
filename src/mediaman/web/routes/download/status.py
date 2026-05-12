@@ -71,6 +71,8 @@ class _SonarrEpEntry(TypedDict):
     status: str
     tracked_state: str
     timeleft: str
+
+
 # (service, tmdb_id, secret_key_fingerprint) -> (timestamp, status_dict)
 _STATUS_CACHE: dict[tuple[str, int, str], tuple[float, DownloadItem]] = {}
 

@@ -7,6 +7,7 @@ import pytest
 import requests as http_requests
 
 from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.infra.url_safety import SSRFRefused
 from mediaman.services.media_meta import plex as plex_module
 from mediaman.services.media_meta.plex import (
     PlexClient,
@@ -367,7 +368,7 @@ class TestPlexClientUrlValidation:
             "resolve_safe_outbound_url",
             lambda url: (False, None, None),
         )
-        with pytest.raises(ValueError, match="SSRF guard"):
+        with pytest.raises(SSRFRefused):
             PlexClient("http://malicious.example/", "token")
         # PlexServer was never called — the refusal happened before any
         # token-bearing request could go out.

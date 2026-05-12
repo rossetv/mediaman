@@ -327,7 +327,9 @@ class TestIsShowKept:
 
     def test_active_snooze_returns_true(self, conn):
         future = (datetime.now(UTC) + timedelta(days=7)).isoformat()
-        insert_kept_show(conn, show_rating_key="rk2", show_title="Show", action="snoozed", execute_at=future)
+        insert_kept_show(
+            conn, show_rating_key="rk2", show_title="Show", action="snoozed", execute_at=future
+        )
         assert repository.is_show_kept(conn, "rk2") is True
 
     def test_expired_snooze_returns_false_and_cleans_up(self, conn):
@@ -341,7 +343,9 @@ class TestIsShowKept:
         the scan engine still holds.
         """
         past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
-        insert_kept_show(conn, show_rating_key="rk3", show_title="Show", action="snoozed", execute_at=past)
+        insert_kept_show(
+            conn, show_rating_key="rk3", show_title="Show", action="snoozed", execute_at=past
+        )
         result = repository.is_show_kept(conn, "rk3")
         assert result is False
         # Expired row was swept out by the wrapper.
@@ -355,7 +359,9 @@ class TestIsShowKept:
         an expired snooze.
         """
         past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
-        insert_kept_show(conn, show_rating_key="rk-pure", show_title="Show", action="snoozed", execute_at=past)
+        insert_kept_show(
+            conn, show_rating_key="rk-pure", show_title="Show", action="snoozed", execute_at=past
+        )
         result = repository._is_show_kept_pure(conn, "rk-pure")
         assert result is False
         assert (
@@ -435,7 +441,9 @@ class TestCleanupExpiredSnoozes:
 class TestCleanupExpiredShowSnoozes:
     def test_removes_expired_snoozed_kept_show(self, conn):
         past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
-        insert_kept_show(conn, show_rating_key="rk-exp", show_title="Show", action="snoozed", execute_at=past)
+        insert_kept_show(
+            conn, show_rating_key="rk-exp", show_title="Show", action="snoozed", execute_at=past
+        )
         removed = repository.cleanup_expired_show_snoozes(conn, datetime.now(UTC).isoformat())
         conn.commit()
         assert removed == 1
@@ -446,7 +454,9 @@ class TestCleanupExpiredShowSnoozes:
 
     def test_keeps_active_snoozed_kept_show(self, conn):
         future = (datetime.now(UTC) + timedelta(days=7)).isoformat()
-        insert_kept_show(conn, show_rating_key="rk-fut", show_title="Show", action="snoozed", execute_at=future)
+        insert_kept_show(
+            conn, show_rating_key="rk-fut", show_title="Show", action="snoozed", execute_at=future
+        )
         removed = repository.cleanup_expired_show_snoozes(conn, datetime.now(UTC).isoformat())
         assert removed == 0
         assert (
@@ -457,7 +467,9 @@ class TestCleanupExpiredShowSnoozes:
     def test_does_not_touch_protected_forever(self, conn):
         """``protected_forever`` rows have ``execute_at IS NULL``; they must
         survive the cleanup unconditionally."""
-        insert_kept_show(conn, show_rating_key="rk-pf", show_title="Show", action="protected_forever")
+        insert_kept_show(
+            conn, show_rating_key="rk-pf", show_title="Show", action="protected_forever"
+        )
         removed = repository.cleanup_expired_show_snoozes(conn, datetime.now(UTC).isoformat())
         assert removed == 0
         assert (

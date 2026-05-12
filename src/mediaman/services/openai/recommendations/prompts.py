@@ -166,7 +166,9 @@ def _validate_llm_string(value: str, max_len: int, field: str) -> str | None:
     return value
 
 
-def parse_recommendations(items: list[dict[str, object]], category: str) -> list[RecommendationItem]:
+def parse_recommendations(
+    items: list[dict[str, object]], category: str
+) -> list[RecommendationItem]:
     """Normalise and validate raw GPT recommendations.
 
     Each item is validated against stricter rules to prevent prompt-injection and control-character leakage:

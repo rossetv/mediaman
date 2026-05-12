@@ -601,7 +601,13 @@ class TestRecentDownloadsCleanup:
         conn = init_db(str(db_path))
         ten_days_ago = (datetime.now(UTC) - timedelta(days=10)).isoformat()
         # Insert a row dated 10 days ago
-        insert_recent_download(conn, dl_id="radarr:Old", title="Old Movie", media_type="movie", completed_at=ten_days_ago)
+        insert_recent_download(
+            conn,
+            dl_id="radarr:Old",
+            title="Old Movie",
+            media_type="movie",
+            completed_at=ten_days_ago,
+        )
         # Insert a row from today
         insert_recent_download(conn, dl_id="radarr:New", title="New Movie", media_type="movie")
 
