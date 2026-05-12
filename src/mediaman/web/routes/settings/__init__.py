@@ -32,7 +32,6 @@ Sub-modules
 
 from __future__ import annotations
 
-import binascii
 import concurrent.futures
 import json
 import logging
@@ -40,14 +39,12 @@ import shutil
 import sqlite3
 
 import requests
-from cryptography.exceptions import InvalidTag
 from fastapi import APIRouter, Cookie, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.responses import Response
 
-from mediaman.core.audit import security_event, security_event_or_raise
+from mediaman.core.audit import security_event
 from mediaman.core.time import now_iso
-from mediaman.crypto import decrypt_value, encrypt_value
 from mediaman.db import get_db
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_plex_from_db
@@ -64,6 +61,12 @@ from mediaman.web.auth.reauth import has_recent_reauth
 from mediaman.web.models import SettingsUpdate
 from mediaman.web.repository.settings import (
     fetch_encrypted_key_set as _encrypted_keys,
+)
+from mediaman.web.repository.settings import (
+    load_settings as _load_settings,
+)
+from mediaman.web.repository.settings import (
+    write_settings,
 )
 from mediaman.web.responses import respond_err, respond_ok
 
@@ -85,17 +88,10 @@ from mediaman.web.routes.settings.secrets import (
     ALL_KEYS as _ALL_KEYS,
 )
 from mediaman.web.routes.settings.secrets import (
-    INTERNAL_KEYS as _INTERNAL_KEYS,
+    SECRET_FIELDS as SECRET_FIELDS,  # re-exported for test imports
 )
 from mediaman.web.routes.settings.secrets import (
-    SECRET_CLEAR_SENTINEL as _SECRET_CLEAR_SENTINEL,
-)
-from mediaman.web.routes.settings.secrets import (
-    SECRET_FIELDS,
     SENSITIVE_KEYS,
-)
-from mediaman.web.routes.settings.secrets import (
-    SECRET_PLACEHOLDER as _SECRET_PLACEHOLDER,
 )
 from mediaman.web.routes.settings.secrets import (
     has_sensitive_key_changes as _touches_sensitive_keys,
@@ -134,72 +130,6 @@ TEST_CACHE = _TEST_CACHE
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-# ---------------------------------------------------------------------------
-# _load_settings lives here (not in secrets.py) because it calls
-# ``decrypt_value`` at runtime and several tests monkeypatch that name
-# on this module object.  Moving it to a sub-module would break those
-# patches.
-# ---------------------------------------------------------------------------
-
-
-def _load_settings(
-    conn: sqlite3.Connection,
-    secret_key: str,
-    *,
-    keys: set[str] | None = None,
-) -> dict[str, object]:
-    """Return settings from the DB with secrets decrypted.
-
-    When *keys* is supplied, only those rows are read and decrypted. The
-    api_test_service flow uses this so a single-service test does NOT
-    decrypt every other secret — minimising the blast radius if any one
-    decryption is logged or panics. When *keys* is ``None`` (the default)
-    every non-internal row is loaded as before.
-
-    Decryption errors are distinguished from "no value set":
-
-    * If the row exists and is marked encrypted, but decryption fails,
-      we raise :class:`ConfigDecryptError` so callers can show a
-      meaningful banner instead of silently substituting ``""`` (which
-      was previously indistinguishable from a never-saved key — a
-      regression hazard once an operator rotates ``MEDIAMAN_SECRET_KEY``).
-    * If the row simply does not exist, the key is absent from the
-      returned dict (callers already use ``.get(key, "")``).
-    """
-    if keys is not None:
-        if not keys:
-            return {}
-        placeholders = ",".join("?" * len(keys))
-        rows = conn.execute(
-            f"SELECT key, value, encrypted FROM settings WHERE key IN ({placeholders})",
-            tuple(keys),
-        ).fetchall()
-    else:
-        rows = conn.execute("SELECT key, value, encrypted FROM settings").fetchall()
-    settings: dict[str, object] = {}
-    for row in rows:
-        if row["key"] in _INTERNAL_KEYS:
-            continue
-        raw = row["value"]
-        if row["encrypted"]:
-            try:
-                settings[row["key"]] = decrypt_value(
-                    raw, secret_key, conn=conn, aad=row["key"].encode()
-                )
-            except (InvalidTag, ValueError, binascii.Error) as exc:
-                logger.warning(
-                    "Failed to decrypt setting %r — surfacing error to caller",
-                    row["key"],
-                )
-                raise ConfigDecryptError(row["key"], exc) from exc
-        else:
-            try:
-                settings[row["key"]] = json.loads(raw)
-            except (json.JSONDecodeError, TypeError):
-                settings[row["key"]] = raw
-    return settings
 
 
 # ---------------------------------------------------------------------------
@@ -331,56 +261,24 @@ def api_update_settings(
     ignored = sorted(k for k in body_dict if k not in _ALL_KEYS)
     sensitive_written = sorted(k for k in written if k in SENSITIVE_KEYS)
 
+    # rationale: encrypt-on-write happens inside the repository so the
+    # plaintext never escapes that boundary (§9.9). The audit row is
+    # written under the same ``BEGIN IMMEDIATE`` so a SQLite or audit
+    # failure rolls every settings mutation back together (M27).
     try:
-        conn.execute("BEGIN IMMEDIATE")
-        try:
-            for key, value in body_dict.items():
-                if key not in _ALL_KEYS:
-                    continue
-                if value is None:
-                    continue
-                if key in SECRET_FIELDS:
-                    if value == _SECRET_PLACEHOLDER or value == "":
-                        continue
-                    if value == _SECRET_CLEAR_SENTINEL:
-                        conn.execute("DELETE FROM settings WHERE key=?", (key,))
-                        continue
-                    encrypted_value = encrypt_value(
-                        str(value), config.secret_key, conn=conn, aad=key.encode()
-                    )
-                    conn.execute(
-                        "INSERT INTO settings (key, value, encrypted, updated_at) "
-                        "VALUES (?, ?, 1, ?) "
-                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, "
-                        "encrypted=1, updated_at=excluded.updated_at",
-                        (key, encrypted_value, now),
-                    )
-                else:
-                    str_value = (
-                        json.dumps(value) if isinstance(value, (list, dict, bool)) else str(value)
-                    )
-                    conn.execute(
-                        "INSERT INTO settings (key, value, encrypted, updated_at) "
-                        "VALUES (?, ?, 0, ?) "
-                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, "
-                        "encrypted=0, updated_at=excluded.updated_at",
-                        (key, str_value, now),
-                    )
-
-            security_event_or_raise(
-                conn,
-                event="settings.write",
-                actor=admin,
-                ip=get_client_ip(request),
-                detail={
-                    "keys": written,
-                    "sensitive_keys": sensitive_written,
-                },
-            )
-            conn.execute("COMMIT")
-        except sqlite3.Error:
-            conn.execute("ROLLBACK")
-            raise
+        write_settings(
+            conn,
+            body_dict=body_dict,
+            allowed_keys=_ALL_KEYS,
+            secret_key=config.secret_key,
+            now=now,
+            audit={
+                "event": "settings.write",
+                "actor": admin,
+                "ip": get_client_ip(request),
+                "detail": {"keys": written, "sensitive_keys": sensitive_written},
+            },
+        )
     except sqlite3.Error:
         logger.exception("settings.write failed user=%s", admin)
         return respond_err(
