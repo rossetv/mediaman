@@ -15,6 +15,7 @@ from mediaman.core.audit import log_audit
 from mediaman.crypto import generate_poll_token, validate_download_token
 from mediaman.crypto.tokens import DownloadTokenPayload
 from mediaman.db import get_db
+from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.services.infra.http import SafeHTTPError
@@ -400,12 +401,17 @@ def download_submit(request: Request, token: str) -> JSONResponse:
         return _handle_already_exists_error(
             exc, token, title, media_type, tmdb_id, is_redownload, config.secret_key
         )
-    except (requests.RequestException, sqlite3.Error) as exc:
-        # Narrow handler: only swallow network/DB-shaped failures so
-        # asyncio.CancelledError, KeyboardInterrupt, and other control
-        # exceptions propagate as intended. The previous bare
-        # ``except Exception`` masked them and silently turned an
-        # in-flight cancellation into a stale 502.
+    except (requests.RequestException, ArrError, ValueError, sqlite3.Error) as exc:
+        # ``ArrError`` covers the Arr-domain failures (``ArrConfigError`` from
+        # missing root folder / quality profile, ``ArrUpstreamError`` from a
+        # malformed upstream response). ``ValueError`` covers the
+        # ``add_movie(tmdb_id <= 0)`` / ``add_series(tvdb_id <= 0)`` argument
+        # guards. Both were previously swallowed by ``except Exception:`` —
+        # narrowing too aggressively here would let them propagate and
+        # leave the consumed token stranded, permanently burning the
+        # user's one-shot link with no recovery path. ``KeyboardInterrupt``
+        # and ``SystemExit`` derive from ``BaseException`` and are not
+        # caught here, which is the intended control-flow behaviour.
         _unmark_token_used(token)
         logger.debug("Download token submit failed for '%s': %s", title, exc, exc_info=True)
         return JSONResponse(
