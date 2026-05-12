@@ -6,7 +6,7 @@ import logging
 import sqlite3
 import threading
 import time
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypedDict, cast
 
 import requests
 from fastapi import APIRouter, Depends, Query, Request
@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from mediaman.core.format import format_bytes
 from mediaman.crypto import validate_poll_token
 from mediaman.db import get_db
+from mediaman.services.arr import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.download_format import (
     build_episode_summary,
@@ -57,6 +58,19 @@ _DOWNLOAD_STATUS_LIMITER = RateLimiter(max_attempts=120, window_seconds=60)
 
 _STATUS_CACHE_TTL_SECONDS = 2.5
 _STATUS_CACHE_LOCK = threading.Lock()
+
+
+class _SonarrEpEntry(TypedDict):
+    """Intermediate per-episode accumulator used inside ``_sonarr_status``."""
+
+    label: str
+    title: str
+    progress: int
+    size: int
+    sizeleft: int
+    status: str
+    tracked_state: str
+    timeleft: str
 # (service, tmdb_id, secret_key_fingerprint) -> (timestamp, status_dict)
 _STATUS_CACHE: dict[tuple[str, int, str], tuple[float, DownloadItem]] = {}
 
@@ -244,7 +258,7 @@ def _sonarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> D
     queue = client.get_queue()
     series_title = ""
     series_poster = ""
-    ep_entries: list[dict] = []
+    ep_entries: list[_SonarrEpEntry] = []
 
     for item in queue:
         item_series = item.get("series") or {}
@@ -279,7 +293,7 @@ def _sonarr_status(conn: sqlite3.Connection, secret_key: str, tmdb_id: int) -> D
 
     if ep_entries:
         ep_entries.sort(key=lambda e: e["label"])
-        episodes = build_episode_dicts(ep_entries)
+        episodes = build_episode_dicts(cast("list[dict[str, object]]", ep_entries))
         total_size = sum(e["size"] for e in ep_entries)
         total_left = sum(e["sizeleft"] for e in ep_entries)
         overall_progress = _safe_progress(total_size, total_left) if total_size else 0
@@ -464,7 +478,7 @@ def download_status(
             )
         return JSONResponse(result)
 
-    except (requests.RequestException, SafeHTTPError):
+    except (requests.RequestException, SafeHTTPError, ArrError):
         # Both transport (RequestException) and Arr-level non-2xx
         # (SafeHTTPError) failures are bounded behaviours we report as
         # "unknown" rather than 500. Without SafeHTTPError in this clause

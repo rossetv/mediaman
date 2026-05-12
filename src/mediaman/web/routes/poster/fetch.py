@@ -35,6 +35,7 @@ import requests
 from fastapi.responses import Response
 
 from mediaman.crypto import decrypt_value
+from mediaman.services.arr import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.download_format import extract_poster_url
 from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
@@ -234,7 +235,7 @@ def _resolve_arr_poster_url(
             for movie in radarr_client.get_movies():
                 if movie.get("id") == radarr_id:
                     return extract_poster_url(movie.get("images")), title
-        except (requests.RequestException, SafeHTTPError):
+        except (requests.RequestException, SafeHTTPError, ArrError):
             logger.warning("Failed to fetch Radarr poster for id=%s", radarr_id, exc_info=True)
         return None, title
 
@@ -248,7 +249,7 @@ def _resolve_arr_poster_url(
         for series in sonarr_client.get_series():
             if series.get("id") == sonarr_id:
                 return extract_poster_url(series.get("images")), title
-    except (requests.RequestException, SafeHTTPError):
+    except (requests.RequestException, SafeHTTPError, ArrError):
         logger.warning("Failed to fetch Sonarr poster for id=%s", sonarr_id, exc_info=True)
     return None, title
 

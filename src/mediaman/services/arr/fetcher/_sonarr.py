@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, cast
 
 import requests
 
+from mediaman.services.arr import ArrError
 from mediaman.services.arr._types import ArrEpisode
 from mediaman.services.arr.fetcher._base import (
     ArrCard,
@@ -236,7 +237,7 @@ def fetch_sonarr_queue(client: ArrClient) -> list[ArrCard]:
         episodes_raw: list[ArrEpisode] = []
         try:
             episodes_raw = client.get_episodes(series_id)
-        except (requests.RequestException, SafeHTTPError):
+        except (requests.RequestException, SafeHTTPError, ArrError):
             # ``SafeHTTPError`` for non-2xx responses must be caught
             # alongside ``RequestException``; otherwise a 503 from
             # Sonarr's episode endpoint propagates and discards every
