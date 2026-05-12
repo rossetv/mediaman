@@ -88,7 +88,7 @@ def migrate_legacy_ciphertexts(
         Number of rows that were re-encrypted (0 if nothing to do).
 
     Raises:
-        RuntimeError: If the HKDF salt cannot be loaded (corrupt DB).
+        CryptoError: If the HKDF salt cannot be loaded (corrupt DB).
     """
     # Import here to avoid circular dependency (encrypt_value lives in aes.py
     # which imports from this module).
