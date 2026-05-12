@@ -11,13 +11,6 @@ tests don't assert on.
 
 from __future__ import annotations
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
-from mediaman.config import Config
-from mediaman.db import init_db, set_connection
-from mediaman.web.auth.password_hash import create_user
-from mediaman.web.auth.reauth import grant_recent_reauth
 from mediaman.web.auth.session_store import create_session, validate_session
 from mediaman.web.routes.users import (
     _PASSWORD_CHANGE_IP_LIMITER,
@@ -29,28 +22,12 @@ from mediaman.web.routes.users import (
 from mediaman.web.routes.users import router as users_router
 
 
-def _make_app(conn, secret_key: str) -> FastAPI:
-    app = FastAPI()
-    app.include_router(users_router)
-    app.state.config = Config(secret_key=secret_key)
-    app.state.db = conn
-    set_connection(conn)
-    return app
-
-
-def _auth_client(app: FastAPI, conn, *, with_reauth: bool = True) -> tuple[TestClient, str]:
-    """Return (client, token) for a freshly-minted admin session.
-
-    When *with_reauth* is True (the default), the session is also
-    granted a fresh recent-reauth ticket so privilege-establishing
-    endpoints are allowed.
-    """
-    create_user(conn, "admin", "password1234", enforce_policy=False)
-    token = create_session(conn, "admin")
-    if with_reauth:
-        grant_recent_reauth(conn, token, "admin")
-    client = TestClient(app, raise_server_exceptions=True)
-    client.cookies.set("session_token", token)
+def _build(app_factory, authed_client, conn, *, with_reauth: bool = True):
+    """Return ``(client, token)``: the shared authed_client plus the cookie
+    it stored, so tests can compare against the post-rotation cookie."""
+    app = app_factory(users_router, conn=conn)
+    client = authed_client(app, conn, with_reauth=with_reauth)
+    token = client.cookies.get("session_token")
     return client, token
 
 
@@ -67,11 +44,9 @@ class TestUserCreateRateLimit:
         ):
             lim.reset()
 
-    def test_user_create_throttled_after_cap(self, db_path, secret_key):
+    def test_user_create_throttled_after_cap(self, app_factory, authed_client, conn):
         """After _USER_CREATE_LIMITER._max_in_window requests, 429 is returned."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, _ = _auth_client(app, conn)
+        client, _ = _build(app_factory, authed_client, conn)
 
         cap = _USER_CREATE_LIMITER._max_in_window
         for i in range(cap):
@@ -92,11 +67,9 @@ class TestUserCreateRateLimit:
 class TestRevokeOthersReissueCookie:
     """POST /api/users/sessions/revoke-others must issue a fresh session cookie."""
 
-    def test_revoke_others_sets_new_session_cookie(self, db_path, secret_key):
+    def test_revoke_others_sets_new_session_cookie(self, app_factory, authed_client, conn):
         """The response includes a new session_token cookie."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, old_token = _auth_client(app, conn)
+        client, old_token = _build(app_factory, authed_client, conn)
 
         resp = client.post("/api/users/sessions/revoke-others")
         assert resp.status_code == 200
@@ -107,22 +80,18 @@ class TestRevokeOthersReissueCookie:
         # The new cookie must differ from the original (old session was destroyed)
         assert new_cookie != old_token
 
-    def test_revoke_others_new_session_is_valid(self, db_path, secret_key):
+    def test_revoke_others_new_session_is_valid(self, app_factory, authed_client, conn):
         """The re-issued session cookie is a valid, working session."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, _ = _auth_client(app, conn)
+        client, _ = _build(app_factory, authed_client, conn)
 
         resp = client.post("/api/users/sessions/revoke-others")
         new_cookie = resp.cookies.get("session_token")
 
         assert validate_session(conn, new_cookie) == "admin"
 
-    def test_revoke_others_exactly_one_session_remains(self, db_path, secret_key):
+    def test_revoke_others_exactly_one_session_remains(self, app_factory, authed_client, conn):
         """After revocation there is exactly one active session (the new one)."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, _ = _auth_client(app, conn)
+        client, _ = _build(app_factory, authed_client, conn)
         # Add a second session to ensure revocation fires
         create_session(conn, "admin")
 
@@ -137,11 +106,9 @@ class TestRevokeOthersReissueCookie:
 class TestChangePasswordCookie:
     """POST /api/users/change-password must re-issue a session cookie on success."""
 
-    def test_change_password_sets_new_session_cookie(self, db_path, secret_key):
+    def test_change_password_sets_new_session_cookie(self, app_factory, authed_client, conn):
         """A successful password change returns a new session_token cookie."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, old_token = _auth_client(app, conn)
+        client, old_token = _build(app_factory, authed_client, conn)
 
         resp = client.post(
             "/api/users/change-password",
@@ -152,11 +119,9 @@ class TestChangePasswordCookie:
         assert new_cookie is not None
         assert new_cookie != old_token
 
-    def test_change_password_new_session_is_valid(self, db_path, secret_key):
+    def test_change_password_new_session_is_valid(self, app_factory, authed_client, conn):
         """The re-issued session cookie after a password change is a valid session."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, _ = _auth_client(app, conn)
+        client, _ = _build(app_factory, authed_client, conn)
 
         resp = client.post(
             "/api/users/change-password",

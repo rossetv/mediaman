@@ -14,14 +14,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mediaman.config import Config
 from mediaman.crypto import generate_download_token, generate_poll_token
-from mediaman.db import init_db, set_connection
-from mediaman.web.auth.password_hash import create_user
-from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.download.status import (
     _DOWNLOAD_STATUS_LIMITER,
     _format_timeleft,
@@ -29,24 +24,6 @@ from mediaman.web.routes.download.status import (
 from mediaman.web.routes.download.status import (
     router as status_router,
 )
-
-
-def _make_app(conn, secret_key: str) -> FastAPI:
-    app = FastAPI()
-    app.include_router(status_router)
-    app.state.config = Config(secret_key=secret_key)
-    app.state.db = conn
-    set_connection(conn)
-    return app
-
-
-def _auth_client(app: FastAPI, conn) -> TestClient:
-    create_user(conn, "admin", "password1234", enforce_policy=False)
-    token = create_session(conn, "admin")
-    client = TestClient(app, raise_server_exceptions=True)
-    client.cookies.set("session_token", token)
-    client.headers.update({"Origin": "http://testserver"})
-    return client
 
 
 def _download_token(secret_key: str, media_type: str = "movie", tmdb_id: int = 42) -> str:
@@ -104,19 +81,17 @@ class TestDownloadStatusAuth:
     def setup_method(self):
         _DOWNLOAD_STATUS_LIMITER._attempts.clear()
 
-    def test_unauthenticated_returns_401(self, db_path, secret_key):
+    def test_unauthenticated_returns_401(self, app_factory, conn):
         """No token, no admin session → 401."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = app_factory(status_router, conn=conn)
         client = TestClient(app, raise_server_exceptions=True)
         resp = client.get("/api/download/status?service=radarr&tmdb_id=42")
         assert resp.status_code == 401
 
-    def test_download_token_no_longer_accepted(self, db_path, secret_key):
+    def test_download_token_no_longer_accepted(self, app_factory, conn, secret_key):
         """Finding 14: download tokens are no longer accepted for status polling;
         only poll_token (short-lived) is valid for unauthenticated callers."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = app_factory(status_router, conn=conn)
         client = TestClient(app, raise_server_exceptions=True)
         token = _download_token(secret_key, media_type="movie", tmdb_id=42)
 
@@ -126,10 +101,9 @@ class TestDownloadStatusAuth:
         )
         assert resp.status_code == 401
 
-    def test_download_token_wrong_tmdb_id_rejected(self, db_path, secret_key):
+    def test_download_token_wrong_tmdb_id_rejected(self, app_factory, conn, secret_key):
         """A download token (now unsupported) still returns 401 regardless of tmdb_id match."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = app_factory(status_router, conn=conn)
         client = TestClient(app, raise_server_exceptions=True)
         token = _download_token(secret_key, media_type="movie", tmdb_id=99)  # wrong ID
 
@@ -138,10 +112,9 @@ class TestDownloadStatusAuth:
         )
         assert resp.status_code == 401
 
-    def test_valid_poll_token_authenticated(self, db_path, secret_key):
+    def test_valid_poll_token_authenticated(self, app_factory, conn, secret_key):
         """A valid poll token for the correct service and tmdb_id is accepted."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = app_factory(status_router, conn=conn)
         client = TestClient(app, raise_server_exceptions=True)
         poll_token = generate_poll_token(
             media_item_id="radarr:Dune",
@@ -162,11 +135,10 @@ class TestDownloadStatusAuth:
             )
         assert resp.status_code == 200
 
-    def test_admin_session_bypasses_token_requirement(self, db_path, secret_key):
+    def test_admin_session_bypasses_token_requirement(self, app_factory, authed_client, conn):
         """An authenticated admin can poll status without any download/poll token."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        app = app_factory(status_router, conn=conn)
+        client = authed_client(app, conn)
 
         mock_radarr = MagicMock()
         mock_radarr.get_movie_by_tmdb.return_value = None
@@ -178,10 +150,9 @@ class TestDownloadStatusAuth:
             resp = client.get("/api/download/status?service=radarr&tmdb_id=42")
         assert resp.status_code == 200
 
-    def test_overlong_token_returns_401(self, db_path, secret_key):
+    def test_overlong_token_returns_401(self, app_factory, conn):
         """A token over 4096 chars returns 401 without attempting validation."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = app_factory(status_router, conn=conn)
         client = TestClient(app, raise_server_exceptions=True)
 
         long_token = "x" * 4097
@@ -190,7 +161,7 @@ class TestDownloadStatusAuth:
         )
         assert resp.status_code == 401
 
-    def test_unknown_service_returns_422(self, db_path, secret_key):
+    def test_unknown_service_returns_422(self, app_factory, authed_client, conn):
         """An unrecognised service name is rejected at the type layer.
 
         Wave 5-4 tightened the route signature to ``service: Literal["radarr",
@@ -198,9 +169,8 @@ class TestDownloadStatusAuth:
         other value rather than reaching the handler and falling through to
         an 'unknown' state.
         """
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        app = app_factory(status_router, conn=conn)
+        client = authed_client(app, conn)
 
         resp = client.get("/api/download/status?service=bogus&tmdb_id=42")
         assert resp.status_code == 422
@@ -210,11 +180,10 @@ class TestDownloadStatusRadarr:
     def setup_method(self):
         _DOWNLOAD_STATUS_LIMITER._attempts.clear()
 
-    def test_radarr_movie_with_file_returns_ready(self, db_path, secret_key):
+    def test_radarr_movie_with_file_returns_ready(self, app_factory, authed_client, conn):
         """When Radarr reports hasFile=True the status is ready."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        app = app_factory(status_router, conn=conn)
+        client = authed_client(app, conn)
 
         mock_radarr = MagicMock()
         mock_radarr.get_movie_by_tmdb.return_value = {
@@ -234,11 +203,10 @@ class TestDownloadStatusRadarr:
         assert data["state"] == "ready"
         assert data["progress"] == 100
 
-    def test_radarr_not_configured_returns_unknown(self, db_path, secret_key):
+    def test_radarr_not_configured_returns_unknown(self, app_factory, authed_client, conn):
         """When Radarr is not configured (client=None) the status is unknown."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        app = app_factory(status_router, conn=conn)
+        client = authed_client(app, conn)
 
         with patch("mediaman.web.routes.download.status.build_radarr_from_db", return_value=None):
             resp = client.get("/api/download/status?service=radarr&tmdb_id=42")

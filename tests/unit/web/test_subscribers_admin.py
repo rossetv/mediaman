@@ -17,6 +17,16 @@ from mediaman.main import create_app
 from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.session_store import create_session
 
+# NOTE: this file deliberately keeps its own ``app`` / ``authed_client``
+# fixtures rather than adopting the shared ``app_factory`` / ``authed_client``
+# in tests/unit/web/conftest.py. Subscriber + newsletter routes depend on
+# the templates Jinja environment, the security middleware (Origin header
+# check, CSRF), and the full ``create_app()`` lifespan — none of which the
+# router-level shared fixture wires up. Migrating would require either
+# reproducing all of that in the shared fixture (kitchen-sink it) or
+# stripping the production-side security to fit. Both are worse than a
+# local override.
+
 
 @pytest.fixture
 def app(db_path, secret_key):

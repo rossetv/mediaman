@@ -12,19 +12,14 @@ Covers the high-impact paths added in M6, M8, M21:
 from __future__ import annotations
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mediaman.config import Config
-from mediaman.db import init_db, set_connection
 from mediaman.web.auth.login_lockout import is_locked_out, record_failure
 from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.reauth import (
     REAUTH_LOCKOUT_PREFIX,
-    grant_recent_reauth,
     has_recent_reauth,
 )
-from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.users import (
     _PASSWORD_CHANGE_LIMITER,
     _REAUTH_LIMITER,
@@ -34,24 +29,11 @@ from mediaman.web.routes.users import (
 from mediaman.web.routes.users import router as users_router
 
 
-def _make_app(conn, secret_key: str) -> FastAPI:
-    app = FastAPI()
-    app.include_router(users_router)
-    app.state.config = Config(secret_key=secret_key)
-    app.state.db = conn
-    set_connection(conn)
-    return app
-
-
-def _client(app: FastAPI, conn, *, with_reauth: bool = False) -> tuple[TestClient, str]:
-    """Return (client, token). Reauth ticket NOT granted by default —
-    every test that wants a sensitive endpoint to succeed must opt in."""
-    create_user(conn, "admin", "password1234", enforce_policy=False)
-    token = create_session(conn, "admin")
-    if with_reauth:
-        grant_recent_reauth(conn, token, "admin")
-    client = TestClient(app, raise_server_exceptions=True)
-    client.cookies.set("session_token", token)
+def _build(app_factory, authed_client, conn, *, with_reauth: bool = False):
+    """Return ``(client, token)``. Reauth NOT granted by default — opt in."""
+    app = app_factory(users_router, conn=conn)
+    client = authed_client(app, conn, with_reauth=with_reauth)
+    token = client.cookies.get("session_token")
     return client, token
 
 
@@ -85,11 +67,9 @@ def _clear_rate_limiters():
 
 
 class TestCreateUserRequiresReauth:
-    def test_create_user_without_reauth_returns_403(self, db_path, secret_key):
+    def test_create_user_without_reauth_returns_403(self, app_factory, authed_client, conn):
         """A valid session alone must NOT be enough to mint a new admin."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, _ = _client(app, conn, with_reauth=False)
+        client, _ = _build(app_factory, authed_client, conn, with_reauth=False)
 
         resp = client.post(
             "/api/users",
@@ -102,10 +82,8 @@ class TestCreateUserRequiresReauth:
         row = conn.execute("SELECT id FROM admin_users WHERE username='newadmin'").fetchone()
         assert row is None
 
-    def test_create_user_with_reauth_succeeds(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, _ = _client(app, conn, with_reauth=True)
+    def test_create_user_with_reauth_succeeds(self, app_factory, authed_client, conn):
+        client, _ = _build(app_factory, authed_client, conn, with_reauth=True)
 
         resp = client.post(
             "/api/users",
@@ -121,10 +99,8 @@ class TestCreateUserRequiresReauth:
 
 
 class TestReauthEndpoint:
-    def test_reauth_correct_password_grants_ticket(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, token = _client(app, conn)
+    def test_reauth_correct_password_grants_ticket(self, app_factory, authed_client, conn):
+        client, token = _build(app_factory, authed_client, conn)
 
         resp = client.post("/api/auth/reauth", json={"password": "password1234"})
         assert resp.status_code == 200
@@ -133,25 +109,21 @@ class TestReauthEndpoint:
         # The ticket is now persisted for this session.
         assert has_recent_reauth(conn, token, "admin") is True
 
-    def test_reauth_wrong_password_returns_403(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, token = _client(app, conn)
+    def test_reauth_wrong_password_returns_403(self, app_factory, authed_client, conn):
+        client, token = _build(app_factory, authed_client, conn)
 
         resp = client.post("/api/auth/reauth", json={"password": "WRONG"})
         assert resp.status_code == 403
         # No ticket was minted.
         assert has_recent_reauth(conn, token, "admin") is False
 
-    def test_five_wrong_reauth_attempts_lock_namespace(self, db_path, secret_key):
+    def test_five_wrong_reauth_attempts_lock_namespace(self, app_factory, authed_client, conn):
         """M8: the reauth endpoint must throttle wrong-password attempts.
 
         After five failures, the reauth namespace is locked and even the
         correct password is refused for the lock duration.
         """
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, _ = _client(app, conn)
+        client, _ = _build(app_factory, authed_client, conn)
 
         # Fire five wrong attempts. The 5th trips the lock.
         for _ in range(5):
@@ -165,12 +137,12 @@ class TestReauthEndpoint:
         resp = client.post("/api/auth/reauth", json={"password": "password1234"})
         assert resp.status_code == 403
 
-    def test_reauth_failures_do_not_bump_plain_login_counter(self, db_path, secret_key):
+    def test_reauth_failures_do_not_bump_plain_login_counter(
+        self, app_factory, authed_client, conn
+    ):
         """A stolen-session attacker pounding /api/auth/reauth must not
         DoS the legitimate user out of /login."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, _ = _client(app, conn)
+        client, _ = _build(app_factory, authed_client, conn)
 
         for _ in range(5):
             client.post("/api/auth/reauth", json={"password": "WRONG"})
@@ -181,15 +153,13 @@ class TestReauthEndpoint:
         ).fetchone()
         assert plain is None
 
-    def test_reauth_endpoint_is_burst_throttled(self, db_path, secret_key):
+    def test_reauth_endpoint_is_burst_throttled(self, app_factory, authed_client, conn):
         """The per-actor ``_REAUTH_LIMITER`` caps burst attempts.
 
         Set high enough that the namespace lockout is the dominant
         brute-force defence, but low enough to slow down obvious abuse.
         """
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, _ = _client(app, conn)
+        client, _ = _build(app_factory, authed_client, conn)
 
         # Burn the burst cap directly via the limiter so we don't have
         # to fire 30 HTTP requests per test.
@@ -206,12 +176,10 @@ class TestReauthEndpoint:
 
 
 class TestChangePasswordThrottling:
-    def test_five_wrong_old_passwords_lock_namespace(self, db_path, secret_key):
+    def test_five_wrong_old_passwords_lock_namespace(self, app_factory, authed_client, conn):
         """A stolen session pounding /api/users/change-password must
         trip the reauth-namespace lockout."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, _ = _client(app, conn)
+        client, _ = _build(app_factory, authed_client, conn)
 
         for _ in range(5):
             resp = client.post(
@@ -230,12 +198,10 @@ class TestChangePasswordThrottling:
         )
         assert resp.status_code == 403
 
-    def test_change_password_burst_throttled(self, db_path, secret_key):
+    def test_change_password_burst_throttled(self, app_factory, authed_client, conn):
         """Per-actor cap: ``_PASSWORD_CHANGE_LIMITER._max_in_window``
         attempts in 60 s."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, _ = _client(app, conn)
+        client, _ = _build(app_factory, authed_client, conn)
 
         # Burn the burst cap directly so we don't have to fire 30 HTTP
         # requests per test.
@@ -248,10 +214,10 @@ class TestChangePasswordThrottling:
         )
         assert resp.status_code == 429
 
-    def test_change_password_does_not_bump_plain_login_counter(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, _ = _client(app, conn)
+    def test_change_password_does_not_bump_plain_login_counter(
+        self, app_factory, authed_client, conn
+    ):
+        client, _ = _build(app_factory, authed_client, conn)
 
         for _ in range(3):
             client.post(
@@ -271,17 +237,14 @@ class TestChangePasswordThrottling:
 
 
 class TestAdminUnlockEndpoint:
-    def test_unlock_requires_auth(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+    def test_unlock_requires_auth(self, app_factory, conn):
+        app = app_factory(users_router, conn=conn)
         client = TestClient(app, raise_server_exceptions=True)
         resp = client.post("/api/users/1/unlock")
         assert resp.status_code == 401
 
-    def test_unlock_requires_recent_reauth(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, _ = _client(app, conn, with_reauth=False)
+    def test_unlock_requires_recent_reauth(self, app_factory, authed_client, conn):
+        client, _ = _build(app_factory, authed_client, conn, with_reauth=False)
         target_id = _make_other_user(conn)
 
         # Lock the target by recording 5 failures.
@@ -294,10 +257,8 @@ class TestAdminUnlockEndpoint:
         # The lock is still in place.
         assert is_locked_out(conn, "other") is True
 
-    def test_unlock_clears_the_lock(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, _ = _client(app, conn, with_reauth=True)
+    def test_unlock_clears_the_lock(self, app_factory, authed_client, conn):
+        client, _ = _build(app_factory, authed_client, conn, with_reauth=True)
         target_id = _make_other_user(conn)
 
         for _ in range(5):
@@ -311,10 +272,8 @@ class TestAdminUnlockEndpoint:
         assert body["had_lock"] is True
         assert is_locked_out(conn, "other") is False
 
-    def test_unlock_refuses_self(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, _ = _client(app, conn, with_reauth=True)
+    def test_unlock_refuses_self(self, app_factory, authed_client, conn):
+        client, _ = _build(app_factory, authed_client, conn, with_reauth=True)
         admin_id = conn.execute("SELECT id FROM admin_users WHERE username='admin'").fetchone()[
             "id"
         ]
@@ -322,18 +281,14 @@ class TestAdminUnlockEndpoint:
         resp = client.post(f"/api/users/{admin_id}/unlock")
         assert resp.status_code == 400
 
-    def test_unlock_unknown_id_returns_404(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, _ = _client(app, conn, with_reauth=True)
+    def test_unlock_unknown_id_returns_404(self, app_factory, authed_client, conn):
+        client, _ = _build(app_factory, authed_client, conn, with_reauth=True)
 
         resp = client.post("/api/users/99999/unlock")
         assert resp.status_code == 404
 
-    def test_unlock_writes_security_audit_row(self, db_path, secret_key):
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, _ = _client(app, conn, with_reauth=True)
+    def test_unlock_writes_security_audit_row(self, app_factory, authed_client, conn):
+        client, _ = _build(app_factory, authed_client, conn, with_reauth=True)
         target_id = _make_other_user(conn)
 
         for _ in range(5):
@@ -355,16 +310,16 @@ class TestAdminUnlockEndpoint:
 
 
 class TestCreateUserAuditInTransaction:
-    def test_audit_failure_rolls_back_user_create(self, db_path, secret_key, monkeypatch):
+    def test_audit_failure_rolls_back_user_create(
+        self, app_factory, authed_client, conn, monkeypatch
+    ):
         """If the audit insert blows up, the user-creation must roll back.
 
         A "user created but no audit trail" outcome IS the security
         incident the audit system is supposed to surface — so the only
         safe behaviour is to fail closed.
         """
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
-        client, _ = _client(app, conn, with_reauth=True)
+        client, _ = _build(app_factory, authed_client, conn, with_reauth=True)
 
         # The audit insert lives inside create_user (in mediaman.core.audit).
         # Patch it there so the in-transaction insert blows up.

@@ -8,43 +8,11 @@ audit fails for sensitive keys the whole write rolls back).
 from __future__ import annotations
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
-from mediaman.config import Config
-from mediaman.db import init_db, set_connection
 from mediaman.services.rate_limit.instances import (
     SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER,
 )
-from mediaman.web.auth.password_hash import create_user
-from mediaman.web.auth.reauth import grant_recent_reauth
-from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.settings import SECRET_FIELDS, SENSITIVE_KEYS, router
-
-
-def _make_app(conn, secret_key: str) -> FastAPI:
-    app = FastAPI()
-    app.include_router(router)
-    app.state.config = Config(secret_key=secret_key)
-    app.state.db = conn
-    set_connection(conn)
-    return app
-
-
-def _client(app: FastAPI, conn, *, with_reauth: bool = False) -> TestClient:
-    """Return a TestClient. Reauth NOT granted by default — opt-in only."""
-    create_user(conn, "admin", "password1234", enforce_policy=False)
-    token = create_session(conn, "admin")
-    if with_reauth:
-        grant_recent_reauth(conn, token, "admin")
-    client = TestClient(app, raise_server_exceptions=True)
-    client.cookies.set("session_token", token)
-    return client
-
-
-@pytest.fixture
-def conn(db_path):
-    return init_db(str(db_path))
 
 
 @pytest.fixture(autouse=True)
@@ -52,6 +20,12 @@ def _clear_settings_limiter():
     _SETTINGS_WRITE_LIMITER.reset()
     yield
     _SETTINGS_WRITE_LIMITER.reset()
+
+
+def _client(app_factory, authed_client, conn, *, with_reauth: bool = False):
+    """Return a TestClient. Reauth NOT granted by default — opt-in only."""
+    app = app_factory(router, conn=conn)
+    return authed_client(app, conn, with_reauth=with_reauth)
 
 
 # ---------------------------------------------------------------------------
@@ -95,9 +69,8 @@ class TestSensitiveKeySetMembership:
 
 
 class TestSensitiveSettingsRequireReauth:
-    def test_secret_field_without_reauth_is_403(self, conn, secret_key):
-        app = _make_app(conn, secret_key)
-        client = _client(app, conn, with_reauth=False)
+    def test_secret_field_without_reauth_is_403(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn, with_reauth=False)
 
         resp = client.put(
             "/api/settings",
@@ -110,9 +83,8 @@ class TestSensitiveSettingsRequireReauth:
         row = conn.execute("SELECT value FROM settings WHERE key = 'plex_token'").fetchone()
         assert row is None
 
-    def test_url_field_without_reauth_is_403(self, conn, secret_key):
-        app = _make_app(conn, secret_key)
-        client = _client(app, conn, with_reauth=False)
+    def test_url_field_without_reauth_is_403(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn, with_reauth=False)
 
         resp = client.put(
             "/api/settings",
@@ -122,9 +94,8 @@ class TestSensitiveSettingsRequireReauth:
         row = conn.execute("SELECT value FROM settings WHERE key = 'sonarr_url'").fetchone()
         assert row is None
 
-    def test_base_url_change_without_reauth_is_403(self, conn, secret_key):
-        app = _make_app(conn, secret_key)
-        client = _client(app, conn, with_reauth=False)
+    def test_base_url_change_without_reauth_is_403(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn, with_reauth=False)
 
         resp = client.put(
             "/api/settings",
@@ -132,9 +103,8 @@ class TestSensitiveSettingsRequireReauth:
         )
         assert resp.status_code == 403
 
-    def test_mailgun_change_without_reauth_is_403(self, conn, secret_key):
-        app = _make_app(conn, secret_key)
-        client = _client(app, conn, with_reauth=False)
+    def test_mailgun_change_without_reauth_is_403(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn, with_reauth=False)
 
         resp = client.put(
             "/api/settings",
@@ -142,21 +112,19 @@ class TestSensitiveSettingsRequireReauth:
         )
         assert resp.status_code == 403
 
-    def test_low_impact_key_works_without_reauth(self, conn, secret_key):
+    def test_low_impact_key_works_without_reauth(self, app_factory, authed_client, conn):
         """A scan-day tweak does not need a fresh reauth."""
-        app = _make_app(conn, secret_key)
-        client = _client(app, conn, with_reauth=False)
+        client = _client(app_factory, authed_client, conn, with_reauth=False)
 
         resp = client.put("/api/settings", json={"scan_day": "monday"})
         assert resp.status_code == 200
         row = conn.execute("SELECT value FROM settings WHERE key = 'scan_day'").fetchone()
         assert row["value"] == "monday"
 
-    def test_mixed_payload_rejected_atomically(self, conn, secret_key):
+    def test_mixed_payload_rejected_atomically(self, app_factory, authed_client, conn):
         """A body with one sensitive + one non-sensitive key must reject
         the WHOLE request — not partial-write the harmless half."""
-        app = _make_app(conn, secret_key)
-        client = _client(app, conn, with_reauth=False)
+        client = _client(app_factory, authed_client, conn, with_reauth=False)
 
         resp = client.put(
             "/api/settings",
@@ -171,19 +139,19 @@ class TestSensitiveSettingsRequireReauth:
             row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
             assert row is None, f"key {key!r} should not have been written"
 
-    def test_unchanged_secret_placeholder_does_not_require_reauth(self, conn, secret_key):
+    def test_unchanged_secret_placeholder_does_not_require_reauth(
+        self, app_factory, authed_client, conn
+    ):
         """The "****" sentinel for unchanged secrets should not flip the
         gate on — the route already ignores the value, so demanding a
         reauth would be friction with no security benefit."""
-        app = _make_app(conn, secret_key)
-        client = _client(app, conn, with_reauth=False)
+        client = _client(app_factory, authed_client, conn, with_reauth=False)
 
         resp = client.put("/api/settings", json={"plex_token": "****"})
         assert resp.status_code == 200
 
-    def test_with_reauth_succeeds(self, conn, secret_key):
-        app = _make_app(conn, secret_key)
-        client = _client(app, conn, with_reauth=True)
+    def test_with_reauth_succeeds(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn, with_reauth=True)
 
         resp = client.put(
             "/api/settings",
@@ -203,9 +171,8 @@ class TestSensitiveSettingsRequireReauth:
 
 
 class TestSettingsAuditInTransaction:
-    def test_settings_write_records_security_audit_row(self, conn, secret_key):
-        app = _make_app(conn, secret_key)
-        client = _client(app, conn, with_reauth=True)
+    def test_settings_write_records_security_audit_row(self, app_factory, authed_client, conn):
+        client = _client(app_factory, authed_client, conn, with_reauth=True)
 
         resp = client.put("/api/settings", json={"plex_url": "https://plex.example.com"})
         assert resp.status_code == 200
@@ -218,14 +185,15 @@ class TestSettingsAuditInTransaction:
         assert "plex_url" in rows[0]["detail"]
         assert "sensitive_keys" in rows[0]["detail"]
 
-    def test_audit_failure_rolls_back_sensitive_write(self, conn, secret_key, monkeypatch):
+    def test_audit_failure_rolls_back_sensitive_write(
+        self, app_factory, authed_client, conn, monkeypatch
+    ):
         """If the audit insert blows up, the settings change must roll back.
 
         A "settings changed but no one knows" outcome is exactly the
         scenario the audit system exists to prevent — fail closed.
         """
-        app = _make_app(conn, secret_key)
-        client = _client(app, conn, with_reauth=True)
+        client = _client(app_factory, authed_client, conn, with_reauth=True)
 
         import sqlite3 as _sqlite3
 
