@@ -220,7 +220,9 @@ def test_search_inline_script_renders_modal_title_as_h2():
     search = _tpl("search.html")
     assert '<script src="/static/js/search/detail_modal.js" defer></script>' in search
     assert '<script src="/static/js/search.js" defer></script>' in search
-    detail_js = (REPO / "src/mediaman/web/static/js/search/detail_modal.js").read_text(encoding="utf-8")
+    detail_js = (REPO / "src/mediaman/web/static/js/search/detail_modal.js").read_text(
+        encoding="utf-8"
+    )
     assert '<h2 id="detail-modal-title" class="detail-modal-hero-title">' in detail_js
 
 
