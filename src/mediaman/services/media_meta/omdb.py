@@ -41,6 +41,7 @@ OMDB_API_BASE_URL = "https://www.omdbapi.com"
 # provide their own pool — the previous build constructed the client
 # without one, which left every call using a fresh connection.
 _OMDB_SESSION = requests.Session()
+# W1.32 carve-out: pinned host (``www.omdbapi.com`` ∈ PINNED_EXTERNAL_HOSTS); deny-list only.
 _OMDB_CLIENT = SafeHTTPClient(OMDB_API_BASE_URL, session=_OMDB_SESSION)
 
 logger = logging.getLogger(__name__)

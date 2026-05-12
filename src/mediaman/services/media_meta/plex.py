@@ -86,12 +86,27 @@ class PlexClient:
     watch history retrieval, and account listing.
     """
 
-    def __init__(self, url: str, token: str) -> None:
+    def __init__(
+        self,
+        url: str,
+        token: str,
+        *,
+        allowed_hosts: frozenset[str] | None = None,
+    ) -> None:
         """Create a PlexServer connection.
 
         Args:
             url: Base URL of the Plex Media Server, e.g. ``http://plex:32400``.
             token: Plex authentication token (X-Plex-Token).
+            allowed_hosts: Optional SSRF allowlist (W1.32). When supplied,
+                every outbound call from the hardened plexapi session and
+                the raw history HTTP client refuses any host whose
+                IDN-normalised form is not in the set (or in
+                :data:`~mediaman.services.infra.url_safety.PINNED_EXTERNAL_HOSTS`).
+                Construction-time validation also enforces the allowlist.
+                Callers compose the set via
+                :func:`~mediaman.services.infra.url_safety.allowed_outbound_hosts`.
+                ``None`` (default) keeps deny-list-only behaviour.
 
         The configured URL is **revalidated at construction time** —
         an admin URL persisted in the DB before SSRF checks tightened,
@@ -104,7 +119,13 @@ class PlexClient:
         # newly-malicious Plex URL before any token-bearing request goes
         # out. Per-call validation in :class:`_SafePlexSession` catches
         # rebinding attempts that happen between construction and use.
-        safe, _hostname, _ip = resolve_safe_outbound_url(url)
+        # ``allowed_hosts`` is only forwarded when supplied so that test
+        # monkeypatches of ``resolve_safe_outbound_url`` taking ``url``
+        # alone keep working.
+        if allowed_hosts is None:
+            safe, _hostname, _ip = resolve_safe_outbound_url(url)
+        else:
+            safe, _hostname, _ip = resolve_safe_outbound_url(url, allowed_hosts=allowed_hosts)
         if not safe:
             # Use a generic message — the URL itself may be sensitive
             # (LAN hostname / port topology) but we still want operators
@@ -127,13 +148,14 @@ class PlexClient:
         # library enumeration, section scanning, raw queries. Without
         # this, plexapi's own ``requests.Session`` would not enforce
         # SSRF re-validation, redirect refusal, or body caps.
-        self._safe_session = _SafePlexSession()
+        self._safe_session = _SafePlexSession(allowed_hosts=allowed_hosts)
         self.server = PlexServer(url, token, session=self._safe_session)
         # Raw HTTP calls that bypass plexapi (e.g. /status/sessions/history)
         # still route through SafeHTTPClient so the same controls apply
         # to those endpoints too.
         self._http = SafeHTTPClient(
             default_max_bytes=_HISTORY_MAX_BYTES,
+            allowed_hosts=allowed_hosts,
         )
 
     def get_libraries(self) -> list[PlexLibrarySection]:
