@@ -10,20 +10,10 @@ Full cycle:
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-
-from mediaman.config import Config
-from mediaman.db import init_db, set_connection
 from mediaman.scanner.engine import ScanEngine
-from mediaman.web.auth.password_hash import create_user
-from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.downloads import router as downloads_router
-
-_TPL_DIR = Path(__file__).parent.parent.parent / "src" / "mediaman" / "web" / "templates"
 
 
 def _fake_plex(items: list[dict]) -> MagicMock:
@@ -37,30 +27,13 @@ def _fake_plex(items: list[dict]) -> MagicMock:
     return plex
 
 
-def _make_app(conn, secret_key: str) -> FastAPI:
-    app = FastAPI()
-    app.include_router(downloads_router)
-    app.state.config = Config(secret_key=secret_key)
-    app.state.db = conn
-    set_connection(conn)
-    return app
-
-
-def _auth_client(app: FastAPI, conn) -> TestClient:
-    create_user(conn, "admin", "password1234", enforce_policy=False)
-    token = create_session(conn, "admin")
-    client = TestClient(app, raise_server_exceptions=True)
-    client.cookies.set("session_token", token)
-    return client
-
-
 class TestScanToQueueFlow:
-    def test_scanner_populates_db_and_api_returns_queue(self, db_path, secret_key, monkeypatch):
+    def test_scanner_populates_db_and_api_returns_queue(
+        self, app_factory, authed_client, conn, db_path, secret_key, monkeypatch
+    ):
         """ScanEngine upserts items; /api/downloads reflects them."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", secret_key)
         monkeypatch.setenv("MEDIAMAN_DATA_DIR", str(db_path.parent))
-
-        conn = init_db(str(db_path))
 
         plex_items = [
             {
@@ -100,8 +73,8 @@ class TestScanToQueueFlow:
         assert row["title"] == "Dune Part Two"
 
         # Hit the downloads API — should return the expected shape.
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        app = app_factory(downloads_router, conn=conn)
+        client = authed_client(app, conn)
         resp = client.get("/api/downloads")
         assert resp.status_code == 200
         body = resp.json()
@@ -110,10 +83,8 @@ class TestScanToQueueFlow:
         assert "upcoming" in body
         assert "recent" in body
 
-    def test_scanner_does_not_orphan_real_items(self, db_path, secret_key):
+    def test_scanner_does_not_orphan_real_items(self, conn, secret_key):
         """Two sequential scans: items present in both are retained."""
-        conn = init_db(str(db_path))
-
         plex_items = [
             {
                 "plex_rating_key": "202",
