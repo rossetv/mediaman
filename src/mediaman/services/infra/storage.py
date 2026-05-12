@@ -78,6 +78,110 @@ _FORBIDDEN_ROOTS: frozenset[str] = frozenset(
 )
 
 
+def _resolve_root_candidate(raw: str) -> Path:
+    """Resolve ``raw`` to its canonical form, raising :class:`DeletionRefused` on error.
+
+    The resolve runs before any forbidden-root check so paths like
+    ``/data/..`` (which resolves to ``/``) are caught regardless of
+    whether the literal path exists. A missing path is tolerated here —
+    operators sometimes configure roots that don't exist yet (e.g. a
+    mount brought up later); the forbidden-root list still shields the
+    dangerous cases.
+    """
+    candidate = Path(raw)
+    if not candidate.is_absolute():
+        raise DeletionRefused(
+            f"Refusing to delete: allowed root '{raw}' is not an "
+            "absolute path. Configure delete_allowed_roots with "
+            "absolute directory paths only."
+        )
+    try:
+        return candidate.resolve()
+    except (OSError, RuntimeError) as exc:
+        raise DeletionRefused(
+            f"Refusing to delete: allowed root '{raw}' could not be resolved: {exc}"
+        ) from exc
+
+
+def _check_symlink_via_nofollow(raw: str, candidate: Path) -> None:
+    """Atomic symlink check: open *candidate* with ``O_NOFOLLOW | O_DIRECTORY``.
+
+    The earlier two-step ``is_symlink()`` then ``resolve()`` had a TOCTOU
+    window in which an attacker could swap the directory for a symlink
+    between syscalls; the fd-based form rejects that. Skip the check if
+    the path is missing — that matches previous behaviour for
+    unconfigured-yet mounts and the forbidden-root check has already
+    shielded the dangerous cases.
+    """
+    if not candidate.exists():
+        return
+    try:
+        fd = os.open(
+            str(candidate),
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY,
+        )
+    except OSError as exc:
+        import errno as _errno
+
+        # ``O_NOFOLLOW`` on a symlink yields ``ELOOP`` on Linux but
+        # ``ENOTDIR`` (and sometimes ``ELOOP``) on macOS, depending on
+        # whether ``O_DIRECTORY`` or the symlink rule fires first.
+        # Re-check with ``lstat`` to give a precise error in either case.
+        try:
+            lst = os.lstat(str(candidate))
+        except OSError:
+            lst = None
+        import stat as _stat
+
+        if lst is not None and _stat.S_ISLNK(lst.st_mode):
+            raise DeletionRefused(
+                f"Refusing to delete: allowed root '{raw}' is a symlink. "
+                "Configure delete_allowed_roots with real directories only."
+            ) from None
+        if exc.errno == _errno.ELOOP:
+            raise DeletionRefused(
+                f"Refusing to delete: allowed root '{raw}' is a symlink. "
+                "Configure delete_allowed_roots with real directories only."
+            ) from None
+        if exc.errno == _errno.ENOTDIR:
+            raise DeletionRefused(
+                f"Refusing to delete: allowed root '{raw}' is not a directory."
+            ) from None
+        # Anything else (EACCES, etc.) — operator config error.
+        raise DeletionRefused(
+            f"Refusing to delete: allowed root '{raw}' cannot be opened: {exc}"
+        ) from exc
+    else:
+        os.close(fd)
+
+
+def _validate_single_root(raw: str) -> Path:
+    """Resolve and sanity-check a single delete-root entry.
+
+    Returns the resolved :class:`Path`, or raises :class:`DeletionRefused`
+    if the entry is empty / not a string, relative, a forbidden
+    system-root path, or a symlink.
+    """
+    if not raw or not isinstance(raw, str):
+        raise DeletionRefused(
+            "Refusing to delete: an entry in delete_allowed_roots is "
+            "empty or not a string. Configure delete_allowed_roots "
+            "with absolute directory paths only."
+        )
+    real = _resolve_root_candidate(raw)
+    normalised = str(real)
+    if normalised in _FORBIDDEN_ROOTS:
+        raise DeletionRefused(
+            f"Refusing to delete: allowed root '{raw}' resolves to "
+            f"'{normalised}', a system / mount-root path that must not "
+            "be a delete root. Configure delete_allowed_roots with "
+            "specific content directories (e.g. '/media/movies'), "
+            "never bare top-level mounts."
+        )
+    _check_symlink_via_nofollow(raw, Path(raw))
+    return real
+
+
 def _validate_delete_roots(roots: list[str]) -> list[Path]:
     """Resolve and sanity-check the configured delete-root allowlist.
 
@@ -103,94 +207,7 @@ def _validate_delete_roots(roots: list[str]) -> list[Path]:
             "Set the delete_allowed_roots setting (JSON list) or the "
             "MEDIAMAN_DELETE_ROOTS env var (colon-separated)."
         )
-    resolved: list[Path] = []
-    for raw in roots:
-        if not raw or not isinstance(raw, str):
-            raise DeletionRefused(
-                "Refusing to delete: an entry in delete_allowed_roots is "
-                "empty or not a string. Configure delete_allowed_roots "
-                "with absolute directory paths only."
-            )
-        candidate = Path(raw)
-        if not candidate.is_absolute():
-            raise DeletionRefused(
-                f"Refusing to delete: allowed root '{raw}' is not an "
-                "absolute path. Configure delete_allowed_roots with "
-                "absolute directory paths only."
-            )
-        # Resolve to the canonical form first so the forbidden-root
-        # check catches things like ``/data/..`` (which resolves to
-        # ``/``) regardless of whether the literal path exists. We
-        # tolerate a missing path here — operators sometimes configure
-        # roots that don't exist yet (e.g. a mount that's brought up
-        # later) and the misconfiguration is still caught by the
-        # forbidden-root list.
-        try:
-            real = candidate.resolve()
-        except (OSError, RuntimeError) as exc:
-            raise DeletionRefused(
-                f"Refusing to delete: allowed root '{raw}' could not be resolved: {exc}"
-            ) from exc
-        normalised = str(real)
-        if normalised in _FORBIDDEN_ROOTS:
-            raise DeletionRefused(
-                f"Refusing to delete: allowed root '{raw}' resolves to "
-                f"'{normalised}', a system / mount-root path that must not "
-                "be a delete root. Configure delete_allowed_roots with "
-                "specific content directories (e.g. '/media/movies'), "
-                "never bare top-level mounts."
-            )
-        # Atomic symlink check via ``O_NOFOLLOW``: if the candidate
-        # path exists, open it with O_NOFOLLOW so the kernel refuses
-        # the open if the leaf is a symlink. The earlier two-step
-        # ``is_symlink()`` then ``resolve()`` had a TOCTOU window in
-        # which an attacker could swap the directory for a symlink
-        # between syscalls; the fd-based form rejects that. If the
-        # path is missing entirely we accept it (matches previous
-        # behaviour for unconfigured-yet mounts) — the forbidden-root
-        # check above already shielded the dangerous cases.
-        if real.exists():
-            try:
-                fd = os.open(
-                    str(candidate),
-                    os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY,
-                )
-            except OSError as exc:
-                import errno as _errno
-
-                # ``O_NOFOLLOW`` on a symlink yields ``ELOOP`` on Linux
-                # but ``ENOTDIR`` (and sometimes ``ELOOP``) on macOS,
-                # depending on whether ``O_DIRECTORY`` or the symlink
-                # rule fires first. Re-check with ``lstat`` to give a
-                # precise error in either case.
-                try:
-                    lst = os.lstat(str(candidate))
-                except OSError:
-                    lst = None
-                import stat as _stat
-
-                if lst is not None and _stat.S_ISLNK(lst.st_mode):
-                    raise DeletionRefused(
-                        f"Refusing to delete: allowed root '{raw}' is a symlink. "
-                        "Configure delete_allowed_roots with real directories only."
-                    ) from None
-                if exc.errno == _errno.ELOOP:
-                    raise DeletionRefused(
-                        f"Refusing to delete: allowed root '{raw}' is a symlink. "
-                        "Configure delete_allowed_roots with real directories only."
-                    ) from None
-                if exc.errno == _errno.ENOTDIR:
-                    raise DeletionRefused(
-                        f"Refusing to delete: allowed root '{raw}' is not a directory."
-                    ) from None
-                # Anything else (EACCES, etc.) — operator config error.
-                raise DeletionRefused(
-                    f"Refusing to delete: allowed root '{raw}' cannot be opened: {exc}"
-                ) from exc
-            else:
-                os.close(fd)
-        resolved.append(real)
-    return resolved
+    return [_validate_single_root(raw) for raw in roots]
 
 
 def get_aggregate_disk_usage(base_path: str) -> dict[str, int]:
