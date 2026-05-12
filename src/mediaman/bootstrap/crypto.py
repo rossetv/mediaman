@@ -91,8 +91,12 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
                 )
                 if n:
                     logger.info("bootstrap_crypto: migrated %d legacy settings row(s) to v2+AAD", n)
+            # rationale: §6.4 site 4 (cold-start) — settings re-encryption is
+            # an opportunistic migration; never block startup on it.
             except Exception:
                 logger.exception("bootstrap_crypto: migrate_legacy_ciphertexts failed (non-fatal)")
+    # rationale: §6.4 site 4 (cold-start) — surface canary failure to the
+    # app (canary_ok flag) without aborting; the operator UI reads this.
     except Exception:
         logger.exception("AES canary check failed unexpectedly")
         canary_ok = False

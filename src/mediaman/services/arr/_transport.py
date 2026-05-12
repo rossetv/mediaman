@@ -82,16 +82,18 @@ class _TransportMixin:
     def _get(self, path: str) -> dict | list:
         """Perform an authenticated GET.  Sets :attr:`last_error` on failure.
 
-        Raises :exc:`ValueError` if the response body is null (empty or
-        explicitly null JSON).
+        Raises :exc:`ArrUpstreamError` if the response body is null (empty
+        or explicitly null JSON).
         """
         try:
             resp = self._http.get(path, headers=self._headers)
             self.last_error = None
             result = resp.json()
             if result is None:
-                raise ValueError(f"Arr returned null for {path}")
+                raise ArrUpstreamError(f"Arr returned null for {path}")
             return result
+        # rationale: preserve-and-rethrow — record the failure string so
+        # the UI can surface "last_error" without losing the exception type.
         except Exception as exc:
             self.last_error = str(exc)
             raise
@@ -101,6 +103,7 @@ class _TransportMixin:
         try:
             self._http.put(path, headers=self._headers, json=data)
             self.last_error = None
+        # rationale: preserve-and-rethrow — see _get.
         except Exception as exc:
             self.last_error = str(exc)
             raise
@@ -111,6 +114,7 @@ class _TransportMixin:
             resp = self._http.post(path, headers=self._headers, json=data)
             self.last_error = None
             return resp.json()
+        # rationale: preserve-and-rethrow — see _get.
         except Exception as exc:
             self.last_error = str(exc)
             raise
@@ -120,6 +124,7 @@ class _TransportMixin:
         try:
             self._http.delete(path, headers=self._headers)
             self.last_error = None
+        # rationale: preserve-and-rethrow — see _get.
         except Exception as exc:
             self.last_error = str(exc)
             raise
@@ -169,6 +174,10 @@ class _TransportMixin:
             try:
                 self._put(put_url, cast(dict, entity))
                 return
+            # rationale: retry-on-any-failure — the unmonitor flow is a
+            # read-modify-write loop; any failure on this attempt yields
+            # to a fresh re-read on the next pass, so swallow until we
+            # exhaust max_retries.
             except Exception:
                 if attempt + 1 >= max_retries:
                     raise

@@ -117,6 +117,9 @@ def try_add_subscriber(conn: sqlite3.Connection, *, email: str, now: str) -> Add
             conn.execute("ROLLBACK")
             return AddSubscriberOutcome.ALREADY_SUBSCRIBED
         conn.execute("COMMIT")
+    # rationale: rollback handler — must catch every exception so the
+    # transaction is unwound; the original error is re-raised so the
+    # route layer can map it to a 500.
     except Exception:
         conn.execute("ROLLBACK")
         raise
