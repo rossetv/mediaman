@@ -28,7 +28,7 @@ def mock_plex():
 
 
 class TestScanEngine:
-    def test_scan_schedules_stale_movie(self, conn, mock_plex):
+    def test_scan_schedules_stale_movie(self, conn, mock_plex, freezer):
         now = datetime.now(UTC)
         mock_plex.get_movie_items.return_value = [
             {
@@ -59,7 +59,7 @@ class TestScanEngine:
         assert row is not None
         assert row["action"] == "scheduled_deletion"
 
-    def test_scan_skips_protected_items(self, conn, mock_plex):
+    def test_scan_skips_protected_items(self, conn, mock_plex, freezer):
         now = datetime.now(UTC)
         insert_media_item(
             conn,
@@ -95,7 +95,7 @@ class TestScanEngine:
         result = engine.run_scan()
         assert result["scheduled"] == 0
 
-    def test_scan_creates_media_item_record(self, conn, mock_plex):
+    def test_scan_creates_media_item_record(self, conn, mock_plex, freezer):
         now = datetime.now(UTC)
         mock_plex.get_movie_items.return_value = [
             {
@@ -121,7 +121,7 @@ class TestScanEngine:
         assert row is not None
         assert row["title"] == "New Movie"
 
-    def test_scan_skips_already_scheduled(self, conn, mock_plex):
+    def test_scan_skips_already_scheduled(self, conn, mock_plex, freezer):
         """Items with an existing scheduled_deletion action are not re-scheduled."""
         now = datetime.now(UTC)
         insert_media_item(
@@ -160,7 +160,7 @@ class TestScanEngine:
         ).fetchone()[0]
         assert count == 1  # no duplicate inserted
 
-    def test_scan_flags_reentry(self, conn, mock_plex):
+    def test_scan_flags_reentry(self, conn, mock_plex, freezer):
         """An item whose snooze has expired is scheduled and marked as re-entry."""
         now = datetime.now(UTC)
         insert_media_item(
@@ -225,7 +225,7 @@ class TestScanEngine:
         assert result["scanned"] == 0
         assert result["scheduled"] == 0
 
-    def test_scan_tv_season(self, conn, mock_plex):
+    def test_scan_tv_season(self, conn, mock_plex, freezer):
         """A stale TV season is scheduled for deletion."""
         now = datetime.now(UTC)
         mock_plex.get_show_seasons.return_value = [
@@ -259,7 +259,7 @@ class TestScanEngine:
         assert row is not None
         assert row["action"] == "scheduled_deletion"
 
-    def test_scan_audit_log_entry(self, conn, mock_plex):
+    def test_scan_audit_log_entry(self, conn, mock_plex, freezer):
         """Each scheduled item produces an audit_log entry."""
         now = datetime.now(UTC)
         mock_plex.get_movie_items.return_value = [
@@ -301,7 +301,7 @@ class TestScanEngine:
         assert result["deleted"] == 0
         assert result["reclaimed_bytes"] == 0
 
-    def test_scan_respects_newsletter_snooze(self, conn, mock_plex):
+    def test_scan_respects_newsletter_snooze(self, conn, mock_plex, freezer):
         """Items snoozed via the newsletter keep flow (token_used=1, future execute_at) are not re-scheduled."""
         now = datetime.now(UTC)
         future = (now + timedelta(days=25)).isoformat()
@@ -344,7 +344,7 @@ class TestScanEngine:
         result = engine.run_scan()
         assert result["scheduled"] == 0
 
-    def test_scan_reschedules_expired_snooze(self, conn, mock_plex):
+    def test_scan_reschedules_expired_snooze(self, conn, mock_plex, freezer):
         """Items with an expired snooze (token_used=1, past execute_at) are scheduled for deletion."""
         now = datetime.now(UTC)
         past = (now - timedelta(days=5)).isoformat()
@@ -412,7 +412,7 @@ class TestExecuteDeletions:
             token_used=False,
         )
 
-    def test_dry_run_does_not_delete_files(self, conn, mock_plex):
+    def test_dry_run_does_not_delete_files(self, conn, mock_plex, freezer):
         """dry_run=True logs dry_run_skip but does not delete or remove the action row."""
         now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
@@ -443,7 +443,7 @@ class TestExecuteDeletions:
         assert log is not None
         assert log["action"] == "dry_run_skip"
 
-    def test_execute_deletes_past_due_items(self, conn, mock_plex, monkeypatch):
+    def test_execute_deletes_past_due_items(self, conn, mock_plex, monkeypatch, freezer):
         """Items whose execute_at has passed are deleted and the action row removed."""
         now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
@@ -476,7 +476,7 @@ class TestExecuteDeletions:
         assert log["action"] == "deleted"
         assert log["space_reclaimed_bytes"] == 2_000_000
 
-    def test_future_deletions_not_executed(self, conn, mock_plex):
+    def test_future_deletions_not_executed(self, conn, mock_plex, freezer):
         """Items whose execute_at is in the future are not touched."""
         now = datetime.now(UTC)
         future = (now + timedelta(days=7)).isoformat()
@@ -497,7 +497,7 @@ class TestExecuteDeletions:
         mock_delete.assert_not_called()
         assert result["deleted"] == 0
 
-    def test_radarr_unmonitor_called(self, conn, mock_plex, monkeypatch):
+    def test_radarr_unmonitor_called(self, conn, mock_plex, monkeypatch, freezer):
         """execute_deletions calls radarr.unmonitor_movie when radarr_id is set."""
         now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
@@ -529,7 +529,7 @@ class TestExecuteDeletions:
 
         mock_radarr.unmonitor_movie.assert_called_once_with(42)
 
-    def test_sonarr_unmonitor_called(self, conn, mock_plex, monkeypatch):
+    def test_sonarr_unmonitor_called(self, conn, mock_plex, monkeypatch, freezer):
         """execute_deletions calls sonarr.unmonitor_season when sonarr_id + season_number set."""
         now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
@@ -563,7 +563,7 @@ class TestExecuteDeletions:
 
         mock_sonarr.unmonitor_season.assert_called_once_with(99, 1)
 
-    def test_arr_failure_does_not_abort_deletion(self, conn, mock_plex, monkeypatch):
+    def test_arr_failure_does_not_abort_deletion(self, conn, mock_plex, monkeypatch, freezer):
         """A crash in radarr.unmonitor_movie does not prevent the item being deleted."""
         now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
@@ -603,6 +603,7 @@ class TestExecuteDeletions:
         mock_plex,
         monkeypatch,
         caplog,
+        freezer,
     ):
         """With no roots configured, the scheduled deletion is skipped and left
         intact so a later run (once the admin sets a root) can execute it."""
@@ -642,6 +643,7 @@ class TestExecuteDeletions:
         conn,
         mock_plex,
         monkeypatch,
+        freezer,
     ):
         """If the allowlist is set but a single item's path is outside it,
         only that item is skipped — other deletions still proceed."""
@@ -670,7 +672,7 @@ class TestExecuteDeletions:
 
         assert result["deleted"] == 1
 
-    def test_expired_snoozes_are_cleaned_up(self, conn, mock_plex):
+    def test_expired_snoozes_are_cleaned_up(self, conn, mock_plex, freezer):
         """Snoozed rows with a past execute_at are deleted so items re-enter the pipeline."""
         now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
@@ -692,7 +694,7 @@ class TestExecuteDeletions:
         row = conn.execute("SELECT * FROM scheduled_actions WHERE media_item_id='940'").fetchone()
         assert row is None
 
-    def test_future_snoozes_are_preserved(self, conn, mock_plex):
+    def test_future_snoozes_are_preserved(self, conn, mock_plex, freezer):
         """Active snoozes (execute_at in the future) are not cleaned up."""
         now = datetime.now(UTC)
         future = (now + timedelta(days=7)).isoformat()
@@ -718,7 +720,7 @@ class TestExecuteDeletions:
 class TestShowLevelKeep:
     """Tests for show-level keep rules via kept_shows table."""
 
-    def test_show_rating_key_stored_during_tv_scan(self, conn, mock_plex):
+    def test_show_rating_key_stored_during_tv_scan(self, conn, mock_plex, freezer):
         now = datetime.now(UTC)
         mock_plex.get_show_seasons.return_value = [
             {
@@ -748,7 +750,7 @@ class TestShowLevelKeep:
         assert row is not None
         assert row["show_rating_key"] == "599"
 
-    def test_kept_show_skips_all_seasons(self, conn, mock_plex):
+    def test_kept_show_skips_all_seasons(self, conn, mock_plex, freezer):
         now = datetime.now(UTC)
         insert_kept_show(
             conn, show_rating_key="599", show_title="Test Show", action="protected_forever"
@@ -781,7 +783,7 @@ class TestShowLevelKeep:
         assert result["scheduled"] == 0
         assert result["skipped"] == 1
 
-    def test_expired_show_snooze_allows_scan(self, conn, mock_plex):
+    def test_expired_show_snooze_allows_scan(self, conn, mock_plex, freezer):
         now = datetime.now(UTC)
         past = (now - timedelta(days=1)).isoformat()
         insert_kept_show(
@@ -952,6 +954,7 @@ class TestTwoPhaseDelete:
         conn,
         mock_plex,
         monkeypatch,
+        freezer,
     ):
         """Happy path: row flips through 'deleting' then is removed."""
         now = datetime.now(UTC)
@@ -983,7 +986,7 @@ class TestTwoPhaseDelete:
         row = conn.execute("SELECT * FROM scheduled_actions WHERE media_item_id='d1'").fetchone()
         assert row is None
 
-    def test_rollback_on_value_error(self, conn, mock_plex, monkeypatch):
+    def test_rollback_on_value_error(self, conn, mock_plex, monkeypatch, freezer):
         """When delete_path refuses, the marker must roll back to pending
         so a later run can retry."""
         now = datetime.now(UTC)
@@ -1224,7 +1227,7 @@ class TestRunScanDryRun:
             "poster_path": None,
         }
 
-    def test_dry_run_does_not_write_schedule_deletion(self, conn, mock_plex):
+    def test_dry_run_does_not_write_schedule_deletion(self, conn, mock_plex, freezer):
         """A stale movie that would normally schedule deletion must NOT
         write a ``scheduled_actions`` row when ``dry_run=True``.
         """
@@ -1266,7 +1269,7 @@ class TestRunScanDryRun:
         mock_news.assert_not_called()
         mock_recs.assert_not_called()
 
-    def test_dry_run_does_not_remove_orphans(self, conn, mock_plex):
+    def test_dry_run_does_not_remove_orphans(self, conn, mock_plex, freezer):
         """Pre-existing media_items that are no longer in Plex must NOT
         be deleted in dry_run mode.
         """
@@ -1325,7 +1328,7 @@ class TestRunScanDryRun:
 
         mock_news.assert_not_called()
 
-    def test_dry_run_does_not_clean_up_expired_snoozes(self, conn, mock_plex):
+    def test_dry_run_does_not_clean_up_expired_snoozes(self, conn, mock_plex, freezer):
         """An expired snooze must not be deleted in dry_run mode —
         cleanup is a write that ``run_scan`` (via ``execute_deletions``)
         would normally perform but must be suppressed under a true
@@ -1375,7 +1378,7 @@ class TestResolveAddedAt:
     substituted with ``now()``.
     """
 
-    def test_prefers_added_at_over_updated_at(self, conn, mock_plex):
+    def test_prefers_added_at_over_updated_at(self, conn, mock_plex, freezer):
         """When Plex ``updated_at`` was reset (e.g. subtitle download)
         but ``added_at`` is from years ago, eligibility must be measured
         against ``added_at``, not the recent metadata-refresh marker.
@@ -1398,7 +1401,7 @@ class TestResolveAddedAt:
         # Should be old_added (not recent_updated)
         assert abs((resolved - old_added).total_seconds()) < 2
 
-    def test_unparseable_arr_date_falls_through_to_added_at(self, conn, mock_plex):
+    def test_unparseable_arr_date_falls_through_to_added_at(self, conn, mock_plex, freezer):
         """A bad Arr cache value used to be silently replaced by
         ``datetime.now(UTC)`` and gave the item permanent protection.
         It must now fall through to ``added_at`` so eligibility is
@@ -1448,6 +1451,7 @@ class TestPerLibraryOrphanGuard:
         conn,
         mock_plex,
         caplog,
+        freezer,
     ):
         """Library 7 had 50 items, library 8 had 0 returned by Plex,
         library 9 returned 1000. Pre-fix the union (1000+0=1000 > 0.10

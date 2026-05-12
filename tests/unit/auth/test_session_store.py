@@ -88,7 +88,7 @@ class TestValidateSessionReadOnlyByDefault:
         assert validate_session(conn, "not-a-token") is None
         assert conn.in_transaction is False
 
-    def test_idle_expiry_still_deletes_session(self, conn):
+    def test_idle_expiry_still_deletes_session(self, conn, freezer):
         """The read-only fast-path must not skip the idle-expiry write."""
         token = create_session(conn, "alice", user_agent="ua", client_ip="1.2.3.4")
         # Force the last_used_at far enough in the past to trigger idle expiry.
@@ -216,7 +216,7 @@ class TestValidateSession:
         # Row must be gone — permanently revoked.
         assert validate_session(conn, token) is None
 
-    def test_idle_timeout_expires_session(self, conn):
+    def test_idle_timeout_expires_session(self, conn, freezer):
         token = create_session(conn, "alice")
         # Wind ``last_used_at`` back by 25 hours to trigger idle timeout.
         past = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
@@ -315,14 +315,15 @@ class TestSessionDestructionRevokesReauth:
 
         assert has_recent_reauth(conn, token, "alice") is False
 
-    def test_idle_expiry_revokes_reauth(self, conn):
+    def test_idle_expiry_revokes_reauth(self, conn, freezer):
         from mediaman.web.auth.reauth import grant_recent_reauth, has_recent_reauth
 
         token = create_session(conn, "alice", user_agent="ua", client_ip="1.2.3.4")
         grant_recent_reauth(conn, token, "alice")
 
-        # Stale last_used_at: hours past the idle threshold.
-        stale = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
+        # Stale last_used_at: 25 h past the idle threshold (24 h).  Must be
+        # strictly greater-than, so use 25 h to guarantee expiry under a frozen clock.
+        stale = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
         conn.execute(
             "UPDATE admin_sessions SET last_used_at = ? WHERE token_hash = ?",
             (stale, _hash_token(token)),
@@ -467,7 +468,7 @@ class TestExpiresAtParsing:
     parse to ``datetime`` first.
     """
 
-    def test_expires_with_trailing_z_is_parsed_correctly(self, conn):
+    def test_expires_with_trailing_z_is_parsed_correctly(self, conn, freezer):
         """A row stored with ``Z`` suffix (e.g. from a future migration)
         must still order against an ``+00:00`` row.
 
@@ -554,7 +555,7 @@ class TestAtomicSessionAndReauthDelete:
         # state).
         assert hasattr(session_store, "_delete_session_with_commit")
 
-    def test_idle_expiry_failure_does_not_500(self, conn, monkeypatch):
+    def test_idle_expiry_failure_does_not_500(self, conn, monkeypatch, freezer):
         """A failure during idle-expiry must NOT propagate to the
         validate_session caller — the user just sees "not authenticated"
         for that request and the next request retries cleanly."""

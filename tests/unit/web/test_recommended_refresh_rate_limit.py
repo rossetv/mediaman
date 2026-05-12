@@ -87,19 +87,18 @@ class TestCooldownHelpers:
         finally:
             conn.close()
 
-    def test_recent_refresh_returns_remaining_time(self, db_path):
+    def test_recent_refresh_returns_remaining_time(self, db_path, freezer):
         conn = init_db(str(db_path))
         try:
             _stamp_last_refresh(conn, datetime.now(UTC) - timedelta(hours=1))
             remaining = _throttle.refresh_cooldown_remaining(conn)
             assert remaining is not None
-            # Should be within (22h, 23h] — give a generous margin to
-            # avoid clock-skew flakes.
-            assert timedelta(hours=22) < remaining <= timedelta(hours=23)
+            # Clock is frozen so the remaining time is exact: 24h cooldown − 1h elapsed = 23h.
+            assert remaining == timedelta(hours=23)
         finally:
             conn.close()
 
-    def test_expired_cooldown_returns_none(self, db_path):
+    def test_expired_cooldown_returns_none(self, db_path, freezer):
         conn = init_db(str(db_path))
         try:
             _stamp_last_refresh(conn, datetime.now(UTC) - timedelta(hours=25))
@@ -126,7 +125,7 @@ class TestCooldownHelpers:
 
 
 class TestRefreshRateLimit:
-    def test_second_call_within_24h_returns_429(self, authed_client, app):
+    def test_second_call_within_24h_returns_429(self, authed_client, app, freezer):
         conn = app.state.db
         # Pretend the first manual refresh ran an hour ago.
         _stamp_last_refresh(conn, datetime.now(UTC) - timedelta(hours=1))
@@ -140,7 +139,7 @@ class TestRefreshRateLimit:
         # Cooldown should be in the (22h, 23h] window.
         assert 22 * 3600 < body["cooldown_seconds"] <= 23 * 3600
 
-    def test_call_after_cooldown_is_allowed(self, authed_client, app):
+    def test_call_after_cooldown_is_allowed(self, authed_client, app, freezer):
         conn = app.state.db
         _stamp_last_refresh(conn, datetime.now(UTC) - timedelta(hours=25))
 
@@ -174,7 +173,7 @@ class TestRefreshRateLimit:
         resp = client.post("/api/recommended/refresh", follow_redirects=False)
         assert resp.status_code in (302, 303, 401, 403)
 
-    def test_status_endpoint_reports_cooldown(self, authed_client, app):
+    def test_status_endpoint_reports_cooldown(self, authed_client, app, freezer):
         conn = app.state.db
         _stamp_last_refresh(conn, datetime.now(UTC) - timedelta(hours=2))
         resp = authed_client.get("/api/recommended/refresh/status")
@@ -184,7 +183,7 @@ class TestRefreshRateLimit:
         assert body["cooldown_seconds"] > 0
         assert "next_available_at" in body
 
-    def test_status_endpoint_reports_available_after_cooldown(self, authed_client, app):
+    def test_status_endpoint_reports_available_after_cooldown(self, authed_client, app, freezer):
         conn = app.state.db
         _stamp_last_refresh(conn, datetime.now(UTC) - timedelta(hours=25))
         resp = authed_client.get("/api/recommended/refresh/status")
