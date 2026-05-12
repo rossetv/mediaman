@@ -20,9 +20,13 @@ from __future__ import annotations
 import logging
 import sqlite3
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
+from mediaman.services.arr._types import RadarrMovie
 from mediaman.services.downloads.download_format import extract_poster_url
+
+if TYPE_CHECKING:
+    from jinja2 import Template
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +44,7 @@ _NOTIFICATION_ENV = None
 _NOTIFICATION_TEMPLATE = None
 
 
-def get_notification_template() -> Any:
+def get_notification_template() -> Template:
     """Return the cached ``email/download_ready.html`` Jinja template.
 
     Built lazily on first use rather than at import time so unit tests
@@ -59,7 +63,7 @@ def get_notification_template() -> Any:
 
 def gather_email_meta(
     row: sqlite3.Row,
-    movie: Any,
+    movie: RadarrMovie | None,
     suggestions_by_tmdb: dict[int, sqlite3.Row],
 ) -> dict[str, str]:
     """Assemble rich metadata dict for a notification email.
@@ -107,9 +111,9 @@ def gather_email_meta(
 
 def build_email_payload(
     row: sqlite3.Row,
-    movie: Any,
+    movie: RadarrMovie | None,
     suggestions_by_tmdb: dict[int, sqlite3.Row],
-    template: Any,
+    template: Template,
 ) -> tuple[str, str]:
     """Build the email subject and rendered HTML body for a ready notification.
 
