@@ -1,8 +1,8 @@
 /* =============================================================
    SETTINGS — v1 primitives shared by settings panels (cards, rows,
-   inline buttons) and the JS-emitted bits (subscriber items, users
-   rows, library pills' selected state). The v2 cinematic page
-   chrome (scoped under `.setg-pg`) lives in _settings_pg.css.
+   inline buttons) and the JS-emitted bits (library pills' selected
+   state). The v2 cinematic page chrome (scoped under `.setg-pg`)
+   lives in _settings_pg.css.
    ============================================================= */
 
 /* =============================================================
@@ -141,145 +141,9 @@
 .library-pills .lib-pill:hover { color: var(--t1); }
 .library-pills .lib-pill.on { background: var(--accent); color: #001424; }
 
-/* Users management (settings → admin) */
-.users-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: var(--s3); /* D33: off-palette avatar gradient replaced per DESIGN.md */
-  display: grid;
-  place-items: center;
-  font-size: 14px;
-  font-weight: 600;
-  color: #fff;
-  flex-shrink: 0;
-}
-.users-self-label { font-size: 11px; color: var(--t3); text-transform: uppercase; letter-spacing: .04em; }
-.users-self-name  { font-size: 16px; font-weight: 600; margin-top: 2px; }
-.users-list-title { font-size: 15px; font-weight: 600; }
-.users-list-desc  { font-size: 12px; color: var(--t3); margin-top: 2px; }
-.users-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  border-radius: var(--r-pill);
-  white-space: nowrap;
-}
-.users-btn--ghost   { background: transparent; color: var(--t1); border: 1px solid var(--hair-strong); }
-.users-btn--ghost:hover { border-color: rgba(255,255,255,.3); background: rgba(255,255,255,.04); }
-.users-btn--primary { background: var(--accent-cta); color: #fff; }
-.users-btn--primary:hover { background: var(--accent-hi); }
-
-.users-inline-form { padding: 16px 20px; border-bottom: 1px solid var(--hair); background: var(--s1); }
-.users-inline-form-grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
-@media (min-width: 640px) { .users-inline-form-grid { grid-template-columns: 1fr 1fr 1fr; } }
-.users-field { display: flex; flex-direction: column; gap: 4px; }
-.users-field-label { font-size: 11px; font-weight: 600; color: var(--t2); text-transform: uppercase; letter-spacing: .04em; }
-.users-inline-form-actions { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
-.users-form-msg { margin-top: 10px; font-size: 13px; color: var(--t3); }
-.users-form-msg.success { color: var(--success); }
-.users-form-msg.error   { color: var(--danger); }
-
-.users-list { padding: 8px; }
-.users-skeleton { padding: 14px 12px; color: var(--t3); font-size: 13px; }
-.users-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px;
-  border-radius: var(--r-sm);
-  transition: background .15s;
-}
-.users-row:hover { background: var(--s1); }
-
 /* =============================================================
-   27. SETTINGS — JS-emitted bits (subscribers, recipients, users,
-   library pills' selected state).
+   27. SETTINGS — JS-emitted bits (library pills' selected state).
    ============================================================= */
 
 /* Library pill — JS toggles .selected; alias to .on for visual parity. */
 .library-pills .lib-pill.selected { background: var(--accent); color: #001424; }
-
-/* Subscribers (rendered into #subscriber-list) */
-.subscriber-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  background: var(--s2);
-  border-radius: var(--r-sm);
-}
-.subscriber-email { flex: 1; min-width: 0; font-size: 14px; }
-.subscriber-status {
-  font-size: 11px;
-  color: var(--success);
-  padding: 2px 8px;
-  border-radius: var(--r-pill);
-  background: rgba(48,209,88,.12);
-  font-weight: 600;
-}
-.subscriber-status.inactive { color: var(--t3); background: var(--rgba-overlay-sm); }
-.btn-remove {
-  padding: 5px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: var(--r-pill);
-  background: var(--rgba-danger-bg);
-  color: var(--danger);
-  transition: background .15s;
-}
-.btn-remove:hover { background: rgba(255,69,58,.2); }
-
-/* Users row — JS-emitted */
-.users-row-meta { flex: 1; min-width: 0; }
-.users-row-name { font-size: 14px; font-weight: 500; }
-.users-row-sub  { font-size: 12px; color: var(--t3); margin-top: 2px; }
-.users-row-self-pill {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 8px;
-  background: rgba(41,151,255,.18);
-  color: var(--accent);
-  border-radius: var(--r-pill);
-  letter-spacing: .04em;
-  margin-left: 6px;
-}
-.users-row-del { margin-left: auto; }
-.users-empty { padding: 14px 12px; color: var(--t3); font-size: 13px; }
-
-.users-btn--danger {
-  background: var(--danger);
-  color: #fff;
-}
-.users-btn--danger:hover { background: rgba(255,69,58,.85); }
-.users-btn--danger-ghost {
-  background: transparent;
-  color: var(--danger);
-  border: 1px solid rgba(255,69,58,.3);
-}
-.users-btn--danger-ghost:hover { background: rgba(255,69,58,.08); }
-
-.users-issue-list {
-  list-style: none;
-  margin-top: 6px;
-  padding-left: 0;
-  font-size: 12px;
-  color: var(--danger);
-}
-.users-issue-list li::before { content: "• "; }
-
-.users-form-msg--ok  { color: var(--success); }
-.users-form-msg--err { color: var(--danger); }
-
-.users-delete-drawer {
-  background: var(--s1);
-  border: 1px solid rgba(255,69,58,.25);
-  border-radius: var(--r-sm);
-  padding: 14px;
-  margin: 8px 8px 8px 60px;
-}
-.users-delete-title { font-weight: 500; font-size: 14px; margin-bottom: 4px; }
-.users-delete-desc  { color: var(--t3); font-size: 12px; line-height: 1.4; margin-bottom: 12px; }
