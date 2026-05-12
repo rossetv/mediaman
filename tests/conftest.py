@@ -212,3 +212,144 @@ def secret_key():
     entropy check in :mod:`mediaman.config`.
     """
     return "0123456789abcdef" * 4  # 64 hex chars, 16 unique, test-stable
+
+
+# ---------------------------------------------------------------------------
+# Shared web fixtures
+#
+# Lifted out of ``tests/unit/web/conftest.py`` so the integration suite
+# can adopt them too — every web-route test (unit and integration) wants
+# the same minimal-app + authed-client shape.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def conn(db_path):
+    """Open and initialise a fresh DB for the test, yield, then close.
+
+    Most web tests open a DB, register it, run a few requests, and need
+    a clean teardown. The autouse ``_reset_db_connection_state`` fixture
+    above clears the global registration; this fixture is responsible
+    for the connection lifecycle within one test.
+    """
+    from mediaman.db import init_db
+
+    connection = init_db(str(db_path))
+    yield connection
+    connection.close()
+
+
+@pytest.fixture
+def app_factory(secret_key):
+    """Build a minimal FastAPI app wired to a test DB.
+
+    Usage::
+
+        def test_x(app_factory, conn):
+            app = app_factory(my_router, conn=conn)
+            ...
+
+    The returned app has ``state.config`` and ``state.db`` populated;
+    the module-level ``set_connection`` is also called so route handlers
+    that reach for ``get_db()`` see *conn*. Pass extra ``state_extras``
+    when a route needs more (e.g. ``db_path`` for backup-style routes,
+    or ``templates`` for routes that render HTML).
+    """
+    from fastapi import APIRouter, FastAPI
+
+    from mediaman.config import Config
+    from mediaman.db import set_connection
+
+    def _build(
+        *routers: APIRouter,
+        conn,
+        state_extras: dict[str, object] | None = None,
+    ) -> FastAPI:
+        app = FastAPI()
+        for router in routers:
+            app.include_router(router)
+        app.state.config = Config(secret_key=secret_key)
+        app.state.db = conn
+        for key, value in (state_extras or {}).items():
+            setattr(app.state, key, value)
+        set_connection(conn)
+        return app
+
+    return _build
+
+
+@pytest.fixture
+def authed_client():
+    """Build a `TestClient` whose cookies carry a fresh admin session.
+
+    Usage::
+
+        def test_x(app_factory, authed_client, conn):
+            app = app_factory(some_router, conn=conn)
+            client = authed_client(app, conn)
+            resp = client.get("/api/something")
+
+    With ``with_reauth=True`` an additional reauth ticket is minted and
+    attached as the ``reauth`` cookie — needed by the small set of routes
+    that are sticky-reauth-gated (settings writes, user mutations).
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from mediaman.web.auth.password_hash import create_user
+    from mediaman.web.auth.session_store import create_session
+
+    def _build(
+        app: FastAPI,
+        conn,
+        *,
+        username: str = "admin",
+        password: str = "password1234",
+        with_reauth: bool = False,
+    ) -> TestClient:
+        create_user(conn, username, password, enforce_policy=False)
+        token = create_session(conn, username)
+        if with_reauth:
+            from mediaman.web.auth.reauth import grant_recent_reauth
+
+            grant_recent_reauth(conn, token, username)
+        client = TestClient(app, raise_server_exceptions=True)
+        client.cookies.set("session_token", token)
+        return client
+
+    return _build
+
+
+@pytest.fixture
+def freezer():
+    """Freeze ``datetime.now`` (and the stdlib ``time`` family) at a fixed UTC
+    instant. Advance the clock with ``freezer.tick(delta)`` — ``delta`` is a
+    positional ``timedelta`` or a float of seconds (freezegun's signature),
+    not a keyword argument.
+
+    Usage::
+
+        from datetime import timedelta
+
+        def test_lockout_releases_after_window(freezer):
+            ...  # initial state
+            freezer.tick(timedelta(seconds=601))  # past the 10-minute window
+            ...  # post-window state
+
+    Prefer this over reaching for ``datetime.now(UTC)`` directly: tests that
+    depend on the wall clock are flaky on slow CI runners and unprovable.
+    """
+    from freezegun import freeze_time
+
+    with freeze_time("2026-05-01T12:00:00+00:00") as frozen:
+        yield frozen
+
+
+def parametrise_status_codes(*pairs):
+    """Convenience for ``pytest.mark.parametrize(("input", "status"), [...])``.
+
+    Replaces the ``assert resp.status_code in (400, 422)`` shape with an
+    exact check per case. Currently unused; documented here so new tests
+    can opt in without re-deriving the pattern.
+    """
+    return pytest.mark.parametrize(("payload", "expected_status"), list(pairs))

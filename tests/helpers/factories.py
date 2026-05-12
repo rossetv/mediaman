@@ -26,10 +26,13 @@ def make_media_item(
     plex_rating_key="12345",
     sonarr_id=None,
     radarr_id=None,
+    show_rating_key=None,
     added_at=None,
     file_path="/media/movies/Test Movie (2024)",
     file_size_bytes=10_000_000_000,
     poster_path="/library/metadata/12345/thumb/1234",
+    last_watched_at=None,
+    last_scanned_at=None,
 ):
     """Create a media item dict for testing."""
     if added_at is None:
@@ -44,10 +47,13 @@ def make_media_item(
         "plex_rating_key": plex_rating_key,
         "sonarr_id": sonarr_id,
         "radarr_id": radarr_id,
+        "show_rating_key": show_rating_key,
         "added_at": added_at.isoformat(),
         "file_path": file_path,
         "file_size_bytes": file_size_bytes,
         "poster_path": poster_path,
+        "last_watched_at": last_watched_at,
+        "last_scanned_at": last_scanned_at,
     }
 
 
@@ -85,14 +91,21 @@ def insert_media_item(conn: sqlite3.Connection, **fields) -> str:
 
     Returns the row's ``id``. Any field not supplied falls back to the
     factory's default — pass overrides for whatever the test cares about.
+    Datetime values in *added_at*, *last_watched_at*, *last_scanned_at*
+    are coerced to ISO strings (SQLite 3.12 deprecated the implicit
+    adapter, and the schema stores TEXT anyway).
     """
     row = {**make_media_item(), **fields}
+    for key in ("added_at", "last_watched_at", "last_scanned_at"):
+        value = row.get(key)
+        if isinstance(value, datetime):
+            row[key] = value.isoformat()
     conn.execute(
         "INSERT INTO media_items ("
         " id, title, media_type, show_title, season_number, plex_library_id,"
-        " plex_rating_key, sonarr_id, radarr_id, added_at, file_path,"
-        " file_size_bytes, poster_path"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " plex_rating_key, sonarr_id, radarr_id, show_rating_key, added_at,"
+        " file_path, file_size_bytes, poster_path, last_watched_at, last_scanned_at"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             row["id"],
             row["title"],
@@ -103,10 +116,13 @@ def insert_media_item(conn: sqlite3.Connection, **fields) -> str:
             row["plex_rating_key"],
             row["sonarr_id"],
             row["radarr_id"],
+            row["show_rating_key"],
             row["added_at"],
             row["file_path"],
             row["file_size_bytes"],
             row["poster_path"],
+            row["last_watched_at"],
+            row["last_scanned_at"],
         ),
     )
     conn.commit()
