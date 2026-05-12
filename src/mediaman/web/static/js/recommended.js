@@ -55,53 +55,48 @@
     btn.textContent = 'Adding…';
     btn.style.opacity = '0.6';
 
-    fetch('/api/recommended/' + id + '/download', { method: 'POST' })
-      .then(function (r) { return r.json(); })
+    MM.api.post('/api/recommended/' + id + '/download')
       .then(function (data) {
-        if (data.ok) {
-          btn.textContent = 'Queued ✓';
-          btn.classList.remove('btn--primary');
-          btn.classList.add('btn--success');
-          btn.style.opacity = '1';
-        } else {
-          btn.textContent = data.error && data.error.length < 30 ? data.error : 'Failed';
-          btn.classList.remove('btn--primary');
-          btn.classList.add('btn--danger');
-          btn.style.opacity = '1';
-          btn.disabled = false;
-          btn.title = data.error || '';
-        }
+        btn.textContent = 'Queued ✓';
+        btn.classList.remove('btn--primary');
+        btn.classList.add('btn--success');
+        btn.style.opacity = '1';
       })
-      .catch(function () { btn.textContent = 'Error'; btn.classList.add('btn--danger'); btn.style.opacity = '1'; btn.disabled = false; });
+      .catch(function (err) {
+        var msg = err.error && err.error.length < 30 ? err.error : 'Failed';
+        btn.textContent = msg;
+        btn.classList.remove('btn--primary');
+        btn.classList.add('btn--danger');
+        btn.style.opacity = '1';
+        btn.disabled = false;
+        btn.title = err.error || '';
+      });
   }
 
   function _modalDownload(btn, s) {
     btn.textContent = 'Adding to ' + (s.media_type === 'movie' ? 'Radarr' : 'Sonarr') + '…';
     btn.className = 'btn-download adding';
 
-    fetch('/api/recommended/' + s.id + '/download', { method: 'POST' })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (data.ok) {
-          btn.textContent = 'Queued';
-          btn.className = 'btn-download queued';
-          s.downloaded_at = new Date().toISOString();
-          if (MM.recommended.poll) MM.recommended.poll.startModalPolling(s);
-        } else {
-          btn.textContent = data.error && data.error.length < 40 ? data.error : 'Failed';
-          btn.className = 'btn-download';
-          btn.style.background = 'rgba(255,69,58,0.12)';
-          btn.style.color = 'var(--danger)';
-          setTimeout(function () {
-            btn.textContent = 'Download';
-            btn.style.background = '';
-            btn.style.color = '';
-            btn.className = 'btn-download';
-            btn.onclick = function () { _modalDownload(btn, s); };
-          }, 3000);
-        }
+    MM.api.post('/api/recommended/' + s.id + '/download')
+      .then(function () {
+        btn.textContent = 'Queued';
+        btn.className = 'btn-download queued';
+        s.downloaded_at = new Date().toISOString();
+        if (MM.recommended.poll) MM.recommended.poll.startModalPolling(s);
       })
-      .catch(function () { btn.textContent = 'Error'; btn.className = 'btn-download'; });
+      .catch(function (err) {
+        btn.textContent = err.error && err.error.length < 40 ? err.error : 'Failed';
+        btn.className = 'btn-download';
+        btn.style.background = 'rgba(255,69,58,0.12)';
+        btn.style.color = 'var(--danger)';
+        setTimeout(function () {
+          btn.textContent = 'Download';
+          btn.style.background = '';
+          btn.style.color = '';
+          btn.className = 'btn-download';
+          btn.onclick = function () { _modalDownload(btn, s); };
+        }, 3000);
+      });
   }
 
   function openModal(id) {
@@ -299,10 +294,9 @@
     shareBtn.onclick = function () {
       shareBtn.disabled = true;
       shareBtn.textContent = 'Generating…';
-      fetch('/api/recommended/' + s.id + '/share-token', { method: 'POST' })
-        .then(function (r) { return r.json(); })
+      MM.api.post('/api/recommended/' + s.id + '/share-token')
         .then(function (data) {
-          if (data.ok && data.share_url) {
+          if (data.share_url) {
             navigator.clipboard.writeText(data.share_url).then(function () {
               shareBtn.textContent = 'Copied!';
               shareBtn.disabled = false;
