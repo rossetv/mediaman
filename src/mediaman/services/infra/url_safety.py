@@ -150,18 +150,26 @@ def allowed_outbound_hosts(conn: sqlite3.Connection) -> frozenset[str]:
     plaintext so this is fine. If a future schema encrypts URLs, the
     caller would need to pass ``secret_key`` through; flagged for
     review.
+
+    Fail-closed on DB error: if ``sqlite3.Error`` is raised while
+    reading any integration row, the function returns the
+    pinned-only set rather than a partially-populated allowlist.
+    Routing the operator's traffic through an empty integration set
+    is preferable to silently widening the allowlist with whichever
+    rows happened to read successfully before the error.
     """
     hosts: set[str] = set(PINNED_EXTERNAL_HOSTS)
     for key in _INTEGRATION_URL_SETTING_KEYS:
         try:
             row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
         except sqlite3.Error:
-            # Schema drift or transient DB error — surface as
-            # "allowlist contains only the static pins" so an outbound
-            # call refuses rather than silently going through with a
-            # half-built allowlist.
-            logger.warning("settings read failed for %s — allowlist may be incomplete", key)
-            continue
+            # Schema drift or transient DB error — abandon the in-progress
+            # allowlist and fail closed to the pinned-only set so an
+            # outbound call doesn't go through a half-built allowlist.
+            logger.warning(
+                "settings read failed for %s — falling back to pinned-only allowlist", key
+            )
+            return frozenset(PINNED_EXTERNAL_HOSTS)
         if row is None:
             continue
         raw = row["value"] if hasattr(row, "keys") else row[0]

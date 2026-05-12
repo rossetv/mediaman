@@ -99,6 +99,7 @@ class TmdbClient:
         }
         self._session = requests.Session()
         # Per-call timeout is kept small — TMDB is expected to be snappy.
+        # W1.32 carve-out: pinned hosts (api.themoviedb.org / image.tmdb.org); deny-list only.
         self._http = SafeHTTPClient(
             _BASE,
             session=self._session,

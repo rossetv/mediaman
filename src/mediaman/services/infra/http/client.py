@@ -182,6 +182,15 @@ class SafeHTTPClient:
     (``session``) can be reused.  Every call re-validates the target URL via
     :func:`~mediaman.services.infra.url_safety.resolve_safe_outbound_url`,
     which re-resolves DNS — this is the DNS-rebind defence.
+
+    When *allowed_hosts* is non-``None``, the URL's IDN-normalised hostname
+    must additionally appear in that set (or in
+    :data:`~mediaman.services.infra.url_safety.PINNED_EXTERNAL_HOSTS`) for
+    the call to proceed. The deny-list still applies on top — an
+    allowlisted host that resolves to a metadata IP is still refused. When
+    ``None`` (the default), only the deny-list is consulted. Callers
+    typically derive the set once at the boundary via
+    :func:`~mediaman.services.infra.url_safety.allowed_outbound_hosts`.
     """
 
     def __init__(
@@ -191,6 +200,7 @@ class SafeHTTPClient:
         session: requests.Session | None = None,
         default_timeout: tuple[float, float] = _DEFAULT_TIMEOUT_SECONDS,
         default_max_bytes: int = _DEFAULT_MAX_BYTES,
+        allowed_hosts: frozenset[str] | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/") if base_url else ""
         # If the caller didn't supply a Session, create a private one so the
@@ -205,6 +215,7 @@ class SafeHTTPClient:
             self._session.headers["User-Agent"] = _USER_AGENT
         self._default_timeout = default_timeout
         self._default_max_bytes = default_max_bytes
+        self._allowed_hosts = allowed_hosts
 
     # ------------------------------------------------------------------
     # Public verb methods
@@ -405,7 +416,15 @@ class SafeHTTPClient:
             else None
         ) or _resolve_safe_outbound_url
 
-        safe, hostname, pinned_ip = _resolve(url)
+        # Preserve compatibility with monkeypatches that accept ``url``
+        # alone (and the older ``url, strict_egress=...`` shape) by only
+        # forwarding ``allowed_hosts`` when the caller actually supplied
+        # an allowlist. A ``None`` allowlist is equivalent to omitting
+        # the kwarg from the upstream call.
+        if self._allowed_hosts is None:
+            safe, hostname, pinned_ip = _resolve(url)
+        else:
+            safe, hostname, pinned_ip = _resolve(url, allowed_hosts=self._allowed_hosts)
         if not safe:
             raise SafeHTTPError(
                 status_code=0,
