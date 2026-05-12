@@ -77,8 +77,7 @@
 
     if (pollInterval) clearInterval(pollInterval);
     pollInterval = setInterval(function () {
-      fetch('/api/download/status?service=' + service + '&tmdb_id=' + tmdbId)
-        .then(function (r) { return r.json(); })
+      MM.api.get('/api/download/status?service=' + service + '&tmdb_id=' + tmdbId)
         .then(function (data) {
           if (data.state === 'ready') {
             clearInterval(pollInterval);
