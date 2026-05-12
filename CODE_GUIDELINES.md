@@ -20,11 +20,9 @@
 > Files presently over the 500-line ceiling, with rationale on file:
 >
 > - `scanner/engine.py` — atomic per-library transaction discipline.
-> - `services/arr/base.py` — `_ArrClientBase` + `ArrClient` form one HTTP surface; splitting them re-introduces the back-compat shim layer the audit deleted.
-> - `services/downloads/notifications.py` — two-branch poll loop (Radarr + Sonarr) shares state and templates.
+> - `services/infra/url_safety.py` — single SSRF analysis pipeline (deny-list + allowlist + DNS pinning); the cross-checks share state so splitting deny vs. allow would force callers to know which half they need.
 > - `web/auth/password_hash.py` — bcrypt hashing + rotation + change-password flow; the rotation path is one cohesive transaction.
 > - `web/routes/library_api/__init__.py` — package barrel hosting four route handlers, each pinned by transaction layout.
-> - `web/routes/poster/__init__.py` — proxy + on-disk cache + per-thread GC counter.
 > - `web/routes/settings/__init__.py` — package barrel + six route handlers + `_load_settings`.
 >
 > No function in the codebase exceeds the 60-line ceiling without a `# rationale:`
