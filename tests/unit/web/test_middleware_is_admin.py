@@ -83,9 +83,7 @@ def _real_request(
     """
     req = MagicMock()
     req.cookies = {"session_token": session_token} if session_token else {}
-    req.headers.get = lambda key, default=None: (
-        user_agent if key == "user-agent" else default
-    )
+    req.headers.get = lambda key, default=None: user_agent if key == "user-agent" else default
     req.client.host = client_ip
     return req
 
@@ -381,11 +379,11 @@ class TestGetOptionalAdminFromToken:
 
         set_connection(conn)
         create_user(conn, "admin", "password1234", enforce_policy=False)
-        token = create_session(
-            conn, "admin", user_agent="Mozilla/5.0 Test", client_ip="testclient"
-        )
+        token = create_session(conn, "admin", user_agent="Mozilla/5.0 Test", client_ip="testclient")
 
-        req = _real_request(session_token=token, user_agent="Mozilla/5.0 Test", client_ip="testclient")
+        req = _real_request(
+            session_token=token, user_agent="Mozilla/5.0 Test", client_ip="testclient"
+        )
         result = get_optional_admin_from_token(token, request=req)
         assert result == "admin"
 
@@ -402,7 +400,9 @@ class TestGetOptionalAdminFromToken:
             conn, "admin", user_agent="Mozilla/5.0 Firefox", client_ip="testclient"
         )
 
-        req = _real_request(session_token=token, user_agent="curl/8.0 attacker", client_ip="testclient")
+        req = _real_request(
+            session_token=token, user_agent="curl/8.0 attacker", client_ip="testclient"
+        )
         result = get_optional_admin_from_token(token, request=req)
         assert result is None
 
@@ -465,7 +465,9 @@ class TestResolvePageSession:
             conn, "admin", user_agent="Mozilla/5.0 Firefox", client_ip="testclient"
         )
 
-        req = _real_request(session_token=token, user_agent="curl/8.0 attacker", client_ip="testclient")
+        req = _real_request(
+            session_token=token, user_agent="curl/8.0 attacker", client_ip="testclient"
+        )
         result = resolve_page_session(req)
         assert isinstance(result, RedirectResponse)
         assert result.status_code == 302
