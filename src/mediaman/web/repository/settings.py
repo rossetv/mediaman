@@ -133,7 +133,7 @@ def write_settings(
     settings write back (M27 fail-closed contract).
 
     The shape of *audit* mirrors the keyword arguments of
-    :func:`mediaman.audit.security_event_or_raise` (``event``, ``actor``,
+    :func:`mediaman.core.audit.security_event_or_raise` (``event``, ``actor``,
     ``ip``, ``detail``).
 
     Behaviour for each known key:
