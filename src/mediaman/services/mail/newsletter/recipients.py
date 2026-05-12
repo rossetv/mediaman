@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from urllib.parse import quote as _url_quote
 
 import requests
@@ -14,6 +14,11 @@ from mediaman.crypto import generate_download_token, generate_unsubscribe_token
 from mediaman.services.infra import SafeHTTPError
 
 from ._types import DeletedNewsletterItem, NewsletterRecItem, ScheduledNewsletterItem, StorageStats
+
+if TYPE_CHECKING:
+    from jinja2 import Template as _JinjaTemplate
+
+    from mediaman.services.mail.mailgun import MailgunClient as _MailgunClient
 
 logger = logging.getLogger(__name__)
 
@@ -95,8 +100,8 @@ def _send_to_recipients(
     secret_key: str,
     dry_run: bool,
     grace_days: int,
-    template,
-    mailgun,
+    template: _JinjaTemplate,
+    mailgun: _MailgunClient,
     report_date: str,
     conn: sqlite3.Connection | None = None,
 ) -> list[str]:

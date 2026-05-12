@@ -43,6 +43,7 @@ import socket
 import sys
 import threading
 from collections.abc import Iterator
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,7 @@ _PIN_INSTALLED = False
 # ---------------------------------------------------------------------------
 
 
-def _patched_getaddrinfo(host, port, *args, **kwargs):  # pragma: no cover - thin wrapper
+def _patched_getaddrinfo(host: Any, port: Any, *args: Any, **kwargs: Any) -> Any:  # pragma: no cover - thin wrapper
     """``socket.getaddrinfo`` wrapper that honours per-thread DNS pins.
 
     When a pin is set for *host* we synthesise a single ``getaddrinfo``

@@ -112,7 +112,7 @@ def call_openai(
     use_web_search: bool = False,
     *,
     secret_key: str | None = None,
-) -> list[dict]:
+) -> list[dict[str, object]]:
     """Send a prompt to OpenAI Responses API and parse the JSON array response.
 
     Always uses the Responses API (``/v1/responses``). When both
@@ -143,7 +143,7 @@ def call_openai(
     model = get_openai_model(conn)
 
     try:
-        body: dict = {
+        body: dict[str, object] = {
             "model": model,
             "input": prompt,
             "text": {"format": {"type": "json_object"}},
@@ -190,9 +190,11 @@ def call_openai(
             content = re.sub(r"^```(?:json)?\s*", "", content)
             content = re.sub(r"\s*```\s*$", "", content)
 
-        items = json.loads(content)
-        if not isinstance(items, list):
+        raw_items: object = json.loads(content)
+        if not isinstance(raw_items, list):
             return []
+
+        items: list[dict[str, object]] = [i for i in raw_items if isinstance(i, dict)]
 
         if web_search_active:
             for item in items:

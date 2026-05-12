@@ -127,7 +127,7 @@ def fetch_media_audit_rows(
 # ---------------------------------------------------------------------------
 
 
-def _media_where_clause(action: str | None) -> tuple[str, tuple]:
+def _media_where_clause(action: str | None) -> tuple[str, tuple[str, ...]]:
     """Translate a UI filter name to a (WHERE SQL fragment, params) pair.
 
     The ``kept`` and ``unkept`` filters expand to multi-action IN clauses so

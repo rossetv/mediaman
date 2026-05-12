@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from typing import cast
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
 from mediaman.core.audit import security_event
@@ -15,8 +17,8 @@ from mediaman.services.rate_limit import (
     RateLimiter,
     get_client_ip,
 )
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 from mediaman.web.auth.password_hash import (
-    _sanitise_log_field,
     authenticate,
     set_must_change_password,
     user_must_change_password,
@@ -70,7 +72,7 @@ def _ua_hash(user_agent: str) -> str:
 @router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request) -> HTMLResponse:
     """Render the login form (HTML)."""
-    templates = request.app.state.templates
+    templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(request, "login.html", {"error": None})
 
 
@@ -86,8 +88,8 @@ def login_submit(
     """
     client_ip = get_client_ip(request)
     if not _limiter.check(client_ip):
-        templates = request.app.state.templates
-        response = templates.TemplateResponse(
+        templates = cast(Jinja2Templates, request.app.state.templates)
+        response: Response = templates.TemplateResponse(
             request,
             "login.html",
             {
@@ -119,7 +121,7 @@ def login_submit(
             ip=client_ip,
             detail={"reason": "bad_credentials"},
         )
-        templates = request.app.state.templates
+        templates = cast(Jinja2Templates, request.app.state.templates)
         return templates.TemplateResponse(
             request,
             "login.html",

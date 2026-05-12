@@ -32,7 +32,10 @@ def fetch_suggestion_by_id(conn: sqlite3.Connection, suggestion_id: int) -> sqli
     download route which passes the row into Arr helpers) get the full set
     without a wide dataclass definition here.
     """
-    return conn.execute("SELECT * FROM suggestions WHERE id = ?", (suggestion_id,)).fetchone()
+    row: sqlite3.Row | None = conn.execute(
+        "SELECT * FROM suggestions WHERE id = ?", (suggestion_id,)
+    ).fetchone()
+    return row
 
 
 def fetch_suggestion_header(conn: sqlite3.Connection, suggestion_id: int) -> SuggestionRow | None:

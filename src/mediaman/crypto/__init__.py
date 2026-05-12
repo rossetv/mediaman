@@ -12,11 +12,11 @@ to import every symbol from :mod:`mediaman.crypto`.
 import hmac
 
 from ._aes_key import CryptoError, CryptoInputError
+from ._aes_migrate import migrate_legacy_ciphertexts
 from .aes import (
     decrypt_value,
     encrypt_value,
     is_canary_valid,
-    migrate_legacy_ciphertexts,
 )
 from .tokens import (
     generate_download_token,

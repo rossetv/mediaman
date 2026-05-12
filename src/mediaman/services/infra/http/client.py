@@ -115,7 +115,7 @@ class SafeHTTPError(Exception):
         self.url = url
         super().__init__(f"HTTP {status_code} from {url}: {body_snippet[:120]}")
 
-    def json_error(self) -> dict | None:
+    def json_error(self) -> dict[str, object] | None:
         """Return the parsed JSON error body, or ``None`` if not JSON."""
         try:
             parsed = _json.loads(self.body_snippet)
@@ -156,7 +156,7 @@ def _dispatch(
     Split out so tests can patch the transport at one well-known point
     without caring about the retry / SSRF machinery above it.
     """
-    return caller.request(
+    resp: requests.Response = caller.request(
         method,
         url,
         headers=headers,
@@ -168,6 +168,7 @@ def _dispatch(
         allow_redirects=False,
         stream=True,
     )
+    return resp
 
 
 # ---------------------------------------------------------------------------

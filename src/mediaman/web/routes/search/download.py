@@ -9,6 +9,7 @@ this endpoint.
 from __future__ import annotations
 
 import logging
+import sqlite3
 import threading
 import time
 from typing import Literal
@@ -20,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from mediaman.db import get_db
 from mediaman.services.arr import ArrError
+from mediaman.services.arr.base import ArrClient
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.notifications import record_download_notification as _record_dn
 from mediaman.services.infra import SafeHTTPError
@@ -166,7 +168,7 @@ def _check_dedup(admin: str, body: _DownloadRequest) -> JSONResponse | None:
     return None
 
 
-def _submit_movie(conn, secret_key: str, body: _DownloadRequest, notify_email: str) -> JSONResponse:
+def _submit_movie(conn: sqlite3.Connection, secret_key: str, body: _DownloadRequest, notify_email: str) -> JSONResponse:
     """Add a movie to Radarr and record the download notification."""
     radarr = build_radarr_from_db(conn, secret_key)
     if not radarr:
@@ -223,7 +225,7 @@ def _submit_movie(conn, secret_key: str, body: _DownloadRequest, notify_email: s
     return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Radarr"})
 
 
-def _resolve_tvdb_id(sonarr, body: _DownloadRequest) -> tuple[int | None, JSONResponse | None]:
+def _resolve_tvdb_id(sonarr: ArrClient, body: _DownloadRequest) -> tuple[int | None, JSONResponse | None]:
     """Look up the TVDB ID for a series via Sonarr. Return (tvdb_id, None) or (None, error)."""
     try:
         lookup = sonarr.lookup_series_by_tmdb(body.tmdb_id)
@@ -242,7 +244,7 @@ def _resolve_tvdb_id(sonarr, body: _DownloadRequest) -> tuple[int | None, JSONRe
     return tvdb_id_raw, None
 
 
-def _submit_tv(conn, secret_key: str, body: _DownloadRequest, notify_email: str) -> JSONResponse:
+def _submit_tv(conn: sqlite3.Connection, secret_key: str, body: _DownloadRequest, notify_email: str) -> JSONResponse:
     """Add a series to Sonarr and record the download notification."""
     sonarr = build_sonarr_from_db(conn, secret_key)
     if not sonarr:

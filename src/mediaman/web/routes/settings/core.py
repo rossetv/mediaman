@@ -69,7 +69,7 @@ def _scrub_url_for_log(candidate: str) -> str:
     return f"{scheme}://{host}{port}{path}"
 
 
-def validate_url_fields(body: dict) -> JSONResponse | None:
+def validate_url_fields(body: dict[str, object]) -> JSONResponse | None:
     """Validate all URL fields in *body*.
 
     Returns a :class:`JSONResponse` error if any URL field is invalid

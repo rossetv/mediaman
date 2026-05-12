@@ -194,7 +194,7 @@ def verify_reauth_password(
         # reaching bcrypt — so the cycle was NOT actually burned. Mirror
         # the constant-time pattern used by ``change_password`` instead:
         # call ``bcrypt.checkpw`` directly against the dummy hash.
-        from mediaman.web.auth.password_hash import (
+        from mediaman.web.auth._password_hash_helpers import (
             _get_dummy_hash,
             _prepare_bcrypt_input,
         )

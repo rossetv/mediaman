@@ -9,9 +9,11 @@ request and hands the response dict to the template or JSON serialiser.
 from __future__ import annotations
 
 import sqlite3
+from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from starlette.responses import Response
 
@@ -27,7 +29,7 @@ class AbandonRequest(BaseModel):
     seasons: list[int] = Field(default_factory=list)
 
 
-def _lookup_dl_item(conn: sqlite3.Connection, secret_key: str, dl_id: str) -> dict | None:
+def _lookup_dl_item(conn: sqlite3.Connection, secret_key: str, dl_id: str) -> dict[str, object] | None:
     """Find the queue item with the given dl_id.
 
     Lookup happens against a freshly-built response so we don't trust
@@ -54,7 +56,7 @@ def downloads_page(request: Request) -> Response:
 
     config = request.app.state.config
     data = build_downloads_response(conn, config.secret_key)
-    templates = request.app.state.templates
+    templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
         request,
         "downloads.html",
@@ -99,7 +101,8 @@ def downloads_abandon(
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found in queue")
 
-    arr_id = item.get("arr_id") or 0
+    arr_id_raw = item.get("arr_id")
+    arr_id: int = int(arr_id_raw) if isinstance(arr_id_raw, int) else 0
     if arr_id == 0:
         raise HTTPException(status_code=400, detail="Item has no upstream arr id")
 

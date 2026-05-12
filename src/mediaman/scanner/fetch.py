@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from mediaman.services.media_meta.plex import (
+from mediaman.services.media_meta._plex_types import (
     PlexMovieItem,
     PlexSeasonItem,
     PlexWatchEntry,

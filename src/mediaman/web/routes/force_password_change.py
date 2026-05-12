@@ -22,9 +22,11 @@ up front what they need.
 from __future__ import annotations
 
 import logging
+from typing import cast
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
 from mediaman.core.audit import security_event
@@ -71,7 +73,7 @@ def force_change_page(request: Request) -> Response:
     if redirect is not None:
         return redirect
 
-    templates = request.app.state.templates
+    templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
         request,
         "force_password_change.html",
@@ -97,7 +99,7 @@ def force_change_submit(
         return redirect
     assert username is not None  # narrowed by _resolve_session contract
 
-    templates = request.app.state.templates
+    templates = cast(Jinja2Templates, request.app.state.templates)
     conn = get_db()
     client_ip = get_client_ip(request)
 

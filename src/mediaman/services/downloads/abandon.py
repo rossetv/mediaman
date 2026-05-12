@@ -10,11 +10,10 @@ from __future__ import annotations
 import logging
 import sqlite3
 from dataclasses import dataclass, field
-from typing import cast
 
 import requests
 
-from mediaman.services.arr.base import ArrClient, ArrError
+from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.search_trigger import clear_throttle
 from mediaman.services.infra import SafeHTTPError
@@ -55,11 +54,10 @@ def abandon_movie(
     The throttle is preserved on failure so retries still know how many
     times mediaman has been poking.
     """
-    raw_client = build_radarr_from_db(conn, secret_key)
-    if raw_client is None:
+    client = build_radarr_from_db(conn, secret_key)
+    if client is None:
         logger.warning("abandon_movie: no radarr client available for %s", dl_id)
         return AbandonResult(kind="movie", failed=[0], dl_id=dl_id)
-    client = cast(ArrClient, raw_client)
     try:
         client.unmonitor_movie(arr_id)
     except (SafeHTTPError, requests.RequestException, ArrError):
@@ -85,11 +83,10 @@ def abandon_series(
     seasons are skipped. If the series payload cannot be fetched the
     failure is signalled with the literal token ``0`` in ``failed``.
     """
-    raw_client = build_sonarr_from_db(conn, secret_key)
-    if raw_client is None:
+    client = build_sonarr_from_db(conn, secret_key)
+    if client is None:
         logger.warning("abandon_series: no sonarr client available for %s", dl_id)
         return AbandonResult(kind="series", failed=[0], dl_id=dl_id)
-    client = cast(ArrClient, raw_client)
     try:
         series = client.get_series_by_id(series_id)
     except (SafeHTTPError, requests.RequestException, ArrError):
@@ -148,11 +145,10 @@ def abandon_seasons(
     if not season_numbers:
         raise ValueError("abandon_seasons requires at least one season number")
 
-    raw_client = build_sonarr_from_db(conn, secret_key)
-    if raw_client is None:
+    client = build_sonarr_from_db(conn, secret_key)
+    if client is None:
         logger.warning("abandon_seasons: no sonarr client available for %s", dl_id)
         return AbandonResult(kind="series", failed=list(season_numbers), dl_id=dl_id)
-    client = cast(ArrClient, raw_client)
 
     succeeded: list[int] = []
     failed: list[int] = []

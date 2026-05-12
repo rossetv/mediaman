@@ -325,10 +325,11 @@ class TmdbClient:
         """
         endpoint = "movie" if media_type == "movie" else "tv"
         try:
-            return self._get(
+            result: object = self._get(
                 f"/{endpoint}/{tmdb_id}",
                 {"append_to_response": "videos,credits"},
             )
+            return result if isinstance(result, dict) else None
         except (SafeHTTPError, requests.RequestException, ValueError) as exc:
             self._log_request_failure(f"{endpoint}/{tmdb_id} details", exc)
             return None

@@ -23,6 +23,7 @@ import functools
 import ipaddress
 import logging
 import os
+from ipaddress import IPv4Network, IPv6Network
 
 from fastapi import Request
 
@@ -33,7 +34,7 @@ _logger = logging.getLogger(__name__)
 _UNKNOWN_PEER = "unknown"
 
 
-def _parse_proxy_env(env_var: str) -> list[ipaddress._BaseNetwork]:
+def _parse_proxy_env(env_var: str) -> list[IPv4Network | IPv6Network]:
     """Parse a comma-separated CIDR/IP list from *env_var*.
 
     Returns an empty list and logs CRITICAL when the literal ``*`` is
@@ -45,7 +46,7 @@ def _parse_proxy_env(env_var: str) -> list[ipaddress._BaseNetwork]:
     if not raw:
         return []
 
-    networks: list[ipaddress._BaseNetwork] = []
+    networks: list[IPv4Network | IPv6Network] = []
     for token in raw.split(","):
         token = token.strip()
         if not token:
@@ -73,18 +74,18 @@ def _parse_proxy_env(env_var: str) -> list[ipaddress._BaseNetwork]:
 
 
 @functools.lru_cache(maxsize=1)
-def _trusted_proxies_cached() -> tuple[ipaddress._BaseNetwork, ...]:
+def _trusted_proxies_cached() -> tuple[IPv4Network | IPv6Network, ...]:
     """Memoised parse of ``MEDIAMAN_TRUSTED_PROXIES``."""
     return tuple(_parse_proxy_env("MEDIAMAN_TRUSTED_PROXIES"))
 
 
 @functools.lru_cache(maxsize=1)
-def _cloudflare_proxies_cached() -> tuple[ipaddress._BaseNetwork, ...]:
+def _cloudflare_proxies_cached() -> tuple[IPv4Network | IPv6Network, ...]:
     """Memoised parse of ``MEDIAMAN_CLOUDFLARE_PROXIES``."""
     return tuple(_parse_proxy_env("MEDIAMAN_CLOUDFLARE_PROXIES"))
 
 
-def trusted_proxies() -> list[ipaddress._BaseNetwork]:
+def trusted_proxies() -> list[IPv4Network | IPv6Network]:
     """Return the list of trusted proxy networks from MEDIAMAN_TRUSTED_PROXIES.
 
     Result is cached; call :func:`clear_cache` after changing the env var
@@ -93,7 +94,7 @@ def trusted_proxies() -> list[ipaddress._BaseNetwork]:
     return list(_trusted_proxies_cached())
 
 
-def cloudflare_proxies() -> list[ipaddress._BaseNetwork]:
+def cloudflare_proxies() -> list[IPv4Network | IPv6Network]:
     """Return the list of Cloudflare proxy networks from MEDIAMAN_CLOUDFLARE_PROXIES.
 
     Defaults to empty — without an explicit Cloudflare allowlist, the
@@ -111,7 +112,7 @@ def clear_cache() -> None:
     _cloudflare_proxies_cached.cache_clear()
 
 
-def _ip_in_networks(ip: str, networks: list[ipaddress._BaseNetwork]) -> bool:
+def _ip_in_networks(ip: str, networks: list[IPv4Network | IPv6Network]) -> bool:
     """Return True if *ip* parses and falls inside any of *networks*."""
     if not ip or not networks:
         return False
@@ -122,7 +123,7 @@ def _ip_in_networks(ip: str, networks: list[ipaddress._BaseNetwork]) -> bool:
     return any(addr in net for net in networks)
 
 
-def peer_is_trusted(peer: str | None, trusted: list[ipaddress._BaseNetwork]) -> bool:
+def peer_is_trusted(peer: str | None, trusted: list[IPv4Network | IPv6Network]) -> bool:
     """Return True if the direct peer IP is in the trusted-proxy allowlist."""
     if not peer:
         return False

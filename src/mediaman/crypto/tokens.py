@@ -21,6 +21,7 @@ import logging
 import secrets
 import threading
 import time
+from collections.abc import Mapping
 from typing import TypedDict, cast
 
 logger = logging.getLogger(__name__)
@@ -243,7 +244,7 @@ def _validate_signed(token: str, secret_key: str, purpose: bytes) -> TokenPayloa
         return None
 
 
-def _encode_signed(payload: dict, secret_key: str, purpose: bytes) -> str:
+def _encode_signed(payload: Mapping[str, object], secret_key: str, purpose: bytes) -> str:
     """Encode a ``payload.signature`` token with domain-separated key."""
     payload_bytes = json.dumps(payload, separators=(",", ":")).encode()
     sig = _sign(secret_key, purpose, payload_bytes)

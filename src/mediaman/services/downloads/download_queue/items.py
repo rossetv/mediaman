@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable, Mapping, Sequence
-from typing import TypedDict, cast
+from typing import TypedDict
 
 from mediaman.core.format import format_bytes
 from mediaman.services.arr.fetcher._base import ArrCard, ArrEpisodeEntry
@@ -94,7 +94,7 @@ def build_episode_dicts(
         {
             "label": e.get("label", ""),
             "title": e.get("title", ""),
-            "state": map_episode_state(cast(dict, e)),
+            "state": map_episode_state(e),
             "progress": e.get("progress", 0),
             "is_pack_episode": e.get("is_pack_episode", False),
         }

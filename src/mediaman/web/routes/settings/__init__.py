@@ -38,10 +38,12 @@ import logging
 import shutil
 import sqlite3
 from collections.abc import Callable
+from typing import cast
 
 import requests
 from fastapi import APIRouter, Cookie, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
 from mediaman.core.audit import security_event
@@ -163,7 +165,7 @@ def settings_page(request: Request) -> Response:
     _libs_raw = settings.get("plex_libraries") or []
     plex_libraries_selected: list[str] = list(_libs_raw) if isinstance(_libs_raw, list) else []
 
-    templates = request.app.state.templates
+    templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
         request,
         "settings.html",
@@ -206,7 +208,7 @@ def api_get_settings(request: Request, admin: str = Depends(get_current_admin)) 
 
 
 def _settings_write_throttled(
-    request: Request, conn: sqlite3.Connection, admin: str, body_dict: dict
+    request: Request, conn: sqlite3.Connection, admin: str, body_dict: dict[str, object]
 ) -> JSONResponse | None:
     """Return a 429 response if the admin has exhausted the write budget; else None.
 
@@ -229,7 +231,7 @@ def _settings_write_throttled(
 
 
 def _settings_reauth_required(
-    conn: sqlite3.Connection, body_dict: dict, session_token: str | None, admin: str
+    conn: sqlite3.Connection, body_dict: dict[str, object], session_token: str | None, admin: str
 ) -> JSONResponse | None:
     """Return a 403 when a sensitive key change lacks a recent reauth ticket; else None.
 
@@ -252,7 +254,7 @@ def _settings_reauth_required(
 def _persist_settings(
     request: Request,
     conn: sqlite3.Connection,
-    body_dict: dict,
+    body_dict: dict[str, object],
     secret_key: str,
     admin: str,
     now: str,
@@ -311,7 +313,7 @@ def api_update_settings(
     so we never have a "settings changed but no audit trail" outcome
     for high-impact mutations (M27).
     """
-    body_dict: dict = body.model_dump(exclude_none=True)
+    body_dict: dict[str, object] = body.model_dump(exclude_none=True)
     conn = get_db()
     throttled = _settings_write_throttled(request, conn, admin, body_dict)
     if throttled is not None:

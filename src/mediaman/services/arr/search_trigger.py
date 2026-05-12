@@ -29,7 +29,8 @@ import logging
 import sqlite3
 import time
 import uuid
-from typing import TYPE_CHECKING, cast
+from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 import requests
 
@@ -40,10 +41,14 @@ from mediaman.services.arr._throttle_persistence import (  # noqa: F401
     _STRANDED_THROTTLE_TTL_SECONDS,
     _load_throttle_from_db,
     _save_trigger_to_db,
-    clear_throttle,
-    get_search_info,
     reconcile_stranded_throttle,
     reset_search_triggers,
+)
+from mediaman.services.arr._throttle_persistence import (
+    clear_throttle as clear_throttle,
+)
+from mediaman.services.arr._throttle_persistence import (
+    get_search_info as get_search_info,
 )
 from mediaman.services.arr._throttle_state import (  # noqa: F401
     _SEARCH_BACKOFF,
@@ -54,9 +59,11 @@ from mediaman.services.arr._throttle_state import (  # noqa: F401
     _last_search_trigger,
     _last_search_trigger_by_arr,
     _reservation_tokens,
-    _search_backoff_seconds,
     _search_count,
     _state_lock,
+)
+from mediaman.services.arr._throttle_state import (
+    _search_backoff_seconds as _search_backoff_seconds,
 )
 from mediaman.services.arr.auto_abandon import maybe_auto_abandon
 from mediaman.services.arr.base import ArrError
@@ -85,8 +92,8 @@ _PER_ARR_THROTTLE_SECONDS = 15 * 60
 # the search call would open a TOCTOU window where concurrent callers could
 # both pass the throttle check and both fire duplicate searches.
 def maybe_trigger_search(
-    conn,
-    item: dict,
+    conn: sqlite3.Connection,
+    item: Mapping[str, object],
     matched_nzb: bool,
     secret_key: str = "",
 ) -> None:
@@ -131,16 +138,20 @@ def maybe_trigger_search(
         return
     if not secret_key:
         return
-    arr_id = item.get("arr_id") or 0
+    _arr_id_raw = item.get("arr_id")
+    arr_id: int = int(_arr_id_raw) if isinstance(_arr_id_raw, int) else 0
     if not arr_id:
         return
-    added_at = item.get("added_at") or 0.0
+    _added_at_raw = item.get("added_at")
+    added_at: float = float(_added_at_raw) if isinstance(_added_at_raw, (int, float)) else 0.0
     now = time.time()
     if now - added_at < _SEARCH_STALE_SECONDS:
         return
 
-    dl_id = item.get("dl_id") or ""
-    kind = item.get("kind")
+    _dl_id_raw = item.get("dl_id")
+    dl_id: str = str(_dl_id_raw) if isinstance(_dl_id_raw, str) else ""
+    _kind_raw = item.get("kind")
+    kind: str = str(_kind_raw) if isinstance(_kind_raw, str) else ""
     if kind not in ("movie", "series"):
         return
 
@@ -192,12 +203,10 @@ def maybe_trigger_search(
         client = builders[service](conn, secret_key)
         if client is None:
             return
-        from mediaman.services.arr.base import ArrClient
-
         if kind == "movie":
-            cast(ArrClient, client).search_movie(arr_id)
+            client.search_movie(arr_id)
         else:
-            cast(ArrClient, client).search_series(arr_id)
+            client.search_series(arr_id)
         triggered = True
         # Late import: ``_deep_links`` lives in the ``download_queue`` package
         # whose ``__init__`` imports ``maybe_trigger_search`` from this module,
@@ -262,7 +271,7 @@ def maybe_trigger_search(
             _save_trigger_to_db(conn, dl_id, now, new_count)
 
 
-def trigger_pending_searches(conn, secret_key: str) -> None:
+def trigger_pending_searches(conn: sqlite3.Connection, secret_key: str) -> None:
     """Poke Radarr/Sonarr to search for every monitored-but-missing item.
 
     Called from the APScheduler on a fixed interval so items don't sit in
@@ -302,10 +311,9 @@ def trigger_pending_searches(conn, secret_key: str) -> None:
 
     now = time.time()
     for item in arr_items:
-        item_dict = cast(dict, item)
-        maybe_trigger_search(conn, item_dict, matched_nzb=False, secret_key=secret_key)
+        maybe_trigger_search(conn, item, matched_nzb=False, secret_key=secret_key)
         try:
-            maybe_auto_abandon(conn, secret_key, item=item_dict, now=now)
+            maybe_auto_abandon(conn, secret_key, item=item, now=now)
         except Exception:  # rationale: §6.4 site 2 — scheduler must survive a single bad row
             logger.warning(
                 "auto-abandon: skipped %s due to error", item.get("dl_id"), exc_info=True
@@ -327,7 +335,7 @@ def trigger_pending_searches(conn, secret_key: str) -> None:
 
 
 def _trigger_sonarr_partial_missing(
-    conn,
+    conn: sqlite3.Connection,
     arr_items: list[ArrCard],
     secret_key: str,
 ) -> None:
@@ -337,13 +345,9 @@ def _trigger_sonarr_partial_missing(
     ``arr_id``, and reuses the ``sonarr:{title}`` dl_id format so the
     per-item throttle recognises the same series across passes.
     """
-    from mediaman.services.arr.base import ArrClient
-
-    client = build_sonarr_from_db(conn, secret_key)
-    if client is None:
+    sonarr_client = build_sonarr_from_db(conn, secret_key)
+    if sonarr_client is None:
         return
-    # ``build_sonarr_from_db`` always yields an ArrClient with SONARR_SPEC; narrow for mypy.
-    sonarr_client = cast(ArrClient, client)
 
     already_poked = {
         item.get("arr_id")

@@ -199,10 +199,10 @@ def build_arr_items(
                 eta = "Post-processing…"
 
             items.append(_build_matched_item(arr, matched_nzb, state, eta, download_rate))
-            trigger_search(conn, cast(dict, arr), matched_nzb=True, secret_key=secret_key)
+            trigger_search(conn, arr, matched_nzb=True, secret_key=secret_key)
         else:
             items.append(_build_unmatched_arr_item_bound(arr, arr_base_urls_map))
-            trigger_search(conn, cast(dict, arr), matched_nzb=False, secret_key=secret_key)
+            trigger_search(conn, arr, matched_nzb=False, secret_key=secret_key)
 
     return items, upcoming_items
 

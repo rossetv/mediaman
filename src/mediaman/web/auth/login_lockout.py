@@ -50,6 +50,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from datetime import datetime, timedelta
+from typing import cast
 
 from mediaman.core.time import now_utc
 from mediaman.core.time import parse_iso_utc as _parse_iso
@@ -150,11 +151,14 @@ def _update_failure_row(
         """,
         (username, now_iso),
     )
-    return conn.execute(
-        "SELECT failure_count, first_failure_at, locked_until "
-        "FROM login_failures WHERE username = ?",
-        (username,),
-    ).fetchone()
+    return cast(
+        sqlite3.Row,
+        conn.execute(
+            "SELECT failure_count, first_failure_at, locked_until "
+            "FROM login_failures WHERE username = ?",
+            (username,),
+        ).fetchone(),
+    )
 
 
 def _apply_decay(

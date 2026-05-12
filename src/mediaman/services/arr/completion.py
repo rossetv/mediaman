@@ -196,7 +196,7 @@ def _check_item_verified(c: CompletedItem, idx: _ArrLibraryIndex) -> bool:
     return True
 
 
-def _batch_insert_completions(conn: sqlite3.Connection, to_insert: list[tuple]) -> None:
+def _batch_insert_completions(conn: sqlite3.Connection, to_insert: list[tuple[str, str, str, str]]) -> None:
     """Insert verified completion rows in a single batch commit."""
     if not to_insert:
         return
@@ -239,7 +239,7 @@ def record_verified_completions(
     becomes vanishingly rare.
     """
     idx = _ArrLibraryIndex(conn, secret_key)
-    to_insert: list[tuple] = []
+    to_insert: list[tuple[str, str, str, str]] = []
 
     for c in completed:
         try:

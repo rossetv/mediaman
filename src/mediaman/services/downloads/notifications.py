@@ -98,7 +98,7 @@ def _build_mailgun_client(
     conn: sqlite3.Connection,
     secret_key: str,
     pending: list[sqlite3.Row],
-):
+) -> MailgunClient | None:
     """Build a MailgunClient from settings, or None if Mailgun is not configured.
 
     When Mailgun is not configured, releases all pending claims in bulk and

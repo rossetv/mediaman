@@ -124,7 +124,8 @@ def _load_library_ids(conn: sqlite3.Connection) -> list[str]:
     if not row:
         return []
     try:
-        return json.loads(row["value"])
+        parsed = json.loads(row["value"])
+        return [str(v) for v in parsed] if isinstance(parsed, list) else []
     except json.JSONDecodeError:
         logger.warning("plex_libraries setting contains invalid JSON — scanning no libraries")
         return []

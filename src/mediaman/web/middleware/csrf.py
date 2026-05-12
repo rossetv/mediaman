@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urlsplit
 
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -165,7 +165,7 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
     the cookie, is the authorisation).
     """
 
-    async def dispatch(self, request: Request, call_next) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Enforce same-origin CSRF policy on state-changing requests.
 
         Passes the request through unchanged for safe methods (GET, HEAD,
