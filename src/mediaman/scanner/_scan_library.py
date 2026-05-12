@@ -16,9 +16,9 @@ roll back the in-flight library. The helpers themselves do not commit.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from mediaman.scanner import repository
 from mediaman.scanner.fetch import _PlexItemFetch
@@ -38,7 +38,7 @@ def scan_items(
     engine: ScanEngine,
     fetched: list[_PlexItemFetch],
     media_type_fn: Callable[[_PlexItemFetch], str],
-    evaluate_fn: Callable[[_PlexItemFetch, datetime, list[dict[str, object]]], str | None],
+    evaluate_fn: Callable[[_PlexItemFetch, datetime, Sequence[Mapping[str, object]]], str | None],
     item_label: str,
     library_id: str,
     summary: dict[str, int],
@@ -98,7 +98,7 @@ def scan_items(
                 summary["skipped"] += 1
                 continue
 
-            added_at = engine._resolve_added_at(item)
+            added_at = engine._resolve_added_at(cast(dict[str, object], item))
             decision = evaluate_fn(f, added_at, watch_history)
 
             if decision is None:
@@ -148,7 +148,7 @@ def scan_movie_library(
     def _evaluate(
         f: _PlexItemFetch,
         added_at: datetime,
-        watch_history: list[dict[str, object]],
+        watch_history: Sequence[Mapping[str, object]],
     ) -> str | None:
         return evaluate_movie(
             added_at=added_at,
@@ -187,10 +187,12 @@ def scan_tv_library(
     def _evaluate(
         f: _PlexItemFetch,
         added_at: datetime,
-        watch_history: list[dict[str, object]],
+        watch_history: Sequence[Mapping[str, object]],
     ) -> str | None:
         season = f.item
-        if repository.is_show_kept(conn, season.get("show_rating_key")):
+        raw_key = season.get("show_rating_key")
+        show_key = raw_key if isinstance(raw_key, str) else None
+        if repository.is_show_kept(conn, show_key):
             return None  # show is protected; skip all its seasons
         return evaluate_season(
             added_at=added_at,
