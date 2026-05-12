@@ -99,7 +99,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # between the external Radarr/Sonarr call and the local DB cleanup.
     # Idempotent — safe to run on every cold start.
     try:
-        from mediaman.web.routes.library_api import reconcile_pending_delete_intents
+        from mediaman.web.repository.delete_intents import reconcile_pending_delete_intents
 
         reconciled = reconcile_pending_delete_intents()
         if reconciled:
