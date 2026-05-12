@@ -310,7 +310,10 @@ def _build_season_action_rows(
     execute_at: str | None,
     duration: str,
     now_iso_str: str,
-) -> tuple[list[tuple[str, str | None, str, str, int]], list[tuple[str, str, str, str | None, str, str, str]]]:
+) -> tuple[
+    list[tuple[str, str | None, str, str, int]],
+    list[tuple[str, str, str, str | None, str, str, str]],
+]:
     """Partition season IDs into update / insert tuples for ``scheduled_actions``.
 
     Returns ``(to_update, to_insert)`` shaped exactly as

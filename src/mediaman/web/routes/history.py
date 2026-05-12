@@ -117,7 +117,9 @@ def _build_item(r: sqlite3.Row) -> dict[str, object]:
     }
 
 
-def _fetch_rows(conn: sqlite3.Connection, *, action: str | None, page: int, per_page: int) -> list[dict[str, object]]:
+def _fetch_rows(
+    conn: sqlite3.Connection, *, action: str | None, page: int, per_page: int
+) -> list[dict[str, object]]:
     """Dispatch to the security-only or media-events row fetcher."""
     if action == "security":
         rows = fetch_security_audit_rows(conn, page=page, per_page=per_page)
