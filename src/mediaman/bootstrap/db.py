@@ -4,19 +4,13 @@ Owns the first step of startup: ensure the data directory is writable, open
 the bootstrap connection, register it for repository-level lookups, and
 attach the resolved config plus connection to ``app.state``.
 
-The data-dir writability helpers live in :mod:`mediaman.bootstrap.data_dir`
-and are re-exported here so test files can keep patching
-``mediaman.bootstrap.db.tempfile`` without caring about the layout.
+The data-dir writability helpers live in :mod:`mediaman.bootstrap.data_dir`.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-
-# Re-exported so ``patch.object(bootstrap_db_mod.tempfile, ...)`` in tests
-# continues to land on the symbol the writability probe actually uses.
-import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -76,8 +70,5 @@ def bootstrap_db(app: FastAPI, config: Config) -> None:
 
 __all__ = [
     "DataDirNotWritableError",
-    "_assert_data_dir_writable",
-    "_remediation_for",
     "bootstrap_db",
-    "tempfile",
 ]
