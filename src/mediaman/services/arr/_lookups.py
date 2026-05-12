@@ -7,10 +7,11 @@ duplicated per flavour.
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import cast
 
 from requests import RequestException
 
+from mediaman.services.arr._types import ArrLookupResult
 from mediaman.services.infra.http import SafeHTTPError
 
 
@@ -22,29 +23,29 @@ class _LookupsMixin:
     helper inferring it from the client kind.
     """
 
-    def lookup_by_tmdb_id(self, tmdb_id: int, *, endpoint: str) -> list[dict[str, Any]]:
+    def lookup_by_tmdb_id(self, tmdb_id: int, *, endpoint: str) -> list[ArrLookupResult]:
         """Return the lookup results for a given TMDB ID."""
         result = self._get(f"{endpoint}?term=tmdb:{tmdb_id}") or []  # type: ignore[attr-defined]
-        return cast(list[dict[str, Any]], result)
+        return cast(list[ArrLookupResult], result)
 
-    def lookup_by_tvdb_id(self, tvdb_id: int, *, endpoint: str) -> list[dict[str, Any]]:
+    def lookup_by_tvdb_id(self, tvdb_id: int, *, endpoint: str) -> list[ArrLookupResult]:
         """Return the lookup results for a given TVDB ID."""
         result = self._get(f"{endpoint}?term=tvdb:{tvdb_id}") or []  # type: ignore[attr-defined]
-        return cast(list[dict[str, Any]], result)
+        return cast(list[ArrLookupResult], result)
 
-    def lookup_by_imdb_id(self, imdb_id: str, *, endpoint: str) -> list[dict[str, Any]]:
+    def lookup_by_imdb_id(self, imdb_id: str, *, endpoint: str) -> list[ArrLookupResult]:
         """Return the lookup results for a given IMDb ID."""
         result = self._get(f"{endpoint}?term=imdb:{imdb_id}") or []  # type: ignore[attr-defined]
-        return cast(list[dict[str, Any]], result)
+        return cast(list[ArrLookupResult], result)
 
-    def lookup_by_term(self, term: str, *, endpoint: str) -> list[dict[str, Any]]:
+    def lookup_by_term(self, term: str, *, endpoint: str) -> list[ArrLookupResult]:
         """Return lookup results for a free-text search term.
 
         *term* must already be URL-encoded by the caller if it contains
         spaces or special characters.
         """
         result = self._get(f"{endpoint}?term={term}") or []  # type: ignore[attr-defined]
-        return cast(list[dict[str, Any]], result)
+        return cast(list[ArrLookupResult], result)
 
     def get_release(self, item_id: int, *, endpoint: str) -> dict | None:
         """Return a single Arr item by its internal numeric ID.

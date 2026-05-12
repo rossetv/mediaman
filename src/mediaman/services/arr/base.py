@@ -36,7 +36,7 @@ below.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import cast
 
 from mediaman.services.arr._add import _AddFlowMixin
 from mediaman.services.arr._lookups import _LookupsMixin
@@ -50,6 +50,7 @@ from mediaman.services.arr._transport import (
     ArrUpstreamError,
     _TransportMixin,
 )
+from mediaman.services.arr._types import ArrQueueItem
 from mediaman.services.arr.spec import ArrSpec
 
 logger = logging.getLogger(__name__)
@@ -106,7 +107,7 @@ class ArrClient(
                 f"this client has kind={self.spec.kind!r}"
             )
 
-    def get_queue(self) -> list[dict[str, Any]]:
+    def get_queue(self) -> list[ArrQueueItem]:
         """Return the current download queue.
 
         Paginates through all pages — otherwise long queues get silently
@@ -115,7 +116,7 @@ class ArrClient(
         between Sonarr (``includeSeries`` + ``includeEpisode``) and
         Radarr (``includeMovie``).
         """
-        out: list[dict[str, Any]] = []
+        out: list[ArrQueueItem] = []
         page = 1
         page_size = 500
         if self.spec.kind == "series":
@@ -126,7 +127,7 @@ class ArrClient(
             data = self._get(f"/api/v3/queue?page={page}&pageSize={page_size}{extra}")
             if not isinstance(data, dict):
                 break
-            records = data.get("records") or []
+            records = cast(list[ArrQueueItem], data.get("records") or [])
             if not records:
                 break
             out.extend(records)

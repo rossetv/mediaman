@@ -32,7 +32,7 @@ class _RadarrMixin:
         data = self._get("/api/v3/movie")  # type: ignore[attr-defined]
         return cast(list[RadarrMovie], data) if isinstance(data, list) else []
 
-    def get_movie_by_id(self, movie_id: int) -> dict[str, object]:
+    def get_movie_by_id(self, movie_id: int) -> RadarrMovie:
         """Return a single movie by its Radarr ID.
 
         Raises :exc:`ArrUpstreamError` when Radarr returns a non-dict response.
@@ -43,7 +43,7 @@ class _RadarrMixin:
             raise ArrUpstreamError(
                 f"Radarr returned unexpected type for movie {movie_id}: {type(data).__name__}"
             )
-        return data
+        return cast(RadarrMovie, data)
 
     def delete_movie(self, movie_id: int) -> None:
         """Delete a movie from Radarr and its files from disk."""
@@ -64,7 +64,7 @@ class _RadarrMixin:
         self._require_movie("unmonitor_movie")  # type: ignore[attr-defined]
 
         self._unmonitor_with_retry(  # type: ignore[attr-defined]
-            fetch_entity=lambda: cast(dict, self.get_movie_by_id(movie_id)),
+            fetch_entity=lambda: self.get_movie_by_id(movie_id),
             put_url=f"/api/v3/movie/{movie_id}",
             is_already_unmonitored=lambda movie: not bool(movie.get("monitored", False)),
             apply_unmonitor=lambda movie: movie.__setitem__("monitored", False),
@@ -78,7 +78,7 @@ class _RadarrMixin:
         self._require_movie("remonitor_movie")  # type: ignore[attr-defined]
         movie = self.get_movie_by_id(movie_id)
         movie["monitored"] = True
-        self._put(f"/api/v3/movie/{movie_id}", cast(dict, movie))  # type: ignore[attr-defined]
+        self._put(f"/api/v3/movie/{movie_id}", movie)  # type: ignore[attr-defined]
         self.search_movie(movie_id)
 
     def search_movie(self, movie_id: int) -> None:
@@ -90,7 +90,7 @@ class _RadarrMixin:
 
     def add_movie(
         self, tmdb_id: int, title: str, quality_profile_id: int | None = None
-    ) -> dict[str, object]:
+    ) -> RadarrMovie:
         """Add a movie by TMDB ID and trigger a search.
 
         ``quality_profile_id`` is selected via
@@ -113,7 +113,7 @@ class _RadarrMixin:
             "monitored": True,
             "addOptions": {"searchForMovie": True},
         }
-        return cast(dict[str, object], self._post("/api/v3/movie", movie_data))  # type: ignore[attr-defined]
+        return cast(RadarrMovie, self._post("/api/v3/movie", movie_data))  # type: ignore[attr-defined]
 
     def get_movie_by_tmdb(self, tmdb_id: int) -> RadarrMovie | None:
         """Find a movie in the library by its TMDB ID, or ``None`` if not found."""
