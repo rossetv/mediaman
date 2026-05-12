@@ -69,20 +69,12 @@
     {% if scheduled_items %}
     <div class="grid grid-tiles">
       {% for item in scheduled_items %}
-      <div class="tile">
-        <div class="tile-poster">
-          {% if item.plex_rating_key %}
-          <img src="/api/poster/{{ item.plex_rating_key }}" alt="" loading="lazy">
-          {% endif %}
-          <div class="tile-pills">
-            {{ c.pill(item.type_label, variant=('movie' if item.media_type == 'movie' else ('tv' if item.media_type == 'tv' else 'anime'))) }}
-            {% if item.countdown %}{{ c.countdown(item.countdown) }}{% endif %}
-          </div>
-        </div>
-        <div>
-          <div class="tile-title">{{ item.title }}</div>
-          <div class="tile-meta">{{ item.file_size }} · Added {{ item.added_ago }}</div>
-        </div>
+      {% call c.tile(item.title,
+                     meta=item.file_size ~ " · Added " ~ item.added_ago,
+                     poster_url="/api/poster/" ~ item.plex_rating_key if item.plex_rating_key else "",
+                     media_pill_label=item.type_label,
+                     media_pill_variant='movie' if item.media_type == 'movie' else ('tv' if item.media_type == 'tv' else 'anime'),
+                     countdown_label=item.countdown if item.countdown else "") %}
         <div class="keep-wrapper tile-actions"
              data-id="{{ item.media_item_id }}" data-tv="{{ (item.media_type == 'tv') | tojson }}"
              data-show-rk="{{ item.show_rating_key or '' }}" data-show-title="{{ item.show_title_raw or item.title | e }}">
@@ -102,7 +94,7 @@
             <button class="snooze-option forever" role="menuitem" tabindex="-1" data-action="keep-tile" data-duration="forever">Forever</button>
           </div>
         </div>
-      </div>
+      {% endcall %}
       {% endfor %}
     </div>
     {% else %}

@@ -90,23 +90,68 @@
 {%- endmacro %}
 
 
-{# Tile — poster + pills + title + meta + optional actions slot.
-   `pills_html` and `actions_html` are pre-rendered HTML chunks (use the
-   call block via Jinja, e.g. `{% call c.tile(...) %} ... {% endcall %}`). #}
-{% macro tile(title, meta="", poster_url="", media_pill_label="", media_pill_variant="neutral", countdown_label="", rating="") -%}
-<div class="tile">
+{# Tile — poster + pills + title + sub + meta + optional actions slot.
+   Parameters:
+     title              — visible title text (auto-escaped).
+     sub                — secondary label line below the title (auto-escaped,
+                          omitted when ""); e.g. "2023 · Movie".
+     meta               — tertiary meta / description line (auto-escaped,
+                          omitted when "").
+     poster_url         — img src; leave "" to omit the poster image entirely.
+     poster_alt         — img alt; default "" because most call sites render the
+                          title as a sibling text node (duplication for AT users).
+                          Pass a non-empty string only when the image carries
+                          information not expressed in surrounding text.
+     poster_referrerpolicy — referrerpolicy attribute for the poster img (e.g.
+                          "no-referrer" for external CDN URLs); omitted when "".
+     media_pill_label   — text for the type pill (omitted when "").
+     media_pill_variant — CSS modifier for the type pill (default "neutral").
+     countdown_label    — text for the countdown badge (omitted when "").
+     rating             — rating string shown as "★ {rating}" (omitted when "").
+     pills_html         — pre-rendered HTML injected into .tile-pills verbatim
+                          (|safe); use when multiple arbitrary pills are needed.
+                          Renders instead of media_pill_label / countdown_label
+                          when non-empty.  MUST be a server-side literal — never
+                          pass user-supplied content.
+     poster_overlay_html — pre-rendered HTML appended inside .tile-poster after
+                          img / pills / rating (|safe); used for call sites that
+                          need poster-chips, poster-state, or other overlays the
+                          standard params don't cover.  Same XSS rule as above.
+     tile_hit_label     — if non-empty, renders a full-width keyboard-accessible
+                          overlay button (<button class="tile-hit">) as the first
+                          child of .tile, before .tile-poster.
+     raw_data_attrs     — dict of data-* attributes added to the root .tile div;
+                          keys and values are auto-escaped.
+   Actions / extra content: use the call-block pattern —
+     {% call c.tile(...) %} … {% endcall %} #}
+{% macro tile(title, sub="", meta="", poster_url="", poster_alt="", poster_referrerpolicy="",
+              media_pill_label="", media_pill_variant="neutral", countdown_label="",
+              rating="",
+              pills_html="",
+              poster_overlay_html="",
+              tile_hit_label="",
+              raw_data_attrs={}) -%}
+<div class="tile"
+     {%- for k, v in raw_data_attrs.items() %} data-{{ k | e }}="{{ v | e }}"{% endfor %}>
+  {%- if tile_hit_label %}
+  <button type="button" class="tile-hit" aria-label="{{ tile_hit_label }}"></button>
+  {%- endif %}
   <div class="tile-poster">
-    {% if poster_url %}<img src="{{ poster_url }}" alt="{{ title }}" loading="lazy" data-broken-on-error>{% endif %}
-    {% if media_pill_label or countdown_label %}
+    {% if poster_url %}<img src="{{ poster_url }}" alt="{{ poster_alt }}" loading="lazy"{% if poster_referrerpolicy %} referrerpolicy="{{ poster_referrerpolicy }}"{% endif %} data-broken-on-error>{% endif %}
+    {% if pills_html %}
+    <div class="tile-pills">{{ pills_html | safe }}</div>
+    {% elif media_pill_label or countdown_label %}
     <div class="tile-pills">
       {% if media_pill_label %}<span class="pill pill--{{ media_pill_variant }}">{{ media_pill_label }}</span>{% endif %}
       {% if countdown_label %}<span class="countdown">{{ countdown_label }}</span>{% endif %}
     </div>
     {% endif %}
     {% if rating %}<div class="tile-rating"><span class="star">★</span> {{ rating }}</div>{% endif %}
+    {{ poster_overlay_html | safe }}
   </div>
   <div>
     <div class="tile-title">{{ title }}</div>
+    {% if sub %}<div class="tile-sub">{{ sub }}</div>{% endif %}
     {% if meta %}<div class="tile-meta">{{ meta }}</div>{% endif %}
   </div>
   {{ caller() if caller is defined else "" }}
