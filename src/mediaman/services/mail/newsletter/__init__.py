@@ -21,9 +21,9 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import UTC, datetime
 
 from mediaman.core.format import format_day_month as _format_day_month
+from mediaman.core.time import now_utc
 
 from .enrich import _annotate_rec_download_states
 from .recipients import _load_recipients, _send_to_recipients
@@ -161,13 +161,13 @@ def send_newsletter(
         has_recommendations = False
 
     scheduled_items = _load_scheduled_items(
-        conn, secret_key, base_url, datetime.now(UTC), mark_notified
+        conn, secret_key, base_url, now_utc(), mark_notified
     )
     if not scheduled_items and not has_recommendations:
         logger.debug("Newsletter skipped — nothing to report")
         return
 
-    now = datetime.now(UTC)
+    now = now_utc()
     deleted_items = _load_deleted_items(conn, secret_key, base_url, now)
     this_week_items = _load_recommendations(conn)
     storage, reclaimed_week, reclaimed_month, reclaimed_total = _load_storage_stats(conn, now)

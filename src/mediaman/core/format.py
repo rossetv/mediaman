@@ -89,7 +89,7 @@ def ensure_tz(dt: datetime | None) -> datetime:
     A ``None`` input returns the current UTC time.
     """
     if dt is None:
-        return datetime.now(UTC)
+        return now_utc()
     if dt.tzinfo is None:
         return dt.replace(tzinfo=UTC)
     return dt

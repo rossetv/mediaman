@@ -17,9 +17,9 @@ Public API
 from __future__ import annotations
 
 import sqlite3
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
-from mediaman.core.time import parse_iso_strict_utc
+from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.services.infra.settings_reader import get_string_setting
 
 #: Hours a manually-triggered refresh blocks further manual refreshes.
@@ -42,7 +42,7 @@ def refresh_cooldown_remaining(conn: sqlite3.Connection) -> timedelta | None:
     if last is None:
         return None
     cooldown = timedelta(hours=RECOMMENDATION_REFRESH_COOLDOWN_HOURS)
-    elapsed = datetime.now(UTC) - last
+    elapsed = now_utc() - last
     if elapsed >= cooldown:
         return None
     return cooldown - elapsed

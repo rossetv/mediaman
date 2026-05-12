@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import requests
 from plexapi.exceptions import PlexApiException
 
+from mediaman.core.time import now_utc
 from mediaman.services.openai.recommendations.enrich import enrich_recommendations
 from mediaman.services.openai.recommendations.prompts import (
     generate_personal,
@@ -41,7 +42,7 @@ def refresh_recommendations(
 
     Returns the total number of recommendations generated.
     """
-    now = datetime.now(UTC)
+    now = now_utc()
     today = now.strftime("%Y-%m-%d")
 
     rows = conn.execute("""

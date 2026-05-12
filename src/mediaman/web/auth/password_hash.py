@@ -412,6 +412,8 @@ def change_password(
         # write failure never blocks a successful rotation. We are
         # already past the bcrypt+UPDATE so the worst that happens here
         # is a stale 1-2 entry sitting around.
+        # rationale: best-effort failure-counter cleanup — the password has already
+        # changed; a stale counter entry is cosmetic noise, not a correctness failure.
         try:
             record_success(conn, namespace)
         except Exception:  # pragma: no cover — counter cleanup is best-effort
@@ -484,6 +486,9 @@ def delete_user(
     # Best-effort cleanup of any reauth tickets the deleted user held —
     # done outside the transaction so a tickets-table hiccup never
     # blocks a successful delete.
+    # rationale: best-effort reauth revocation — the user row is already deleted;
+    # a leftover ticket is a minor hygiene gap, not a security hole, and must
+    # not roll back or block the successful delete response.
     try:
         from mediaman.web.auth.reauth import revoke_all_reauth_for
 
