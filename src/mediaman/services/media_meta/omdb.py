@@ -30,8 +30,7 @@ import sqlite3
 import requests
 
 from mediaman.core.scrub_filter import ScrubFilter, register_secret
-from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
-from mediaman.services.infra.settings_reader import get_string_setting
+from mediaman.services.infra import SafeHTTPClient, SafeHTTPError, get_string_setting
 
 #: Base URL for the OMDb REST API.
 OMDB_API_BASE_URL = "https://www.omdbapi.com"

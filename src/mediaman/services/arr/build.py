@@ -13,7 +13,7 @@ import logging
 import sqlite3
 from typing import TYPE_CHECKING
 
-from mediaman.services.infra.settings_reader import get_string_setting
+from mediaman.services.infra import get_string_setting
 
 if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient

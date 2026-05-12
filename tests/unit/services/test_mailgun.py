@@ -1,6 +1,6 @@
 import pytest
 
-from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError
 from mediaman.services.mail.mailgun import (
     MailgunClient,
     _validate_header_value,

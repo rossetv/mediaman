@@ -20,7 +20,7 @@ import sqlite3
 from datetime import datetime, timedelta
 
 from mediaman.core.time import now_utc, parse_iso_strict_utc
-from mediaman.services.infra.settings_reader import get_string_setting
+from mediaman.services.infra import get_string_setting
 
 #: Hours a manually-triggered refresh blocks further manual refreshes.
 RECOMMENDATION_REFRESH_COOLDOWN_HOURS: int = 24

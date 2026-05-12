@@ -19,7 +19,7 @@ from mediaman.core.audit import security_event, security_event_or_raise
 from mediaman.core.time import now_iso
 from mediaman.crypto import validate_unsubscribe_token
 from mediaman.db import get_db
-from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError
 from mediaman.services.mail.newsletter import NewsletterConfigError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.services.rate_limit.instances import (

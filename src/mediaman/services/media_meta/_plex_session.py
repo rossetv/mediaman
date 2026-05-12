@@ -8,13 +8,16 @@ from typing import Any
 
 import requests as http_requests
 
-from mediaman.services.infra.http import (
+from mediaman.services.infra import (
     SafeHTTPError,
-    pin_dns_for_request,
 )
-from mediaman.services.infra.url_safety import (
+from mediaman.services.infra import (
     resolve_safe_outbound_url as _resolve_safe_outbound_url_default,
 )
+
+# pin_dns_for_request is not re-exported from mediaman.services.infra;
+# import directly from the http sub-package which owns it.
+from mediaman.services.infra.http import pin_dns_for_request
 
 # Name of the parent module — used to look up the potentially-monkeypatched
 # ``resolve_safe_outbound_url`` at call time so test fixtures that patch

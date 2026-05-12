@@ -510,7 +510,7 @@ class TestDownloadRecommendationSuccess:
         treat the conflict properly instead of silently logging a
         success.
         """
-        from mediaman.services.infra.http import SafeHTTPError
+        from mediaman.services.infra import SafeHTTPError
 
         conn = app.state.db
         rec_id = self._insert_movie_suggestion(conn)
@@ -537,7 +537,7 @@ class TestDownloadRecommendationSuccess:
         treat the conflict properly instead of silently logging a
         success.
         """
-        from mediaman.services.infra.http import SafeHTTPError
+        from mediaman.services.infra import SafeHTTPError
 
         conn = app.state.db
         rec_id = self._insert_tv_suggestion(conn)

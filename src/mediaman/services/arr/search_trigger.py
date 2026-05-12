@@ -62,8 +62,7 @@ from mediaman.services.arr.auto_abandon import maybe_auto_abandon
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.fetcher import fetch_arr_queue
-from mediaman.services.infra.http import SafeHTTPError
-from mediaman.services.infra.settings_reader import ConfigDecryptError
+from mediaman.services.infra import ConfigDecryptError, SafeHTTPError
 
 logger = logging.getLogger(__name__)
 
