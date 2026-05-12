@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.web.routes.library import router as library_router
@@ -50,7 +51,8 @@ def _app(app_factory, conn):
 
 
 class TestMediaDelete:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_limiters(self):
         _DELETE_LIMITER.reset()
 
     def test_delete_requires_auth(self, app_factory, conn):
@@ -169,7 +171,8 @@ class TestMediaDelete:
 class TestMediaDeleteTransactional:
     """C22 — transactional delete with Arr failure propagation."""
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_limiters(self):
         _DELETE_LIMITER.reset()
 
     def test_arr_failure_returns_502_and_preserves_row(self, app_factory, authed_client, conn):
@@ -478,7 +481,8 @@ class TestMediaRedownload:
 class TestMediaKeepRateLimit:
     """H20 — /api/media/{id}/keep must be rate-limited."""
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_limiters(self):
         _KEEP_LIMITER.reset()
         _DELETE_LIMITER.reset()
 
@@ -563,7 +567,8 @@ class TestLibrarySearchLikeEscape:
 class TestRedownloadSafeHTTPError:
     """SafeHTTPError 409/422 from Radarr/Sonarr must surface as 'already exists' responses."""
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_limiters(self):
         _DELETE_LIMITER.reset()
         _KEEP_LIMITER.reset()
 
@@ -652,7 +657,8 @@ class TestRedownloadSafeHTTPError:
 class TestRedownloadTitleCap:
     """H11 — redownload title must be capped at 256 chars."""
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_limiters(self):
         _DELETE_LIMITER.reset()
         _KEEP_LIMITER.reset()
 

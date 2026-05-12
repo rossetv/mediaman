@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from mediaman.services.arr.search_trigger import reset_search_triggers
 from mediaman.services.downloads.download_queue import (
     _reset_previous_queue,
@@ -35,7 +37,8 @@ def _fake_conn_empty_recent():
 
 
 class TestBuildDownloadsResponseBuckets:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_triggers(self):
         reset_search_triggers()
 
     def test_response_has_upcoming_key(self, monkeypatch):
@@ -170,7 +173,8 @@ class TestBuildDownloadsResponseBuckets:
 class TestNzbSeriesMatching:
     """Regression tests for the multi-episode / movie-steals-series bugs."""
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_state(self):
         _reset_previous_queue()
         reset_search_triggers()
 

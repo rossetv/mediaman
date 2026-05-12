@@ -158,6 +158,5 @@ omit = [
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
-# Floor raised to 58% after health-pass improvements.
-# Raise incrementally as new tests are added.
-fail_under = 58
+# Achieved 85% on 2026-05-12 (W2.8 pass); floor set to 83% (achieved − 2 safety margin).
+fail_under = 83

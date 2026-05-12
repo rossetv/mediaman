@@ -13,6 +13,8 @@ Also covers completion detection (:mod:`mediaman.services.arr.completion`).
 
 from __future__ import annotations
 
+import pytest
+
 from mediaman.services.arr.completion import detect_completed
 from mediaman.services.downloads.download_format import (
     build_item,
@@ -224,7 +226,8 @@ class TestHeroSelection:
 
 
 class TestCompletionDetection:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_queue(self):
         """Reset state between tests."""
         _reset_previous_queue()
 

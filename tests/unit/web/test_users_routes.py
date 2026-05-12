@@ -11,6 +11,8 @@ tests don't assert on.
 
 from __future__ import annotations
 
+import pytest
+
 from mediaman.web.auth.session_store import create_session, validate_session
 from mediaman.web.routes.users import (
     _PASSWORD_CHANGE_IP_LIMITER,
@@ -34,7 +36,8 @@ def _build(app_factory, authed_client, conn, *, with_reauth: bool = True):
 class TestUserCreateRateLimit:
     """The user-creation limiter (3 per hour) fires independently of _USER_MGMT_LIMITER."""
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_limiters(self):
         for lim in (
             _USER_CREATE_LIMITER,
             _USER_MGMT_LIMITER,

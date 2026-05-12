@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from mediaman.web.routes.library import router as library_router
 from mediaman.web.routes.library_api import (
     _DELETE_LIMITER,
@@ -57,7 +59,8 @@ class TestRecordDeleteIntent:
 class TestDeleteIntentPersistence:
     """Integration: delete endpoint must write intent before external call."""
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_limiter(self):
         _DELETE_LIMITER.reset()
 
     def test_intent_created_before_radarr_call(self, app_factory, authed_client, conn):
@@ -127,7 +130,8 @@ class TestDeleteIntentPersistence:
 class TestReconcilePendingDeleteIntents:
     """Unit tests for the reconcile helper (finding 24)."""
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_limiter(self):
         _DELETE_LIMITER.reset()
 
     def test_reconcile_clears_intent_when_item_already_gone(self, conn):

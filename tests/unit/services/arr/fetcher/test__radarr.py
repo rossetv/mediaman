@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+# rationale: make_arr_card and fetch_radarr_queue are internal helpers not
+# exported via __all__; testing them directly is necessary to verify progress
+# clamping, release-name recording, and library-scanning logic in isolation.
 from mediaman.services.arr.fetcher._base import make_arr_card
 from mediaman.services.arr.fetcher._radarr import fetch_radarr_queue
 

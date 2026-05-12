@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
@@ -102,7 +103,8 @@ class TestNewsletterRecipientHeaderInjection:
 
     _KEY = "0123456789abcdef" * 4
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_limiter(self):
         from mediaman.web.routes.subscribers import _NEWSLETTER_LIMITER
 
         _NEWSLETTER_LIMITER.reset()

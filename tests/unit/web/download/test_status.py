@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.crypto import generate_download_token, generate_poll_token
@@ -78,7 +79,8 @@ class TestFormatTimeleft:
 
 
 class TestDownloadStatusAuth:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _clear_limiter(self):
         _DOWNLOAD_STATUS_LIMITER._attempts.clear()
 
     def test_unauthenticated_returns_401(self, app_factory, conn):
@@ -177,7 +179,8 @@ class TestDownloadStatusAuth:
 
 
 class TestDownloadStatusRadarr:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _clear_limiter(self):
         _DOWNLOAD_STATUS_LIMITER._attempts.clear()
 
     def test_radarr_movie_with_file_returns_ready(self, app_factory, authed_client, conn):
