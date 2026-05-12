@@ -292,8 +292,7 @@ def _check_season_ownership(
         unkeyed_ids = fetch_unkeyed_media_ids(conn, missing)
         if unkeyed_ids:
             logger.warning(
-                "keep_show.fallback_would_have_triggered user=%s "
-                "show_rating_key=%s unkeyed_ids=%s",
+                "keep_show.fallback_would_have_triggered user=%s show_rating_key=%s unkeyed_ids=%s",
                 admin,
                 resolved_key,
                 unkeyed_ids,

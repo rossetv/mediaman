@@ -187,9 +187,7 @@ def _radarr_ready_item(movie: RadarrMovie) -> DownloadItem:
     )
 
 
-def _radarr_queue_item(
-    queue: list[ArrQueueItem], tmdb_id: int
-) -> DownloadItem | None:
+def _radarr_queue_item(queue: list[ArrQueueItem], tmdb_id: int) -> DownloadItem | None:
     """Find the queue entry for *tmdb_id* and project it into a download item.
 
     Returns ``None`` when the queue does not contain a matching item.
@@ -224,9 +222,7 @@ def _radarr_queue_item(
     return None
 
 
-def _radarr_fallback_item(
-    conn: sqlite3.Connection, movie: RadarrMovie | None
-) -> DownloadItem:
+def _radarr_fallback_item(conn: sqlite3.Connection, movie: RadarrMovie | None) -> DownloadItem:
     """Return a recent-download or searching envelope when the queue had no match.
 
     Falls back to a "ready" envelope built from a recently-recorded
