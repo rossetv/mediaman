@@ -10,10 +10,16 @@ from __future__ import annotations
 import logging
 import sqlite3
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
+
+from mediaman.services.arr._types import RadarrMovie
 
 if TYPE_CHECKING:
+    from jinja2 import Template
+
     from mediaman.services.arr.base import ArrClient
+    from mediaman.services.arr.state import LazyArrClients
+    from mediaman.services.mail.mailgun import MailgunClient
 
 from mediaman.services.downloads._notification_backoff import (
     _BACKOFF_BASE_SECONDS,
@@ -174,7 +180,9 @@ def _fetch_suggestions_batch(
 _ARR_UNREACHABLE = object()  # sentinel returned by _check_arr_availability on outage
 
 
-def _check_radarr_movie(arr: Any, row_id: Any, tmdb_id: Any) -> tuple[bool, Any, bool]:
+def _check_radarr_movie(
+    arr: LazyArrClients, row_id: int, tmdb_id: int | None
+) -> tuple[bool, RadarrMovie | None, bool]:
     """Probe Radarr for a single movie's file availability.
 
     Returns ``(ready, movie_obj, arr_unreachable)``.  Network/HTTP
@@ -200,7 +208,9 @@ def _check_radarr_movie(arr: Any, row_id: Any, tmdb_id: Any) -> tuple[bool, Any,
     return bool(movie and movie.get("hasFile")), movie, False
 
 
-def _check_sonarr_series(arr: Any, row_id: Any, tvdb_id: Any, tmdb_id: Any) -> tuple[bool, bool]:
+def _check_sonarr_series(
+    arr: LazyArrClients, row_id: int, tvdb_id: int | None, tmdb_id: int | None
+) -> tuple[bool, bool]:
     """Probe Sonarr for a series' episode-file availability.
 
     Returns ``(ready, arr_unreachable)``.  Sonarr does not return a
@@ -229,14 +239,24 @@ def _check_sonarr_series(arr: Any, row_id: Any, tvdb_id: Any, tmdb_id: Any) -> t
 
 def _check_arr_availability(
     row: sqlite3.Row,
-    arr: Any,
+    arr: LazyArrClients,
     now_dt: datetime,
     conn: sqlite3.Connection,
-) -> tuple[bool, Any]:
+) -> tuple[bool, RadarrMovie | object | None]:
     """Check Radarr/Sonarr for file availability.
 
     Returns ``(ready, movie_obj)``.  On *arr unreachability, records the
     failure, releases the claim, and returns ``(False, _ARR_UNREACHABLE)``.
+    The second element of the tuple is either:
+
+    * a :class:`~mediaman.services.arr._types.RadarrMovie` (Radarr branch)
+    * ``None`` (no Radarr match, or Sonarr branch where the per-movie
+      payload isn't needed downstream)
+    * the :data:`_ARR_UNREACHABLE` sentinel when the *arr lookup failed.
+
+    # rationale: two separate service branches (radarr/sonarr) each with
+    # their own try/except — splitting further would separate the except
+    # from its try across function boundaries.
     """
     row_id = row["id"]
     service = row["service"]
@@ -260,9 +280,9 @@ def _check_arr_availability(
 def _process_one_notification(
     conn: sqlite3.Connection,
     row: sqlite3.Row,
-    arr: Any,
-    mailgun: Any,
-    template: Any,
+    arr: LazyArrClients,
+    mailgun: MailgunClient,
+    template: Template,
     suggestions_by_tmdb: dict[int, sqlite3.Row],
     now_dt: datetime,
 ) -> None:
@@ -295,7 +315,11 @@ def _process_one_notification(
             _release_claim(conn, row_id)
             return
 
-        subject, html = _build_email_payload(row, movie, suggestions_by_tmdb, template)
+        # The ``movie is _ARR_UNREACHABLE`` guard above eliminated the
+        # sentinel branch; cast narrows the union for mypy without
+        # touching runtime behaviour.
+        movie_typed = cast("RadarrMovie | None", movie)
+        subject, html = _build_email_payload(row, movie_typed, suggestions_by_tmdb, template)
         mailgun.send(to=email, subject=subject, html=html)
 
         conn.execute("UPDATE download_notifications SET notified=1 WHERE id=?", (row_id,))
