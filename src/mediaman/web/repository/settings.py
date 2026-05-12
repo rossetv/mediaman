@@ -25,12 +25,33 @@ from cryptography.exceptions import InvalidTag
 
 from mediaman.crypto import decrypt_value, encrypt_value
 from mediaman.services.infra.settings_reader import ConfigDecryptError
-from mediaman.web.routes.settings.secrets import (
-    INTERNAL_KEYS,
-    SECRET_CLEAR_SENTINEL,
-    SECRET_FIELDS,
-    SECRET_PLACEHOLDER,
+
+#: Sentinel value displayed in the UI and sent back when a secret field is
+#: unchanged — never persisted to the database.
+SECRET_PLACEHOLDER = "****"
+
+#: Explicit "delete this row" sentinel for secret fields. The previous
+#: design conflated "" (no-op) with "clear" — once a secret was stored,
+#: the UI had no way to delete it without falling back to direct DB
+#: surgery. Sending this sentinel deletes the row.
+SECRET_CLEAR_SENTINEL = "__CLEAR__"
+
+SECRET_FIELDS: frozenset[str] = frozenset(
+    {
+        "plex_token",
+        "sonarr_api_key",
+        "radarr_api_key",
+        "nzbget_password",
+        "mailgun_api_key",
+        "tmdb_api_key",
+        "tmdb_read_token",
+        "openai_api_key",
+        "omdb_api_key",
+    }
 )
+
+#: Internal crypto plumbing rows (HKDF salt, canary) — never shown in the UI.
+INTERNAL_KEYS: frozenset[str] = frozenset({"aes_kdf_salt", "aes_kdf_canary"})
 
 logger = logging.getLogger(__name__)
 

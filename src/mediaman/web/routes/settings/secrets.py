@@ -12,28 +12,17 @@ is safe to import from anywhere without side effects. Reads against the
 
 from __future__ import annotations
 
-#: Sentinel value displayed in the UI and sent back when a secret field is
-#: unchanged — never persisted to the database.
-SECRET_PLACEHOLDER = "****"
-
-#: Explicit "delete this row" sentinel for secret fields. The previous
-#: design conflated "" (no-op) with "clear" — once a secret was stored,
-#: the UI had no way to delete it without falling back to direct DB
-#: surgery. Sending this sentinel deletes the row.
-SECRET_CLEAR_SENTINEL = "__CLEAR__"
-
-SECRET_FIELDS: frozenset[str] = frozenset(
-    {
-        "plex_token",
-        "sonarr_api_key",
-        "radarr_api_key",
-        "nzbget_password",
-        "mailgun_api_key",
-        "tmdb_api_key",
-        "tmdb_read_token",
-        "openai_api_key",
-        "omdb_api_key",
-    }
+from mediaman.web.repository.settings import (
+    INTERNAL_KEYS as INTERNAL_KEYS,
+)
+from mediaman.web.repository.settings import (
+    SECRET_CLEAR_SENTINEL as SECRET_CLEAR_SENTINEL,
+)
+from mediaman.web.repository.settings import (
+    SECRET_FIELDS as SECRET_FIELDS,
+)
+from mediaman.web.repository.settings import (
+    SECRET_PLACEHOLDER as SECRET_PLACEHOLDER,
 )
 
 ALL_KEYS: frozenset[str] = SECRET_FIELDS | frozenset(
@@ -65,9 +54,6 @@ ALL_KEYS: frozenset[str] = SECRET_FIELDS | frozenset(
         "auto_abandon_enabled",
     }
 )
-
-#: Internal crypto plumbing rows (HKDF salt, canary) — never shown in the UI.
-INTERNAL_KEYS: frozenset[str] = frozenset({"aes_kdf_salt", "aes_kdf_canary"})
 
 #: Settings keys that require a recent-reauth ticket before they can be
 #: written. See the main module docstring for the membership rule.
