@@ -274,7 +274,9 @@ def _fetch_allowed_poster_bytes(poster_url: str) -> tuple[bytes | None, str | No
     return None, None
 
 
-def fetch_arr_poster(conn: sqlite3.Connection, rating_key: str, config: Config) -> tuple[bytes | None, str | None]:
+def fetch_arr_poster(
+    conn: sqlite3.Connection, rating_key: str, config: Config
+) -> tuple[bytes | None, str | None]:
     """Try to fetch a poster from Radarr/Sonarr TMDB data for a media item.
 
     Looks up the stored ``radarr_id`` / ``sonarr_id`` on the
