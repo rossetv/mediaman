@@ -268,9 +268,7 @@ def authenticate(
     short_circuit = _short_circuit_authenticate(conn, username, record_failures=record_failures)
     if short_circuit is not None:
         return short_circuit
-    return _verify_credentials_against_db(
-        conn, username, password, record_failures=record_failures
-    )
+    return _verify_credentials_against_db(conn, username, password, record_failures=record_failures)
 
 
 # rationale: verify old password, enforce policy, bcrypt the new one, write
