@@ -33,7 +33,7 @@ binding (User-Agent + client IP) is consistently applied:
     Convenience predicate over :func:`get_optional_admin_from_token` that
     pulls the ``session_token`` cookie off the request itself.  Used by
     page-rendering routes that toggle admin-only UI affordances on or off
-    without rejecting anonymous callers (keep, kept, recommended).
+    without rejecting anonymous callers (keep and kept).
 """
 
 from __future__ import annotations
@@ -155,10 +155,9 @@ def is_admin(request: Request) -> bool:
 
     Replaces the repeated ``get_optional_admin_from_token(request.cookies.get(
     "session_token"), request=request) is not None`` pattern previously
-    duplicated across the keep, kept, and recommended page routes.  Page
-    routes that gate admin-only UI affordances without rejecting anonymous
-    visitors should call this helper rather than re-implementing the cookie
-    lookup.
+    duplicated across the keep and kept page routes.  Page routes that gate
+    admin-only UI affordances without rejecting anonymous visitors should call
+    this helper rather than re-implementing the cookie lookup.
     """
     return (
         get_optional_admin_from_token(request.cookies.get("session_token"), request=request)

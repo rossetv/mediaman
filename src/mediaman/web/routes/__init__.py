@@ -10,6 +10,7 @@ Allowed dependencies: ``mediaman.web.auth``, ``mediaman.web.middleware``,
 ``mediaman.services.*``, ``mediaman.db``, ``mediaman.crypto``.
 
 Forbidden patterns: do not add cross-route imports — each sub-package should
-be independently mountable; shared helpers belong in ``mediaman.web._helpers``
+be independently mountable; shared helpers belong in ``mediaman.web.cookies``
+(session-cookie utilities), ``mediaman.web.auth.middleware`` (auth predicates),
 or the relevant service module.
 """
