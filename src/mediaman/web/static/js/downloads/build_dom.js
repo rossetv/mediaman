@@ -5,10 +5,13 @@
  * modules consume these to either build a fresh card or look up an
  * existing one to patch in place.
  *
+ * Thin aliases q, setText, and findByDlId delegate to MM.dom to avoid
+ * duplicating logic already provided by core/dom.js (CODE_GUIDELINES §1).
+ *
  * Exposes:
- *   MM.downloads.buildDom.q(sel, ctx)
- *   MM.downloads.buildDom.setText(el, txt)
- *   MM.downloads.buildDom.findByDlId(container, dlId)
+ *   MM.downloads.buildDom.q(sel, ctx)          → MM.dom.q
+ *   MM.downloads.buildDom.setText(el, txt)     → MM.dom.setText
+ *   MM.downloads.buildDom.findByDlId(c, dlId)  → MM.dom.findByAttr(c, 'data-dl-id', dlId)
  *   MM.downloads.buildDom.findByEp(container, label)
  *   MM.downloads.buildDom.buildHeroPlaceholder(id)
  *   MM.downloads.buildDom.buildRecentItem(r)
@@ -20,19 +23,6 @@
 
   window.MM = window.MM || {};
   MM.downloads = MM.downloads || {};
-
-  function q(sel, ctx) { return (ctx || document).querySelector(sel); }
-  function setText(el, txt) { if (el && el.textContent !== txt) el.textContent = txt; }
-
-  /* Find element by data-dl-id without selector injection. */
-  function findByDlId(container, dlId) {
-    if (!container) return null;
-    var els = container.querySelectorAll('[data-dl-id]');
-    for (var i = 0; i < els.length; i++) {
-      if (els[i].getAttribute('data-dl-id') === dlId) return els[i];
-    }
-    return null;
-  }
 
   /* Find element by data-ep without selector injection. */
   function findByEp(container, label) {
@@ -270,13 +260,13 @@
   }
 
   MM.downloads.buildDom = {
-    q: q,
-    setText: setText,
-    findByDlId: findByDlId,
-    findByEp: findByEp,
+    q:                 function (sel, ctx)     { return MM.dom.q(sel, ctx); },
+    setText:           function (el, txt)      { return MM.dom.setText(el, txt); },
+    findByDlId:        function (container, dlId) { return MM.dom.findByAttr(container, 'data-dl-id', dlId); },
+    findByEp:          findByEp,
     buildHeroPlaceholder: buildHeroPlaceholder,
-    buildRecentItem: buildRecentItem,
-    buildEmptyState: buildEmptyState,
-    buildUpcomingRow: buildUpcomingRow,
+    buildRecentItem:   buildRecentItem,
+    buildEmptyState:   buildEmptyState,
+    buildUpcomingRow:  buildUpcomingRow,
   };
 })();
