@@ -15,13 +15,14 @@ import logging
 import sqlite3
 import threading
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from functools import lru_cache
 
 import requests as _requests
 from fastapi import Request
 
 from mediaman.core.time import now_iso as _now_iso
+from mediaman.core.time import now_utc
 from mediaman.db import get_db
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
@@ -141,7 +142,7 @@ _ENRICH_BUDGET_SECONDS = 6.0
 def _enrich_ratings(results: list[dict[str, object]], request: Request) -> None:
     conn = get_db()
     secret_key = request.app.state.config.secret_key
-    cutoff = (datetime.now(UTC) - timedelta(days=_RATINGS_TTL_DAYS)).isoformat()
+    cutoff = (now_utc() - timedelta(days=_RATINGS_TTL_DAYS)).isoformat()
 
     by_key: dict[tuple[int, str], list[dict[str, object]]] = {}
     for r in results:

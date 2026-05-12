@@ -18,12 +18,12 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, TypedDict
 
 import requests
 
 from mediaman.core.audit import log_audit
+from mediaman.core.time import now_utc
 from mediaman.scanner import repository
 from mediaman.services.arr.base import ArrError
 from mediaman.services.infra import DeletionRefused, SafeHTTPError, delete_path
@@ -298,7 +298,7 @@ class DeletionExecutor:
         4. On success: commit deletion audit + drop action row.
         5. Best-effort *arr unmonitor (outside any transaction).
         """
-        now = datetime.now(UTC)
+        now = now_utc()
         deleted_count = 0
         reclaimed_bytes = 0
 

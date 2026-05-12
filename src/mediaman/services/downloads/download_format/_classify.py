@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
+from datetime import datetime
 
 from mediaman.core.format import format_day_month
-from mediaman.core.time import parse_iso_utc
+from mediaman.core.time import now_utc, parse_iso_utc
 
 # rationale: these helpers consume *arr response shapes that are described
 # by TypedDicts in :mod:`mediaman.services.arr._types`, but mypy treats a
@@ -64,7 +64,7 @@ def compute_movie_released_at(movie: _ArrLike) -> float:
     auto-abandon treats that as "release date unknown" and skips the item
     rather than guessing.
     """
-    now = datetime.now(UTC)
+    now = now_utc()
     max_year = now.year + _MAX_FUTURE_YEARS
     candidates: list[datetime] = []
     for key in ("digitalRelease", "physicalRelease", "inCinemas"):
@@ -90,7 +90,7 @@ def compute_series_released_at(episodes: Sequence[_ArrLike]) -> float:
     already covers the upcoming case via ``is_upcoming``. Returns ``0.0``
     when no episode has a parseable past ``airDateUtc``.
     """
-    now = datetime.now(UTC)
+    now = now_utc()
     latest: datetime | None = None
     for ep in episodes:
         raw = ep.get("airDateUtc", "")
@@ -116,7 +116,7 @@ def classify_movie_upcoming(movie: _ArrLike) -> tuple[bool, str]:
     if movie.get("isAvailable"):
         return False, ""
 
-    now = datetime.now(UTC)
+    now = now_utc()
     max_year = now.year + _MAX_FUTURE_YEARS
     candidates = []
     for key in ("digitalRelease", "physicalRelease", "inCinemas"):
@@ -152,7 +152,7 @@ def classify_series_upcoming(series: _ArrLike, episodes: Sequence[_ArrLike]) -> 
     if isinstance(file_count, int) and file_count > 0:
         return False, ""
 
-    now = datetime.now(UTC)
+    now = now_utc()
     status_raw = series.get("status") or ""
     status = status_raw.lower() if isinstance(status_raw, str) else ""
 

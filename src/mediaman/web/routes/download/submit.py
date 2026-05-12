@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Rate-limiter is process-scoped: per-IP attempt counters must survive across
+# requests in the same worker process to be effective.
 _DOWNLOAD_LIMITER_POST = RateLimiter(max_attempts=10, window_seconds=60)
 
 

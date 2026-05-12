@@ -37,6 +37,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Rate-limiter is process-scoped: per-IP counters must persist across requests
+# in the same worker to enforce the rolling window correctly.
 _DOWNLOAD_STATUS_LIMITER = RateLimiter(max_attempts=120, window_seconds=60)
 
 # ---------------------------------------------------------------------------

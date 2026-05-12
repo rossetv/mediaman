@@ -52,6 +52,10 @@ _HTTP_CLIENT_MODULE = "mediaman.services.infra.http.dns_pinning"
 # Module-level singletons
 # ---------------------------------------------------------------------------
 
+# DNS pin cache: per-thread pin map, the original resolver reference, and a
+# one-time install guard must all be module-global so the monkey-patch survives
+# across every outbound socket call in the process without re-patching on each
+# request.
 _DNS_PIN_LOCAL = threading.local()
 _ORIG_GETADDRINFO = socket.getaddrinfo
 _PIN_INSTALL_LOCK = threading.Lock()

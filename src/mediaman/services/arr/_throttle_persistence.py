@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import UTC
+from datetime import UTC, timedelta
 
+from mediaman.core.time import now_utc
 from mediaman.services.arr._throttle_state import (
     _last_search_trigger,
     _last_search_trigger_by_arr,
@@ -208,9 +209,7 @@ def reconcile_stranded_throttle(
     Returns:
         Number of rows deleted.
     """
-    from datetime import datetime, timedelta
-
-    cutoff = (datetime.now(UTC) - timedelta(seconds=ttl_seconds)).isoformat()
+    cutoff = (now_utc() - timedelta(seconds=ttl_seconds)).isoformat()
     try:
         cur = conn.execute(
             "DELETE FROM arr_search_throttle WHERE last_triggered_at < ?",

@@ -72,8 +72,9 @@ def scan_items(
                 summary["skipped"] += 1
                 continue
             _apply_scan_decision(engine, media_id, decision, summary)
+        # rationale: scheduler runner — a single bad library item must not abort
+        # the whole scan; log and carry on to the remaining items.
         except Exception:
-            # broad — per-item failures must not abort the rest of the library
             summary["errors"] += 1
             logger.exception(
                 "%s scan item failed (plex_rating_key=%s)",

@@ -12,10 +12,10 @@ import re
 import sqlite3
 import threading
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import TypedDict
 
-from mediaman.core.time import parse_iso_strict_utc
+from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.core.time import parse_iso_utc as _parse_iso_aware
 from mediaman.crypto import generate_session_token
 from mediaman.web.auth._session_fingerprint import (
@@ -42,6 +42,9 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
+# Rate-limit state: tracks when the last expired-session sweep ran so consecutive
+# requests on the same process only trigger a write transaction at most once per
+# minute — kept global because the sweep is process-wide, not request-scoped.
 _EXPIRED_CLEANUP_INTERVAL = 60.0
 _last_cleanup_at = 0.0
 _cleanup_lock = threading.Lock()
@@ -68,7 +71,7 @@ def create_session(
     """Create a session and return the opaque token."""
     token = generate_session_token()
     token_hash = _hash_token(token)
-    now = datetime.now(UTC)
+    now = now_utc()
     now_iso = now.isoformat()
     if ttl_seconds is None:
         expires_at = (now + timedelta(days=_HARD_EXPIRY_DAYS)).isoformat()
@@ -208,6 +211,8 @@ def _cleanup_expired_with_commit(conn: sqlite3.Connection, now_iso: str) -> None
         "DELETE FROM admin_sessions WHERE expires_at < ?",
         (now_iso,),
     )
+    # rationale: best-effort reauth sweep — a failure here must not abort the
+    # session sweep that already ran; log and let the next sweep retry.
     try:
         from mediaman.web.auth.reauth import cleanup_expired_reauth
 
@@ -376,7 +381,7 @@ def validate_session(
     if not token or not _SESSION_TOKEN_RE.fullmatch(token):
         return None
 
-    now_dt = datetime.now(UTC)
+    now_dt = now_utc()
     now_iso = now_dt.isoformat()
     token_hash = _hash_token(token)
 
@@ -460,6 +465,8 @@ def destroy_all_sessions_for(conn: sqlite3.Connection, username: str) -> int:
     """
     cur = conn.execute("DELETE FROM admin_sessions WHERE username = ?", (username,))
     conn.commit()
+    # rationale: best-effort reauth revocation — a failure here must not roll
+    # back the bulk session delete that already committed; log and continue.
     try:
         from mediaman.web.auth.reauth import revoke_all_reauth_for
 

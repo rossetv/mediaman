@@ -17,6 +17,8 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from mediaman.core.time import now_utc
+
 
 @dataclass(frozen=True)
 class RecentDownload:
@@ -56,7 +58,7 @@ def claim_download_token(conn: sqlite3.Connection, *, digest: str, exp: int) -> 
     constraint on ``token_hash`` give us atomic claim semantics.
     """
     expires_at = datetime.fromtimestamp(exp, tz=UTC).isoformat()
-    used_at = datetime.now(UTC).isoformat()
+    used_at = now_utc().isoformat()
     cursor = conn.execute(
         "INSERT OR IGNORE INTO used_download_tokens "
         "(token_hash, expires_at, used_at) VALUES (?, ?, ?)",
