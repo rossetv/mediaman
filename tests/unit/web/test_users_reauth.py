@@ -366,7 +366,7 @@ class TestCreateUserAuditInTransaction:
         app = _make_app(conn, secret_key)
         client, _ = _client(app, conn, with_reauth=True)
 
-        # The audit insert lives inside create_user (in mediaman.audit).
+        # The audit insert lives inside create_user (in mediaman.core.audit).
         # Patch it there so the in-transaction insert blows up.
         import sqlite3 as _sqlite3
 
