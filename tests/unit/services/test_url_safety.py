@@ -468,3 +468,98 @@ class TestIsSafeOutboundUrlAllowlist:
             "http://xn--bcher-kva.example.com/",
             allowed_hosts=frozenset({"other.example.com"}),
         )
+
+
+class TestAllowedOutboundHostsFailClosed:
+    """``allowed_outbound_hosts`` must return the pinned-only set on
+    ``sqlite3.Error`` rather than a partially-populated allowlist.
+
+    The docstring promises fail-closed behaviour; previously the helper
+    silently dropped the failing row and kept assembling the allowlist,
+    which produced a half-built set after a partial scan.
+    """
+
+    def test_sqlite_error_returns_pinned_only(self, settings_db):
+        # Wrap the real conn so the first ``execute`` raises — mimics
+        # a transient OperationalError mid-iteration. ``sqlite3.Connection``
+        # itself is C-level and refuses attribute assignment, so a thin
+        # proxy is the cleanest way to inject the failure.
+        class FailingConn:
+            def __init__(self, inner):
+                self._inner = inner
+
+            def execute(self, *_a, **_kw):
+                raise sqlite3.OperationalError("simulated schema drift")
+
+        # Pre-populate so we'd see a leak of half-built state if the
+        # function were to keep going after the first failure.
+        insert_settings(settings_db, plex_url="http://plex.lan:32400/", updated_at="")
+        wrapped = FailingConn(settings_db)
+
+        hosts = allowed_outbound_hosts(wrapped)  # type: ignore[arg-type]
+        assert hosts == PINNED_EXTERNAL_HOSTS
+        assert "plex.lan" not in hosts
+
+
+class TestSafeHTTPClientAllowlistWiring:
+    """Production-style wiring check (W1.32).
+
+    The contract is:
+
+    * Composing the allowlist from a settings DB with ``plex_url=...``
+      includes that host.
+    * Constructing a :class:`SafeHTTPClient` with that allowlist allows
+      a request to the configured host.
+    * The same client refuses a request to an off-allowlist host with
+      :class:`SafeHTTPError` (the SSRF-refusal shape on the boundary).
+    """
+
+    def test_configured_plex_host_is_allowlisted(self, settings_db, clean_dns):
+        from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
+
+        insert_settings(settings_db, plex_url="http://plex.lan:32400/", updated_at="")
+        composed = allowed_outbound_hosts(settings_db)
+        assert "plex.lan" in composed
+
+        client = SafeHTTPClient(allowed_hosts=composed)
+        # Intercept the actual transport so the test stays hermetic; we
+        # only care that the SSRF guard does NOT refuse this URL.
+        called: list = []
+
+        def fake_dispatch(*args, **_kwargs):
+            called.append(args)
+            return _stub_safe_response()
+
+        import mediaman.services.infra.http.client as http_client_mod
+
+        original_dispatch = http_client_mod._dispatch
+        http_client_mod._dispatch = fake_dispatch  # type: ignore[assignment]
+        try:
+            client.get("http://plex.lan:32400/library/sections")
+        finally:
+            http_client_mod._dispatch = original_dispatch  # type: ignore[assignment]
+        assert called, "configured plex host must reach the dispatcher"
+
+        # An off-allowlist host with the same composed allowlist refuses.
+        with pytest.raises(SafeHTTPError) as excinfo:
+            client.get("http://attacker.example.com/")
+        assert "refused by SSRF guard" in excinfo.value.body_snippet
+
+
+def _stub_safe_response():
+    """Minimal :class:`requests.Response` stand-in for the dispatcher.
+
+    Returns the smallest object the streaming reader will accept: a
+    200 status, no content-length header, and an iterator yielding a
+    single empty chunk so the body cap is never tripped.
+    """
+    from unittest.mock import MagicMock
+
+    import requests as http_requests
+
+    resp = MagicMock(spec=http_requests.Response)
+    resp.status_code = 200
+    resp.headers = {"Content-Type": "image/jpeg"}
+    resp.iter_content = lambda chunk_size=65536: iter([b""])
+    resp.close = MagicMock()
+    return resp

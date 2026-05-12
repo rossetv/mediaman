@@ -23,13 +23,21 @@ from mediaman.services.infra.url_safety import (
 _PLEX_MODULE_NAME = "mediaman.services.media_meta.plex"
 
 
-def _resolve_safe_outbound_url(url: str):
+def _resolve_safe_outbound_url(
+    url: str,
+    *,
+    allowed_hosts: frozenset[str] | None = None,
+):
     """Call ``resolve_safe_outbound_url``, delegating through the parent
     ``plex`` module's namespace when it is already imported.
 
     This indirection allows test code that monkeypatches
     ``plex.resolve_safe_outbound_url`` to affect behaviour here without
     requiring a circular import.
+
+    ``allowed_hosts`` is threaded through so per-session allowlist
+    enforcement (W1.32) reaches the underlying helper. When ``None``,
+    the helper falls back to deny-list-only validation.
     """
     plex_mod = _sys.modules.get(_PLEX_MODULE_NAME)
     fn = (
@@ -37,7 +45,13 @@ def _resolve_safe_outbound_url(url: str):
         if plex_mod is not None
         else _resolve_safe_outbound_url_default
     )
-    return fn(url)
+    # Preserve compatibility with monkeypatches that take ``url`` only:
+    # only thread ``allowed_hosts`` through when the caller actually
+    # supplied a set. A ``None`` allowlist is the deny-list-only default
+    # and equivalent to omitting the kwarg.
+    if allowed_hosts is None:
+        return fn(url)
+    return fn(url, allowed_hosts=allowed_hosts)
 
 
 # Matches X-Plex-Token query parameter values so they can be redacted from
@@ -88,8 +102,15 @@ class _SafePlexSession(http_requests.Session):
     ``request()`` because every verb method routes through it.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, allowed_hosts: frozenset[str] | None = None) -> None:
         super().__init__()
+        # Per-session allowlist (W1.32). The caller derives the
+        # composed set once at the boundary via
+        # :func:`~mediaman.services.infra.url_safety.allowed_outbound_hosts`
+        # and threads it through ``PlexClient`` to here. ``None`` means
+        # deny-list-only — the default for unit-test fixtures that do
+        # not exercise the allowlist path.
+        self._allowed_hosts = allowed_hosts
 
     def request(  # type: ignore[override]
         self,
@@ -107,7 +128,9 @@ class _SafePlexSession(http_requests.Session):
         #    time, and so a configured Plex URL pointing at an internal
         #    service is refused even if the operator persisted it before
         #    the check existed.
-        safe, hostname, pinned_ip = _resolve_safe_outbound_url(url)
+        safe, hostname, pinned_ip = _resolve_safe_outbound_url(
+            url, allowed_hosts=self._allowed_hosts
+        )
         if not safe:
             # Match the SafeHTTPError shape for consistency with
             # SafeHTTPClient — the scrubbed URL keeps any token out of

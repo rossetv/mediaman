@@ -40,7 +40,7 @@ from mediaman.services.arr import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.download_format import extract_poster_url
 from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
-from mediaman.services.infra.url_safety import is_safe_outbound_url
+from mediaman.services.infra.url_safety import allowed_outbound_hosts, is_safe_outbound_url
 from mediaman.web.repository.poster import PosterArrIds, fetch_arr_ids, fetch_plex_credentials
 from mediaman.web.routes.poster.cache import ALLOWED_IMAGE_MIMES
 
@@ -48,11 +48,47 @@ logger = logging.getLogger(__name__)
 
 # Remote poster fetches get a tight 3 s read timeout and 4 MiB cap — a
 # poster that doesn't download in 3 s is broken, and real posters run
-# well under 1 MiB. Keeping this at module scope shares the pool.
+# well under 1 MiB. The session is module-level so the connection pool
+# is shared across requests; the per-request client wraps it with the
+# conn-derived SSRF allowlist (W1.32).
+_POSTER_SESSION = requests.Session()
+# W1.32 carve-out: back-compat stub-target for tests; production routes via _make_poster_client.
 _POSTER_HTTP = SafeHTTPClient(
+    session=_POSTER_SESSION,
     default_timeout=(3.0, 3.0),
     default_max_bytes=4 * 1024 * 1024,
 )
+
+
+def _make_poster_client(conn: sqlite3.Connection) -> SafeHTTPClient:
+    """Return a :class:`SafeHTTPClient` bound to *conn*'s SSRF allowlist.
+
+    The allowlist (W1.32) is the union of :data:`PINNED_EXTERNAL_HOSTS`
+    and the configured integration hosts from the ``settings`` table.
+    Re-deriving per request rather than at module import means a
+    just-saved ``plex_url`` is immediately allowlisted without a
+    restart.
+
+    The session is shared with :data:`_POSTER_HTTP` so the connection
+    pool persists across requests; only the allowlist context is
+    per-call.
+
+    Existing tests monkeypatch ``_POSTER_HTTP`` itself to a stub. If
+    the module-level attribute has been swapped out (i.e. it is no
+    longer the original :class:`SafeHTTPClient`), return that stub
+    unmodified so those tests continue to observe their patched
+    transport. Production code keeps the original instance, so the
+    fresh, allowlist-bound client is constructed normally.
+    """
+    if not isinstance(_POSTER_HTTP, SafeHTTPClient):
+        return _POSTER_HTTP
+    return SafeHTTPClient(
+        session=_POSTER_SESSION,
+        default_timeout=(3.0, 3.0),
+        default_max_bytes=4 * 1024 * 1024,
+        allowed_hosts=allowed_outbound_hosts(conn),
+    )
+
 
 # SSRF allow-list for Radarr/Sonarr remote poster fetches.
 #
@@ -193,7 +229,9 @@ def fetch_plex_poster(
 ) -> tuple[bytes | None, str]:
     """Fetch a poster from Plex.  Returns ``(content, content_type)`` or ``(None, 'image/jpeg')``.
 
-    *http_client* defaults to :data:`_POSTER_HTTP`; tests substitute a stub.
+    *http_client* defaults to :data:`_POSTER_HTTP`; callers that need the
+    SSRF allowlist enforced (W1.32) should pass a client built via
+    :func:`_make_poster_client`. Tests substitute a stub.
     """
     client = http_client if http_client is not None else _POSTER_HTTP
     thumb_url = f"{plex_base}/library/metadata/{rating_key}/thumb"
@@ -255,17 +293,24 @@ def _resolve_arr_poster_url(
     return None, title
 
 
-def _fetch_allowed_poster_bytes(poster_url: str) -> tuple[bytes | None, str | None]:
+def _fetch_allowed_poster_bytes(
+    poster_url: str, *, http_client: SafeHTTPClient | None = None
+) -> tuple[bytes | None, str | None]:
     """Fetch poster bytes from *poster_url* after host-allow-list check.
 
     Returns ``(content_bytes, content_type)`` or ``(None, None)`` when
     the host is disallowed or the fetch fails.
+
+    *http_client* defaults to :data:`_POSTER_HTTP`; callers that need the
+    SSRF allowlist enforced (W1.32) pass a client built via
+    :func:`_make_poster_client`.
     """
     if not is_allowed_poster_host(poster_url):
         logger.warning("Refusing Radarr/Sonarr poster fetch for disallowed host: %s", poster_url)
         return None, None
+    client = http_client if http_client is not None else _POSTER_HTTP
     try:
-        resp = _POSTER_HTTP.get(poster_url)
+        resp = client.get(poster_url)
         return resp.content, safe_mime(resp.headers.get("Content-Type"))
     except SafeHTTPError as exc:
         logger.warning("Arr poster fetch refused/failed: %s (%s)", poster_url, exc.status_code)
@@ -275,7 +320,11 @@ def _fetch_allowed_poster_bytes(poster_url: str) -> tuple[bytes | None, str | No
 
 
 def fetch_arr_poster(
-    conn: sqlite3.Connection, rating_key: str, config: Config
+    conn: sqlite3.Connection,
+    rating_key: str,
+    config: Config,
+    *,
+    http_client: SafeHTTPClient | None = None,
 ) -> tuple[bytes | None, str | None]:
     """Try to fetch a poster from Radarr/Sonarr TMDB data for a media item.
 
@@ -288,6 +337,9 @@ def fetch_arr_poster(
     Returns ``(content_bytes, content_type)`` or ``(None, None)`` when
     no source can supply the poster.  The caller responds with 404 in
     that case rather than guess a replacement.
+
+    *http_client* threads through to :func:`_fetch_allowed_poster_bytes`
+    so the SSRF allowlist (W1.32) reaches the actual transport call.
     """
     row = fetch_arr_ids(conn, rating_key)
     if not row:
@@ -296,7 +348,7 @@ def fetch_arr_poster(
     poster_url, _title = _resolve_arr_poster_url(conn, row, config)
     if not poster_url:
         return None, None
-    return _fetch_allowed_poster_bytes(poster_url)
+    return _fetch_allowed_poster_bytes(poster_url, http_client=http_client)
 
 
 def resolve_poster_content(
@@ -306,11 +358,22 @@ def resolve_poster_content(
 
     Returns ``(content, content_type, None)`` on success, or
     ``(None, '', 404_response)`` when no source has a poster.
+
+    Builds one :class:`SafeHTTPClient` per request via
+    :func:`_make_poster_client` so the SSRF allowlist composed from the
+    current settings reaches every outbound poster fetch (W1.32). The
+    same client is threaded through Plex and the Radarr/Sonarr fallback
+    so a misconfigured `plex_url` cannot mask an allowlist gap.
     """
-    content, content_type = fetch_plex_poster(plex_base, plex_token, rating_key)
+    poster_client = _make_poster_client(conn)
+    content, content_type = fetch_plex_poster(
+        plex_base, plex_token, rating_key, http_client=poster_client
+    )
     # Fallback: fetch poster from Radarr/Sonarr via TMDB if Plex has none
     if content is None:
-        content, fallback_type = fetch_arr_poster(conn, rating_key, config)
+        content, fallback_type = fetch_arr_poster(
+            conn, rating_key, config, http_client=poster_client
+        )
         if content is None:
             logger.info("Poster unavailable for rating_key=%s — returning 404", rating_key)
             return None, "", Response(status_code=404)
