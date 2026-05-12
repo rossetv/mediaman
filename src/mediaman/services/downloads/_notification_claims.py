@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
-from mediaman.core.time import now_iso
+from mediaman.core.time import now_iso, now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +139,7 @@ def reconcile_stranded_notifications(
     pipeline isn't reaped — it is only ever observed by the next process
     after a restart, by which point the previous in-flight call is gone.
     """
-    cutoff = (datetime.now(UTC) - timedelta(seconds=grace_seconds)).isoformat()
+    cutoff = (now_utc() - timedelta(seconds=grace_seconds)).isoformat()
     cur = conn.execute(
         "UPDATE download_notifications "
         "SET notified=0, claimed_at=NULL "

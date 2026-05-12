@@ -106,6 +106,9 @@ class _LastUser(Exception):
     """
 
 
+# Module-global dummy hash: computed once at cold-start cost (bcrypt) and
+# reused on every unauthenticated request to prevent timing-attack enumeration
+# of valid usernames — a per-request hash would be both wasteful and less stable.
 _DUMMY_HASH: bytes | None = None
 _DUMMY_HASH_LOCK = threading.Lock()
 

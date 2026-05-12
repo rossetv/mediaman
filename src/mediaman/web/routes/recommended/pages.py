@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 from collections import OrderedDict
-from datetime import UTC, datetime
 from datetime import date as _date
+from datetime import datetime
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.responses import Response
 
+from mediaman.core.time import now_utc
 from mediaman.services.arr.state import (
     LazyArrClients,
     RadarrCaches,
@@ -198,7 +199,7 @@ def recommended_page(request: Request) -> Response:
         next_manual_refresh_at = None
     else:
         manual_refresh_available = False
-        next_manual_refresh_at = (datetime.now(UTC) + cooldown).isoformat()
+        next_manual_refresh_at = (now_utc() + cooldown).isoformat()
 
     templates = request.app.state.templates
     return templates.TemplateResponse(

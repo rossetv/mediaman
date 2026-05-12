@@ -10,7 +10,7 @@ Covers:
 from __future__ import annotations
 
 import json
-from datetime import UTC
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 from mediaman.services.openai.recommendations.prompts import (
@@ -132,11 +132,11 @@ class TestPreviousTitlesJsonEncoded:
 
         with (
             patch("mediaman.services.openai.recommendations.prompts.call_openai", fake_call_openai),
-            patch("mediaman.services.openai.recommendations.prompts.datetime") as mock_dt,
+            patch(
+                "mediaman.services.openai.recommendations.prompts.now_utc",
+                return_value=datetime(2026, 1, 7, 0, 0, 0, tzinfo=UTC),
+            ),
         ):
-            from datetime import datetime
-
-            mock_dt.now.return_value = datetime(2026, 1, 7, 0, 0, 0, tzinfo=UTC)
             from mediaman.services.openai.recommendations.prompts import generate_trending
 
             generate_trending(None, previous_titles=previous, secret_key=None)

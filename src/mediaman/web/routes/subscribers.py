@@ -59,6 +59,8 @@ _UNSUB_CONFIRMATION_MSG = "If that address was subscribed, it has now been remov
 
 _EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
 
+# Rate-limiter is process-scoped: per-IP attempt counters must persist across
+# requests in the same worker to enforce the unsubscribe rate window correctly.
 _UNSUB_LIMITER = RateLimiter(max_attempts=20, window_seconds=60)
 
 

@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import UTC, datetime
 
+from mediaman.core.time import now_utc
 from mediaman.db import get_db
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ def _record_delete_intent(
     detected and reconciled on startup via
     :func:`reconcile_pending_delete_intents`.
     """
-    now = datetime.now(UTC).isoformat()
+    now = now_utc().isoformat()
     cur = conn.execute(
         "INSERT INTO delete_intents "
         "(media_item_id, target_kind, target_id, started_at) "
@@ -48,7 +48,7 @@ def _complete_delete_intent(conn: sqlite3.Connection, intent_id: int) -> None:
     """Mark a delete intent as successfully completed."""
     conn.execute(
         "UPDATE delete_intents SET completed_at = ? WHERE id = ?",
-        (datetime.now(UTC).isoformat(), intent_id),
+        (now_utc().isoformat(), intent_id),
     )
     conn.commit()
 

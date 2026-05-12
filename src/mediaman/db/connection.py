@@ -24,9 +24,9 @@ import os
 import socket
 import sqlite3
 import threading
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
-from mediaman.core.time import now_iso
+from mediaman.core.time import now_iso, now_utc
 
 from .migrations import apply_migrations
 
@@ -202,7 +202,7 @@ def _is_job_running(conn: sqlite3.Connection, table: str) -> bool:
     has lapsed are treated as crashed so a new run can start cleanly.
     """
     _check_job_table(table)
-    cutoff = (datetime.now(UTC) - timedelta(seconds=_JOB_HEARTBEAT_STALE_SECONDS)).isoformat()
+    cutoff = (now_utc() - timedelta(seconds=_JOB_HEARTBEAT_STALE_SECONDS)).isoformat()
     row = conn.execute(
         f"SELECT id FROM {table} "
         "WHERE finished_at IS NULL "

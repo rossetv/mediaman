@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
+from mediaman.core.time import now_utc
 from mediaman.services.arr._types import RadarrMovie
 
 if TYPE_CHECKING:
@@ -380,7 +381,7 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
     # every invocation.
     template = _get_notification_template()
 
-    now_dt = datetime.now(UTC)
+    now_dt = now_utc()
     runnable = _partition_runnable(conn, pending, now_dt)
     if not runnable:
         return
