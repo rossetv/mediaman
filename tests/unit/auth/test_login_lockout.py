@@ -29,7 +29,7 @@ class TestCounterMechanics:
         record_failure(conn, "alice")
         assert is_locked_out(conn, "alice") is False
 
-    def test_five_failures_lock_for_fifteen_minutes(self, conn):
+    def test_five_failures_lock_for_fifteen_minutes(self, conn, freezer):
         for _ in range(5):
             record_failure(conn, "alice")
         assert is_locked_out(conn, "alice") is True
@@ -40,11 +40,11 @@ class TestCounterMechanics:
         ).fetchone()
         locked_until = datetime.fromisoformat(row["locked_until"])
         delta = locked_until - datetime.now(UTC)
-        # Allow a second of slack for clock jitter.
-        assert timedelta(minutes=14) < delta <= timedelta(minutes=15, seconds=5)
+        # Clock is frozen so the delta is exact — no jitter slack needed.
+        assert delta == timedelta(minutes=15)
         assert row["failure_count"] == 5
 
-    def test_ten_failures_lock_for_one_hour(self, conn):
+    def test_ten_failures_lock_for_one_hour(self, conn, freezer):
         for _ in range(10):
             record_failure(conn, "alice")
         assert is_locked_out(conn, "alice") is True
@@ -55,7 +55,8 @@ class TestCounterMechanics:
         ).fetchone()
         locked_until = datetime.fromisoformat(row["locked_until"])
         delta = locked_until - datetime.now(UTC)
-        assert timedelta(minutes=59) < delta <= timedelta(minutes=61)
+        # Clock is frozen so the delta is exact.
+        assert delta == timedelta(hours=1)
         assert row["failure_count"] == 10
 
     def test_success_clears_counter(self, conn):
@@ -69,7 +70,7 @@ class TestCounterMechanics:
 
 
 class TestDecay:
-    def test_old_streak_resets_on_next_failure(self, conn):
+    def test_old_streak_resets_on_next_failure(self, conn, freezer):
         """A failure streak that started > 24 h ago and is not locked
         should reset to 1 on the next recorded failure."""
         for _ in range(4):
@@ -94,7 +95,7 @@ class TestDecay:
         assert row["failure_count"] == 1
         assert is_locked_out(conn, "alice") is False
 
-    def test_locked_account_does_not_decay(self, conn):
+    def test_locked_account_does_not_decay(self, conn, freezer):
         """Still-locked accounts should not have their counter wiped by
         the decay check — otherwise a patient attacker waits 24 h, then
         tries once to get the counter back to 1."""
@@ -119,10 +120,10 @@ class TestDecay:
 
 
 class TestLockExpiry:
-    def test_lock_released_after_window(self, conn):
+    def test_lock_released_after_window(self, conn, freezer):
         for _ in range(5):
             record_failure(conn, "alice")
-        # Artificially expire the lock.
+        # Artificially expire the lock by back-dating it.
         past = (datetime.now(UTC) - timedelta(minutes=1)).isoformat()
         conn.execute(
             "UPDATE login_failures SET locked_until = ? WHERE username = ?",
@@ -194,7 +195,7 @@ class TestAuthenticateIntegration:
 class TestEscalatingLockoutWindows:
     """5-9 → 15 min, 10-14 → 1 h, 15+ → 24 h."""
 
-    def test_fifteen_failures_lock_for_twenty_four_hours(self, conn):
+    def test_fifteen_failures_lock_for_twenty_four_hours(self, conn, freezer):
         for _ in range(15):
             record_failure(conn, "alice")
         row = conn.execute(
@@ -203,8 +204,8 @@ class TestEscalatingLockoutWindows:
         ).fetchone()
         locked_until = datetime.fromisoformat(row["locked_until"])
         delta = locked_until - datetime.now(UTC)
-        # 24 h within 60 s slack.
-        assert timedelta(hours=23, minutes=59) < delta <= timedelta(hours=24, seconds=60)
+        # Clock is frozen so the delta is exact.
+        assert delta == timedelta(hours=24)
         assert row["failure_count"] == 15
 
     def test_record_failure_returns_current_window_minutes(self, conn):
@@ -227,7 +228,7 @@ class TestAuthenticateKeepsCountingWhileLocked:
     """C6: the 5-failure wall must not freeze the counter — otherwise
     the 10/15 escalation windows are unreachable."""
 
-    def test_counter_keeps_climbing_while_locked(self, conn):
+    def test_counter_keeps_climbing_while_locked(self, conn, freezer):
         create_user(conn, "alice", "correct-password-123", enforce_policy=False)
         # Trip the 5-failure lock.
         for _ in range(5):
@@ -251,10 +252,10 @@ class TestAuthenticateKeepsCountingWhileLocked:
             ("alice",),
         ).fetchone()
         assert row["failure_count"] == 10
-        # Lock now escalated to 1 h.
+        # Lock now escalated to 1 h — clock is frozen so the delta is exact.
         locked_until = datetime.fromisoformat(row["locked_until"])
         delta = locked_until - datetime.now(UTC)
-        assert timedelta(minutes=59) < delta <= timedelta(minutes=61)
+        assert delta == timedelta(hours=1)
 
 
 class TestConcurrentRecordFailure:
@@ -365,7 +366,7 @@ class TestNoExtendWhileLocked:
     locked out indefinitely by pinging the login endpoint forever.
     """
 
-    def test_locked_window_not_extended_by_same_threshold_failure(self, conn):
+    def test_locked_window_not_extended_by_same_threshold_failure(self, conn, freezer):
         """Attempts 6, 7, 8, 9 (still in the 5-9 band) must not refresh
         the 15-minute lock window."""
         # Trip the 5-failure / 15-minute lock.
@@ -397,7 +398,7 @@ class TestNoExtendWhileLocked:
             authenticate(conn, "alice", "wrong")
         assert authenticate(conn, "alice", "correct-password-99") is False
 
-    def test_escalation_still_extends_window(self, conn):
+    def test_escalation_still_extends_window(self, conn, freezer):
         """When the 10th and 15th failures cross to a STRICTER window,
         ``locked_until`` MUST be promoted — otherwise the escalation is
         unreachable."""
