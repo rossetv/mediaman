@@ -129,6 +129,12 @@ class _TransportMixin:
             self.last_error = str(exc)
             raise
 
+    # rationale: 63-line retry loop carries the ``last_observed`` /
+    # ``attempt`` state through every branch (already-unmonitored, success,
+    # transient failure, final failure). Extracting a per-attempt helper
+    # would thread three out-parameters through every call and the
+    # exception-vs-return distinction the loop relies on cannot be expressed
+    # as a sentinel return without making the orchestrator harder to read.
     def _unmonitor_with_retry(
         self,
         *,

@@ -242,6 +242,102 @@ def api_show_seasons(
     )
 
 
+def _validate_keep_show_input(
+    conn: sqlite3.Connection,
+    supplied_key: str,
+    duration: str,
+    season_ids: list[str],
+    admin: str,
+) -> tuple[str | None, JSONResponse | None]:
+    """Validate the keep-show request body and rating key.
+
+    Returns ``(resolved_key, None)`` on success or
+    ``(None, error_response)`` for the empty-season-list,
+    invalid-duration, and unresolved-rating-key branches.
+    """
+    if not season_ids:
+        return None, respond_err("no_seasons", status=400, message="No seasons selected")
+    if duration not in VALID_KEEP_DURATIONS:
+        return None, respond_err("invalid_duration", status=400)
+    resolved_key, err = _resolve_show_rating_key(conn, supplied_key)
+    if err or not resolved_key:
+        logger.warning(
+            "keep_show.rating_key_unresolved supplied=%r user=%s err=%s",
+            supplied_key,
+            admin,
+            err,
+        )
+        return None, respond_err(err or "unknown_show", status=409)
+    return resolved_key, None
+
+
+def _check_season_ownership(
+    conn: sqlite3.Connection,
+    season_ids: list[str],
+    resolved_key: str,
+    admin: str,
+) -> JSONResponse | None:
+    """Confirm every season in *season_ids* belongs to *resolved_key*.
+
+    Returns ``None`` on success or a 400 envelope when any season is
+    unowned. Logs the IDOR-fallback-would-have-triggered warning when
+    the unowned IDs lack any show_rating_key — that branch is the
+    diagnostic carry-over from the pre-W1.8 fallback behaviour.
+    """
+    owned_ids = fetch_owned_season_ids(conn, season_ids, resolved_key)
+    if owned_ids == set(season_ids):
+        return None
+    missing = set(season_ids) - owned_ids
+    if missing:
+        unkeyed_ids = fetch_unkeyed_media_ids(conn, missing)
+        if unkeyed_ids:
+            logger.warning(
+                "keep_show.fallback_would_have_triggered user=%s "
+                "show_rating_key=%s unkeyed_ids=%s",
+                admin,
+                resolved_key,
+                unkeyed_ids,
+            )
+    return respond_err(
+        "seasons_not_owned", status=400, message="Seasons do not belong to this show"
+    )
+
+
+def _build_season_action_rows(
+    season_ids: list[str],
+    existing_by_season: dict[str, int],
+    *,
+    action: str,
+    execute_at: str | None,
+    duration: str,
+    now_iso_str: str,
+) -> tuple[list[tuple], list[tuple]]:
+    """Partition season IDs into update / insert tuples for ``scheduled_actions``.
+
+    Returns ``(to_update, to_insert)`` shaped exactly as
+    :func:`set_protected_state` expects.
+    """
+    to_update = [
+        (action, execute_at, now_iso_str, duration, existing_by_season[sid])
+        for sid in season_ids
+        if sid in existing_by_season
+    ]
+    to_insert = [
+        (
+            sid,
+            action,
+            now_iso_str,
+            execute_at,
+            secrets.token_urlsafe(32),
+            now_iso_str,
+            duration,
+        )
+        for sid in season_ids
+        if sid not in existing_by_season
+    ]
+    return to_update, to_insert
+
+
 @router.post("/api/show/{show_rating_key}/keep")
 def api_keep_show(
     show_rating_key: str,
@@ -253,80 +349,46 @@ def api_keep_show(
     duration = body.duration
     season_ids = body.season_ids
 
-    if not season_ids:
-        return respond_err("no_seasons", status=400, message="No seasons selected")
+    resolved_key, err_response = _validate_keep_show_input(
+        conn, show_rating_key, duration, season_ids, admin
+    )
+    if err_response is not None or resolved_key is None:
+        return err_response or respond_err("unknown_show", status=409)
 
-    if duration not in VALID_KEEP_DURATIONS:
-        return respond_err("invalid_duration", status=400)
-
-    resolved_key, err = _resolve_show_rating_key(conn, show_rating_key)
-    if err or not resolved_key:
-        logger.warning(
-            "keep_show.rating_key_unresolved supplied=%r user=%s err=%s",
-            show_rating_key,
-            admin,
-            err,
-        )
-        return respond_err(err or "unknown_show", status=409)
-
-    owned_ids = fetch_owned_season_ids(conn, season_ids, resolved_key)
-    if owned_ids != set(season_ids):
-        missing = set(season_ids) - owned_ids
-        if missing:
-            unkeyed_ids = fetch_unkeyed_media_ids(conn, missing)
-            if unkeyed_ids:
-                logger.warning(
-                    "keep_show.fallback_would_have_triggered user=%s "
-                    "show_rating_key=%s unkeyed_ids=%s",
-                    admin,
-                    resolved_key,
-                    unkeyed_ids,
-                )
-        return respond_err(
-            "seasons_not_owned", status=400, message="Seasons do not belong to this show"
-        )
+    ownership_err = _check_season_ownership(conn, season_ids, resolved_key, admin)
+    if ownership_err is not None:
+        return ownership_err
 
     now = now_utc()
     decision = resolve_keep_decision(duration, days=VALID_KEEP_DURATIONS.get(duration), now=now)
-    action = decision.action
-    execute_at = decision.execute_at
-
     show_title = fetch_show_title(conn, resolved_key) or "Unknown"
+    now_iso_str = now.isoformat()
 
     upsert_kept_show(
         conn,
         show_rating_key=resolved_key,
         show_title=show_title,
-        action=action,
-        execute_at=execute_at,
+        action=decision.action,
+        execute_at=decision.execute_at,
         snooze_duration=duration,
-        created_at=now.isoformat(),
+        created_at=now_iso_str,
     )
 
     existing_by_season = fetch_existing_actions_for_seasons(conn, season_ids)
+    to_update, to_insert = _build_season_action_rows(
+        season_ids,
+        existing_by_season,
+        action=decision.action,
+        execute_at=decision.execute_at,
+        duration=duration,
+        now_iso_str=now_iso_str,
+    )
 
-    to_update = [
-        (action, execute_at, now.isoformat(), duration, existing_by_season[sid])
-        for sid in season_ids
-        if sid in existing_by_season
-    ]
-    to_insert = [
-        (
-            sid,
-            action,
-            now.isoformat(),
-            execute_at,
-            secrets.token_urlsafe(32),
-            now.isoformat(),
-            duration,
-        )
-        for sid in season_ids
-        if sid not in existing_by_season
-    ]
-
+    # W1.8: set_protected_state + log_audit share a single ``with conn:``
+    # block so a failure between the seasons write and the audit row
+    # rolls both back together. Helper extraction must preserve that.
     with conn:
         set_protected_state(conn, to_update=to_update, to_insert=to_insert)
-
         log_audit(
             conn,
             resolved_key,

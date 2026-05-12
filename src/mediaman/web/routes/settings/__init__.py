@@ -37,6 +37,7 @@ import json
 import logging
 import shutil
 import sqlite3
+from collections.abc import Callable
 
 import requests
 from fastapi import APIRouter, Cookie, Depends, Request
@@ -205,6 +206,91 @@ def api_get_settings(request: Request, admin: str = Depends(get_current_admin)) 
     return JSONResponse(settings)
 
 
+def _settings_write_throttled(
+    request: Request, conn: sqlite3.Connection, admin: str, body_dict: dict
+) -> JSONResponse | None:
+    """Return a 429 response if the admin has exhausted the write budget; else None.
+
+    Records a ``settings.write.throttled`` audit event before refusing so
+    we can see in the log when an actor is hitting the cap.
+    """
+    if _SETTINGS_WRITE_LIMITER.check(admin):
+        return None
+    logger.warning("settings.write_throttled user=%s", admin)
+    security_event(
+        conn,
+        event="settings.write.throttled",
+        actor=admin,
+        ip=get_client_ip(request),
+        detail={"keys": sorted(k for k in body_dict if k in _ALL_KEYS)},
+    )
+    return respond_err(
+        "too_many_requests", status=429, message="Too many settings changes — slow down"
+    )
+
+
+def _settings_reauth_required(
+    conn: sqlite3.Connection, body_dict: dict, session_token: str | None, admin: str
+) -> JSONResponse | None:
+    """Return a 403 when a sensitive key change lacks a recent reauth ticket; else None.
+
+    An attacker mixing one sensitive field with several harmless ones
+    must not get a partial write, so a single sensitive key in the body
+    rejects the entire PUT.
+    """
+    sensitive_write = _touches_sensitive_keys(body_dict)
+    if sensitive_write and not has_recent_reauth(conn, session_token, admin):
+        logger.warning("settings.write_rejected user=%s reason=reauth_required", admin)
+        return respond_err(
+            "reauth_required",
+            status=403,
+            message="Recent password re-authentication required for sensitive settings",
+            reauth_required=True,
+        )
+    return None
+
+
+def _persist_settings(
+    request: Request,
+    conn: sqlite3.Connection,
+    body_dict: dict,
+    secret_key: str,
+    admin: str,
+    now: str,
+) -> Response:
+    """Write the settings rows and audit entry; return the saved/ignored envelope.
+
+    Encrypt-on-write happens inside the repository so the plaintext
+    never escapes that boundary (§9.9). The audit row is written under
+    the same ``BEGIN IMMEDIATE`` so a SQLite or audit failure rolls
+    every settings mutation back together (M27).
+    """
+    written = sorted(k for k in body_dict if k in _ALL_KEYS)
+    ignored = sorted(k for k in body_dict if k not in _ALL_KEYS)
+    sensitive_written = sorted(k for k in written if k in SENSITIVE_KEYS)
+    try:
+        write_settings(
+            conn,
+            body_dict=body_dict,
+            allowed_keys=_ALL_KEYS,
+            secret_key=secret_key,
+            now=now,
+            audit={
+                "event": "settings.write",
+                "actor": admin,
+                "ip": get_client_ip(request),
+                "detail": {"keys": written, "sensitive_keys": sensitive_written},
+            },
+        )
+    except sqlite3.Error:
+        logger.exception("settings.write failed user=%s", admin)
+        return respond_err(
+            "internal_error", status=500, message="Internal error during settings write"
+        )
+    _invalidate_test_cache_for_keys(set(written))
+    return respond_ok({"status": "saved", "written": written, "ignored": ignored})
+
+
 @router.put("/api/settings")
 def api_update_settings(
     request: Request,
@@ -228,64 +314,123 @@ def api_update_settings(
     """
     body_dict: dict = body.model_dump(exclude_none=True)
     conn = get_db()
-    if not _SETTINGS_WRITE_LIMITER.check(admin):
-        logger.warning("settings.write_throttled user=%s", admin)
-        security_event(
-            conn,
-            event="settings.write.throttled",
-            actor=admin,
-            ip=get_client_ip(request),
-            detail={"keys": sorted(k for k in body_dict if k in _ALL_KEYS)},
-        )
-        return respond_err(
-            "too_many_requests", status=429, message="Too many settings changes — slow down"
-        )
-    config = request.app.state.config
-    now = now_iso()
+    throttled = _settings_write_throttled(request, conn, admin, body_dict)
+    if throttled is not None:
+        return throttled
 
     url_err = _validate_url_fields(body_dict)
     if url_err is not None:
         return url_err
 
-    sensitive_write = _touches_sensitive_keys(body_dict)
-    if sensitive_write and not has_recent_reauth(conn, session_token, admin):
-        logger.warning("settings.write_rejected user=%s reason=reauth_required", admin)
-        return respond_err(
-            "reauth_required",
-            status=403,
-            message="Recent password re-authentication required for sensitive settings",
-            reauth_required=True,
+    reauth_err = _settings_reauth_required(conn, body_dict, session_token, admin)
+    if reauth_err is not None:
+        return reauth_err
+
+    config = request.app.state.config
+    return _persist_settings(request, conn, body_dict, config.secret_key, admin, now_iso())
+
+
+def _resolve_tester_dispatch(
+    service: str, admin: str
+) -> tuple[Callable[[dict[str, object]], JSONResponse] | None, JSONResponse | None]:
+    """Look up *service*'s tester and gate cache/rate-limit replies.
+
+    Returns ``(tester, None)`` when the caller should proceed to a fresh
+    invocation, ``(None, response)`` for unknown-service, cache-hit, and
+    rate-limit replies. Cache hits bypass the rate limiter so a settings
+    page reload (8 services × cache hit) does not eat the per-minute
+    budget on the second visit.
+    """
+    tester = _SERVICE_TESTERS.get(service)
+    if tester is None:
+        # Use the canonical envelope: ``error`` is the machine-readable
+        # code, the human-readable name of the unknown service goes in
+        # ``message`` so a frontend can surface it without parsing the
+        # error code.
+        return None, respond_err(
+            "unknown_service",
+            status=400,
+            message=f"Unknown service: {service!r}",
         )
+    cached = _cache_get(service)
+    if cached is not None:
+        return None, JSONResponse(cached)
+    if not _SETTINGS_TEST_LIMITER.check(admin):
+        logger.warning("rate_limit.throttled scope=actor actor=%s", admin)
+        return None, respond_err(
+            "too_many_requests",
+            status=429,
+            message="Too many requests — slow down",
+        )
+    return tester, None
 
-    written = sorted(k for k in body_dict if k in _ALL_KEYS)
-    ignored = sorted(k for k in body_dict if k not in _ALL_KEYS)
-    sensitive_written = sorted(k for k in written if k in SENSITIVE_KEYS)
 
-    # rationale: encrypt-on-write happens inside the repository so the
-    # plaintext never escapes that boundary (§9.9). The audit row is
-    # written under the same ``BEGIN IMMEDIATE`` so a SQLite or audit
-    # failure rolls every settings mutation back together (M27).
+def _load_tester_settings(
+    service: str, conn: sqlite3.Connection, secret_key: str
+) -> tuple[dict[str, object] | None, JSONResponse | None]:
+    """Load only the settings keys *service*'s tester actually needs.
+
+    Returns ``(settings, None)`` on success or ``(None, error_response)``
+    when decryption fails. Restricting decryption to the named keys
+    (see :data:`_SERVICE_TESTER_KEYS`) avoids decrypting every secret in
+    the DB just to test one of them.
+    """
+    needed_keys = _SERVICE_TESTER_KEYS.get(service)
     try:
-        write_settings(
-            conn,
-            body_dict=body_dict,
-            allowed_keys=_ALL_KEYS,
-            secret_key=config.secret_key,
-            now=now,
-            audit={
-                "event": "settings.write",
-                "actor": admin,
-                "ip": get_client_ip(request),
-                "detail": {"keys": written, "sensitive_keys": sensitive_written},
-            },
+        return _load_settings(conn, secret_key, keys=needed_keys), None
+    except ConfigDecryptError as exc:
+        logger.warning("Service test decrypt failed for %s key=%s", service, exc.key)
+        return None, JSONResponse(
+            {"ok": False, "error": f"decrypt_failed: {exc.key}"},
+            status_code=200,
         )
-    except sqlite3.Error:
-        logger.exception("settings.write failed user=%s", admin)
-        return respond_err(
-            "internal_error", status=500, message="Internal error during settings write"
-        )
-    _invalidate_test_cache_for_keys(set(written))
-    return respond_ok({"status": "saved", "written": written, "ignored": ignored})
+
+
+def _run_tester_with_timeout(
+    service: str,
+    tester: Callable[[dict[str, object]], JSONResponse],
+    settings: dict[str, object],
+) -> JSONResponse:
+    """Run *tester* under a hard :data:`_TESTER_TIMEOUT_SECONDS` cap.
+
+    An unreachable Plex used to pin the request thread for 35 s through
+    stacked timeouts; the wall-clock cap prevents that self-inflicted
+    DoS vector. The tester response is returned verbatim so the caller
+    can cache the JSON body and surface the original HTTP envelope.
+    """
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(tester, settings)
+            try:
+                return future.result(timeout=_TESTER_TIMEOUT_SECONDS)
+            except concurrent.futures.TimeoutError:
+                logger.warning(
+                    "Service test exceeded %.0fs cap for %s — returning timeout",
+                    _TESTER_TIMEOUT_SECONDS,
+                    service,
+                )
+                payload = {"ok": False, "error": "timeout"}
+                _cache_put(service, payload)
+                return JSONResponse(payload)
+    except Exception:  # rationale: §6.4 site 2 — dispatch fanout for arbitrary tester callables; a single broken tester must not surface as a 500 on the settings page.
+        logger.exception("Service test failed for %s", service)
+        return JSONResponse({"ok": False, "error": "Service connection test failed"})
+
+
+def _cache_tester_response(service: str, response: JSONResponse) -> JSONResponse:
+    """Decode the tester response body and cache the JSON payload.
+
+    Falls through to returning the raw response unchanged when the body
+    is not a JSON envelope — preserves the original status code and
+    headers for non-cacheable replies (e.g. a streamed timeout payload
+    already cached upstream).
+    """
+    try:
+        payload = json.loads(bytes(response.body).decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+        return response
+    _cache_put(service, payload)
+    return response
 
 
 @router.post("/api/settings/test/{service}")
@@ -314,69 +459,20 @@ def api_test_service(
       thread for 35 s through stacked timeouts; that's a self-inflicted
       DoS vector.
     """
-    tester = _SERVICE_TESTERS.get(service)
-    if tester is None:
-        # Use the canonical envelope: ``error`` is the machine-readable
-        # code, the human-readable name of the unknown service goes in
-        # ``message`` so a frontend can surface it without parsing the
-        # error code.
-        return respond_err(
-            "unknown_service",
-            status=400,
-            message=f"Unknown service: {service!r}",
-        )
-
-    cached = _cache_get(service)
-    if cached is not None:
-        return JSONResponse(cached)
-
-    # Rate limit only the genuine tester invocation. Cache hits above
-    # are cheap and must not consume budget — otherwise a normal page
-    # reload exhausts the per-minute cap before the user does anything.
-    if not _SETTINGS_TEST_LIMITER.check(admin):
-        logger.warning("rate_limit.throttled scope=actor actor=%s", admin)
-        return respond_err(
-            "too_many_requests",
-            status=429,
-            message="Too many requests — slow down",
-        )
+    tester, short_circuit = _resolve_tester_dispatch(service, admin)
+    if short_circuit is not None:
+        return short_circuit
+    assert tester is not None  # _resolve_tester_dispatch guarantees one or the other
 
     conn = get_db()
     config = request.app.state.config
-    needed_keys = _SERVICE_TESTER_KEYS.get(service)
-    try:
-        settings = _load_settings(conn, config.secret_key, keys=needed_keys)
-    except ConfigDecryptError as exc:
-        logger.warning("Service test decrypt failed for %s key=%s", service, exc.key)
-        return JSONResponse(
-            {"ok": False, "error": f"decrypt_failed: {exc.key}"},
-            status_code=200,
-        )
+    settings, decrypt_err = _load_tester_settings(service, conn, config.secret_key)
+    if decrypt_err is not None:
+        return decrypt_err
+    assert settings is not None  # _load_tester_settings guarantees one or the other
 
-    try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(tester, settings)
-            try:
-                response = future.result(timeout=_TESTER_TIMEOUT_SECONDS)
-            except concurrent.futures.TimeoutError:
-                logger.warning(
-                    "Service test exceeded %.0fs cap for %s — returning timeout",
-                    _TESTER_TIMEOUT_SECONDS,
-                    service,
-                )
-                payload = {"ok": False, "error": "timeout"}
-                _cache_put(service, payload)
-                return JSONResponse(payload)
-    except Exception:  # rationale: §6.4 site 2 — dispatch fanout for arbitrary tester callables; a single broken tester must not surface as a 500 on the settings page.
-        logger.exception("Service test failed for %s", service)
-        return JSONResponse({"ok": False, "error": "Service connection test failed"})
-
-    try:
-        payload = json.loads(bytes(response.body).decode("utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
-        return response
-    _cache_put(service, payload)
-    return response
+    response = _run_tester_with_timeout(service, tester, settings)
+    return _cache_tester_response(service, response)
 
 
 @router.get("/api/plex/libraries")

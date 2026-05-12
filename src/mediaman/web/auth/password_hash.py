@@ -154,6 +154,78 @@ def create_user(
         raise
 
 
+def _short_circuit_authenticate(
+    conn: sqlite3.Connection,
+    username: str,
+    *,
+    record_failures: bool,
+) -> bool | None:
+    """Return a definite answer for the no-bcrypt fast paths.
+
+    Returns ``False`` when the request is rejected without bcrypt
+    (empty username, or locked account). Returns ``None`` when the
+    caller must continue with the bcrypt verification path.
+
+    The locked branch still bumps :func:`record_failure` so the
+    escalation thresholds (5 → 10 → 15 failures → 15 min / 1 h / 24 h)
+    remain reachable while the lock window is active — see C6 in
+    ``test_login_lockout.py``.
+    """
+    from mediaman.web.auth.login_lockout import is_locked_out, record_failure
+
+    # Reject empty usernames before touching bcrypt. Otherwise an
+    # unauthenticated attacker can stream empty-username requests at
+    # the login endpoint and burn server CPU at one bcrypt round per
+    # request — a cheap CPU-DoS.
+    if not username:
+        return False
+
+    # Check lockout first. A locked account already has a "no" answer
+    # without re-running bcrypt — skip the dummy round and save the
+    # CPU. record_failure keeps acquiring the writer lock, which is
+    # the price of the escalation property.
+    if is_locked_out(conn, username):
+        if record_failures:
+            record_failure(conn, username)
+        logger.warning("auth.account_locked user=%s reason=lockout_active", username)
+        return False
+
+    return None
+
+
+def _verify_credentials_against_db(
+    conn: sqlite3.Connection,
+    username: str,
+    password: str,
+    *,
+    record_failures: bool,
+) -> bool:
+    """Do the bcrypt-verify dance against the stored hash for *username*.
+
+    Burns a constant-time dummy bcrypt cycle on the "user not found"
+    path so a real-username probe and a fake-username probe take ~the
+    same wall time — timing cannot enumerate valid usernames.
+    """
+    from mediaman.web.auth.login_lockout import record_failure, record_success
+
+    row = conn.execute(
+        "SELECT password_hash FROM admin_users WHERE username=?", (username,)
+    ).fetchone()
+
+    if row is None:
+        bcrypt.checkpw(_prepare_bcrypt_input(password), _get_dummy_hash())
+        if record_failures:
+            record_failure(conn, username)
+        return False
+
+    ok = bcrypt.checkpw(_prepare_bcrypt_input(password), row["password_hash"].encode())
+    if ok:
+        record_success(conn, username)
+    elif record_failures:
+        record_failure(conn, username)
+    return ok
+
+
 def authenticate(
     conn: sqlite3.Connection,
     username: str,
@@ -193,50 +265,12 @@ def authenticate(
     rate-limited" — is information the attacker already controls or
     can deduce from response volume anyway.
     """
-    from mediaman.web.auth.login_lockout import (
-        is_locked_out,
-        record_failure,
-        record_success,
+    short_circuit = _short_circuit_authenticate(conn, username, record_failures=record_failures)
+    if short_circuit is not None:
+        return short_circuit
+    return _verify_credentials_against_db(
+        conn, username, password, record_failures=record_failures
     )
-
-    # Reject empty usernames before touching bcrypt. Otherwise an
-    # unauthenticated attacker can stream empty-username requests at
-    # the login endpoint and burn server CPU at one bcrypt round per
-    # request — a cheap CPU-DoS.
-    if not username:
-        return False
-
-    # Check lockout first. A locked account already has a "no" answer
-    # without re-running bcrypt — skip the dummy round and save the
-    # CPU. We still record the failure so the escalation thresholds
-    # remain reachable (5 → 10 → 15 failures); see C6 in the lockout
-    # tests. record_failure keeps acquiring the writer lock, which is
-    # the price of the escalation property.
-    if is_locked_out(conn, username):
-        if record_failures:
-            record_failure(conn, username)
-        logger.warning("auth.account_locked user=%s reason=lockout_active", username)
-        return False
-
-    row = conn.execute(
-        "SELECT password_hash FROM admin_users WHERE username=?", (username,)
-    ).fetchone()
-
-    if row is None:
-        # Burn a constant-time bcrypt cycle so a real-username probe and
-        # a fake-username probe take ~the same wall time and timing
-        # cannot enumerate valid usernames.
-        bcrypt.checkpw(_prepare_bcrypt_input(password), _get_dummy_hash())
-        if record_failures:
-            record_failure(conn, username)
-        return False
-
-    ok = bcrypt.checkpw(_prepare_bcrypt_input(password), row["password_hash"].encode())
-    if ok:
-        record_success(conn, username)
-    elif record_failures:
-        record_failure(conn, username)
-    return ok
 
 
 # rationale: verify old password, enforce policy, bcrypt the new one, write
