@@ -83,7 +83,7 @@
   background: rgba(255,255,255,.12);
   color: var(--t1);
 }
-.dl-state-searching     { background: rgba(255,214,10,.18); color: var(--warning); }
+.dl-state-searching     { background: var(--rgba-warning-bg); color: var(--warning); }
 .dl-state-downloading   { background: rgba(41,151,255,.18); color: var(--accent); }
 .dl-state-almost_ready  { background: rgba(48,209,88,.18); color: var(--success); }
 .dl-state-ready         { background: rgba(48,209,88,.22); color: var(--success); }
@@ -305,7 +305,7 @@
 }
 .dl-ep-status-pill.ready { background: rgba(48,209,88,.18); color: var(--success); }
 .dl-ep-status-pill.downloading { background: rgba(41,151,255,.18); color: var(--accent); }
-.dl-ep-status-pill.queued { background: rgba(255,214,10,.18); color: var(--warning); }
+.dl-ep-status-pill.queued { background: var(--rgba-warning-bg); color: var(--warning); }
 
 /* Recently added (downloads page bottom) */
 .dl-recent-section { margin-top: var(--section); }
