@@ -11,15 +11,11 @@ path, plus the replay-protection seam. Exercises:
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mediaman.config import Config
 from mediaman.crypto import generate_download_token, validate_poll_token
-from mediaman.db import init_db, set_connection
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.web.routes.download import (
     reset_download_caches,
@@ -27,17 +23,6 @@ from mediaman.web.routes.download import (
     reset_used_tokens,
 )
 from mediaman.web.routes.download.submit import router as submit_router
-
-_TPL_DIR = Path(__file__).parent.parent.parent / "src" / "mediaman" / "web" / "templates"
-
-
-def _make_app(conn, secret_key: str) -> FastAPI:
-    app = FastAPI()
-    app.include_router(submit_router)
-    app.state.config = Config(secret_key=secret_key)
-    app.state.db = conn
-    set_connection(conn)
-    return app
 
 
 def _clear_state():
@@ -68,10 +53,9 @@ class TestDownloadSubmitHappyPath:
     def setup_method(self):
         _clear_state()
 
-    def test_movie_download_writes_audit_and_notification(self, db_path, secret_key):
+    def test_movie_download_writes_audit_and_notification(self, app_factory, conn, secret_key):
         """POST /download/{token} with a fake Radarr writes audit_log + download_notifications."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = app_factory(submit_router, conn=conn)
         client = TestClient(app, raise_server_exceptions=True)
         token = _make_movie_token(secret_key)
 
@@ -109,10 +93,9 @@ class TestDownloadSubmitReplay:
     def setup_method(self):
         _clear_state()
 
-    def test_token_replay_returns_409(self, db_path, secret_key):
+    def test_token_replay_returns_409(self, app_factory, conn, secret_key):
         """Using the same token twice returns 409 on the second attempt."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = app_factory(submit_router, conn=conn)
         client = TestClient(app, raise_server_exceptions=True)
         token = _make_movie_token(secret_key)
 
@@ -138,10 +121,9 @@ class TestDownloadSubmitAlreadyExists:
     def setup_method(self):
         _clear_state()
 
-    def test_arr_409_returns_409_with_poll_token(self, db_path, secret_key):
+    def test_arr_409_returns_409_with_poll_token(self, app_factory, conn, secret_key):
         """When Radarr responds 409 (already exists), route returns 409 with poll_token."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = app_factory(submit_router, conn=conn)
         client = TestClient(app, raise_server_exceptions=True)
         token = _make_movie_token(secret_key)
 

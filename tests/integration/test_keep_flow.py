@@ -1,10 +1,21 @@
 """Integration test for the keep/snooze flow."""
 
 import time
+from pathlib import Path
 
-from mediaman.config import Config
+from fastapi.templating import Jinja2Templates
+from fastapi.testclient import TestClient
+
 from mediaman.crypto import generate_keep_token, validate_keep_token
 from mediaman.db import init_db
+from mediaman.web.routes.keep import router as keep_router
+
+
+def _templates_state() -> dict[str, object]:
+    """Keep route renders via app.state.templates — load real templates from disk
+    so the redirect-vs-render branches are exercised end-to-end."""
+    tpl_dir = Path(__file__).parent.parent.parent / "src" / "mediaman" / "web" / "templates"
+    return {"templates": Jinja2Templates(directory=str(tpl_dir))}
 
 
 class TestKeepFlow:
@@ -69,9 +80,8 @@ class TestKeepFlow:
 class TestKeepSignatureEnforcement:
     """The keep route must HMAC-verify every token before trusting the DB row."""
 
-    def _seed(self, db_path, secret_key):
-        """Create a media item + a legitimate scheduled_action, return conn + ids."""
-        conn = init_db(str(db_path))
+    def _seed(self, conn, secret_key):
+        """Create a media item + a legitimate scheduled_action, return token."""
         conn.execute(
             "INSERT INTO media_items (id, title, media_type, plex_library_id, "
             "plex_rating_key, added_at, file_path, file_size_bytes) "
@@ -91,14 +101,16 @@ class TestKeepSignatureEnforcement:
             (token,),
         )
         conn.commit()
-        return conn, token
+        return token
 
-    def test_bad_signature_token_rejected(self, db_path, secret_key, monkeypatch):
+    def test_bad_signature_token_rejected(
+        self, app_factory, conn, db_path, secret_key, monkeypatch
+    ):
         """A token with a bad signature must be rejected, even if it matches a DB row."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", secret_key)
         monkeypatch.setenv("MEDIAMAN_DATA_DIR", str(db_path.parent))
 
-        conn, real_token = self._seed(db_path, secret_key)
+        real_token = self._seed(conn, secret_key)
 
         # Mutate the real token's signature byte — keeps the same DB row lookup
         # viable but breaks HMAC.
@@ -125,23 +137,7 @@ class TestKeepSignatureEnforcement:
         )
         conn.commit()
 
-        from mediaman.db import set_connection
-
-        set_connection(conn)
-
-        from pathlib import Path
-
-        from fastapi import FastAPI
-        from fastapi.templating import Jinja2Templates
-        from fastapi.testclient import TestClient
-
-        from mediaman.web.routes.keep import router as keep_router
-
-        app = FastAPI()
-        tpl_dir = Path(__file__).parent.parent.parent / "src" / "mediaman" / "web" / "templates"
-        app.state.templates = Jinja2Templates(directory=str(tpl_dir))
-        app.state.config = Config(secret_key=secret_key)
-        app.include_router(keep_router)
+        app = app_factory(keep_router, conn=conn, state_extras=_templates_state())
         client = TestClient(app)
 
         # GET: forged token must render the "expired" page (state=expired),
@@ -162,12 +158,12 @@ class TestKeepSignatureEnforcement:
         row = conn.execute("SELECT token_used FROM scheduled_actions WHERE id = 2").fetchone()
         assert row["token_used"] == 0  # Forged token must not have flipped anything.
 
-    def test_payload_mismatch_rejected(self, db_path, secret_key, monkeypatch):
+    def test_payload_mismatch_rejected(self, app_factory, conn, db_path, secret_key, monkeypatch):
         """A valid signature whose payload references a different action must be rejected."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", secret_key)
         monkeypatch.setenv("MEDIAMAN_DATA_DIR", str(db_path.parent))
 
-        conn, _ = self._seed(db_path, secret_key)
+        self._seed(conn, secret_key)
 
         # Mint a token whose payload claims action_id=999 (doesn't match the
         # scheduled_action we'll insert below with a different id).
@@ -195,23 +191,7 @@ class TestKeepSignatureEnforcement:
         )
         conn.commit()
 
-        from mediaman.db import set_connection
-
-        set_connection(conn)
-
-        from pathlib import Path
-
-        from fastapi import FastAPI
-        from fastapi.templating import Jinja2Templates
-        from fastapi.testclient import TestClient
-
-        from mediaman.web.routes.keep import router as keep_router
-
-        app = FastAPI()
-        tpl_dir = Path(__file__).parent.parent.parent / "src" / "mediaman" / "web" / "templates"
-        app.state.templates = Jinja2Templates(directory=str(tpl_dir))
-        app.state.config = Config(secret_key=secret_key)
-        app.include_router(keep_router)
+        app = app_factory(keep_router, conn=conn, state_extras=_templates_state())
         client = TestClient(app)
 
         r = client.post(
@@ -223,30 +203,14 @@ class TestKeepSignatureEnforcement:
         row = conn.execute("SELECT token_used FROM scheduled_actions WHERE id = 3").fetchone()
         assert row["token_used"] == 0
 
-    def test_valid_signature_accepted(self, db_path, secret_key, monkeypatch):
+    def test_valid_signature_accepted(self, app_factory, conn, db_path, secret_key, monkeypatch):
         """End-to-end: a properly signed token flows through keep_submit."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", secret_key)
         monkeypatch.setenv("MEDIAMAN_DATA_DIR", str(db_path.parent))
 
-        conn, real_token = self._seed(db_path, secret_key)
+        real_token = self._seed(conn, secret_key)
 
-        from mediaman.db import set_connection
-
-        set_connection(conn)
-
-        from pathlib import Path
-
-        from fastapi import FastAPI
-        from fastapi.templating import Jinja2Templates
-        from fastapi.testclient import TestClient
-
-        from mediaman.web.routes.keep import router as keep_router
-
-        app = FastAPI()
-        tpl_dir = Path(__file__).parent.parent.parent / "src" / "mediaman" / "web" / "templates"
-        app.state.templates = Jinja2Templates(directory=str(tpl_dir))
-        app.state.config = Config(secret_key=secret_key)
-        app.include_router(keep_router)
+        app = app_factory(keep_router, conn=conn, state_extras=_templates_state())
         client = TestClient(app)
 
         r = client.post(f"/keep/{real_token}", data={"duration": "30 days"}, follow_redirects=False)

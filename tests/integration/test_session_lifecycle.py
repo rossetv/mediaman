@@ -14,12 +14,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
-from mediaman.config import Config
-from mediaman.db import init_db, set_connection
 from mediaman.web.auth.password_hash import create_user
 from mediaman.web.routes.auth import router as auth_router
 from mediaman.web.routes.downloads import router as downloads_router
@@ -27,19 +24,19 @@ from mediaman.web.routes.downloads import router as downloads_router
 _TPL_DIR = Path(__file__).parent.parent.parent / "src" / "mediaman" / "web" / "templates"
 
 
-def _make_app(conn, secret_key: str) -> FastAPI:
-    app = FastAPI()
-    app.include_router(auth_router)
-    app.include_router(downloads_router)
-    app.state.config = Config(secret_key=secret_key)
-    app.state.db = conn
-    app.state.templates = Jinja2Templates(directory=str(_TPL_DIR))
-    set_connection(conn)
-    return app
+def _app(app_factory, conn):
+    """The auth + downloads routers render via app.state.templates; load
+    real templates from disk so the login error / logout pages render."""
+    return app_factory(
+        auth_router,
+        downloads_router,
+        conn=conn,
+        state_extras={"templates": Jinja2Templates(directory=str(_TPL_DIR))},
+    )
 
 
 class TestSessionLifecycle:
-    def test_login_use_logout_cycle(self, db_path, secret_key, monkeypatch):
+    def test_login_use_logout_cycle(self, app_factory, conn, monkeypatch):
         """Full session lifecycle: login, authenticated call, logout, then 401."""
         monkeypatch.setenv("MEDIAMAN_FORCE_SECURE_COOKIES", "false")
         # The lru_cache on `_secure_cookie_override` would otherwise hold a
@@ -50,10 +47,9 @@ class TestSessionLifecycle:
 
         _secure_cookie_override.cache_clear()
 
-        conn = init_db(str(db_path))
         create_user(conn, "admin", "P@ssw0rd!Str0ng", enforce_policy=False)
 
-        app = _make_app(conn, secret_key)
+        app = _app(app_factory, conn)
         # follow_redirects=True so login POST redirects us transparently.
         client = TestClient(app, raise_server_exceptions=True, follow_redirects=False)
 
@@ -94,20 +90,18 @@ class TestSessionLifecycle:
         resp = client.get("/api/downloads")
         assert resp.status_code == 401
 
-    def test_invalid_session_is_rejected(self, db_path, secret_key):
+    def test_invalid_session_is_rejected(self, app_factory, conn):
         """A fabricated / unknown session token returns 401."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
         client.cookies.set("session_token", "this-is-not-a-valid-token")
 
         resp = client.get("/api/downloads")
         assert resp.status_code == 401
 
-    def test_logout_without_session_returns_401(self, db_path, secret_key):
+    def test_logout_without_session_returns_401(self, app_factory, conn):
         """Logout with no active session cookie returns 401 — not a CSRF-able reset."""
-        conn = init_db(str(db_path))
-        app = _make_app(conn, secret_key)
+        app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
 
         resp = client.post("/api/auth/logout")
