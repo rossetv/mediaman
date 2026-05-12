@@ -28,17 +28,10 @@ transient errors (429/502/503/504 on GETs; see :class:`SafeHTTPClient`).
 to the exception string on failure so UI layers can display a banner
 instead of silently showing a stale queue.
 
-Back-compat: tests and other callers import :class:`_ArrClientBase`,
-:data:`_ARR_TIMEOUT_SECONDS`, and the exception classes from this
-module path.  Each name is re-exported below.
+Back-compat: callers import :data:`_ARR_TIMEOUT_SECONDS` and the
+exception classes from this module path.  Each name is re-exported
+below.
 """
-
-# rationale: `_ArrClientBase` and `ArrClient` together form one HTTP-facing
-# surface for the *arr family — the base owns the request plumbing and
-# `last_error` discipline; the spec-driven subclass owns the kind-aware
-# routing. Splitting the file would either reintroduce the back-compat shim
-# layer Phase 3 deleted (one module per kind plus a re-export module) or
-# spread `last_error` mutation across two files with no clear owner.
 
 from __future__ import annotations
 
@@ -62,17 +55,6 @@ from mediaman.services.arr.spec import ArrSpec
 logger = logging.getLogger(__name__)
 
 
-class _ArrClientBase(_TransportMixin, _LookupsMixin, _AddFlowMixin):
-    """Back-compat alias for the pre-mixin base class.
-
-    The original monolithic base bundled raw HTTP, lookups, and the
-    add-flow pickers.  Those concerns now live in separate mixins; this
-    composition exists only so tests and external callers that
-    ``from mediaman.services.arr.base import _ArrClientBase`` continue
-    to work unchanged.
-    """
-
-
 __all__ = [
     "_ARR_TIMEOUT_SECONDS",
     "ArrClient",
@@ -80,7 +62,6 @@ __all__ = [
     "ArrError",
     "ArrKindMismatch",
     "ArrUpstreamError",
-    "_ArrClientBase",
 ]
 
 
