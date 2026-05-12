@@ -13,7 +13,7 @@ DOWNLOAD_STATE_LABELS: dict[str, str] = {
     "queued": "Queued — waiting on indexer",
     "downloading": "Downloading",
     "almost_ready": "Almost ready",
-    "ready": "Ready",
+    "ready": "Ready to watch",
     "upcoming": "",
 }
 

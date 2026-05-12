@@ -102,22 +102,21 @@
         if (!addSubInp) return;
         var email = addSubInp.value.trim();
         if (!email) return;
-        var body = new URLSearchParams({ email: email });
-        fetch('/api/subscribers', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: body.toString(),
-        })
-          .then(function (r) { return r.json(); })
+        // The endpoint takes form-urlencoded (FastAPI ``Form(...)``) so
+        // we use postForm rather than post (which sends JSON).
+        MM.api.postForm('/api/subscribers', { email: email })
           .then(function (data) {
             if (data.ok) { addSubInp.value = ''; loadSubscribers(); }
             else if (window.UIFeedback && window.UIFeedback.error) {
               window.UIFeedback.error(data.error || "Couldn't add subscriber.");
             } else { window.alert(data.error || "Couldn't add subscriber."); }
+          })
+          .catch(function (err) {
+            var msg = (err && err.message) || "Couldn't add subscriber.";
+            if (window.UIFeedback && window.UIFeedback.error) {
+              window.UIFeedback.error(msg);
+            } else { window.alert(msg); }
           });
-        // NOTE: The add-subscriber endpoint sends form-urlencoded, not JSON,
-        // so we use raw fetch rather than MM.api.post to avoid the
-        // Content-Type being overridden to application/json.
       }
 
       if (addSubBtn) addSubBtn.addEventListener('click', submitSubscriber);
