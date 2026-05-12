@@ -229,12 +229,15 @@ class TestSettingsAuditInTransaction:
 
         import sqlite3 as _sqlite3
 
-        from mediaman.web.routes import settings as settings_module
+        from mediaman.core import audit as audit_module
 
         def boom(*_args, **_kwargs):
             raise _sqlite3.OperationalError("simulated audit failure")
 
-        monkeypatch.setattr(settings_module, "security_event_or_raise", boom)
+        # Audit is called via lazy ``from mediaman.core.audit import
+        # security_event_or_raise`` inside write_settings — patch the
+        # source so the patched function intercepts the call.
+        monkeypatch.setattr(audit_module, "security_event_or_raise", boom)
 
         resp = client.put("/api/settings", json={"plex_url": "https://plex.example.com"})
         assert resp.status_code == 500
