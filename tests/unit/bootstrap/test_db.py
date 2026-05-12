@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 import pytest
 
-from mediaman.bootstrap import db as bootstrap_db_mod
-from mediaman.bootstrap.db import (
+import mediaman.bootstrap.data_dir as bootstrap_data_dir_mod
+from mediaman.bootstrap.data_dir import (
     DataDirNotWritableError,
     _assert_data_dir_writable,
     _remediation_for,
@@ -56,7 +56,7 @@ def test_errno_aware_remediation(tmp_path, err_no, expected_substring):
         raise OSError(err_no, os.strerror(err_no))
 
     with (
-        patch.object(bootstrap_db_mod.tempfile, "NamedTemporaryFile", _raise),
+        patch.object(bootstrap_data_dir_mod.tempfile, "NamedTemporaryFile", _raise),
         pytest.raises(DataDirNotWritableError) as excinfo,
     ):
         _assert_data_dir_writable(tmp_path)
