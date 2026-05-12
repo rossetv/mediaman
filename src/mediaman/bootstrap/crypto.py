@@ -14,6 +14,7 @@ and re-enter the secret when a mismatch is detected.
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -33,17 +34,18 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
     scheduler when the canary failed.
 
     The canary state is initialised to ``False`` and only flipped to
-    ``True`` after :func:`is_canary_valid` returns a positive result. An
-    import failure or any other exception leaves the flag at its
-    fail-closed default — without this, a partial import (e.g. a missing
-    ``cryptography`` extension) would slip through with the optimistic
-    ``True`` and the scheduler would gleefully fire scans against
-    settings it cannot decrypt.
+    ``True`` after :func:`is_canary_valid` returns a positive result. A
+    crypto or DB failure leaves the flag at its fail-closed default.
+    ``ImportError`` / ``ModuleNotFoundError`` are intentionally NOT caught
+    here — a missing module is a deployment bug that must crash bootstrap
+    immediately rather than masquerade as a silent key-mismatch outage
+    (see incident c089474: 13-day scheduler outage caused by a stale import
+    that was swallowed as a false canary failure).
     """
     canary_ok = False
     try:
         from mediaman.core.audit import security_event
-        from mediaman.crypto import is_canary_valid, migrate_legacy_ciphertexts
+        from mediaman.crypto import CryptoError, is_canary_valid, migrate_legacy_ciphertexts
 
         db = app.state.db
 
@@ -63,7 +65,7 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
                     ip="",
                     detail={"reason": reason},
                 )
-            except Exception:  # pragma: no cover
+            except sqlite3.DatabaseError:  # pragma: no cover — best-effort audit write; DB errors must not override the security verdict
                 logger.exception("aes.canary_failed audit write failed reason=%s", reason)
 
         def _on_migration_complete(migrated_count: int) -> None:
@@ -76,7 +78,7 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
                     ip="",
                     detail={"migrated_count": migrated_count},
                 )
-            except Exception:  # pragma: no cover
+            except sqlite3.DatabaseError:  # pragma: no cover — best-effort audit write; DB errors must not override migration success
                 logger.exception("aes.v35_migration_complete audit write failed")
 
         canary_ok = bool(is_canary_valid(db, config.secret_key, on_failure=_on_canary_failure))
@@ -91,13 +93,17 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
                 )
                 if n:
                     logger.info("bootstrap_crypto: migrated %d legacy settings row(s) to v2+AAD", n)
-            # rationale: §6.4 site 4 (cold-start) — settings re-encryption is
-            # an opportunistic migration; never block startup on it.
-            except Exception:
+            # §6.4 site 4 (cold-start): re-encryption is opportunistic; a DB
+            # write failure or corrupt salt must not abort startup.
+            except (CryptoError, sqlite3.Error):
                 logger.exception("bootstrap_crypto: migrate_legacy_ciphertexts failed (non-fatal)")
-    # rationale: §6.4 site 4 (cold-start) — surface canary failure to the
-    # app (canary_ok flag) without aborting; the operator UI reads this.
-    except Exception:
+    # §6.4 site 4 (cold-start): surface crypto/DB failures as canary_ok=False
+    # so the operator UI can signal the mismatch without crashing the web server.
+    # ImportError / ModuleNotFoundError are deliberately re-raised — a missing
+    # module is a deployment bug that must surface immediately (c089474).
+    except Exception as exc:
+        if isinstance(exc, ImportError):
+            raise
         logger.exception("AES canary check failed unexpectedly")
         canary_ok = False
     app.state.canary_ok = canary_ok
