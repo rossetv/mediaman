@@ -23,7 +23,7 @@ from mediaman.services.infra.url_safety import (
 _PLEX_MODULE_NAME = "mediaman.services.media_meta.plex"
 
 
-def _resolve_safe_outbound_url(url: str, *, strict_egress: bool | None = None):
+def _resolve_safe_outbound_url(url: str):
     """Call ``resolve_safe_outbound_url``, delegating through the parent
     ``plex`` module's namespace when it is already imported.
 
@@ -37,7 +37,7 @@ def _resolve_safe_outbound_url(url: str, *, strict_egress: bool | None = None):
         if plex_mod is not None
         else _resolve_safe_outbound_url_default
     )
-    return fn(url, strict_egress=strict_egress)
+    return fn(url)
 
 
 # Matches X-Plex-Token query parameter values so they can be redacted from

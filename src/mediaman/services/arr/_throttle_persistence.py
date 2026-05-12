@@ -59,7 +59,11 @@ def _load_throttle_from_db(conn: sqlite3.Connection, dl_id: str) -> tuple[float,
         epoch = dt.timestamp() if dt is not None else 0.0
         count = int(row[1] or 0)
         return epoch, count
-    except (sqlite3.OperationalError, sqlite3.DatabaseError) as exc:
+    # sqlite3.OperationalError is a subclass of sqlite3.DatabaseError;
+    # listing the parent alone covers both. sqlite3.InterfaceError is
+    # NOT caught here because it indicates programmer error (e.g. wrong
+    # binding type), which should propagate, not be swallowed.
+    except sqlite3.DatabaseError as exc:
         # Transient or pre-migration state — fall back to "never
         # triggered" so the throttle warm-up doesn't fail loudly the
         # first time a fresh DB is brought up.
@@ -88,7 +92,9 @@ def _save_trigger_to_db(conn: sqlite3.Connection, dl_id: str, epoch: float, coun
             (dl_id, ts, count),
         )
         conn.commit()
-    except (sqlite3.OperationalError, sqlite3.DatabaseError):
+    # See _load_throttle_from_db: DatabaseError covers OperationalError.
+    # sqlite3.InterfaceError is deliberately not caught (programmer error).
+    except sqlite3.DatabaseError:
         logger.warning(
             "arr_search_trigger: failed to persist throttle for %s", dl_id, exc_info=True
         )
@@ -141,10 +147,11 @@ def get_search_info(dl_id: str) -> tuple[int, float]:
         from mediaman.db import get_db
 
         epoch, persisted_count = _load_throttle_from_db(get_db(), dl_id)
-    except (sqlite3.OperationalError, sqlite3.DatabaseError, RuntimeError):
-        # ``RuntimeError`` covers ``get_db()`` raising because the FastAPI
-        # request-local connection has gone away (e.g. background-thread
-        # call outside a request scope).
+    # DatabaseError covers OperationalError; ``RuntimeError`` covers
+    # ``get_db()`` raising because the FastAPI request-local connection
+    # has gone away (e.g. background-thread call outside a request scope).
+    # sqlite3.InterfaceError is deliberately not caught (programmer error).
+    except (sqlite3.DatabaseError, RuntimeError):
         logger.warning(
             "arr_search_trigger.get_search_info: DB fallback failed for "
             "dl_id=%s — reporting zero pair",
@@ -210,7 +217,9 @@ def reconcile_stranded_throttle(
             (cutoff,),
         )
         conn.commit()
-    except (sqlite3.OperationalError, sqlite3.DatabaseError):
+    # DatabaseError covers OperationalError. InterfaceError deliberately
+    # excluded (programmer error, not a transient DB hiccup).
+    except sqlite3.DatabaseError:
         logger.warning(
             "arr_search_trigger: failed to reconcile stranded throttle rows",
             exc_info=True,
@@ -243,7 +252,9 @@ def clear_throttle(conn: sqlite3.Connection, dl_id: str) -> None:
     try:
         conn.execute("DELETE FROM arr_search_throttle WHERE key=?", (dl_id,))
         conn.commit()
-    except (sqlite3.OperationalError, sqlite3.DatabaseError):
+    # DatabaseError covers OperationalError. InterfaceError deliberately
+    # excluded (programmer error).
+    except sqlite3.DatabaseError:
         logger.warning("arr_search_trigger: failed to clear throttle for %s", dl_id, exc_info=True)
 
 

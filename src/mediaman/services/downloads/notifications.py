@@ -186,9 +186,10 @@ def _check_radarr_movie(arr: Any, row_id: Any, tmdb_id: Any) -> tuple[bool, Any,
         return False, None, False
     try:
         movie = radarr_client.get_movie_by_tmdb(tmdb_id)
+    # rationale: transient outage / backoff — any error talking to Radarr
+    # must surface as arr_unreachable=True so the caller releases the
+    # claim and applies backoff (network blip, 5xx, malformed JSON).
     except Exception:
-        # Network/HTTP errors propagate from Radarr — treat
-        # as a transient outage so the backoff kicks in.
         logger.warning(
             "Radarr lookup failed for notification id=%s tmdb=%s",
             row_id,
@@ -214,6 +215,8 @@ def _check_sonarr_series(arr: Any, row_id: Any, tvdb_id: Any, tmdb_id: Any) -> t
         return False, False
     try:
         ready = _sonarr_has_files(sonarr_client, tvdb_id=tvdb_id, tmdb_id=tmdb_id)
+    # rationale: transient outage / backoff — symmetric with the Radarr
+    # path; Sonarr blips become arr_unreachable=True for the caller.
     except Exception:
         logger.warning(
             "Sonarr lookup failed for notification id=%s",

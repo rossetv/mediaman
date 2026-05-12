@@ -207,6 +207,8 @@ def _batch_insert_completions(conn: sqlite3.Connection, to_insert: list[tuple]) 
             to_insert,
         )
         conn.commit()
+    # rationale: §6.4 site 2 (scheduler-job-runner) — completion recording
+    # is best-effort; a SQLite hiccup must not abort the scan loop.
     except Exception:
         logger.warning(
             "Failed to record %d completed download(s)",
@@ -242,8 +244,10 @@ def record_verified_completions(
     for c in completed:
         try:
             verified = _check_item_verified(c, idx)
+        # rationale: §6.4 site 2 (scheduler-job-runner) — a network error
+        # talking to Radarr/Sonarr must not skip the rest of the batch; log
+        # and continue so other completions still get recorded.
         except Exception:
-            # Skip rather than log "no files confirmed" — the real cause is a network error
             logger.warning(
                 "Failed to verify completion for %s — skipping", c["dl_id"], exc_info=True
             )
@@ -302,6 +306,9 @@ def fetch_and_sync_recent_downloads(
                         url = extract_poster_url(e.get("images"))
                         if url:
                             cache[t] = url
+            # rationale: §6.4 site 2 (scheduler-job-runner) — poster
+            # backfill is cosmetic; Arr outage leaves the cache empty and
+            # the UI falls back to titles without an image.
             except Exception:
                 logger.warning(
                     "Failed to fetch %s posters for backfill",
@@ -339,6 +346,8 @@ def fetch_and_sync_recent_downloads(
                         (poster_url, r["id"]),
                     )
                     conn.commit()
+                # rationale: §6.4 site 2 (scheduler-job-runner) — poster URL
+                # backfill is cosmetic; a write blip must not abort the loop.
                 except Exception:
                     logger.warning(
                         "Failed to backfill poster for %s",

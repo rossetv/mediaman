@@ -227,6 +227,8 @@ def _try_delete_session(conn: sqlite3.Connection, token_hash: str, *, reason: st
     """
     try:
         _delete_session_with_commit(conn, token_hash)
+    # rationale: best-effort session writes — bubbling this up would 500
+    # the user during validation; log and let the next request retry.
     except Exception:
         logger.warning(
             "session.delete_failed reason=%s",
@@ -312,6 +314,9 @@ def validate_session(
     if needs_refresh:
         try:
             _refresh_last_used_with_commit(conn, token_hash, now_iso)
+        # rationale: best-effort session writes — refreshing last_used_at
+        # is a freshness signal, not a correctness gate; never fail the
+        # request because the timestamp didn't update.
         except Exception:
             logger.warning(
                 "session.last_used_at_refresh_failed user=%s",

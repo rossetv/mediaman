@@ -365,7 +365,7 @@ class TestPlexClientUrlValidation:
         monkeypatch.setattr(
             plex_module,
             "resolve_safe_outbound_url",
-            lambda url, strict_egress=None: (False, None, None),
+            lambda url: (False, None, None),
         )
         with pytest.raises(ValueError, match="SSRF guard"):
             PlexClient("http://malicious.example/", "token")
@@ -390,7 +390,7 @@ class TestPlexClientUrlValidation:
         monkeypatch.setattr(
             plex_module,
             "resolve_safe_outbound_url",
-            lambda url, strict_egress=None: (True, "host.example", "203.0.113.1"),
+            lambda url: (True, "host.example", "203.0.113.1"),
         )
         client = PlexClient("http://host.example/", "token")
         assert isinstance(captured["session"], _SafePlexSession)
@@ -418,7 +418,7 @@ class TestSafePlexSession:
         monkeypatch.setattr(
             plex_module,
             "resolve_safe_outbound_url",
-            lambda url, strict_egress=None: (False, None, None),
+            lambda url: (False, None, None),
         )
         called: list = []
 
@@ -443,7 +443,7 @@ class TestSafePlexSession:
         monkeypatch.setattr(
             plex_module,
             "resolve_safe_outbound_url",
-            lambda url, strict_egress=None: (True, "h.example", "203.0.113.1"),
+            lambda url: (True, "h.example", "203.0.113.1"),
         )
         captured: dict = {}
 
@@ -467,7 +467,7 @@ class TestSafePlexSession:
         monkeypatch.setattr(
             plex_module,
             "resolve_safe_outbound_url",
-            lambda url, strict_egress=None: (True, "h.example", "203.0.113.1"),
+            lambda url: (True, "h.example", "203.0.113.1"),
         )
 
         def fake_super_request(self_, method, url, **kwargs):
@@ -487,7 +487,7 @@ class TestSafePlexSession:
         monkeypatch.setattr(
             plex_module,
             "resolve_safe_outbound_url",
-            lambda url, strict_egress=None: (True, "h.example", "203.0.113.1"),
+            lambda url: (True, "h.example", "203.0.113.1"),
         )
         chunks = [b"A" * 1024 * 1024 for _ in range(20)]  # 20 MiB total
 
@@ -508,7 +508,7 @@ class TestSafePlexSession:
         monkeypatch.setattr(
             plex_module,
             "resolve_safe_outbound_url",
-            lambda url, strict_egress=None: (True, "h.example", "203.0.113.1"),
+            lambda url: (True, "h.example", "203.0.113.1"),
         )
         captured: dict = {}
 
@@ -531,7 +531,7 @@ class TestSafePlexSession:
         monkeypatch.setattr(
             plex_module,
             "resolve_safe_outbound_url",
-            lambda url, strict_egress=None: (True, "h.example", "203.0.113.1"),
+            lambda url: (True, "h.example", "203.0.113.1"),
         )
         captured: dict = {}
 
@@ -557,7 +557,7 @@ class TestSafePlexSession:
         monkeypatch.setattr(
             plex_module,
             "resolve_safe_outbound_url",
-            lambda url, strict_egress=None: (True, "pinme.example", "203.0.113.42"),
+            lambda url: (True, "pinme.example", "203.0.113.42"),
         )
         # Ensure the global pin hook is active.
         monkeypatch.setattr(_socket, "getaddrinfo", _dns_pinning._patched_getaddrinfo)
@@ -583,7 +583,7 @@ class TestSafePlexSession:
         monkeypatch.setattr(
             plex_module,
             "resolve_safe_outbound_url",
-            lambda url, strict_egress=None: (False, None, None),
+            lambda url: (False, None, None),
         )
         with pytest.raises(SafeHTTPError) as excinfo:
             _SafePlexSession().get("http://blocked.example/path?X-Plex-Token=secret-tok-123")
