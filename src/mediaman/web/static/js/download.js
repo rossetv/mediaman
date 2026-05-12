@@ -78,107 +78,20 @@
   }
 
   /* ── Build hero card DOM matching _dl_hero_card.html structure ──
-     Values are set via textContent / DOM properties — safe by default. */
+     Delegates to the shared MM.downloads.buildDom.buildHero helper to avoid
+     duplicating the .dl-hero tree (CODE_GUIDELINES §1). Values are set via
+     textContent / DOM properties — safe by default. */
   function buildHeroCard(wrapper, item) {
-    var bgUrl = item.poster_url || '';
+    var hero = MM.downloads.buildDom.buildHero(item);
 
-    /* Build the root .dl-hero container */
-    var hero = document.createElement('div');
-    hero.className = 'dl-hero dl-card-enter';
-    hero.setAttribute('data-dl-id', item.id);
-
-    /* Background — set via DLPoster.apply (H67: avoids CSS string injection). */
-    var bg = document.createElement('div');
-    bg.className = 'dl-hero-bg';
-    if (bgUrl) bg.setAttribute('data-bg-url', bgUrl);
-    hero.appendChild(bg);
-    if (bgUrl && window.DLPoster) window.DLPoster.apply(bg);
-
-    /* Overlay */
-    var overlay = document.createElement('div');
-    overlay.className = 'dl-hero-overlay';
-    hero.appendChild(overlay);
-
-    /* Content wrapper */
-    var content = document.createElement('div');
-    content.className = 'dl-hero-content';
-
-    /* Poster */
-    var posterWrap = document.createElement('div');
-    posterWrap.className = 'dl-hero-poster';
-    if (bgUrl) {
-      var posterImg = document.createElement('img');
-      posterImg.src = bgUrl;
-      posterImg.alt = '';
-      posterWrap.appendChild(posterImg);
-    } else {
-      var placeholder = document.createElement('div');
-      placeholder.className = 'dl-hero-poster-placeholder';
-      posterWrap.appendChild(placeholder);
-    }
-    content.appendChild(posterWrap);
-
-    /* Info section */
-    var info = document.createElement('div');
-    info.className = 'dl-hero-info';
-
-    var titleEl = document.createElement('div');
-    titleEl.className = 'dl-hero-title';
-    titleEl.textContent = item.title;
-    info.appendChild(titleEl);
-
-    /* State pill */
-    var statusWrap = document.createElement('div');
-    statusWrap.className = 'dl-hero-status';
-    var pill = document.createElement('span');
-    pill.className = 'dl-state-pill dl-state-' + item.state;
-    pill.setAttribute('data-v', 'pill');
-    pill.textContent = item.state_label || item.state;
-    statusWrap.appendChild(pill);
-    info.appendChild(statusWrap);
-
-    /* Progress bar */
-    var progressWrap = document.createElement('div');
-    progressWrap.className = 'dl-hero-progress';
-    progressWrap.setAttribute('data-v', 'progress-wrap');
-    if (item.state === 'searching') progressWrap.style.display = 'none';
-
-    var bar = document.createElement('div');
-    bar.className = 'dl-hero-bar';
-    var fill = document.createElement('div');
-    fill.className = 'dl-hero-fill';
-    fill.setAttribute('data-v', 'fill');
-    fill.style.width = item.progress + '%';
-    bar.appendChild(fill);
-    progressWrap.appendChild(bar);
-
-    var details = document.createElement('div');
-    details.className = 'dl-hero-details';
-    var pctSpan = document.createElement('span');
-    var pctInner = document.createElement('span');
-    pctInner.className = 'dl-hero-pct';
-    pctInner.setAttribute('data-v', 'pct');
-    pctInner.textContent = item.progress + '%';
-    pctSpan.appendChild(pctInner);
-    details.appendChild(pctSpan);
-    var etaSpan = document.createElement('span');
-    etaSpan.setAttribute('data-v', 'eta');
-    etaSpan.textContent = item.eta;
-    details.appendChild(etaSpan);
-    progressWrap.appendChild(details);
-    info.appendChild(progressWrap);
-
-    content.appendChild(info);
-    hero.appendChild(content);
-
-    /* Hint text */
-    var hint = document.createElement('div');
-    hint.className = 'dl-hint';
-    hint.textContent = 'You may close this page — the download will continue in the background. ';
-    var br = document.createElement('br');
+    /* Hint text — page-specific copy using the media type from the bootstrap. */
+    var hint = document.createElement(‘div’);
+    hint.className = ‘dl-hint’;
+    hint.textContent = ‘You may close this page — the download will continue in the background. ‘;
+    var br = document.createElement(‘br’);
     hint.appendChild(br);
     var hintLine2 = document.createTextNode(
-      'You’ll be notified by email when this ' + (_mediaType === 'movie' ? 'movie' : 'show') + ' is available to watch.'
+      ‘You’ll be notified by email when this ‘ + (_mediaType === ‘movie’ ? ‘movie’ : ‘show’) + ‘ is available to watch.’
     );
     hint.appendChild(hintLine2);
 

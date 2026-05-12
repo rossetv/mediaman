@@ -9,11 +9,12 @@
  * duplicating logic already provided by core/dom.js (CODE_GUIDELINES §1).
  *
  * Exposes:
- *   MM.downloads.buildDom.q(sel, ctx)          → MM.dom.q
- *   MM.downloads.buildDom.setText(el, txt)     → MM.dom.setText
- *   MM.downloads.buildDom.findByDlId(c, dlId)  → MM.dom.findByAttr(c, 'data-dl-id', dlId)
+ *   MM.downloads.buildDom.q(sel, ctx)              → MM.dom.q
+ *   MM.downloads.buildDom.setText(el, txt)         → MM.dom.setText
+ *   MM.downloads.buildDom.findByDlId(c, dlId)      → MM.dom.findByAttr(c, 'data-dl-id', dlId)
  *   MM.downloads.buildDom.findByEp(container, label)
- *   MM.downloads.buildDom.buildHeroPlaceholder(id)
+ *   MM.downloads.buildDom.buildHero(item)          shared hero card builder
+ *   MM.downloads.buildDom.buildHeroPlaceholder(id) thin wrapper around buildHero
  *   MM.downloads.buildDom.buildRecentItem(r)
  *   MM.downloads.buildDom.buildEmptyState()
  *   MM.downloads.buildDom.buildUpcomingRow(item)
@@ -120,58 +121,101 @@
     return el;
   }
 
-  /* Build hero placeholder safely. */
-  function buildHeroPlaceholder(id) {
+  /**
+   * Build a hero card DOM element.
+   *
+   * Shared builder used by both the per-token download page (download.js)
+   * and the downloads list page (buildHeroPlaceholder). Produces the full
+   * .dl-hero tree with all data-v hooks required by render_hero.js and
+   * download.js polling.
+   *
+   * @param {Object|null} item  Download item. When null/falsy a blank card is
+   *   returned (all text empty, progress at 0%, state pill unstyled). Pass a
+   *   real item to pre-populate title, poster, state pill, and progress.
+   *   Shape: { id, title, poster_url, state, state_label, progress, eta }
+   * @returns {HTMLElement}  The .dl-hero div — not yet attached to the DOM.
+   */
+  function buildHero(item) {
+    item = item || {};
+    var bgUrl = item.poster_url || '';
+    var state  = item.state || '';
+
+    /* Root .dl-hero container */
     var card = document.createElement('div');
     card.className = 'dl-hero dl-card-enter';
-    card.setAttribute('data-dl-id', id);
+    if (item.id) card.setAttribute('data-dl-id', item.id);
 
+    /* Background — set via DLPoster.apply (H67: avoids CSS string injection). */
     var bg = document.createElement('div');
     bg.className = 'dl-hero-bg';
+    if (bgUrl) bg.setAttribute('data-bg-url', bgUrl);
     card.appendChild(bg);
+    if (bgUrl && window.DLPoster) window.DLPoster.apply(bg);
 
+    /* Overlay */
     var overlay = document.createElement('div');
     overlay.className = 'dl-hero-overlay';
     card.appendChild(overlay);
 
+    /* Content wrapper */
     var content = document.createElement('div');
     content.className = 'dl-hero-content';
 
-    var poster = document.createElement('div');
-    poster.className = 'dl-hero-poster';
-    content.appendChild(poster);
+    /* Poster */
+    var posterWrap = document.createElement('div');
+    posterWrap.className = 'dl-hero-poster';
+    if (bgUrl) {
+      var posterImg = document.createElement('img');
+      posterImg.src = bgUrl;
+      posterImg.alt = '';
+      posterWrap.appendChild(posterImg);
+    } else {
+      var posterPh = document.createElement('div');
+      posterPh.className = 'dl-hero-poster-placeholder';
+      posterWrap.appendChild(posterPh);
+    }
+    content.appendChild(posterWrap);
 
+    /* Info section */
     var info = document.createElement('div');
     info.className = 'dl-hero-info';
 
-    var title = document.createElement('div');
-    title.className = 'dl-hero-title';
-    info.appendChild(title);
+    var titleEl = document.createElement('div');
+    titleEl.className = 'dl-hero-title';
+    if (item.title) titleEl.textContent = item.title;
+    info.appendChild(titleEl);
 
-    var status = document.createElement('div');
-    status.className = 'dl-hero-status';
+    /* State pill */
+    var statusWrap = document.createElement('div');
+    statusWrap.className = 'dl-hero-status';
     var pill = document.createElement('span');
-    pill.className = 'dl-state-pill';
-    status.appendChild(pill);
-    info.appendChild(status);
+    pill.className = 'dl-state-pill' + (state ? ' dl-state-' + state : '');
+    pill.setAttribute('data-v', 'pill');
+    if (item.state_label || state) pill.textContent = item.state_label || state;
+    statusWrap.appendChild(pill);
+    info.appendChild(statusWrap);
 
-    /* Empty hint container — updateSearchHint fills it in on first poll. */
-    var hint = document.createElement('div');
-    hint.className = 'dl-search-hint';
-    hint.setAttribute('data-v', 'search-hint');
-    hint.style.display = 'none';
-    info.appendChild(hint);
+    /* Search hint — hidden by default; updateSearchHint fills it on each poll. */
+    var searchHint = document.createElement('div');
+    searchHint.className = 'dl-search-hint';
+    searchHint.setAttribute('data-v', 'search-hint');
+    searchHint.style.display = 'none';
+    info.appendChild(searchHint);
 
-    var progress = document.createElement('div');
-    progress.className = 'dl-hero-progress';
+    /* Progress wrap (hidden entirely while searching) */
+    var progressWrap = document.createElement('div');
+    progressWrap.className = 'dl-hero-progress';
+    progressWrap.setAttribute('data-v', 'progress-wrap');
+    if (state === 'searching') progressWrap.style.display = 'none';
+
     var bar = document.createElement('div');
     bar.className = 'dl-hero-bar';
     var fill = document.createElement('div');
     fill.className = 'dl-hero-fill';
     fill.setAttribute('data-v', 'fill');
-    fill.style.width = '0%';
+    fill.style.width = (item.progress || 0) + '%';
     bar.appendChild(fill);
-    progress.appendChild(bar);
+    progressWrap.appendChild(bar);
 
     var details = document.createElement('div');
     details.className = 'dl-hero-details';
@@ -179,18 +223,28 @@
     var pct = document.createElement('span');
     pct.className = 'dl-hero-pct';
     pct.setAttribute('data-v', 'pct');
-    pct.textContent = '0%';
+    pct.textContent = (item.progress || 0) + '%';
     pctWrap.appendChild(pct);
     details.appendChild(pctWrap);
     var eta = document.createElement('span');
     eta.setAttribute('data-v', 'eta');
+    if (item.eta) eta.textContent = item.eta;
     details.appendChild(eta);
-    progress.appendChild(details);
-    info.appendChild(progress);
+    progressWrap.appendChild(details);
+    info.appendChild(progressWrap);
 
     content.appendChild(info);
     card.appendChild(content);
 
+    return card;
+  }
+
+  /* Thin wrapper — builds a blank hero card pre-tagged with the given dl-id.
+     The downloads list page uses this to insert a card before the first poll
+     returns data; render_hero.js then patches it in place. */
+  function buildHeroPlaceholder(id) {
+    var card = buildHero(null);
+    card.setAttribute('data-dl-id', id);
     return card;
   }
 
@@ -260,13 +314,14 @@
   }
 
   MM.downloads.buildDom = {
-    q:                 function (sel, ctx)     { return MM.dom.q(sel, ctx); },
-    setText:           function (el, txt)      { return MM.dom.setText(el, txt); },
-    findByDlId:        function (container, dlId) { return MM.dom.findByAttr(container, 'data-dl-id', dlId); },
-    findByEp:          findByEp,
+    q:                    function (sel, ctx)        { return MM.dom.q(sel, ctx); },
+    setText:              function (el, txt)         { return MM.dom.setText(el, txt); },
+    findByDlId:           function (container, dlId) { return MM.dom.findByAttr(container, 'data-dl-id', dlId); },
+    findByEp:             findByEp,
+    buildHero:            buildHero,
     buildHeroPlaceholder: buildHeroPlaceholder,
-    buildRecentItem:   buildRecentItem,
-    buildEmptyState:   buildEmptyState,
-    buildUpcomingRow:  buildUpcomingRow,
+    buildRecentItem:      buildRecentItem,
+    buildEmptyState:      buildEmptyState,
+    buildUpcomingRow:     buildUpcomingRow,
   };
 })();
