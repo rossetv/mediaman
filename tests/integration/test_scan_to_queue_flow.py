@@ -51,8 +51,8 @@ class TestScanToQueueFlow:
 
         # Suppress newsletter and recommendations side-effects.
         with (
-            patch("mediaman.scanner._post_scan._send_newsletter"),
-            patch("mediaman.scanner._post_scan._refresh_recommendations"),
+            patch("mediaman.scanner.engine._send_newsletter"),
+            patch("mediaman.scanner.engine._refresh_recommendations"),
             patch("mediaman.services.infra.storage.get_aggregate_disk_usage", return_value={}),
         ):
             engine = ScanEngine(
@@ -100,8 +100,8 @@ class TestScanToQueueFlow:
         fake_plex = _fake_plex(plex_items)
 
         with (
-            patch("mediaman.scanner._post_scan._send_newsletter"),
-            patch("mediaman.scanner._post_scan._refresh_recommendations"),
+            patch("mediaman.scanner.engine._send_newsletter"),
+            patch("mediaman.scanner.engine._refresh_recommendations"),
         ):
             engine = ScanEngine(
                 conn=conn,
