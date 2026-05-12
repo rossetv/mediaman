@@ -15,6 +15,7 @@ from typing import TypedDict
 
 import requests
 
+from mediaman.services.arr import ArrError
 from mediaman.services.infra.http import SafeHTTPError
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ def _iter_still_searching[T](
     """
     try:
         yield from fetch_items()
-    except (requests.RequestException, SafeHTTPError):
+    except (requests.RequestException, SafeHTTPError, ArrError):
         logger.warning("Failed to check %s for searching items", service_label, exc_info=True)
 
 
