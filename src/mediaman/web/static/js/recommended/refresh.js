@@ -69,8 +69,7 @@
     btn.style.opacity = '0.6';
 
     var poll = setInterval(function () {
-      fetch('/api/recommended/refresh/status')
-        .then(function (r) { return r.json(); })
+      MM.api.get('/api/recommended/refresh/status')
         .then(function (st) {
           if (st.status === 'done') {
             clearInterval(poll);
@@ -99,25 +98,11 @@
     btn.style.opacity = '0.6';
     document.getElementById('refresh-error').style.display = 'none';
 
-    fetch('/api/recommended/refresh', { method: 'POST' })
-      .then(function (r) {
-        var status = r.status;
-        return r.json().then(function (data) { return { status: status, data: data }; });
-      })
-      .then(function (resp) {
-        var data = resp.data;
-        if (resp.status === 429) {
-          // Server-side cooldown — hide button + start the countdown.
-          var nextAt = data.next_available_at || new Date(Date.now() + (data.cooldown_seconds || 0) * 1000).toISOString();
-          swapButtonForCooldown(nextAt);
-          var errEl = document.getElementById('refresh-error');
-          errEl.textContent = data.error || 'Refresh is on cooldown.';
-          errEl.style.display = 'block';
-          return;
-        }
+    MM.api.post('/api/recommended/refresh')
+      .then(function (data) {
         if (data.status === 'started' || data.status === 'already_running') {
           startRefreshPolling(btn);
-        } else if (data.ok === false) {
+        } else {
           btn.textContent = 'Fetch new suggestions';
           btn.style.opacity = '1';
           btn.disabled = false;
@@ -126,7 +111,21 @@
           errEl2.style.display = 'block';
         }
       })
-      .catch(function () { btn.textContent = 'Fetch new suggestions'; btn.style.opacity = '1'; btn.disabled = false; });
+      .catch(function (err) {
+        if (err.status === 429) {
+          // Server-side cooldown — hide button + start the countdown.
+          var nextAt = (err.data && err.data.next_available_at) ||
+            new Date(Date.now() + ((err.data && err.data.cooldown_seconds) || 0) * 1000).toISOString();
+          swapButtonForCooldown(nextAt);
+          var errEl = document.getElementById('refresh-error');
+          errEl.textContent = err.message || 'Refresh is on cooldown.';
+          errEl.style.display = 'block';
+          return;
+        }
+        btn.textContent = 'Fetch new suggestions';
+        btn.style.opacity = '1';
+        btn.disabled = false;
+      });
   }
 
   function init() {
@@ -138,8 +137,7 @@
     // On page load: if a refresh is already running, attach to it. If the
     // server reports an active cooldown but the button is somehow visible
     // (race during navigation), swap it for the countdown.
-    fetch('/api/recommended/refresh/status')
-      .then(function (r) { return r.json(); })
+    MM.api.get('/api/recommended/refresh/status')
       .then(function (st) {
         var btn = document.getElementById('refresh-btn');
         if (st.status === 'running' && btn) { startRefreshPolling(btn); return; }

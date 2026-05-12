@@ -28,21 +28,17 @@
   function runPoll() {
     if (polling) return;
     polling = true;
-    fetch('/api/downloads')
-      .then(function (r) {
-        if (r.status === 401 || r.status === 403) {
-          window.location.href = '/login';
-          return;
-        }
-        if (!r.ok) throw new Error(r.status);
-        return r.json();
-      })
+    MM.api.get('/api/downloads')
       .then(function (data) {
         if (data && onData) onData(data);
         consecutiveFailures = 0;
         scheduleNextPoll(POLL_MS);
       })
-      .catch(function () {
+      .catch(function (err) {
+        if (err.status === 401 || err.status === 403) {
+          window.location.href = '/login';
+          return;
+        }
         consecutiveFailures += 1;
         var backoff = Math.min(POLL_MS * Math.pow(2, consecutiveFailures), 30000);
         scheduleNextPoll(backoff);
