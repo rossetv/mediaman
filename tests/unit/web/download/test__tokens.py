@@ -13,9 +13,6 @@ import hashlib
 import time
 from datetime import UTC
 
-import pytest
-
-from mediaman.db import init_db, set_connection
 from mediaman.web.routes.download._tokens import (
     _USED_TOKENS,
     _USED_TOKENS_LOCK,
@@ -127,25 +124,20 @@ class TestUnmarkTokenUsed:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def db_conn(tmp_path):
-    conn = init_db(str(tmp_path / "mm.db"))
-    set_connection(conn)
-    yield conn
-    conn.close()
-
-
 class TestPersistentClaim:
     def setup_method(self):
         _clear_used_tokens()
 
-    def test_claim_writes_row_to_used_download_tokens(self, db_conn):
+    def test_claim_writes_row_to_used_download_tokens(self, conn):
         """A successful claim populates the SQLite authoritative table."""
+        from mediaman.db import set_connection
+
+        set_connection(conn)  # token-store helpers read the module-level conn
         exp = int(time.time()) + 3600
         assert _mark_token_used("persist-me", exp) is True
 
         digest = hashlib.sha256(b"persist-me").hexdigest()
-        row = db_conn.execute(
+        row = conn.execute(
             "SELECT token_hash, expires_at, used_at FROM used_download_tokens WHERE token_hash = ?",
             (digest,),
         ).fetchone()
@@ -154,21 +146,27 @@ class TestPersistentClaim:
         assert row["expires_at"]
         assert row["used_at"]
 
-    def test_replay_after_in_memory_clear_is_rejected(self, db_conn):
+    def test_replay_after_in_memory_clear_is_rejected(self, conn):
         """Simulates a process restart: claim, wipe in-memory, replay must fail."""
+        from mediaman.db import set_connection
+
+        set_connection(conn)  # token-store helpers read the module-level conn
         exp = int(time.time()) + 3600
         assert _mark_token_used("replay-me", exp) is True
         # Wipe the in-memory cache as if the process had just restarted.
         _clear_used_tokens()
         assert _mark_token_used("replay-me", exp) is False
 
-    def test_replay_against_sibling_worker_is_rejected(self, db_conn):
+    def test_replay_against_sibling_worker_is_rejected(self, conn):
         """A sibling worker's pre-populated DB row blocks a claim from this worker."""
         from datetime import datetime
 
+        from mediaman.db import set_connection
+
+        set_connection(conn)
         exp = int(time.time()) + 3600
         digest = hashlib.sha256(b"sibling-token").hexdigest()
-        db_conn.execute(
+        conn.execute(
             "INSERT INTO used_download_tokens (token_hash, expires_at, used_at) VALUES (?, ?, ?)",
             (
                 digest,
@@ -176,20 +174,23 @@ class TestPersistentClaim:
                 datetime.now(UTC).isoformat(),
             ),
         )
-        db_conn.commit()
+        conn.commit()
         # Cache is empty (this "worker" never saw the claim) yet the token
         # must still be refused — the DB constraint is authoritative.
         _clear_used_tokens()
         assert _mark_token_used("sibling-token", exp) is False
 
-    def test_unmark_clears_persistent_row(self, db_conn):
+    def test_unmark_clears_persistent_row(self, conn):
         """Releasing a token deletes the SQLite row so a retry can succeed."""
+        from mediaman.db import set_connection
+
+        set_connection(conn)
         exp = int(time.time()) + 3600
         _mark_token_used("retry-after-failure", exp)
         _unmark_token_used("retry-after-failure")
 
         digest = hashlib.sha256(b"retry-after-failure").hexdigest()
-        row = db_conn.execute(
+        row = conn.execute(
             "SELECT token_hash FROM used_download_tokens WHERE token_hash = ?",
             (digest,),
         ).fetchone()
@@ -197,13 +198,16 @@ class TestPersistentClaim:
         # And it can be re-used now.
         assert _mark_token_used("retry-after-failure", exp) is True
 
-    def test_first_use_via_db_only_blocks_replay(self, db_conn):
+    def test_first_use_via_db_only_blocks_replay(self, conn):
         """Simulates: cache empty, DB already has the row. Must be rejected."""
         from datetime import datetime
 
+        from mediaman.db import set_connection
+
+        set_connection(conn)
         exp = int(time.time()) + 3600
         digest = hashlib.sha256(b"from-other-worker").hexdigest()
-        db_conn.execute(
+        conn.execute(
             "INSERT INTO used_download_tokens (token_hash, expires_at, used_at) VALUES (?, ?, ?)",
             (
                 digest,
@@ -211,7 +215,7 @@ class TestPersistentClaim:
                 datetime.now(UTC).isoformat(),
             ),
         )
-        db_conn.commit()
+        conn.commit()
         _clear_used_tokens()
         # First call to mark — but the DB already has it.
         assert _mark_token_used("from-other-worker", exp) is False

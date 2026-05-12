@@ -13,6 +13,13 @@ from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
 from mediaman.web.routes.subscribers import _UNSUB_LIMITER
 
+# NOTE: this file deliberately keeps its own ``app`` / ``client`` fixtures
+# rather than adopting the shared ``app_factory`` / ``authed_client``
+# in tests/unit/web/conftest.py. The unsubscribe page renders via the
+# full Jinja2 templates set up in ``create_app()``; stubbing them out
+# would defeat the "no longer valid" markup assertion. Same trade-off
+# as test_subscribers_admin.py / test_search_api.py.
+
 
 @pytest.fixture
 def app(db_path, secret_key):

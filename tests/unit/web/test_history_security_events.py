@@ -12,33 +12,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mediaman.config import Config
 from mediaman.core.audit import security_event
-from mediaman.db import init_db, set_connection
-from mediaman.web.auth.password_hash import create_user
-from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.history import router as history_router
-
-
-def _make_app(conn, secret_key: str) -> FastAPI:
-    app = FastAPI()
-    app.include_router(history_router)
-    app.state.config = Config(secret_key=secret_key)
-    app.state.db = conn
-    set_connection(conn)
-    return app
-
-
-def _auth_client(app: FastAPI, conn) -> TestClient:
-    create_user(conn, "admin", "password1234", enforce_policy=False)
-    token = create_session(conn, "admin")
-    client = TestClient(app, raise_server_exceptions=True)
-    client.cookies.set("session_token", token)
-    return client
 
 
 def _add_media_audit(conn, action: str = "scanned") -> None:
@@ -49,15 +26,10 @@ def _add_media_audit(conn, action: str = "scanned") -> None:
     conn.commit()
 
 
-@pytest.fixture
-def conn(db_path):
-    return init_db(str(db_path))
-
-
 class TestSecurityFilter:
-    def test_security_filter_returns_only_sec_events(self, conn, secret_key):
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_security_filter_returns_only_sec_events(self, app_factory, authed_client, conn):
+        app = app_factory(history_router, conn=conn)
+        client = authed_client(app, conn)
 
         # Mix of media + security events.
         _add_media_audit(conn, action="scanned")
@@ -73,9 +45,9 @@ class TestSecurityFilter:
             assert item["action"].startswith("sec:")
             assert item["is_security"] is True
 
-    def test_security_endpoint_dedicated(self, conn, secret_key):
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+    def test_security_endpoint_dedicated(self, app_factory, authed_client, conn):
+        app = app_factory(history_router, conn=conn)
+        client = authed_client(app, conn)
 
         security_event(conn, event="reauth.granted", actor="admin")
         _add_media_audit(conn, action="scanned")  # noise
@@ -90,18 +62,18 @@ class TestSecurityFilter:
         assert item["is_security"] is True
         assert item["badge_class"] == "badge-action-security"
 
-    def test_security_events_requires_auth(self, conn, secret_key):
-        app = _make_app(conn, secret_key)
+    def test_security_events_requires_auth(self, app_factory, conn):
+        app = app_factory(history_router, conn=conn)
         client = TestClient(app, raise_server_exceptions=True)
         resp = client.get("/api/security-events")
         assert resp.status_code == 401
 
-    def test_default_history_includes_security_rows(self, conn, secret_key):
+    def test_default_history_includes_security_rows(self, app_factory, authed_client, conn):
         """The unfiltered /api/history must surface security rows too —
         an operator paging through history shouldn't have to know about
         the synthetic filter to see what happened."""
-        app = _make_app(conn, secret_key)
-        client = _auth_client(app, conn)
+        app = app_factory(history_router, conn=conn)
+        client = authed_client(app, conn)
 
         security_event(conn, event="login.success", actor="admin")
         _add_media_audit(conn, action="scanned")

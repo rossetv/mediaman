@@ -7,14 +7,13 @@ import sqlite3
 from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
-import pytest
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.testclient import TestClient
 
 from mediaman.config import Config
 from mediaman.crypto import generate_keep_token
-from mediaman.db import init_db, set_connection
+from mediaman.db import set_connection
 from mediaman.web.routes.keep import (
     _KEEP_GET_LIMITER,
     _KEEP_POST_LIMITER,
@@ -23,14 +22,11 @@ from mediaman.web.routes.keep import (
 )
 from mediaman.web.routes.keep import router as keep_router
 
+# Keep tokens in this file are minted with an isolated SECRET (not the
+# conftest's ``secret_key``) so the test seam stays orthogonal to the rest
+# of the suite — that means the local class ``_make_app`` methods cannot
+# adopt the shared ``app_factory`` (which always uses the conftest secret).
 SECRET = "a" * 64
-
-
-@pytest.fixture
-def conn(tmp_path) -> sqlite3.Connection:
-    db = init_db(str(tmp_path / "mediaman.db"))
-    yield db
-    db.close()
 
 
 def _insert_media_item(conn: sqlite3.Connection, media_id: str = "mi1") -> None:
