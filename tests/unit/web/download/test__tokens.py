@@ -13,6 +13,14 @@ import hashlib
 import time
 from datetime import UTC
 
+import pytest
+
+from mediaman.web.routes.download import reset_used_tokens
+
+# rationale: _mark_token_used, _unmark_token_used, _USED_TOKENS, and
+# _USED_TOKENS_LOCK are the replay-protection internals. No public
+# surface exposes the per-token digest or LRU eviction behaviour; the
+# only way to verify these invariants is to inspect the cache directly.
 from mediaman.web.routes.download._tokens import (
     _USED_TOKENS,
     _USED_TOKENS_LOCK,
@@ -22,12 +30,12 @@ from mediaman.web.routes.download._tokens import (
 
 
 def _clear_used_tokens():
-    with _USED_TOKENS_LOCK:
-        _USED_TOKENS.clear()
+    reset_used_tokens()
 
 
 class TestMarkTokenUsed:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _clear_tokens(self):
         _clear_used_tokens()
 
     def test_first_use_returns_true(self):
@@ -92,7 +100,8 @@ class TestMarkTokenUsed:
 
 
 class TestUnmarkTokenUsed:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _clear_tokens(self):
         _clear_used_tokens()
 
     def test_unmark_allows_retry(self):
@@ -125,7 +134,8 @@ class TestUnmarkTokenUsed:
 
 
 class TestPersistentClaim:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _clear_tokens(self):
         _clear_used_tokens()
 
     def test_claim_writes_row_to_used_download_tokens(self, conn):

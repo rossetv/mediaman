@@ -17,10 +17,18 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.crypto import generate_download_token, validate_poll_token
 from mediaman.services.infra import SafeHTTPError
+from mediaman.web.routes.download import reset_used_tokens
+
+# rationale: _USED_TOKENS and _USED_TOKENS_LOCK are accessed in a subset of
+# tests to verify token-release semantics (i.e. that a token is removed from
+# the in-memory replay cache after a transient error). reset_used_tokens only
+# clears the entire cache; individual token presence cannot be observed via
+# the public surface.
 from mediaman.web.routes.download._tokens import _USED_TOKENS, _USED_TOKENS_LOCK
 from mediaman.web.routes.download.submit import (
     _DOWNLOAD_LIMITER_POST,
@@ -31,8 +39,7 @@ from mediaman.web.routes.download.submit import (
 
 
 def _clear_used_tokens():
-    with _USED_TOKENS_LOCK:
-        _USED_TOKENS.clear()
+    reset_used_tokens()
 
 
 def _make_token(
@@ -57,7 +64,8 @@ def _app(app_factory, conn):
 
 
 class TestDownloadSubmitValidation:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _clear_state(self):
         _clear_used_tokens()
         _DOWNLOAD_LIMITER_POST._attempts.clear()
 
@@ -100,7 +108,8 @@ class TestDownloadSubmitValidation:
 
 
 class TestDownloadSubmitMovie:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _clear_state(self):
         _clear_used_tokens()
         _DOWNLOAD_LIMITER_POST._attempts.clear()
 
@@ -233,7 +242,8 @@ class TestDownloadSubmitMovie:
 
 
 class TestDownloadSubmitTV:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _clear_state(self):
         _clear_used_tokens()
         _DOWNLOAD_LIMITER_POST._attempts.clear()
 
@@ -296,7 +306,8 @@ class TestDownloadSubmitRefusesMissingTmdbId:
     token (so a corrected link can be issued by the admin).
     """
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _clear_state(self):
         _clear_used_tokens()
         _DOWNLOAD_LIMITER_POST._attempts.clear()
 

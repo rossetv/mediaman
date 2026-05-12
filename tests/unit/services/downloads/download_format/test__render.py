@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mediaman.services.downloads.download_format._render import (
+from mediaman.services.downloads.download_format import (
     build_episode_summary,
     build_item,
     select_hero,

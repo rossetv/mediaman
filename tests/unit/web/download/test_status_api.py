@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -48,7 +49,8 @@ def _authed_client(db_path, secret_key):
 
 
 class TestDownloadStatusAPI:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_caches(self):
         """Clear the per-(service, tmdb_id) status cache so each test sees
         fresh upstream calls instead of replaying a previous test's payload."""
         from mediaman.web.routes.download import reset_download_caches

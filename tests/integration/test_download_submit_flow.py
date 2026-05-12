@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.crypto import generate_download_token, validate_poll_token
@@ -50,7 +51,8 @@ def _make_movie_token(secret_key: str, title: str = "Alien: Romulus", tmdb_id: i
 
 
 class TestDownloadSubmitHappyPath:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_state(self):
         _clear_state()
 
     def test_movie_download_writes_audit_and_notification(self, app_factory, conn, secret_key):
@@ -90,7 +92,8 @@ class TestDownloadSubmitHappyPath:
 
 
 class TestDownloadSubmitReplay:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_state(self):
         _clear_state()
 
     def test_token_replay_returns_409(self, app_factory, conn, secret_key):
@@ -118,7 +121,8 @@ class TestDownloadSubmitReplay:
 
 
 class TestDownloadSubmitAlreadyExists:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _reset_state(self):
         _clear_state()
 
     def test_arr_409_returns_409_with_poll_token(self, app_factory, conn, secret_key):

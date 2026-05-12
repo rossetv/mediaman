@@ -15,8 +15,9 @@ from mediaman.core.backoff import ExponentialBackoff
 class TestPlainBackoff:
     """Plain exponential backoff — no jitter."""
 
-    def setup_method(self):
-        self.b = ExponentialBackoff(base_seconds=60.0, max_seconds=1800.0)
+    @pytest.fixture(autouse=True)
+    def _setup(self, request):
+        request.instance.b = ExponentialBackoff(base_seconds=60.0, max_seconds=1800.0)
 
     def test_first_attempt_returns_base(self):
         assert self.b.delay(1) == 60.0
@@ -63,13 +64,14 @@ class TestCappedGrowth:
 class TestDeterministicJitter:
     """Deterministic jitter — same seed must always produce the same delay."""
 
-    def setup_method(self):
-        self.b = ExponentialBackoff(
+    @pytest.fixture(autouse=True)
+    def _setup(self, request):
+        request.instance.b = ExponentialBackoff(
             base_seconds=120.0,
             max_seconds=86_400.0,
             jitter=0.1,
         )
-        self.seed = b"show-123|1234567890.0"
+        request.instance.seed = b"show-123|1234567890.0"
 
     def test_same_seed_same_result(self):
         d1 = self.b.delay(3, seed=self.seed)

@@ -106,7 +106,8 @@ class TestScrubFilterRedaction:
 
 
 class TestScrubFilterAttach:
-    def setup_method(self) -> None:
+    @pytest.fixture(autouse=True)
+    def _clear_logger_filters(self):
         """Ensure the test logger starts with no filters."""
         logger = logging.getLogger("test.scrub_attach")
         logger.filters.clear()

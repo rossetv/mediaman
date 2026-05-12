@@ -45,14 +45,17 @@ class TestSchemeValidation:
     def test_allows_safe_scheme(self, url, clean_dns):
         assert is_safe_outbound_url(url)
 
-    @pytest.mark.parametrize("url", [
-        "file:///etc/passwd",
-        "gopher://localhost:70/",
-        "ldap://directory.example.com",
-        "ftp://ftp.example.com",
-        "",
-        "not a url at all",
-    ])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "file:///etc/passwd",
+            "gopher://localhost:70/",
+            "ldap://directory.example.com",
+            "ftp://ftp.example.com",
+            "",
+            "not a url at all",
+        ],
+    )
     def test_blocks_unsafe_scheme(self, url):
         assert not is_safe_outbound_url(url)
 
@@ -60,25 +63,31 @@ class TestSchemeValidation:
 class TestLanAddressesAllowed:
     """RFC1918 addresses are the common case — do not block them."""
 
-    @pytest.mark.parametrize("url", [
-        "http://192.168.1.10:7878",
-        "http://10.0.0.5:32400",
-        "http://172.16.5.5:8989",
-        # localhost / 127.0.0.1 is fine too — self-hosted mediaman on the same box
-        # as its services is a supported deployment.
-        "http://127.0.0.1:7878",
-    ])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://192.168.1.10:7878",
+            "http://10.0.0.5:32400",
+            "http://172.16.5.5:8989",
+            # localhost / 127.0.0.1 is fine too — self-hosted mediaman on the same box
+            # as its services is a supported deployment.
+            "http://127.0.0.1:7878",
+        ],
+    )
     def test_allows_lan_address(self, url):
         assert is_safe_outbound_url(url)
 
 
 class TestMetadataEndpointsBlocked:
-    @pytest.mark.parametrize("url", [
-        "http://169.254.169.254/latest/meta-data/",
-        "http://100.100.100.200/",
-        "http://metadata.google.internal/computeMetadata/v1/",
-        "http://admin.internal/",
-    ])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://169.254.169.254/latest/meta-data/",
+            "http://100.100.100.200/",
+            "http://metadata.google.internal/computeMetadata/v1/",
+            "http://admin.internal/",
+        ],
+    )
     def test_blocks_metadata_endpoint(self, url):
         assert not is_safe_outbound_url(url)
 
@@ -92,11 +101,14 @@ class TestMetadataEndpointsBlocked:
 
 
 class TestLinkLocalAndUnspecified:
-    @pytest.mark.parametrize("url", [
-        "http://169.254.1.5/",
-        "http://0.0.0.0/",
-        "http://[::]/",
-    ])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://169.254.1.5/",
+            "http://0.0.0.0/",
+            "http://[::]/",
+        ],
+    )
     def test_blocks_link_local_and_unspecified(self, url):
         assert not is_safe_outbound_url(url)
 
@@ -118,36 +130,45 @@ class TestPublicHostnamesAllowed:
 
 
 class TestUserinfoRejected:
-    @pytest.mark.parametrize("url", [
-        "http://admin:pw@radarr.example.com/",
-        "http://@radarr.example.com/",
-    ])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://admin:pw@radarr.example.com/",
+            "http://@radarr.example.com/",
+        ],
+    )
     def test_blocks_userinfo(self, url, clean_dns):
         assert not is_safe_outbound_url(url)
 
 
 class TestBlockedIPv4Ranges:
-    @pytest.mark.parametrize("url", [
-        "http://100.64.1.1/",       # CGNAT
-        "http://255.255.255.255/",  # broadcast
-        "http://224.0.0.1/",        # multicast
-        "http://240.0.0.1/",        # reserved class E
-        "http://0.1.2.3/",          # this-network
-    ])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://100.64.1.1/",  # CGNAT
+            "http://255.255.255.255/",  # broadcast
+            "http://224.0.0.1/",  # multicast
+            "http://240.0.0.1/",  # reserved class E
+            "http://0.1.2.3/",  # this-network
+        ],
+    )
     def test_blocks_ipv4_range(self, url):
         assert not is_safe_outbound_url(url)
 
 
 class TestBlockedIPv6Ranges:
-    @pytest.mark.parametrize("url", [
-        "http://[fc00::1]/",                    # ULA
-        "http://[fe80::1]/",                    # link-local
-        "http://[2001::1]/",                    # Teredo
-        "http://[2002::1]/",                    # 6to4
-        "http://[ff00::1]/",                    # multicast
-        "http://[::ffff:169.254.169.254]/",     # IPv4-mapped AWS IMDS
-        "http://[::ffff:100.100.100.200]/",     # IPv4-mapped Alibaba metadata
-    ])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://[fc00::1]/",  # ULA
+            "http://[fe80::1]/",  # link-local
+            "http://[2001::1]/",  # Teredo
+            "http://[2002::1]/",  # 6to4
+            "http://[ff00::1]/",  # multicast
+            "http://[::ffff:169.254.169.254]/",  # IPv4-mapped AWS IMDS
+            "http://[::ffff:100.100.100.200]/",  # IPv4-mapped Alibaba metadata
+        ],
+    )
     def test_blocks_ipv6_range(self, url):
         """Each IPv6 range — including IPv4-mapped metadata variants — must be refused.
 
@@ -164,11 +185,14 @@ class TestBlockedIPv6Ranges:
 class TestStrictEgress:
     """In strict mode even loopback and RFC1918 are refused."""
 
-    @pytest.mark.parametrize("url", [
-        "http://127.0.0.1:7878",
-        "http://192.168.1.10:7878",
-        "http://[::1]/",
-    ])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://127.0.0.1:7878",
+            "http://192.168.1.10:7878",
+            "http://[::1]/",
+        ],
+    )
     def test_strict_blocks_private_address(self, url):
         assert not is_safe_outbound_url(url, strict_egress=True)
 

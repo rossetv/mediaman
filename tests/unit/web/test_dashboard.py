@@ -159,11 +159,8 @@ class TestApiDashboardReclaimedChart:
 class TestFinding34DashboardRedownload:
     """Finding 34: the redownload button must pass media_item_id and media_type."""
 
-    def test_dashboard_item_includes_media_type(self, conn):
-        """_fetch_recently_deleted must populate media_type in the returned dict."""
-        from mediaman.db import set_connection
-        from mediaman.web.routes.dashboard._data import _fetch_recently_deleted
-
+    def test_dashboard_item_includes_media_type(self, app_factory, authed_client, conn):
+        """GET /api/dashboard/deleted must populate media_type and media_item_id."""
         insert_media_item(
             conn,
             id="m1",
@@ -181,9 +178,12 @@ class TestFinding34DashboardRedownload:
             space_reclaimed_bytes=1024,
             created_at="2024-06-01",
         )
-        set_connection(conn)
 
-        items = _fetch_recently_deleted(conn)
+        app = app_factory(dashboard_router, conn=conn)
+        client = authed_client(app, conn)
+        resp = client.get("/api/dashboard/deleted")
+        assert resp.status_code == 200
+        items = resp.json()["items"]
         assert len(items) >= 1
         item = next(i for i in items if i["media_item_id"] == "m1")
         assert "media_type" in item

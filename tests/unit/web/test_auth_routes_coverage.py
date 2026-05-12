@@ -47,7 +47,8 @@ class TestLoginPage:
 
 
 class TestLoginSubmit:
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _clear_limiter(self):
         _limiter._attempts.clear()
 
     def test_valid_credentials_redirect_to_root(self, _app, conn):
@@ -229,7 +230,8 @@ class TestLogout:
 class TestLoginRateLimitHeaders:
     """The rate-limit response must give clients a Retry-After hint."""
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _clear_limiter(self):
         _limiter._attempts.clear()
 
     def test_rate_limit_returns_retry_after(self, _app, conn):
@@ -257,7 +259,8 @@ class TestAuditUsernameSanitisation:
     multi-kilobyte / control-byte username verbatim into ``actor`` or
     the ``detail`` blob (which is rendered into the history page)."""
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _clear_limiter(self):
         _limiter._attempts.clear()
 
     def test_long_username_truncated_in_audit_row(self, _app, conn):
@@ -302,7 +305,8 @@ class TestWeakPasswordCoalescing:
     """``password.weak_detected`` must be logged ONCE per flag-flip, not
     once per login of a flagged account."""
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _clear_limiter(self):
         _limiter._attempts.clear()
 
     def test_event_emitted_only_on_first_weak_login(self, _app, conn):
@@ -327,7 +331,8 @@ class TestUaHashInAuditLog:
     """``login.success`` audit detail must store a real hash, not the
     leading 80 chars of the raw user-agent."""
 
-    def setup_method(self):
+    @pytest.fixture(autouse=True)
+    def _clear_limiter(self):
         _limiter._attempts.clear()
 
     def test_long_ua_stored_as_short_hash(self, _app, conn):

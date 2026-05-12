@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mediaman.services.downloads.download_format._classify import (
+from mediaman.services.downloads.download_format import (
     classify_movie_upcoming,
     classify_series_upcoming,
     extract_poster_url,

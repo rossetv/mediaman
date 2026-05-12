@@ -84,9 +84,7 @@ class TestThrottleDbPersistence:
     def test_load_returns_zero_on_pre_migration_db(self):
         """A missing table raises ``sqlite3.DatabaseError`` — also swallowed."""
         bad_conn = MagicMock()
-        bad_conn.execute.side_effect = sqlite3.DatabaseError(
-            "no such table: arr_search_throttle"
-        )
+        bad_conn.execute.side_effect = sqlite3.DatabaseError("no such table: arr_search_throttle")
         assert _load_throttle_from_db(bad_conn, "radarr:X") == (0.0, 0)
 
     def test_load_propagates_unexpected_exception(self):
