@@ -8,33 +8,33 @@
    explode on /recommended. #}
 {%- import "_components.html" as c -%}
 {%- set _state = item.download_state if item.download_state else ('queued' if item.downloaded_at else '') -%}
-<div class="tile" data-rec-id="{{ item.id }}">
-  <button type="button" class="tile-hit" aria-label="{{ item.title }} — open details"></button>
-  <div class="tile-poster">
-    {% if item.poster_url %}
-    <img src="{{ item.poster_url }}" alt="{{ item.title }}" loading="lazy" referrerpolicy="no-referrer" data-broken-on-error>
-    {% endif %}
-    {% if item.rating or item.rt_rating %}
-    <div class="poster-chips">
-      {% if item.rating %}<span class="poster-chip r-imdb"><span class="chip-icon">★</span>{{ item.rating }}</span>{% endif %}
-      {% if item.rt_rating %}<span class="poster-chip r-rt"><span class="chip-icon">🍅</span>{{ item.rt_rating }}</span>{% endif %}
-    </div>
-    {% endif %}
-    {% if _state %}
-    <span class="poster-state {{ _state }}">{{ _state.replace('_', ' ') }}</span>
-    {% endif %}
+{%- set _sub -%}
+  {%- if item.year %}{{ item.year }} · {% endif -%}
+  {{ 'Movie' if item.media_type == 'movie' else 'TV' }}
+{%- endset -%}
+{%- set _poster_overlay -%}
+  {%- if item.rating or item.rt_rating -%}
+  <div class="poster-chips">
+    {%- if item.rating %}<span class="poster-chip r-imdb"><span class="chip-icon">★</span>{{ item.rating }}</span>{% endif -%}
+    {%- if item.rt_rating %}<span class="poster-chip r-rt"><span class="chip-icon">🍅</span>{{ item.rt_rating }}</span>{% endif -%}
   </div>
-  <div>
-    <div class="tile-title">{{ item.title }}</div>
-    <div class="tile-sub">
-      {%- if item.year %}{{ item.year }} · {% endif -%}
-      {{ 'Movie' if item.media_type == 'movie' else 'TV' }}
-    </div>
-    <div class="tile-meta">{{ item.description | truncate(80) if item.description else '' }}</div>
-  </div>
+  {%- endif -%}
+  {%- if _state -%}
+  <span class="poster-state {{ _state }}">{{ _state.replace('_', ' ') }}</span>
+  {%- endif -%}
+{%- endset -%}
+{#- Finding 18: only emit the trailer link if it is a confirmed YouTube URL. -#}
+{%- set _safe_trailer = item.trailer_url if item.trailer_url and item.trailer_url.startswith("https://www.youtube.com/") else "" -%}
+{% call c.tile(item.title,
+               sub=_sub,
+               meta=item.description | truncate(80) if item.description else '',
+               poster_url=item.poster_url if item.poster_url else "",
+               poster_alt=item.title,
+               poster_referrerpolicy="no-referrer",
+               poster_overlay_html=_poster_overlay,
+               tile_hit_label=item.title ~ " — open details",
+               raw_data_attrs={"rec-id": item.id}) %}
   {% if item.reason %}<div class="reason">{{ item.reason }}</div>{% endif %}
-  {#- Finding 18: only emit the trailer link if it is a confirmed YouTube URL. -#}
-  {%- set _safe_trailer = item.trailer_url if item.trailer_url and item.trailer_url.startswith("https://www.youtube.com/") else "" -%}
   {% if _safe_trailer or not _state %}
   <div class="tile-actions">
     {% if _safe_trailer %}
@@ -49,4 +49,4 @@
     {% endif %}
   </div>
   {% endif %}
-</div>
+{% endcall %}
