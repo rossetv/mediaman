@@ -107,7 +107,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _fetch_protected(conn: sqlite3.Connection) -> tuple[list[dict], list[dict]]:
+def _fetch_protected(conn: sqlite3.Connection) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     """Return (forever_items, snoozed_items) from scheduled_actions joined with media_items."""
     now = now_iso()
     rows = fetch_protected_items(conn, now)
@@ -180,15 +180,15 @@ def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)
     if action_id is None:
         return respond_err("not_found", status=404, message="No active protection found")
 
-    delete_protection(conn, action_id)
-    log_audit(
-        conn,
-        media_item_id,
-        "unprotected",
-        f"Protection removed by {username}",
-        actor=username,
-    )
-    conn.commit()
+    with conn:
+        delete_protection(conn, action_id)
+        log_audit(
+            conn,
+            media_item_id,
+            "unprotected",
+            f"Protection removed by {username}",
+            actor=username,
+        )
 
     logger.info("Unprotected media_item_id=%s by %s", media_item_id, username)
     return respond_ok()
@@ -322,16 +322,16 @@ def api_keep_show(
         if sid not in existing_by_season
     ]
 
-    set_protected_state(conn, to_update=to_update, to_insert=to_insert)
+    with conn:
+        set_protected_state(conn, to_update=to_update, to_insert=to_insert)
 
-    log_audit(
-        conn,
-        resolved_key,
-        "kept_show",
-        f"Show '{show_title}' kept ({duration}) by {admin}",
-        actor=admin,
-    )
-    conn.commit()
+        log_audit(
+            conn,
+            resolved_key,
+            "kept_show",
+            f"Show '{show_title}' kept ({duration}) by {admin}",
+            actor=admin,
+        )
 
     logger.info("Kept show %s (%s) -- %s by %s", resolved_key, show_title, duration, admin)
     return respond_ok()
@@ -355,15 +355,15 @@ def api_remove_show_keep(
         return respond_err("not_found", status=404, message="No show-level keep found")
 
     kept_id, show_title = keep_row
-    delete_kept_show(conn, kept_id)
-    log_audit(
-        conn,
-        show_rating_key,
-        "removed_show_keep",
-        f"Show keep removed for '{show_title}' by {admin}",
-        actor=admin,
-    )
-    conn.commit()
+    with conn:
+        delete_kept_show(conn, kept_id)
+        log_audit(
+            conn,
+            show_rating_key,
+            "removed_show_keep",
+            f"Show keep removed for '{show_title}' by {admin}",
+            actor=admin,
+        )
 
     logger.info("Removed show keep for %s by %s", show_rating_key, admin)
     return respond_ok()
