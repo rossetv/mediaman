@@ -20,18 +20,14 @@
     {% if show_items %}
     <div class="grid grid-tiles">
       {% for item in show_items %}
-      <div class="tile">
-        <div class="tile-poster">
-          {{ c.poster(item) }}
-          <div class="tile-pills">
-            {{ c.pill("Show", variant="tv") }}
-            {{ c.pill(item.expiry, variant=('kept' if item.action == 'protected_forever' else 'queued')) }}
-          </div>
-        </div>
-        <div>
-          <div class="tile-title">{{ item.show_title }}</div>
-          <div class="tile-meta">All seasons (including future)</div>
-        </div>
+      {%- set _pills -%}
+        {{ c.pill("Show", variant="tv") }}
+        {{ c.pill(item.expiry, variant=('kept' if item.action == 'protected_forever' else 'queued')) }}
+      {%- endset -%}
+      {% call c.tile(item.show_title,
+                     meta="All seasons (including future)",
+                     poster_url="/api/poster/" ~ item.plex_rating_key if item.plex_rating_key else "",
+                     pills_html=_pills) %}
         <div class="tile-actions">
           {# TODO: c.btn data_attrs uses `| e` escaping; `show-rk` carries a
              `| tojson`-encoded id that JS parses via JSON.parse. #}
@@ -39,7 +35,7 @@
                   data-action="remove-show-keep"
                   data-show-rk="{{ item.show_rating_key | tojson }}">Remove</button>
         </div>
-      </div>
+      {% endcall %}
       {% endfor %}
     </div>
     {% else %}
@@ -58,18 +54,14 @@
     {% if forever_items %}
     <div class="grid grid-tiles">
       {% for item in forever_items %}
-      <div class="tile">
-        <div class="tile-poster">
-          {{ c.poster(item) }}
-          <div class="tile-pills">
-            {{ c.pill(item.type_label, variant=('movie' if item.media_type == 'movie' else ('tv' if item.media_type == 'tv' else 'anime'))) }}
-            {{ c.pill("Forever", variant="kept") }}
-          </div>
-        </div>
-        <div>
-          <div class="tile-title">{{ item.title }}</div>
-          <div class="tile-meta">{{ item.file_size }}</div>
-        </div>
+      {%- set _pills -%}
+        {{ c.pill(item.type_label, variant=('movie' if item.media_type == 'movie' else ('tv' if item.media_type == 'tv' else 'anime'))) }}
+        {{ c.pill("Forever", variant="kept") }}
+      {%- endset -%}
+      {% call c.tile(item.title,
+                     meta=item.file_size,
+                     poster_url="/api/poster/" ~ item.plex_rating_key if item.plex_rating_key else "",
+                     pills_html=_pills) %}
         <div class="tile-actions">
           {# TODO: c.btn data_attrs uses `| e` escaping; `media-id` carries a
              `| tojson`-encoded id that JS parses via JSON.parse. #}
@@ -77,7 +69,7 @@
                   data-action="remove-keep"
                   data-media-id="{{ item.media_item_id | tojson }}">Remove</button>
         </div>
-      </div>
+      {% endcall %}
       {% endfor %}
     </div>
     {% else %}
@@ -96,18 +88,14 @@
     {% if snoozed_items %}
     <div class="grid grid-tiles">
       {% for item in snoozed_items %}
-      <div class="tile">
-        <div class="tile-poster">
-          {{ c.poster(item) }}
-          <div class="tile-pills">
-            {{ c.pill(item.type_label, variant=('movie' if item.media_type == 'movie' else ('tv' if item.media_type == 'tv' else 'anime'))) }}
-            {{ c.pill(item.expiry, variant="queued") }}
-          </div>
-        </div>
-        <div>
-          <div class="tile-title">{{ item.title }}</div>
-          <div class="tile-meta">{{ item.file_size }}</div>
-        </div>
+      {%- set _pills -%}
+        {{ c.pill(item.type_label, variant=('movie' if item.media_type == 'movie' else ('tv' if item.media_type == 'tv' else 'anime'))) }}
+        {{ c.pill(item.expiry, variant="queued") }}
+      {%- endset -%}
+      {% call c.tile(item.title,
+                     meta=item.file_size,
+                     poster_url="/api/poster/" ~ item.plex_rating_key if item.plex_rating_key else "",
+                     pills_html=_pills) %}
         <div class="tile-actions">
           {# TODO: c.btn data_attrs uses `| e` escaping; `media-id` carries a
              `| tojson`-encoded id that JS parses via JSON.parse. #}
@@ -115,7 +103,7 @@
                   data-action="remove-keep"
                   data-media-id="{{ item.media_item_id | tojson }}">Remove</button>
         </div>
-      </div>
+      {% endcall %}
       {% endfor %}
     </div>
     {% else %}

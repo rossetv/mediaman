@@ -134,14 +134,19 @@ def test_dashboard_posters_use_empty_alt():
 
 
 def test_protected_uses_poster_macro():
-    """Finding 9: three identical poster blocks were collapsed to a
-    shared c.poster macro to keep the alt-empty contract in one place."""
+    """Finding 9 / W1.23: poster rendering for protected items is delegated to
+    c.tile (which owns the alt-empty contract via the poster_alt param).  Raw
+    inline img tags and the intermediate c.poster calls are gone."""
     prot = _tpl("protected.html")
-    # No raw posters left.
+    # No raw poster img tags with a non-empty alt on these plex-proxied images.
     assert 'alt="{{ item.show_title }}"' not in prot
     assert 'alt="{{ item.title }}"' not in prot
-    # Macro is used in three spots (kept-shows, forever, snoozed).
-    assert prot.count("{{ c.poster(item) }}") == 3
+    # c.tile is used in three spots (kept-shows, forever, snoozed); each passes
+    # poster_url so the macro's img (with empty poster_alt) handles rendering.
+    assert prot.count("call c.tile(") == 3
+    assert prot.count('poster_url="/api/poster/"') == 3
+    # The standalone c.poster calls are retired — the macro is now SSOT.
+    assert "{{ c.poster(item) }}" not in prot
 
 
 def test_components_exposes_poster_macro():
@@ -208,13 +213,15 @@ def test_detail_modal_labelled_by_visible_title():
 
 def test_search_inline_script_renders_modal_title_as_h2():
     """Finding 11: search.html's modal-render must build an
-    <h2 id="detail-modal-title"> so aria-labelledby resolves. The script
-    now lives in static/js/search.js after the CSP-nonce extraction; the
-    template references it via a <script src> tag."""
+    <h2 id="detail-modal-title"> so aria-labelledby resolves. After the
+    Phase 8 split the detail-modal rendering lives in
+    static/js/search/detail_modal.js; search.html must load that sub-module
+    before search.js so the h2 is still guaranteed to be built."""
     search = _tpl("search.html")
+    assert '<script src="/static/js/search/detail_modal.js" defer></script>' in search
     assert '<script src="/static/js/search.js" defer></script>' in search
-    search_js = (REPO / "src/mediaman/web/static/js/search.js").read_text(encoding="utf-8")
-    assert '<h2 id="detail-modal-title" class="detail-modal-hero-title">' in search_js
+    detail_js = (REPO / "src/mediaman/web/static/js/search/detail_modal.js").read_text(encoding="utf-8")
+    assert '<h2 id="detail-modal-title" class="detail-modal-hero-title">' in detail_js
 
 
 def test_recommended_inline_script_renders_modal_title_as_h2():
