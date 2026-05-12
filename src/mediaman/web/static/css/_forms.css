@@ -1,7 +1,7 @@
 /* =============================================================
    FORMS — form input primitives (`.inp`, `.form-*`), field rows,
    the password reveal toggle, the threshold-row pattern, the
-   button spinner, and the toggle switch (`.tog`/`.toggle-switch`).
+   button spinner, and the toggle switch (`.tog`).
    Extracted from _base.css per CODE_GUIDELINES.md §3.1.
    ============================================================= */
 
@@ -112,8 +112,7 @@ select.inp,
 /* =============================================================
    14. TOGGLE SWITCH
    ============================================================= */
-.tog,
-.toggle-switch {
+.tog {
   position: relative;
   width: 44px;
   height: 26px;
@@ -124,9 +123,8 @@ select.inp,
   flex-shrink: 0;
   display: inline-block;
 }
-.tog::after { content: ""; }
-.tog::after,
-.toggle-switch-thumb {
+.tog::after {
+  content: "";
   position: absolute;
   top: 2px; left: 2px;
   width: 22px; height: 22px;
@@ -135,16 +133,5 @@ select.inp,
   transition: transform .2s;
   z-index: 1;
 }
-.tog.on,
-.toggle-switch input:checked ~ .toggle-switch-track { background: var(--success); }
-.tog.on::after,
-.toggle-switch input:checked ~ .toggle-switch-thumb { transform: translateX(18px); }
-
-.toggle-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
-.toggle-switch-track {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: rgba(255,255,255,.12);
-  transition: background .15s;
-}
+.tog.on { background: var(--success); }
+.tog.on::after { transform: translateX(18px); }

@@ -1,9 +1,8 @@
 /* =============================================================
-   SETTINGS — v1 primitives shared by settings panels (cards,
-   collapsible sections, rows, inline buttons), the legacy save-bar,
-   and the JS-emitted bits (subscriber items, users rows, disk
-   threshold rows). The v2 cinematic page chrome (scoped under
-   `.setg-pg`) lives in _settings_pg.css.
+   SETTINGS — v1 primitives shared by settings panels (cards, rows,
+   inline buttons) and the JS-emitted bits (subscriber items, users
+   rows, library pills' selected state). The v2 cinematic page
+   chrome (scoped under `.setg-pg`) lives in _settings_pg.css.
    ============================================================= */
 
 /* =============================================================
@@ -79,77 +78,8 @@
 }
 .setg-hd h3 { font-size: 18px; font-weight: 600; letter-spacing: -.02em; }
 
-/* Collapsible settings sections (legacy structure — restyled) */
-.settings-section {
-  background: var(--s1);
-  border: 1px solid var(--hair);
-  border-radius: var(--r-lg);
-  overflow: hidden;
-  margin-bottom: 16px;
-}
-.settings-section-header {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 18px 20px;
-  cursor: pointer;
-  transition: background .15s;
-}
-.settings-section-header:hover { background: var(--s2); }
-.settings-section-icon {
-  width: 36px; height: 36px;
-  border-radius: var(--r-sm);
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-}
-.icon-tint-purple   { background: rgba(191,90,242,.15); }
-.icon-tint-neutral  { background: var(--rgba-overlay-sm); }
-.icon-tint-green    { background: rgba(48,209,88,.15); }
-.icon-tint-red      { background: rgba(255,69,58,.15); }
-.icon-tint-sky      { background: rgba(100,210,255,.15); }
-.icon-tint-amber    { background: rgba(229,160,13,.15); }
-.icon-tint-blue     { background: rgba(62,169,237,.15); }
-.icon-tint-orange   { background: rgba(255,159,10,.15); }
-.icon-tint-coral    { background: rgba(255,87,87,.15); }
-.icon-tint-teal     { background: rgba(16,163,127,.15); }
-.icon-tint-cyan     { background: rgba(1,180,228,.15); }
-.icon-tint-yellow   { background: rgba(245,197,24,.15); }
-.icon-tint-accent   { background: var(--rgba-accent-bg); }
-.settings-section-title { font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
-.settings-section-desc  { font-size: 12px; color: var(--t3); margin-top: 2px; line-height: 1.4; }
-.settings-header-chevron,
-.settings-header-actions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-shrink: 0;
-}
-.settings-section-chevron {
-  color: var(--t3);
-  transition: transform .2s;
-}
-.settings-section.expanded .settings-section-chevron { transform: rotate(90deg); }
-
-.settings-section-body {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows .25s;
-}
-.settings-section.expanded .settings-section-body { grid-template-rows: 1fr; }
-.settings-section-inner {
-  overflow: hidden;
-  border-top: 1px solid var(--hair);
-}
-.settings-section.expanded .settings-section-inner { padding: 16px 20px; }
-
-.settings-loading { padding: 14px 0; color: var(--t3); font-size: 13px; }
-
 /* Settings inline buttons */
-.btn-test,
-.btn-add,
-.btn-save {
+.btn-test {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -163,13 +93,7 @@
   white-space: nowrap;
   transition: background .15s;
 }
-.btn-test:hover,
-.btn-add:hover,
-.btn-save:hover { background: var(--s4); }
-.btn-add,
-.btn-save { background: var(--accent-cta); color: #fff; }
-.btn-add:hover,
-.btn-save:hover { background: var(--accent-hi); }
+.btn-test:hover { background: var(--s4); }
 
 .settings-save-row {
   display: flex;
@@ -177,46 +101,6 @@
   gap: 10px;
   padding-bottom: 2px;
 }
-
-.save-bar {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 30;
-  padding: 12px var(--pad);
-  background: rgba(20,20,22,.92);
-  backdrop-filter: saturate(180%) blur(20px);
-  border-top: 1px solid var(--hair);
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-}
-.save-bar #save-status { color: var(--t3); font-size: 13px; margin-right: auto; }
-
-/* Subscriber list (settings → newsletter) */
-.subscriber-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 16px 20px;
-}
-.subscriber-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  background: var(--s2);
-  border-radius: var(--r-sm);
-}
-.subscriber-row .email { flex: 1; min-width: 0; font-size: 14px; }
-.add-subscriber-row {
-  display: flex;
-  gap: 8px;
-  padding: 0 20px 16px;
-}
-.add-subscriber-row .form-input { flex: 1; }
 
 .newsletter-send-block {
   border-top: 1px solid var(--hair);
@@ -258,25 +142,6 @@
 .library-pills .lib-pill.on { background: var(--accent); color: #001424; }
 
 /* Users management (settings → admin) */
-.users-self-card,
-.users-list-card {
-  background: var(--s2);
-  border-radius: var(--r-md);
-  margin-bottom: 16px;
-  overflow: hidden;
-}
-.users-self-head,
-.users-list-head {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 18px 20px;
-  border-bottom: 1px solid var(--hair);
-}
-.users-list-head { padding: 16px 20px; }
-.users-list-card .users-list-head { border-bottom: 1px solid var(--hair); }
-.users-self-card .users-self-head:last-child,
-.users-list-card .users-list-head:last-child { border-bottom: 0; }
 .users-avatar {
   width: 40px;
   height: 40px;
@@ -289,12 +154,10 @@
   color: #fff;
   flex-shrink: 0;
 }
-.users-self-meta { flex: 1; min-width: 0; }
 .users-self-label { font-size: 11px; color: var(--t3); text-transform: uppercase; letter-spacing: .04em; }
 .users-self-name  { font-size: 16px; font-weight: 600; margin-top: 2px; }
 .users-list-title { font-size: 15px; font-weight: 600; }
 .users-list-desc  { font-size: 12px; color: var(--t3); margin-top: 2px; }
-.users-self-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .users-btn {
   display: inline-flex;
   align-items: center;
@@ -334,7 +197,7 @@
 
 /* =============================================================
    27. SETTINGS — JS-emitted bits (subscribers, recipients, users,
-   disk thresholds, library pills' selected state).
+   library pills' selected state).
    ============================================================= */
 
 /* Library pill — JS toggles .selected; alias to .on for visual parity. */
@@ -420,48 +283,3 @@
 }
 .users-delete-title { font-weight: 500; font-size: 14px; margin-bottom: 4px; }
 .users-delete-desc  { color: var(--t3); font-size: 12px; line-height: 1.4; margin-bottom: 12px; }
-
-/* Disk threshold rows — also JS-emitted */
-.disk-row {
-  display: grid;
-  grid-template-columns: 1fr 2fr 80px auto auto;
-  gap: 10px;
-  align-items: center;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--hair);
-}
-.disk-row:last-child { border-bottom: 0; }
-.disk-lib-name { font-size: 13px; font-weight: 500; }
-.disk-path-input,
-.disk-threshold-input {
-  background: var(--s2);
-  border: 1px solid var(--hair);
-  border-radius: var(--r-sm);
-  padding: 7px 10px;
-  color: var(--t1);
-  font: inherit;
-  font-size: 13px;
-}
-.disk-path-input:focus,
-.disk-threshold-input:focus { outline: 0; border-color: var(--accent); background: var(--s3); }
-.disk-threshold-input { width: 70px; text-align: right; }
-.disk-usage-badge {
-  font-size: 11px;
-  font-weight: 500;
-  padding: 3px 9px;
-  border-radius: var(--r-pill);
-  background: var(--rgba-overlay-sm);
-  color: var(--t3);
-  white-space: nowrap;
-}
-.disk-usage-ok   { background: var(--rgba-success-bg);  color: var(--success); }
-.disk-usage-warn { background: rgba(255,214,10,.14); color: var(--warning); }
-.disk-usage-crit { background: rgba(255,69,58,.14);  color: var(--danger); }
-.disk-usage-off  { background: var(--rgba-overlay-sm); color: var(--t3); }
-@media (max-width: 760px) {
-  .disk-row { grid-template-columns: 1fr; gap: 6px; }
-}
-
-/* Settings header SVG icons */
-.settings-section-icon svg { width: 18px; height: 18px; }
-.settings-section-header > div:nth-child(2) { flex: 1; min-width: 0; }
