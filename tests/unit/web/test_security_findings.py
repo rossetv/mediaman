@@ -620,8 +620,23 @@ class TestFinding34DashboardRedownload:
         """_fetch_recently_deleted must populate media_type in the returned dict."""
         from mediaman.web.routes.dashboard._data import _fetch_recently_deleted
 
-        insert_media_item(conn, id="m1", title="Test", plex_rating_key="rk1", file_path="/f", file_size_bytes=0, added_at="2024-01-01")
-        insert_audit_log(conn, media_item_id="m1", action="deleted", detail="detail", space_reclaimed_bytes=1024, created_at="2024-06-01")
+        insert_media_item(
+            conn,
+            id="m1",
+            title="Test",
+            plex_rating_key="rk1",
+            file_path="/f",
+            file_size_bytes=0,
+            added_at="2024-01-01",
+        )
+        insert_audit_log(
+            conn,
+            media_item_id="m1",
+            action="deleted",
+            detail="detail",
+            space_reclaimed_bytes=1024,
+            created_at="2024-06-01",
+        )
         set_connection(conn)
 
         items = _fetch_recently_deleted(conn)

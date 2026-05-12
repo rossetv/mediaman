@@ -197,10 +197,16 @@ class TestSchemaV14DeleteStatus:
 
     def test_default_is_pending(self, db_path):
         conn = init_db(str(db_path))
-        insert_media_item(conn, id="m1", title="t", plex_rating_key="m1",
-                          added_at="2026-01-01", file_path="/tmp/x", file_size_bytes=1)
-        insert_scheduled_action(conn, media_item_id="m1", scheduled_at="2026-01-01",
-                                token="tok1")
+        insert_media_item(
+            conn,
+            id="m1",
+            title="t",
+            plex_rating_key="m1",
+            added_at="2026-01-01",
+            file_path="/tmp/x",
+            file_size_bytes=1,
+        )
+        insert_scheduled_action(conn, media_item_id="m1", scheduled_at="2026-01-01", token="tok1")
         status = conn.execute(
             "SELECT delete_status FROM scheduled_actions WHERE token='tok1'"
         ).fetchone()[0]
@@ -589,8 +595,13 @@ class TestSchemaV31AuditActor:
     def test_actor_column_is_nullable(self, db_path):
         """Existing call sites (which do not yet pass actor) must still work."""
         conn = init_db(str(db_path))
-        insert_audit_log(conn, media_item_id="m1", action="scheduled", detail="auto",
-                         created_at="2026-01-01T00:00:00+00:00")
+        insert_audit_log(
+            conn,
+            media_item_id="m1",
+            action="scheduled",
+            detail="auto",
+            created_at="2026-01-01T00:00:00+00:00",
+        )
         row = conn.execute("SELECT actor FROM audit_log").fetchone()
         assert row["actor"] is None
         conn.close()

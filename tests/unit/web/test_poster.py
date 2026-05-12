@@ -314,8 +314,14 @@ class TestArrPosterByStoredId:
 
         conn = init_db(str(tmp_path / "mediaman.db"))
         set_connection(conn)
-        insert_media_item(conn, id="r1", title="Inception", plex_rating_key="r1",
-                          file_path="/p", file_size_bytes=1)
+        insert_media_item(
+            conn,
+            id="r1",
+            title="Inception",
+            plex_rating_key="r1",
+            file_path="/p",
+            file_size_bytes=1,
+        )
 
         import os
 
@@ -340,8 +346,15 @@ class TestArrPosterByStoredId:
         conn = init_db(str(tmp_path / "mediaman.db"))
         set_connection(conn)
         # Stored row: title "Inception", radarr_id 2020.
-        insert_media_item(conn, id="r1", title="Inception", plex_rating_key="r1",
-                          file_path="/p", file_size_bytes=1, radarr_id=2020)
+        insert_media_item(
+            conn,
+            id="r1",
+            title="Inception",
+            plex_rating_key="r1",
+            file_path="/p",
+            file_size_bytes=1,
+            radarr_id=2020,
+        )
 
         import os
 

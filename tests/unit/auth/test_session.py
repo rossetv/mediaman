@@ -39,9 +39,11 @@ class TestCreateUser:
         assert row["password_hash"] != "password123"
         assert row["password_hash"].startswith("$2b$")
 
-    def test_duplicate_username_raises(self, conn):
+    def test_duplicate_username_raises_user_exists_error(self, conn):
+        from mediaman.web.auth.password_hash import UserExistsError
+
         create_user(conn, "admin", "pass1", enforce_policy=False)
-        with pytest.raises(ValueError, match="already exists"):
+        with pytest.raises(UserExistsError, match="already exists"):
             create_user(conn, "admin", "pass2", enforce_policy=False)
 
 
@@ -219,9 +221,11 @@ class TestCreateUserIntegrityErrorNarrowing:
     """C36: only UNIQUE on username maps to "already exists". Other
     IntegrityErrors (FK, NOT NULL, CHECK) must propagate."""
 
-    def test_duplicate_still_maps_to_value_error(self, conn):
+    def test_duplicate_raises_user_exists_error(self, conn):
+        from mediaman.web.auth.password_hash import UserExistsError
+
         create_user(conn, "alice", "pw1", enforce_policy=False)
-        with pytest.raises(ValueError, match="already exists"):
+        with pytest.raises(UserExistsError, match="already exists"):
             create_user(conn, "alice", "pw2", enforce_policy=False)
 
     def test_non_unique_integrity_error_propagates(self, tmp_path):

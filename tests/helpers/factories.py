@@ -435,9 +435,7 @@ def insert_admin_user(conn: sqlite3.Connection, **fields) -> int:
     username = fields.get("username", "admin")
     password = fields.get("password", "password1234")
     create_user(conn, username, password, enforce_policy=False)
-    row = conn.execute(
-        "SELECT id FROM admin_users WHERE username = ?", (username,)
-    ).fetchone()
+    row = conn.execute("SELECT id FROM admin_users WHERE username = ?", (username,)).fetchone()
     return int(row["id"])
 
 

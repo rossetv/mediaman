@@ -126,9 +126,7 @@ def _annotate_states(results: list[dict[str, object]], request: Request) -> None
         tmdb_id = r.get("tmdb_id")
         if tmdb_id and isinstance(tmdb_id, int):
             media_type = r["media_type"]
-            r["download_state"] = compute_download_state(
-                str(media_type), tmdb_id, caches
-            )
+            r["download_state"] = compute_download_state(str(media_type), tmdb_id, caches)
 
 
 # Wall-clock budget for the parallel ratings-enrichment fan-out. The previous

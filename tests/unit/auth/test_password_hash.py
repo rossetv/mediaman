@@ -62,9 +62,11 @@ class TestCreateUser:
             "README documents cost 12 — keep them in sync."
         )
 
-    def test_duplicate_username_raises_value_error(self, conn):
+    def test_duplicate_username_raises_user_exists_error(self, conn):
+        from mediaman.web.auth.password_hash import UserExistsError
+
         create_user(conn, "alice", "pass1", enforce_policy=False)
-        with pytest.raises(ValueError, match="already exists"):
+        with pytest.raises(UserExistsError, match="already exists"):
             create_user(conn, "alice", "pass2", enforce_policy=False)
 
     def test_must_change_password_defaults_to_false(self, conn):

@@ -12,7 +12,9 @@ from tests.helpers.factories import insert_audit_log, insert_media_item, insert_
 
 
 def _insert_audit_deleted(conn, media_item_id: str, space_bytes: int = 500_000_000) -> None:
-    insert_audit_log(conn, media_item_id=media_item_id, action="deleted", space_reclaimed_bytes=space_bytes)
+    insert_audit_log(
+        conn, media_item_id=media_item_id, action="deleted", space_reclaimed_bytes=space_bytes
+    )
 
 
 class TestApiDashboardStats:

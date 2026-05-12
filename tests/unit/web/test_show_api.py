@@ -132,7 +132,9 @@ class TestShowKeepAPI:
 class TestShowRemoveAPI:
     def test_removes_show_keep(self, authed_client, app):
         conn = app.state.db
-        insert_kept_show(conn, show_rating_key="100", show_title="Breaking Bad", action="protected_forever")
+        insert_kept_show(
+            conn, show_rating_key="100", show_title="Breaking Bad", action="protected_forever"
+        )
         resp = authed_client.post("/api/show/100/remove")
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
