@@ -16,7 +16,7 @@ def build_item(
     eta: str,
     size_done: str,
     size_total: str,
-    episodes: list[dict] | None = None,
+    episodes: list[dict[str, object]] | None = None,
     episode_summary: str = "",
     release_label: str = "",
     has_pack: bool = False,
@@ -27,7 +27,7 @@ def build_item(
     arr_link: str = "",
     arr_source: str = "",
     abandon_visible: bool = False,
-    stuck_seasons: list[dict] | None = None,
+    stuck_seasons: list[dict[str, int]] | None = None,
     arr_id: int = 0,
     kind: str = "",
 ) -> DownloadItem:

@@ -11,10 +11,12 @@ import logging
 import re
 import sqlite3
 import unicodedata
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote as urlquote
 
 from mediaman.services.openai.client import call_openai
+from mediaman.services.openai.recommendations._types import RecommendationItem
 
 # Maximum length (characters) for a single Plex-derived value in the prompt.
 _PLEX_STRING_MAX_LEN = 120
@@ -164,7 +166,7 @@ def _validate_llm_string(value: str, max_len: int, field: str) -> str | None:
     return value
 
 
-def parse_recommendations(items: list[dict], category: str) -> list[dict]:
+def parse_recommendations(items: list[dict[str, object]], category: str) -> list[RecommendationItem]:
     """Normalise and validate raw GPT recommendations.
 
     Each item is validated against stricter rules to prevent prompt-injection and control-character leakage:
@@ -174,7 +176,7 @@ def parse_recommendations(items: list[dict], category: str) -> list[dict]:
     * Reasons must be ≤ 1000 characters and pass the same checks.
     * Items that fail validation are skipped with a warning log.
     """
-    results = []
+    results: list[RecommendationItem] = []
     for item in items:
         raw_title = str(item.get("title") or "")
         title = _validate_llm_string(raw_title, _LLM_TITLE_MAX_LEN, "title")
@@ -210,7 +212,7 @@ def generate_trending(
     previous_titles: list[str] | None = None,
     *,
     secret_key: str | None = None,
-) -> list[dict]:
+) -> list[RecommendationItem]:
     """Generate trending media recommendations using web search.
 
     Args:
@@ -258,12 +260,12 @@ def generate_trending(
 
 def generate_personal(
     conn: sqlite3.Connection,
-    watch_history: list[dict],
-    user_ratings: list[dict] | None = None,
+    watch_history: Sequence[Mapping[str, object]],
+    user_ratings: Sequence[Mapping[str, object]] | None = None,
     previous_titles: list[str] | None = None,
     *,
     secret_key: str | None = None,
-) -> list[dict]:
+) -> list[RecommendationItem]:
     """Generate personalised recommendations based on watch history and user ratings.
 
     All Plex-sourced titles and ratings are sanitised through
@@ -282,13 +284,13 @@ def generate_personal(
         secret_key: Encryption key for reading the OpenAI API key from DB settings.
     """
     history_text = "\n".join(
-        f"- {sanitise_plex_string(h['title'])} ({h['type']})" for h in watch_history[:50]
+        f"- {sanitise_plex_string(str(h['title']))} ({h['type']})" for h in watch_history[:50]
     )
 
     ratings_lines = ""
     if user_ratings:
         ratings_lines = "\n".join(
-            f"- {sanitise_plex_string(r['title'])} ({r['type']}): {r['stars']}/5 stars"
+            f"- {sanitise_plex_string(str(r['title']))} ({r['type']}): {r['stars']}/5 stars"
             for r in user_ratings[:80]
         )
 

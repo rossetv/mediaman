@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import requests
 from plexapi.exceptions import PlexApiException
@@ -80,7 +80,7 @@ def refresh_recommendations(
         generate_personal(
             conn,
             watch_history,
-            cast("list[dict]", user_ratings),
+            user_ratings,
             previous_titles,
             secret_key=secret_key,
         )

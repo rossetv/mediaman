@@ -17,6 +17,8 @@ from mediaman.services.arr.state import (
 )
 from mediaman.services.infra.http import SafeHTTPError
 
+from ._types import NewsletterRecItem
+
 if TYPE_CHECKING:
     from mediaman.services.arr.state import ArrCaches
 
@@ -24,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 def _annotate_rec_download_states(
-    rec_items: list[dict],
+    rec_items: list[NewsletterRecItem],
     conn: sqlite3.Connection,
     secret_key: str,
 ) -> None:
