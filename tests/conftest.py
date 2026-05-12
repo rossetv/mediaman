@@ -373,13 +373,3 @@ def freezer():
 
     with freeze_time("2026-05-01T12:00:00+00:00") as frozen:
         yield frozen
-
-
-def parametrise_status_codes(*pairs):
-    """Convenience for ``pytest.mark.parametrize(("input", "status"), [...])``.
-
-    Replaces the ``assert resp.status_code in (400, 422)`` shape with an
-    exact check per case. Currently unused; documented here so new tests
-    can opt in without re-deriving the pattern.
-    """
-    return pytest.mark.parametrize(("payload", "expected_status"), list(pairs))

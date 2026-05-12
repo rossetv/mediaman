@@ -89,30 +89,23 @@ class TestMailgunRetryPolicy:
     def _client(self) -> MailgunClient:
         return MailgunClient("example.com", "key-xxx", "noreply@example.com", region="eu")
 
-    def test_send_retries_on_429(self, fake_http, fake_response):
-        """A 429 response triggers a retry; the second 2xx call wins."""
-        client = self._client()
-        fake_http.queue("POST", fake_response(status=429, text="Too Many Requests"))
-        fake_http.queue("POST", fake_response(status=200, content=b""))
-        client.send(to="user@example.com", subject="Test", html="<p>Hi</p>")
-        post_calls = [c for c in fake_http.calls if c[0] == "POST"]
-        assert len(post_calls) == 2
+    @pytest.mark.parametrize(
+        ("status", "text"),
+        [
+            (429, "Too Many Requests"),
+            (503, "Unavailable"),
+            (500, "Boom"),
+        ],
+        ids=["429", "503", "500"],
+    )
+    def test_send_retries_on_retryable_status(self, status, text, fake_http, fake_response):
+        """A retryable status triggers a retry; the second 2xx call wins.
 
-    def test_send_retries_on_503(self, fake_http, fake_response):
-        """A 503 response triggers a retry; the second 2xx call wins."""
-        client = self._client()
-        fake_http.queue("POST", fake_response(status=503, text="Unavailable"))
-        fake_http.queue("POST", fake_response(status=200, content=b""))
-        client.send(to="user@example.com", subject="Test", html="<p>Hi</p>")
-        post_calls = [c for c in fake_http.calls if c[0] == "POST"]
-        assert len(post_calls) == 2
-
-    def test_send_retries_on_500(self, fake_http, fake_response):
-        """500 is in the mailgun retryable-statuses override (not in the
-        default :data:`_RETRYABLE_STATUSES`).
+        500 is in the mailgun retryable-statuses override (not in the
+        default ``_RETRYABLE_STATUSES``).
         """
         client = self._client()
-        fake_http.queue("POST", fake_response(status=500, text="Boom"))
+        fake_http.queue("POST", fake_response(status=status, text=text))
         fake_http.queue("POST", fake_response(status=200, content=b""))
         client.send(to="user@example.com", subject="Test", html="<p>Hi</p>")
         post_calls = [c for c in fake_http.calls if c[0] == "POST"]
@@ -170,13 +163,17 @@ class TestMailgunValidation:
     def test_valid_address_passes(self):
         _validate_recipient("user@example.com")  # must not raise
 
-    def test_empty_address_rejected(self):
-        with pytest.raises(ValueError, match="Invalid recipient"):
-            _validate_recipient("")
-
-    def test_address_without_at_rejected(self):
-        with pytest.raises(ValueError, match="Invalid recipient"):
-            _validate_recipient("notanemail")
+    @pytest.mark.parametrize(
+        ("address", "match"),
+        [
+            ("", "Invalid recipient"),
+            ("notanemail", "Invalid recipient"),
+        ],
+        ids=["empty", "no-at-sign"],
+    )
+    def test_invalid_address_rejected(self, address, match):
+        with pytest.raises(ValueError, match=match):
+            _validate_recipient(address)
 
     def test_newline_in_address_rejected(self):
         """CR/LF in a recipient address would enable header injection."""
