@@ -28,12 +28,13 @@ credential service.  The helpers here form the first line of defence:
 from __future__ import annotations
 
 import logging
-from typing import Any
+import sqlite3
 from urllib.parse import urlparse
 
 import requests
 from fastapi.responses import Response
 
+from mediaman.config import Config
 from mediaman.crypto import decrypt_value
 from mediaman.services.arr import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
@@ -160,7 +161,7 @@ def sanitise_plex_url(raw: str | None) -> str | None:
 
 
 def load_plex_credentials(
-    conn: Any, secret_key: str
+    conn: sqlite3.Connection, secret_key: str
 ) -> tuple[str | None, str | None, Response | None]:
     """Load and decrypt the Plex URL and token from the DB.
 
@@ -188,7 +189,7 @@ def load_plex_credentials(
 
 
 def fetch_plex_poster(
-    plex_base: str, plex_token: str, rating_key: str, *, http_client: Any = None
+    plex_base: str, plex_token: str, rating_key: str, *, http_client: SafeHTTPClient | None = None
 ) -> tuple[bytes | None, str]:
     """Fetch a poster from Plex.  Returns ``(content, content_type)`` or ``(None, 'image/jpeg')``.
 
@@ -211,7 +212,7 @@ def fetch_plex_poster(
 
 
 def _resolve_arr_poster_url(
-    conn: Any, row: PosterArrIds, config: Any
+    conn: sqlite3.Connection, row: PosterArrIds, config: Config
 ) -> tuple[str | None, str | None]:
     """Look up the Radarr/Sonarr poster URL for a stored media row.
 
@@ -273,7 +274,7 @@ def _fetch_allowed_poster_bytes(poster_url: str) -> tuple[bytes | None, str | No
     return None, None
 
 
-def fetch_arr_poster(conn: Any, rating_key: str, config: Any) -> tuple[bytes | None, str | None]:
+def fetch_arr_poster(conn: sqlite3.Connection, rating_key: str, config: Config) -> tuple[bytes | None, str | None]:
     """Try to fetch a poster from Radarr/Sonarr TMDB data for a media item.
 
     Looks up the stored ``radarr_id`` / ``sonarr_id`` on the
@@ -297,7 +298,7 @@ def fetch_arr_poster(conn: Any, rating_key: str, config: Any) -> tuple[bytes | N
 
 
 def resolve_poster_content(
-    conn: Any, rating_key: str, plex_base: str, plex_token: str, config: Any
+    conn: sqlite3.Connection, rating_key: str, plex_base: str, plex_token: str, config: Config
 ) -> tuple[bytes | None, str, Response | None]:
     """Fetch poster bytes from Plex with Radarr/Sonarr fallback.
 
