@@ -13,6 +13,7 @@ from mediaman.web.routes.download import _tokens as _download_tokens
 from mediaman.web.routes.download import confirm as _download_confirm
 from mediaman.web.routes.download import router as download_router
 from mediaman.web.routes.download import submit as _download_submit
+from tests.helpers.factories import insert_suggestion
 
 
 def _make_app(app_factory, conn):
@@ -613,13 +614,15 @@ class TestYoutubeTrailerKeyValidation:
         client = TestClient(app)
 
         # Insert a suggestion with a malicious trailer_key
-        conn.execute(
-            "INSERT INTO suggestions (title, media_type, category, tmdb_id, trailer_key, created_at) "
-            "VALUES ('Dune', 'movie', 'personal', 42, '<script>evil</script>', '2026-01-01')"
+        sid = insert_suggestion(
+            conn,
+            title="Dune",
+            media_type="movie",
+            category="personal",
+            tmdb_id=42,
+            trailer_key="<script>evil</script>",
+            created_at="2026-01-01",
         )
-        conn.commit()
-        row = conn.execute("SELECT id FROM suggestions WHERE title='Dune'").fetchone()
-        sid = row["id"]
 
         from mediaman.crypto import generate_download_token
 

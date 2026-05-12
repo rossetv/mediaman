@@ -14,6 +14,8 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
+from tests.helpers.factories import insert_download_notification, insert_settings
+
 
 def _load_template():
     template_dir = (
@@ -147,7 +149,6 @@ class TestSonarrSeriesMatching:
 
     def _setup(self, tmp_path, monkeypatch):
         """Wire a minimal DB and stub out Mailgun + Radarr; return conn."""
-        from datetime import datetime
         from unittest.mock import MagicMock
 
         from mediaman.db import init_db
@@ -156,18 +157,7 @@ class TestSonarrSeriesMatching:
 
         # Settings needed by the module — Mailgun must be configured
         # enough to proceed past the early-bail guard.
-        now = datetime.now(UTC).isoformat()
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) "
-            "VALUES ('mailgun_domain', 'test.example.com', 0, ?)",
-            (now,),
-        )
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) "
-            "VALUES ('mailgun_api_key', 'dummy-key', 0, ?)",
-            (now,),
-        )
-        conn.commit()
+        insert_settings(conn, mailgun_domain="test.example.com", mailgun_api_key="dummy-key")
 
         # Stub Mailgun + arr builders so the test never hits the network.
         # ``check_download_notifications`` imports ``MailgunClient`` inside
@@ -187,7 +177,6 @@ class TestSonarrSeriesMatching:
 
     def test_tvdb_only_series_matches(self, tmp_path, monkeypatch):
         """Series with tmdbId=None must still flip notified=1 via tvdbId."""
-        from datetime import datetime
         from unittest.mock import MagicMock
 
         from mediaman.services.downloads.notifications import (
@@ -197,14 +186,8 @@ class TestSonarrSeriesMatching:
         conn, sent = self._setup(tmp_path, monkeypatch)
 
         # Insert a pending Sonarr row with only a TVDB id.
-        now = datetime.now(UTC).isoformat()
-        conn.execute(
-            "INSERT INTO download_notifications "
-            "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
-            ("user@example.com", "Severance", "tv", None, 370524, "sonarr", now),
-        )
-        conn.commit()
+        insert_download_notification(conn, email="user@example.com", title="Severance",
+                                     media_type="tv", tvdb_id=370524, service="sonarr")
 
         # Sonarr reports the series with tmdbId=None but a matching tvdbId.
         sonarr_client = MagicMock()
@@ -233,7 +216,6 @@ class TestSonarrSeriesMatching:
 
     def test_tvdb_mismatch_leaves_row_pending(self, tmp_path, monkeypatch):
         """If Sonarr doesn't have the series yet, notified stays 0."""
-        from datetime import datetime
         from unittest.mock import MagicMock
 
         from mediaman.services.downloads.notifications import (
@@ -242,14 +224,8 @@ class TestSonarrSeriesMatching:
 
         conn, sent = self._setup(tmp_path, monkeypatch)
 
-        now = datetime.now(UTC).isoformat()
-        conn.execute(
-            "INSERT INTO download_notifications "
-            "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
-            ("user@example.com", "Nobody Home", "tv", None, 999999, "sonarr", now),
-        )
-        conn.commit()
+        insert_download_notification(conn, email="user@example.com", title="Nobody Home",
+                                     media_type="tv", tvdb_id=999999, service="sonarr")
 
         sonarr_client = MagicMock()
         sonarr_client.get_series.return_value = [
@@ -279,7 +255,6 @@ class TestSonarrSeriesMatching:
         running ``check_download_notifications``: nothing should be
         sent because all rows are already claimed.
         """
-        from datetime import datetime
         from unittest.mock import MagicMock
 
         from mediaman.db import init_db
@@ -289,24 +264,8 @@ class TestSonarrSeriesMatching:
         )
 
         conn = init_db(str(tmp_path / "mm.db"))
-        now = datetime.now(UTC).isoformat()
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) "
-            "VALUES ('mailgun_domain', 'test.example.com', 0, ?)",
-            (now,),
-        )
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) "
-            "VALUES ('mailgun_api_key', 'dummy-key', 0, ?)",
-            (now,),
-        )
-        conn.execute(
-            "INSERT INTO download_notifications "
-            "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
-            ("user@example.com", "Item", "movie", 1, None, "radarr", now),
-        )
-        conn.commit()
+        insert_settings(conn, mailgun_domain="test.example.com", mailgun_api_key="dummy-key")
+        insert_download_notification(conn, email="user@example.com", title="Item", tmdb_id=1)
 
         # Worker A claims the row first.
         claimed = _claim_pending_notifications(conn)
@@ -327,8 +286,6 @@ class TestSonarrSeriesMatching:
 
     def test_claim_then_release_allows_retry(self, tmp_path):
         """Releasing a claim must roll the row back to notified=0."""
-        from datetime import datetime
-
         from mediaman.db import init_db
         from mediaman.services.downloads.notifications import (
             _claim_pending_notifications,
@@ -336,14 +293,7 @@ class TestSonarrSeriesMatching:
         )
 
         conn = init_db(str(tmp_path / "mm.db"))
-        now = datetime.now(UTC).isoformat()
-        conn.execute(
-            "INSERT INTO download_notifications "
-            "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
-            ("user@example.com", "Item", "movie", 1, None, "radarr", now),
-        )
-        conn.commit()
+        insert_download_notification(conn, email="user@example.com", title="Item", tmdb_id=1)
 
         rows = _claim_pending_notifications(conn)
         assert len(rows) == 1
@@ -355,23 +305,14 @@ class TestSonarrSeriesMatching:
 
     def test_mailgun_failure_releases_claim(self, tmp_path, monkeypatch):
         """A Mailgun-misconfigured run must release every claim it took."""
-        from datetime import datetime
-
         from mediaman.db import init_db
         from mediaman.services.downloads.notifications import (
             check_download_notifications,
         )
 
         conn = init_db(str(tmp_path / "mm.db"))
-        now = datetime.now(UTC).isoformat()
         # No Mailgun config at all — settings table empty.
-        conn.execute(
-            "INSERT INTO download_notifications "
-            "(email, title, media_type, tmdb_id, tvdb_id, service, notified, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
-            ("user@example.com", "Item", "movie", 1, None, "radarr", now),
-        )
-        conn.commit()
+        insert_download_notification(conn, email="user@example.com", title="Item", tmdb_id=1)
 
         check_download_notifications(conn, secret_key="x" * 64)
 
@@ -398,19 +339,16 @@ class TestReconcileStrandedNotifications:
         return init_db(str(tmp_path / "mm.db"))
 
     def _insert(self, conn, *, notified, claimed_at=None):
-        conn.execute(
-            "INSERT INTO download_notifications "
-            "(email, title, media_type, tmdb_id, tvdb_id, service, notified, "
-            " claimed_at, created_at) "
-            "VALUES ('u@x', 'T', 'movie', 1, NULL, 'radarr', ?, ?, '2026-01-01')",
-            (notified, claimed_at),
+        row_id = insert_download_notification(
+            conn,
+            email="u@x",
+            title="T",
+            tmdb_id=1,
+            notified=notified,
+            claimed_at=claimed_at,
+            created_at="2026-01-01",
         )
-        conn.commit()
-        return conn.execute(
-            "SELECT id FROM download_notifications WHERE title='T' AND notified=? "
-            "ORDER BY id DESC LIMIT 1",
-            (notified,),
-        ).fetchone()["id"]
+        return row_id
 
     def test_stranded_claim_is_reset(self, tmp_path):
         """notified=2 with a stale claimed_at → reset to notified=0."""

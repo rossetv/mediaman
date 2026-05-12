@@ -10,6 +10,7 @@ import requests
 
 from mediaman.db import init_db
 from mediaman.services.openai.recommendations.persist import refresh_recommendations
+from tests.helpers.factories import insert_media_item, insert_suggestion
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -149,12 +150,15 @@ class TestRefreshRecommendations:
         from datetime import datetime
 
         today = datetime.now(UTC).strftime("%Y-%m-%d")
-        conn.execute(
-            "INSERT INTO suggestions (title, year, media_type, category, reason, batch_id, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            ("Old Rec", None, "movie", "trending", "old reason", today, "2026-01-01T00:00:00"),
+        insert_suggestion(
+            conn,
+            title="Old Rec",
+            media_type="movie",
+            category="trending",
+            reason="old reason",
+            batch_id=today,
+            created_at="2026-01-01T00:00:00",
         )
-        conn.commit()
 
         recs = _fake_trending()
         recs[0].update(
@@ -211,23 +215,17 @@ class TestRefreshRecommendations:
 
     def test_watch_history_from_db_used(self, conn):
         """Media items in the DB are picked up and passed as watch history."""
-        conn.execute(
-            "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key, "
-            "added_at, file_path, file_size_bytes, last_watched_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                "id-001",
-                "Breaking Bad",
-                "tv",
-                1,
-                "rk-001",
-                "2026-01-01T00:00:00",
-                "/path/ep.mkv",
-                1_000_000_000,
-                "2026-01-01T00:00:00",
-            ),
+        insert_media_item(
+            conn,
+            id="id-001",
+            title="Breaking Bad",
+            media_type="tv",
+            plex_rating_key="rk-001",
+            added_at="2026-01-01T00:00:00",
+            file_path="/path/ep.mkv",
+            file_size_bytes=1_000_000_000,
+            last_watched_at="2026-01-01T00:00:00",
         )
-        conn.commit()
 
         captured_history = {}
 

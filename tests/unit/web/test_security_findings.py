@@ -24,6 +24,12 @@ from mediaman.web.routes.download import status as _status_module
 from mediaman.web.routes.keep import find_active_keep_action_by_id_and_token
 from mediaman.web.routes.keep import router as keep_router
 from mediaman.web.routes.recommended.api import router as rec_router
+from tests.helpers.factories import (
+    insert_audit_log,
+    insert_media_item,
+    insert_scheduled_action,
+    insert_suggestion,
+)
 
 SECRET = "a" * 64
 
@@ -34,13 +40,14 @@ SECRET = "a" * 64
 
 
 def _insert_media_item(conn: sqlite3.Connection, media_id: str = "mi1") -> None:
-    conn.execute(
-        "INSERT INTO media_items "
-        "(id, title, media_type, plex_library_id, plex_rating_key, added_at, file_path, file_size_bytes) "
-        "VALUES (?, 'Test Title', 'movie', 1, 'rk1', ?, '/f', 0)",
-        (media_id, datetime.now(UTC).isoformat()),
+    insert_media_item(
+        conn,
+        id=media_id,
+        title="Test Title",
+        plex_rating_key="rk1",
+        file_path="/f",
+        file_size_bytes=0,
     )
-    conn.commit()
 
 
 def _insert_scheduled_action(
@@ -52,14 +59,14 @@ def _insert_scheduled_action(
 ) -> int:
     """Insert a scheduled_actions row and return the rowid."""
     execute_at = (datetime.now(UTC) + timedelta(days=execute_at_offset_days)).isoformat()
-    cur = conn.execute(
-        "INSERT INTO scheduled_actions "
-        "(media_item_id, action, scheduled_at, execute_at, token, delete_status) "
-        "VALUES (?, ?, datetime('now'), ?, 'placeholder', ?)",
-        (media_id, action, execute_at, delete_status),
+    return insert_scheduled_action(
+        conn,
+        media_item_id=media_id,
+        action=action,
+        token="placeholder",
+        execute_at=execute_at,
+        delete_status=delete_status,
     )
-    conn.commit()
-    return cur.lastrowid
 
 
 def _make_keep_token(conn: sqlite3.Connection, media_id: str, action_id: int) -> str:
@@ -371,14 +378,7 @@ class TestFinding15MintRequiresTmdbId:
         return TestClient(app, raise_server_exceptions=True)
 
     def _insert_suggestion(self, conn: sqlite3.Connection, tmdb_id: int | None = None) -> int:
-        cur = conn.execute(
-            "INSERT INTO suggestions "
-            "(title, media_type, category, tmdb_id, created_at) "
-            "VALUES ('Test Movie', 'movie', 'personal', ?, datetime('now'))",
-            (tmdb_id,),
-        )
-        conn.commit()
-        return cur.lastrowid
+        return insert_suggestion(conn, title="Test Movie", tmdb_id=tmdb_id)
 
     def test_mint_without_tmdb_id_returns_422(self, conn):
         """Minting a share token for a suggestion without tmdb_id must return 422."""
@@ -620,17 +620,8 @@ class TestFinding34DashboardRedownload:
         """_fetch_recently_deleted must populate media_type in the returned dict."""
         from mediaman.web.routes.dashboard._data import _fetch_recently_deleted
 
-        conn.execute(
-            "INSERT INTO media_items "
-            "(id, title, media_type, plex_library_id, plex_rating_key, added_at, file_path, file_size_bytes) "
-            "VALUES ('m1', 'Test', 'movie', 1, 'rk1', '2024-01-01', '/f', 0)"
-        )
-        conn.execute(
-            "INSERT INTO audit_log "
-            "(media_item_id, action, detail, space_reclaimed_bytes, created_at) "
-            "VALUES ('m1', 'deleted', 'detail', 1024, '2024-06-01')"
-        )
-        conn.commit()
+        insert_media_item(conn, id="m1", title="Test", plex_rating_key="rk1", file_path="/f", file_size_bytes=0, added_at="2024-01-01")
+        insert_audit_log(conn, media_item_id="m1", action="deleted", detail="detail", space_reclaimed_bytes=1024, created_at="2024-06-01")
         set_connection(conn)
 
         items = _fetch_recently_deleted(conn)

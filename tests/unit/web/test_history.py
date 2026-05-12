@@ -10,15 +10,11 @@ from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.history import _PER_PAGE_DEFAULT, _PER_PAGE_MAX
 from mediaman.web.routes.history import router as history_router
-from tests.helpers.factories import insert_media_item
+from tests.helpers.factories import insert_audit_log, insert_kept_show, insert_media_item
 
 
 def _insert_audit_row(conn, action: str = "scanned", media_item_id: str = "m1") -> None:
-    conn.execute(
-        "INSERT INTO audit_log (media_item_id, action, created_at) VALUES (?, ?, ?)",
-        (media_item_id, action, datetime.now(UTC).isoformat()),
-    )
-    conn.commit()
+    insert_audit_log(conn, media_item_id=media_item_id, action=action)
 
 
 class TestApiHistory:
@@ -122,24 +118,12 @@ def _insert_audit_full(
 ) -> None:
     """Insert an audit row with optional detail body — used by the
     title-resolution / detail-scrubbing tests."""
-    conn.execute(
-        "INSERT INTO audit_log (media_item_id, action, detail, created_at) VALUES (?, ?, ?, ?)",
-        (media_item_id, action, detail, datetime.now(UTC).isoformat()),
-    )
-    conn.commit()
+    insert_audit_log(conn, media_item_id=media_item_id, action=action, detail=detail)
 
 
 def _insert_kept_show(conn, *, rating_key: str, title: str) -> None:
     """Insert a kept_shows row so the show-action JOIN can resolve."""
-    conn.execute(
-        """
-        INSERT INTO kept_shows
-            (show_rating_key, show_title, action, created_at)
-        VALUES (?, ?, ?, ?)
-        """,
-        (rating_key, title, "kept_show", datetime.now(UTC).isoformat()),
-    )
-    conn.commit()
+    insert_kept_show(conn, show_rating_key=rating_key, show_title=title, action="kept_show")
 
 
 class TestHistoryPageClamp:

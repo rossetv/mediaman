@@ -6,7 +6,6 @@ and api_send_newsletter in mediaman.web.routes.subscribers.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,6 +15,7 @@ from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
 from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.session_store import create_session
+from tests.helpers.factories import insert_subscriber
 
 # NOTE: this file deliberately keeps its own ``app`` / ``authed_client``
 # fixtures rather than adopting the shared ``app_factory`` / ``authed_client``
@@ -66,11 +66,7 @@ def _reset_subscriber_limiter():
 
 
 def _insert_subscriber(conn, email: str, active: int = 1) -> None:
-    conn.execute(
-        "INSERT INTO subscribers (email, active, created_at) VALUES (?, ?, ?)",
-        (email, active, datetime.now(UTC).isoformat()),
-    )
-    conn.commit()
+    insert_subscriber(conn, email=email, active=active)
 
 
 # ---------------------------------------------------------------------------

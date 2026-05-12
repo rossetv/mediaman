@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 from fastapi import FastAPI
@@ -21,6 +21,7 @@ from mediaman.web.routes.keep import (
     _token_hash,
 )
 from mediaman.web.routes.keep import router as keep_router
+from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 # Keep tokens in this file are minted with an isolated SECRET (not the
 # conftest's ``secret_key``) so the test seam stays orthogonal to the rest
@@ -30,24 +31,26 @@ SECRET = "a" * 64
 
 
 def _insert_media_item(conn: sqlite3.Connection, media_id: str = "mi1") -> None:
-    conn.execute(
-        "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key, "
-        "added_at, file_path, file_size_bytes) VALUES (?, 'Test', 'movie', 1, 'rk1', ?, '/f', 0)",
-        (media_id, datetime.now(UTC).isoformat()),
+    insert_media_item(
+        conn,
+        id=media_id,
+        title="Test",
+        plex_rating_key="rk1",
+        file_path="/f",
+        file_size_bytes=0,
     )
-    conn.commit()
 
 
 def _insert_action(
     conn: sqlite3.Connection, media_id: str = "mi1", placeholder: str = "placeholder"
 ) -> int:
-    cur = conn.execute(
-        "INSERT INTO scheduled_actions (media_item_id, action, execute_at, token, scheduled_at) "
-        "VALUES (?, 'scheduled_deletion', datetime('now', '+7 days'), ?, datetime('now'))",
-        (media_id, placeholder),
+    execute_at = (datetime.now(UTC) + timedelta(days=7)).isoformat()
+    return insert_scheduled_action(
+        conn,
+        media_item_id=media_id,
+        token=placeholder,
+        execute_at=execute_at,
     )
-    conn.commit()
-    return cur.lastrowid
 
 
 def _make_keep_token(conn: sqlite3.Connection, media_id: str, action_id: int) -> str:

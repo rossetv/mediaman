@@ -14,6 +14,7 @@ import pytest
 from mediaman.db import init_db
 from mediaman.scanner import repository
 from mediaman.scanner.phases.upsert import schedule_deletion
+from tests.helpers.factories import insert_kept_show, insert_media_item, insert_scheduled_action
 
 
 @pytest.fixture
@@ -34,24 +35,18 @@ def _insert_item(
     file_size_bytes=1_000_000,
     added_at="2020-01-01T00:00:00+00:00",
 ):
-    conn.execute(
-        "INSERT INTO media_items "
-        "(id, title, media_type, plex_library_id, plex_rating_key, show_rating_key, "
-        "added_at, file_path, file_size_bytes) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (
-            media_id,
-            title,
-            media_type,
-            library_id,
-            plex_rating_key,
-            show_rating_key,
-            added_at,
-            file_path,
-            file_size_bytes,
-        ),
+    insert_media_item(
+        conn,
+        id=media_id,
+        title=title,
+        media_type=media_type,
+        plex_library_id=library_id,
+        plex_rating_key=plex_rating_key,
+        show_rating_key=show_rating_key,
+        added_at=added_at,
+        file_path=file_path,
+        file_size_bytes=file_size_bytes,
     )
-    conn.commit()
 
 
 def _insert_action(
@@ -64,13 +59,16 @@ def _insert_action(
     execute_at=None,
     delete_status="pending",
 ):
-    conn.execute(
-        "INSERT INTO scheduled_actions "
-        "(media_item_id, action, scheduled_at, execute_at, token, token_used, delete_status) "
-        "VALUES (?, ?, '2020-01-01', ?, ?, ?, ?)",
-        (media_id, action, execute_at, token, token_used, delete_status),
+    insert_scheduled_action(
+        conn,
+        media_item_id=media_id,
+        action=action,
+        scheduled_at="2020-01-01",
+        token=token,
+        token_used=bool(token_used),
+        execute_at=execute_at,
+        delete_status=delete_status,
     )
-    conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -324,21 +322,12 @@ class TestIsShowKept:
         assert repository.is_show_kept(conn, None) is False
 
     def test_protected_forever_returns_true(self, conn):
-        conn.execute(
-            "INSERT INTO kept_shows (show_rating_key, show_title, action, created_at) "
-            "VALUES ('rk1', 'Show', 'protected_forever', '2026-01-01')"
-        )
-        conn.commit()
+        insert_kept_show(conn, show_rating_key="rk1", show_title="Show", action="protected_forever")
         assert repository.is_show_kept(conn, "rk1") is True
 
     def test_active_snooze_returns_true(self, conn):
         future = (datetime.now(UTC) + timedelta(days=7)).isoformat()
-        conn.execute(
-            "INSERT INTO kept_shows (show_rating_key, show_title, action, execute_at, created_at) "
-            "VALUES ('rk2', 'Show', 'snoozed', ?, '2026-01-01')",
-            (future,),
-        )
-        conn.commit()
+        insert_kept_show(conn, show_rating_key="rk2", show_title="Show", action="snoozed", execute_at=future)
         assert repository.is_show_kept(conn, "rk2") is True
 
     def test_expired_snooze_returns_false_and_cleans_up(self, conn):
@@ -352,12 +341,7 @@ class TestIsShowKept:
         the scan engine still holds.
         """
         past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
-        conn.execute(
-            "INSERT INTO kept_shows (show_rating_key, show_title, action, execute_at, created_at) "
-            "VALUES ('rk3', 'Show', 'snoozed', ?, '2026-01-01')",
-            (past,),
-        )
-        conn.commit()
+        insert_kept_show(conn, show_rating_key="rk3", show_title="Show", action="snoozed", execute_at=past)
         result = repository.is_show_kept(conn, "rk3")
         assert result is False
         # Expired row was swept out by the wrapper.
@@ -371,12 +355,7 @@ class TestIsShowKept:
         an expired snooze.
         """
         past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
-        conn.execute(
-            "INSERT INTO kept_shows (show_rating_key, show_title, action, execute_at, created_at) "
-            "VALUES ('rk-pure', 'Show', 'snoozed', ?, '2026-01-01')",
-            (past,),
-        )
-        conn.commit()
+        insert_kept_show(conn, show_rating_key="rk-pure", show_title="Show", action="snoozed", execute_at=past)
         result = repository._is_show_kept_pure(conn, "rk-pure")
         assert result is False
         assert (
@@ -456,12 +435,7 @@ class TestCleanupExpiredSnoozes:
 class TestCleanupExpiredShowSnoozes:
     def test_removes_expired_snoozed_kept_show(self, conn):
         past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
-        conn.execute(
-            "INSERT INTO kept_shows (show_rating_key, show_title, action, execute_at, created_at) "
-            "VALUES ('rk-exp', 'Show', 'snoozed', ?, '2026-01-01')",
-            (past,),
-        )
-        conn.commit()
+        insert_kept_show(conn, show_rating_key="rk-exp", show_title="Show", action="snoozed", execute_at=past)
         removed = repository.cleanup_expired_show_snoozes(conn, datetime.now(UTC).isoformat())
         conn.commit()
         assert removed == 1
@@ -472,12 +446,7 @@ class TestCleanupExpiredShowSnoozes:
 
     def test_keeps_active_snoozed_kept_show(self, conn):
         future = (datetime.now(UTC) + timedelta(days=7)).isoformat()
-        conn.execute(
-            "INSERT INTO kept_shows (show_rating_key, show_title, action, execute_at, created_at) "
-            "VALUES ('rk-fut', 'Show', 'snoozed', ?, '2026-01-01')",
-            (future,),
-        )
-        conn.commit()
+        insert_kept_show(conn, show_rating_key="rk-fut", show_title="Show", action="snoozed", execute_at=future)
         removed = repository.cleanup_expired_show_snoozes(conn, datetime.now(UTC).isoformat())
         assert removed == 0
         assert (
@@ -488,11 +457,7 @@ class TestCleanupExpiredShowSnoozes:
     def test_does_not_touch_protected_forever(self, conn):
         """``protected_forever`` rows have ``execute_at IS NULL``; they must
         survive the cleanup unconditionally."""
-        conn.execute(
-            "INSERT INTO kept_shows (show_rating_key, show_title, action, created_at) "
-            "VALUES ('rk-pf', 'Show', 'protected_forever', '2026-01-01')"
-        )
-        conn.commit()
+        insert_kept_show(conn, show_rating_key="rk-pf", show_title="Show", action="protected_forever")
         removed = repository.cleanup_expired_show_snoozes(conn, datetime.now(UTC).isoformat())
         assert removed == 0
         assert (

@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
+from tests.helpers.factories import insert_subscriber
 
 # NOTE: this file deliberately keeps its own ``app`` / ``authed_client``
 # fixtures rather than adopting the shared ``app_factory`` / ``authed_client``
@@ -678,11 +679,7 @@ class TestDownloadNotifiesRequestingAdmin:
 
         # Insert a subscriber with a different email to prove it's ignored
         conn = app.state.db
-        conn.execute(
-            "INSERT INTO subscribers (email, active, created_at) "
-            "VALUES ('other@example.com', 1, '2026-01-01')"
-        )
-        conn.commit()
+        insert_subscriber(conn, email="other@example.com")
 
         authed_client.post(
             "/api/search/download",

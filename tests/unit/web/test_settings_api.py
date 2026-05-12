@@ -15,6 +15,7 @@ from mediaman.services.rate_limit.instances import (
     SETTINGS_WRITE_LIMITER,
 )
 from mediaman.web.routes.settings import _TEST_CACHE, router
+from tests.helpers.factories import insert_settings
 
 
 @pytest.fixture(autouse=True)
@@ -50,16 +51,9 @@ class TestPlexLibrariesEndpoint:
         from datetime import datetime
 
         now = datetime.now(UTC).isoformat()
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
-            ("plex_url", "http://plex:32400", now),
-        )
+        insert_settings(conn, plex_url="http://plex:32400", updated_at=now)
         encrypted_token = encrypt_value("fake-token", secret_key, conn=conn)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 1, ?)",
-            ("plex_token", encrypted_token, now),
-        )
-        conn.commit()
+        insert_settings(conn, plex_token=encrypted_token, encrypted=1, updated_at=now)
 
         client = _client(app_factory, authed_client, conn)
 
@@ -97,16 +91,9 @@ class TestPlexLibrariesEndpoint:
         from datetime import datetime
 
         now = datetime.now(UTC).isoformat()
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
-            ("plex_url", "http://plex:32400", now),
-        )
+        insert_settings(conn, plex_url="http://plex:32400", updated_at=now)
         encrypted_token = encrypt_value("fake-token", secret_key, conn=conn)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 1, ?)",
-            ("plex_token", encrypted_token, now),
-        )
-        conn.commit()
+        insert_settings(conn, plex_token=encrypted_token, encrypted=1, updated_at=now)
 
         client = _client(app_factory, authed_client, conn)
 
@@ -614,15 +601,8 @@ class TestSettingsTestServiceScopedDecryption:
         now = datetime.now(UTC).isoformat()
         ct_plex = encrypt_value("plex-secret", secret_key, conn=conn, aad=b"plex_token")
         ct_openai = encrypt_value("sk-openai", secret_key, conn=conn, aad=b"openai_api_key")
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 1, ?)",
-            ("plex_token", ct_plex, now),
-        )
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 1, ?)",
-            ("openai_api_key", ct_openai, now),
-        )
-        conn.commit()
+        insert_settings(conn, plex_token=ct_plex, encrypted=1, updated_at=now)
+        insert_settings(conn, openai_api_key=ct_openai, encrypted=1, updated_at=now)
 
         # Decryption now happens inside web.repository.settings — patch the
         # name on that module so the recording callable intercepts the call.
@@ -673,11 +653,7 @@ class TestSettingsLoadDistinguishesDecryptFromMissing:
         ct = encrypt_value("plex-secret", other_key, conn=conn, aad=b"plex_token")
 
         now = datetime.now(UTC).isoformat()
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 1, ?)",
-            ("plex_token", ct, now),
-        )
-        conn.commit()
+        insert_settings(conn, plex_token=ct, encrypted=1, updated_at=now)
 
         with pytest.raises(ConfigDecryptError):
             _load_settings(conn, secret_key, keys={"plex_token"})
@@ -698,11 +674,7 @@ class TestSettingsApiGetSkipsDecryption:
 
         now = datetime.now(UTC).isoformat()
         ct = encrypt_value("very-secret", secret_key, conn=conn, aad=b"plex_token")
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 1, ?)",
-            ("plex_token", ct, now),
-        )
-        conn.commit()
+        insert_settings(conn, plex_token=ct, encrypted=1, updated_at=now)
 
         seen: list[bytes] = []
         original = settings_repo.decrypt_value

@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mediaman.db import init_db
+from mediaman.services.infra.url_safety import SSRFRefused
 
 # Capture the namedtuple type ``shutil.disk_usage`` returns ONCE at import
 # time. Calling ``shutil.disk_usage(path)`` from inside a side_effect would
@@ -262,7 +263,7 @@ class TestPlexSSRFRefusalAtScan:
         with (
             patch(
                 "mediaman.scanner.runner._build_plex",
-                side_effect=ValueError("SSRF guard refused plex_url"),
+                side_effect=SSRFRefused("SSRF guard refused plex_url"),
             ),
             patch("mediaman.scanner.engine.ScanEngine") as MockEngine,
             patch("mediaman.crypto.decrypt_value", return_value="fake-token"),
@@ -282,7 +283,7 @@ class TestPlexSSRFRefusalAtScan:
         with (
             patch(
                 "mediaman.scanner.runner._build_plex",
-                side_effect=ValueError("SSRF guard refused plex_url"),
+                side_effect=SSRFRefused("SSRF guard refused plex_url"),
             ),
             patch("mediaman.scanner.engine.ScanEngine") as MockEngine,
             patch("mediaman.crypto.decrypt_value", return_value="fake-token"),

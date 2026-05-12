@@ -13,6 +13,7 @@ from mediaman.services.infra.url_safety import (
     is_safe_outbound_url,
     resolve_safe_outbound_url,
 )
+from tests.helpers.factories import insert_settings
 
 
 @pytest.fixture
@@ -378,16 +379,10 @@ class TestAllowedOutboundHosts:
         assert "api.openai.com" in hosts
 
     def test_configured_integration_urls_added_by_hostname(self, settings_db):
-        for key, val in [
-            ("plex_url", "http://plex.lan:32400/"),
-            ("radarr_url", "https://radarr.example.com:7878/"),
-            ("sonarr_url", "http://192.168.1.20:8989/"),
-            ("nzbget_url", "http://nzb.lan:6789/"),
-        ]:
-            settings_db.execute(
-                "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, '')",
-                (key, val),
-            )
+        insert_settings(settings_db, plex_url="http://plex.lan:32400/", updated_at="")
+        insert_settings(settings_db, radarr_url="https://radarr.example.com:7878/", updated_at="")
+        insert_settings(settings_db, sonarr_url="http://192.168.1.20:8989/", updated_at="")
+        insert_settings(settings_db, nzbget_url="http://nzb.lan:6789/", updated_at="")
         hosts = allowed_outbound_hosts(settings_db)
         assert "plex.lan" in hosts
         assert "radarr.example.com" in hosts
@@ -395,18 +390,12 @@ class TestAllowedOutboundHosts:
         assert "nzb.lan" in hosts
 
     def test_empty_string_value_is_skipped(self, settings_db):
-        settings_db.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, '', 0, '')",
-            ("plex_url",),
-        )
+        insert_settings(settings_db, plex_url="", updated_at="")
         hosts = allowed_outbound_hosts(settings_db)
         assert hosts == PINNED_EXTERNAL_HOSTS
 
     def test_unparseable_url_is_silently_skipped(self, settings_db):
-        settings_db.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, '')",
-            ("radarr_url", "not a url at all"),
-        )
+        insert_settings(settings_db, radarr_url="not a url at all", updated_at="")
         hosts = allowed_outbound_hosts(settings_db)
         # The pinned externals still apply; the bogus radarr_url is dropped.
         assert "radarr.example.com" not in hosts

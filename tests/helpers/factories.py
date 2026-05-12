@@ -130,15 +130,22 @@ def insert_media_item(conn: sqlite3.Connection, **fields) -> str:
 
 
 def insert_scheduled_action(conn: sqlite3.Connection, **fields) -> int:
-    """Persist a ``scheduled_actions`` row; return the assigned id."""
+    """Persist a ``scheduled_actions`` row; return the assigned id.
+
+    All columns except *media_item_id* have sane defaults.  Pass
+    *delete_status* to control the two-phase-delete state column
+    (defaults to ``"pending"``).  Pass *scheduled_at* to override the
+    timestamp of when the action was created.
+    """
     from mediaman.web.auth._token_hashing import hash_token
 
-    row = {**make_scheduled_action(), **fields}
+    defaults = {**make_scheduled_action(), "delete_status": "pending"}
+    row = {**defaults, **fields}
     cursor = conn.execute(
         "INSERT INTO scheduled_actions ("
         " media_item_id, action, scheduled_at, execute_at, token, token_hash,"
-        " token_used, notified, is_reentry"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " token_used, notified, is_reentry, delete_status"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             row["media_item_id"],
             row["action"],
@@ -149,10 +156,289 @@ def insert_scheduled_action(conn: sqlite3.Connection, **fields) -> int:
             int(row["token_used"]),
             int(row["notified"]),
             int(row["is_reentry"]),
+            row["delete_status"],
         ),
     )
     conn.commit()
     return int(cursor.lastrowid)
+
+
+def insert_settings(conn: sqlite3.Connection, **fields) -> None:
+    """Persist one or more rows to the ``settings`` table.
+
+    Each keyword argument is treated as a separate row: the key is the
+    settings key and the value is the plain-text value.  Pass
+    ``encrypted=1`` (as a positional extra) to mark every row as
+    encrypted, or wrap individual calls for mixed encryption.
+
+    Example::
+
+        insert_settings(conn, plex_url="http://localhost:32400", plex_token="abc")
+
+    To control ``encrypted`` or ``updated_at`` per-row, call the function
+    once per row with explicit kwargs::
+
+        insert_settings(conn, openai_api_key="sk-...", encrypted=1,
+                        updated_at="2026-01-01")
+    """
+    encrypted = int(fields.pop("encrypted", 0))
+    updated_at = fields.pop("updated_at", None) or datetime.now(UTC).isoformat()
+    for key, value in fields.items():
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, ?, ?)",
+            (key, value, encrypted, updated_at),
+        )
+    conn.commit()
+
+
+def insert_audit_log(conn: sqlite3.Connection, **fields) -> int:
+    """Persist an ``audit_log`` row; return the assigned id.
+
+    Required override: ``media_item_id`` and ``action``.  All other
+    fields default to sensible test values.
+    """
+    row: dict = {
+        "media_item_id": "12345",
+        "action": "deleted",
+        "detail": None,
+        "space_reclaimed_bytes": None,
+        "created_at": datetime.now(UTC).isoformat(),
+        "actor": None,
+        **fields,
+    }
+    if isinstance(row.get("created_at"), datetime):
+        row["created_at"] = row["created_at"].isoformat()
+    cursor = conn.execute(
+        "INSERT INTO audit_log"
+        " (media_item_id, action, detail, space_reclaimed_bytes, created_at, actor)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            row["media_item_id"],
+            row["action"],
+            row["detail"],
+            row["space_reclaimed_bytes"],
+            row["created_at"],
+            row["actor"],
+        ),
+    )
+    conn.commit()
+    return int(cursor.lastrowid)
+
+
+def insert_kept_show(conn: sqlite3.Connection, **fields) -> int:
+    """Persist a ``kept_shows`` row; return the assigned id.
+
+    Defaults to a sensible test show.  Override any column via kwargs.
+    """
+    row: dict = {
+        "show_rating_key": "rk100",
+        "show_title": "Test Show",
+        "action": "kept_show",
+        "execute_at": None,
+        "snooze_duration": None,
+        "created_at": datetime.now(UTC).isoformat(),
+        **fields,
+    }
+    if isinstance(row.get("created_at"), datetime):
+        row["created_at"] = row["created_at"].isoformat()
+    cursor = conn.execute(
+        "INSERT INTO kept_shows"
+        " (show_rating_key, show_title, action, execute_at, snooze_duration, created_at)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            row["show_rating_key"],
+            row["show_title"],
+            row["action"],
+            row["execute_at"],
+            row["snooze_duration"],
+            row["created_at"],
+        ),
+    )
+    conn.commit()
+    return int(cursor.lastrowid)
+
+
+def insert_subscriber(conn: sqlite3.Connection, **fields) -> int:
+    """Persist a ``subscribers`` row; return the assigned id.
+
+    Defaults to a single active subscriber.  Override any column via
+    kwargs.
+    """
+    row: dict = {
+        "email": "subscriber@example.com",
+        "active": 1,
+        "created_at": datetime.now(UTC).isoformat(),
+        **fields,
+    }
+    if isinstance(row.get("created_at"), datetime):
+        row["created_at"] = row["created_at"].isoformat()
+    cursor = conn.execute(
+        "INSERT INTO subscribers (email, active, created_at) VALUES (?, ?, ?)",
+        (row["email"], int(row["active"]), row["created_at"]),
+    )
+    conn.commit()
+    return int(cursor.lastrowid)
+
+
+def insert_suggestion(conn: sqlite3.Connection, **fields) -> int:
+    """Persist a ``suggestions`` row; return the assigned id.
+
+    Defaults to a minimal movie suggestion.  Override any column via
+    kwargs, including the optional TMDB/IMDB/rating fields.
+    """
+    row: dict = {
+        "title": "Test Suggestion",
+        "year": None,
+        "media_type": "movie",
+        "category": "personal",
+        "tmdb_id": None,
+        "imdb_id": None,
+        "description": None,
+        "reason": None,
+        "poster_url": None,
+        "trailer_url": None,
+        "rating": None,
+        "rt_rating": None,
+        "tagline": None,
+        "runtime": None,
+        "genres": None,
+        "cast_json": None,
+        "director": None,
+        "trailer_key": None,
+        "imdb_rating": None,
+        "metascore": None,
+        "batch_id": None,
+        "downloaded_at": None,
+        "created_at": datetime.now(UTC).isoformat(),
+        **fields,
+    }
+    if isinstance(row.get("created_at"), datetime):
+        row["created_at"] = row["created_at"].isoformat()
+    cursor = conn.execute(
+        "INSERT INTO suggestions ("
+        " title, year, media_type, category, tmdb_id, imdb_id, description, reason,"
+        " poster_url, trailer_url, rating, rt_rating, tagline, runtime, genres,"
+        " cast_json, director, trailer_key, imdb_rating, metascore, batch_id,"
+        " downloaded_at, created_at"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            row["title"],
+            row["year"],
+            row["media_type"],
+            row["category"],
+            row["tmdb_id"],
+            row["imdb_id"],
+            row["description"],
+            row["reason"],
+            row["poster_url"],
+            row["trailer_url"],
+            row["rating"],
+            row["rt_rating"],
+            row["tagline"],
+            row["runtime"],
+            row["genres"],
+            row["cast_json"],
+            row["director"],
+            row["trailer_key"],
+            row["imdb_rating"],
+            row["metascore"],
+            row["batch_id"],
+            row["downloaded_at"],
+            row["created_at"],
+        ),
+    )
+    conn.commit()
+    return int(cursor.lastrowid)
+
+
+def insert_recent_download(conn: sqlite3.Connection, **fields) -> int:
+    """Persist a ``recent_downloads`` row; return the assigned id.
+
+    Defaults to a minimal completed movie download.
+    """
+    row: dict = {
+        "dl_id": "nzbget-12345",
+        "title": "Test Movie",
+        "media_type": "movie",
+        "poster_url": "",
+        "completed_at": datetime.now(UTC).isoformat(),
+        **fields,
+    }
+    if isinstance(row.get("completed_at"), datetime):
+        row["completed_at"] = row["completed_at"].isoformat()
+    cursor = conn.execute(
+        "INSERT INTO recent_downloads (dl_id, title, media_type, poster_url, completed_at)"
+        " VALUES (?, ?, ?, ?, ?)",
+        (
+            row["dl_id"],
+            row["title"],
+            row["media_type"],
+            row["poster_url"],
+            row["completed_at"],
+        ),
+    )
+    conn.commit()
+    return int(cursor.lastrowid)
+
+
+def insert_download_notification(conn: sqlite3.Connection, **fields) -> int:
+    """Persist a ``download_notifications`` row; return the assigned id.
+
+    Defaults to a pending (notified=0) movie notification.
+    """
+    row: dict = {
+        "email": "user@example.com",
+        "title": "Test Movie",
+        "media_type": "movie",
+        "tmdb_id": None,
+        "service": "radarr",
+        "notified": 0,
+        "created_at": datetime.now(UTC).isoformat(),
+        "tvdb_id": None,
+        "claimed_at": None,
+        **fields,
+    }
+    if isinstance(row.get("created_at"), datetime):
+        row["created_at"] = row["created_at"].isoformat()
+    cursor = conn.execute(
+        "INSERT INTO download_notifications"
+        " (email, title, media_type, tmdb_id, service, notified, created_at, tvdb_id, claimed_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            row["email"],
+            row["title"],
+            row["media_type"],
+            row["tmdb_id"],
+            row["service"],
+            int(row["notified"]),
+            row["created_at"],
+            row["tvdb_id"],
+            row["claimed_at"],
+        ),
+    )
+    conn.commit()
+    return int(cursor.lastrowid)
+
+
+def insert_admin_user(conn: sqlite3.Connection, **fields) -> int:
+    """Persist an ``admin_users`` row via :func:`~mediaman.web.auth.password_hash.create_user`.
+
+    Returns the new row's id.  Defaults to username ``"admin"`` with
+    password ``"password1234"`` so most tests need zero arguments.
+
+    The ``enforce_policy`` flag is always ``False`` in test builds — the
+    password policy checker runs against the live bcrypt stack and would
+    add unacceptable latency to the test suite.
+    """
+    from mediaman.web.auth.password_hash import create_user
+
+    username = fields.get("username", "admin")
+    password = fields.get("password", "password1234")
+    create_user(conn, username, password, enforce_policy=False)
+    row = conn.execute(
+        "SELECT id FROM admin_users WHERE username = ?", (username,)
+    ).fetchone()
+    return int(row["id"])
 
 
 def make_plex_episode(

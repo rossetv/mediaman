@@ -16,6 +16,7 @@ from mediaman.web.routes.library import (
     protection_label,
     type_css,
 )
+from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 
 def _now_iso() -> str:
@@ -29,12 +30,15 @@ def _insert_movie(
     added_at: str | None = None,
     file_size: int = 1_000_000,
 ) -> None:
-    conn.execute(
-        "INSERT INTO media_items (id, title, media_type, plex_library_id, plex_rating_key, "
-        "added_at, file_path, file_size_bytes) VALUES (?, ?, 'movie', 1, ?, ?, '/f', ?)",
-        (media_id, title, f"rk-{media_id}", added_at or _now_iso(), file_size),
+    insert_media_item(
+        conn,
+        id=media_id,
+        title=title,
+        plex_rating_key=f"rk-{media_id}",
+        added_at=added_at or _now_iso(),
+        file_path="/f",
+        file_size_bytes=file_size,
     )
-    conn.commit()
 
 
 def _insert_tv_season(
@@ -47,24 +51,20 @@ def _insert_tv_season(
     added_at: str | None = None,
     last_watched_at: str | None = None,
 ) -> None:
-    conn.execute(
-        "INSERT INTO media_items "
-        "(id, title, media_type, plex_library_id, plex_rating_key, added_at, "
-        "file_path, file_size_bytes, show_title, show_rating_key, season_number, last_watched_at) "
-        "VALUES (?, ?, ?, 1, ?, ?, '/f', 500000, ?, ?, ?, ?)",
-        (
-            media_id,
-            f"{show_title} S{season:02d}",
-            media_type,
-            f"rk-{media_id}",
-            added_at or _now_iso(),
-            show_title,
-            show_rating_key,
-            season,
-            last_watched_at,
-        ),
+    insert_media_item(
+        conn,
+        id=media_id,
+        title=f"{show_title} S{season:02d}",
+        media_type=media_type,
+        plex_rating_key=f"rk-{media_id}",
+        added_at=added_at or _now_iso(),
+        file_path="/f",
+        file_size_bytes=500000,
+        show_title=show_title,
+        show_rating_key=show_rating_key,
+        season_number=season,
+        last_watched_at=last_watched_at,
     )
-    conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -222,12 +222,14 @@ class TestFetchLibrary:
         _insert_movie(conn, "m2", "Unprotected")
 
         now = _now_iso()
-        conn.execute(
-            "INSERT INTO scheduled_actions (media_item_id, action, scheduled_at, token, token_used) "
-            "VALUES ('m1', 'protected_forever', ?, 'tok1', 0)",
-            (now,),
+        insert_scheduled_action(
+            conn,
+            media_item_id="m1",
+            action="protected_forever",
+            scheduled_at=now,
+            token="tok1",
+            token_used=False,
         )
-        conn.commit()
 
         items, total = fetch_library(conn, media_type="kept")
         assert total == 1

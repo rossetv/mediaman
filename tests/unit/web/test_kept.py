@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from fastapi.testclient import TestClient
 
 from mediaman.web.routes.kept import router as kept_router
-from tests.helpers.factories import insert_media_item, insert_scheduled_action
+from tests.helpers.factories import insert_kept_show, insert_media_item, insert_scheduled_action
 
 
 def _insert_protection(conn, media_item_id: str, action: str = "protected_forever") -> None:
@@ -276,13 +274,7 @@ class TestApiRemoveShowKeep:
         _insert_season(conn, "m-X", "rk-show-X", "Galaxy Quest", season=1)
 
         # Create a keep rule first
-        now = datetime.now(UTC).isoformat()
-        conn.execute(
-            "INSERT INTO kept_shows (show_rating_key, show_title, action, created_at) "
-            "VALUES ('rk-show-X', 'Galaxy Quest', 'protected_forever', ?)",
-            (now,),
-        )
-        conn.commit()
+        insert_kept_show(conn, show_rating_key="rk-show-X", show_title="Galaxy Quest", action="protected_forever")
 
         app = app_factory(kept_router, conn=conn)
         client = authed_client(app, conn)

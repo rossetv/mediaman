@@ -20,6 +20,7 @@ from mediaman.main import create_app
 from mediaman.services.openai.recommendations import throttle as _throttle
 from mediaman.web.routes.recommended import api as _rec_api
 from mediaman.web.routes.recommended import refresh as _rec_refresh
+from tests.helpers.factories import insert_settings, insert_suggestion
 
 # NOTE: this file deliberately keeps its own ``app`` / ``authed_client``
 # fixtures rather than adopting the shared ``app_factory`` / ``authed_client``
@@ -109,11 +110,11 @@ class TestCooldownHelpers:
     def test_corrupt_timestamp_treated_as_no_refresh(self, db_path):
         conn = init_db(str(db_path))
         try:
-            conn.execute(
-                "INSERT INTO settings (key, value, encrypted, updated_at) "
-                "VALUES ('last_manual_recommendation_refresh', 'not-a-date', 0, '2026-01-01')"
+            insert_settings(
+                conn,
+                last_manual_recommendation_refresh="not-a-date",
+                updated_at="2026-01-01",
             )
-            conn.commit()
             assert _throttle.refresh_cooldown_remaining(conn) is None
         finally:
             conn.close()
@@ -257,11 +258,14 @@ class TestDownloadActionRateLimit:
         """Hammering the download endpoint more than 30 times/min returns 429."""
         conn = app.state.db
         # Insert a dummy suggestion so the 404 path isn't hit
-        conn.execute(
-            "INSERT INTO suggestions (title, media_type, category, tmdb_id, created_at) "
-            "VALUES ('Dune', 'movie', 'personal', 42, '2026-01-01T00:00:00')"
+        insert_suggestion(
+            conn,
+            title="Dune",
+            media_type="movie",
+            category="personal",
+            tmdb_id=42,
+            created_at="2026-01-01T00:00:00",
         )
-        conn.commit()
 
         max_in_window = _rec_api._DOWNLOAD_ACTION_LIMITER._max_in_window
 
@@ -311,13 +315,15 @@ class TestOnDemandShareToken:
             "VALUES ('base_url', 'https://example.com', 0, '2026-01-01') "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
         )
-        conn.execute(
-            "INSERT INTO suggestions (title, media_type, category, tmdb_id, created_at) "
-            "VALUES ('Interstellar', 'movie', 'personal', 157336, '2026-01-01T00:00:00')"
-        )
         conn.commit()
-        row = conn.execute("SELECT id FROM suggestions WHERE title='Interstellar'").fetchone()
-        return row["id"]
+        return insert_suggestion(
+            conn,
+            title="Interstellar",
+            media_type="movie",
+            category="personal",
+            tmdb_id=157336,
+            created_at="2026-01-01T00:00:00",
+        )
 
     def test_share_token_endpoint_returns_share_url(self, authed_client, app):
         """POST /api/recommended/{id}/share-token returns a valid share_url."""
@@ -408,22 +414,24 @@ class TestDownloadRecommendationSuccess:
         _rec_api._DOWNLOAD_ACTION_LIMITER.reset()
 
     def _insert_movie_suggestion(self, conn) -> int:
-        conn.execute(
-            "INSERT INTO suggestions (title, media_type, category, tmdb_id, created_at) "
-            "VALUES ('Inception', 'movie', 'personal', 27205, '2026-01-01T00:00:00')"
+        return insert_suggestion(
+            conn,
+            title="Inception",
+            media_type="movie",
+            category="personal",
+            tmdb_id=27205,
+            created_at="2026-01-01T00:00:00",
         )
-        conn.commit()
-        row = conn.execute("SELECT id FROM suggestions WHERE title='Inception'").fetchone()
-        return row["id"]
 
     def _insert_tv_suggestion(self, conn) -> int:
-        conn.execute(
-            "INSERT INTO suggestions (title, media_type, category, tmdb_id, created_at) "
-            "VALUES ('Breaking Bad', 'tv', 'personal', 1396, '2026-01-01T00:00:00')"
+        return insert_suggestion(
+            conn,
+            title="Breaking Bad",
+            media_type="tv",
+            category="personal",
+            tmdb_id=1396,
+            created_at="2026-01-01T00:00:00",
         )
-        conn.commit()
-        row = conn.execute("SELECT id FROM suggestions WHERE title='Breaking Bad'").fetchone()
-        return row["id"]
 
     def test_add_movie_to_radarr_succeeds(self, authed_client, app):
         """A valid movie suggestion is added to Radarr and returns ok=True."""

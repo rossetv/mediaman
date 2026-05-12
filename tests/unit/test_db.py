@@ -17,6 +17,12 @@ from mediaman.db import (
     set_connection,
 )
 from mediaman.db.migrations import apply_migrations
+from tests.helpers.factories import (
+    insert_audit_log,
+    insert_media_item,
+    insert_scheduled_action,
+    insert_settings,
+)
 
 
 class TestInitDb:
@@ -120,11 +126,7 @@ class TestThreadLocalConnection:
         set_connection(conn_main)
 
         # Write something in the main thread.
-        conn_main.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) "
-            "VALUES ('thread_test', 'ok', 0, '2026-01-01')"
-        )
-        conn_main.commit()
+        insert_settings(conn_main, thread_test="ok", updated_at="2026-01-01")
 
         found: dict[str, str | None] = {"value": None}
 
@@ -195,16 +197,10 @@ class TestSchemaV14DeleteStatus:
 
     def test_default_is_pending(self, db_path):
         conn = init_db(str(db_path))
-        conn.execute(
-            "INSERT INTO media_items (id, title, media_type, plex_library_id, "
-            "plex_rating_key, added_at, file_path, file_size_bytes) "
-            "VALUES ('m1', 't', 'movie', 1, 'm1', '2026-01-01', '/tmp/x', 1)"
-        )
-        conn.execute(
-            "INSERT INTO scheduled_actions "
-            "(media_item_id, action, scheduled_at, token) "
-            "VALUES ('m1', 'scheduled_deletion', '2026-01-01', 'tok1')"
-        )
+        insert_media_item(conn, id="m1", title="t", plex_rating_key="m1",
+                          added_at="2026-01-01", file_path="/tmp/x", file_size_bytes=1)
+        insert_scheduled_action(conn, media_item_id="m1", scheduled_at="2026-01-01",
+                                token="tok1")
         status = conn.execute(
             "SELECT delete_status FROM scheduled_actions WHERE token='tok1'"
         ).fetchone()[0]
@@ -593,11 +589,8 @@ class TestSchemaV31AuditActor:
     def test_actor_column_is_nullable(self, db_path):
         """Existing call sites (which do not yet pass actor) must still work."""
         conn = init_db(str(db_path))
-        conn.execute(
-            "INSERT INTO audit_log (media_item_id, action, detail, created_at) "
-            "VALUES ('m1', 'scheduled', 'auto', '2026-01-01T00:00:00+00:00')"
-        )
-        conn.commit()
+        insert_audit_log(conn, media_item_id="m1", action="scheduled", detail="auto",
+                         created_at="2026-01-01T00:00:00+00:00")
         row = conn.execute("SELECT actor FROM audit_log").fetchone()
         assert row["actor"] is None
         conn.close()

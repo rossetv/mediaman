@@ -10,20 +10,15 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from fastapi.testclient import TestClient
 
 from mediaman.core.audit import security_event
 from mediaman.web.routes.history import router as history_router
+from tests.helpers.factories import insert_audit_log
 
 
 def _add_media_audit(conn, action: str = "scanned") -> None:
-    conn.execute(
-        "INSERT INTO audit_log (media_item_id, action, created_at) VALUES (?, ?, ?)",
-        ("m1", action, datetime.now(UTC).isoformat()),
-    )
-    conn.commit()
+    insert_audit_log(conn, media_item_id="m1", action=action)
 
 
 class TestSecurityFilter:

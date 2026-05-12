@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,6 +12,7 @@ from mediaman.web.routes.subscribers import _validate_email
 from mediaman.web.routes.subscribers import (
     router as subscribers_router,
 )
+from tests.helpers.factories import insert_subscriber
 
 _TEMPLATE_DIR = (
     Path(__file__).parent.parent.parent.parent / "src" / "mediaman" / "web" / "templates"
@@ -26,11 +26,7 @@ def _templates_state() -> dict[str, object]:
 
 
 def _insert_subscriber(conn, email: str, active: int = 1) -> None:
-    conn.execute(
-        "INSERT INTO subscribers (email, active, created_at) VALUES (?, ?, ?)",
-        (email, active, datetime.now(UTC).isoformat()),
-    )
-    conn.commit()
+    insert_subscriber(conn, email=email, active=active)
 
 
 class TestUnsubscribeHtmlEscaping:

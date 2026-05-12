@@ -16,6 +16,7 @@ import pytest
 from mediaman.db import init_db
 from mediaman.services.openai import client as _openai_client_mod
 from mediaman.services.openai.recommendations import prompts as _prompts_mod
+from tests.helpers.factories import insert_settings
 
 # Build a namespace that mirrors the old openai_recommendations module so the
 # test body does not need to be rewritten symbol-by-symbol.
@@ -54,11 +55,7 @@ class TestOpenAIModelSelection:
 
     def test_model_honours_setting(self, conn):
         """An ``openai_model`` setting overrides the default."""
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
-            ("openai_model", "gpt-4o", "2026-04-18T00:00:00+00:00"),
-        )
-        conn.commit()
+        insert_settings(conn, openai_model="gpt-4o", updated_at="2026-04-18T00:00:00+00:00")
         assert openai_recommendations._get_openai_model(conn) == "gpt-4o"
 
     def test_strip_season_suffix(self):
@@ -80,15 +77,8 @@ class TestOpenAIModelSelection:
     def test_call_openai_sends_configured_model(self, conn, monkeypatch, fake_http, fake_response):
         """``_call_openai`` must forward the configured model in the request body."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
-            ("openai_api_key", "sk-test", "2026-04-18T00:00:00+00:00"),
-        )
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
-            ("openai_model", "gpt-4.1-mini", "2026-04-18T00:00:00+00:00"),
-        )
-        conn.commit()
+        insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
+        insert_settings(conn, openai_model="gpt-4.1-mini", updated_at="2026-04-18T00:00:00+00:00")
 
         fake_http.queue("POST", fake_response(json_data={"output": []}))
         openai_recommendations._call_openai("hello", conn, use_web_search=False)
@@ -155,11 +145,7 @@ class TestWebSearchGating:
     def test_web_search_disabled_by_default(self, conn, monkeypatch, fake_http, fake_response):
         """When ``openai_web_search_enabled`` is not set, no tools key is sent."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
-            ("openai_api_key", "sk-test", "2026-04-18T00:00:00+00:00"),
-        )
-        conn.commit()
+        insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
 
         fake_http.queue("POST", fake_response(json_data={"output": []}))
         openai_recommendations._call_openai("hello", conn, use_web_search=True)
@@ -172,15 +158,8 @@ class TestWebSearchGating:
     ):
         """When ``openai_web_search_enabled`` is set to true, tools key is included."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
-            ("openai_api_key", "sk-test", "2026-04-18T00:00:00+00:00"),
-        )
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
-            ("openai_web_search_enabled", "true", "2026-04-18T00:00:00+00:00"),
-        )
-        conn.commit()
+        insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
+        insert_settings(conn, openai_web_search_enabled="true", updated_at="2026-04-18T00:00:00+00:00")
 
         fake_http.queue("POST", fake_response(json_data={"output": []}))
         openai_recommendations._call_openai("hello", conn, use_web_search=True)
@@ -194,15 +173,8 @@ class TestWebSearchGating:
     ):
         """Even with the setting enabled, passing ``use_web_search=False`` omits tools."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
-            ("openai_api_key", "sk-test", "2026-04-18T00:00:00+00:00"),
-        )
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
-            ("openai_web_search_enabled", "true", "2026-04-18T00:00:00+00:00"),
-        )
-        conn.commit()
+        insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
+        insert_settings(conn, openai_web_search_enabled="true", updated_at="2026-04-18T00:00:00+00:00")
 
         fake_http.queue("POST", fake_response(json_data={"output": []}))
         openai_recommendations._call_openai("hello", conn, use_web_search=False)
@@ -233,15 +205,8 @@ class TestWebSearchTitleValidation:
     def test_adversarial_batch_rejected(self, conn, monkeypatch, fake_http, fake_response):
         """When web search is active and a title fails validation, the whole batch is rejected."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
-            ("openai_api_key", "sk-test", "2026-04-18T00:00:00+00:00"),
-        )
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
-            ("openai_web_search_enabled", "true", "2026-04-18T00:00:00+00:00"),
-        )
-        conn.commit()
+        insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
+        insert_settings(conn, openai_web_search_enabled="true", updated_at="2026-04-18T00:00:00+00:00")
 
         # One clean title, one adversarial title — the whole batch must be rejected.
         bad_batch = [
@@ -271,15 +236,8 @@ class TestWebSearchTitleValidation:
     ):
         """A fully safe batch passes validation when web search is active."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
-            ("openai_api_key", "sk-test", "2026-04-18T00:00:00+00:00"),
-        )
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
-            ("openai_web_search_enabled", "true", "2026-04-18T00:00:00+00:00"),
-        )
-        conn.commit()
+        insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
+        insert_settings(conn, openai_web_search_enabled="true", updated_at="2026-04-18T00:00:00+00:00")
 
         safe_batch = [
             {"title": "Inception", "media_type": "movie", "reason": "great film"},
@@ -312,11 +270,7 @@ class TestOpenAIKeySource:
         import logging
 
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
-            ("openai_api_key", "sk-from-db", "2026-04-18T00:00:00+00:00"),
-        )
-        conn.commit()
+        insert_settings(conn, openai_api_key="sk-from-db", updated_at="2026-04-18T00:00:00+00:00")
 
         with caplog.at_level(logging.DEBUG, logger="mediaman"):
             openai_recommendations._get_openai_key(conn)
@@ -365,11 +319,7 @@ class TestJsonObjectFormat:
     def test_json_object_format_sent_in_request(self, conn, monkeypatch, fake_http, fake_response):
         """The request body must include ``text.format.type == json_object``."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
-            ("openai_api_key", "sk-test", "2026-04-18T00:00:00+00:00"),
-        )
-        conn.commit()
+        insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
 
         fake_http.queue("POST", fake_response(json_data={"output": []}))
         openai_recommendations._call_openai("hello", conn, use_web_search=False)
@@ -384,11 +334,7 @@ class TestJsonObjectFormat:
     ):
         """Markdown-wrapped JSON is correctly parsed via the defensive regex fallback."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
-            ("openai_api_key", "sk-test", "2026-04-18T00:00:00+00:00"),
-        )
-        conn.commit()
+        insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
 
         items = [{"title": "Inception", "media_type": "movie", "reason": "classic"}]
         wrapped = "```json\n" + __import__("json").dumps(items) + "\n```"
@@ -410,11 +356,7 @@ class TestJsonObjectFormat:
     def test_plain_fenced_response_still_parsed(self, conn, monkeypatch, fake_http, fake_response):
         """Plain ``` fencing (no json tag) is also handled by the fallback."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
-            ("openai_api_key", "sk-test", "2026-04-18T00:00:00+00:00"),
-        )
-        conn.commit()
+        insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
 
         items = [{"title": "Dune", "media_type": "movie", "reason": "epic"}]
         wrapped = "```\n" + __import__("json").dumps(items) + "\n```"
