@@ -111,9 +111,10 @@ def select_hero(
     if len(items) == 1:
         return items[0], []
 
-    def sort_key(item):
+    def sort_key(item: dict[str, object]) -> tuple[bool, int | float]:
         is_downloading = item["state"] == "downloading"
-        return (not is_downloading, -item["progress"])
+        progress = item["progress"]
+        return (not is_downloading, -(progress if isinstance(progress, (int, float)) else 0))
 
     ranked = sorted(items, key=sort_key)
     return ranked[0], ranked[1:]

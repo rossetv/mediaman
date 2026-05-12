@@ -151,11 +151,8 @@ def _enrich_with_tmdb_ids(
 
     if arr_ids_radarr:
         try:
-            from mediaman.services.arr.base import ArrClient
-
-            client = _build_radarr(conn, secret_key)
-            if client:
-                radarr_client = cast(ArrClient, client)
+            radarr_client = _build_radarr(conn, secret_key)
+            if radarr_client:
                 for m in radarr_client.get_movies():
                     aid = m.get("id")
                     tid = m.get("tmdbId")
@@ -166,11 +163,8 @@ def _enrich_with_tmdb_ids(
 
     if arr_ids_sonarr:
         try:
-            from mediaman.services.arr.base import ArrClient
-
-            client = _build_sonarr(conn, secret_key)
-            if client:
-                sonarr_client = cast(ArrClient, client)
+            sonarr_client = _build_sonarr(conn, secret_key)
+            if sonarr_client:
                 for s in sonarr_client.get_series():
                     aid = s.get("id")
                     tid = s.get("tmdbId")

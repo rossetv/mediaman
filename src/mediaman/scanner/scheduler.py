@@ -56,7 +56,7 @@ def _track_connection(conn: sqlite3.Connection) -> sqlite3.Connection:
     return conn
 
 
-def _open_db_for_job():
+def _open_db_for_job() -> sqlite3.Connection:
     """Open a thread-local DB connection and remember it for shutdown."""
     from mediaman.db import get_db
 
@@ -125,11 +125,9 @@ def start_scheduler(
     from apscheduler.triggers.cron import CronTrigger
     from apscheduler.triggers.interval import IntervalTrigger
 
+    from mediaman.services.arr._throttle_persistence import reconcile_stranded_throttle
     from mediaman.services.arr.completion import cleanup_recent_downloads
-    from mediaman.services.arr.search_trigger import (
-        reconcile_stranded_throttle,
-        trigger_pending_searches,
-    )
+    from mediaman.services.arr.search_trigger import trigger_pending_searches
 
     global _scheduler
     with _scheduler_lock:

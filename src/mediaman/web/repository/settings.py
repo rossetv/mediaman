@@ -20,6 +20,7 @@ import json
 import logging
 import sqlite3
 from collections.abc import Iterable
+from typing import TypedDict
 
 from cryptography.exceptions import InvalidTag
 
@@ -142,6 +143,15 @@ def load_settings(
 # ---------------------------------------------------------------------------
 
 
+class _AuditKwargs(TypedDict, total=False):
+    """Keyword arguments forwarded to :func:`~mediaman.core.audit.security_event_or_raise`."""
+
+    event: str
+    actor: str
+    ip: str
+    detail: dict[str, object] | str | None
+
+
 def write_settings(
     conn: sqlite3.Connection,
     *,
@@ -149,7 +159,7 @@ def write_settings(
     allowed_keys: Iterable[str],
     secret_key: str,
     now: str,
-    audit: dict | None = None,
+    audit: _AuditKwargs | None = None,
 ) -> None:
     """Persist a settings payload atomically with an optional audit row.
 

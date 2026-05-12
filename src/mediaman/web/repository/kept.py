@@ -8,7 +8,9 @@ live in mediaman.scanner.repository.scheduled_actions.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import cast
 
 
 @dataclass(frozen=True)
@@ -211,7 +213,7 @@ def fetch_show_title(conn: sqlite3.Connection, show_rating_key: str) -> str | No
     ).fetchone()
     if row is None:
         return None
-    return row["show_title"]
+    return cast(str, row["show_title"])
 
 
 def fetch_owned_season_ids(
@@ -285,8 +287,8 @@ def delete_kept_show(conn: sqlite3.Connection, kept_show_id: int) -> None:
 def set_protected_state(
     conn: sqlite3.Connection,
     *,
-    to_update: list[tuple],
-    to_insert: list[tuple],
+    to_update: Sequence[tuple[object, ...]],
+    to_insert: Sequence[tuple[object, ...]],
 ) -> None:
     """Apply batched updates and inserts to scheduled_actions for season keeps.
 

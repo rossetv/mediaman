@@ -93,7 +93,7 @@ def trigger_scan(
     )
     heartbeat_thread.start()
 
-    def run():
+    def run() -> None:
         """Execute the scan in a background thread with its own DB connection.
 
         Opens a fresh thread-local connection, invokes the full scan pipeline,

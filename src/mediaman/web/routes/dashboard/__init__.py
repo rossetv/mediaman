@@ -22,6 +22,7 @@ from typing import cast
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
 from mediaman.core.format import format_bytes
@@ -65,7 +66,7 @@ def dashboard_page(request: Request) -> Response:
     # SUM always returns a row; value is NULL when audit_log is empty.
     reclaimed_total = format_bytes(sum_reclaimed_bytes(conn))
 
-    templates = request.app.state.templates
+    templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
         request,
         "dashboard.html",

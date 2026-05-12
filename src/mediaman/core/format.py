@@ -171,7 +171,7 @@ def format_day_month(dt: datetime, *, long_month: bool = False) -> str:
     return f"{dt.day} {table[dt.month - 1]} {dt.year}"
 
 
-def safe_json_list(value: object) -> list:
+def safe_json_list(value: object) -> list[object]:
     """Parse *value* as JSON and return a list, or ``[]`` on any failure.
 
     Handles the repeated pattern of ``json.loads(genres_or_cast or "[]")``

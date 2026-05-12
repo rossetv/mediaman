@@ -15,10 +15,13 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from typing import cast
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
 from mediaman.db import get_db
@@ -50,7 +53,7 @@ def search_page(request: Request) -> Response:
     if isinstance(resolved, RedirectResponse):
         return resolved
     username, _conn = resolved
-    templates = request.app.state.templates
+    templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
         request,
         "search.html",
@@ -129,7 +132,12 @@ def api_discover(request: Request, admin: str = Depends(get_current_admin)) -> J
     if client is None:
         return respond_err("tmdb_not_configured", status=502)
 
-    def _fetch_cached(shelf_key, fetch_fn, inject_media_type, page):
+    def _fetch_cached(
+        shelf_key: str,
+        fetch_fn: Callable[[int], list[dict[str, object]]],
+        inject_media_type: str | None,
+        page: int,
+    ) -> list[dict[str, object]]:
         cache_key = f"{shelf_key}?page={page}"
         now = time.monotonic()
         with _discover_cache_lock:

@@ -105,7 +105,7 @@ def create_user_cli() -> None:
     # preflight ``bootstrap_db`` uses so the operator gets the
     # actionable ``chown`` hint instead of an opaque sqlite traceback
     # when the bind mount is owned by the wrong uid.
-    from mediaman.bootstrap.db import (
+    from mediaman.bootstrap.data_dir import (
         DataDirNotWritableError,
         _assert_data_dir_writable,
     )

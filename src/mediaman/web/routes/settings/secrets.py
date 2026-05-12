@@ -76,7 +76,7 @@ SENSITIVE_KEYS: frozenset[str] = frozenset(
 )
 
 
-def has_sensitive_key_changes(body: dict) -> bool:
+def has_sensitive_key_changes(body: dict[str, object]) -> bool:
     """Return True when *body* attempts to write any sensitive key.
 
     Secret fields whose value is the unchanged sentinel (``****``) or an

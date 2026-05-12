@@ -17,9 +17,11 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import timedelta
+from typing import cast
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
 from mediaman.core.format import format_bytes
@@ -142,7 +144,7 @@ def library_page(
     page_start = (page - 1) * per_page + 1 if total else 0
     page_end = min(page * per_page, total)
 
-    templates = request.app.state.templates
+    templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
         request,
         "library.html",

@@ -47,16 +47,16 @@ class DownloadPayload(TypedDict):
 
 def _record_and_respond(
     *,
-    conn,
+    conn: sqlite3.Connection,
     email: str,
     title: str,
     media_type: str,
-    tmdb_id,
+    tmdb_id: int | None,
     service: str,
     audit_action: str,
     audit_detail: str,
     secret_key: str,
-    tvdb_id=None,
+    tvdb_id: int | None = None,
 ) -> JSONResponse:
     """Audit, notify, commit, mint a poll token, and return the success response.
 
@@ -79,7 +79,7 @@ def _record_and_respond(
     poll_token = generate_poll_token(
         media_item_id=f"{service}:{title}",
         service=service,
-        tmdb_id=tmdb_id,
+        tmdb_id=tmdb_id if tmdb_id is not None else 0,
         secret_key=secret_key,
     )
     service_label = "Radarr" if service == "radarr" else "Sonarr"
@@ -266,7 +266,7 @@ def _claim_token(token: str, exp_value: float) -> JSONResponse | None:
 
 
 def _build_dl_payload(
-    conn, token: str, payload: DownloadTokenPayload, secret_key: str
+    conn: sqlite3.Connection, token: str, payload: DownloadTokenPayload, secret_key: str
 ) -> tuple[DownloadPayload, str, bool]:
     """Extract fields from the token payload and build a DownloadPayload.
 

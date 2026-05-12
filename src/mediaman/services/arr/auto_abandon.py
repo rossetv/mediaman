@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Mapping
 
 from mediaman.core.audit import security_event
 from mediaman.services.infra import get_bool_setting
@@ -42,7 +43,7 @@ def maybe_auto_abandon(
     conn: sqlite3.Connection,
     secret_key: str,
     *,
-    item: dict,
+    item: Mapping[str, object],
     now: float,
 ) -> None:
     """Auto-unmonitor *item* if it has been searching beyond the time threshold.
@@ -73,7 +74,10 @@ def maybe_auto_abandon(
         # would silently unmonitor something the user is actively waiting
         # for.
         return
-    released_at = item.get("released_at") or 0.0
+    _released_at_raw = item.get("released_at")
+    released_at: float = (
+        float(_released_at_raw) if isinstance(_released_at_raw, (int, float)) else 0.0
+    )
     if released_at <= 0.0:
         # Release date unknown — be conservative and never abandon. The
         # alternative (assuming "released long ago") would mistakenly
@@ -85,7 +89,8 @@ def maybe_auto_abandon(
         # is meant to clean up genuinely stuck items, not bin recent
         # releases that just haven't surfaced yet.
         return
-    added_at = item.get("added_at") or 0.0
+    _added_at_raw = item.get("added_at")
+    added_at: float = float(_added_at_raw) if isinstance(_added_at_raw, (int, float)) else 0.0
     if added_at <= 0.0:
         # No reliable timestamp — treat as unknown age and skip rather than
         # immediately abandoning (now - 0.0 ≈ 1.7e9 s, way past any threshold).
@@ -101,8 +106,10 @@ def maybe_auto_abandon(
         abandon_seasons,
     )
 
-    dl_id = item.get("dl_id") or ""
-    arr_id = item.get("arr_id") or 0
+    _dl_id_raw = item.get("dl_id")
+    dl_id: str = str(_dl_id_raw) if isinstance(_dl_id_raw, str) else ""
+    _arr_id_raw = item.get("arr_id")
+    arr_id: int = int(_arr_id_raw) if isinstance(_arr_id_raw, int) else 0
     if not dl_id or not arr_id:
         return
 
@@ -132,11 +139,13 @@ def maybe_auto_abandon(
     # ``abandon_seasons`` would otherwise unmonitor every special when
     # all queue rows happen to be specials. Specials are typically opt-in
     # monitored separately — we never want to auto-unmonitor them.
+    _episodes_raw = item.get("episodes")
+    _episodes: list[object] = list(_episodes_raw) if isinstance(_episodes_raw, list) else []
     seasons = sorted(
         {
             int(ep.get("season_number") or 0)
-            for ep in (item.get("episodes") or [])
-            if int(ep.get("season_number") or 0) > 0
+            for ep in _episodes
+            if isinstance(ep, dict) and int(ep.get("season_number") or 0) > 0
         }
     )
     if not seasons:

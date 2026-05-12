@@ -126,10 +126,11 @@ def get_setting(
             logger.warning("Failed to decrypt setting '%s' — returning default", key)
             return default
 
+    val_str: str = val if isinstance(val, str) else str(val)
     try:
-        parsed = json.loads(val)
+        parsed: _JsonValue = json.loads(val_str)
     except (TypeError, ValueError):
-        return val
+        return val_str
     return parsed
 
 

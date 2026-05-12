@@ -178,14 +178,18 @@ def _enrich_ratings(results: list[dict[str, object]], request: Request) -> None:
     # cross thread boundaries.
     resolved_omdb_key = get_omdb_key(conn, secret_key)
 
-    def fetch(key_group):
+    def fetch(
+        key_group: tuple[tuple[int, str], list[dict[str, object]]],
+    ) -> tuple[tuple[int, str], list[dict[str, object]], dict[str, str]]:
         key, group = key_group
         probe = group[0]
         try:
-            data = fetch_ratings(
-                probe["title"],
-                probe.get("year"),
-                probe["media_type"],
+            year_raw = probe.get("year")
+            year_int: int | None = year_raw if isinstance(year_raw, int) else None
+            data: dict[str, str] = fetch_ratings(
+                str(probe["title"]),
+                year_int,
+                str(probe["media_type"]),
                 omdb_key=resolved_omdb_key,
             )
         except (SafeHTTPError, _requests.RequestException, ValueError, TypeError):
@@ -195,7 +199,7 @@ def _enrich_ratings(results: list[dict[str, object]], request: Request) -> None:
 
     now_iso = _now_iso()
     futures = [_get_executor().submit(fetch, kg) for kg in misses]
-    pending_writes: list[tuple] = []
+    pending_writes: list[tuple[int, str, str | None, str | None, str | None, str]] = []
     try:
         for fut in as_completed(futures, timeout=_ENRICH_BUDGET_SECONDS):
             try:

@@ -19,8 +19,11 @@ between FastAPI and that service.
 
 from __future__ import annotations
 
+from typing import cast
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
 from mediaman.core.audit import log_audit
@@ -72,7 +75,7 @@ __all__ = [
 def keep_page(request: Request, token: str) -> HTMLResponse:
     """Render the keep page. Three states: active, already-kept, expired."""
     conn = get_db()
-    templates = request.app.state.templates
+    templates = cast(Jinja2Templates, request.app.state.templates)
     config = request.app.state.config
 
     if not _KEEP_GET_LIMITER.check(get_client_ip(request)):

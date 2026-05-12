@@ -29,7 +29,7 @@ from __future__ import annotations
 from fastapi.responses import JSONResponse
 
 
-def respond_ok(data: dict | None = None, *, status: int = 200) -> JSONResponse:
+def respond_ok(data: dict[str, object] | None = None, *, status: int = 200) -> JSONResponse:
     """Return a canonical success envelope.
 
     The body is ``{"ok": true, **data}`` when *data* is provided, or
@@ -42,7 +42,7 @@ def respond_ok(data: dict | None = None, *, status: int = 200) -> JSONResponse:
     Returns:
         A :class:`~fastapi.responses.JSONResponse` with the envelope body.
     """
-    body: dict = {"ok": True}
+    body: dict[str, object] = {"ok": True}
     if data is not None:
         # ``is not None`` rather than truthy check — falsy-but-meaningful
         # payloads like ``{"count": 0}`` or ``{"libraries": []}`` must not
@@ -74,7 +74,7 @@ def respond_err(
     Returns:
         A :class:`~fastapi.responses.JSONResponse` with the envelope body.
     """
-    body: dict = {"ok": False, "error": error}
+    body: dict[str, object] = {"ok": False, "error": error}
     if message is not None:
         body["message"] = message
     body.update(extra)
