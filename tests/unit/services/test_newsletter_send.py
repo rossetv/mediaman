@@ -10,6 +10,12 @@ import requests
 
 from mediaman.db import init_db
 from mediaman.services.mail.newsletter import NewsletterConfigError, send_newsletter
+from tests.helpers.factories import (
+    insert_media_item,
+    insert_scheduled_action,
+    insert_subscriber,
+    insert_suggestion,
+)
 
 _SECRET_KEY = "0123456789abcdef" * 4  # 64 hex chars — matches test conftest fixture
 
@@ -33,31 +39,27 @@ def _configure_mailgun(conn) -> None:
 
 
 def _add_subscriber(conn, email: str) -> None:
-    now = datetime.now(UTC).isoformat()
-    conn.execute(
-        "INSERT INTO subscribers (email, active, created_at) VALUES (?, 1, ?)",
-        (email, now),
-    )
-    conn.commit()
+    insert_subscriber(conn, email=email)
 
 
 def _add_scheduled_item(conn) -> None:
     """Insert a media_item + scheduled_deletion action so the newsletter has content."""
-    now = datetime.now(UTC).isoformat()
-    conn.execute(
-        """INSERT INTO media_items
-           (id, title, media_type, plex_library_id, plex_rating_key,
-            added_at, file_path, file_size_bytes)
-           VALUES ('mi1', 'Test Movie', 'movie', 1, 'rk1', ?, '/media/test.mkv', 5000000000)""",
-        (now,),
+    insert_media_item(
+        conn,
+        id="mi1",
+        title="Test Movie",
+        plex_rating_key="rk1",
+        file_path="/media/test.mkv",
+        file_size_bytes=5000000000,
     )
-    conn.execute(
-        """INSERT INTO scheduled_actions
-           (media_item_id, action, scheduled_at, token, token_used, notified)
-           VALUES ('mi1', 'scheduled_deletion', ?, 'tok1', 0, 0)""",
-        (now,),
+    insert_scheduled_action(
+        conn,
+        media_item_id="mi1",
+        action="scheduled_deletion",
+        token="tok1",
+        token_used=False,
+        notified=False,
     )
-    conn.commit()
 
 
 # Patch targets that live outside the isolated test DB
@@ -496,38 +498,31 @@ class TestNewsletterSuggestionContext:
 
         now = datetime.now(UTC).isoformat()
         # Insert a suggestion row with extra DB columns that must NOT leak into the template.
-        conn.execute(
-            """INSERT INTO suggestions (title, year, media_type, category, tmdb_id, imdb_id,
-               description, reason, poster_url, trailer_url, rating, rt_rating,
-               tagline, runtime, genres, cast_json, director, trailer_key,
-               imdb_rating, metascore, batch_id, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                "Test Film",
-                2024,
-                "movie",
-                "trending",
-                12345,
-                "tt0000001",
-                "A test film.",
-                "Great reason",
-                "https://example/poster.jpg",
-                "https://youtube.com/watch?v=xyz",
-                8.5,
-                90,
-                "A tagline",
-                120,
-                '["Action"]',
-                '["Actor One"]',
-                "Director One",
-                "abckey",
-                7.8,
-                85,
-                now[:10],
-                now,
-            ),
+        insert_suggestion(
+            conn,
+            title="Test Film",
+            year=2024,
+            media_type="movie",
+            category="trending",
+            tmdb_id=12345,
+            imdb_id="tt0000001",
+            description="A test film.",
+            reason="Great reason",
+            poster_url="https://example/poster.jpg",
+            trailer_url="https://youtube.com/watch?v=xyz",
+            rating=8.5,
+            rt_rating=90,
+            tagline="A tagline",
+            runtime=120,
+            genres='["Action"]',
+            cast_json='["Actor One"]',
+            director="Director One",
+            trailer_key="abckey",
+            imdb_rating=7.8,
+            metascore=85,
+            batch_id=now[:10],
+            created_at=now,
         )
-        conn.commit()
 
         captured_context: dict = {}
 

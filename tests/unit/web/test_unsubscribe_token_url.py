@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -12,6 +11,7 @@ from mediaman.crypto import generate_unsubscribe_token
 from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
 from mediaman.web.routes.subscribers import _UNSUB_LIMITER
+from tests.helpers.factories import insert_subscriber
 
 # NOTE: this file deliberately keeps its own ``app`` / ``client`` fixtures
 # rather than adopting the shared ``app_factory`` / ``authed_client``
@@ -41,11 +41,7 @@ def client(app):
 
 
 def _insert_subscriber(conn, email: str) -> None:
-    conn.execute(
-        "INSERT INTO subscribers (email, active, created_at) VALUES (?, 1, ?)",
-        (email, datetime.now(UTC).isoformat()),
-    )
-    conn.commit()
+    insert_subscriber(conn, email=email)
 
 
 def _setup_limiter():

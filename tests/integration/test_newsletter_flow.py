@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 from mediaman.db import init_db
 from mediaman.services.mail.newsletter import send_newsletter
+from tests.helpers.factories import insert_media_item, insert_scheduled_action, insert_subscriber
 
 _SECRET = "0123456789abcdef" * 4  # matches conftest fixture
 
@@ -41,27 +42,27 @@ def _configure_mailgun(conn) -> None:
 
 
 def _seed_scheduled_item(conn, media_id: str = "mi1", title: str = "Test Movie") -> None:
-    conn.execute(
-        "INSERT INTO media_items "
-        "(id, title, media_type, plex_library_id, plex_rating_key, added_at, file_path, file_size_bytes) "
-        "VALUES (?, ?, 'movie', 1, ?, ?, '/media/test.mkv', 5000000000)",
-        (media_id, title, media_id, _now()),
+    insert_media_item(
+        conn,
+        id=media_id,
+        title=title,
+        plex_rating_key=media_id,
+        file_path="/media/test.mkv",
+        file_size_bytes=5000000000,
     )
-    conn.execute(
-        "INSERT INTO scheduled_actions "
-        "(media_item_id, action, scheduled_at, token, token_used, notified) "
-        "VALUES (?, 'scheduled_deletion', ?, 'tok-test', 0, 0)",
-        (media_id, _now()),
+    insert_scheduled_action(
+        conn,
+        media_item_id=media_id,
+        action="scheduled_deletion",
+        scheduled_at=_now(),
+        token="tok-test",
+        token_used=False,
+        notified=False,
     )
-    conn.commit()
 
 
 def _add_subscriber(conn, email: str = "viewer@example.com") -> None:
-    conn.execute(
-        "INSERT INTO subscribers (email, active, created_at) VALUES (?, 1, ?)",
-        (email, _now()),
-    )
-    conn.commit()
+    insert_subscriber(conn, email=email)
 
 
 class TestNewsletterFlow:

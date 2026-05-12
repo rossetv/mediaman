@@ -1,9 +1,9 @@
 """Tests for poster proxy endpoint security."""
 
-from datetime import UTC
-
 import pytest
 import requests
+
+from tests.helpers.factories import insert_media_item, insert_settings
 
 
 @pytest.fixture(autouse=True)
@@ -309,21 +309,13 @@ class TestArrPosterByStoredId:
 
     def test_no_radarr_id_returns_none(self, tmp_path):
         """If the media_items row has a NULL radarr_id, the fallback returns None."""
-        from datetime import datetime
-
         from mediaman.db import init_db, set_connection
         from mediaman.web.routes.poster import _fetch_arr_poster
 
         conn = init_db(str(tmp_path / "mediaman.db"))
         set_connection(conn)
-        now = datetime.now(UTC).isoformat()
-        conn.execute(
-            "INSERT INTO media_items (id, title, media_type, plex_library_id, "
-            "plex_rating_key, added_at, file_path, file_size_bytes) "
-            "VALUES ('r1','Inception','movie',1,'r1',?,'/p',1)",
-            (now,),
-        )
-        conn.commit()
+        insert_media_item(conn, id="r1", title="Inception", plex_rating_key="r1",
+                          file_path="/p", file_size_bytes=1)
 
         import os
 
@@ -340,7 +332,6 @@ class TestArrPosterByStoredId:
 
     def test_radarr_id_match_uses_id_not_title(self, tmp_path):
         """When radarr_id is stored, the Arr lookup matches by id, not title."""
-        from datetime import datetime
         from unittest.mock import MagicMock, patch
 
         from mediaman.db import init_db, set_connection
@@ -348,15 +339,9 @@ class TestArrPosterByStoredId:
 
         conn = init_db(str(tmp_path / "mediaman.db"))
         set_connection(conn)
-        now = datetime.now(UTC).isoformat()
         # Stored row: title "Inception", radarr_id 2020.
-        conn.execute(
-            "INSERT INTO media_items (id, title, media_type, plex_library_id, "
-            "plex_rating_key, added_at, file_path, file_size_bytes, radarr_id) "
-            "VALUES ('r1','Inception','movie',1,'r1',?,'/p',1,2020)",
-            (now,),
-        )
-        conn.commit()
+        insert_media_item(conn, id="r1", title="Inception", plex_rating_key="r1",
+                          file_path="/p", file_size_bytes=1, radarr_id=2020)
 
         import os
 
@@ -506,18 +491,7 @@ class TestPosterCacheAtomicWrite:
         client, conn = self._build_test_app(tmp_path, self._KEY)
 
         # Seed DB with Plex URL/token rows.
-        from datetime import datetime
-
-        now = datetime.now(UTC).isoformat()
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES ('plex_url', 'https://localhost', 0, ?)",
-            (now,),
-        )
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES ('plex_token', 'fake-token', 0, ?)",
-            (now,),
-        )
-        conn.commit()
+        insert_settings(conn, plex_url="https://localhost", plex_token="fake-token")
 
         mock_resp = MagicMock()
         mock_resp.content = b"\xff\xd8\xff"  # JPEG magic bytes
@@ -581,18 +555,7 @@ class TestPosterTimeoutFallback:
 
         client, conn = self._build_test_app(tmp_path, self._KEY)
 
-        from datetime import datetime
-
-        now = datetime.now(UTC).isoformat()
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES ('plex_url', 'https://localhost', 0, ?)",
-            (now,),
-        )
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES ('plex_token', 'fake-token', 0, ?)",
-            (now,),
-        )
-        conn.commit()
+        insert_settings(conn, plex_url="https://localhost", plex_token="fake-token")
 
         with (
             patch("mediaman.web.routes.poster.fetch._POSTER_HTTP") as mock_http,
@@ -724,24 +687,12 @@ class TestPosterCacheSidecarMime:
         return TestClient(app), conn
 
     def test_png_first_fetch_persists_sidecar_and_serves_correct_mime(self, tmp_path):
-        from datetime import datetime
         from unittest.mock import MagicMock, patch
 
         from mediaman.web.routes.poster import sign_poster_url
 
         client, conn = self._setup(tmp_path)
-        now = datetime.now(UTC).isoformat()
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES "
-            "('plex_url', 'https://localhost', 0, ?)",
-            (now,),
-        )
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES "
-            "('plex_token', 'fake-token', 0, ?)",
-            (now,),
-        )
-        conn.commit()
+        insert_settings(conn, plex_url="https://localhost", plex_token="fake-token")
 
         png_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
         mock_resp = MagicMock()
@@ -877,7 +828,6 @@ class TestPosterTempCleanupOnFailure:
 
     def test_orphan_tmp_removed_on_replace_failure(self, tmp_path):
         import os
-        from datetime import datetime
         from unittest.mock import MagicMock, patch
 
         from mediaman.web.routes import poster as poster_mod
@@ -907,18 +857,7 @@ class TestPosterTempCleanupOnFailure:
 
         POSTER_PUBLIC_LIMITER.reset()
 
-        now = datetime.now(UTC).isoformat()
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES "
-            "('plex_url', 'https://localhost', 0, ?)",
-            (now,),
-        )
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES "
-            "('plex_token', 'fake-token', 0, ?)",
-            (now,),
-        )
-        conn.commit()
+        insert_settings(conn, plex_url="https://localhost", plex_token="fake-token")
 
         mock_resp = MagicMock()
         mock_resp.content = b"\xff\xd8\xff" + b"\x00" * 32

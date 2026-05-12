@@ -8,16 +8,11 @@ from datetime import UTC, datetime, timedelta
 from fastapi.testclient import TestClient
 
 from mediaman.web.routes.dashboard import router as dashboard_router
-from tests.helpers.factories import insert_media_item, insert_scheduled_action
+from tests.helpers.factories import insert_audit_log, insert_media_item, insert_scheduled_action
 
 
 def _insert_audit_deleted(conn, media_item_id: str, space_bytes: int = 500_000_000) -> None:
-    conn.execute(
-        "INSERT INTO audit_log (media_item_id, action, space_reclaimed_bytes, created_at) "
-        "VALUES (?, 'deleted', ?, ?)",
-        (media_item_id, space_bytes, datetime.now(UTC).isoformat()),
-    )
-    conn.commit()
+    insert_audit_log(conn, media_item_id=media_item_id, action="deleted", space_reclaimed_bytes=space_bytes)
 
 
 class TestApiDashboardStats:
@@ -138,12 +133,13 @@ class TestApiDashboardReclaimedChart:
         # Two deletions in the same week
         now = datetime.now(UTC)
         for space in (100, 200):
-            conn.execute(
-                "INSERT INTO audit_log (media_item_id, action, space_reclaimed_bytes, created_at) "
-                "VALUES (?, 'deleted', ?, ?)",
-                (f"m-{space}", space, now.isoformat()),
+            insert_audit_log(
+                conn,
+                media_item_id=f"m-{space}",
+                action="deleted",
+                space_reclaimed_bytes=space,
+                created_at=now,
             )
-        conn.commit()
         resp = client.get("/api/dashboard/reclaimed-chart")
         assert resp.status_code == 200
         weeks = resp.json()["weeks"]

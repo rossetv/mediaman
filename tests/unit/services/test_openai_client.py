@@ -16,6 +16,7 @@ from mediaman.services.openai.client import (
     is_web_search_enabled,
     is_web_search_title_safe,
 )
+from tests.helpers.factories import insert_settings
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -28,11 +29,7 @@ def conn(db_path):
 
 
 def _put(conn, key, value):
-    conn.execute(
-        "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, '2026-01-01')",
-        (key, value),
-    )
-    conn.commit()
+    insert_settings(conn, **{key: value}, updated_at="2026-01-01")
 
 
 # ---------------------------------------------------------------------------

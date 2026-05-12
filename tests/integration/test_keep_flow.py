@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from mediaman.crypto import generate_keep_token, validate_keep_token
 from mediaman.db import init_db
 from mediaman.web.routes.keep import router as keep_router
+from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 
 def _templates_state() -> dict[str, object]:
@@ -22,20 +23,13 @@ class TestKeepFlow:
     def test_full_keep_lifecycle(self, db_path, secret_key):
         conn = init_db(str(db_path))
 
-        conn.execute(
-            "INSERT INTO media_items (id, title, media_type, plex_library_id, "
-            "plex_rating_key, added_at, file_path, file_size_bytes) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                "999",
-                "Test Movie",
-                "movie",
-                1,
-                "999",
-                "2026-01-01T00:00:00+00:00",
-                "/media/movies/Test",
-                5_000_000_000,
-            ),
+        insert_media_item(
+            conn,
+            id="999",
+            title="Test Movie",
+            plex_rating_key="999",
+            file_path="/media/movies/Test",
+            file_size_bytes=5_000_000_000,
         )
 
         token = generate_keep_token(
@@ -44,18 +38,14 @@ class TestKeepFlow:
             expires_at=int(time.time()) + 86400,
             secret_key=secret_key,
         )
-        conn.execute(
-            "INSERT INTO scheduled_actions (media_item_id, action, scheduled_at, "
-            "execute_at, token) VALUES (?, ?, ?, ?, ?)",
-            (
-                "999",
-                "scheduled_deletion",
-                "2026-04-10T09:00:00+00:00",
-                "2026-04-24T09:00:00+00:00",
-                token,
-            ),
+        insert_scheduled_action(
+            conn,
+            media_item_id="999",
+            action="scheduled_deletion",
+            scheduled_at="2026-04-10T09:00:00+00:00",
+            execute_at="2026-04-24T09:00:00+00:00",
+            token=token,
         )
-        conn.commit()
 
         payload = validate_keep_token(token, secret_key)
         assert payload is not None
@@ -81,12 +71,14 @@ class TestKeepSignatureEnforcement:
     """The keep route must HMAC-verify every token before trusting the DB row."""
 
     def _seed(self, conn, secret_key):
-        """Create a media item + a legitimate scheduled_action, return token."""
-        conn.execute(
-            "INSERT INTO media_items (id, title, media_type, plex_library_id, "
-            "plex_rating_key, added_at, file_path, file_size_bytes) "
-            "VALUES ('999', 'Test', 'movie', 1, '999', '2026-01-01T00:00:00+00:00', "
-            "'/media/Test', 1000)"
+        """Create a media item + a legitimate scheduled_action, return (token, action_id)."""
+        insert_media_item(
+            conn,
+            id="999",
+            title="Test",
+            plex_rating_key="999",
+            file_path="/media/Test",
+            file_size_bytes=1000,
         )
         token = generate_keep_token(
             media_item_id="999",
@@ -94,14 +86,15 @@ class TestKeepSignatureEnforcement:
             expires_at=int(time.time()) + 86400,
             secret_key=secret_key,
         )
-        conn.execute(
-            "INSERT INTO scheduled_actions (id, media_item_id, action, scheduled_at, "
-            "execute_at, token) VALUES (1, '999', 'scheduled_deletion', "
-            "'2026-04-10T00:00:00+00:00', '2099-01-01T00:00:00+00:00', ?)",
-            (token,),
+        action_id = insert_scheduled_action(
+            conn,
+            media_item_id="999",
+            action="scheduled_deletion",
+            scheduled_at="2026-04-10T00:00:00+00:00",
+            execute_at="2099-01-01T00:00:00+00:00",
+            token=token,
         )
-        conn.commit()
-        return token
+        return token, action_id
 
     def test_bad_signature_token_rejected(
         self, app_factory, conn, db_path, secret_key, monkeypatch
@@ -110,7 +103,7 @@ class TestKeepSignatureEnforcement:
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", secret_key)
         monkeypatch.setenv("MEDIAMAN_DATA_DIR", str(db_path.parent))
 
-        real_token = self._seed(conn, secret_key)
+        real_token, _seed_action_id = self._seed(conn, secret_key)
 
         # Mutate the real token's signature byte — keeps the same DB row lookup
         # viable but breaks HMAC.
@@ -123,19 +116,22 @@ class TestKeepSignatureEnforcement:
         # deletions for the same media_item_id, so this fixture uses a
         # second item id to keep the constraint happy without changing the
         # behaviour the test exercises.
-        conn.execute(
-            "INSERT INTO media_items (id, title, media_type, plex_library_id, "
-            "plex_rating_key, added_at, file_path, file_size_bytes) "
-            "VALUES ('forged-id', 'Forged', 'movie', 1, '998', "
-            "'2026-01-01T00:00:00+00:00', '/media/Forged', 1000)"
+        insert_media_item(
+            conn,
+            id="forged-id",
+            title="Forged",
+            plex_rating_key="998",
+            file_path="/media/Forged",
+            file_size_bytes=1000,
         )
-        conn.execute(
-            "INSERT INTO scheduled_actions (id, media_item_id, action, scheduled_at, "
-            "execute_at, token) VALUES (2, 'forged-id', 'scheduled_deletion', "
-            "'2026-04-10T00:00:00+00:00', '2099-01-01T00:00:00+00:00', ?)",
-            (forged,),
+        forged_action_id = insert_scheduled_action(
+            conn,
+            media_item_id="forged-id",
+            action="scheduled_deletion",
+            scheduled_at="2026-04-10T00:00:00+00:00",
+            execute_at="2099-01-01T00:00:00+00:00",
+            token=forged,
         )
-        conn.commit()
 
         app = app_factory(keep_router, conn=conn, state_extras=_templates_state())
         client = TestClient(app)
@@ -155,7 +151,9 @@ class TestKeepSignatureEnforcement:
             follow_redirects=False,
         )
         assert r.status_code == 400
-        row = conn.execute("SELECT token_used FROM scheduled_actions WHERE id = 2").fetchone()
+        row = conn.execute(
+            "SELECT token_used FROM scheduled_actions WHERE id = ?", (forged_action_id,)
+        ).fetchone()
         assert row["token_used"] == 0  # Forged token must not have flipped anything.
 
     def test_payload_mismatch_rejected(self, app_factory, conn, db_path, secret_key, monkeypatch):
@@ -173,23 +171,25 @@ class TestKeepSignatureEnforcement:
             expires_at=int(time.time()) + 86400,
             secret_key=secret_key,
         )
-        # Store it against id=3 — the HMAC is valid, but the payload's
-        # action_id (999) doesn't match the row's id (3). Migration 25
-        # forbids two active pending deletions for the same media_item_id,
-        # so the second row needs a different media_items entry.
-        conn.execute(
-            "INSERT INTO media_items (id, title, media_type, plex_library_id, "
-            "plex_rating_key, added_at, file_path, file_size_bytes) "
-            "VALUES ('mismatch-id', 'Mismatch', 'movie', 1, '997', "
-            "'2026-01-01T00:00:00+00:00', '/media/Mismatch', 1000)"
+        # The HMAC is valid, but the payload's action_id (999) doesn't match the
+        # row's actual id. Migration 25 forbids two active pending deletions for
+        # the same media_item_id, so the second row needs a different media_items entry.
+        insert_media_item(
+            conn,
+            id="mismatch-id",
+            title="Mismatch",
+            plex_rating_key="997",
+            file_path="/media/Mismatch",
+            file_size_bytes=1000,
         )
-        conn.execute(
-            "INSERT INTO scheduled_actions (id, media_item_id, action, scheduled_at, "
-            "execute_at, token) VALUES (3, 'mismatch-id', 'scheduled_deletion', "
-            "'2026-04-10T00:00:00+00:00', '2099-01-01T00:00:00+00:00', ?)",
-            (wrong_payload_token,),
+        mismatch_action_id = insert_scheduled_action(
+            conn,
+            media_item_id="mismatch-id",
+            action="scheduled_deletion",
+            scheduled_at="2026-04-10T00:00:00+00:00",
+            execute_at="2099-01-01T00:00:00+00:00",
+            token=wrong_payload_token,
         )
-        conn.commit()
 
         app = app_factory(keep_router, conn=conn, state_extras=_templates_state())
         client = TestClient(app)
@@ -200,7 +200,9 @@ class TestKeepSignatureEnforcement:
             follow_redirects=False,
         )
         assert r.status_code == 400
-        row = conn.execute("SELECT token_used FROM scheduled_actions WHERE id = 3").fetchone()
+        row = conn.execute(
+            "SELECT token_used FROM scheduled_actions WHERE id = ?", (mismatch_action_id,)
+        ).fetchone()
         assert row["token_used"] == 0
 
     def test_valid_signature_accepted(self, app_factory, conn, db_path, secret_key, monkeypatch):
@@ -208,7 +210,7 @@ class TestKeepSignatureEnforcement:
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", secret_key)
         monkeypatch.setenv("MEDIAMAN_DATA_DIR", str(db_path.parent))
 
-        real_token = self._seed(conn, secret_key)
+        real_token, seed_action_id = self._seed(conn, secret_key)
 
         app = app_factory(keep_router, conn=conn, state_extras=_templates_state())
         client = TestClient(app)
@@ -216,7 +218,7 @@ class TestKeepSignatureEnforcement:
         r = client.post(f"/keep/{real_token}", data={"duration": "30 days"}, follow_redirects=False)
         assert r.status_code in (302, 303)
         row = conn.execute(
-            "SELECT token_used, action FROM scheduled_actions WHERE id = 1"
+            "SELECT token_used, action FROM scheduled_actions WHERE id = ?", (seed_action_id,)
         ).fetchone()
         assert row["token_used"] == 1
         assert row["action"] == "snoozed"

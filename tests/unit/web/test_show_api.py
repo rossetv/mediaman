@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -10,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
+from tests.helpers.factories import insert_kept_show, insert_media_item
 
 # NOTE: this file deliberately keeps its own ``app`` / ``authed_client``
 # fixtures rather than adopting the shared ``app_factory`` / ``authed_client``
@@ -44,14 +44,19 @@ def authed_client(app):
 
 
 def _insert_season(conn, item_id, show_title, season_num, show_rating_key):
-    now = datetime.now(UTC).isoformat()
-    conn.execute(
-        "INSERT INTO media_items (id, title, media_type, show_title, season_number, "
-        "plex_library_id, plex_rating_key, show_rating_key, added_at, file_path, file_size_bytes) "
-        "VALUES (?, ?, 'tv_season', ?, ?, 2, ?, ?, ?, '/media/tv/test', 5000000000)",
-        (item_id, show_title, show_title, season_num, item_id, show_rating_key, now),
+    insert_media_item(
+        conn,
+        id=item_id,
+        title=show_title,
+        media_type="tv_season",
+        show_title=show_title,
+        season_number=season_num,
+        plex_library_id=2,
+        plex_rating_key=item_id,
+        show_rating_key=show_rating_key,
+        file_path="/media/tv/test",
+        file_size_bytes=5000000000,
     )
-    conn.commit()
 
 
 class TestShowSeasonsAPI:
@@ -127,13 +132,7 @@ class TestShowKeepAPI:
 class TestShowRemoveAPI:
     def test_removes_show_keep(self, authed_client, app):
         conn = app.state.db
-        now = datetime.now(UTC).isoformat()
-        conn.execute(
-            "INSERT INTO kept_shows (show_rating_key, show_title, action, created_at) "
-            "VALUES ('100', 'Breaking Bad', 'protected_forever', ?)",
-            (now,),
-        )
-        conn.commit()
+        insert_kept_show(conn, show_rating_key="100", show_title="Breaking Bad", action="protected_forever")
         resp = authed_client.post("/api/show/100/remove")
         assert resp.status_code == 200
         assert resp.json()["ok"] is True

@@ -12,6 +12,7 @@ from mediaman.services.infra.settings_reader import (
     get_setting,
     get_string_setting,
 )
+from tests.helpers.factories import insert_settings
 
 
 @pytest.fixture
@@ -22,11 +23,7 @@ def conn(tmp_path) -> sqlite3.Connection:
 
 
 def _put(conn: sqlite3.Connection, key: str, value: str, encrypted: int = 0) -> None:
-    conn.execute(
-        "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, ?, '2026-01-01')",
-        (key, value, encrypted),
-    )
-    conn.commit()
+    insert_settings(conn, **{key: value}, encrypted=encrypted, updated_at="2026-01-01")
 
 
 class TestGetSetting:

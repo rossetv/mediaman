@@ -27,6 +27,7 @@ from mediaman.web.routes.download.confirm import (
 from mediaman.web.routes.download.confirm import (
     router as confirm_router,
 )
+from tests.helpers.factories import insert_suggestion
 
 
 def _make_app(app_factory, conn):
@@ -147,33 +148,14 @@ class TestDownloadPageConfirm:
     def test_genres_json_is_parsed_into_list(self, app_factory, conn, secret_key):
         """Genres stored as JSON string are expanded into genres_list."""
         # Insert a suggestion row with genres
-        conn.execute(
-            "INSERT INTO suggestions (id, title, media_type, created_at, "
-            "poster_url, year, description, reason, rating, rt_rating, tagline, runtime, "
-            "genres, cast_json, director, trailer_key, imdb_rating, metascore) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                1,
-                "Dune",
-                "movie",
-                "2024-01-01",
-                None,
-                2021,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                '["Sci-Fi","Drama"]',
-                None,
-                None,
-                None,
-                None,
-                None,
-            ),
+        rec_id = insert_suggestion(
+            conn,
+            title="Dune",
+            media_type="movie",
+            year=2021,
+            genres='["Sci-Fi","Drama"]',
+            created_at="2024-01-01",
         )
-        conn.commit()
 
         token = generate_download_token(
             email="user@example.com",
@@ -181,7 +163,7 @@ class TestDownloadPageConfirm:
             title="Dune",
             media_type="movie",
             tmdb_id=42,
-            recommendation_id=1,  # sid=1 → look up suggestions
+            recommendation_id=rec_id,  # look up suggestions by factory-assigned id
             secret_key=secret_key,
         )
 
