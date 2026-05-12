@@ -2,8 +2,10 @@
 
 Package layout:
 
-* :mod:`~mediaman.web.routes.library_api.delete_intents` — delete-intent
-  durability helpers (record / complete / fail / reconcile).
+* :mod:`~mediaman.web.repository.delete_intents` — delete-intent
+  durability helpers (record / complete / fail / reconcile). Imported
+  from the repository layer (§2.7.1) and re-exported here for
+  backwards-compatible test patch targets.
 * :mod:`~mediaman.web.routes.library_api.redownload` — redownload request
   schema, lookup matching, and audit-ID generation.
 * This module (``__init__``) — rate-limiter constants, route handlers, and
@@ -42,29 +44,32 @@ import requests
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import JSONResponse
 
-from mediaman.core.audit import log_audit
 from mediaman.db import get_db
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
-from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.services.infra.http import SafeHTTPError
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.models import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED, VALID_KEEP_DURATIONS
+from mediaman.web.repository.delete_intents import (
+    _complete_delete_intent,
+    _fail_delete_intent,
+    _record_delete_intent,
+    reconcile_pending_delete_intents,
+)
+from mediaman.web.repository.library_api import (
+    NotFound,
+    apply_keep_in_tx,
+    finalise_delete_in_tx,
+    record_redownload,
+    snapshot_media_for_delete,
+)
 from mediaman.web.repository.library_query import (
     _VALID_SORTS,
     _VALID_TYPES,
     fetch_library,
 )
 from mediaman.web.responses import respond_err, respond_ok
-
-# Re-exports for backwards-compatible imports
-from mediaman.web.routes.library_api.delete_intents import (
-    _complete_delete_intent,
-    _fail_delete_intent,
-    _record_delete_intent,
-    reconcile_pending_delete_intents,
-)
 from mediaman.web.routes.library_api.redownload import (
     _REDOWNLOAD_TITLE_SIMILARITY,
     _pick_lookup_match,
@@ -75,17 +80,6 @@ from mediaman.web.routes.library_api.redownload import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-class _MediaNotFound(Exception):
-    """Sentinel: the requested ``media_items`` row was missing.
-
-    Raised inside the snapshot ``with conn:`` block in :func:`api_media_delete`
-    so the half-built transaction rolls back via the context manager. Caught
-    immediately below to return the canonical 403 — we intentionally do NOT
-    leak the existence of an unknown media id, so the public response is
-    "forbidden" rather than "not found".
-    """
 
 
 # ---------------------------------------------------------------------------
@@ -173,10 +167,6 @@ def api_media_keep(
     if duration not in VALID_KEEP_DURATIONS:
         return respond_err("invalid_duration", status=400)
 
-    row = conn.execute("SELECT id FROM media_items WHERE id = ?", (media_id,)).fetchone()
-    if row is None:
-        return respond_err("not_found", status=404)
-
     now = datetime.now(UTC)
 
     if duration == "forever":
@@ -190,46 +180,24 @@ def api_media_keep(
         execute_at = (now + timedelta(days=int(days))).isoformat()
         snooze_label = duration
 
-    # ``with conn:`` commits on normal exit and rolls back on exception;
-    # BEGIN IMMEDIATE here preserves write-lock semantics.
-    with conn:
-        conn.execute("BEGIN IMMEDIATE")
-        existing = conn.execute(
-            "SELECT id FROM scheduled_actions WHERE media_item_id = ? AND token_used = 0",
-            (media_id,),
-        ).fetchone()
-
-        if existing:
-            conn.execute(
-                "UPDATE scheduled_actions "
-                "SET action=?, execute_at=?, snoozed_at=?, snooze_duration=?, token_used=0 "
-                "WHERE id=?",
-                (action, execute_at, now.isoformat(), snooze_label, existing["id"]),
-            )
-        else:
-            conn.execute(
-                "INSERT INTO scheduled_actions "
-                "(media_item_id, action, scheduled_at, execute_at, token, token_used, "
-                "snoozed_at, snooze_duration) "
-                "VALUES (?, ?, ?, ?, ?, 0, ?, ?)",
-                (
-                    media_id,
-                    action,
-                    now.isoformat(),
-                    execute_at,
-                    secrets.token_urlsafe(32),
-                    now.isoformat(),
-                    snooze_label,
-                ),
-            )
-
-        log_audit(
+    # rationale: the helper takes the media-existence check, scheduled_actions
+    # UPSERT, and audit row inside one ``BEGIN IMMEDIATE`` block so the SELECT
+    # cannot race with a concurrent delete (TOCTOU closed at §9.7).
+    try:
+        apply_keep_in_tx(
             conn,
-            media_id,
-            "snoozed",
-            f"Kept for {snooze_label} by admin ({username})",
+            media_id=media_id,
+            action=action,
+            execute_at=execute_at,
+            now_iso=now.isoformat(),
+            snooze_label=snooze_label,
+            new_token=secrets.token_urlsafe(32),
+            audit_detail=f"Kept for {snooze_label} by admin ({username})",
             actor=username,
         )
+    except NotFound:
+        return respond_err("not_found", status=404)
+
     logger.info("Media item %s protected for %s by %s", media_id, snooze_label, username)
 
     return respond_ok({"id": media_id, "duration": snooze_label})
@@ -268,41 +236,18 @@ def api_media_delete(
         )
     conn = get_db()
 
-    # Snapshot transaction: ``with conn:`` commits on normal exit and
-    # rolls back on exception; BEGIN IMMEDIATE preserves write-lock
-    # semantics. Raising the private ``_MediaNotFound`` sentinel from
-    # inside the block triggers the rollback and is caught immediately
-    # below — keeping the rollback and the 403-return in the same code
-    # path.
+    # Snapshot transaction: the helper opens ``BEGIN IMMEDIATE`` and rolls
+    # back on :exc:`NotFound`. We map "absent media row" to 403 so the
+    # endpoint cannot be used as an existence oracle (an authenticated
+    # caller learns "forbidden" rather than "not found" for unknown ids).
     try:
-        with conn:
-            conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute(
-                "SELECT id, title, media_type, file_path, file_size_bytes, radarr_id, sonarr_id, season_number, plex_rating_key "
-                "FROM media_items WHERE id = ?",
-                (media_id,),
-            ).fetchone()
-            if row is None:
-                raise _MediaNotFound(media_id)  # triggers with-block rollback
-            snapshot = {
-                "title": row["title"],
-                "media_type": row["media_type"],
-                "file_path": row["file_path"],
-                "file_size_bytes": row["file_size_bytes"],
-                "radarr_id": row["radarr_id"],
-                "sonarr_id": row["sonarr_id"],
-                "season_number": row["season_number"],
-                "plex_rating_key": row["plex_rating_key"],
-            }
-    except _MediaNotFound:
-        # Do NOT leak existence/non-existence: returning 404 tells an
-        # attacker which media IDs are valid.  With auth already confirmed,
-        # an unknown id is treated as forbidden access.
+        snapshot = snapshot_media_for_delete(conn, media_id)
+    except NotFound:
         return respond_err("forbidden", status=403)
 
-    title = snapshot["title"]
+    title = snapshot.title
     config = request.app.state.config
-    is_movie = snapshot["media_type"] == "movie"
+    is_movie = snapshot.media_type == "movie"
 
     def _is_already_gone(exc: Exception) -> bool:
         resp = getattr(exc, "response", None)
@@ -317,9 +262,9 @@ def api_media_delete(
     if is_movie:
         client = build_radarr_from_db(conn, config.secret_key)
         if client:
-            radarr_id = snapshot["radarr_id"]
+            radarr_id = snapshot.radarr_id
             if radarr_id:
-                intent_id = _record_delete_intent(conn, media_id, "radarr", radarr_id)
+                intent_id = _record_delete_intent(conn, media_id, "radarr", str(radarr_id))
                 try:
                     client.delete_movie(radarr_id)
                     logger.info(
@@ -345,10 +290,10 @@ def api_media_delete(
     else:
         sonarr_client = build_sonarr_from_db(conn, config.secret_key)
         if sonarr_client:
-            sid = snapshot["sonarr_id"]
-            season_num = snapshot["season_number"]
+            sid = snapshot.sonarr_id
+            season_num = snapshot.season_number
             if sid and season_num is not None:
-                intent_id = _record_delete_intent(conn, media_id, "sonarr", sid)
+                intent_id = _record_delete_intent(conn, media_id, "sonarr", str(sid))
                 try:
                     sonarr_client.delete_episode_files(sid, season_num)
                     sonarr_client.unmonitor_season(sid, season_num)
@@ -375,29 +320,24 @@ def api_media_delete(
                             message="Upstream Sonarr delete failed — DB row preserved",
                         )
 
-    rk = snapshot["plex_rating_key"] or ""
+    rk = snapshot.plex_rating_key or ""
     detail = f"Deleted '{title}' by {username}"
     if rk:
         detail += f" [rk:{rk}]"
-    # Cleanup transaction: ``with conn:`` commits on normal exit and
-    # rolls back on exception; BEGIN IMMEDIATE preserves write-lock
-    # semantics.
-    with conn:
-        conn.execute("BEGIN IMMEDIATE")
-        log_audit(
-            conn,
-            media_id,
-            "deleted",
-            detail,
-            space_bytes=snapshot["file_size_bytes"],
-            actor=username,
-        )
-        conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_id,))
-        conn.execute("DELETE FROM media_items WHERE id = ?", (media_id,))
+    # Cleanup transaction: audit + scheduled_actions prune + row drop in
+    # one ``BEGIN IMMEDIATE`` so a SQLite failure rolls the whole lot
+    # back together (M27 fail-closed contract).
+    finalise_delete_in_tx(
+        conn,
+        media_id=media_id,
+        audit_detail=detail,
+        space_bytes=snapshot.file_size_bytes,
+        actor=username,
+    )
 
     if intent_id is not None:
         _complete_delete_intent(conn, intent_id)
-    logger.info("Deleted %s (%s) — %s by %s", media_id, title, snapshot["file_path"], username)
+    logger.info("Deleted %s (%s) — %s by %s", media_id, title, snapshot.file_path, username)
     return respond_ok({"id": media_id})
 
 
@@ -472,22 +412,17 @@ def api_media_redownload(
                         tvdb_id=None,
                         imdb_id=imdb_id,
                     )
-                    log_audit(
+                    record_redownload(
                         conn,
-                        audit_id,
-                        "re_downloaded",
-                        f"Re-downloaded '{resolved_title}' by {username}",
+                        audit_id=audit_id,
+                        audit_detail=f"Re-downloaded '{resolved_title}' by {username}",
                         actor=username,
-                    )
-                    record_download_notification(
-                        conn,
                         email=username,
                         title=resolved_title,
                         media_type="movie",
-                        tmdb_id=resolved_tmdb_int,
                         service="radarr",
+                        tmdb_id=resolved_tmdb_int,
                     )
-                    conn.commit()
                     logger.info(
                         "Re-downloaded '%s' (tmdb=%s) via Radarr by %s",
                         resolved_title,
@@ -542,23 +477,18 @@ def api_media_redownload(
                         tvdb_id=resolved_tvdb_int,
                         imdb_id=imdb_id,
                     )
-                    log_audit(
+                    record_redownload(
                         conn,
-                        audit_id,
-                        "re_downloaded",
-                        f"Re-downloaded '{resolved_title}' by {username}",
+                        audit_id=audit_id,
+                        audit_detail=f"Re-downloaded '{resolved_title}' by {username}",
                         actor=username,
-                    )
-                    record_download_notification(
-                        conn,
                         email=username,
                         title=resolved_title,
                         media_type="tv",
+                        service="sonarr",
                         tmdb_id=resolved_tmdb_sonarr_int,
                         tvdb_id=resolved_tvdb_int,
-                        service="sonarr",
                     )
-                    conn.commit()
                     logger.info(
                         "Re-downloaded '%s' (tvdb=%s) via Sonarr by %s",
                         resolved_title,
