@@ -14,6 +14,7 @@ from typing import cast
 import requests
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 
 from mediaman.crypto import generate_poll_token, validate_download_token
 from mediaman.db import get_db
@@ -83,7 +84,7 @@ def _key_fingerprint(secret_key: str) -> str:
     return hashlib.sha256(secret_key.encode()).hexdigest()[:16]
 
 
-def _get_radarr_cache_cached(conn, secret_key: str) -> RadarrCaches:
+def _get_radarr_cache_cached(conn: sqlite3.Connection, secret_key: str) -> RadarrCaches:
     """Return the Radarr cache dict, using a process-wide TTL cache."""
     key = ("radarr", _key_fingerprint(secret_key))
     now = time.monotonic()
@@ -98,7 +99,7 @@ def _get_radarr_cache_cached(conn, secret_key: str) -> RadarrCaches:
     return cache
 
 
-def _get_sonarr_cache_cached(conn, secret_key: str) -> SonarrCaches:
+def _get_sonarr_cache_cached(conn: sqlite3.Connection, secret_key: str) -> SonarrCaches:
     """Return the Sonarr cache dict, using a process-wide TTL cache."""
     key = ("sonarr", _key_fingerprint(secret_key))
     now = time.monotonic()
@@ -330,7 +331,7 @@ def _build_hero_context(
 def download_page(request: Request, token: str) -> HTMLResponse:
     """Render the download confirmation page."""
     config = request.app.state.config
-    templates = request.app.state.templates
+    templates = cast(Jinja2Templates, request.app.state.templates)
     conn = get_db()
 
     if not _DOWNLOAD_LIMITER_GET.check(get_client_ip(request)):

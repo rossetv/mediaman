@@ -69,12 +69,14 @@ from mediaman.services.media_meta._plex_types import (  # noqa: F401
     PlexAccount,
     PlexLibrarySection,
     PlexMovieItem,
-    PlexRatedItem,
     PlexSeasonItem,
     PlexWatchEntry,
     _movie_to_item,
     _season_to_item,
     _to_utc,
+)
+from mediaman.services.media_meta._plex_types import (
+    PlexRatedItem as PlexRatedItem,
 )
 
 _logger = _logging.getLogger(__name__)
@@ -150,7 +152,7 @@ class PlexClient:
         # this, plexapi's own ``requests.Session`` would not enforce
         # SSRF re-validation, redirect refusal, or body caps.
         self._safe_session = _SafePlexSession(allowed_hosts=allowed_hosts)
-        self.server = PlexServer(url, token, session=self._safe_session)
+        self.server = PlexServer(url, token, session=self._safe_session)  # type: ignore[no-untyped-call]  # rationale: plexapi has no stubs
         # Raw HTTP calls that bypass plexapi (e.g. /status/sessions/history)
         # still route through SafeHTTPClient so the same controls apply
         # to those endpoints too.
@@ -282,7 +284,7 @@ class PlexClient:
         Fetches each episode's rating key, then queries the raw Plex history
         API for each. This is more reliable than plexapi's .history() method.
         """
-        season = self.server.fetchItem(int(season_rating_key))
+        season = self.server.fetchItem(int(season_rating_key))  # type: ignore[no-untyped-call]  # rationale: plexapi has no stubs
         entries = []
         for ep in season.episodes():
             ep_history = self.get_watch_history(str(ep.ratingKey))
@@ -359,7 +361,7 @@ class PlexClient:
         Returns:
             List of ``{"id": int, "name": str}`` dicts.
         """
-        response = self.server.query("/accounts")
+        response = self.server.query("/accounts")  # type: ignore[no-untyped-call]  # rationale: plexapi has no stubs
         accounts: list[PlexAccount] = []
         for account in response.findall(".//Account"):
             name = account.get("name", "")

@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import logging
 import re
+import sqlite3
+from typing import cast
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
 from mediaman.core.format import format_bytes
@@ -78,7 +81,7 @@ def _scrub_detail(detail: str | None) -> str:
     return _CONTROL_BYTES_RE.sub("", detail)
 
 
-def _build_item(r) -> dict[str, object]:
+def _build_item(r: sqlite3.Row) -> dict[str, object]:
     """Render an audit_log row into the dict the template/JSON expects."""
     action = r["action"]
     is_security = isinstance(action, str) and action.startswith("sec:")
@@ -114,7 +117,7 @@ def _build_item(r) -> dict[str, object]:
     }
 
 
-def _fetch_rows(conn, *, action: str | None, page: int, per_page: int) -> list[dict[str, object]]:
+def _fetch_rows(conn: sqlite3.Connection, *, action: str | None, page: int, per_page: int) -> list[dict[str, object]]:
     """Dispatch to the security-only or media-events row fetcher."""
     if action == "security":
         rows = fetch_security_audit_rows(conn, page=page, per_page=per_page)
@@ -124,7 +127,7 @@ def _fetch_rows(conn, *, action: str | None, page: int, per_page: int) -> list[d
 
 
 def _fetch_history(
-    conn, action: str | None, page: int, per_page: int
+    conn: sqlite3.Connection, action: str | None, page: int, per_page: int
 ) -> tuple[list[dict[str, object]], int]:
     """Return (items, total_count) for the audit log."""
     total = count_audit_rows(conn, action)
@@ -156,7 +159,7 @@ def history_page(request: Request) -> Response:
     page = min(page, total_pages)
     items = _fetch_rows(conn, action=action_filter, page=page, per_page=per_page)
 
-    templates = request.app.state.templates
+    templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
         request,
         "history.html",

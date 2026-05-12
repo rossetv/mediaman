@@ -140,12 +140,11 @@ ignore = [
 ]
 
 [tool.mypy]
-# Permissive baseline; tighten incrementally in later phases.
 python_version = "3.12"
+strict = true
 warn_unused_configs = true
 warn_unused_ignores = true
 ignore_missing_imports = true
-# TODO(P7): enable strict = true once all modules have type annotations.
 
 [tool.coverage.run]
 source = ["mediaman"]

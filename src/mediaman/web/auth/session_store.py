@@ -13,7 +13,7 @@ import sqlite3
 import threading
 import time
 from datetime import datetime, timedelta
-from typing import TypedDict
+from typing import TypedDict, cast
 
 from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.core.time import parse_iso_utc as _parse_iso_aware
@@ -128,7 +128,7 @@ def _parse_last_used(raw: str | None, username: str) -> datetime | None:
     return dt
 
 
-def _exec_with_commit(conn: sqlite3.Connection, sql: str, params: tuple) -> None:
+def _exec_with_commit(conn: sqlite3.Connection, sql: str, params: tuple[object, ...]) -> None:
     """Run *sql* inside a short ``BEGIN IMMEDIATE`` write transaction.
 
     Used by the validate-session fast path so a successful read does
@@ -248,11 +248,14 @@ def _fetch_session_row(conn: sqlite3.Connection, token_hash: str) -> sqlite3.Row
     No BEGIN IMMEDIATE here — a vanilla SELECT against a WAL-mode SQLite
     is concurrent with writers.
     """
-    return conn.execute(
-        "SELECT username, expires_at, last_used_at, fingerprint "
-        "FROM admin_sessions WHERE token_hash = ? LIMIT 1",
-        (token_hash,),
-    ).fetchone()
+    return cast(
+        sqlite3.Row | None,
+        conn.execute(
+            "SELECT username, expires_at, last_used_at, fingerprint "
+            "FROM admin_sessions WHERE token_hash = ? LIMIT 1",
+            (token_hash,),
+        ).fetchone(),
+    )
 
 
 def _idle_expired(
@@ -402,7 +405,7 @@ def validate_session(
     _maybe_refresh_last_used(conn, row, last_dt, token_hash, now_dt, now_iso)
     _maybe_sweep_expired(conn, now_iso)
 
-    return row["username"]
+    return cast(str, row["username"])
 
 
 def destroy_session(

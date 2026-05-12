@@ -30,7 +30,7 @@ def _resolve_safe_outbound_url(
     url: str,
     *,
     allowed_hosts: frozenset[str] | None = None,
-):
+) -> tuple[bool, str | None, str | None]:
     """Call ``resolve_safe_outbound_url``, delegating through the parent
     ``plex`` module's namespace when it is already imported.
 

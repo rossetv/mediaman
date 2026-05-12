@@ -6,9 +6,11 @@ import json
 from collections import OrderedDict
 from datetime import date as _date
 from datetime import datetime
+from typing import cast
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
 from mediaman.core.time import now_utc
@@ -69,11 +71,12 @@ def _group_into_batches(
     full count to surface a "showing 4 of N" affordance and avoid
     silently hiding older picks.
     """
-    batches_map: OrderedDict = OrderedDict()
+    batches_map: OrderedDict[str, dict[str, list[dict[str, object]]]] = OrderedDict()
     for s in recommendations:
         created_at = s.get("created_at", "")
         created_prefix = created_at[:10] if isinstance(created_at, str) else ""
-        bid = s.get("batch_id") or created_prefix
+        bid_raw = s.get("batch_id") or created_prefix
+        bid = str(bid_raw) if bid_raw else ""
         if bid not in batches_map:
             batches_map[bid] = {"trending": [], "personal": []}
         if s.get("category") == "trending":
@@ -201,7 +204,7 @@ def recommended_page(request: Request) -> Response:
         manual_refresh_available = False
         next_manual_refresh_at = (now_utc() + cooldown).isoformat()
 
-    templates = request.app.state.templates
+    templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
         request,
         "recommended.html",

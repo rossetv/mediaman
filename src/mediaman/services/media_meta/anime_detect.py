@@ -6,6 +6,8 @@ utilities) can detect anime without importing the full Plex dependency tree.
 
 from __future__ import annotations
 
+from typing import Any
+
 # Known Japanese animation studios.  Checked against the lower-cased Plex
 # ``studio`` field when the show has the ``Animation`` genre but not the
 # explicit ``Anime`` genre tag.
@@ -46,7 +48,7 @@ _JP_STUDIOS: frozenset[str] = frozenset(
 )
 
 
-def is_anime(show) -> bool:
+def is_anime(show: Any) -> bool:
     """Return True if *show* (a plexapi show object) is likely anime.
 
     Detection rules applied in order:

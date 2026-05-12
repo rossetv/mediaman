@@ -115,7 +115,7 @@ def lookup_verified_action(
         return None
 
     th = token_hash(token)
-    row = conn.execute(
+    row: sqlite3.Row | None = conn.execute(
         "SELECT sa.*, mi.title, mi.media_type, mi.poster_path, mi.file_size_bytes, "
         "mi.plex_rating_key, mi.added_at, mi.show_title, mi.season_number "
         "FROM scheduled_actions sa "
@@ -161,7 +161,7 @@ def find_active_keep_action_by_id_and_token(
     """
     th = token_hash(token)
     now = now_iso()
-    row = conn.execute(
+    row: sqlite3.Row | None = conn.execute(
         "SELECT * FROM scheduled_actions "
         "WHERE id = ? AND token_hash = ? "
         "AND action = 'scheduled_deletion' "
@@ -172,7 +172,7 @@ def find_active_keep_action_by_id_and_token(
     ).fetchone()
     if row is not None:
         return row
-    return conn.execute(
+    result: sqlite3.Row | None = conn.execute(
         "SELECT * FROM scheduled_actions "
         "WHERE id = ? AND token = ? "
         "AND action = 'scheduled_deletion' "
@@ -181,6 +181,7 @@ def find_active_keep_action_by_id_and_token(
         "AND execute_at >= ?",
         (action_id, token, now),
     ).fetchone()
+    return result
 
 
 def mark_token_consumed(conn: sqlite3.Connection, token: str, now: datetime) -> bool:

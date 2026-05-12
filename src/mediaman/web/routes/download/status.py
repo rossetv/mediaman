@@ -167,7 +167,7 @@ _UNKNOWN_ITEM: DownloadItem = build_item(
 
 def _radarr_ready_item(movie: RadarrMovie) -> DownloadItem:
     """Build the ``state="ready"`` envelope for a movie already on disk."""
-    title = cast(str, movie.get("title", ""))
+    title = movie.get("title", "")
     # rationale: ``RadarrMovie.images`` is typed as ``list[ArrImage]``,
     # but ``extract_poster_url`` accepts ``Sequence[Mapping[str, object]]``
     # to support the parallel Sonarr branches that pass through raw
@@ -230,7 +230,7 @@ def _radarr_fallback_item(conn: sqlite3.Connection, movie: RadarrMovie | None) -
     after-import UX where a movie disappears from the queue between
     polls.
     """
-    title = cast(str, (movie or {}).get("title", ""))
+    title = (movie or {}).get("title", "")
     if title:
         recent = fetch_recent_download(conn, f"radarr:{title}")
         if recent is not None:

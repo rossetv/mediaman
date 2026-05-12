@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from mediaman.services.media_meta.anime_detect import is_anime as _is_anime_show
 
@@ -93,7 +93,7 @@ def _to_utc(dt: datetime | None) -> datetime | None:
     return dt.astimezone(UTC) if dt is not None else None
 
 
-def _movie_to_item(movie) -> PlexMovieItem:
+def _movie_to_item(movie: Any) -> PlexMovieItem:
     """Convert a plexapi Movie object to a :class:`PlexMovieItem` dict."""
     file_path = ""
     file_size = 0
@@ -112,7 +112,7 @@ def _movie_to_item(movie) -> PlexMovieItem:
     }
 
 
-def _season_to_item(show, season) -> PlexSeasonItem:
+def _season_to_item(show: Any, season: Any) -> PlexSeasonItem:
     """Convert a plexapi Season object (and its parent Show) to a :class:`PlexSeasonItem` dict."""
     episodes = season.episodes()
     file_size = 0

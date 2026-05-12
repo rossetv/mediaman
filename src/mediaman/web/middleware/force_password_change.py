@@ -11,7 +11,7 @@ allowed paths.
 
 from __future__ import annotations
 
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -50,7 +50,7 @@ class ForcePasswordChangeMiddleware(BaseHTTPMiddleware):
         "/readyz",
     )
 
-    async def dispatch(self, request: Request, call_next) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Redirect to the password-change page when the session user must change their password.
 
         Passes requests through unchanged when there is no session cookie, when

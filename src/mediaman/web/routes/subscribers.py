@@ -9,10 +9,12 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
+from typing import cast
 
 import requests
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from mediaman.core.audit import security_event, security_event_or_raise
@@ -249,7 +251,7 @@ def _render_result(
     request: Request, message: str, *, success: bool, status_code: int = 200
 ) -> HTMLResponse:
     """Render the unsubscribe result page via the Jinja template."""
-    templates = request.app.state.templates
+    templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
         request,
         "subscribers/unsubscribe_result.html",
@@ -288,7 +290,7 @@ def unsubscribe_page(request: Request, token: str = "", email: str = "") -> HTML
     if not email_from_token:
         return _generic_invalid_response(request)
 
-    templates = request.app.state.templates
+    templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
         request,
         "subscribers/unsubscribe_confirm.html",

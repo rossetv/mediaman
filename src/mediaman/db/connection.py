@@ -71,7 +71,7 @@ def get_db() -> sqlite3.Connection:
         assert _owning_conn is not None
         return _owning_conn
 
-    conn = getattr(_thread_local, "conn", None)
+    conn: sqlite3.Connection | None = getattr(_thread_local, "conn", None)
     if conn is not None:
         return conn
 
@@ -110,7 +110,7 @@ def reset_connection() -> None:
     # Drop any lazily-opened thread-local connection too — leaving it
     # in place would let ``get_db()`` return a connection bound to a
     # database file from a previous test.
-    conn = getattr(_thread_local, "conn", None)
+    conn: sqlite3.Connection | None = getattr(_thread_local, "conn", None)
     if conn is not None:
         try:
             conn.close()
@@ -149,7 +149,7 @@ def open_thread_connection(db_path: str) -> sqlite3.Connection:
 
 def close_db() -> None:
     """Close the current thread's lazily-opened connection, if any."""
-    conn = getattr(_thread_local, "conn", None)
+    conn: sqlite3.Connection | None = getattr(_thread_local, "conn", None)
     if conn is not None:
         try:
             conn.close()

@@ -97,7 +97,7 @@ class ExponentialBackoff:
             )
 
         n = max(attempts, 0)
-        base_delay = min(self._base * 2 ** max(n - 1, 0), self._max)
+        base_delay: float = min(self._base * 2.0 ** max(n - 1, 0), self._max)
 
         if self._jitter == 0.0 or seed is None:
             return base_delay
@@ -105,7 +105,7 @@ class ExponentialBackoff:
         multiplier = self.deterministic_multiplier(seed)
         # Clamp again after applying jitter so a +jitter% roll at the cap
         # never pushes above the advertised ceiling.
-        return min(base_delay * multiplier, self._max)
+        return float(min(base_delay * multiplier, self._max))
 
     def deterministic_multiplier(self, seed: bytes) -> float:
         """Return a stable ±jitter multiplier seeded from *seed*.

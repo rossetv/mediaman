@@ -122,7 +122,7 @@ def arr_base_urls(conn: sqlite3.Connection, secret_key: str) -> dict[str, str]:
         return {"radarr": "", "sonarr": ""}
 
 
-def build_arr_link(arr: dict, base_urls: dict[str, str]) -> str:
+def build_arr_link(arr: dict[str, object], base_urls: dict[str, str]) -> str:
     """Build a deep-link URL into Radarr/Sonarr for a stalled item.
 
     Returns ``""`` when the base URL isn't configured or the item has no

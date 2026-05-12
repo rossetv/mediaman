@@ -77,7 +77,7 @@ def log_audit(
     )
 
 
-def _format_security_body(actor: str, ip: str, detail: dict | str | None) -> str:
+def _format_security_body(actor: str, ip: str, detail: dict[str, object] | str | None) -> str:
     """Render the ``detail`` column for a security event.
 
     Prefixes ``actor=`` and ``ip=`` so a human grepping the log can find
@@ -98,7 +98,7 @@ def _insert_security_event(
     event: str,
     actor: str,
     ip: str,
-    detail: dict | str | None,
+    detail: dict[str, object] | str | None,
 ) -> None:
     """Execute the ``audit_log`` INSERT for a security event.
 
@@ -121,7 +121,7 @@ def security_event(
     event: str,
     actor: str = "",
     ip: str = "",
-    detail: dict | str | None = None,
+    detail: dict[str, object] | str | None = None,
 ) -> None:
     """Append a security event to ``audit_log`` (best-effort).
 
@@ -154,7 +154,7 @@ def security_event_or_raise(
     event: str,
     actor: str = "",
     ip: str = "",
-    detail: dict | str | None = None,
+    detail: dict[str, object] | str | None = None,
 ) -> None:
     """Insert a security audit row inside the caller's transaction.
 

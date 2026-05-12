@@ -79,7 +79,7 @@ class _TransportMixin:
         #: Set to the error string of the last failed call; ``None`` on success.
         self.last_error: str | None = None
 
-    def _get(self, path: str) -> dict | list:
+    def _get(self, path: str) -> dict[Any, Any] | list[Any]:
         """Perform an authenticated GET.  Sets :attr:`last_error` on failure.
 
         Raises :exc:`ArrUpstreamError` if the response body is null (empty
@@ -88,7 +88,7 @@ class _TransportMixin:
         try:
             resp = self._http.get(path, headers=self._headers)
             self.last_error = None
-            result = resp.json()
+            result: dict[Any, Any] | list[Any] = resp.json()
             if result is None:
                 raise ArrUpstreamError(f"Arr returned null for {path}")
             return result
@@ -108,12 +108,13 @@ class _TransportMixin:
             self.last_error = str(exc)
             raise
 
-    def _post(self, path: str, data: Mapping[str, Any]) -> dict | list:
+    def _post(self, path: str, data: Mapping[str, Any]) -> dict[Any, Any] | list[Any]:
         """Perform an authenticated POST.  Sets :attr:`last_error` on failure."""
         try:
             resp = self._http.post(path, headers=self._headers, json=data)
             self.last_error = None
-            return resp.json()
+            result: dict[Any, Any] | list[Any] = resp.json()
+            return result
         except (SafeHTTPError, requests.RequestException, ValueError) as exc:
             # preserve-and-rethrow — see _get.
             self.last_error = str(exc)

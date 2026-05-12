@@ -59,7 +59,7 @@ TEST_CACHE_TTL_SECONDS = 120.0
 #: In-memory cache of the most recent tester payload per service.
 #: Shared across admins because the underlying settings are global.
 #: Invalidated on any settings write that touches the service's keys.
-TEST_CACHE: dict[str, tuple[float, dict]] = {}
+TEST_CACHE: dict[str, tuple[float, dict[str, object]]] = {}
 _TEST_CACHE_LOCK = threading.Lock()
 
 #: Registry mapping service name → test callable.
@@ -80,10 +80,13 @@ SERVICE_TESTER_KEYS: dict[str, set[str]] = {
 }
 
 
-def _register(name: str) -> Callable[[Callable], Callable]:
+_TesterFn = Callable[[dict[str, object]], JSONResponse]
+
+
+def _register(name: str) -> Callable[[_TesterFn], _TesterFn]:
     """Register a tester function in :data:`TESTERS` under *name*."""
 
-    def decorator(fn: Callable) -> Callable:
+    def decorator(fn: _TesterFn) -> _TesterFn:
         TESTERS[name] = fn
         return fn
 
@@ -289,7 +292,7 @@ def test_omdb(settings: dict[str, object]) -> JSONResponse:
 # ---------------------------------------------------------------------------
 
 
-def cache_get(service: str) -> dict | None:
+def cache_get(service: str) -> dict[str, object] | None:
     """Return the cached test result for *service*, or ``None`` if absent/stale."""
     with _TEST_CACHE_LOCK:
         entry = TEST_CACHE.get(service)
@@ -302,7 +305,7 @@ def cache_get(service: str) -> dict | None:
         return payload
 
 
-def cache_put(service: str, payload: dict) -> None:
+def cache_put(service: str, payload: dict[str, object]) -> None:
     """Store *payload* as the cached result for *service*."""
     with _TEST_CACHE_LOCK:
         TEST_CACHE[service] = (time.monotonic() + TEST_CACHE_TTL_SECONDS, payload)

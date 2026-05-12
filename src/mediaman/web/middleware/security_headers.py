@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import secrets
 
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
 
@@ -174,7 +174,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     browser accepts the marked inline blocks.
     """
 
-    async def dispatch(self, request: Request, call_next) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Attach security headers to every response and inject a per-request CSP nonce.
 
         Generates a fresh ``secrets.token_urlsafe(16)`` nonce, stores it on
