@@ -58,8 +58,8 @@ from mediaman.web.repository.library_api import (
     snapshot_media_for_delete,
 )
 from mediaman.web.repository.library_query import (
-    _VALID_SORTS,
-    _VALID_TYPES,
+    VALID_SORTS,
+    VALID_TYPES,
     fetch_library,
 )
 from mediaman.web.responses import respond_err, respond_ok
@@ -118,8 +118,8 @@ def api_library(
 ) -> JSONResponse:
     """Return paginated library items as JSON."""
     conn = get_db()
-    sort = sort if sort in _VALID_SORTS else "added_desc"
-    media_type = type if type in _VALID_TYPES else ""
+    sort = sort if sort in VALID_SORTS else "added_desc"
+    media_type = type if type in VALID_TYPES else ""
 
     items, total = fetch_library(
         conn, q=q, media_type=media_type, sort=sort, page=page, per_page=per_page

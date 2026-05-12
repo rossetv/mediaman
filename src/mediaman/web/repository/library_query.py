@@ -18,8 +18,8 @@ Functions
 
 Constants
 ---------
-``_VALID_SORTS``  — accepted ``sort=`` parameter values.
-``_VALID_TYPES``  — accepted ``type=`` filter values.
+``VALID_SORTS``  — accepted ``sort=`` parameter values.
+``VALID_TYPES``  — accepted ``type=`` filter values.
 ``TV_SEASON_TYPES``, ``ANIME_SEASON_TYPES``, ``ALL_SEASON_TYPES``
     Canonical ``media_type`` values used in SQL ``IN`` clauses.
 """
@@ -29,7 +29,8 @@ from __future__ import annotations
 import sqlite3
 from datetime import timedelta
 
-from mediaman.core.format import days_ago, format_bytes, relative_day_label
+from mediaman.core.format import days_ago as _days_ago_fmt
+from mediaman.core.format import format_bytes, relative_day_label
 from mediaman.core.scheduled_action_kinds import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED
 from mediaman.core.time import now_utc, parse_iso_strict_utc, parse_iso_utc
 from mediaman.services.infra.settings_reader import get_int_setting
@@ -38,7 +39,7 @@ from mediaman.services.infra.settings_reader import get_int_setting
 # Shared constants — used by both library.py and library_api/__init__.py.
 # ---------------------------------------------------------------------------
 
-_VALID_SORTS = {
+VALID_SORTS = {
     "added_desc",
     "added_asc",
     "name_asc",
@@ -48,13 +49,13 @@ _VALID_SORTS = {
     "watched_desc",
     "watched_asc",
 }
-_VALID_TYPES = {"movie", "tv", "anime", "kept", "stale"}
+VALID_TYPES = {"movie", "tv", "anime", "kept", "stale"}
 
 # Hard cap on the user-supplied search term applied to the LIKE filter.
 # Without this an attacker could submit a multi-megabyte string and force
 # SQLite to do a slow scan against every title and show_title row.
 # 200 chars is well above any realistic title length.
-_MAX_SEARCH_TERM_LEN = 200
+MAX_SEARCH_TERM_LEN = 200
 
 # Canonical media_type values that represent a TV / anime *season* row.
 TV_SEASON_TYPES: tuple[str, ...] = ("tv_season", "tv", "season")
@@ -63,11 +64,11 @@ ALL_SEASON_TYPES: tuple[str, ...] = TV_SEASON_TYPES + ANIME_SEASON_TYPES
 
 
 # ---------------------------------------------------------------------------
-# Private query helpers
+# Public query helpers
 # ---------------------------------------------------------------------------
 
 
-def _days_ago(dt_str: str | None) -> str:
+def days_ago(dt_str: str | None) -> str:
     """Return 'N days ago' or '' given an ISO datetime string."""
     dt = parse_iso_utc(dt_str)
     if dt is None:
@@ -75,10 +76,10 @@ def _days_ago(dt_str: str | None) -> str:
     delta = (now_utc() - dt).days
     if delta > 3650:
         return ""
-    return days_ago(dt_str)
+    return _days_ago_fmt(dt_str)
 
 
-def _type_css(media_type: str) -> str:
+def type_css(media_type: str) -> str:
     """Return the CSS class for a type badge."""
     if media_type in ("tv_season", "season", "tv"):
         return "type-tv"
@@ -87,7 +88,7 @@ def _type_css(media_type: str) -> str:
     return "type-mov"
 
 
-def _protection_label(sa_action: str | None, sa_execute_at: str | None) -> str | None:
+def protection_label(sa_action: str | None, sa_execute_at: str | None) -> str | None:
     """Return a human-friendly protection label, or None if not protected."""
     if sa_action is None:
         return None
@@ -97,7 +98,7 @@ def _protection_label(sa_action: str | None, sa_execute_at: str | None) -> str |
         execute_at = parse_iso_strict_utc(sa_execute_at)
         if execute_at is None:
             return None
-        # ``_protection_label`` returns None for today/past dates rather
+        # ``protection_label`` returns None for today/past dates rather
         # than a string, so we pre-filter and only invoke
         # :func:`relative_day_label` on future deadlines.  The helper's
         # tomorrow case is the singular "1 more day"; its future arm
@@ -131,10 +132,10 @@ def _build_where_clause(
 
     if q:
         # Cap the LIKE term before escaping — escaping before truncation
-        # would let metacharacters at position _MAX_SEARCH_TERM_LEN-1
+        # would let metacharacters at position MAX_SEARCH_TERM_LEN-1
         # split mid-escape and produce a malformed pattern.  Truncate raw,
         # then escape.
-        q = q[:_MAX_SEARCH_TERM_LEN]
+        q = q[:MAX_SEARCH_TERM_LEN]
         where_clauses.append("(title LIKE ? ESCAPE '\\' OR show_title LIKE ? ESCAPE '\\')")
         q_escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         like = f"%{q_escaped}%"
@@ -153,7 +154,7 @@ def _build_where_clause(
         params.append(age_cutoff)
         where_clauses.append("(last_watched_at IS NULL OR last_watched_at < ?)")
         params.append(watch_cutoff)
-    elif media_type and media_type in _VALID_TYPES:
+    elif media_type and media_type in VALID_TYPES:
         _TYPE_MAP = {
             "movie": ("movie",),
             "tv": TV_SEASON_TYPES,
@@ -321,17 +322,17 @@ def _shape_rows(
         show_title = r["show_title"] or r["title"]
 
         protected = False
-        protection_label = None
+        prot_label: str | None = None
         if is_tv and show_rk:
             ks_entry = ks_map.get(show_rk)
             if ks_entry:
-                protection_label = _protection_label(ks_entry[0], ks_entry[1])
-                protected = protection_label is not None
+                prot_label = protection_label(ks_entry[0], ks_entry[1])
+                protected = prot_label is not None
         if not protected:
             sa_entry = sa_map.get(str(r["id"]))
             if sa_entry:
-                protection_label = _protection_label(sa_entry[0], sa_entry[1])
-                protected = protection_label is not None
+                prot_label = protection_label(sa_entry[0], sa_entry[1])
+                protected = prot_label is not None
 
         season_count = r["season_count"]
         if is_tv:
@@ -342,7 +343,7 @@ def _shape_rows(
         else:
             type_label = "MOVIE"
 
-        added_ago = _days_ago(r["added_at"])
+        added_ago = days_ago(r["added_at"])
         subtitle_parts = []
         if added_ago:
             prefix = "Last added" if is_tv else "Added"
@@ -355,18 +356,18 @@ def _shape_rows(
                 "subtitle": " · ".join(subtitle_parts),
                 "media_type": display_type,
                 "type_label": type_label,
-                "type_css": _type_css(display_type),
+                "type_css": type_css(display_type),
                 "plex_rating_key": r["plex_rating_key"],
                 "added_at": r["added_at"],
                 "added_ago": added_ago,
                 "file_size": format_bytes(r["file_size_bytes"] or 0),
                 "file_size_bytes": r["file_size_bytes"] or 0,
-                "last_watched": _days_ago(r["last_watched_at"]),
+                "last_watched": days_ago(r["last_watched_at"]),
                 "show_rating_key": show_rk,
                 "show_title_raw": show_title,
                 "is_tv": is_tv,
                 "protected": protected,
-                "protection_label": protection_label,
+                "protection_label": prot_label,
             }
         )
     return items
@@ -463,17 +464,17 @@ def sum_total_size_bytes(conn: sqlite3.Connection) -> int:
 __all__ = [
     "ALL_SEASON_TYPES",
     "ANIME_SEASON_TYPES",
+    "MAX_SEARCH_TERM_LEN",
     "TV_SEASON_TYPES",
-    "_MAX_SEARCH_TERM_LEN",
-    "_VALID_SORTS",
-    "_VALID_TYPES",
-    "_days_ago",
-    "_protection_label",
-    "_type_css",
+    "VALID_SORTS",
+    "VALID_TYPES",
     "count_anime_shows",
     "count_movies",
     "count_stale",
     "count_tv_shows",
+    "days_ago",
     "fetch_library",
+    "protection_label",
     "sum_total_size_bytes",
+    "type_css",
 ]

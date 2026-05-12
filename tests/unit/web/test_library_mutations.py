@@ -525,7 +525,7 @@ class TestLibrarySearchLikeEscape:
             file_size_bytes=1_000_000,
         )
 
-        from mediaman.web.routes.library._query import fetch_library as _fetch_library
+        from mediaman.web.repository.library_query import fetch_library as _fetch_library
 
         items, _total = _fetch_library(conn, q="%")
         titles = {i["title"] for i in items}
@@ -554,7 +554,7 @@ class TestLibrarySearchLikeEscape:
             file_size_bytes=1_000_000,
         )
 
-        from mediaman.web.routes.library._query import fetch_library as _fetch_library
+        from mediaman.web.repository.library_query import fetch_library as _fetch_library
 
         items, _total = _fetch_library(conn, q="_")
         titles = {i["title"] for i in items}
