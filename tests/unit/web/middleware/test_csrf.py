@@ -477,3 +477,183 @@ class TestCSRFErrorResponseContent:
         resp = client.post("/api/thing")
         assert resp.status_code == 403
         assert b"CSRF" in resp.content
+
+
+# ---------------------------------------------------------------------------
+# CSRF finding 11: no-Origin with session cookie
+# ---------------------------------------------------------------------------
+
+
+class TestFinding11CSRFNoOriginWithCookie:
+    """Finding 11: unsafe requests with session cookie but no Origin must be rejected."""
+
+    def _app(self):
+        from mediaman.web import register_security_middleware
+
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.post("/api/thing")
+        def _endpoint():
+            return {"ok": True}
+
+        return TestClient(app)
+
+    def test_no_origin_no_cookie_allowed(self):
+        """Non-browser client (no cookie, no origin) should be allowed through."""
+        client = self._app()
+        resp = client.post("/api/thing")
+        assert resp.status_code == 200
+
+    def test_no_origin_with_session_cookie_rejected(self):
+        """Finding 11: POST with a session_token cookie but no Origin must return 403."""
+        from mediaman.web import register_security_middleware
+
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.post("/api/thing")
+        def _endpoint():
+            return {"ok": True}
+
+        client = TestClient(app)
+        client.cookies.set("session_token", "some-session-token")
+        resp = client.post("/api/thing")
+        assert resp.status_code == 403
+        assert b"CSRF" in resp.content
+
+    def test_correct_origin_with_session_cookie_allowed(self):
+        """Correct same-origin request with cookie should pass."""
+        from mediaman.web import register_security_middleware
+
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.post("/api/thing")
+        def _endpoint():
+            return {"ok": True}
+
+        client = TestClient(app)
+        client.cookies.set("session_token", "some-session-token")
+        resp = client.post("/api/thing", headers={"Origin": "http://testserver"})
+        assert resp.status_code == 200
+
+    def test_csrf_exempt_path_still_allowed_without_origin(self):
+        """Keep/download paths are exempt — even with a cookie."""
+        from mediaman.web import register_security_middleware
+
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.post("/keep/{token}")
+        def _keep(token: str):
+            return {"ok": True}
+
+        client = TestClient(app)
+        client.cookies.set("session_token", "some-session")
+        resp = client.post("/keep/testtoken")
+        assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# CSRF Origin port normalisation (round-2 hardening)
+# ---------------------------------------------------------------------------
+
+
+class TestCsrfPortNormalisation:
+    def test_explicit_default_port_accepted(self):
+        from mediaman.web.middleware.csrf import _normalise_host
+
+        assert _normalise_host("mediaman.example.com") == "mediaman.example.com"
+        assert _normalise_host("mediaman.example.com:443") == "mediaman.example.com"
+        assert _normalise_host("mediaman.example.com:80") == "mediaman.example.com"
+        assert _normalise_host("mediaman.example.com:8282") == "mediaman.example.com:8282"
+
+    def test_csrf_accepts_origin_with_default_port(self):
+        from mediaman.web import register_security_middleware
+
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.post("/api/widget")
+        def _widget():
+            return {"ok": True}
+
+        c = TestClient(app)
+        # Same-origin with the scheme's default port (HTTP→80) — must be
+        # accepted because the new CSRF logic correctly strips default
+        # ports per scheme.
+        resp = c.post(
+            "/api/widget",
+            headers={"Origin": "http://testserver:80"},
+        )
+        assert resp.status_code == 200
+
+    def test_csrf_rejects_cross_origin(self):
+        from mediaman.web import register_security_middleware
+
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.post("/api/widget")
+        def _widget():
+            return {"ok": True}
+
+        c = TestClient(app)
+        resp = c.post("/api/widget", headers={"Origin": "https://evil.com"})
+        assert resp.status_code == 403
+
+
+class TestCsrfExemptPrefix:
+    def test_unsubscribe_exact_match(self):
+        from mediaman.web import register_security_middleware
+
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.post("/unsubscribe")
+        def _unsub():
+            return {"ok": True}
+
+        @app.post("/unsubscribe-admin")
+        def _unsub_admin():
+            return {"ok": True}
+
+        c = TestClient(app)
+        # Exact /unsubscribe → exempt.
+        assert c.post("/unsubscribe", headers={"Origin": "https://mail.com"}).status_code == 200
+        # /unsubscribe-admin must NOT inherit the exemption.
+        assert (
+            c.post("/unsubscribe-admin", headers={"Origin": "https://evil.com"}).status_code == 403
+        )
+
+    def test_unsubscribe_slash_no_longer_exempt(self):
+        """Regression: /unsubscribe/<anything> is NOT silently exempt.
+
+        The original prefix-based exemption silently exempted everything
+        under ``/unsubscribe/``, so any future POST added at a path like
+        ``/unsubscribe/confirm`` would inherit the exemption with no
+        compile-time signal.  The fix replaces the prefix rule with an
+        explicit ``_CSRF_EXEMPT_ROUTES`` allowlist so non-listed paths
+        fall through to the normal CSRF check.
+        """
+        from mediaman.web import register_security_middleware
+
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.post("/unsubscribe/confirm")
+        def _u():
+            return {"ok": True}
+
+        c = TestClient(app)
+        # Cross-origin POST to a non-exempt path must be rejected.
+        assert (
+            c.post("/unsubscribe/confirm", headers={"Origin": "https://evil.com"}).status_code
+            == 403
+        )
+        # Same-origin still works (normal CSRF behaviour).
+        assert (
+            c.post("/unsubscribe/confirm", headers={"Origin": "http://testserver"}).status_code
+            == 200
+        )

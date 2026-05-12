@@ -85,3 +85,20 @@ class TestLoadConfig:
             load_config()
         assert excinfo.value.__cause__ is not None
         assert isinstance(excinfo.value.__cause__, ValueError)
+
+    def test_rejects_trivial_repetition(self, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "a" * 64)
+        with pytest.raises(ConfigError, match="weak"):
+            load_config()
+
+    def test_rejects_mediaman_string(self, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "mediamanmediamanmediamanmediaman")
+        with pytest.raises(ConfigError, match="weak"):
+            load_config()
+
+    def test_accepts_hex_key(self, monkeypatch):
+        import secrets
+
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", secrets.token_hex(32))
+        cfg = load_config()
+        assert cfg.secret_key

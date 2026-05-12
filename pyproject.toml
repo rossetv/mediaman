@@ -91,9 +91,6 @@ markers = [
 addopts = "-q --tb=short --strict-markers --strict-config"
 filterwarnings = [
     "error",
-    # Pre-existing unclosed SQLite connections in source code (P6 fix scope).
-    # Remove this ignore once connection lifecycle is cleaned up.
-    "ignore::ResourceWarning",
     # Third-party deprecations we cannot fix upstream:
     "ignore::DeprecationWarning:apscheduler",
     "ignore::DeprecationWarning:plexapi",

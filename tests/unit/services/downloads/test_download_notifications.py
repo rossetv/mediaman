@@ -19,7 +19,7 @@ from tests.helpers.factories import insert_download_notification, insert_setting
 
 def _load_template():
     template_dir = (
-        Path(__file__).parent.parent.parent.parent / "src" / "mediaman" / "web" / "templates"
+        Path(__file__).parent.parent.parent.parent.parent / "src" / "mediaman" / "web" / "templates"
     )
     env = Environment(
         loader=FileSystemLoader(str(template_dir)),
@@ -114,7 +114,7 @@ class TestDownloadReadyTemplate:
         """Regression guard: the template must not reintroduce ``|safe`` on
         user-sourced data. If someone adds it back, this test fails."""
         template_path = (
-            Path(__file__).parent.parent.parent.parent
+            Path(__file__).parent.parent.parent.parent.parent
             / "src"
             / "mediaman"
             / "web"

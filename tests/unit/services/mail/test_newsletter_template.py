@@ -14,7 +14,7 @@ from jinja2 import Environment, FileSystemLoader
 
 @pytest.fixture
 def env() -> Environment:
-    template_dir = Path(__file__).resolve().parents[3] / "src" / "mediaman" / "web" / "templates"
+    template_dir = Path(__file__).resolve().parents[4] / "src" / "mediaman" / "web" / "templates"
     return Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
 
 

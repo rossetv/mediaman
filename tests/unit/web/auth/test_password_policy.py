@@ -40,7 +40,7 @@ class TestCommonPasswordsDataFile:
         from pathlib import Path
 
         data_file = (
-            Path(__file__).parent.parent.parent.parent
+            Path(__file__).parent.parent.parent.parent.parent
             / "src"
             / "mediaman"
             / "web"
@@ -247,7 +247,7 @@ class TestForcePasswordChangePage:
         from fastapi.templating import Jinja2Templates
 
         tpl_dir = (
-            Path(__file__).resolve().parent.parent.parent.parent
+            Path(__file__).resolve().parent.parent.parent.parent.parent
             / "src"
             / "mediaman"
             / "web"
