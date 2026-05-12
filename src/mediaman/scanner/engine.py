@@ -21,30 +21,28 @@ Import-cycle rule: :mod:`repository` imports nothing from
 module orchestrates all three.
 """
 
-# rationale: scan orchestrator — the per-library fetch → upsert → evaluate →
-# schedule → commit sequence forms an atomic transaction discipline that must
-# not be scattered across files; splitting the inner steps would either break
-# the rollback guard around each library commit or force callers to manage
-# transaction boundaries themselves, which is harder to audit.
+# rationale: scan orchestrator — owns the per-library commit boundary so a
+# SIGKILL mid-scan can only roll back the in-flight library, never a successful
+# upsert from an earlier one. The per-library scan body lives in
+# :mod:`_scan_library` so this shell stays scannable; the helpers there do not
+# commit, leaving the transaction boundary visible in :meth:`run_scan`.
 
 from __future__ import annotations
 
 import logging
 import sqlite3
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Iterable
 from datetime import datetime
-from typing import TYPE_CHECKING, cast
-
-import requests
-from plexapi.exceptions import PlexApiException
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient
-    from mediaman.services.media_meta.plex import PlexClient, PlexSeasonItem
+    from mediaman.services.media_meta.plex import PlexClient
 
 from mediaman.core.format import ensure_tz as _ensure_tz
 from mediaman.core.time import parse_iso_utc as _parse_iso_utc
 from mediaman.scanner import repository
+from mediaman.scanner._scan_library import scan_movie_library, scan_tv_library
 from mediaman.scanner.arr_dates import ArrDateCache
 from mediaman.scanner.deletions import (
     DeletionExecutor,
@@ -52,8 +50,6 @@ from mediaman.scanner.deletions import (
 )
 from mediaman.scanner.fetch import PlexFetcher, _PlexItemFetch
 from mediaman.scanner.phases.delete import remove_orphans
-from mediaman.scanner.phases.evaluate import evaluate_movie, evaluate_season
-from mediaman.scanner.phases.upsert import schedule_deletion as _phase_schedule_deletion
 from mediaman.scanner.phases.upsert import upsert_item as _phase_upsert_item
 from mediaman.services.infra.settings_reader import get_bool_setting as _get_bool_setting
 from mediaman.services.mail.newsletter import send_newsletter as _send_newsletter
@@ -200,7 +196,7 @@ class ScanEngine:
             try:
                 per_lib_fetches[lib_id] = self._fetcher.fetch_library_items(lib_id)
                 successfully_scanned.append(lib_id)
-            except (PlexApiException, requests.RequestException, sqlite3.Error):
+            except Exception:
                 logger.exception("Library sync failed for library %s", lib_id)
                 summary["errors"] += 1
 
@@ -292,9 +288,9 @@ class ScanEngine:
             seen: set[str] = set()
             seen_by_lib[lib_id] = seen
             if lib_type == "show":
-                self._scan_tv_library(lib_id, summary, seen)
+                scan_tv_library(self, lib_id, summary, seen)
             else:
-                self._scan_movie_library(lib_id, summary, seen)
+                scan_movie_library(self, lib_id, summary, seen)
 
             # Per-library commit: bound the SQLite write-lock duration so a
             # SIGKILL mid-scan can only roll back the in-flight library, not
@@ -333,11 +329,7 @@ class ScanEngine:
             if _get_bool_setting(self._conn, "suggestions_enabled", default=True):
                 try:
                     _refresh_recommendations(self._conn, self._plex, secret_key=self._secret_key)
-                except (
-                    sqlite3.Error,
-                    requests.RequestException,
-                    PlexApiException,
-                ):
+                except Exception:
                     logger.exception("Recommendation generation failed — scan results unaffected")
 
             try:
@@ -347,10 +339,7 @@ class ScanEngine:
                     dry_run=self._dry_run,
                     grace_days=self._grace_days,
                 )
-            except (
-                sqlite3.Error,
-                requests.RequestException,
-            ):
+            except Exception:
                 logger.exception("Newsletter sending failed — scan results unaffected")
 
         return summary
@@ -367,7 +356,7 @@ class ScanEngine:
     # Internal helpers — scan orchestration
     # ------------------------------------------------------------------
 
-    def _resolve_added_at(self, item: Mapping[str, object]) -> datetime:
+    def _resolve_added_at(self, item: dict[str, object]) -> datetime:
         """Return the best available 'added' datetime for a media item.
 
         Prefers the Arr download date (looked up by normalised file
@@ -409,171 +398,6 @@ class ScanEngine:
         if candidate is not None and not isinstance(candidate, datetime):
             candidate = None
         return _ensure_tz(candidate)
-
-    def _scan_items(
-        self,
-        fetched: list[_PlexItemFetch],
-        media_type_fn: Callable[[_PlexItemFetch], str],
-        evaluate_fn: Callable[
-            [_PlexItemFetch, datetime, Sequence[Mapping[str, object]]], str | None
-        ],
-        item_label: str,
-        library_id: str,
-        summary: dict[str, int],
-        seen_keys: set[str] | None = None,
-    ) -> None:
-        """Shared iteration skeleton for movie and TV scan passes.
-
-        Iterates *fetched* items, upserts each one, applies the common
-        protection/schedule guards, then delegates per-item evaluation
-        to *evaluate_fn*. The two callers differ only in
-        ``media_type_fn`` (which selects the media type string from the
-        fetch record) and ``evaluate_fn`` (which calls the appropriate
-        evaluator and applies any domain-specific pre-skip logic such
-        as the TV show-kept check).
-
-        Args:
-            fetched: Pre-fetched items from the fetch phase.
-            media_type_fn: Callable that returns the media_type string
-                for a :class:`_PlexItemFetch` record.
-            evaluate_fn: Callable ``(fetch, added_at, watch_history) ->
-                decision`` where decision is ``"schedule_deletion"`` or
-                any other value meaning "skip". May return ``None`` to
-                signal an early skip (e.g. show-kept check failed before
-                evaluation).
-            item_label: Human-readable label used in exception log
-                messages (e.g. ``"Movie"`` or ``"TV"``).
-            library_id: Plex section ID — passed through to the upsert
-                phase.
-            summary: Mutable summary counter dict (``scanned``,
-                ``scheduled``, ``skipped``, ``errors``).
-            seen_keys: If provided, the item's Plex rating key is added
-                so orphan detection can exclude it later.
-        """
-        for f in fetched:
-            summary["scanned"] += 1
-            item = f.item
-            watch_history = f.watch_history
-            try:
-                media_id = item["plex_rating_key"]
-                if seen_keys is not None:
-                    seen_keys.add(media_id)
-                _phase_upsert_item(self._conn, f, self._arr_cache, media_type_fn(f))
-                repository.update_last_watched(self._conn, media_id, watch_history)
-
-                if repository.is_protected(self._conn, media_id):
-                    summary["skipped"] += 1
-                    continue
-
-                if repository.is_already_scheduled(self._conn, media_id):
-                    summary["skipped"] += 1
-                    continue
-
-                added_at = self._resolve_added_at(item)
-                decision = evaluate_fn(f, added_at, watch_history)
-
-                if decision is None:
-                    # evaluate_fn signalled an early skip (e.g. show-kept).
-                    summary["skipped"] += 1
-                    continue
-
-                if decision == "schedule_deletion":
-                    if self._dry_run:
-                        # Dry-run preview: count what *would* be scheduled
-                        # but write nothing. Both ``scheduled_actions`` and
-                        # the audit_log row inside ``schedule_deletion``
-                        # are skipped.
-                        summary["scheduled"] += 1
-                    else:
-                        is_reentry = repository.has_expired_snooze(self._conn, media_id)
-                        _phase_schedule_deletion(
-                            self._conn,
-                            media_id=media_id,
-                            is_reentry=is_reentry,
-                            grace_days=self._grace_days,
-                            secret_key=self._secret_key,
-                        )
-                        summary["scheduled"] += 1
-                else:
-                    summary["skipped"] += 1
-            except Exception:  # rationale: §6.4 site 2 — scheduler must survive a single bad row
-                summary["errors"] += 1
-                logger.exception(
-                    "%s scan item failed (plex_rating_key=%s)",
-                    item_label,
-                    item.get("plex_rating_key", "?"),
-                )
-
-    def _scan_movie_library(
-        self,
-        library_id: str,
-        summary: dict[str, int],
-        seen_keys: set[str] | None = None,
-    ) -> None:
-        # Phase 1: pull items + watch histories from Plex (no DB writes,
-        # no lock). See :meth:`sync_library` for rationale.
-        fetched = self._fetcher.fetch_library_items(library_id)
-
-        def _evaluate(
-            f: _PlexItemFetch,
-            added_at: datetime,
-            watch_history: Sequence[Mapping[str, object]],
-        ) -> str | None:
-            return evaluate_movie(
-                added_at=added_at,
-                watch_history=watch_history,
-                min_age_days=self._min_age_days,
-                inactivity_days=self._inactivity_days,
-            )
-
-        self._scan_items(
-            fetched,
-            media_type_fn=lambda f: "movie",
-            evaluate_fn=_evaluate,
-            item_label="Movie",
-            library_id=library_id,
-            summary=summary,
-            seen_keys=seen_keys,
-        )
-
-    def _scan_tv_library(
-        self,
-        library_id: str,
-        summary: dict[str, int],
-        seen_keys: set[str] | None = None,
-    ) -> None:
-        # Phase 1: network fetch (see :meth:`sync_library`).
-        fetched = self._fetcher.fetch_library_items(library_id)
-
-        def _evaluate(
-            f: _PlexItemFetch,
-            added_at: datetime,
-            watch_history: Sequence[Mapping[str, object]],
-        ) -> str | None:
-            # The TV scan path receives PlexSeasonItem entries exclusively
-            # (built by ``PlexFetcher.fetch_library_items`` for show
-            # libraries); the union with PlexMovieItem on ``_PlexItemFetch.item``
-            # is the movies branch. Narrow here so the typed-dict access
-            # below sees concrete fields.
-            season = cast("PlexSeasonItem", f.item)
-            if repository.is_show_kept(self._conn, season.get("show_rating_key")):
-                return None  # show is protected; skip all its seasons
-            return evaluate_season(
-                added_at=added_at,
-                watch_history=watch_history,
-                min_age_days=self._min_age_days,
-                inactivity_days=self._inactivity_days,
-            )
-
-        self._scan_items(
-            fetched,
-            media_type_fn=lambda f: f.media_type,
-            evaluate_fn=_evaluate,
-            item_label="TV",
-            library_id=library_id,
-            summary=summary,
-            seen_keys=seen_keys,
-        )
 
     def _remove_orphaned_items(
         self,
