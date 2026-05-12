@@ -222,20 +222,20 @@ def record_redownload(
     user-facing "added to Radarr/Sonarr" response is never returned with
     only half of the bookkeeping landed.
     """
-    log_audit(
-        conn,
-        audit_id,
-        "re_downloaded",
-        audit_detail,
-        actor=actor,
-    )
-    record_download_notification(
-        conn,
-        email=email,
-        title=title,
-        media_type=media_type,
-        tmdb_id=tmdb_id,
-        tvdb_id=tvdb_id,
-        service=service,
-    )
-    conn.commit()
+    with conn:
+        log_audit(
+            conn,
+            audit_id,
+            "re_downloaded",
+            audit_detail,
+            actor=actor,
+        )
+        record_download_notification(
+            conn,
+            email=email,
+            title=title,
+            media_type=media_type,
+            tmdb_id=tmdb_id,
+            tvdb_id=tvdb_id,
+            service=service,
+        )
