@@ -1,6 +1,6 @@
 import pytest
 
-from mediaman.services.infra.storage import (
+from mediaman.services.infra import (
     DeletionRefused,
     delete_path,
     get_aggregate_disk_usage,

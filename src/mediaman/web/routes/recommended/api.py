@@ -18,8 +18,7 @@ from mediaman.db import get_db
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.notifications import record_download_notification
-from mediaman.services.infra.http import SafeHTTPError
-from mediaman.services.infra.settings_reader import get_string_setting
+from mediaman.services.infra import SafeHTTPError, get_string_setting
 from mediaman.services.openai.recommendations.repository import (
     fetch_suggestion_by_id,
     fetch_suggestion_header,

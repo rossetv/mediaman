@@ -29,7 +29,7 @@ from mediaman.services.arr.state import (
     build_sonarr_cache,
     compute_download_state,
 )
-from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.omdb import fetch_ratings
 from mediaman.services.media_meta.tmdb import TmdbClient
 from mediaman.web.auth.middleware import get_current_admin

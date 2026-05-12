@@ -18,7 +18,7 @@ import sqlite3
 
 import requests
 
-from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
+from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 
 # Module-level client so the connection pool is shared across calls.
 # Connect timeout: 5 s.  Read timeout: 30 s — the 90 s default was blocking
@@ -56,6 +56,10 @@ def get_openai_key(conn: sqlite3.Connection | None, secret_key: str | None = Non
     unencrypted on-disk credentials.
     """
     if conn is not None:
+        # Import via settings_reader so tests that patch
+        # ``mediaman.services.infra.settings_reader.get_string_setting`` intercept
+        # this call correctly; patching the re-export on the infra package would
+        # require a different patch target.
         from mediaman.services.infra.settings_reader import get_string_setting
 
         val = get_string_setting(conn, "openai_api_key", secret_key=secret_key)
@@ -69,7 +73,7 @@ def get_openai_model(conn: sqlite3.Connection | None) -> str:
     """Return the OpenAI model to use, honouring the ``openai_model`` setting."""
     if conn is None:
         return _DEFAULT_MODEL
-    from mediaman.services.infra.settings_reader import get_string_setting
+    from mediaman.services.infra import get_string_setting
 
     return get_string_setting(conn, "openai_model", default=_DEFAULT_MODEL) or _DEFAULT_MODEL
 
@@ -82,7 +86,7 @@ def is_web_search_enabled(conn: sqlite3.Connection | None) -> bool:
     """
     if conn is None:
         return False
-    from mediaman.services.infra.settings_reader import get_bool_setting
+    from mediaman.services.infra import get_bool_setting
 
     return get_bool_setting(conn, "openai_web_search_enabled", default=False)
 

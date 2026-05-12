@@ -24,7 +24,7 @@ from typing import Protocol
 
 from fastapi.responses import JSONResponse
 
-from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
+from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 from mediaman.web.models import _API_KEY_RE
 
 

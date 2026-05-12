@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mediaman.services.infra.path_safety import parse_delete_roots_env
+from mediaman.services.infra import parse_delete_roots_env
 
 
 class TestParseDeleteRootsEnv:

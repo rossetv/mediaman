@@ -11,7 +11,7 @@ import requests
 
 from mediaman.core.time import now_iso
 from mediaman.crypto import generate_download_token, generate_unsubscribe_token
-from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError
 
 from ._types import DeletedNewsletterItem, NewsletterRecItem, ScheduledNewsletterItem, StorageStats
 

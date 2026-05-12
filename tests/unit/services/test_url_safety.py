@@ -7,7 +7,7 @@ import sqlite3
 
 import pytest
 
-from mediaman.services.infra.url_safety import (
+from mediaman.services.infra import (
     PINNED_EXTERNAL_HOSTS,
     allowed_outbound_hosts,
     is_safe_outbound_url,
@@ -266,6 +266,10 @@ class TestIdnNormalisation:
         Confirms the normalised form is what gets checked, not just the raw
         parsed hostname, so a UTS-46 mapping cannot slip past the ASCII list.
         """
+        # rationale: _host_is_metadata and _normalise_host are private helpers that
+        # implement the UTS-46 normalisation invariant; no public function exposes
+        # the intermediate normalised string, so the tricky algorithm must be
+        # tested directly (see CODE_GUIDELINES §11.9 exception).
         from mediaman.services.infra.url_safety import _host_is_metadata, _normalise_host
 
         # A clean ASCII hostname normalises to itself.
@@ -515,7 +519,7 @@ class TestSafeHTTPClientAllowlistWiring:
     """
 
     def test_configured_plex_host_is_allowlisted(self, settings_db, clean_dns):
-        from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
+        from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 
         insert_settings(settings_db, plex_url="http://plex.lan:32400/", updated_at="")
         composed = allowed_outbound_hosts(settings_db)

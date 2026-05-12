@@ -21,7 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from mediaman.db import get_db
 from mediaman.services.arr.base import ArrClient, ArrError
-from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.repository.library_api import record_redownload

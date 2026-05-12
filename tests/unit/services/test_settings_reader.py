@@ -6,7 +6,7 @@ import pytest
 
 from mediaman.crypto import encrypt_value
 from mediaman.db import init_db
-from mediaman.services.infra.settings_reader import (
+from mediaman.services.infra import (
     ConfigDecryptError,
     get_int_setting,
     get_setting,
@@ -69,7 +69,7 @@ class TestGetSetting:
         entry pointing at the cause. Raising forces the caller to
         deal with the missing key explicitly.
         """
-        from mediaman.services.infra.settings_reader import ConfigDecryptError
+        from mediaman.services.infra import ConfigDecryptError
 
         _put(conn, "api_key", "gibberish", encrypted=1)
         with pytest.raises(ConfigDecryptError) as excinfo:

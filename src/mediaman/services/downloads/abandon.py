@@ -17,7 +17,7 @@ import requests
 from mediaman.services.arr.base import ArrClient, ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.search_trigger import clear_throttle
-from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError
 
 logger = logging.getLogger(__name__)
 

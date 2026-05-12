@@ -18,7 +18,7 @@ import logging
 import sqlite3
 
 from mediaman.core.audit import security_event
-from mediaman.services.infra.settings_reader import get_bool_setting
+from mediaman.services.infra import get_bool_setting
 
 logger = logging.getLogger(__name__)
 

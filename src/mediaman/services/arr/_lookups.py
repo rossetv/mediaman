@@ -12,7 +12,7 @@ from typing import cast
 from requests import RequestException
 
 from mediaman.services.arr._types import ArrLookupResult
-from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError
 
 
 class _LookupsMixin:

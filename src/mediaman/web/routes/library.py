@@ -24,7 +24,7 @@ from starlette.responses import Response
 
 from mediaman.core.format import format_bytes
 from mediaman.core.time import now_utc
-from mediaman.services.infra.settings_reader import get_int_setting
+from mediaman.services.infra import get_int_setting
 from mediaman.web.auth.middleware import resolve_page_session
 from mediaman.web.repository.library_query import (
     ALL_SEASON_TYPES as ALL_SEASON_TYPES,

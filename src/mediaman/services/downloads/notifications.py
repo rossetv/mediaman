@@ -105,7 +105,7 @@ def _build_mailgun_client(
     returns None so the caller can bail early.  Returns a tuple of
     ``(mailgun_client, from_address)`` on success.
     """
-    from mediaman.services.infra.settings_reader import get_string_setting
+    from mediaman.services.infra import get_string_setting
     from mediaman.services.mail.mailgun import MailgunClient
 
     mailgun_domain = get_string_setting(conn, "mailgun_domain", secret_key=secret_key)

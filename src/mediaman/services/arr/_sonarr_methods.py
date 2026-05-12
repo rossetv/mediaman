@@ -13,7 +13,7 @@ from typing import cast
 
 from mediaman.services.arr._transport import ArrConfigError, ArrUpstreamError
 from mediaman.services.arr._types import ArrEpisode, ArrEpisodeFile, ArrLookupResult, SonarrSeries
-from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError
 
 logger = logging.getLogger(__name__)
 

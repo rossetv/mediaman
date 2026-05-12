@@ -15,8 +15,8 @@ from mediaman.core.format import (
     title_from_audit_detail,
 )
 from mediaman.core.time import now_utc, parse_iso_utc
-from mediaman.services.infra.settings_reader import get_media_path as _get_media_path
-from mediaman.services.infra.storage import get_aggregate_disk_usage
+from mediaman.services.infra import get_aggregate_disk_usage
+from mediaman.services.infra import get_media_path as _get_media_path
 from mediaman.web.models import ACTION_SCHEDULED_DELETION
 from mediaman.web.repository.dashboard import (
     fetch_deleted_audit_batch,
