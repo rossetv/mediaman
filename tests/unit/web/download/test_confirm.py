@@ -11,11 +11,9 @@ Covers the GET /download/{token} confirmation page:
 
 from __future__ import annotations
 
-import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-from fastapi.responses import HTMLResponse
 from fastapi.testclient import TestClient
 
 from mediaman.crypto import generate_download_token
@@ -28,17 +26,6 @@ from mediaman.web.routes.download.confirm import (
     router as confirm_router,
 )
 from tests.helpers.factories import insert_suggestion
-
-
-def _make_app(app_factory, conn):
-    """Build the confirm app + a JSON-echoing templates stub."""
-    mock_templates = MagicMock()
-
-    def fake_template_response(request, template_name, ctx):
-        return HTMLResponse(json.dumps(ctx), status_code=200)
-
-    mock_templates.TemplateResponse.side_effect = fake_template_response
-    return app_factory(confirm_router, conn=conn, state_extras={"templates": mock_templates})
 
 
 def _valid_token(
@@ -111,9 +98,9 @@ class TestDownloadPageConfirm:
             yield
         _reset_arr_cache_for_tests()
 
-    def test_valid_token_returns_confirm_state(self, app_factory, conn, secret_key):
+    def test_valid_token_returns_confirm_state(self, app_factory, conn, secret_key, templates_stub):
         """GET with a valid token renders the confirm state."""
-        app = _make_app(app_factory, conn)
+        app = app_factory(confirm_router, conn=conn, state_extras={"templates": templates_stub})
         client = TestClient(app)
         token = _valid_token(secret_key)
 
@@ -124,9 +111,9 @@ class TestDownloadPageConfirm:
         assert ctx["state"] == "confirm"
         assert ctx["item"]["title"] == "Dune"
 
-    def test_invalid_token_renders_expired_state(self, app_factory, conn):
+    def test_invalid_token_renders_expired_state(self, app_factory, conn, templates_stub):
         """GET with a tampered/invalid token renders the expired state."""
-        app = _make_app(app_factory, conn)
+        app = app_factory(confirm_router, conn=conn, state_extras={"templates": templates_stub})
         client = TestClient(app)
 
         resp = client.get("/download/this-is-not-a-valid-token")
@@ -135,9 +122,9 @@ class TestDownloadPageConfirm:
         assert ctx["state"] == "expired"
         assert ctx["item"] is None
 
-    def test_overlong_token_renders_expired_state(self, app_factory, conn):
+    def test_overlong_token_renders_expired_state(self, app_factory, conn, templates_stub):
         """Tokens over 4096 chars are rejected before signature validation."""
-        app = _make_app(app_factory, conn)
+        app = app_factory(confirm_router, conn=conn, state_extras={"templates": templates_stub})
         client = TestClient(app)
 
         resp = client.get(f"/download/{'x' * 4097}")
@@ -145,7 +132,7 @@ class TestDownloadPageConfirm:
         ctx = resp.json()
         assert ctx["state"] == "expired"
 
-    def test_genres_json_is_parsed_into_list(self, app_factory, conn, secret_key):
+    def test_genres_json_is_parsed_into_list(self, app_factory, conn, secret_key, templates_stub):
         """Genres stored as JSON string are expanded into genres_list."""
         # Insert a suggestion row with genres
         rec_id = insert_suggestion(
@@ -167,7 +154,7 @@ class TestDownloadPageConfirm:
             secret_key=secret_key,
         )
 
-        app = _make_app(app_factory, conn)
+        app = app_factory(confirm_router, conn=conn, state_extras={"templates": templates_stub})
         client = TestClient(app)
         resp = client.get(f"/download/{token}")
 
