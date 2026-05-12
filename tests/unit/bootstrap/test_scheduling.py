@@ -273,6 +273,38 @@ class TestBootstrapCryptoFailClosed:
         # invariant belongs to bootstrap_scheduling.
         assert not hasattr(app.state, "scheduler_healthy")
 
+    def test_canary_ok_is_true_on_happy_path(self, db_path):
+        """A clean bootstrap against a valid DB must set canary_ok=True.
+
+        Closes the coverage gap that let a stale ``from mediaman.audit
+        import …`` in ``bootstrap/crypto.py`` ship: the existing
+        ``test_canary_ok_starts_false_on_import_failure`` only proved
+        that *one* failure mode (synthetic) ends up at the same
+        observable state, so a real import-error masqueraded as
+        expected behaviour. This test verifies the *success* path:
+        canary_ok must actually be True after a happy bootstrap.
+        """
+        from mediaman.bootstrap.crypto import bootstrap_crypto
+        from mediaman.db import init_db
+
+        class _State:
+            pass
+
+        class _App:
+            state = _State()
+
+        app = _App()
+        app.state.db = init_db(str(db_path))
+
+        class _Cfg:
+            secret_key = "0123456789abcdef" * 4
+
+        bootstrap_crypto(app, _Cfg())
+        assert app.state.canary_ok is True, (
+            "bootstrap_crypto must succeed on a fresh DB with a known-good "
+            "secret key; if this fails, the canary check or its imports are broken."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Finding 10: scheduler-setting validators
