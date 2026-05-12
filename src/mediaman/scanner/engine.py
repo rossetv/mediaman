@@ -35,6 +35,9 @@ from collections.abc import Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+import requests
+from plexapi.exceptions import PlexApiException
+
 if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient
     from mediaman.services.media_meta.plex import PlexClient
@@ -196,7 +199,8 @@ class ScanEngine:
             try:
                 per_lib_fetches[lib_id] = self._fetcher.fetch_library_items(lib_id)
                 successfully_scanned.append(lib_id)
-            except Exception:
+            except (PlexApiException, requests.RequestException, sqlite3.Error):
+                # skip-one-bad-library — a fetch failure must not abort other libraries
                 logger.exception("Library sync failed for library %s", lib_id)
                 summary["errors"] += 1
 
@@ -329,7 +333,8 @@ class ScanEngine:
             if _get_bool_setting(self._conn, "suggestions_enabled", default=True):
                 try:
                     _refresh_recommendations(self._conn, self._plex, secret_key=self._secret_key)
-                except Exception:
+                except (PlexApiException, requests.RequestException, sqlite3.Error):
+                    # best-effort post-scan followup — must not abort scan summary
                     logger.exception("Recommendation generation failed — scan results unaffected")
 
             try:
@@ -339,7 +344,8 @@ class ScanEngine:
                     dry_run=self._dry_run,
                     grace_days=self._grace_days,
                 )
-            except Exception:
+            except (PlexApiException, requests.RequestException, sqlite3.Error):
+                # best-effort post-scan followup — must not abort scan summary
                 logger.exception("Newsletter sending failed — scan results unaffected")
 
         return summary
