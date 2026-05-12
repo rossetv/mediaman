@@ -75,21 +75,25 @@ def _poster_url(path: str | None) -> str | None:
     return f"{_POSTER_BASE}{path}" if path else None
 
 
-def _normalise_tmdb_item(item: dict) -> dict | None:
-    media_type = item.get("media_type")
-    if media_type not in ("movie", "tv"):
+def _normalise_tmdb_item(item: dict[str, object]) -> dict[str, object] | None:
+    raw_media_type = item.get("media_type")
+    if raw_media_type not in ("movie", "tv"):
         return None
-    title = item.get("title") or item.get("name") or ""
-    date = item.get("release_date") or item.get("first_air_date") or ""
+    media_type = str(raw_media_type)
+    raw_title = item.get("title") or item.get("name") or ""
+    title = str(raw_title)
+    raw_date = item.get("release_date") or item.get("first_air_date") or ""
+    date = str(raw_date)
     year: int | None = None
     if date[:4].isdigit():
         year = int(date[:4])
     vote = item.get("vote_average")
+    poster_path = item.get("poster_path")
     return {
         "tmdb_id": item.get("id"),
         "title": title,
         "year": year,
-        "poster_url": _poster_url(item.get("poster_path")),
+        "poster_url": _poster_url(poster_path if isinstance(poster_path, str) else None),
         "media_type": media_type,
         "rating": round(vote, 1) if isinstance(vote, (int, float)) and vote else None,
         "popularity": item.get("popularity", 0.0),
@@ -97,7 +101,7 @@ def _normalise_tmdb_item(item: dict) -> dict | None:
     }
 
 
-def _annotate_states(results: list[dict], request: Request) -> None:
+def _annotate_states(results: list[dict[str, object]], request: Request) -> None:
     conn = get_db()
     secret_key = request.app.state.config.secret_key
 
@@ -119,8 +123,12 @@ def _annotate_states(results: list[dict], request: Request) -> None:
 
     caches: ArrCaches = {**radarr_cache, **sonarr_cache}
     for r in results:
-        if r.get("tmdb_id"):
-            r["download_state"] = compute_download_state(r["media_type"], r["tmdb_id"], caches)
+        tmdb_id = r.get("tmdb_id")
+        if tmdb_id and isinstance(tmdb_id, int):
+            media_type = r["media_type"]
+            r["download_state"] = compute_download_state(
+                str(media_type), tmdb_id, caches
+            )
 
 
 # Wall-clock budget for the parallel ratings-enrichment fan-out. The previous
@@ -132,21 +140,22 @@ def _annotate_states(results: list[dict], request: Request) -> None:
 _ENRICH_BUDGET_SECONDS = 6.0
 
 
-def _enrich_ratings(results: list[dict], request: Request) -> None:
+def _enrich_ratings(results: list[dict[str, object]], request: Request) -> None:
     conn = get_db()
     secret_key = request.app.state.config.secret_key
     cutoff = (datetime.now(UTC) - timedelta(days=_RATINGS_TTL_DAYS)).isoformat()
 
-    by_key: dict[tuple[int, str], list[dict]] = {}
+    by_key: dict[tuple[int, str], list[dict[str, object]]] = {}
     for r in results:
         tmdb_id = r.get("tmdb_id")
-        if tmdb_id:
-            by_key.setdefault((tmdb_id, r["media_type"]), []).append(r)
+        if tmdb_id and isinstance(tmdb_id, int):
+            media_type = r["media_type"]
+            by_key.setdefault((tmdb_id, str(media_type)), []).append(r)
 
     if not by_key:
         return
 
-    def _apply(group: list[dict], rt: str | None, imdb: str | None) -> None:
+    def _apply(group: list[dict[str, object]], rt: str | None, imdb: str | None) -> None:
         for item in group:
             if rt:
                 item["rt_rating"] = rt
@@ -155,7 +164,7 @@ def _enrich_ratings(results: list[dict], request: Request) -> None:
 
     rows = fetch_ratings_cache(conn, list(by_key.keys()))
 
-    misses: list[tuple[tuple[int, str], list[dict]]] = []
+    misses: list[tuple[tuple[int, str], list[dict[str, object]]]] = []
     for key, group in by_key.items():
         cached = next((r for r in rows if r.tmdb_id == key[0] and r.media_type == key[1]), None)
         if cached and cached.fetched_at >= cutoff:

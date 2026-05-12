@@ -53,6 +53,6 @@ class DownloadItem(TypedDict):
     arr_link: str
     arr_source: str
     abandon_visible: bool
-    stuck_seasons: list[dict]
+    stuck_seasons: list[dict[str, int]]
     arr_id: int
     kind: str

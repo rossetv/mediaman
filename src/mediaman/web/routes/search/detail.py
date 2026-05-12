@@ -42,18 +42,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _pick_trailer(videos: list[dict]) -> str | None:
+def _pick_trailer(videos: list[dict[str, object]]) -> str | None:
     fallback: str | None = None
     for v in videos:
         if v.get("site") != "YouTube":
             continue
-        key = v.get("key")
-        if not key:
+        raw_key = v.get("key")
+        if not raw_key or not isinstance(raw_key, str):
             continue
         if v.get("type") == "Trailer":
-            return key
+            return raw_key
         if fallback is None:
-            fallback = key
+            fallback = raw_key
     return fallback
 
 
@@ -86,7 +86,7 @@ def _fetch_sonarr_series_detail(
     return {"tracked": True, "seasons_in_library": in_library}
 
 
-def _extract_credits(data: dict, media_type: str) -> tuple[int | None, str | None, list[dict]]:
+def _extract_credits(data: dict[str, Any], media_type: str) -> tuple[int | None, str | None, list[dict[str, object]]]:
     if media_type == "movie":
         runtime = data.get("runtime")
         director: str | None = next(
@@ -195,7 +195,7 @@ def api_detail(
     caches: ArrCaches = {**radarr_cache, **sonarr_cache}
     state = compute_download_state(media_type, tmdb_id, caches)
 
-    out: dict = {
+    out: dict[str, object] = {
         "tmdb_id": tmdb_id,
         "media_type": media_type,
         "title": title,

@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from ._types import ScheduledNewsletterItem
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -45,7 +47,7 @@ def _get_jinja_env() -> Environment | None:
     return _JINJA_ENV
 
 
-def _build_subject(scheduled_items: list[dict], dry_run: bool) -> str:
+def _build_subject(scheduled_items: list[ScheduledNewsletterItem], dry_run: bool) -> str:
     """Format the newsletter email subject line."""
     total_size_bytes = sum(i["file_size_bytes"] for i in scheduled_items)
     if total_size_bytes >= 1 << 40:
