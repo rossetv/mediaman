@@ -39,8 +39,8 @@ def _get_jinja_env() -> Environment | None:
         return None
     try:
         _JINJA_ENV = Environment(loader=FileSystemLoader(str(_TEMPLATE_DIR)), autoescape=True)
-    except (FileNotFoundError, _TemplateError) as exc:  # pragma: no cover
-        logger.warning("Jinja2 environment could not be initialised: %s", exc)
+    except (FileNotFoundError, _TemplateError):  # pragma: no cover
+        logger.exception("Jinja2 environment could not be initialised")
         return None
     return _JINJA_ENV
 

@@ -464,11 +464,11 @@ def download_status(
             )
         return JSONResponse(result)
 
-    except (requests.RequestException, SafeHTTPError) as exc:
+    except (requests.RequestException, SafeHTTPError):
         # Both transport (RequestException) and Arr-level non-2xx
         # (SafeHTTPError) failures are bounded behaviours we report as
         # "unknown" rather than 500. Without SafeHTTPError in this clause
         # a Radarr/Sonarr 500 would propagate as an unhandled exception
         # and surface as a 500 to the polling client.
-        logger.warning("download_status error (service=%s tmdb_id=%s): %s", service, tmdb_id, exc)
+        logger.exception("download_status error (service=%s tmdb_id=%s)", service, tmdb_id)
         return JSONResponse(_UNKNOWN_ITEM)
