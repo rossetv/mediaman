@@ -374,12 +374,15 @@ class TestClearScheduledAuditLog:
 
         import sqlite3 as _sqlite3
 
-        from mediaman.web.routes import scan as scan_module
+        from mediaman.core import audit as audit_module
 
         def boom(*_a, **_k):
             raise _sqlite3.OperationalError("simulated audit failure")
 
-        monkeypatch.setattr(scan_module, "security_event_or_raise", boom)
+        # Audit is called via lazy ``from mediaman.core.audit import
+        # security_event_or_raise`` inside clear_pending_deletions —
+        # patch the source so the patched function intercepts the call.
+        monkeypatch.setattr(audit_module, "security_event_or_raise", boom)
 
         resp = client.post("/api/scan/clear-scheduled")
         assert resp.status_code == 500
