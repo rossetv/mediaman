@@ -15,10 +15,13 @@ reads it back with secrets decrypted.
 
 from __future__ import annotations
 
+import binascii
 import json
 import logging
 import sqlite3
 from collections.abc import Iterable
+
+from cryptography.exceptions import InvalidTag
 
 from mediaman.crypto import decrypt_value, encrypt_value
 from mediaman.services.infra.settings_reader import ConfigDecryptError
@@ -93,7 +96,13 @@ def load_settings(
                 settings[row["key"]] = decrypt_value(
                     raw, secret_key, conn=conn, aad=row["key"].encode()
                 )
-            except Exception as exc:
+            # rationale: tightened to the exact exception set raised by
+            # the AES-GCM decrypt path — InvalidTag for AAD/ciphertext
+            # corruption, ValueError for malformed length / unknown
+            # version envelopes, binascii.Error for base64 decode failure.
+            # A broader ``except Exception`` would swallow programmer
+            # bugs (TypeError, AttributeError) in the same banner.
+            except (InvalidTag, ValueError, binascii.Error) as exc:
                 logger.warning(
                     "Failed to decrypt setting %r — surfacing error to caller",
                     row["key"],

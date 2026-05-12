@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from typing import cast
 
+from mediaman.services.arr._transport import ArrUpstreamError
 from mediaman.services.arr._types import RadarrMovie
 
 logger = logging.getLogger(__name__)
@@ -34,12 +35,12 @@ class _RadarrMixin:
     def get_movie_by_id(self, movie_id: int) -> dict[str, object]:
         """Return a single movie by its Radarr ID.
 
-        Raises :exc:`ValueError` when Radarr returns a non-dict response.
+        Raises :exc:`ArrUpstreamError` when Radarr returns a non-dict response.
         """
         self._require_movie("get_movie_by_id")  # type: ignore[attr-defined]
         data = self._get(f"/api/v3/movie/{movie_id}")  # type: ignore[attr-defined]
         if not isinstance(data, dict):
-            raise ValueError(
+            raise ArrUpstreamError(
                 f"Radarr returned unexpected type for movie {movie_id}: {type(data).__name__}"
             )
         return data

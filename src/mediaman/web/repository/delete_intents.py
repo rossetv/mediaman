@@ -41,6 +41,16 @@ class MediaDeleteSnapshot(TypedDict):
     plex_rating_key: str | None
 
 
+class _MediaNotFound(Exception):
+    """Internal sentinel raised inside ``with conn:`` to trigger rollback.
+
+    Local to :func:`snapshot_media_for_delete` — the caller catches it and
+    converts it into a 403 wire response.  Distinct from a generic
+    ``RuntimeError`` so the ``except`` clause cannot accidentally swallow
+    an unrelated bug.
+    """
+
+
 def _record_delete_intent(
     conn: sqlite3.Connection,
     media_item_id: str,
@@ -110,6 +120,10 @@ def _reconcile_one_intent(conn: sqlite3.Connection, intent_id: int, media_item_i
             media_item_id,
         )
         return True
+    # rationale: §6.4 site 4 (cold-start) — reconciler runs at startup and
+    # processes the whole intent backlog; every error must roll back the
+    # current intent's transaction and record the failure so the next
+    # startup retries without crashing the boot sequence.
     except Exception as exc:
         with contextlib.suppress(Exception):
             conn.execute("ROLLBACK")
@@ -158,7 +172,6 @@ def snapshot_media_for_delete(
     when the row is absent.  Treats "not found" as 403 rather than 404
     so the endpoint cannot be used as an existence oracle.
     """
-    _not_found = False
     try:
         with conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -169,8 +182,7 @@ def snapshot_media_for_delete(
                 (media_id,),
             ).fetchone()
             if row is None:
-                _not_found = True
-                raise RuntimeError("not_found")  # triggers with-block rollback
+                raise _MediaNotFound  # triggers with-block rollback
             snapshot = MediaDeleteSnapshot(
                 title=row["title"],
                 media_type=row["media_type"],
@@ -181,10 +193,8 @@ def snapshot_media_for_delete(
                 season_number=row["season_number"],
                 plex_rating_key=row["plex_rating_key"],
             )
-    except RuntimeError:
-        if _not_found:
-            return None, respond_err("forbidden", status=403)
-        raise
+    except _MediaNotFound:
+        return None, respond_err("forbidden", status=403)
     return snapshot, None
 
 
@@ -209,6 +219,9 @@ def handle_radarr_delete(
     try:
         client.delete_movie(int(radarr_id))
         logger.info("Deleted '%s' via Radarr (id %s, with files + exclusion)", title, radarr_id)
+    # rationale: Arr-side errors arrive in several shapes (SafeHTTPError,
+    # requests exceptions, ArrError variants); we need them all so the
+    # 404-idempotent branch and the intent_failed branch can both fire.
     except Exception as exc:
         if _is_already_gone(exc):
             logger.info(
@@ -256,6 +269,8 @@ def handle_sonarr_delete(
                 "No files remain for '%s' — deleted series from Sonarr with exclusion",
                 title,
             )
+    # rationale: symmetric with the Radarr handler — catch every error so
+    # both the 404-idempotent path and the intent_failed path can fire.
     except Exception as exc:
         if _is_already_gone(exc):
             logger.info(

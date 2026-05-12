@@ -83,12 +83,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except DataDirNotWritableError as exc:
         logger.critical("%s", exc)
         sys.exit(1)
+    # rationale: §6.4 site 4 (cold-start) — any further bootstrap failure
+    # must abort process; we cannot serve traffic without a DB.
     except Exception as exc:
         logger.critical("Database bootstrap failed at startup: %s", exc, exc_info=True)
         sys.exit(1)
 
     try:
         bootstrap_crypto(app, config)
+    # rationale: §6.4 site 4 (cold-start) — crypto absence means we cannot
+    # decrypt secrets or sign tokens; abort process rather than serve broken
+    # responses. bootstrap_crypto itself swallows recoverable errors.
     except Exception as exc:  # pragma: no cover — bootstrap_crypto already swallows
         logger.critical("Crypto bootstrap failed at startup: %s", exc, exc_info=True)
         sys.exit(1)
@@ -104,6 +109,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         reconciled = reconcile_pending_delete_intents()
         if reconciled:
             logger.info("Reconciled %d pending delete intent(s) at startup", reconciled)
+    # rationale: §6.4 site 4 (cold-start) — startup reconciliation is
+    # best-effort; failing it must not block the rest of bootstrap.
     except Exception:
         logger.exception("delete-intent reconciliation failed at startup; continuing")
 
@@ -117,6 +124,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         reset = reconcile_stranded_notifications(app.state.db)
         if reset:
             logger.info("Reconciled %d stranded download notification(s) at startup", reset)
+    # rationale: §6.4 site 4 (cold-start) — best-effort reconciliation;
+    # don't block startup if the DB query path is briefly unhappy.
     except Exception:
         logger.exception("download-notification reconciliation failed at startup; continuing")
 

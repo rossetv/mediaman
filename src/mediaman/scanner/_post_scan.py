@@ -48,6 +48,8 @@ def run_post_scan_followups(
     if _get_bool_setting(conn, "suggestions_enabled", default=True):
         try:
             _refresh_recommendations(conn, plex_client, secret_key=secret_key)
+        # rationale: §6.4 site 2 (scheduler-job-runner) — post-scan side
+        # effect; never allow a recommendations bug to mark the scan failed.
         except Exception:
             logger.exception("Recommendation generation failed — scan results unaffected")
     try:
@@ -57,5 +59,7 @@ def run_post_scan_followups(
             dry_run=dry_run,
             grace_days=grace_days,
         )
+    # rationale: §6.4 site 2 (scheduler-job-runner) — post-scan side effect;
+    # mailgun/SMTP transient outages must not cascade into a failed scan.
     except Exception:
         logger.exception("Newsletter sending failed — scan results unaffected")
