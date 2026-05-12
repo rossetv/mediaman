@@ -10,7 +10,7 @@ import pytest
 
 from mediaman.services.arr.base import ArrClient
 from mediaman.services.arr.spec import SONARR_SPEC
-from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError
 
 
 @pytest.fixture

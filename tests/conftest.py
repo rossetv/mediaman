@@ -174,6 +174,7 @@ def fake_http(monkeypatch):
     monkey-patched to route through the fake, so every outbound call
     from any SafeHTTPClient in-process is captured.
     """
+    # rationale: submodule object needed to monkeypatch _dispatch; not re-exported from infra top-level
     from mediaman.services.infra.http import client as http_client
 
     fh = _FakeHTTPSession()

@@ -39,8 +39,12 @@ from mediaman.crypto import decrypt_value
 from mediaman.services.arr import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.download_format import extract_poster_url
-from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
-from mediaman.services.infra.url_safety import allowed_outbound_hosts, is_safe_outbound_url
+from mediaman.services.infra import (
+    SafeHTTPClient,
+    SafeHTTPError,
+    allowed_outbound_hosts,
+    is_safe_outbound_url,
+)
 from mediaman.web.repository.poster import PosterArrIds, fetch_arr_ids, fetch_plex_credentials
 from mediaman.web.routes.poster.cache import ALLOWED_IMAGE_MIMES
 

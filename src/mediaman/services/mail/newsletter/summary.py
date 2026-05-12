@@ -122,8 +122,7 @@ def _load_storage_stats(
 
     Returns ``(storage_dict, reclaimed_week, reclaimed_month, reclaimed_total)``.
     """
-    from mediaman.services.infra.settings_reader import get_media_path
-    from mediaman.services.infra.storage import get_aggregate_disk_usage
+    from mediaman.services.infra import get_aggregate_disk_usage, get_media_path
 
     type_rows = conn.execute(
         "SELECT media_type, SUM(file_size_bytes) AS total FROM media_items GROUP BY media_type"

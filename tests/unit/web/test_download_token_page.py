@@ -354,7 +354,7 @@ class TestTwoPhaseConsumption:
 
     def test_token_not_released_on_409(self, app_factory, conn, secret_key, templates_stub):
         """A SafeHTTPError 409 from Radarr means the item already exists — token stays consumed."""
-        from mediaman.services.infra.http import SafeHTTPError
+        from mediaman.services.infra import SafeHTTPError
 
         app = app_factory(download_router, conn=conn, state_extras={"templates": templates_stub})
         client = TestClient(app)
@@ -388,7 +388,7 @@ class TestTwoPhaseConsumption:
         in the library — exactly the state the user wants to re-grab. The
         token MUST be released so the page can immediately retry rather than
         leaving the user stuck with 'link already used' on the next click."""
-        from mediaman.services.infra.http import SafeHTTPError
+        from mediaman.services.infra import SafeHTTPError
 
         app = app_factory(download_router, conn=conn, state_extras={"templates": templates_stub})
         client = TestClient(app)

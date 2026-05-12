@@ -22,7 +22,7 @@ from mediaman.db import get_db
 from mediaman.services.arr import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.downloads.notifications import record_download_notification as _record_dn
-from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import ActionRateLimiter, RateLimiter, get_client_ip
 from mediaman.web.auth.middleware import get_current_admin
 

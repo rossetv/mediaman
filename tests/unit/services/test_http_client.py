@@ -14,18 +14,19 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 from mediaman.services.infra.http import (
-    SafeHTTPClient,
-    SafeHTTPError,
+    client as http_client,  # rationale: submodule object needed to monkeypatch _dispatch; not re-exported from infra top-level
+)
+from mediaman.services.infra.http import (
+    dns_pinning as _dns_pinning,  # rationale: submodule object needed to monkeypatch getaddrinfo hook; not re-exported from infra top-level
+)
+from mediaman.services.infra.http import (
     pin_dns_for_request,
 )
-from mediaman.services.infra.http import (
-    client as http_client,
+from mediaman.services.infra.http.retry import (
+    _BODY_SNIPPET_BYTES,  # rationale: private constant governing body-snippet truncation; exercised directly to pin the threshold contract
 )
-from mediaman.services.infra.http import (
-    dns_pinning as _dns_pinning,
-)
-from mediaman.services.infra.http.retry import _BODY_SNIPPET_BYTES
 
 
 def _response(*, status=200, body=b"", headers=None):

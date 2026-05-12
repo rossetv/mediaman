@@ -571,7 +571,7 @@ class TestRedownloadSafeHTTPError:
         self, app_factory, authed_client, conn
     ):
         """A 409 SafeHTTPError from Radarr returns the 'already exists in Radarr' message."""
-        from mediaman.services.infra.http import SafeHTTPError
+        from mediaman.services.infra import SafeHTTPError
 
         app = _app(app_factory, conn)
         client = authed_client(app, conn)
@@ -596,7 +596,7 @@ class TestRedownloadSafeHTTPError:
         self, app_factory, authed_client, conn
     ):
         """A 422 SafeHTTPError from Radarr is treated identically to 409."""
-        from mediaman.services.infra.http import SafeHTTPError
+        from mediaman.services.infra import SafeHTTPError
 
         app = _app(app_factory, conn)
         client = authed_client(app, conn)
@@ -621,7 +621,7 @@ class TestRedownloadSafeHTTPError:
         self, app_factory, authed_client, conn
     ):
         """A 409 SafeHTTPError from Sonarr returns the 'already exists in Sonarr' message."""
-        from mediaman.services.infra.http import SafeHTTPError
+        from mediaman.services.infra import SafeHTTPError
 
         app = _app(app_factory, conn)
         client = authed_client(app, conn)

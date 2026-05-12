@@ -6,8 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests as http_requests
 
-from mediaman.services.infra.http import SafeHTTPError
-from mediaman.services.infra.url_safety import SSRFRefused
+from mediaman.services.infra import SafeHTTPError, SSRFRefused
 from mediaman.services.media_meta import plex as plex_module
 from mediaman.services.media_meta.plex import (
     PlexClient,
@@ -553,6 +552,7 @@ class TestSafePlexSession:
         """The validated IP must be pinned for the duration of the request."""
         import socket as _socket
 
+        # rationale: submodule object needed to monkeypatch _patched_getaddrinfo; dns_pinning is not re-exported from infra top-level
         from mediaman.services.infra.http import dns_pinning as _dns_pinning
 
         monkeypatch.setattr(

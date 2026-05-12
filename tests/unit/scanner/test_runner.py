@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mediaman.db import init_db
-from mediaman.services.infra.url_safety import SSRFRefused
+from mediaman.services.infra import SSRFRefused
 
 # Capture the namedtuple type ``shutil.disk_usage`` returns ONCE at import
 # time. Calling ``shutil.disk_usage(path)`` from inside a side_effect would

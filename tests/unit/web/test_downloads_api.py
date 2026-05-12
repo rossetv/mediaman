@@ -506,7 +506,7 @@ class TestDownloadStatusAPI:
     def test_status_safehttperror_returns_unknown_not_500(self, db_path, secret_key):
         """A SafeHTTPError from an Arr 5xx must surface as the 'unknown' state,
         not propagate as an unhandled exception → HTTP 500 to the client."""
-        from mediaman.services.infra.http import SafeHTTPError
+        from mediaman.services.infra import SafeHTTPError
 
         conn = init_db(str(db_path))
         app = _make_download_app(conn, secret_key)

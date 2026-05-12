@@ -51,7 +51,7 @@ def _load_mailgun_settings(conn: sqlite3.Connection, secret_key: str) -> tuple[s
     settings are missing.  When *all* four are missing, logs at DEBUG and
     returns empty strings (caller should then return early quietly).
     """
-    from mediaman.services.infra.settings_reader import get_string_setting
+    from mediaman.services.infra import get_string_setting
 
     domain = get_string_setting(conn, "mailgun_domain", secret_key=secret_key)
     api_key = get_string_setting(conn, "mailgun_api_key", secret_key=secret_key)

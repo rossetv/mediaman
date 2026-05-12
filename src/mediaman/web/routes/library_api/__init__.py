@@ -41,7 +41,7 @@ from mediaman.core.time import now_utc
 from mediaman.db import get_db
 from mediaman.services.arr.base import ArrClient, ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
-from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.services.scheduled_actions import resolve_keep_decision
 from mediaman.web.auth.middleware import get_current_admin

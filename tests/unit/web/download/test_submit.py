@@ -20,7 +20,7 @@ from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 from mediaman.crypto import generate_download_token, validate_poll_token
-from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError
 from mediaman.web.routes.download._tokens import _USED_TOKENS, _USED_TOKENS_LOCK
 from mediaman.web.routes.download.submit import (
     _DOWNLOAD_LIMITER_POST,

@@ -24,7 +24,7 @@ from collections.abc import Iterable
 from cryptography.exceptions import InvalidTag
 
 from mediaman.crypto import CryptoInputError, decrypt_value, encrypt_value
-from mediaman.services.infra.settings_reader import ConfigDecryptError
+from mediaman.services.infra import ConfigDecryptError
 
 #: Sentinel value displayed in the UI and sent back when a secret field is
 #: unchanged — never persisted to the database.

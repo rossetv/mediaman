@@ -312,7 +312,7 @@ class TestLookupSeriesByTmdb:
         """Network failures propagate so callers can distinguish 'not found' from 'call failed'."""
         import requests
 
-        from mediaman.services.infra.http import SafeHTTPError
+        from mediaman.services.infra import SafeHTTPError
 
         fake_http.raise_on("GET", requests.ConnectionError("boom"))
         with pytest.raises(SafeHTTPError):
@@ -459,7 +459,7 @@ class TestDeleteEpisodeFiles:
 
     def test_non_404_http_error_propagates(self, client, fake_http, fake_response):
         """A 500 from the bulk endpoint must not be silently swallowed."""
-        from mediaman.services.infra.http import SafeHTTPError
+        from mediaman.services.infra import SafeHTTPError
 
         fake_http.queue("GET", fake_response(json_data=[{"id": 99, "seasonNumber": 2}]))
         fake_http.queue("DELETE", fake_response(status=500, text="server error"))

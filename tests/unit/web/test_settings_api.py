@@ -476,7 +476,7 @@ class TestApiTestServiceOpenAiTmdbOmdb:
 
         from unittest.mock import patch
 
-        from mediaman.services.infra.http import SafeHTTPError
+        from mediaman.services.infra import SafeHTTPError
 
         with patch(
             "mediaman.services.infra.http.client._dispatch",
@@ -495,7 +495,7 @@ class TestApiTestServiceOpenAiTmdbOmdb:
 
         from unittest.mock import patch
 
-        from mediaman.services.infra.http import SafeHTTPError
+        from mediaman.services.infra import SafeHTTPError
 
         with patch(
             "mediaman.services.infra.http.client._dispatch",
@@ -516,7 +516,7 @@ class TestApiTestServiceOpenAiTmdbOmdb:
 
         from unittest.mock import patch
 
-        from mediaman.services.infra.http import SafeHTTPError
+        from mediaman.services.infra import SafeHTTPError
 
         with patch(
             "mediaman.services.infra.http.client._dispatch",
@@ -644,7 +644,7 @@ class TestSettingsLoadDistinguishesDecryptFromMissing:
     def test_decrypt_failure_raises_config_decrypt_error(self, conn, secret_key):
         from datetime import datetime
 
-        from mediaman.services.infra.settings_reader import ConfigDecryptError
+        from mediaman.services.infra import ConfigDecryptError
         from mediaman.web.routes.settings import _load_settings
 
         # Write a ciphertext encrypted under one key, then attempt to

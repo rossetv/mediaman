@@ -16,7 +16,7 @@ from typing import TypedDict
 import requests
 
 from mediaman.services.arr import ArrError
-from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError
 
 logger = logging.getLogger(__name__)
 

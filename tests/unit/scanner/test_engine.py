@@ -8,7 +8,7 @@ import requests
 
 from mediaman.db import finish_scan_run, init_db, is_scan_running, start_scan_run
 from mediaman.scanner.engine import ScanEngine
-from mediaman.services.infra.storage import DeletionRefused
+from mediaman.services.infra import DeletionRefused
 from tests.helpers.factories import insert_kept_show, insert_media_item, insert_scheduled_action
 
 

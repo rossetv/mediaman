@@ -18,7 +18,7 @@ from typing import Any
 
 import requests
 
-from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
+from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 
 logger = logging.getLogger(__name__)
 

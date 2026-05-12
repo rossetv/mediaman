@@ -20,7 +20,7 @@ from mediaman.services.arr.state import (
     build_sonarr_cache,
     compute_download_state,
 )
-from mediaman.services.infra.settings_reader import get_bool_setting
+from mediaman.services.infra import get_bool_setting
 from mediaman.services.openai.recommendations.throttle import refresh_cooldown_remaining
 from mediaman.web.auth.middleware import resolve_page_session
 from mediaman.web.repository.recommended import fetch_recommendations

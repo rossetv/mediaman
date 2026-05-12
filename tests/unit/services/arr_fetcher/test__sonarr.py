@@ -293,7 +293,7 @@ class TestFetchSonarrQueueSearching:
         non-2xx responses; the previous code dropped every already-
         collected card when get_series returned 503.
         """
-        from mediaman.services.infra.http import SafeHTTPError
+        from mediaman.services.infra import SafeHTTPError
 
         client = MagicMock()
         client.get_queue.return_value = [_queue_ep()]
@@ -309,7 +309,7 @@ class TestFetchSonarrQueueSearching:
         ``RequestException`` — a 503 propagated to the outer handler and
         wiped the partial result.
         """
-        from mediaman.services.infra.http import SafeHTTPError
+        from mediaman.services.infra import SafeHTTPError
 
         client = MagicMock()
         client.get_queue.return_value = []

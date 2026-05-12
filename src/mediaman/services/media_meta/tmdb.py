@@ -21,8 +21,7 @@ from typing import Any, TypedDict
 
 import requests
 
-from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
-from mediaman.services.infra.settings_reader import get_string_setting
+from mediaman.services.infra import SafeHTTPClient, SafeHTTPError, get_string_setting
 
 logger = logging.getLogger(__name__)
 

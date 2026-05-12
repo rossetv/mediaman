@@ -60,7 +60,7 @@ from mediaman.services.downloads.download_queue.queue import (
 from mediaman.services.downloads.download_queue.queue import (
     parse_nzb_queue as _parse_nzb_queue,
 )
-from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError
 
 logger = logging.getLogger(__name__)
 

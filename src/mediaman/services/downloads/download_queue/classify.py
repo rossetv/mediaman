@@ -14,7 +14,7 @@ import logging
 import sqlite3
 
 from mediaman.services.downloads.download_format import format_relative_time
-from mediaman.services.infra.settings_reader import ConfigDecryptError
+from mediaman.services.infra import ConfigDecryptError
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +93,7 @@ def arr_base_urls(conn: sqlite3.Connection, secret_key: str) -> dict[str, str]:
     Values have any trailing slash stripped. Missing settings map to ``""``
     so callers can safely skip link rendering when the service isn't configured.
     """
-    from mediaman.services.infra.settings_reader import get_string_setting as _get_string_setting
+    from mediaman.services.infra import get_string_setting as _get_string_setting
 
     try:
         out = {}

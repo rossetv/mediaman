@@ -33,7 +33,7 @@ from mediaman.core.format import days_ago as _days_ago_fmt
 from mediaman.core.format import format_bytes, relative_day_label
 from mediaman.core.scheduled_action_kinds import ACTION_PROTECTED_FOREVER, ACTION_SNOOZED
 from mediaman.core.time import now_utc, parse_iso_strict_utc, parse_iso_utc
-from mediaman.services.infra.settings_reader import get_int_setting
+from mediaman.services.infra import get_int_setting
 
 # ---------------------------------------------------------------------------
 # Shared constants — used by both library.py and library_api/__init__.py.

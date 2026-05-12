@@ -27,7 +27,7 @@ from mediaman.services.downloads.download_format import (
 )
 from mediaman.services.downloads.download_format._types import DownloadItem
 from mediaman.services.downloads.download_queue import build_episode_dicts
-from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.web.auth.middleware import get_optional_admin
 from mediaman.web.repository.download import fetch_recent_download

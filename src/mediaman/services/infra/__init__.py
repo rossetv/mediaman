@@ -14,18 +14,16 @@ primitives that every other service package depends on.
 
 Public surface
 --------------
-§1.7 says the package ``__init__.py`` is the public surface.  The names
-below are the canonical entry points; callers can — and where it reads
-shorter, should — import from ``mediaman.services.infra`` directly:
+§1.7 says the package ``__init__.py`` is the public surface.  All callers
+**must** import from ``mediaman.services.infra`` directly:
 
     >>> from mediaman.services.infra import get_string_setting, SafeHTTPError
 
-The original sub-module paths (``mediaman.services.infra.settings_reader``,
-``mediaman.services.infra.storage``, ``mediaman.services.infra.path_safety``,
-``mediaman.services.infra.http``) remain valid imports — re-exporting here
-is additive, not replacing.  Callers that name a sub-module explicitly to
-signal *which* primitive they are reaching for (e.g. ``path_safety``)
-should keep doing so for readability.
+Reaching past this surface into sub-modules
+(``mediaman.services.infra.settings_reader``, ``mediaman.services.infra.http``,
+etc.) couples callers to implementation detail and is a code-review blocker.
+The only exception is a site with an explicit ``# rationale:`` comment
+explaining why the public surface cannot satisfy the requirement.
 """
 
 from mediaman.services.infra.http import (
