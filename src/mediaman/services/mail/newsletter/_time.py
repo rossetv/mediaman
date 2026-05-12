@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from mediaman.core.format import ensure_tz as _ensure_tz
+from mediaman.core.time import parse_iso_strict_utc
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +19,8 @@ def _parse_days_ago(value: str | None, now: datetime) -> int | None:
     """
     if not value:
         return None
-    try:
-        dt = datetime.fromisoformat(str(value))
-        dt = _ensure_tz(dt)
-        return (now - dt).days
-    except (ValueError, TypeError):
-        logger.warning("Failed to parse days value: %r", value, exc_info=True)
+    dt = parse_iso_strict_utc(str(value))
+    if dt is None:
+        logger.warning("Failed to parse days value: %r", value)
         return None
+    return (now - dt).days
