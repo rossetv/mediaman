@@ -1,11 +1,43 @@
-"""Redownload helpers: request schema, lookup matching, and audit-ID generation."""
+"""Redownload route, request schema, lookup matching, and audit-ID generation.
+
+The ``POST /api/media/redownload`` handler lives here together with the
+helpers it consumes; the barrel module re-exports the public names so
+existing test patch targets (``mediaman.web.routes.library_api.foo``)
+keep working.
+"""
 
 from __future__ import annotations
 
 import difflib
+import logging
+import sqlite3
 from collections.abc import Mapping, Sequence
+from urllib.parse import quote as _url_quote
 
+import requests
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
+
+from mediaman.db import get_db
+from mediaman.services.arr.base import ArrError
+from mediaman.services.infra.http import SafeHTTPError
+from mediaman.services.rate_limit import ActionRateLimiter
+from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.repository.library_api import record_redownload
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+# Per-admin cap on redownload triggers.  Each call spawns an Arr lookup +
+# add_movie/add_series round-trip, so a tighter burst cap than the search
+# path: 20 per minute / 200 per day per actor.
+_REDOWNLOAD_LIMITER = ActionRateLimiter(
+    max_in_window=20,
+    window_seconds=60,
+    max_per_day=200,
+)
 
 # Minimum title similarity accepted for a title+year fuzzy match.
 _REDOWNLOAD_TITLE_SIMILARITY = 0.9
@@ -124,3 +156,191 @@ def _redownload_audit_id(
     # Should never happen — caller guarantees at least one stable id is
     # present before we reach here.
     return f"redownload:{media_type}"
+
+
+# rationale: spans Radarr + Sonarr lookup, candidate matching, Arr
+# add-movie/add-series calls, and audit-log writes that all share a single DB
+# connection and must roll back together — splitting the branches into helpers
+# would require threading the connection and rollback state through every call.
+@router.post("/api/media/redownload")
+def api_media_redownload(
+    request: Request,
+    body: _RedownloadRequest,
+    username: str = Depends(get_current_admin),
+) -> JSONResponse:
+    """Re-download a deleted media item via Radarr or Sonarr."""
+    # Late import: the barrel re-exports build_radarr_from_db /
+    # build_sonarr_from_db, and tests patch those names at the barrel
+    # module path. A top-level ``from ...library_api import …`` here would
+    # create a circular import (barrel → redownload → barrel), so we look
+    # them up at call time via the fully-loaded barrel.
+    from mediaman.web.routes.library_api import build_radarr_from_db, build_sonarr_from_db
+
+    if not _REDOWNLOAD_LIMITER.check(username):
+        logger.warning("media.redownload_throttled user=%s", username)
+        return JSONResponse(
+            {"ok": False, "error": "Too many redownload requests — slow down"},
+            status_code=429,
+        )
+
+    title = body.title.strip()[:256]
+    year = body.year
+    tmdb_id = body.tmdb_id
+    tvdb_id = body.tvdb_id
+    imdb_id = body.imdb_id.strip() if body.imdb_id else None
+    if imdb_id == "":
+        imdb_id = None
+
+    if tmdb_id is None and tvdb_id is None and not imdb_id and (not title or year is None):
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": (
+                    "Provide at least one of tmdb_id, tvdb_id, imdb_id; "
+                    "title+year alone is only accepted with an exact "
+                    "year and a confident title match"
+                ),
+            },
+            status_code=400,
+        )
+
+    if not title:
+        return JSONResponse({"ok": False, "error": "No title provided"}, status_code=400)
+
+    conn = get_db()
+    config = request.app.state.config
+
+    # Try Radarr first (movies)
+    try:
+        client = build_radarr_from_db(conn, config.secret_key)
+        if client:
+            lookup = client.lookup_by_term(_url_quote(title), endpoint="/api/v3/movie/lookup")
+            entry, _err = _pick_lookup_match(
+                lookup or [],
+                title=title,
+                year=year,
+                tmdb_id=tmdb_id,
+                tvdb_id=None,
+                imdb_id=imdb_id,
+                id_keys=("tmdbId", "imdbId"),
+            )
+            if entry is not None:
+                resolved_tmdb = entry.get("tmdbId")
+                if resolved_tmdb:
+                    resolved_title = str(entry.get("title") or title)
+                    resolved_tmdb_int = int(str(resolved_tmdb))
+                    client.add_movie(resolved_tmdb_int, resolved_title)
+                    audit_id = _redownload_audit_id(
+                        media_type="movie",
+                        tmdb_id=resolved_tmdb_int,
+                        tvdb_id=None,
+                        imdb_id=imdb_id,
+                    )
+                    record_redownload(
+                        conn,
+                        audit_id=audit_id,
+                        audit_detail=f"Re-downloaded '{resolved_title}' by {username}",
+                        actor=username,
+                        email=username,
+                        title=resolved_title,
+                        media_type="movie",
+                        service="radarr",
+                        tmdb_id=resolved_tmdb_int,
+                    )
+                    logger.info(
+                        "Re-downloaded '%s' (tmdb=%s) via Radarr by %s",
+                        resolved_title,
+                        resolved_tmdb,
+                        username,
+                    )
+                    return JSONResponse(
+                        {"ok": True, "message": f"Added '{resolved_title}' to Radarr"}
+                    )
+    except SafeHTTPError as exc:
+        if exc.status_code in (409, 422):
+            return JSONResponse({"ok": False, "error": f"'{title}' already exists in Radarr"})
+        # Fall through to try Sonarr
+    except (requests.RequestException, ArrError, ValueError, sqlite3.Error) as exc:
+        # Match the Sonarr branch so a Radarr misconfiguration
+        # (``ArrConfigError`` from missing root folder / quality profile,
+        # ``ArrUpstreamError`` from a bad lookup response, ``ValueError``
+        # from an invalid tmdb/tvdb id) doesn't abort the whole handler
+        # before the Sonarr fallback gets a chance to run.
+        logger.warning("Radarr redownload failed for '%s': %s", title, exc, exc_info=True)
+        # Fall through to try Sonarr
+
+    # Try Sonarr (TV)
+    try:
+        sonarr_client = build_sonarr_from_db(conn, config.secret_key)
+        if sonarr_client:
+            results = sonarr_client.lookup_by_term(
+                _url_quote(title), endpoint="/api/v3/series/lookup"
+            )
+            entry, err = _pick_lookup_match(
+                results or [],
+                title=title,
+                year=year,
+                tmdb_id=tmdb_id,
+                tvdb_id=tvdb_id,
+                imdb_id=imdb_id,
+                id_keys=("tvdbId", "tmdbId", "imdbId"),
+            )
+            if entry is not None:
+                resolved_tvdb = entry.get("tvdbId")
+                if resolved_tvdb:
+                    resolved_title = str(entry.get("title") or title)
+                    resolved_tvdb_int = int(str(resolved_tvdb))
+                    sonarr_client.add_series(resolved_tvdb_int, resolved_title)
+                    resolved_tmdb_sonarr = entry.get("tmdbId")
+                    resolved_tmdb_sonarr_int = (
+                        int(str(resolved_tmdb_sonarr)) if resolved_tmdb_sonarr is not None else None
+                    )
+                    audit_id = _redownload_audit_id(
+                        media_type="tv",
+                        tmdb_id=resolved_tmdb_sonarr_int,
+                        tvdb_id=resolved_tvdb_int,
+                        imdb_id=imdb_id,
+                    )
+                    record_redownload(
+                        conn,
+                        audit_id=audit_id,
+                        audit_detail=f"Re-downloaded '{resolved_title}' by {username}",
+                        actor=username,
+                        email=username,
+                        title=resolved_title,
+                        media_type="tv",
+                        service="sonarr",
+                        tmdb_id=resolved_tmdb_sonarr_int,
+                        tvdb_id=resolved_tvdb_int,
+                    )
+                    logger.info(
+                        "Re-downloaded '%s' (tvdb=%s) via Sonarr by %s",
+                        resolved_title,
+                        resolved_tvdb,
+                        username,
+                    )
+                    return JSONResponse(
+                        {"ok": True, "message": f"Added '{resolved_title}' to Sonarr"}
+                    )
+            if err in ("Ambiguous ID match", "Ambiguous title+year match"):
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": f"Ambiguous match for '{title}' — supply tmdb_id/tvdb_id/imdb_id",
+                    },
+                    status_code=409,
+                )
+    except SafeHTTPError as exc:
+        if exc.status_code in (409, 422):
+            return JSONResponse({"ok": False, "error": f"'{title}' already exists in Sonarr"})
+        logger.exception("Re-download via Sonarr failed for '%s': HTTP %s", title, exc.status_code)
+        return JSONResponse(
+            {"ok": False, "error": "Download request failed — check service connectivity"}
+        )
+    except (requests.RequestException, ArrError, ValueError, sqlite3.Error):
+        logger.exception("Re-download via Sonarr failed for '%s'", title)
+        return JSONResponse(
+            {"ok": False, "error": "Download request failed — check service connectivity"}
+        )
+
+    return JSONResponse({"ok": False, "error": f"'{title}' not found in Radarr or Sonarr"})
