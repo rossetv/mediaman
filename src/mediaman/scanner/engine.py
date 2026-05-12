@@ -54,7 +54,7 @@ from mediaman.scanner.deletions import (
 from mediaman.scanner.fetch import PlexFetcher, _PlexItemFetch
 from mediaman.scanner.phases.delete import remove_orphans
 from mediaman.scanner.phases.upsert import upsert_item as _phase_upsert_item
-from mediaman.services.infra.settings_reader import get_bool_setting as _get_bool_setting
+from mediaman.services.infra import get_bool_setting as _get_bool_setting
 from mediaman.services.mail.newsletter import send_newsletter as _send_newsletter
 from mediaman.services.openai.recommendations.persist import (
     refresh_recommendations as _refresh_recommendations,

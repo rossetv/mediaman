@@ -121,7 +121,7 @@ def _run_library_sync_job(secret_key: str) -> None:
 def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
     """Start the APScheduler jobs. Returns True iff the scheduler actually started."""
     from mediaman.scanner.scheduler import start_scheduler
-    from mediaman.services.infra.settings_reader import get_string_setting as _get_setting
+    from mediaman.services.infra import get_string_setting as _get_setting
 
     conn = app.state.db
     canary_ok = getattr(app.state, "canary_ok", True)

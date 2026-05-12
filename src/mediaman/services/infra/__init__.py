@@ -46,12 +46,14 @@ from mediaman.services.infra.settings_reader import (
     get_string_setting,
 )
 from mediaman.services.infra.storage import (
+    DeletionRefused,
     delete_path,
     get_aggregate_disk_usage,
     get_directory_size,
 )
 from mediaman.services.infra.url_safety import (
     PINNED_EXTERNAL_HOSTS,
+    SSRFRefused,
     allowed_outbound_hosts,
     is_safe_outbound_url,
     resolve_safe_outbound_url,
@@ -60,6 +62,8 @@ from mediaman.services.infra.url_safety import (
 __all__ = [
     "PINNED_EXTERNAL_HOSTS",
     "ConfigDecryptError",
+    "DeletionRefused",
+    "SSRFRefused",
     "SafeHTTPClient",
     "SafeHTTPError",
     "allowed_outbound_hosts",
