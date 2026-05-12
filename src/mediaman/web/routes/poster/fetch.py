@@ -39,6 +39,7 @@ from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_
 from mediaman.services.downloads.download_format import extract_poster_url
 from mediaman.services.infra.http import SafeHTTPClient, SafeHTTPError
 from mediaman.services.infra.url_safety import is_safe_outbound_url
+from mediaman.web.repository.poster import PosterArrIds, fetch_arr_ids, fetch_plex_credentials
 from mediaman.web.routes.poster.cache import ALLOWED_IMAGE_MIMES
 
 logger = logging.getLogger(__name__)
@@ -166,15 +167,12 @@ def load_plex_credentials(
     ``(None, None, error_response)`` when either field is absent or
     the URL fails per-request SSRF re-validation.
     """
-    plex_url_row = conn.execute("SELECT value FROM settings WHERE key='plex_url'").fetchone()
-    plex_token_row = conn.execute(
-        "SELECT value, encrypted FROM settings WHERE key='plex_token'"
-    ).fetchone()
-    if not plex_url_row or not plex_token_row:
+    creds = fetch_plex_credentials(conn)
+    if creds is None or creds.url is None or creds.token_ciphertext is None:
         return None, None, Response(status_code=404)
-    plex_url = plex_url_row["value"]
-    plex_token = plex_token_row["value"]
-    if plex_token_row["encrypted"]:
+    plex_url = creds.url
+    plex_token = creds.token_ciphertext
+    if creds.token_encrypted:
         plex_token = decrypt_value(plex_token, secret_key, conn=conn, aad=b"plex_token")
     # Re-validate plex_url on every call — it sits in the DB for weeks
     # and an attacker who lands a settings write could have swapped it
@@ -211,17 +209,17 @@ def fetch_plex_poster(
     return None, "image/jpeg"
 
 
-def _resolve_arr_poster_url(conn: Any, row: Any, config: Any) -> tuple[str | None, str | None]:
+def _resolve_arr_poster_url(conn: Any, row: PosterArrIds, config: Any) -> tuple[str | None, str | None]:
     """Look up the Radarr/Sonarr poster URL for a stored media row.
 
     Returns ``(poster_url, title)`` or ``(None, None)`` when the row
     has no Arr ID or the upstream lookup fails.  Network errors are
     swallowed at the warning level — the caller falls back to 404.
     """
-    title = row["title"]
-    media_type = row["media_type"] or "movie"
-    radarr_id = row["radarr_id"]
-    sonarr_id = row["sonarr_id"]
+    title = row.title
+    media_type = row.media_type
+    radarr_id = row.radarr_id
+    sonarr_id = row.sonarr_id
 
     if media_type == "movie":
         if not radarr_id:
@@ -285,10 +283,7 @@ def fetch_arr_poster(conn: Any, rating_key: str, config: Any) -> tuple[bytes | N
     no source can supply the poster.  The caller responds with 404 in
     that case rather than guess a replacement.
     """
-    row = conn.execute(
-        "SELECT title, media_type, radarr_id, sonarr_id FROM media_items WHERE id = ?",
-        (rating_key,),
-    ).fetchone()
+    row = fetch_arr_ids(conn, rating_key)
     if not row:
         return None, None
 
