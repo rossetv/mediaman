@@ -11,10 +11,9 @@ HTTP routes via TestClient:
 
 from __future__ import annotations
 
-import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from fastapi.responses import HTMLResponse
+import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.web.auth.password_hash import create_user
@@ -23,21 +22,9 @@ from mediaman.web.routes.auth import _limiter
 from mediaman.web.routes.auth import router as auth_router
 
 
-def _mock_templates_state() -> dict[str, object]:
-    """Auth routes render via app.state.templates; the shared factory
-    does not wire one up by default, so pass a stub via ``state_extras``
-    that echoes the template context as JSON for assertion."""
-    mock_templates = MagicMock()
-
-    def fake_template_response(request, template_name, ctx):
-        return HTMLResponse(json.dumps(ctx, default=str), status_code=200)
-
-    mock_templates.TemplateResponse.side_effect = fake_template_response
-    return {"templates": mock_templates}
-
-
-def _app(app_factory, conn):
-    return app_factory(auth_router, conn=conn, state_extras=_mock_templates_state())
+@pytest.fixture
+def _app(app_factory, conn, templates_stub):
+    return app_factory(auth_router, conn=conn, state_extras={"templates": templates_stub})
 
 
 def _create_admin(conn, username: str = "admin", password: str = "password1234") -> None:
@@ -45,17 +32,15 @@ def _create_admin(conn, username: str = "admin", password: str = "password1234")
 
 
 class TestLoginPage:
-    def test_get_login_returns_200(self, app_factory, conn):
+    def test_get_login_returns_200(self, _app):
         """GET /login renders the login page."""
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
         resp = client.get("/login")
         assert resp.status_code == 200
 
-    def test_login_page_error_context_is_none(self, app_factory, conn):
+    def test_login_page_error_context_is_none(self, _app):
         """The login page template is invoked with error=None on a fresh GET."""
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
         resp = client.get("/login")
         ctx = resp.json()
         assert ctx.get("error") is None
@@ -65,11 +50,10 @@ class TestLoginSubmit:
     def setup_method(self):
         _limiter._attempts.clear()
 
-    def test_valid_credentials_redirect_to_root(self, app_factory, conn):
+    def test_valid_credentials_redirect_to_root(self, _app, conn):
         """POST /login with correct credentials redirects to /."""
         _create_admin(conn)
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
 
         with patch("mediaman.web.routes.auth.is_request_secure", return_value=False):
             resp = client.post(
@@ -81,11 +65,10 @@ class TestLoginSubmit:
         assert resp.status_code == 302
         assert resp.headers["location"] == "/"
 
-    def test_valid_login_sets_session_cookie(self, app_factory, conn):
+    def test_valid_login_sets_session_cookie(self, _app, conn):
         """A successful login sets a session_token cookie."""
         _create_admin(conn)
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
 
         with patch("mediaman.web.routes.auth.is_request_secure", return_value=False):
             resp = client.post(
@@ -96,11 +79,10 @@ class TestLoginSubmit:
 
         assert "session_token" in resp.cookies
 
-    def test_invalid_credentials_render_error(self, app_factory, conn):
+    def test_invalid_credentials_render_error(self, _app, conn):
         """POST /login with wrong password renders the login page with an error."""
         _create_admin(conn)
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
         resp = client.post(
             "/login",
             data={"username": "admin", "password": "wrongpassword"},
@@ -110,22 +92,20 @@ class TestLoginSubmit:
         assert ctx.get("error") is not None
         assert "Invalid" in ctx["error"]
 
-    def test_no_session_cookie_on_failed_login(self, app_factory, conn):
+    def test_no_session_cookie_on_failed_login(self, _app, conn):
         """A failed login must not set a session_token cookie."""
         _create_admin(conn)
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
         resp = client.post(
             "/login",
             data={"username": "admin", "password": "wrongpassword"},
         )
         assert "session_token" not in resp.cookies
 
-    def test_rate_limit_blocks_after_5_attempts(self, app_factory, conn):
+    def test_rate_limit_blocks_after_5_attempts(self, _app, conn):
         """POST /login is rate-limited; after 5 failures from one IP the page shows throttle message."""
         _create_admin(conn)
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
 
         cap = _limiter._max_attempts
         for _ in range(cap):
@@ -137,22 +117,20 @@ class TestLoginSubmit:
         assert ctx.get("error") is not None
         assert "Too many" in ctx["error"]
 
-    def test_audit_log_written_on_failed_login(self, app_factory, conn):
+    def test_audit_log_written_on_failed_login(self, _app, conn):
         """A failed login attempt is recorded in the audit_log."""
         _create_admin(conn)
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
         client.post("/login", data={"username": "admin", "password": "wrong"})
         row = conn.execute(
             "SELECT action FROM audit_log WHERE action='sec:login.failed'"
         ).fetchone()
         assert row is not None
 
-    def test_audit_log_written_on_successful_login(self, app_factory, conn):
+    def test_audit_log_written_on_successful_login(self, _app, conn):
         """A successful login is recorded in the audit_log."""
         _create_admin(conn)
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
         with patch("mediaman.web.routes.auth.is_request_secure", return_value=False):
             client.post(
                 "/login",
@@ -165,39 +143,35 @@ class TestLoginSubmit:
 
 
 class TestLogout:
-    def test_logout_without_session_returns_401(self, app_factory, conn):
+    def test_logout_without_session_returns_401(self, _app):
         """POST /api/auth/logout without a session cookie returns 401."""
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
         resp = client.post("/api/auth/logout")
         assert resp.status_code == 401
 
-    def test_logout_with_invalid_token_returns_401(self, app_factory, conn):
+    def test_logout_with_invalid_token_returns_401(self, _app):
         """POST /api/auth/logout with a fake session token returns 401."""
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
         client.cookies.set("session_token", "not-a-real-token")
         resp = client.post("/api/auth/logout")
         assert resp.status_code == 401
 
-    def test_logout_happy_path_redirects_to_login(self, app_factory, conn):
+    def test_logout_happy_path_redirects_to_login(self, _app, conn):
         """POST /api/auth/logout with a valid session redirects to /login."""
         _create_admin(conn)
         token = create_session(conn, "admin")
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
         client.cookies.set("session_token", token)
 
         resp = client.post("/api/auth/logout", follow_redirects=False)
         assert resp.status_code == 302
         assert "/login" in resp.headers["location"]
 
-    def test_logout_invalidates_session(self, app_factory, conn):
+    def test_logout_invalidates_session(self, _app, conn):
         """After logout the session token is destroyed in the DB."""
         _create_admin(conn)
         token = create_session(conn, "admin")
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
         client.cookies.set("session_token", token)
 
         client.post("/api/auth/logout")
@@ -208,19 +182,18 @@ class TestLogout:
         ).fetchone()
         assert row is None
 
-    def test_logout_clears_cookie_header(self, app_factory, conn):
+    def test_logout_clears_cookie_header(self, _app, conn):
         """The logout response includes a Set-Cookie header to clear session_token."""
         _create_admin(conn)
         token = create_session(conn, "admin")
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
         client.cookies.set("session_token", token)
 
         resp = client.post("/api/auth/logout", follow_redirects=False)
         set_cookie = resp.headers.get("set-cookie", "")
         assert "session_token" in set_cookie
 
-    def test_logout_clears_cookie_with_explicit_path_and_samesite(self, app_factory, conn):
+    def test_logout_clears_cookie_with_explicit_path_and_samesite(self, _app, conn):
         """Deletion ``Set-Cookie`` must carry explicit ``Path=/`` and ``SameSite=strict``.
 
         RFC 6265bis matches a deletion against existing cookies by
@@ -229,8 +202,7 @@ class TestLogout:
         """
         _create_admin(conn)
         token = create_session(conn, "admin")
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
         client.cookies.set("session_token", token)
 
         resp = client.post("/api/auth/logout", follow_redirects=False)
@@ -240,10 +212,9 @@ class TestLogout:
         assert "samesite=strict" in set_cookie.lower()
         assert "httponly" in set_cookie.lower()
 
-    def test_logout_with_invalid_token_clears_cookie(self, app_factory, conn):
+    def test_logout_with_invalid_token_clears_cookie(self, _app):
         """Stale-token logout must clear the cookie so the browser stops sending it."""
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
         client.cookies.set("session_token", "stale-fake-token")
 
         resp = client.post("/api/auth/logout")
@@ -261,10 +232,9 @@ class TestLoginRateLimitHeaders:
     def setup_method(self):
         _limiter._attempts.clear()
 
-    def test_rate_limit_returns_retry_after(self, app_factory, conn):
+    def test_rate_limit_returns_retry_after(self, _app, conn):
         _create_admin(conn)
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
 
         for _ in range(_limiter._max_attempts):
             client.post("/login", data={"username": "admin", "password": "wrong"})
@@ -290,10 +260,9 @@ class TestAuditUsernameSanitisation:
     def setup_method(self):
         _limiter._attempts.clear()
 
-    def test_long_username_truncated_in_audit_row(self, app_factory, conn):
+    def test_long_username_truncated_in_audit_row(self, _app, conn):
         _create_admin(conn)
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
 
         attacker_user = "A" * 5000
         client.post("/login", data={"username": attacker_user, "password": "wrong"})
@@ -310,10 +279,9 @@ class TestAuditUsernameSanitisation:
         # Truncation marker proves the sanitiser ran on the actor.
         assert "..." in row["actor"]
 
-    def test_control_chars_stripped_in_audit_row(self, app_factory, conn):
+    def test_control_chars_stripped_in_audit_row(self, _app, conn):
         _create_admin(conn)
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
 
         client.post(
             "/login",
@@ -337,10 +305,9 @@ class TestWeakPasswordCoalescing:
     def setup_method(self):
         _limiter._attempts.clear()
 
-    def test_event_emitted_only_on_first_weak_login(self, app_factory, conn):
+    def test_event_emitted_only_on_first_weak_login(self, _app, conn):
         _create_admin(conn, password="weak1234567a")  # passes minlength but weak overall
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
 
         with patch("mediaman.web.routes.auth.is_request_secure", return_value=False):
             # First login flips the flag.
@@ -363,10 +330,9 @@ class TestUaHashInAuditLog:
     def setup_method(self):
         _limiter._attempts.clear()
 
-    def test_long_ua_stored_as_short_hash(self, app_factory, conn):
+    def test_long_ua_stored_as_short_hash(self, _app, conn):
         _create_admin(conn)
-        app = _app(app_factory, conn)
-        client = TestClient(app, raise_server_exceptions=True)
+        client = TestClient(_app, raise_server_exceptions=True)
 
         attacker_ua = "Mozilla/" + "X" * 5000
         with patch("mediaman.web.routes.auth.is_request_secure", return_value=False):

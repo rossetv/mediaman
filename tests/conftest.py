@@ -279,6 +279,35 @@ def app_factory(secret_key):
 
 
 @pytest.fixture
+def templates_stub():
+    """Return a mock Jinja2 Templates object that echoes the rendering context
+    as JSON rather than rendering a real HTML template.
+
+    Routes under test call ``templates.TemplateResponse(request, name, ctx)``.
+    The stub serialises *ctx* to JSON (with ``default=str`` for non-serialisable
+    values such as SQLite ``Row`` objects) and returns it as an ``HTMLResponse``.
+    Tests can then call ``resp.json()`` to assert on individual context keys.
+
+    Usage::
+
+        def test_x(app_factory, conn, templates_stub):
+            app = app_factory(my_router, conn=conn, state_extras={"templates": templates_stub})
+            ...
+    """
+    import json as _json
+
+    from fastapi.responses import HTMLResponse
+
+    stub = MagicMock()
+
+    def _fake_template_response(request, template_name, ctx):
+        return HTMLResponse(_json.dumps(ctx, default=str), status_code=200)
+
+    stub.TemplateResponse.side_effect = _fake_template_response
+    return stub
+
+
+@pytest.fixture
 def authed_client():
     """Build a `TestClient` whose cookies carry a fresh admin session.
 
