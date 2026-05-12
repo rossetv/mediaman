@@ -99,11 +99,41 @@
       });
   }
 
+  /* ── Detail modal — MM.modal.setupDetail owns display/aria/body-overflow +
+     ModalA11y registration.  onOpen receives the rec id as payload; onClose
+     tears down the trailer iframe, stops the status poller, and resets the
+     URL hash. ── */
+  var _detailModal = (function () {
+    var dm = document.getElementById('detail-modal');
+    if (!dm) return null;
+    return MM.modal.setupDetail(dm, {
+      onOpen: function (id) {
+        _modalRecId = id;
+        history.replaceState(null, '', '#recommendation-' + id);
+        _fillModalContent(id);
+      },
+      onClose: function () {
+        _clear(document.getElementById('modal-trailer'));
+        if (MM.recommended.poll) MM.recommended.poll.stopModalPolling();
+        _modalRecId = null;
+        history.replaceState(null, '', window.location.pathname + window.location.search);
+      },
+    });
+  }());
+
   function openModal(id) {
     var s = _recData[id];
     if (!s) return;
-    _modalRecId = id;
-    history.replaceState(null, '', '#recommendation-' + id);
+    if (_detailModal) { _detailModal.open(id); }
+  }
+
+  function closeModal() {
+    if (_detailModal) _detailModal.close();
+  }
+
+  function _fillModalContent(id) {
+    var s = _recData[id];
+    if (!s) return;
 
     var heroEl = document.getElementById('modal-hero');
     _clear(heroEl);
@@ -180,12 +210,6 @@
     document.getElementById('modal-success').style.display = 'none';
 
     _paintActions(s);
-
-    var dm = document.getElementById('detail-modal');
-    dm.style.display = 'flex';
-    dm.setAttribute('aria-hidden', 'false');
-    document.body.style.overflow = 'hidden';
-    if (window.ModalA11y) window.ModalA11y.onOpened('detail-modal');
   }
 
   function _paintTrailer(s) {
@@ -322,19 +346,6 @@
     actionsEl.appendChild(shareBtn);
   }
 
-  function closeModal() {
-    var dm = document.getElementById('detail-modal');
-    dm.style.display = 'none';
-    dm.setAttribute('aria-hidden', 'true');
-    document.body.style.overflow = '';
-    _clear(document.getElementById('modal-trailer'));
-    if (MM.recommended.poll) MM.recommended.poll.stopModalPolling();
-    _modalRecId = null;
-    history.replaceState(null, '', window.location.pathname + window.location.search);
-    if (window.ModalA11y) window.ModalA11y.onClosed('detail-modal');
-  }
-  if (window.ModalA11y) window.ModalA11y.register('detail-modal', closeModal);
-
   /* ── Event delegation for tile cards and download buttons ──
      Replaces inline onclick attributes on .tile and [data-download-rec]. */
   document.addEventListener('click', function (e) {
@@ -367,8 +378,4 @@
     if (id) setTimeout(function () { openModal(id); }, 200);
   }
 
-  var detailModal = document.getElementById('detail-modal');
-  if (detailModal) detailModal.addEventListener('click', function (e) {
-    if (e.target === this) closeModal();
-  });
 })();
