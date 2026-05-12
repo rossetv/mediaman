@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-from mediaman.core.audit import security_event
+from mediaman.core.audit import security_event, security_event_or_raise
 from mediaman.core.time import now_iso
 from mediaman.crypto import validate_unsubscribe_token
 from mediaman.db import get_db
@@ -146,17 +146,17 @@ def api_remove_subscriber(
     if email is None:
         return respond_err("not_found", status=404, message="Subscriber not found")
 
-    delete_subscriber(conn, subscriber_id)
-    conn.commit()
+    with conn:
+        delete_subscriber(conn, subscriber_id)
+        security_event_or_raise(
+            conn,
+            event="subscriber.removed",
+            actor=username,
+            ip=get_client_ip(request),
+            detail={"id": subscriber_id, "email": email},
+        )
 
     logger.info("Subscriber removed: %s by %s", email, username)
-    security_event(
-        conn,
-        event="subscriber.removed",
-        actor=username,
-        ip=get_client_ip(request),
-        detail={"id": subscriber_id, "email": email},
-    )
     return respond_ok()
 
 
