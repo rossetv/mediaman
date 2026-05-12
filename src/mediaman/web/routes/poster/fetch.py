@@ -209,7 +209,9 @@ def fetch_plex_poster(
     return None, "image/jpeg"
 
 
-def _resolve_arr_poster_url(conn: Any, row: PosterArrIds, config: Any) -> tuple[str | None, str | None]:
+def _resolve_arr_poster_url(
+    conn: Any, row: PosterArrIds, config: Any
+) -> tuple[str | None, str | None]:
     """Look up the Radarr/Sonarr poster URL for a stored media row.
 
     Returns ``(poster_url, title)`` or ``(None, None)`` when the row
