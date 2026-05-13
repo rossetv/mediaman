@@ -93,18 +93,22 @@ _SEASON_SUFFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
-_RESPONSE_FORMAT = """Return ONLY a JSON array. Each object must have exactly these 3 fields:
+_RESPONSE_FORMAT = """Return a JSON object with a single key "items" whose value is an array.
+Each item in the array must have exactly these 3 fields:
 - "title" (string): official English title
 - "media_type" (string): "movie" or "tv"
 - "reason" (string): one-sentence reason for the recommendation, max 120 characters
 
 Example:
-[
-  {"title": "Inception", "media_type": "movie", "reason": "Mind-bending sci-fi thriller perfect for fans of complex narratives."},
-  {"title": "Severance", "media_type": "tv", "reason": "Gripping workplace thriller with sci-fi elements and dark humour."}
-]
+{
+  "items": [
+    {"title": "Inception", "media_type": "movie", "reason": "Mind-bending sci-fi thriller perfect for fans of complex narratives."},
+    {"title": "Severance", "media_type": "tv", "reason": "Gripping workplace thriller with sci-fi elements and dark humour."}
+  ]
+}
 
-JSON array only, no markdown, no explanation."""
+JSON object only, no markdown, no explanation. The /v1/responses API requires a
+top-level object — wrapping the array under "items" is the only way to comply."""
 
 
 def strip_season_suffix(title: str) -> str:
