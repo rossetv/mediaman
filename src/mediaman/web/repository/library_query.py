@@ -180,8 +180,8 @@ def _build_cte_sql(where_sql: str, sort: str) -> tuple[str, str]:
     _CTE_SORT = {
         "added_desc": "added_at DESC",
         "added_asc": "added_at ASC",
-        "name_asc": "title ASC COLLATE NOCASE",
-        "name_desc": "title DESC COLLATE NOCASE",
+        "name_asc": "title COLLATE NOCASE ASC",
+        "name_desc": "title COLLATE NOCASE DESC",
         "size_desc": "file_size_bytes DESC",
         "size_asc": "file_size_bytes ASC",
         "watched_desc": "COALESCE(last_watched_at, '1970-01-01') DESC",
