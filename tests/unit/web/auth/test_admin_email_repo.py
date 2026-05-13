@@ -59,6 +59,18 @@ def test_set_user_email_rejects_invalid_address(conn: sqlite3.Connection) -> Non
         set_user_email(conn, "rossetv", "rossetv")
 
 
+def test_set_user_email_rejects_embedded_whitespace(conn: sqlite3.Connection) -> None:
+    """Whitespace inside the address (after stripping) is rejected.
+
+    Routes the validator's whitespace rule through ``set_user_email``
+    so the function's stripping step cannot accidentally smuggle an
+    invalid address into the column.
+    """
+    with pytest.raises(ValueError, match="Invalid email address"):
+        set_user_email(conn, "rossetv", "  ad min@example.com  ")
+    assert get_user_email(conn, "rossetv") is None
+
+
 def test_set_user_email_unknown_user_is_noop(conn: sqlite3.Connection) -> None:
     set_user_email(conn, "ghost", "ghost@example.com")
     assert get_user_email(conn, "ghost") is None

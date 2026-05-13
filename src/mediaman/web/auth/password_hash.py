@@ -466,9 +466,10 @@ def set_user_email(
     delegated to :func:`mediaman.core.email_validation.validate_email_address`,
     which raises ``ValueError`` on a malformed input.
 
-    Unknown usernames silently no-op — the caller already gates on
-    "current authenticated admin", so a missing row would mean the
-    session points at a deleted user, which is handled upstream.
+    Unknown usernames silently no-op — callers are expected to gate on
+    "current authenticated admin" before calling, so a missing row would
+    mean the session points at a deleted user, which is handled upstream.
+    This function does not enforce that invariant itself.
     """
     from mediaman.core.email_validation import validate_email_address
 
