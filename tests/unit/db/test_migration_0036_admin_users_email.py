@@ -45,10 +45,40 @@ def test_0036_adds_nullable_email_column(conn_at_v35: sqlite3.Connection) -> Non
     cols = _column_names(conn_at_v35, "admin_users")
     assert "email" in cols
     info = conn_at_v35.execute(
-        "SELECT \"notnull\", dflt_value FROM pragma_table_info('admin_users') WHERE name='email'"
+        "SELECT type, \"notnull\", dflt_value FROM pragma_table_info('admin_users') WHERE name='email'"
     ).fetchone()
-    assert info[0] == 0, "email column must be nullable"
-    assert info[1] is None, "email column must have no default"
+    assert info[0] == "TEXT", "email column must declare TEXT affinity"
+    assert info[1] == 0, "email column must be nullable"
+    assert info[2] is None, "email column must have no default"
+
+
+def test_0036_is_idempotent(conn_at_v35: sqlite3.Connection) -> None:
+    """A second ``apply()`` call against the same connection must not raise.
+
+    The cutover-walk test fixture (``test_db_at_cutover_advances_to_current``)
+    initialises from the post-v36 ``_SCHEMA``, then sets ``user_version=34``,
+    then walks the registry — so 0036 runs against a DB that already has
+    the column. The migration guards against this with a PRAGMA check;
+    the test guards the guard.
+    """
+    mod = importlib.import_module("mediaman.db.migrations.0036_admin_users_email")
+    mod.apply(conn_at_v35)
+    mod.apply(conn_at_v35)
+    email_cols = [c for c in _column_names(conn_at_v35, "admin_users") if c == "email"]
+    assert email_cols == ["email"], "second apply must not duplicate the column"
+
+
+def test_0036_fails_loud_when_admin_users_missing() -> None:
+    """If ``admin_users`` does not exist, the ALTER must fail loudly.
+
+    A silent no-op here would let a future refactor (e.g. dropping the
+    ``CREATE TABLE`` from ``_SCHEMA``) ship a database where the column
+    is silently absent.
+    """
+    conn = sqlite3.connect(":memory:")
+    mod = importlib.import_module("mediaman.db.migrations.0036_admin_users_email")
+    with pytest.raises(sqlite3.OperationalError, match="admin_users"):
+        mod.apply(conn)
 
 
 def test_0036_preserves_existing_rows(conn_at_v35: sqlite3.Connection) -> None:
