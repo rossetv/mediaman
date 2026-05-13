@@ -150,10 +150,9 @@ def _should_emit_hsts(request: Request) -> bool:
       this single check covers both direct-TLS and reverse-proxy
       deployments.
 
-    The legacy ``MEDIAMAN_FORCE_SECURE_COOKIES`` env var is still
-    honoured as a hard ``false`` override (i.e. it can disable HSTS
-    even when ``MEDIAMAN_HSTS_ENABLED=true``) so an operator with the
-    old toggle in place doesn't get a surprise upgrade.
+    ``MEDIAMAN_FORCE_SECURE_COOKIES=false`` acts as a hard override —
+    it can disable HSTS even when ``MEDIAMAN_HSTS_ENABLED=true`` — so
+    a local-dev operator can turn the lock off entirely with one flag.
     """
     if os.environ.get("MEDIAMAN_FORCE_SECURE_COOKIES", "").strip().lower() == "false":
         return False

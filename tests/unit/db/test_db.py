@@ -7,16 +7,11 @@ from datetime import UTC
 import pytest
 
 from mediaman.db import (
-    CUTOVER_VERSION,
-    DB_SCHEMA_VERSION,
-    SchemaFromFutureError,
-    SchemaTooOldError,
     close_db,
     get_db,
     init_db,
     set_connection,
 )
-from mediaman.db.migrations import apply_migrations
 from tests.helpers.factories import (
     insert_audit_log,
     insert_media_item,
@@ -37,12 +32,6 @@ class TestInitDb:
         assert "scheduled_actions" in tables
         assert "settings" in tables
         assert "subscribers" in tables
-
-    def test_creates_schema_version(self, db_path):
-        conn = init_db(str(db_path))
-        cursor = conn.execute("PRAGMA user_version")
-        version = cursor.fetchone()[0]
-        assert version == DB_SCHEMA_VERSION
 
     def test_idempotent_init(self, db_path):
         conn1 = init_db(str(db_path))
@@ -168,11 +157,6 @@ class TestSchemaV13SessionColumns:
         """Running init_db twice must not error."""
         init_db(str(db_path)).close()
         init_db(str(db_path)).close()  # must not raise
-
-    def test_schema_version_is_current(self, db_path):
-        assert DB_SCHEMA_VERSION == 36
-        conn = init_db(str(db_path))
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 36
 
     def test_admin_sessions_has_security_columns(self, db_path):
         conn = init_db(str(db_path))
@@ -766,123 +750,3 @@ class TestFactories:
         assert action["notified"] is False
         # execute_at must be after scheduled_at.
         assert action["execute_at"] > action["scheduled_at"]
-
-
-class TestMigrationSquash:
-    """Verifies the squashed-baseline behaviour introduced on 2026-05-04.
-
-    Fresh DBs go straight to CUTOVER_VERSION. Pre-cutover DBs raise
-    SchemaTooOldError so operators receive a clear upgrade instruction
-    rather than corrupted state.
-    """
-
-    def test_fresh_db_lands_at_current_schema_version(self, tmp_path):
-        """A brand-new database must be stamped at DB_SCHEMA_VERSION.
-
-        ``_SCHEMA`` already reflects every post-cutover migration's
-        resulting shape, so a fresh DB skips the registry walk and is
-        stamped at the latest version directly.
-        """
-        conn = sqlite3.connect(str(tmp_path / "fresh.db"))
-        conn.row_factory = sqlite3.Row
-        apply_migrations(conn)
-        version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == DB_SCHEMA_VERSION
-        conn.close()
-
-    def test_db_at_version_10_raises_schema_too_old(self, tmp_path):
-        """A database at version 10 (below the cutover) must raise SchemaTooOldError."""
-        db_path = str(tmp_path / "old.db")
-        conn = sqlite3.connect(db_path)
-        conn.execute("PRAGMA user_version=10")
-        conn.commit()
-        conn.close()
-
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        with pytest.raises(SchemaTooOldError) as exc_info:
-            apply_migrations(conn)
-        conn.close()
-
-        msg = str(exc_info.value)
-        assert "version 10" in msg
-        assert str(CUTOVER_VERSION) in msg
-        assert "1.8.x" in msg  # the transit release name
-
-    def test_error_message_is_actionable(self, tmp_path):
-        """The error message must name the current version, cutover, and the
-        release the user must transit through."""
-        conn = sqlite3.connect(str(tmp_path / "old2.db"))
-        conn.execute("PRAGMA user_version=1")
-        conn.commit()
-        conn.close()
-
-        conn = sqlite3.connect(str(tmp_path / "old2.db"))
-        conn.row_factory = sqlite3.Row
-        with pytest.raises(SchemaTooOldError, match="1.8.x"):
-            apply_migrations(conn)
-        conn.close()
-
-    def test_db_at_cutover_advances_to_current(self, tmp_path):
-        """A DB at exactly CUTOVER_VERSION walks the post-cutover registry.
-
-        The user's existing v34 deployment lands here on first boot of the
-        post-squash release: v35 is a no-op DDL marker that bumps user_version
-        and lets bootstrap_crypto's migrate_legacy_ciphertexts run.
-        """
-        db_path = str(tmp_path / "cutover.db")
-        conn = sqlite3.connect(db_path)
-        # Lay down the baseline schema so the connection has the tables
-        # the post-cutover migrations may need.
-        from mediaman.db.schema_definition import _SCHEMA
-
-        conn.executescript(_SCHEMA)
-        conn.execute(f"PRAGMA user_version={CUTOVER_VERSION}")
-        conn.commit()
-        conn.close()
-
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        apply_migrations(conn)
-        version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == DB_SCHEMA_VERSION
-        conn.close()
-
-    def test_db_at_current_schema_version_is_noop(self, tmp_path):
-        """A database already at DB_SCHEMA_VERSION must not be modified."""
-        conn = sqlite3.connect(str(tmp_path / "current.db"))
-        conn.execute(f"PRAGMA user_version={DB_SCHEMA_VERSION}")
-        conn.commit()
-        conn.close()
-
-        conn = sqlite3.connect(str(tmp_path / "current.db"))
-        conn.row_factory = sqlite3.Row
-        # Must not raise; user_version stays the same.
-        apply_migrations(conn)
-        version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert version == DB_SCHEMA_VERSION
-        conn.close()
-
-    def test_db_from_future_raises(self, tmp_path):
-        """A database stamped above DB_SCHEMA_VERSION must refuse to start.
-
-        The most likely cause is a downgrade or a backup restored from a
-        newer release; silently accepting it would let the app come up
-        "healthy" and then corrupt data on the first write to a column the
-        old code does not know about.
-        """
-        future_version = DB_SCHEMA_VERSION + 1
-        conn = sqlite3.connect(str(tmp_path / "future.db"))
-        conn.execute(f"PRAGMA user_version={future_version}")
-        conn.commit()
-        conn.close()
-
-        conn = sqlite3.connect(str(tmp_path / "future.db"))
-        conn.row_factory = sqlite3.Row
-        with pytest.raises(SchemaFromFutureError) as exc_info:
-            apply_migrations(conn)
-        conn.close()
-
-        msg = str(exc_info.value)
-        assert str(future_version) in msg
-        assert str(DB_SCHEMA_VERSION) in msg

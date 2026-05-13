@@ -97,7 +97,7 @@ def _mark_notified(
     conn: sqlite3.Connection,
     scheduled_items: list[ScheduledNewsletterItem],
     *,
-    active_recipients: list[str] | None = None,
+    active_recipients: list[str],
 ) -> None:
     """Mark scheduled action rows as notified=1, but only when every active
     recipient has been delivered to.
@@ -105,24 +105,9 @@ def _mark_notified(
     Asserts all ids are integers before building the parameterised query so a
     non-integer id (e.g. from a corrupt row) surfaces as a clear error rather
     than silently passing a string through to the SQL engine.
-
-    The legacy callsites that pass ``active_recipients=None`` keep the
-    old "any send -> mark all" behaviour — used by the manual-resend
-    path which never set ``mark_notified``.
     """
     action_ids = [int(item["_action_id"]) for item in scheduled_items]
     if not action_ids:
-        return
-
-    if not active_recipients:
-        # Legacy behaviour: caller didn't supply a recipient set, so we
-        # cannot validate per-recipient state.  Mark everything.
-        placeholders = ",".join("?" * len(action_ids))
-        conn.execute(
-            f"UPDATE scheduled_actions SET notified=1 WHERE id IN ({placeholders})",
-            action_ids,
-        )
-        conn.commit()
         return
 
     expected = set(active_recipients)

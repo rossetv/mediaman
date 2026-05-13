@@ -40,7 +40,12 @@ class TestBuildRadarr:
 
     def test_decrypts_encrypted_key(self, conn):
         _put(conn, "radarr_url", "http://radarr.local")
-        _put(conn, "radarr_api_key", encrypt_value("sekret", SECRET, conn=conn), encrypted=1)
+        _put(
+            conn,
+            "radarr_api_key",
+            encrypt_value("sekret", SECRET, conn=conn, aad=b"radarr_api_key"),
+            encrypted=1,
+        )
         client = build_radarr_from_db(conn, SECRET)
         assert client is not None
 

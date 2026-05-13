@@ -36,9 +36,8 @@ def _load_deleted_items(
     cannot reliably enqueue the right film/show via title-only lookup.
 
     The ``media_items`` schema does not carry a ``tmdb_id`` column itself,
-    so the tombstone-metadata path is not available for items downloaded
-    outside the recommendation flow; those keep the legacy "no button"
-    behaviour.
+    so items downloaded outside the recommendation flow get no re-download
+    button — there is no reliable identifier to mint one from.
     """
     week_ago = (now - timedelta(days=7)).isoformat()
     deleted_rows = conn.execute(
@@ -89,10 +88,8 @@ def _load_deleted_items(
 
         # Cross-reference the recommendations cache so the recipient loop
         # has a stable identifier for items that originated as a
-        # suggestion. Most deleted media flowed through the recommendation
-        # pipeline, so this covers the common case without a schema
-        # change. Items that did not (legacy uploads, manual downloads)
-        # fall through with no tmdb_id and the template hides the button.
+        # suggestion. Items with no matching suggestion row fall through
+        # with no tmdb_id and the template hides the button.
         sugg = conn.execute(
             "SELECT tmdb_id FROM suggestions "
             "WHERE title = ? AND media_type = ? AND tmdb_id IS NOT NULL "

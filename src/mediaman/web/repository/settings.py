@@ -85,16 +85,16 @@ def load_settings(
     When *keys* is supplied, only those rows are read and decrypted. The
     api_test_service flow uses this so a single-service test does NOT
     decrypt every other secret — minimising the blast radius if any one
-    decryption is logged or panics. When *keys* is ``None`` (the default)
-    every non-internal row is loaded as before.
+    decryption is logged or panics. When *keys* is ``None``, every
+    non-internal row is loaded.
 
     Decryption errors are distinguished from "no value set":
 
     * If the row exists and is marked encrypted, but decryption fails,
-      we raise :class:`ConfigDecryptError` so callers can show a
-      meaningful banner instead of silently substituting ``""`` (which
-      was previously indistinguishable from a never-saved key — a
-      regression hazard once an operator rotates ``MEDIAMAN_SECRET_KEY``).
+      raise :class:`ConfigDecryptError` so callers can show a meaningful
+      banner instead of silently substituting ``""`` (which would be
+      indistinguishable from a never-saved key — a regression hazard
+      once an operator rotates ``MEDIAMAN_SECRET_KEY``).
     * If the row simply does not exist, the key is absent from the
       returned dict (callers already use ``.get(key, "")``).
     """

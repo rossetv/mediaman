@@ -90,7 +90,7 @@ def schedule_deletion(
     2. Read back the ``lastrowid``.
     3. Generate the real token using ``action_id``.
     4. UPDATE the row to store only the SHA-256 hash of the token,
-       nulling out the raw value (migration 28+).
+       nulling out the raw value.
 
     Returns:
         ``"scheduled"`` on success, ``"skipped"`` if a concurrent scan has
@@ -137,17 +137,10 @@ def schedule_deletion(
     )
     token_hash = hashlib.sha256(token.encode()).hexdigest()
 
-    try:
-        conn.execute(
-            "UPDATE scheduled_actions SET token_hash = ?, token = NULL WHERE id = ?",
-            (token_hash, action_id),
-        )
-    except sqlite3.OperationalError:
-        # Pre-migration-28 schema: token column is NOT NULL; just write the hash.
-        conn.execute(
-            "UPDATE scheduled_actions SET token_hash = ? WHERE id = ?",
-            (token_hash, action_id),
-        )
+    conn.execute(
+        "UPDATE scheduled_actions SET token_hash = ?, token = NULL WHERE id = ?",
+        (token_hash, action_id),
+    )
 
     log_audit(
         conn,

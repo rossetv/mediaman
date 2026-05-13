@@ -127,10 +127,6 @@ def validate_youtube_id(s: str | None) -> str | None:
     return s if _YOUTUBE_ID_RE.match(s) else None
 
 
-# Backward-compat alias.
-_validate_youtube_id = validate_youtube_id
-
-
 def _coerce_string_list(value: object) -> list[str]:
     """Return *value* coerced to a list of plain strings.
 

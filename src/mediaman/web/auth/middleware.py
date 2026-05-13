@@ -26,8 +26,8 @@ binding (User-Agent + client IP) is consistently applied:
 :func:`resolve_page_session`
     Page-route helper that returns ``(username, conn)`` on success or a
     ``RedirectResponse("/login", 302)`` for unauthenticated callers.
-    Replaces the repetitive cookie → ``validate_session`` → redirect
-    pattern that previously appeared verbatim in every page handler.
+    Centralises the cookie → ``validate_session`` → redirect dance every
+    page handler needs.
 
 :func:`is_admin`
     Convenience predicate over :func:`get_optional_admin_from_token` that
@@ -128,10 +128,8 @@ def resolve_page_session(
     """Resolve a session cookie for page routes with fingerprint binding.
 
     Returns ``(username, conn)`` on a valid session, or a
-    ``RedirectResponse("/login", 302)`` otherwise. Every page route that
-    previously did the cookie -> ``validate_session`` -> redirect dance
-    should call this helper — it guarantees the UA/IP fingerprint check
-    is always applied.
+    ``RedirectResponse("/login", 302)`` otherwise. Every page route uses
+    this helper so the UA/IP fingerprint check is always applied.
     """
     token = request.cookies.get("session_token")
     if not token:
@@ -153,11 +151,8 @@ def resolve_page_session(
 def is_admin(request: Request) -> bool:
     """Return True when *request* carries a valid admin session cookie.
 
-    Replaces the repeated ``get_optional_admin_from_token(request.cookies.get(
-    "session_token"), request=request) is not None`` pattern previously
-    duplicated across the keep and kept page routes.  Page routes that gate
-    admin-only UI affordances without rejecting anonymous visitors should call
-    this helper rather than re-implementing the cookie lookup.
+    Used by page routes that gate admin-only UI affordances without
+    rejecting anonymous visitors (keep, kept).
     """
     return (
         get_optional_admin_from_token(request.cookies.get("session_token"), request=request)

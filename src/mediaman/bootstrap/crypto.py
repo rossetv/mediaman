@@ -1,4 +1,4 @@
-"""AES canary preflight + one-shot legacy-ciphertext migration.
+"""AES canary preflight.
 
 Owns the second step of startup. After the DB is open, validate the
 ``MEDIAMAN_SECRET_KEY`` against the persisted canary so a key mismatch
@@ -45,7 +45,7 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
     canary_ok = False
     try:
         from mediaman.core.audit import security_event
-        from mediaman.crypto import CryptoError, is_canary_valid, migrate_legacy_ciphertexts
+        from mediaman.crypto import is_canary_valid
 
         db = app.state.db
 
@@ -68,35 +68,7 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
             except sqlite3.DatabaseError:  # pragma: no cover — best-effort audit write; DB errors must not override the security verdict
                 logger.exception("aes.canary_failed audit write failed reason=%s", reason)
 
-        def _on_migration_complete(migrated_count: int) -> None:
-            """Best-effort audit-log after a successful v35 migration commit."""
-            try:
-                security_event(
-                    db,
-                    event="aes.v35_migration_complete",
-                    actor="",
-                    ip="",
-                    detail={"migrated_count": migrated_count},
-                )
-            except sqlite3.DatabaseError:  # pragma: no cover — best-effort audit write; DB errors must not override migration success
-                logger.exception("aes.v35_migration_complete audit write failed")
-
         canary_ok = bool(is_canary_valid(db, config.secret_key, on_failure=_on_canary_failure))
-        if canary_ok:
-            # Migration v35: re-encrypt any legacy v1 or no-AAD v2 settings
-            # ciphertexts to v2+AAD. Safe to call on every startup —
-            # already-migrated rows are skipped. Errors are logged but do
-            # not abort startup.
-            try:
-                n = migrate_legacy_ciphertexts(
-                    db, config.secret_key, on_complete=_on_migration_complete
-                )
-                if n:
-                    logger.info("bootstrap_crypto: migrated %d legacy settings row(s) to v2+AAD", n)
-            # §6.4 site 4 (cold-start): re-encryption is opportunistic; a DB
-            # write failure or corrupt salt must not abort startup.
-            except (CryptoError, sqlite3.Error):
-                logger.exception("bootstrap_crypto: migrate_legacy_ciphertexts failed (non-fatal)")
     # §6.4 site 4 (cold-start): surface crypto/DB failures as canary_ok=False
     # so the operator UI can signal the mismatch without crashing the web server.
     # ImportError / ModuleNotFoundError are deliberately re-raised — a missing

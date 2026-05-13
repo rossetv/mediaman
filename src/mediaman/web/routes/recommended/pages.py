@@ -1,4 +1,4 @@
-"""HTML page handlers for /recommended and the legacy /suggestions redirect."""
+"""HTML page handlers for /recommended."""
 
 from __future__ import annotations
 
@@ -135,15 +135,6 @@ def _json_safe(value: object) -> object:
         f"in recommendation payload — extend _json_safe before adding "
         f"this type to a recommendation field"
     )
-
-
-@router.get("/suggestions")
-def _legacy_suggestions_redirect(request: Request) -> RedirectResponse:
-    """Permanent redirect for bookmarked /suggestions URLs — auth-gated."""
-    resolved = resolve_page_session(request)
-    if isinstance(resolved, RedirectResponse):
-        return resolved
-    return RedirectResponse("/recommended", status_code=301)
 
 
 @router.get("/recommended", response_class=HTMLResponse)

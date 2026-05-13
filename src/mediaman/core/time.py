@@ -1,14 +1,8 @@
 """Ring 0: canonical date/time helpers.
 
 Single source of truth for UTC clock access and ISO-8601 parsing.
-``now_iso`` was previously scattered across 20+ call sites; ``parse_iso_utc``
-was previously defined in :mod:`mediaman.services.infra.format` and then
-moved to :mod:`mediaman.services.infra.time` before landing here.
 
 Ring 0 contract: stdlib only, no I/O, no imports from other mediaman modules.
-
-Canonical home: ``mediaman.core.time``.
-Back-compat shim: ``mediaman.services.infra.time``.
 """
 
 from __future__ import annotations

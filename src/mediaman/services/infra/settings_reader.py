@@ -88,13 +88,9 @@ def get_setting(
                 ValueError("encrypted setting requires secret_key — none was supplied"),
             )
         try:
-            # Pass ``conn`` so v2 (HKDF) ciphertexts can look up the
-            # per-install salt; pass the setting key as AAD so a DB
-            # row swap (moving a ciphertext from one key to another)
-            # fails authentication instead of silently succeeding.
-            # ``decrypt_value`` falls back to no-AAD on InvalidTag so
-            # any pre-AAD v2 rows that haven't been upgraded by
-            # migrate_legacy_ciphertexts (migration v35) still read.
+            # ``conn`` lets v2 ciphertexts look up the per-install HKDF
+            # salt; the setting key name is passed as AAD so swapping a
+            # ciphertext between rows fails authentication.
             val = decrypt_value(
                 val,
                 secret_key,
@@ -112,17 +108,12 @@ def get_setting(
             # * sqlite3.* — salt lookup failed (corrupted bootstrap
             #   row, locked DB, schema drift)
             # * InvalidTag — wrong key, tampered ciphertext, or
-            #   missing AAD (the no-AAD fallback inside decrypt_value
-            #   already retried before this fires)
+            #   missing/mismatched AAD
             # * CryptoInputError — malformed ciphertext (empty or
             #   exceeds max length)
             # * binascii.Error — ciphertext is not valid base64 (e.g.
             #   incorrect padding from a truncated or corrupted value)
-            #
-            # The previous ``except Exception`` swallowed everything
-            # including programmer errors (e.g. a typo in the call
-            # site that raised AttributeError), making the cause
-            # invisible. Anything outside this list now propagates.
+            # Anything outside this list propagates.
             logger.warning("Failed to decrypt setting '%s' — returning default", key)
             return default
 

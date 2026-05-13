@@ -43,7 +43,12 @@ class TestGetSetting:
         assert get_setting(conn, "on") is True
 
     def test_decrypts_encrypted_values(self, conn):
-        ct = encrypt_value("secret-key", "test-secret-32-chars-XXXXXXXXXX", conn=conn)
+        ct = encrypt_value(
+            "secret-key",
+            "test-secret-32-chars-XXXXXXXXXX",
+            conn=conn,
+            aad=b"api_key",
+        )
         _put(conn, "api_key", ct, encrypted=1)
         assert (
             get_setting(conn, "api_key", secret_key="test-secret-32-chars-XXXXXXXXXX")
@@ -51,7 +56,12 @@ class TestGetSetting:
         )
 
     def test_returns_default_on_decrypt_failure(self, conn):
-        ct = encrypt_value("secret", "right-secret-32-chars-XXXXXXXXXXXXXXX", conn=conn)
+        ct = encrypt_value(
+            "secret",
+            "right-secret-32-chars-XXXXXXXXXXXXXXX",
+            conn=conn,
+            aad=b"api_key",
+        )
         _put(conn, "api_key", ct, encrypted=1)
         assert (
             get_setting(

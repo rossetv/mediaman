@@ -100,7 +100,7 @@ class TestFromDb:
         assert client._headers["Authorization"] == "Bearer plain-token"
 
     def test_decrypts_encrypted_token(self, conn, secret_key):
-        ct = encrypt_value("real-token", secret_key, conn=conn)
+        ct = encrypt_value("real-token", secret_key, conn=conn, aad=b"tmdb_read_token")
         _set_token(conn, ct, encrypted=1)
         client = TmdbClient.from_db(conn, secret_key)
         assert client is not None

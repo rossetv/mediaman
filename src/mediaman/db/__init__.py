@@ -1,10 +1,4 @@
-"""Database package — schema, migrations, and connection management.
-
-Split from the original monolithic ``db.py`` (R5). Callers continue to
-import every symbol from :mod:`mediaman.db`.
-"""
-
-# "unused" private imports are part of the module's public surface.
+"""Database package — schema and connection management."""
 
 from .connection import (
     close_db,
@@ -22,15 +16,8 @@ from .connection import (
     start_refresh_run,
     start_scan_run,
 )
-from .migrations import SchemaFromFutureError, SchemaTooOldError, apply_migrations
-from .schema_definition import CUTOVER_VERSION, DB_SCHEMA_VERSION
 
 __all__ = [
-    "CUTOVER_VERSION",
-    "DB_SCHEMA_VERSION",
-    "SchemaFromFutureError",
-    "SchemaTooOldError",
-    "apply_migrations",
     "close_db",
     "finish_refresh_run",
     "finish_scan_run",

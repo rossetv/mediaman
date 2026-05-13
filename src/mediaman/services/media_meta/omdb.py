@@ -16,7 +16,7 @@ Logging note
 The OMDb REST API only accepts the API key as a query string parameter.
 ``urllib3`` logs request URLs at DEBUG, so the key would otherwise leak
 into ``mediaman.log`` in any deployment that enables DEBUG-level
-logging.  We attach a :class:`~mediaman.services.infra.scrub_filter.ScrubFilter`
+logging.  We attach a :class:`~mediaman.core.scrub_filter.ScrubFilter`
 to the urllib3 connection logger and the mediaman logger at the point
 where the API key is first resolved, scrubbing the raw key value from
 any log record before it is emitted.
@@ -36,9 +36,7 @@ from mediaman.services.infra import SafeHTTPClient, SafeHTTPError, get_string_se
 OMDB_API_BASE_URL = "https://www.omdbapi.com"
 
 # Module-level client + session so the connection pool is shared across
-# calls. ``SafeHTTPClient`` accepts a ``session`` kwarg so callers can
-# provide their own pool — the previous build constructed the client
-# without one, which left every call using a fresh connection.
+# calls.
 _OMDB_SESSION = requests.Session()
 # W1.32 carve-out: pinned host (``www.omdbapi.com`` ∈ PINNED_EXTERNAL_HOSTS); deny-list only.
 _OMDB_CLIENT = SafeHTTPClient(OMDB_API_BASE_URL, session=_OMDB_SESSION)
@@ -76,11 +74,6 @@ def get_omdb_key(conn: sqlite3.Connection, secret_key: str) -> str | None:
     so the decrypt-and-unwrap logic is not duplicated here.
     """
     return get_string_setting(conn, "omdb_api_key", secret_key=secret_key) or None
-
-
-# Keep the old private name as an alias so existing internal callers and tests
-# continue to work without change.
-_get_key = get_omdb_key
 
 
 def fetch_ratings(
@@ -128,11 +121,10 @@ def fetch_ratings(
         resp = _OMDB_CLIENT.get("/", params=params, timeout=(5.0, 5.0))
         data = resp.json()
     except (SafeHTTPError, requests.RequestException, ValueError, KeyError):
-        # ValueError covers ``Response.json``'s ``json.JSONDecodeError``
-        # (a subclass of ValueError, NOT RequestException) which the
-        # bare-Exception catch used to swallow alongside genuine
-        # programming errors.  KeyError is kept for the rare case where
-        # SafeHTTPClient internals raise on a missing dict key.
+        # ``Response.json`` raises ``json.JSONDecodeError`` (a ValueError
+        # subclass, not a RequestException) for malformed bodies; KeyError
+        # guards against SafeHTTPClient internals tripping on a missing
+        # dict key.
         return {}
     if not isinstance(data, dict) or data.get("Response") != "True":
         return {}

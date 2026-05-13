@@ -1,15 +1,11 @@
 """Ring 0: shared formatting helpers.
 
-Replaces per-module copies of ``_format_bytes``, ``_days_ago``, and
-ISO-timestamp normalisation that used to exist in at least five
-different places with subtle drift.
+Byte sizes, relative time strings, and ISO-timestamp normalisation in a
+single place so callers don't drift across subtle variants.
 
 Ring 0 contract: stdlib only (json, re, datetime), no I/O, no imports from
 other mediaman modules.  :func:`parse_iso_utc` is imported from
 :mod:`mediaman.core.time` — the only intra-Ring-0 import permitted.
-
-Canonical home: ``mediaman.core.format``.
-Back-compat shim: ``mediaman.services.infra.format``.
 """
 
 from __future__ import annotations
@@ -238,12 +234,10 @@ def relative_day_label(
 ) -> str:
     """Render *target* relative to *now* as a short English phrase.
 
-    Three sites previously duplicated this with drifting prose; callers
-    now supply only the strings.  ``future(days)`` produces the label
-    for "in N days"; ``past`` (optional) for "N days ago".  When
-    ``past`` is ``None``, past dates collapse to the ``today`` label
-    (matching the historical "Expires today" / "Deletes today" rule
-    where a passed-deadline still renders as the today phrase).
+    Callers supply the label producers.  ``future(days)`` produces the
+    label for "in N days"; ``past`` (optional) for "N days ago".  When
+    ``past`` is ``None``, past dates collapse to the ``today`` label —
+    a passed-deadline still renders as "Expires today" / "Deletes today".
     """
     delta = (target - now).days
     if delta == 0 or (delta < 0 and past is None):

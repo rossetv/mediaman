@@ -1,4 +1,4 @@
-"""Tests for auto-abandon behaviour invoked via search_trigger.maybe_auto_abandon.
+"""Tests for auto-abandon behaviour driven through the search-trigger flow.
 
 Covers:
 - ``maybe_auto_abandon`` gating (enabled/disabled, thresholds)
@@ -14,7 +14,8 @@ import time as _time
 import pytest
 
 from mediaman.db import init_db
-from mediaman.services.arr.search_trigger import maybe_auto_abandon, reset_search_triggers
+from mediaman.services.arr.auto_abandon import maybe_auto_abandon
+from mediaman.services.arr.search_trigger import reset_search_triggers
 
 _OVER_THRESHOLD = _time.time() - 20 * 86_400  # 20 days ago — over 14 d threshold
 _OLD_RELEASE = _time.time() - 365 * 86_400  # past 30 d release-grace window

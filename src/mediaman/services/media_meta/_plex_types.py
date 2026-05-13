@@ -81,7 +81,7 @@ def _to_utc(dt: datetime | None) -> datetime | None:
     POSIX timestamps in seconds) via ``datetime.fromtimestamp(int(...))``
     — that yields a NAIVE local-time datetime even though the underlying
     instant is UTC.  Downstream code uses
-    :func:`mediaman.services.infra.format.ensure_tz`, which now treats
+    :func:`mediaman.core.format.ensure_tz`, which now treats
     naive inputs as already-UTC.  Without explicit conversion here the
     stored timestamp would jump by the local UTC offset.
 

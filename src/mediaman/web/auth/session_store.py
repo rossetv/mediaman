@@ -25,7 +25,7 @@ from mediaman.web.auth._session_fingerprint import (
 from mediaman.web.auth._token_hashing import hash_token as _hash_token
 
 # ``_parse_iso_aware`` is now an alias for the canonical
-# :func:`mediaman.services.infra.format.parse_iso_utc`. The forensic
+# :func:`mediaman.core.format.parse_iso_utc`. The forensic
 # ``_parse_last_used`` below stays bespoke because it must log a warning
 # when a stored timestamp is corrupt — a side effect the generic parser
 # deliberately does not perform.

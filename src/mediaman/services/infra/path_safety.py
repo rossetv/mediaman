@@ -19,18 +19,16 @@ logger = logging.getLogger(__name__)
 def parse_delete_roots_env(env_val: str) -> list[str]:
     """Parse ``MEDIAMAN_DELETE_ROOTS`` using the canonical colon/comma rules.
 
-    The canonical separator is ``':'`` (PATH-style).  A legacy ``','``
-    separator is accepted with a deprecation warning.  Mixed separators are
-    accepted but logged as an error because they almost always indicate a
+    The canonical separator is ``':'`` (PATH-style).  A ``','`` separator
+    is accepted with a deprecation warning.  Mixed separators are accepted
+    but logged as an error because they almost always indicate a
     misconfiguration.
 
     Returns the list of non-empty stripped path strings.  An empty list means
     the env var was set but yielded no usable paths.
 
-    This function is the single source of truth for separator handling so that
-    the disk-usage path and the deletion path both behave identically.
-    Callers in ``scanner/repository.py`` should be migrated to use this helper;
-    a follow-up commit on ``scanner/repository.py`` is needed by the orchestrator.
+    Single source of truth for separator handling — both the disk-usage
+    path and the deletion path go through here.
     """
     if not env_val:
         return []

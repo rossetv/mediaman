@@ -40,7 +40,7 @@ def _parse_arr_iso(value: str) -> datetime | None:
     most-recent date.
 
     Kept bespoke rather than delegating to
-    :func:`mediaman.services.infra.time.parse_iso_utc` because Arr APIs
+    :func:`mediaman.core.time.parse_iso_utc` because Arr APIs
     sometimes emit naive timestamps that the caller wants to keep naive
     for date-comparison logic — the canonical parser always attaches UTC.
     """

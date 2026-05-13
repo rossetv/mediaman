@@ -1,4 +1,4 @@
-"""Unit tests for keep route — _lookup_verified_action and keep_submit snooze paths."""
+"""Unit tests for keep route — lookup_verified_action and keep_submit snooze paths."""
 
 from __future__ import annotations
 
@@ -14,11 +14,10 @@ from fastapi.testclient import TestClient
 from mediaman.config import Config
 from mediaman.crypto import generate_keep_token
 from mediaman.db import set_connection
+from mediaman.services.scheduled_actions import lookup_verified_action, token_hash
 from mediaman.web.routes.keep import (
     _KEEP_GET_LIMITER,
     _KEEP_POST_LIMITER,
-    _lookup_verified_action,
-    _token_hash,
 )
 from mediaman.web.routes.keep import router as keep_router
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
@@ -62,7 +61,10 @@ def _make_keep_token(conn: sqlite3.Connection, media_id: str, action_id: int) ->
         expires_at=int(time.time()) + 86400 * 180,
         secret_key=SECRET,
     )
-    conn.execute("UPDATE scheduled_actions SET token=? WHERE id=?", (token, action_id))
+    conn.execute(
+        "UPDATE scheduled_actions SET token=?, token_hash=? WHERE id=?",
+        (token, token_hash(token), action_id),
+    )
     conn.commit()
     return token
 
@@ -73,7 +75,7 @@ class TestLookupVerifiedAction:
         action_id = _insert_action(conn)
         token = _make_keep_token(conn, "mi1", action_id)
 
-        row = _lookup_verified_action(conn, token, SECRET)
+        row = lookup_verified_action(conn, token, SECRET)
 
         assert row is not None
         assert row["media_item_id"] == "mi1"
@@ -83,7 +85,7 @@ class TestLookupVerifiedAction:
         action_id = _insert_action(conn)
         _make_keep_token(conn, "mi1", action_id)
 
-        row = _lookup_verified_action(conn, "tampered_token", SECRET)
+        row = lookup_verified_action(conn, "tampered_token", SECRET)
 
         assert row is None
 
@@ -96,7 +98,7 @@ class TestLookupVerifiedAction:
         conn.execute("DELETE FROM scheduled_actions WHERE id=?", (action_id,))
         conn.commit()
 
-        row = _lookup_verified_action(conn, token, SECRET)
+        row = lookup_verified_action(conn, token, SECRET)
 
         assert row is None
 
@@ -126,7 +128,7 @@ class TestLookupVerifiedAction:
         conn.commit()
 
         # Looking up token_for_1 finds the row (stored token differs) → None
-        row = _lookup_verified_action(conn, token_for_1, SECRET)
+        row = lookup_verified_action(conn, token_for_1, SECRET)
 
         assert row is None
 
@@ -135,7 +137,7 @@ class TestLookupVerifiedAction:
         action_id = _insert_action(conn)
         token = _make_keep_token(conn, "mi1", action_id)
 
-        row = _lookup_verified_action(conn, token, "b" * 64)
+        row = lookup_verified_action(conn, token, "b" * 64)
 
         assert row is None
 
@@ -254,7 +256,7 @@ class TestKeepSubmitTokenInvalidation:
         # Successful POST redirects to the keep page.
         assert resp.status_code in (200, 302, 307)
 
-        th = _token_hash(token)
+        th = token_hash(token)
         row = conn.execute(
             "SELECT token_hash FROM keep_tokens_used WHERE token_hash = ?", (th,)
         ).fetchone()
@@ -282,11 +284,11 @@ class TestKeepSubmitTokenInvalidation:
         assert body["error"] == "already_processed"
 
     def test_token_hash_helper(self):
-        """_token_hash must return a stable 64-char hex string."""
-        h = _token_hash("test-token")
+        """token_hash must return a stable 64-char hex string."""
+        h = token_hash("test-token")
         assert len(h) == 64
-        assert h == _token_hash("test-token")
-        assert h != _token_hash("other-token")
+        assert h == token_hash("test-token")
+        assert h != token_hash("other-token")
 
 
 def _insert_scheduled_action_findings(
@@ -477,7 +479,7 @@ class TestFinding16KeepTokenHash:
         row = find_active_keep_action_by_id_and_token(conn, action_id, wrong_token)
         assert row is None
 
-    def test_schedule_deletion_writes_token_hash(self, conn):
+    def test_schedule_deletion_writestoken_hash(self, conn):
         """schedule_deletion must write token_hash to the row."""
         from mediaman.scanner.phases.upsert import schedule_deletion
 
@@ -497,16 +499,3 @@ class TestFinding16KeepTokenHash:
         assert row is not None
         assert row["token_hash"] is not None
         assert len(row["token_hash"]) == 64
-
-    def test_raw_token_fallback_lookup(self, conn):
-        """Lookup should fall back to raw token column for un-migrated rows."""
-        _insert_media_item(conn)
-        action_id = _insert_scheduled_action_findings(conn)
-        token = _make_keep_token(conn, "mi1", action_id)
-        # Simulate un-migrated row: clear the token_hash
-        conn.execute("UPDATE scheduled_actions SET token_hash = NULL WHERE id = ?", (action_id,))
-        conn.commit()
-
-        # _lookup_verified_action should still find the row via raw token
-        row = _lookup_verified_action(conn, token, SECRET)
-        assert row is not None

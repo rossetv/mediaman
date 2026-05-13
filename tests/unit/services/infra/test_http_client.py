@@ -22,7 +22,7 @@ from mediaman.services.infra.http import (
     dns_pinning as _dns_pinning,  # rationale: submodule object needed to monkeypatch getaddrinfo hook; not re-exported from infra top-level
 )
 from mediaman.services.infra.http import (
-    pin_dns_for_request,
+    pin,
 )
 from mediaman.services.infra.http.retry import (
     _BODY_SNIPPET_BYTES,  # rationale: private constant governing body-snippet truncation; exercised directly to pin the threshold contract
@@ -420,13 +420,13 @@ class TestDNSPinning:
     """
 
     def test_pin_context_replays_validated_ip(self, monkeypatch):
-        """Inside :func:`pin_dns_for_request`, ``socket.getaddrinfo`` returns
+        """Inside :func:`pin`, ``socket.getaddrinfo`` returns
         the pinned IP regardless of any subsequent change in DNS state."""
         # The autouse fixture replaces socket.getaddrinfo for the test —
         # to test the pin we restore the patched version explicitly.
         monkeypatch.setattr(socket, "getaddrinfo", _dns_pinning._patched_getaddrinfo)
 
-        with pin_dns_for_request("rebind.example.test", "203.0.113.5"):
+        with pin("rebind.example.test", "203.0.113.5"):
             results = socket.getaddrinfo("rebind.example.test", 443)
         assert results
         family, _socktype, _proto, _name, sockaddr = results[0]
@@ -447,7 +447,7 @@ class TestDNSPinning:
 
         monkeypatch.setattr(_dns_pinning, "_ORIG_GETADDRINFO", fake_real)
 
-        with pin_dns_for_request("only-during.example.test", "203.0.113.5"):
+        with pin("only-during.example.test", "203.0.113.5"):
             # During context, no fall-through.
             socket.getaddrinfo("only-during.example.test", 443)
             assert called == []
@@ -469,7 +469,7 @@ class TestDNSPinning:
         barrier = threading.Barrier(2)
 
         def in_thread_a():
-            with pin_dns_for_request("shared.example.test", "203.0.113.10"):
+            with pin("shared.example.test", "203.0.113.10"):
                 barrier.wait()
                 # Thread B should NOT see this pin.
                 ans = socket.getaddrinfo("shared.example.test", 0)
@@ -598,7 +598,7 @@ class TestDNSPinning:
         """
         monkeypatch.setattr(socket, "getaddrinfo", _dns_pinning._patched_getaddrinfo)
 
-        with pin_dns_for_request("v4only.example.test", "203.0.113.5"):
+        with pin("v4only.example.test", "203.0.113.5"):
             ans = socket.getaddrinfo("v4only.example.test", 80, socket.AF_INET6)
             # Family mismatch — empty list, not a synthesised v4 record.
             assert ans == []

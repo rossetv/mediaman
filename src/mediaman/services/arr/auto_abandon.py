@@ -6,10 +6,10 @@ enabled the ``auto_abandon_enabled`` setting, this module unmonitors it
 and emits a ``sec:auto_abandon.fired`` audit row. The audit row makes a
 compromised-settings attack discoverable after the fact.
 
-Split out of :mod:`mediaman.services.arr.search_trigger` so the policy
-logic and its audit guarantees are isolated from the trigger-decision
-state machine. :func:`maybe_auto_abandon` is re-exported from
-:mod:`mediaman.services.arr.search_trigger` for backwards compatibility.
+The policy logic and its audit guarantees are isolated here, separate
+from the trigger-decision state machine in
+:mod:`mediaman.services.arr.search_trigger` (which calls
+:func:`maybe_auto_abandon` per item).
 """
 
 from __future__ import annotations

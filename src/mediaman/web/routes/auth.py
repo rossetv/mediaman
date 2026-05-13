@@ -173,10 +173,8 @@ def login_submit(
         event="login.success",
         actor=username,
         ip=client_ip,
-        # ``ua_hash`` was previously a misnomer — it stored the leading
-        # 80 chars of the raw user-agent.  Compute a real SHA-256 hash
-        # prefix so the field name matches the value and so a long
-        # attacker-controlled UA cannot pollute the audit row.
+        # ``ua_hash`` is a SHA-256 hash prefix so a long attacker-controlled
+        # UA cannot pollute the audit row.
         detail={"ua_hash": _ua_hash(user_agent), "force_rotation": weak_password},
     )
     response = RedirectResponse("/", status_code=302)
