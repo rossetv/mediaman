@@ -51,6 +51,7 @@ ALL_KEYS: frozenset[str] = SECRET_FIELDS | frozenset(
         "disk_thresholds",
         "suggestions_enabled",
         "openai_web_search_enabled",
+        "openai_model",
         "auto_abandon_enabled",
     }
 )

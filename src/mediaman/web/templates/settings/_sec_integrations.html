@@ -110,6 +110,13 @@
           {"kind": "secret", "id": "openai_api_key", "label": "API Key",
            "sub": "From <a href=\"https://platform.openai.com/api-keys\" target=\"_blank\" rel=\"noopener\">platform.openai.com/api-keys</a>.",
            "placeholder": "sk-…"},
+          {"kind": "select", "id": "openai_model", "label": "Model",
+           "sub": "Used for every OpenAI call. Mini is cheaper and faster.",
+           "default": "gpt-5.5",
+           "options": [
+             {"value": "gpt-5.5", "label": "GPT-5.5"},
+             {"value": "gpt-5.4-mini", "label": "GPT-5.4-mini"},
+           ]},
         ],
       ],
       settings=settings) }}

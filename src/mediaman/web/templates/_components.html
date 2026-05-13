@@ -300,6 +300,18 @@
 {%- endmacro %}
 
 
+{# Select dropdown styled as a settings input. ``options`` is a list of
+   ``{"value": str, "label": str}`` dicts; the entry whose value matches
+   ``selected`` is rendered with the selected attribute. #}
+{% macro inp_select(id, options, selected="") -%}
+<select class="inp inp--lg" id="{{ id }}" name="{{ id }}">
+  {% for opt in options -%}
+  <option value="{{ opt.value }}"{% if opt.value == selected %} selected{% endif %}>{{ opt.label }}</option>
+  {%- endfor %}
+</select>
+{%- endmacro %}
+
+
 {# Field (stacked label + input + helper). Use via {% call %}. #}
 {% macro fld(label, sub="", optional=false) -%}
 <div class="fld">
@@ -352,12 +364,14 @@
 
    `fields` is a list-of-lists describing the body. Each inner list is one
    .fld-row; each item is a dict with:
-     kind:      "text" | "secret"  (required)
+     kind:      "text" | "secret" | "select"  (required)
      id:        input id / settings key (required)
      label:     visible label text (required)
-     placeholder: input placeholder (optional)
+     placeholder: input placeholder (text/secret only; optional)
      sub:       helper text under the input — supports inline HTML (optional)
      optional:  True to render the "optional" badge in the label (default False)
+     options:   list of {"value", "label"} dicts (select only; required for select)
+     default:   fallback value when settings dict has no entry (select only)
    A row with a single field is rendered .fld-row--full; two-field rows lay
    out side-by-side. Values are read from the `settings` dict in the caller's
    scope, which is passed in via the `settings` arg.
@@ -373,6 +387,8 @@
     {% call fld(f.label, sub=f.sub|default(""), optional=f.optional|default(false)) %}
       {% if f.kind == "secret" %}
         {{ inp_secret(f.id, value=settings.get(f.id, "") if settings else "", placeholder=f.placeholder|default("")) }}
+      {% elif f.kind == "select" %}
+        {{ inp_select(f.id, f.options, selected=(settings.get(f.id) if settings else "") or f.default|default("")) }}
       {% else %}
         <input class="inp" id="{{ f.id }}" type="text"
                value="{{ settings.get(f.id, '') if settings else '' }}"
