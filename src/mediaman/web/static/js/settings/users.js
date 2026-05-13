@@ -4,16 +4,16 @@
  * Responsibilities:
  *   - User list rendering (GET /api/users)
  *   - Add user form (#add-user-form, #btn-add-user)
- *   - Delete user flow (inline password drawer)
+ *   - Delete user flow (UIFeedback.confirm + MM.reauth.run)
  *   - Self password-change form (#self-password-form)
  *   - Revoke other sessions (#btn-revoke-others)
  *   - Password strength meters (data-strength attribute)
  *   - Password-match indicator (#self-match-label)
- *   - Shared inline password-prompt drawer (openPasswordPrompt)
  *
  * Cross-module dependencies:
- *   MM.api  (core/api.js)
- *   MM.dom  (core/dom.js)
+ *   MM.api     (core/api.js)
+ *   MM.dom     (core/dom.js)
+ *   MM.reauth  (core/reauth.js)
  *
  * Exposes:
  *   MM.settings.users.init()
@@ -75,7 +75,7 @@
           .then(renderUsers)
           .catch(function () {
             var list = document.getElementById('user-list');
-            if (list) { list.replaceChildren(); list.appendChild(makeMsg("Couldn’t load users.", 'err')); }
+            if (list) { list.replaceChildren(); list.appendChild(makeMsg("Couldn't load users.", 'err')); }
           });
       }
 
@@ -124,7 +124,7 @@
             del.type = 'button';
             del.className = 'link-danger';
             del.textContent = 'Delete';
-            del.addEventListener('click', function () { openDeleteDrawer(user, row); });
+            del.addEventListener('click', function () { openDeleteDrawer(user); });
             row.appendChild(del);
           }
           list.appendChild(row);
@@ -132,144 +132,30 @@
       }
 
       // ----------------------------------------------------------------
-      // Inline password-prompt drawer — shared by delete-user and any
-      // future flow that needs an inline password confirmation.
-      //
-      // opts:
-      //   anchor        — element to insert next to
-      //   where         — 'before' | 'after' (default: 'after')
-      //   title         — string or DocumentFragment
-      //   descText      — optional subtitle string
-      //   confirmLabel  — button label (default: 'Confirm')
-      //   dangerConfirm — use btn--danger instead of btn--primary
-      //   onSubmit(pw)  — returns Promise<{ok, error?}>
-      //   onCancel()    — called when the user dismisses
-      // ----------------------------------------------------------------
-      function openPasswordPrompt(opts) {
-        document.querySelectorAll('.setg-pg .pw-prompt').forEach(function (n) { n.remove(); });
-
-        var drawer = document.createElement('div');
-        drawer.className = 'inline-form pw-prompt';
-
-        var title = document.createElement('div');
-        title.className = 'fld-lbl';
-        title.style.textTransform = 'none';
-        title.style.letterSpacing = '-.005em';
-        title.style.fontSize = '14px';
-        if (typeof opts.title === 'string') title.textContent = opts.title;
-        else if (opts.title) title.appendChild(opts.title);
-        drawer.appendChild(title);
-
-        if (opts.descText) {
-          var desc = document.createElement('div');
-          desc.className = 'fld-sub';
-          desc.style.marginTop = '6px';
-          desc.textContent = opts.descText;
-          drawer.appendChild(desc);
-        }
-
-        var lbl = document.createElement('label');
-        lbl.className = 'fld';
-        lbl.style.marginTop = '14px';
-        var lblText = document.createElement('span');
-        lblText.className = 'fld-lbl';
-        lblText.textContent = 'Your password (re-authenticate)';
-        lbl.appendChild(lblText);
-        var input = document.createElement('input');
-        input.className = 'inp';
-        input.type = 'password';
-        input.autocomplete = 'current-password';
-        lbl.appendChild(input);
-        drawer.appendChild(lbl);
-
-        var actions = document.createElement('div');
-        actions.className = 'inline-form-actions';
-        var cancelBtn = document.createElement('button');
-        cancelBtn.type = 'button';
-        cancelBtn.className = 'btn btn--ghost btn--sm';
-        cancelBtn.textContent = 'Cancel';
-        actions.appendChild(cancelBtn);
-        var confirmBtn = document.createElement('button');
-        confirmBtn.type = 'button';
-        confirmBtn.className = opts.dangerConfirm ? 'btn btn--danger btn--sm' : 'btn btn--primary btn--sm';
-        confirmBtn.textContent = opts.confirmLabel || 'Confirm';
-        actions.appendChild(confirmBtn);
-        var msg = document.createElement('span');
-        msg.className = 'inline-form-msg';
-        msg.style.margin = '0';
-        actions.appendChild(msg);
-        drawer.appendChild(actions);
-
-        if (opts.where === 'before') opts.anchor.before(drawer);
-        else opts.anchor.after(drawer);
-        input.focus();
-
-        function close(viaCancel) {
-          drawer.remove();
-          if (viaCancel && typeof opts.onCancel === 'function') opts.onCancel();
-        }
-        cancelBtn.addEventListener('click', function () { close(true); });
-
-        function submit() {
-          var pw = input.value;
-          if (!pw) {
-            msg.className = 'inline-form-msg err';
-            msg.textContent = 'Password required.';
-            return;
-          }
-          confirmBtn.disabled = true;
-          msg.className = 'inline-form-msg';
-          msg.textContent = '';
-          Promise.resolve(opts.onSubmit(pw)).then(function (res) {
-            confirmBtn.disabled = false;
-            if (res && res.ok) {
-              drawer.remove();
-            } else {
-              msg.className = 'inline-form-msg err';
-              msg.textContent = (res && res.error) || 'Failed';
-              input.focus();
-              input.select();
-            }
-          }).catch(function () {
-            confirmBtn.disabled = false;
-            msg.className = 'inline-form-msg err';
-            msg.textContent = 'Network error. Try again.';
-          });
-        }
-        confirmBtn.addEventListener('click', submit);
-        input.addEventListener('keydown', function (e) {
-          if (e.key === 'Enter') submit();
-          else if (e.key === 'Escape') close(true);
-        });
-      }
-
-      // ----------------------------------------------------------------
       // Delete user
+      //
+      // Two-step UX: a destructive-confirm dialog, then the centred
+      // reauth modal opened transparently by MM.reauth.run when the
+      // DELETE returns 403 reauth_required.
       // ----------------------------------------------------------------
-      function openDeleteDrawer(user, row) {
-        var titleFrag = document.createDocumentFragment();
-        titleFrag.appendChild(document.createTextNode('Delete '));
-        var strong = document.createElement('strong');
-        strong.textContent = user.username;
-        titleFrag.appendChild(strong);
-        titleFrag.appendChild(document.createTextNode('?'));
-
-        openPasswordPrompt({
-          anchor: row,
-          title: titleFrag,
-          descText: 'Irreversible. All active sessions for this user will be terminated.',
+      function openDeleteDrawer(user) {
+        window.UIFeedback.confirm({
+          title: 'Delete ' + user.username + '?',
+          body: 'Irreversible. All active sessions for this user will be terminated.',
           confirmLabel: 'Delete user',
-          dangerConfirm: true,
-          onSubmit: function (pw) {
-            return MM.api.delete('/api/users/' + user.id, {
-              headers: { 'X-Confirm-Password': pw },
-            }).then(function (data) {
-              if (data && data.ok) { loadUsers(); return { ok: true }; }
-              return { ok: false, error: (data && data.error) || 'Delete failed' };
-            }).catch(function (err) {
-              return { ok: false, error: (err && err.message) || 'Delete failed' };
-            });
-          },
+          confirmVariant: 'danger',
+        }).then(function (ok) {
+          if (!ok) return;
+          MM.reauth.run(function () {
+            return MM.api.delete('/api/users/' + user.id);
+          }).then(function () {
+            loadUsers();
+          }).catch(function (err) {
+            if (err && err.error === 'reauth_cancelled') return;
+            window.UIFeedback.error(
+              (err && err.message) || 'Could not delete user'
+            );
+          });
         });
       }
 
@@ -312,19 +198,24 @@
           return;
         }
         btnSubmitAddUser.disabled = true;
-        MM.api.post('/api/users', { username: username, password: password })
-          .then(function (data) {
-            btnSubmitAddUser.disabled = false;
-            createResult.className = 'inline-form-msg ok';
-            createResult.textContent = 'User "' + username + '" created.';
-            setTimeout(function () { toggleAddUser(false); }, 700);
-            loadUsers();
-          })
-          .catch(function (err) {
-            btnSubmitAddUser.disabled = false;
-            createResult.className = 'inline-form-msg err';
-            renderApiError(createResult, err);
-          });
+        MM.reauth.run(function () {
+          return MM.api.post('/api/users', { username: username, password: password });
+        }).then(function () {
+          btnSubmitAddUser.disabled = false;
+          createResult.className = 'inline-form-msg ok';
+          createResult.textContent = 'User "' + username + '" created.';
+          setTimeout(function () { toggleAddUser(false); }, 700);
+          loadUsers();
+        }).catch(function (err) {
+          btnSubmitAddUser.disabled = false;
+          if (err && err.error === 'reauth_cancelled') {
+            createResult.className = 'inline-form-msg';
+            createResult.textContent = '';
+            return;
+          }
+          createResult.className = 'inline-form-msg err';
+          renderApiError(createResult, err);
+        });
       });
 
       // ----------------------------------------------------------------
@@ -368,22 +259,30 @@
         }
         if (newPw !== conf) {
           pwResult.className = 'inline-form-msg err';
-          pwResult.textContent = "Passwords don’t match.";
+          pwResult.textContent = "Passwords don't match.";
           return;
         }
         btnSubmitPw.disabled = true;
-        MM.api.post('/api/users/change-password', { old_password: oldPw, new_password: newPw })
-          .then(function () {
-            btnSubmitPw.disabled = false;
-            pwResult.className = 'inline-form-msg ok';
-            pwResult.textContent = 'Password updated.';
-            setTimeout(function () { togglePwForm(false); }, 900);
-          })
-          .catch(function (err) {
-            btnSubmitPw.disabled = false;
-            pwResult.className = 'inline-form-msg err';
-            renderApiError(pwResult, err);
+        MM.reauth.run(function () {
+          return MM.api.post('/api/users/change-password', {
+            old_password: oldPw,
+            new_password: newPw,
           });
+        }).then(function () {
+          btnSubmitPw.disabled = false;
+          pwResult.className = 'inline-form-msg ok';
+          pwResult.textContent = 'Password updated.';
+          setTimeout(function () { togglePwForm(false); }, 900);
+        }).catch(function (err) {
+          btnSubmitPw.disabled = false;
+          if (err && err.error === 'reauth_cancelled') {
+            pwResult.className = 'inline-form-msg';
+            pwResult.textContent = '';
+            return;
+          }
+          pwResult.className = 'inline-form-msg err';
+          renderApiError(pwResult, err);
+        });
       });
 
       // ----------------------------------------------------------------
@@ -394,18 +293,20 @@
         var orig = btnRevokeOthers.textContent;
         btnRevokeOthers.disabled = true;
         btnRevokeOthers.textContent = 'Signing out…';
-        MM.api.post('/api/users/sessions/revoke-others')
-          .then(function (data) {
-            btnRevokeOthers.disabled = false;
-            btnRevokeOthers.textContent = data && data.ok
-              ? 'Signed out ' + (data.revoked || 0)
-              : orig;
-            setTimeout(function () { btnRevokeOthers.textContent = orig; }, 2400);
-          })
-          .catch(function () {
-            btnRevokeOthers.disabled = false;
-            btnRevokeOthers.textContent = orig;
-          });
+        MM.reauth.run(function () {
+          return MM.api.post('/api/users/sessions/revoke-others');
+        }).then(function (data) {
+          btnRevokeOthers.disabled = false;
+          btnRevokeOthers.textContent = data && data.ok
+            ? 'Signed out ' + (data.revoked || 0)
+            : orig;
+          setTimeout(function () { btnRevokeOthers.textContent = orig; }, 2400);
+        }).catch(function (err) {
+          btnRevokeOthers.disabled = false;
+          btnRevokeOthers.textContent = orig;
+          if (err && err.error === 'reauth_cancelled') return;
+          // Existing UX: silent failure here; no toast wired up.
+        });
       });
 
       // ----------------------------------------------------------------
@@ -447,7 +348,7 @@
           if (!input.value) {
             meter.style.width = '0%';
             meter.className = 'fpc-meter-fill';
-            label.textContent = ' ';
+            label.textContent = ' ';
             label.className = 'fpc-caption';
             return;
           }
@@ -468,12 +369,12 @@
         var lab = document.getElementById('self-match-label');
         if (!pw || !cp || !lab) return;
         function render() {
-          if (!cp.value || !pw.value) { lab.textContent = ' '; lab.className = 'fpc-caption'; return; }
+          if (!cp.value || !pw.value) { lab.textContent = ' '; lab.className = 'fpc-caption'; return; }
           if (cp.value === pw.value) {
             lab.textContent = 'Passwords match';
             lab.className = 'fpc-caption fpc-caption-strong';
           } else {
-            lab.textContent = "Passwords don’t match yet";
+            lab.textContent = "Passwords don't match yet";
             lab.className = 'fpc-caption fpc-caption-weak';
           }
         }
@@ -483,23 +384,15 @@
 
       // ----------------------------------------------------------------
       // Edit-email drawer (self card).
-      // Mirrors the inline-form pattern used by self-password-form.
+      // The reauth prompt is provided by MM.reauth.run — no inline
+      // password field on this form.
       // ----------------------------------------------------------------
-      function patchEmail(email, password) {
-        return MM.api.patch('/api/users/me/email', {
-          email: email,
-        }, {
-          headers: { 'X-Confirm-Password': password },
-        });
-      }
-
       function initEmailEditor() {
         var btn = document.getElementById('btn-edit-email');
         var form = document.getElementById('self-email-form');
         var cancel = document.getElementById('btn-cancel-email');
         var submit = document.getElementById('btn-submit-email');
         var emailInp = document.getElementById('self-email-input');
-        var pwInp = document.getElementById('self-email-password');
         var msg = document.getElementById('email-result');
         var display = document.getElementById('self-email-display');
         if (!btn || !form) return;
@@ -508,14 +401,12 @@
           form.hidden = false;
           msg.textContent = '';
           msg.className = 'inline-form-msg';
-          pwInp.value = '';
           emailInp.focus();
         }
         function hide() {
           form.hidden = true;
           msg.textContent = '';
           msg.className = 'inline-form-msg';
-          pwInp.value = '';
         }
 
         btn.addEventListener('click', function () {
@@ -527,34 +418,33 @@
           submit.disabled = true;
           msg.textContent = 'Saving…';
           msg.className = 'inline-form-msg';
-          patchEmail(emailInp.value, pwInp.value)
-            .then(function (data) {
-              if (data && data.ok) {
-                // Keep submit disabled until the 800 ms hide delay
-                // fires — otherwise a fast second click during the
-                // "Saved" confirmation re-issues the PATCH.
-                msg.textContent = 'Saved';
-                msg.className = 'inline-form-msg ok';
-                var newVal = emailInp.value.trim();
-                if (display) {
-                  display.textContent = newVal || 'Not set · download alerts disabled';
-                }
-                btn.textContent = newVal ? 'Edit email' : 'Add email';
-                setTimeout(function () {
-                  hide();
-                  submit.disabled = false;
-                }, 800);
-              } else {
-                submit.disabled = false;
-                msg.textContent = (data && data.message) || 'Could not save';
-                msg.className = 'inline-form-msg err';
-              }
-            })
-            .catch(function (err) {
+          MM.reauth.run(function () {
+            return MM.api.patch('/api/users/me/email', { email: emailInp.value });
+          }).then(function () {
+            // Keep submit disabled through the 800 ms close delay so a
+            // fast second click during the "Saved" confirmation does
+            // not re-issue the PATCH.
+            msg.textContent = 'Saved';
+            msg.className = 'inline-form-msg ok';
+            var newVal = emailInp.value.trim();
+            if (display) {
+              display.textContent = newVal || 'Not set · download alerts disabled';
+            }
+            btn.textContent = newVal ? 'Edit email' : 'Add email';
+            setTimeout(function () {
+              hide();
               submit.disabled = false;
-              msg.textContent = (err && err.message) || 'Could not save';
-              msg.className = 'inline-form-msg err';
-            });
+            }, 800);
+          }).catch(function (err) {
+            submit.disabled = false;
+            if (err && err.error === 'reauth_cancelled') {
+              msg.textContent = '';
+              msg.className = 'inline-form-msg';
+              return;
+            }
+            msg.textContent = (err && err.message) || 'Could not save';
+            msg.className = 'inline-form-msg err';
+          });
         });
       }
 
