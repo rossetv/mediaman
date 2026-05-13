@@ -51,21 +51,15 @@
       </div>
     </div>
 
-    <div class="inline-form inline-form--two" id="self-email-form" hidden>
-      <div class="inline-form-grid">
-        <label class="fld">
-          <span class="fld-lbl">Notification email</span>
-          <input class="inp" type="email" id="self-email-input"
-                 autocomplete="email" inputmode="email"
-                 placeholder="you@example.com"
-                 value="{{ email or '' }}">
-          <span class="fld-sub">Used for download-ready alerts. Leave empty to disable.</span>
-        </label>
-        <label class="fld">
-          <span class="fld-lbl">Your password (re-authenticate)</span>
-          <input class="inp" type="password" id="self-email-password" autocomplete="current-password">
-        </label>
-      </div>
+    <div class="inline-form" id="self-email-form" hidden>
+      <label class="fld">
+        <span class="fld-lbl">Notification email</span>
+        <input class="inp" type="email" id="self-email-input"
+               autocomplete="email" inputmode="email"
+               placeholder="you@example.com"
+               value="{{ email or '' }}">
+        <span class="fld-sub">Used for download-ready alerts. Leave empty to disable.</span>
+      </label>
       <div class="inline-form-actions">
         {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-email") }}
         {{ c.btn("Save email", variant="primary", size="sm", id="btn-submit-email") }}
