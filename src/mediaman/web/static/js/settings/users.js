@@ -529,8 +529,10 @@
           msg.className = 'inline-form-msg';
           patchEmail(emailInp.value, pwInp.value)
             .then(function (data) {
-              submit.disabled = false;
               if (data && data.ok) {
+                // Keep submit disabled until the 800 ms hide delay
+                // fires — otherwise a fast second click during the
+                // "Saved" confirmation re-issues the PATCH.
                 msg.textContent = 'Saved';
                 msg.className = 'inline-form-msg ok';
                 var newVal = emailInp.value.trim();
@@ -538,8 +540,12 @@
                   display.textContent = newVal || 'Not set · download alerts disabled';
                 }
                 btn.textContent = newVal ? 'Edit email' : 'Add email';
-                setTimeout(hide, 800);
+                setTimeout(function () {
+                  hide();
+                  submit.disabled = false;
+                }, 800);
               } else {
+                submit.disabled = false;
                 msg.textContent = (data && data.message) || 'Could not save';
                 msg.className = 'inline-form-msg err';
               }
