@@ -17,11 +17,6 @@ from mediaman.app_factory import create_app
 from mediaman.bootstrap.validators import enforce_single_worker, sanitise_trusted_proxies
 from mediaman.config import ConfigError, load_config
 
-# Back-compat aliases — tests (and external callers) import these under
-# their old underscore-prefixed names from mediaman.main.
-_enforce_single_worker = enforce_single_worker
-_sanitise_trusted_proxies = sanitise_trusted_proxies
-
 logger = logging.getLogger(__name__)
 
 

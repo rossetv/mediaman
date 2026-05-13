@@ -106,34 +106,21 @@ def lookup_verified_action(
     Rejecting on signature first stops forged tokens reaching the DB
     lookup at all.
 
-    Lookup uses ``token_hash`` first (Finding 16, migration 28 backfills
-    existing rows); falls back to raw ``token`` for rows not yet
-    migrated so the transition is seamless.
+    Lookup is by ``token_hash`` (Finding 16): the raw token never lands
+    in the index.
     """
     payload = validate_keep_token(token, secret_key)
     if payload is None:
         return None
 
-    th = token_hash(token)
     row: sqlite3.Row | None = conn.execute(
         "SELECT sa.*, mi.title, mi.media_type, mi.poster_path, mi.file_size_bytes, "
         "mi.plex_rating_key, mi.added_at, mi.show_title, mi.season_number "
         "FROM scheduled_actions sa "
         "JOIN media_items mi ON sa.media_item_id = mi.id "
         "WHERE sa.token_hash = ?",
-        (th,),
+        (token_hash(token),),
     ).fetchone()
-
-    # Fall back to raw token column for rows not yet migrated.
-    if row is None:
-        row = conn.execute(
-            "SELECT sa.*, mi.title, mi.media_type, mi.poster_path, mi.file_size_bytes, "
-            "mi.plex_rating_key, mi.added_at, mi.show_title, mi.season_number "
-            "FROM scheduled_actions sa "
-            "JOIN media_items mi ON sa.media_item_id = mi.id "
-            "WHERE sa.token = ?",
-            (token,),
-        ).fetchone()
 
     if row is None:
         return None

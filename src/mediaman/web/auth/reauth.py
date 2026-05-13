@@ -1,36 +1,28 @@
 """Password re-authentication helpers.
 
-Two distinct concepts live here:
+:func:`grant_recent_reauth` / :func:`has_recent_reauth` issue and check a
+short-lived, server-side "recent reauth" ticket bound to the caller's
+session token hash. Privilege-establishing endpoints (admin creation,
+sensitive settings, admin unlock, password change) call
+:func:`has_recent_reauth` to demand that the caller has reauthenticated
+within the last ``REAUTH_WINDOW_SECONDS`` window. The ticket is keyed on
+the session's token-hash so:
 
-1. :func:`require_reauth` — direct password re-check used historically by
-   one-shot destructive endpoints (delete user) which want to confirm the
-   password supplied in the ``X-Confirm-Password`` header *for that single
-   request only*. A compromised session cookie WITHOUT the password cannot
-   trigger flows guarded by this function.
+* Routes that destroy or rotate a session call :func:`revoke_reauth`
+  or :func:`revoke_all_reauth_for` so the ticket dies with the
+  session. Stranded rows for sessions destroyed via other paths are
+  harmless — they expire on their own and the SHA-256 token-hash
+  primary key makes accidental reuse by a fresh session vanishingly
+  unlikely.
+* A separate session that never reauthenticated cannot piggy-back on a
+  reauth granted to a different session.
+* Restarts and multi-worker deployments share one source of truth.
 
-2. :func:`grant_recent_reauth` / :func:`has_recent_reauth` — a short-lived,
-   server-side "recent reauth" ticket bound to the caller's session token
-   hash. Privilege-establishing endpoints (admin creation, sensitive
-   settings, admin unlock, password change) call :func:`has_recent_reauth`
-   to demand that the caller has reauthenticated within the last
-   ``REAUTH_WINDOW_SECONDS`` window. The ticket is keyed on the session's
-   token-hash so:
-
-   * Routes that destroy or rotate a session call :func:`revoke_reauth`
-     or :func:`revoke_all_reauth_for` so the ticket dies with the
-     session. Stranded rows for sessions destroyed via other paths are
-     harmless — they expire on their own and the SHA-256 token-hash
-     primary key makes accidental reuse by a fresh session vanishingly
-     unlikely.
-   * A separate session that never reauthenticated cannot piggy-back on a
-     reauth granted to a different session.
-   * Restarts and multi-worker deployments share one source of truth.
-
-   Failed reauth attempts feed the existing :mod:`mediaman.web.auth.login_lockout`
-   counter under a ``reauth:<username>`` namespace so an attacker who steals a
-   session cookie cannot mount an offline-style password oracle against the
-   reauth endpoint either — the same escalating lockout that gates plain
-   login also gates reauth.
+Failed reauth attempts feed the existing :mod:`mediaman.web.auth.login_lockout`
+counter under a ``reauth:<username>`` namespace so an attacker who steals a
+session cookie cannot mount an offline-style password oracle against the
+reauth endpoint either — the same escalating lockout that gates plain
+login also gates reauth.
 
 The 5-minute window is the default; it can be tuned via the
 ``MEDIAMAN_REAUTH_WINDOW_SECONDS`` environment variable for stricter
@@ -124,27 +116,6 @@ def _ensure_table(conn: sqlite3.Connection) -> None:
         )
         """
     )
-
-
-# TODO(reauth-cleanup): orphaned after the Users & Access reauth-modal
-# convergence (2026-05-13). Remove in a follow-up PR once we have
-# confirmed no caller appears in the meantime.
-def require_reauth(conn: sqlite3.Connection, admin: str, password: str) -> bool:
-    """Return True if *password* matches *admin*'s current hash.
-
-    Used for one-shot password-confirm flows (delete user). Does NOT
-    record failures into the lockout counter — call sites that want
-    throttling should call :func:`verify_reauth_password` instead so an
-    attacker cannot brute-force the password through this endpoint
-    either.
-
-    Kept for backwards-compatibility with the existing delete-user route.
-    """
-    if not password:
-        return False
-    from mediaman.web.auth.password_hash import authenticate
-
-    return authenticate(conn, admin, password, record_failures=False)
 
 
 def verify_reauth_password(

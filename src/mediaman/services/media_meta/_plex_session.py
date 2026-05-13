@@ -15,9 +15,9 @@ from mediaman.services.infra import (
     resolve_safe_outbound_url as _resolve_safe_outbound_url_default,
 )
 
-# pin_dns_for_request is not re-exported from mediaman.services.infra;
-# import directly from the http sub-package which owns it.
-from mediaman.services.infra.http import pin_dns_for_request
+# pin is not re-exported from mediaman.services.infra; import directly
+# from the http sub-package which owns it.
+from mediaman.services.infra.http import pin
 
 # Name of the parent module — used to look up the potentially-monkeypatched
 # ``resolve_safe_outbound_url`` at call time so test fixtures that patch
@@ -162,7 +162,7 @@ class _SafePlexSession(http_requests.Session):
         # 5. DNS pin + dispatch. The pin closes the rebind window
         #    between the SSRF check above and the actual connect.
         if hostname and pinned_ip:
-            with pin_dns_for_request(hostname, pinned_ip):
+            with pin(hostname, pinned_ip):
                 response = super().request(method, url, **kwargs)
         else:
             response = super().request(method, url, **kwargs)

@@ -575,51 +575,51 @@ class TestYoutubeTrailerKeyValidation:
 
     def test_valid_youtube_id_passes_through(self):
         """A well-formed 11-char YouTube ID is returned unchanged."""
-        from mediaman.web.routes.download.confirm import _validate_youtube_id
+        from mediaman.web.routes.download.confirm import validate_youtube_id
 
-        assert _validate_youtube_id("dQw4w9WgXcQ") == "dQw4w9WgXcQ"
+        assert validate_youtube_id("dQw4w9WgXcQ") == "dQw4w9WgXcQ"
 
     def test_short_id_is_rejected(self):
         """An ID shorter than 11 chars is rejected."""
-        from mediaman.web.routes.download.confirm import _validate_youtube_id
+        from mediaman.web.routes.download.confirm import validate_youtube_id
 
-        assert _validate_youtube_id("short") is None
+        assert validate_youtube_id("short") is None
 
     def test_long_id_is_rejected(self):
         """An ID longer than 11 chars is rejected."""
-        from mediaman.web.routes.download.confirm import _validate_youtube_id
+        from mediaman.web.routes.download.confirm import validate_youtube_id
 
-        assert _validate_youtube_id("a" * 12) is None
+        assert validate_youtube_id("a" * 12) is None
 
     def test_id_with_slash_is_rejected(self):
         """An ID containing a slash (path traversal) is rejected."""
-        from mediaman.web.routes.download.confirm import _validate_youtube_id
+        from mediaman.web.routes.download.confirm import validate_youtube_id
 
-        assert _validate_youtube_id("abc/def1234") is None
+        assert validate_youtube_id("abc/def1234") is None
 
     def test_id_with_angle_brackets_is_rejected(self):
         """An ID containing HTML metacharacters is rejected."""
-        from mediaman.web.routes.download.confirm import _validate_youtube_id
+        from mediaman.web.routes.download.confirm import validate_youtube_id
 
-        assert _validate_youtube_id("<script>abc") is None
+        assert validate_youtube_id("<script>abc") is None
 
     def test_none_input_returns_none(self):
         """None input returns None without raising."""
-        from mediaman.web.routes.download.confirm import _validate_youtube_id
+        from mediaman.web.routes.download.confirm import validate_youtube_id
 
-        assert _validate_youtube_id(None) is None
+        assert validate_youtube_id(None) is None
 
     def test_empty_string_returns_none(self):
         """Empty string returns None."""
-        from mediaman.web.routes.download.confirm import _validate_youtube_id
+        from mediaman.web.routes.download.confirm import validate_youtube_id
 
-        assert _validate_youtube_id("") is None
+        assert validate_youtube_id("") is None
 
     def test_valid_id_with_dash_and_underscore(self):
         """YouTube IDs may contain - and _ characters."""
-        from mediaman.web.routes.download.confirm import _validate_youtube_id
+        from mediaman.web.routes.download.confirm import validate_youtube_id
 
-        assert _validate_youtube_id("abc-efg_hij") == "abc-efg_hij"
+        assert validate_youtube_id("abc-efg_hij") == "abc-efg_hij"
 
     def test_suggestion_trailer_key_validated_on_page_load(
         self, app_factory, conn, secret_key, templates_stub

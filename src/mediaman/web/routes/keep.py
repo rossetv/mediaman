@@ -39,7 +39,6 @@ from mediaman.services.scheduled_actions import (
     lookup_verified_action,
     mark_token_consumed,
     parse_execute_at,
-    token_hash,
 )
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.middleware import is_admin as _is_admin
@@ -55,17 +54,9 @@ _KEEP_GET_LIMITER = RateLimiter(max_attempts=30, window_seconds=60)
 _KEEP_POST_LIMITER = RateLimiter(max_attempts=10, window_seconds=60)
 
 
-# Backwards-compatible aliases — existing tests import these names directly
-# from this module.  Keep them as re-exports so the test imports continue
-# to work without modification.
-_token_hash = token_hash
-_lookup_verified_action = lookup_verified_action
-
 __all__ = [
     "_KEEP_GET_LIMITER",
     "_KEEP_POST_LIMITER",
-    "_lookup_verified_action",
-    "_token_hash",
     "find_active_keep_action_by_id_and_token",
     "router",
 ]

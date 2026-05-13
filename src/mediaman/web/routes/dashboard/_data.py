@@ -100,27 +100,19 @@ def _build_redownload_index(
     depending on the action:
 
     * ``deleted`` rows: a stable UUID matching ``media_items.id``.
-    * ``re_downloaded`` rows written before a fix: the free-text resolved title.
-    * ``re_downloaded`` rows written after the fix: a stable
-      ``tmdb:<id>`` / ``tvdb:<id>`` / ``imdb:<id>`` token.
-    * ``downloaded`` rows: usually the title (legacy behaviour
-      preserved by the recommendations pipeline).
+    * ``re_downloaded`` rows: a stable ``tmdb:<id>`` / ``tvdb:<id>`` /
+      ``imdb:<id>`` token (skipped here — no title match possible).
+    * ``downloaded`` rows: the resolved title, lower-cased for matching.
 
-    To stay correct across the migration window we build a title-keyed
-    index. Title matches stay lower-cased. When the deletion row carries
-    a tmdb_id we can also consult the redownload index by tmdb_id; for
-    now we only match on title.
+    Title matches stay lower-cased so "Dune" matches "dune".
     """
     by_title_lower: dict[str, str] = {}
     rows = fetch_redownload_audit_rows(conn)
     for rd in rows:
         raw = rd.media_item_id
         ts = rd.created_at
-        # Skip prefixed tokens (tmdb:/tvdb:/imdb:) — no title match possible.
         if ":" in raw:
             continue
-        # Legacy / non-prefixed rows — treat the whole string as a
-        # title. Lower-case so "Dune" matches "dune".
         key = raw.lower()
         if not key:
             continue

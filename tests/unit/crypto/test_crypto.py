@@ -2,14 +2,12 @@
 
 import base64
 import contextlib
-import hashlib
 import secrets
 import sqlite3
 import time
 
 import pytest
 from cryptography.exceptions import InvalidTag
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from mediaman.core.audit import security_event
 from mediaman.crypto import (
@@ -19,7 +17,6 @@ from mediaman.crypto import (
     generate_keep_token,
     generate_session_token,
     is_canary_valid,
-    migrate_legacy_ciphertexts,
     validate_keep_token,
 )
 
@@ -51,22 +48,6 @@ def _make_canary_audit_callback(conn: sqlite3.Connection):
             )
 
     return _on_failure
-
-
-def _make_migration_audit_callback(conn: sqlite3.Connection):
-    """Return an ``on_complete`` callback that writes a migration-complete audit row."""
-
-    def _on_complete(migrated_count: int) -> None:
-        with contextlib.suppress(Exception):
-            security_event(
-                conn,
-                event="aes.v35_migration_complete",
-                actor="",
-                ip="",
-                detail={"migrated_count": migrated_count},
-            )
-
-    return _on_complete
 
 
 @pytest.fixture
@@ -143,34 +124,6 @@ class TestSaltPersistence:
         first = _load_or_create_salt(conn)
         second = _load_or_create_salt(conn)
         assert first == second
-
-
-class TestLegacyV1Fallback:
-    """v1 ciphertexts (SHA-256 key, no prefix byte) are no longer accepted
-    by decrypt_value. They must be migrated via migrate_legacy_ciphertexts
-    (migration v35) first.
-    """
-
-    @staticmethod
-    def _v1_encrypt(plaintext: str, secret_key: str) -> str:
-        """Build a raw v1 ciphertext (SHA-256-derived key, no prefix, no AAD)."""
-        key = hashlib.sha256(secret_key.encode()).digest()
-        aesgcm = AESGCM(key)
-        nonce = secrets.token_bytes(12)
-        ct = aesgcm.encrypt(nonce, plaintext.encode(), None)
-        return base64.urlsafe_b64encode(nonce + ct).decode()
-
-    def test_v1_ciphertext_rejected_by_decrypt_value(self, secret_key, conn):
-        """decrypt_value must raise InvalidTag on a v1 ciphertext — migration is required."""
-        legacy = self._v1_encrypt("legacy-value", secret_key)
-        with pytest.raises(InvalidTag):
-            decrypt_value(legacy, secret_key, conn=conn)
-
-    def test_v1_wrong_key_fails(self, secret_key):
-        """Sanity check: wrong-key v1 ciphertext still raises InvalidTag."""
-        legacy = self._v1_encrypt("legacy-value", secret_key)
-        with pytest.raises(InvalidTag):
-            decrypt_value(legacy, "wrong-key")
 
 
 class TestCanary:
@@ -286,12 +239,8 @@ class TestCanaryNoReseedOnTamper:
         assert row is not None
 
 
-class TestV2V1PlausibilityGate:
-    """C33 / post-v35: invalid ciphertexts are rejected with InvalidTag.
-
-    With the v1 path removed, there is no second AES attempt: any bytes that
-    don't pass v2 authentication simply raise InvalidTag immediately.
-    """
+class TestDecryptValueRejectsGarbage:
+    """Bytes that don't authenticate as v2 raise InvalidTag."""
 
     def test_junk_bytes_raise_invalid_tag(self, secret_key, conn):
         """Short garbage input must raise InvalidTag."""
@@ -306,19 +255,6 @@ class TestV2V1PlausibilityGate:
         encoded = base64.urlsafe_b64encode(fake).decode()
         with pytest.raises(InvalidTag):
             decrypt_value(encoded, secret_key, conn=conn)
-
-    def test_v1_ciphertext_rejected_not_silently_decrypted(self, secret_key, conn):
-        """v1 bytes must raise InvalidTag rather than silently mis-decrypt.
-
-        Post-v35, there is no fallback to the SHA-256 key path in decrypt_value.
-        """
-        key = hashlib.sha256(secret_key.encode()).digest()
-        aesgcm = AESGCM(key)
-        nonce = secrets.token_bytes(12)
-        ct = aesgcm.encrypt(nonce, b"legacy", None)
-        legacy = base64.urlsafe_b64encode(nonce + ct).decode()
-        with pytest.raises(InvalidTag):
-            decrypt_value(legacy, secret_key, conn=conn)
 
 
 class TestCiphertextCap:
@@ -472,24 +408,11 @@ class TestSecretKeyEntropyHardened:
         assert _secret_key_looks_strong("0123456789abcdef" * 4) is True
 
 
-class TestDecryptValueNoAadFallback:
-    """v2 no-AAD ciphertexts still decrypt via the fallback (until migration v35
-    re-encrypts them). The in-flight write-back (_reencrypt_legacy_no_aad) has
-    been removed; the migration handles the batch upgrade at startup.
-    """
+class TestAesGcmAadStrict:
+    """AAD binding: a v2 ciphertext only decrypts with the AAD it was encrypted with."""
 
-    def test_v2_no_aad_value_decrypts_with_aad_supplied(self, conn, secret_key):
-        """A v2 ciphertext encrypted without AAD must still decrypt when the
-        caller supplies AAD — the no-AAD fallback path inside decrypt_value
-        handles this until migration v35 upgrades the row.
-        """
-        legacy_ct = encrypt_value("api-key", secret_key, conn=conn, aad=None)
-        aad = b"plex_token"
-        plaintext = decrypt_value(legacy_ct, secret_key, conn=conn, aad=aad)
-        assert plaintext == "api-key"
-
-    def test_v2_aad_bound_still_decrypts(self, conn, secret_key):
-        """A value already encrypted WITH AAD decrypts correctly."""
+    def test_v2_aad_bound_decrypts_with_matching_aad(self, conn, secret_key):
+        """A value encrypted WITH AAD decrypts correctly."""
         aad = b"plex_token"
         good_ct = encrypt_value("api-key", secret_key, conn=conn, aad=aad)
         assert decrypt_value(good_ct, secret_key, conn=conn, aad=aad) == "api-key"
@@ -501,116 +424,11 @@ class TestDecryptValueNoAadFallback:
         with pytest.raises(InvalidTag):
             decrypt_value(good_ct, secret_key, conn=conn, aad=b"different_key")
 
-
-class TestV35MigrateLegacyCiphertexts:
-    """Migration v35 safety net: migrate_legacy_ciphertexts round-trips both
-    v1 and v2-no-AAD rows to v2+AAD, and the resulting ciphertexts decrypt
-    to the same plaintext.
-    """
-
-    @staticmethod
-    def _v1_encrypt(plaintext: str, secret_key: str) -> str:
-        """Build a raw v1 ciphertext (SHA-256 key, no prefix, no AAD)."""
-        key = hashlib.sha256(secret_key.encode()).digest()
-        aesgcm = AESGCM(key)
-        nonce = secrets.token_bytes(12)
-        ct = aesgcm.encrypt(nonce, plaintext.encode(), None)
-        return base64.urlsafe_b64encode(nonce + ct).decode()
-
-    def test_v1_row_migrated_to_v2_aad(self, conn, secret_key):
-        """A v1 ciphertext in the settings table must be re-encrypted to
-        v2+AAD by migrate_legacy_ciphertexts, and the result must decrypt
-        to the original plaintext.
-        """
-        v1_ct = self._v1_encrypt("my-api-key", secret_key)
-        insert_settings(conn, plex_token=v1_ct, encrypted=1, updated_at="2026-01-01")
-
-        # Before migration: v1 is rejected by decrypt_value.
+    def test_no_aad_ciphertext_does_not_decrypt_with_aad(self, conn, secret_key):
+        """A ciphertext encrypted with aad=None must NOT decrypt when AAD is supplied."""
+        no_aad_ct = encrypt_value("api-key", secret_key, conn=conn, aad=None)
         with pytest.raises(InvalidTag):
-            decrypt_value(v1_ct, secret_key, conn=conn)
-
-        # Run the migration.
-        count = migrate_legacy_ciphertexts(conn, secret_key)
-        assert count == 1
-
-        # After migration: the row now holds a v2+AAD ciphertext.
-        row = conn.execute("SELECT value FROM settings WHERE key='plex_token'").fetchone()
-        new_ct = row["value"]
-        assert new_ct != v1_ct  # row was updated
-
-        # Decrypt with correct AAD succeeds and yields original plaintext.
-        assert decrypt_value(new_ct, secret_key, conn=conn, aad=b"plex_token") == "my-api-key"
-
-        # Wrong AAD must fail — proving the row is now AAD-bound.
-        with pytest.raises(InvalidTag):
-            decrypt_value(new_ct, secret_key, conn=conn, aad=b"wrong_key")
-
-    def test_v2_no_aad_row_migrated_to_v2_aad(self, conn, secret_key):
-        """A v2 ciphertext encrypted without AAD must be re-encrypted by
-        migrate_legacy_ciphertexts to a v2+AAD ciphertext.
-        """
-        no_aad_ct = encrypt_value("token-value", secret_key, conn=conn, aad=None)
-        insert_settings(conn, sonarr_api_key=no_aad_ct, encrypted=1, updated_at="2026-01-01")
-
-        count = migrate_legacy_ciphertexts(conn, secret_key)
-        assert count == 1
-
-        row = conn.execute("SELECT value FROM settings WHERE key='sonarr_api_key'").fetchone()
-        new_ct = row["value"]
-        assert new_ct != no_aad_ct
-
-        # Correct AAD succeeds.
-        assert decrypt_value(new_ct, secret_key, conn=conn, aad=b"sonarr_api_key") == "token-value"
-        # Wrong AAD fails.
-        with pytest.raises(InvalidTag):
-            decrypt_value(new_ct, secret_key, conn=conn, aad=b"other")
-
-    def test_already_migrated_rows_skipped(self, conn, secret_key):
-        """Already-migrated rows (v2+AAD) must not be re-encrypted."""
-        aad = b"plex_token"
-        good_ct = encrypt_value("api-key", secret_key, conn=conn, aad=aad)
-        insert_settings(conn, plex_token=good_ct, encrypted=1, updated_at="2026-01-01")
-
-        count = migrate_legacy_ciphertexts(conn, secret_key)
-        assert count == 0
-
-        # Row must be unchanged.
-        row = conn.execute("SELECT value FROM settings WHERE key='plex_token'").fetchone()
-        assert row["value"] == good_ct
-
-    def test_migration_idempotent(self, conn, secret_key):
-        """Running migrate_legacy_ciphertexts twice must not fail and the
-        second run must return 0 (nothing to do).
-        """
-        v1_ct = self._v1_encrypt("secret", secret_key)
-        insert_settings(conn, radarr_api_key=v1_ct, encrypted=1, updated_at="2026-01-01")
-
-        first = migrate_legacy_ciphertexts(conn, secret_key)
-        second = migrate_legacy_ciphertexts(conn, secret_key)
-        assert first == 1
-        assert second == 0
-
-    def test_migration_audit_row_written(self, conn, secret_key):
-        """A successful migration must write an audit row for the event."""
-        v1_ct = self._v1_encrypt("val", secret_key)
-        insert_settings(conn, tmdb_api_key=v1_ct, encrypted=1, updated_at="2026-01-01")
-
-        # Pass the audit callback — audit writing was moved out of crypto/ to
-        # the caller layer to satisfy the §2.2 leaf-package invariant.
-        migrate_legacy_ciphertexts(
-            conn, secret_key, on_complete=_make_migration_audit_callback(conn)
-        )
-
-        rows = conn.execute(
-            "SELECT detail FROM audit_log WHERE action=?",
-            ("sec:aes.v35_migration_complete",),
-        ).fetchall()
-        assert len(rows) == 1
-        assert "migrated_count" in rows[0]["detail"]
-
-    def test_empty_table_returns_zero(self, conn, secret_key):
-        """No encrypted rows → migration returns 0 without error."""
-        assert migrate_legacy_ciphertexts(conn, secret_key) == 0
+            decrypt_value(no_aad_ct, secret_key, conn=conn, aad=b"plex_token")
 
 
 class TestValidatePayloadCap:
@@ -941,20 +759,6 @@ class TestAesGcmAad:
         # the ``plex_token`` row into, say, ``openai_api_key``.
         with pytest.raises(InvalidTag):
             decrypt_value(ct, _DOMAIN_KEY, conn=conn, aad=b"openai_api_key")
-
-    def test_legacy_ciphertext_still_decrypts_without_aad(self, db_path):
-        """Ciphertexts written before AAD-binding still decrypt when AAD is supplied."""
-        from mediaman.crypto import decrypt_value, encrypt_value
-        from mediaman.db import init_db
-
-        conn = init_db(str(db_path))
-        # Simulate a legacy write with no AAD.
-        ct = encrypt_value("legacy-token", _DOMAIN_KEY, conn=conn, aad=None)
-
-        # Reading with AAD should still succeed because decrypt_value
-        # falls back to no-AAD on InvalidTag.
-        pt = decrypt_value(ct, _DOMAIN_KEY, conn=conn, aad=b"plex_token")
-        assert pt == "legacy-token"
 
 
 # ---------------------------------------------------------------------------

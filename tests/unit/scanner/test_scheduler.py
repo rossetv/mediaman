@@ -245,56 +245,56 @@ class TestEnforceSingleWorker:
     that uvicorn (or our launchers) might respect."""
 
     def test_no_env_var_is_a_noop(self, monkeypatch):
-        from mediaman.main import _enforce_single_worker
+        from mediaman.bootstrap.validators import enforce_single_worker
 
         for var in ("MEDIAMAN_WORKERS", "UVICORN_WORKERS", "WORKERS"):
             monkeypatch.delenv(var, raising=False)
         # Must not raise.
-        _enforce_single_worker()
+        enforce_single_worker()
 
     def test_workers_equals_one_is_allowed(self, monkeypatch):
-        from mediaman.main import _enforce_single_worker
+        from mediaman.bootstrap.validators import enforce_single_worker
 
         for var in ("MEDIAMAN_WORKERS", "UVICORN_WORKERS", "WORKERS"):
             monkeypatch.delenv(var, raising=False)
         monkeypatch.setenv("MEDIAMAN_WORKERS", "1")
-        _enforce_single_worker()
+        enforce_single_worker()
 
     def test_workers_greater_than_one_raises(self, monkeypatch):
-        from mediaman.main import _enforce_single_worker
+        from mediaman.bootstrap.validators import enforce_single_worker
 
         for var in ("MEDIAMAN_WORKERS", "UVICORN_WORKERS", "WORKERS"):
             monkeypatch.delenv(var, raising=False)
         monkeypatch.setenv("MEDIAMAN_WORKERS", "2")
         with pytest.raises(RuntimeError, match="single worker"):
-            _enforce_single_worker()
+            enforce_single_worker()
 
     def test_uvicorn_workers_greater_than_one_raises(self, monkeypatch):
-        from mediaman.main import _enforce_single_worker
+        from mediaman.bootstrap.validators import enforce_single_worker
 
         for var in ("MEDIAMAN_WORKERS", "UVICORN_WORKERS", "WORKERS"):
             monkeypatch.delenv(var, raising=False)
         monkeypatch.setenv("UVICORN_WORKERS", "4")
         with pytest.raises(RuntimeError, match="single worker"):
-            _enforce_single_worker()
+            enforce_single_worker()
 
     def test_legacy_workers_var_greater_than_one_raises(self, monkeypatch):
-        from mediaman.main import _enforce_single_worker
+        from mediaman.bootstrap.validators import enforce_single_worker
 
         for var in ("MEDIAMAN_WORKERS", "UVICORN_WORKERS", "WORKERS"):
             monkeypatch.delenv(var, raising=False)
         monkeypatch.setenv("WORKERS", "8")
         with pytest.raises(RuntimeError, match="single worker"):
-            _enforce_single_worker()
+            enforce_single_worker()
 
     def test_invalid_workers_value_is_ignored(self, monkeypatch):
         """A non-numeric value is treated as unset rather than crashing."""
-        from mediaman.main import _enforce_single_worker
+        from mediaman.bootstrap.validators import enforce_single_worker
 
         for var in ("MEDIAMAN_WORKERS", "UVICORN_WORKERS", "WORKERS"):
             monkeypatch.delenv(var, raising=False)
         monkeypatch.setenv("MEDIAMAN_WORKERS", "not-a-number")
-        _enforce_single_worker()  # must not raise
+        enforce_single_worker()  # must not raise
 
 
 # ── Finding 28: cli_main bind-host fallback ─────────────────────────────────

@@ -1,11 +1,8 @@
 """Domain-agnostic rate-limiting package.
 
-Relocated from ``mediaman.auth.rate_limit`` (R-refactor) because the
-limiters are not inherently auth-specific — they guard API endpoints in
-scanner, settings, library, and subscriber routes as well.
-
-A thin back-compat shim remains at :mod:`mediaman.auth.rate_limit` so
-existing imports continue to work without modification.
+The limiters guard API endpoints across scanner, settings, library,
+subscriber, and admin auth routes — they are not specific to any one
+domain.
 
 Public surface
 --------------

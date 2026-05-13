@@ -215,7 +215,3 @@ def pin(hostname: str, ip: str) -> Iterator[None]:
             pins.pop(hostname, None)
         else:
             pins[hostname] = previous
-
-
-# Back-compat alias used by the original http_client.py public API.
-pin_dns_for_request = pin

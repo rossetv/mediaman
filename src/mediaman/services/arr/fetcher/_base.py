@@ -58,7 +58,7 @@ def clamp_progress(size: int, sizeleft: int) -> int:
 
 
 def _format_size_fields(size: int, sizeleft: int) -> tuple[str, str]:
-    """Return ``(size_str, done_str)`` formatted via :func:`~mediaman.services.infra.format.format_bytes`.
+    """Return ``(size_str, done_str)`` formatted via :func:`~mediaman.core.format.format_bytes`.
 
     Both Radarr and Sonarr cards compute these fields identically; this helper
     keeps the formatting in one place so a future unit change touches one line.

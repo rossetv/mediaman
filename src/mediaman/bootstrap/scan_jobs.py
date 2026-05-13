@@ -253,11 +253,7 @@ def shutdown_scheduling() -> None:
 
 
 __all__ = [
-    "_SHUTDOWN_TIMEOUT_SECONDS",
     "SchedulerStartupRefused",
-    "_run_library_sync_job",
-    "_run_scheduled_scan",
-    "_stuck_deletion_failures",
     "bootstrap_scheduling",
     "shutdown_scheduling",
 ]

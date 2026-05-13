@@ -29,9 +29,6 @@ Deterministic-jitter backoff (arr search throttle)
 
 Ring 0 contract: stdlib only (hashlib, random), no I/O, no imports from
 other mediaman modules.
-
-Canonical home: ``mediaman.core.backoff``.
-Back-compat shim: ``mediaman.services.infra.backoff``.
 """
 
 from __future__ import annotations

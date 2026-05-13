@@ -1,53 +1,11 @@
-"""Schema definition for a fresh mediaman database.
+"""Full schema for a fresh mediaman database.
 
-This module owns:
-- :data:`DB_SCHEMA_VERSION` — the highest migration number; new installations
-  start at this version and never run the now-deleted per-version files.
-- :data:`CUTOVER_VERSION` — the squash baseline. Databases whose
-  ``PRAGMA user_version`` is strictly between 0 and CUTOVER_VERSION were
-  created by the old incremental migration chain and cannot be upgraded by
-  this code. They must transit through release 1.9.0 (the last release that
-  still contained migration files v01–v35) before upgrading to this version.
-- :data:`_SCHEMA` — the full DDL applied to a brand-new database. It reflects
-  the exact schema that the full v01–v35 migration sequence produced, verified
-  by comparing ``sqlite_master`` content on 2026-05-04. A fresh install skips
-  every per-version file and jumps straight to CUTOVER_VERSION.
-
-On 2026-05-04 we squashed migrations 1–35 into this baseline _SCHEMA.
-Pre-cutover databases must run release 1.9.0 first (the last release
-containing the per-version migration files v01–v35).
-
-Do not import application code here; this module must be importable early in
-the bootstrap sequence with no side-effects beyond defining constants.
+A single DDL script applied by :func:`mediaman.db.init_db` on every open.
+All statements are ``CREATE … IF NOT EXISTS`` so opening an already-
+populated database is a no-op.
 """
 
 from __future__ import annotations
-
-DB_SCHEMA_VERSION = 36
-
-# Databases below this version cannot be migrated by this code — the
-# per-version migration files they need (v01..v33) no longer exist.
-# Operators on a pre-cutover database must transit through release 1.8.x
-# (the last release that still contained the per-version migration files)
-# before upgrading to this version.
-#
-# CUTOVER_VERSION == 34 because v34 is the schema baseline _SCHEMA reflects.
-# Migrations that ship in this release or later (currently just v35, the
-# AES-v1 sunset marker) are walked from CUTOVER_VERSION up to
-# DB_SCHEMA_VERSION via the small registry in migrations/__init__.py.
-CUTOVER_VERSION = 34
-
-if DB_SCHEMA_VERSION < CUTOVER_VERSION:
-    # Use a real ``raise`` rather than ``assert`` — Python with ``-O`` strips
-    # asserts and this invariant is the only thing that prevents a future
-    # release from accidentally setting DB_SCHEMA_VERSION below the squash
-    # baseline.  ``DB_SCHEMA_VERSION >= CUTOVER_VERSION`` must hold so the
-    # post-cutover registry has a non-empty range to walk.
-    raise RuntimeError(
-        f"DB_SCHEMA_VERSION ({DB_SCHEMA_VERSION}) must be >= CUTOVER_VERSION "
-        f"({CUTOVER_VERSION}). Update DB_SCHEMA_VERSION when adding new "
-        f"post-cutover migrations."
-    )
 
 _SCHEMA = """
 -- === Settings / encrypted KV ===
@@ -293,9 +251,8 @@ CREATE INDEX IF NOT EXISTS idx_reauth_tickets_username ON reauth_tickets(usernam
 CREATE INDEX IF NOT EXISTS idx_delete_intents_completed ON delete_intents(completed_at) WHERE completed_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_download_notifications_claimed ON download_notifications(claimed_at) WHERE notified=2;
 
--- Tamper-evidence triggers on audit_log (v33). These triggers refuse UPDATE
--- and DELETE on existing rows so the only way to silently mutate the log is
--- to drop the trigger first — which itself shows up in sqlite_master and is
+-- Tamper-evidence triggers on audit_log. UPDATE and DELETE are forbidden;
+-- dropping the trigger to bypass them shows up in sqlite_master and is
 -- visible to any operator running .schema. INSERT remains unrestricted.
 CREATE TRIGGER IF NOT EXISTS audit_log_no_update
 BEFORE UPDATE ON audit_log

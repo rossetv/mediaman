@@ -1,7 +1,6 @@
 """Encryption and HMAC-token signing — facade over :mod:`aes` and :mod:`tokens`.
 
-Split from the original monolithic ``crypto.py`` (R3). Callers continue
-to import every symbol from :mod:`mediaman.crypto`.
+Callers import every symbol from :mod:`mediaman.crypto`.
 """
 # ruff: noqa: F401 — this module is a deliberate re-export facade;
 # the "unused" imports ARE the public API, and the explicit ``import hmac``
@@ -12,7 +11,6 @@ to import every symbol from :mod:`mediaman.crypto`.
 import hmac
 
 from ._aes_key import CryptoError, CryptoInputError
-from ._aes_migrate import migrate_legacy_ciphertexts
 from .aes import (
     decrypt_value,
     encrypt_value,
@@ -45,7 +43,6 @@ __all__ = [
     "generate_session_token",
     "generate_unsubscribe_token",
     "is_canary_valid",
-    "migrate_legacy_ciphertexts",
     "sign_poster_url",
     "validate_download_token",
     "validate_keep_token",

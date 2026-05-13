@@ -1,8 +1,7 @@
 """SQLite connection management and job-run helpers.
 
-Split from the original monolithic ``db.py`` (R5). Schema DDL and
-migrations live in :mod:`mediaman.db.schema_definition` and
-:mod:`mediaman.db.migrations`.
+Schema DDL lives in :mod:`mediaman.db.schema_definition` and is applied
+in full on every :func:`init_db` call.
 
 Connection lifecycle
 --------------------
@@ -28,7 +27,7 @@ from datetime import timedelta
 
 from mediaman.core.time import now_iso, now_utc
 
-from .migrations import apply_migrations
+from .schema_definition import _SCHEMA
 
 logger = logging.getLogger(__name__)
 
@@ -43,11 +42,17 @@ def _configure_connection(conn: sqlite3.Connection) -> None:
 
 
 def init_db(db_path: str) -> sqlite3.Connection:
-    """Initialise the database, creating tables if needed."""
+    """Initialise the database, creating tables if needed.
+
+    The full schema is applied unconditionally via
+    ``CREATE … IF NOT EXISTS``, so the call is idempotent on an
+    existing database.
+    """
     conn = sqlite3.connect(db_path)
     _configure_connection(conn)
     _set_db_path(db_path)
-    apply_migrations(conn)
+    conn.executescript(_SCHEMA)
+    conn.commit()
     return conn
 
 
@@ -159,8 +164,7 @@ def close_db() -> None:
 
 # Heartbeat lease: a running job renews its ``heartbeat_at`` column at
 # least once per :data:`_JOB_HEARTBEAT_INTERVAL_SECONDS`. A row whose
-# heartbeat (or, for legacy rows that pre-date migration 24, whose
-# ``started_at``) is older than :data:`_JOB_HEARTBEAT_STALE_SECONDS` is
+# heartbeat is older than :data:`_JOB_HEARTBEAT_STALE_SECONDS` is
 # considered crashed and no longer blocks new runs.
 _JOB_HEARTBEAT_INTERVAL_SECONDS = 60
 _JOB_HEARTBEAT_STALE_SECONDS = 5 * 60
@@ -196,17 +200,14 @@ def _job_owner_id() -> str:
 def _is_job_running(conn: sqlite3.Connection, table: str) -> bool:
     """Return True if a run row for *table* still has a live heartbeat.
 
-    A row counts as alive when ``finished_at`` is unset and the most
-    recent of ``heartbeat_at`` / ``started_at`` is within the stale
-    window. Rows whose heartbeat (or started_at, for legacy entries)
-    has lapsed are treated as crashed so a new run can start cleanly.
+    A row counts as alive when ``finished_at`` is unset and
+    ``heartbeat_at`` is within the stale window. Crashed rows fall out
+    so a new run can start cleanly.
     """
     _check_job_table(table)
     cutoff = (now_utc() - timedelta(seconds=_JOB_HEARTBEAT_STALE_SECONDS)).isoformat()
     row = conn.execute(
-        f"SELECT id FROM {table} "
-        "WHERE finished_at IS NULL "
-        "  AND COALESCE(heartbeat_at, started_at) > ? LIMIT 1",
+        f"SELECT id FROM {table} WHERE finished_at IS NULL   AND heartbeat_at > ? LIMIT 1",
         (cutoff,),
     ).fetchone()
     return row is not None

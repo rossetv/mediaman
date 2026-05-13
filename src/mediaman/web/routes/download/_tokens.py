@@ -142,10 +142,6 @@ def gc_expired_tokens(conn: sqlite3.Connection | None = None) -> None:
         logger.debug("download token GC failed", exc_info=True)
 
 
-# Backwards-compatible private alias (older code imported the underscore-prefixed name).
-_gc_expired_tokens = gc_expired_tokens
-
-
 def _evict_cache_locked() -> None:
     """Trim the LRU cache to within :data:`_TOKEN_USED_CACHE_MAX`.
 

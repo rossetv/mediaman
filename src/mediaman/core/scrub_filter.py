@@ -7,9 +7,6 @@ requests).  Idempotent so module re-imports don't stack filters.
 Ring 0 contract: stdlib only (logging, collections.abc), no I/O, no
 imports from other mediaman modules.
 
-Canonical home: ``mediaman.core.scrub_filter``.
-Back-compat shim: ``mediaman.services.infra.scrub_filter``.
-
 Usage::
 
     from mediaman.core.scrub_filter import ScrubFilter, install_root_filter
@@ -22,9 +19,9 @@ Usage::
     # automatically inherits redaction without a per-module attach call.
     install_root_filter(secrets=[api_key])
 
-    # Legacy: attach directly to a named logger (still supported).
+    # Per-named-logger attach for third-party loggers outside the
+    # mediaman tree (e.g. urllib3.connectionpool).
     ScrubFilter.attach("urllib3.connectionpool", secrets=[api_key])
-    ScrubFilter.attach("mediaman", secrets=[api_key])
 """
 
 from __future__ import annotations

@@ -142,14 +142,11 @@ def enforce_single_worker() -> None:
     and would survive, but the rest is not yet ready for horizontal scale,
     so we fail loudly instead of degrading silently.
 
-    Reads ``MEDIAMAN_WORKERS`` and the legacy ``WORKERS`` env var so an
-    operator who exports either by accident sees an immediate error
-    rather than a half-broken deployment. ``UVICORN_WORKERS`` is also
-    inspected because uvicorn itself respects it.
-
+    Reads ``MEDIAMAN_WORKERS``, ``UVICORN_WORKERS`` (uvicorn respects it),
+    and ``WORKERS`` so an operator who exports any of them by accident
+    sees an immediate error rather than a half-broken deployment.
     Unparseable values (``WORKERS=auto``, ``WORKERS=$()``, a stray
-    comment) used to be silently treated as "unset"; they now log a
-    WARNING so a typo never reaches a half-broken deployment unannounced.
+    comment) log a WARNING so a typo cannot land silently as "unset".
     """
     candidates = ("MEDIAMAN_WORKERS", "UVICORN_WORKERS", "WORKERS")
     for name in candidates:

@@ -102,9 +102,6 @@ from mediaman.web.routes.settings.secrets import (
 from mediaman.web.routes.settings.secrets import (
     mask_encrypted_keys as _mask_encrypted_keys,
 )
-from mediaman.web.routes.settings.secrets import (
-    mask_secrets as _mask_secrets,  # noqa: F401 — kept for backward compat
-)
 from mediaman.web.routes.settings.testers import (
     SERVICE_TESTER_KEYS as _SERVICE_TESTER_KEYS,
 )

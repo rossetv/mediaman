@@ -45,7 +45,7 @@ def extract_poster_url(images: Sequence[_ArrLike] | None) -> str:
 def _format_release_date(dt: datetime) -> str:
     """Format a datetime as '<d MMM yyyy>' e.g. '14 Jun 2099'.
 
-    Uses :func:`~mediaman.services.infra.format.format_day_month` rather than
+    Uses :func:`~mediaman.core.format.format_day_month` rather than
     ``%-d`` (a GNU-only strftime extension that fails on Windows/BSD).
     """
     return format_day_month(dt)
