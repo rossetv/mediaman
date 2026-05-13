@@ -4,7 +4,7 @@ Routes
 ------
 - GET  /api/users                  — list all admin users
 - POST /api/users                  — create a new admin user (reauth required)
-- DELETE /api/users/{user_id}      — delete a user (password confirmation required)
+- DELETE /api/users/{user_id}      — delete a user (reauth required)
 - POST /api/users/{user_id}/unlock — clear a locked-out account (reauth required)
 """
 
