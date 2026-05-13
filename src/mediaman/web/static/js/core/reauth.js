@@ -31,6 +31,11 @@
   window.MM = window.MM || {};
 
   function openModal(opts) {
+    opts = opts || {};
+    if (typeof opts.onSubmit !== 'function') {
+      throw new TypeError('MM.reauth.openModal: opts.onSubmit must be a function');
+    }
+
     document.querySelectorAll('.modal-backdrop.reauth-backdrop').forEach(function (n) { n.remove(); });
 
     var backdrop = document.createElement('div');
@@ -92,6 +97,7 @@
     var closed = false;
     function close(viaCancel) {
       if (closed) return;
+      // Flag first so the keydown / backdrop handlers can't fire onCancel during teardown.
       closed = true;
       backdrop.remove();
       document.removeEventListener('keydown', onKey);
