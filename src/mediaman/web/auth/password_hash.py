@@ -72,6 +72,7 @@ class UserRecord(TypedDict):
     id: int
     username: str
     created_at: str
+    email: str | None
 
 
 def user_must_change_password(conn: sqlite3.Connection, username: str) -> bool:
@@ -422,11 +423,66 @@ def change_password(
 
 def list_users(conn: sqlite3.Connection) -> list[UserRecord]:
     """Return all admin users (without password hashes)."""
-    rows = conn.execute("SELECT id, username, created_at FROM admin_users ORDER BY id").fetchall()
+    rows = conn.execute(
+        "SELECT id, username, created_at, email FROM admin_users ORDER BY id"
+    ).fetchall()
     return [
-        {"id": row["id"], "username": row["username"], "created_at": row["created_at"]}
+        {
+            "id": row["id"],
+            "username": row["username"],
+            "created_at": row["created_at"],
+            "email": row["email"],
+        }
         for row in rows
     ]
+
+
+def get_user_email(conn: sqlite3.Connection, username: str) -> str | None:
+    """Return the notification email for *username*, or ``None`` if unset.
+
+    Returns ``None`` for unknown usernames as well — callers cannot
+    distinguish "no email set" from "user does not exist", which is
+    intentional: every caller treats both cases identically (no email
+    delivery).
+    """
+    row = conn.execute(
+        "SELECT email FROM admin_users WHERE username = ?",
+        (username,),
+    ).fetchone()
+    if row is None:
+        return None
+    return row["email"]
+
+
+def set_user_email(
+    conn: sqlite3.Connection,
+    username: str,
+    email: str | None,
+) -> None:
+    """Set or clear the notification email for *username*.
+
+    Empty / whitespace-only strings collapse to ``NULL`` so the column
+    always holds either ``NULL`` or a validated address. Validation is
+    delegated to :func:`mediaman.core.email_validation.validate_email_address`,
+    which raises ``ValueError`` on a malformed input.
+
+    Unknown usernames silently no-op — the caller already gates on
+    "current authenticated admin", so a missing row would mean the
+    session points at a deleted user, which is handled upstream.
+    """
+    from mediaman.core.email_validation import validate_email_address
+
+    normalised: str | None
+    if email is None or not email.strip():
+        normalised = None
+    else:
+        normalised = email.strip()
+        validate_email_address(normalised)
+    conn.execute(
+        "UPDATE admin_users SET email = ? WHERE username = ?",
+        (normalised, username),
+    )
+    conn.commit()
 
 
 def delete_user(
