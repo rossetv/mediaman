@@ -7,7 +7,7 @@
  * invokes `MM.settings.general.init()` on DOMContentLoaded.
  *
  * After Phase 8B the heavy lifting lives in:
- *   - settings/savebar.js          — dirty tracking, save submit, reauth modal
+ *   - settings/savebar.js          — dirty tracking, save submit, reauth retry
  *   - settings/disk_thresholds.js  — Plex pills + per-library disk cards
  *   - settings/overview.js         — schedule summary + storage bar
  *   - settings/toggles.js          — toggle switches, collapse, reveal,
@@ -24,7 +24,6 @@
  *   MM.settings.general.markDirty()              — kept for callers reaching
  *   MM.settings.general.markClean()              into the legacy surface
  *   MM.settings.general.refreshOverviewHero()
- *   MM.settings.general.openReauthModal(opts)
  */
 (function () {
   'use strict';
@@ -130,9 +129,6 @@
     },
     markClean: function () {
       if (MM.settings.savebar) MM.settings.savebar.markClean();
-    },
-    openReauthModal: function (opts) {
-      if (MM.settings.savebar) MM.settings.savebar.openReauthModal(opts);
     },
   };
 })();

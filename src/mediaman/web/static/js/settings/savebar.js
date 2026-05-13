@@ -1,21 +1,20 @@
 /**
- * settings/savebar.js — sticky savebar, save submit, and reauth modal.
+ * settings/savebar.js — sticky savebar, save submit, and reauth retry.
  *
  * Responsibilities:
  *   - Dirty-tracking listeners that toggle `.setg-savebar.on`
  *   - 422 / 403 / 429 response shaping into a one-line summary
  *   - PUT /api/settings submit handler with reauth retry
  *   - Discard-confirm via UIFeedback
- *   - Reauth modal (centred dialog) used by the sensitive-settings gate
  *
  * Cross-module dependencies:
  *   window.UIFeedback (confirm dialog)
+ *   MM.reauth         (core/reauth.js — centred reauth modal)
  *
  * Exposes:
  *   MM.settings.savebar.init({ getPayload, refreshOverviewHero })
  *   MM.settings.savebar.markDirty()
  *   MM.settings.savebar.markClean()
- *   MM.settings.savebar.openReauthModal(opts)
  *
  * `getPayload` is the function general.js exposes as collectSettings();
  * keeping the contract narrow lets the file render unit-friendly without
@@ -52,104 +51,6 @@
     if (data && data.error) return data.error;
     if (statusCode === 429) return 'Too many saves — slow down for a moment.';
     return 'Save failed (HTTP ' + (statusCode || '?') + ')';
-  }
-
-  function openReauthModal(opts) {
-    document.querySelectorAll('.modal-backdrop.reauth-backdrop').forEach(function (n) { n.remove(); });
-
-    var backdrop = document.createElement('div');
-    backdrop.className = 'modal-backdrop reauth-backdrop';
-    backdrop.style.alignItems = 'center';
-
-    var sheet = document.createElement('div');
-    sheet.className = 'modal-sheet reauth-sheet';
-    sheet.setAttribute('role', 'dialog');
-    sheet.setAttribute('aria-modal', 'true');
-    sheet.setAttribute('aria-labelledby', 'reauth-title');
-
-    var title = document.createElement('h2');
-    title.className = 'reauth-title';
-    title.id = 'reauth-title';
-    title.textContent = 'Re-authenticate to save';
-    sheet.appendChild(title);
-
-    var desc = document.createElement('p');
-    desc.className = 'reauth-desc';
-    desc.textContent = 'mediaman requires a recent password confirmation before changing credentials or other sensitive options.';
-    sheet.appendChild(desc);
-
-    var field = document.createElement('label');
-    field.className = 'reauth-field';
-    var fieldLbl = document.createElement('span');
-    fieldLbl.className = 'reauth-field-lbl';
-    fieldLbl.textContent = 'Your password';
-    field.appendChild(fieldLbl);
-    var input = document.createElement('input');
-    input.className = 'inp';
-    input.type = 'password';
-    input.autocomplete = 'current-password';
-    field.appendChild(input);
-    sheet.appendChild(field);
-
-    var actions = document.createElement('div');
-    actions.className = 'reauth-actions';
-    var msg = document.createElement('span');
-    msg.className = 'reauth-msg';
-    actions.appendChild(msg);
-    var cancelBtn = document.createElement('button');
-    cancelBtn.type = 'button';
-    cancelBtn.className = 'btn btn--ghost btn--sm';
-    cancelBtn.textContent = 'Cancel';
-    actions.appendChild(cancelBtn);
-    var confirmBtn = document.createElement('button');
-    confirmBtn.type = 'button';
-    confirmBtn.className = 'btn btn--primary btn--sm';
-    confirmBtn.textContent = 'Confirm & save';
-    actions.appendChild(confirmBtn);
-    sheet.appendChild(actions);
-
-    backdrop.appendChild(sheet);
-    document.body.appendChild(backdrop);
-    setTimeout(function () { input.focus(); }, 0);
-
-    var cancelled = false;
-    function close(viaCancel) {
-      if (cancelled) return;
-      cancelled = true;
-      backdrop.remove();
-      document.removeEventListener('keydown', onKey);
-      if (viaCancel && typeof opts.onCancel === 'function') opts.onCancel();
-    }
-    function onKey(e) { if (e.key === 'Escape') close(true); }
-    document.addEventListener('keydown', onKey);
-    cancelBtn.addEventListener('click', function () { close(true); });
-    backdrop.addEventListener('click', function (e) { if (e.target === backdrop) close(true); });
-
-    function submit() {
-      var pw = input.value;
-      if (!pw) { msg.textContent = 'Password required.'; return; }
-      confirmBtn.disabled = true;
-      msg.textContent = '';
-      Promise.resolve(opts.onSubmit(pw)).then(function (res) {
-        confirmBtn.disabled = false;
-        if (res && res.ok) {
-          cancelled = true; // suppress onCancel
-          backdrop.remove();
-          document.removeEventListener('keydown', onKey);
-        } else {
-          msg.textContent = (res && res.error) || 'Failed';
-          input.focus();
-          input.select();
-        }
-      }).catch(function () {
-        confirmBtn.disabled = false;
-        msg.textContent = 'Network error. Try again.';
-      });
-    }
-    confirmBtn.addEventListener('click', submit);
-    input.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') submit();
-    });
   }
 
   function init(opts) {
@@ -233,7 +134,7 @@
             saveBtn.textContent = orig;
             saveBtn.disabled = false;
             if (statusEl) statusEl.textContent = '';
-            openReauthModal({
+            MM.reauth.openModal({
               onSubmit: function (pw) {
                 return fetch('/api/auth/reauth', {
                   method: 'POST',
@@ -292,6 +193,5 @@
     init: init,
     markDirty: markDirty,
     markClean: markClean,
-    openReauthModal: openReauthModal,
   };
 })();
