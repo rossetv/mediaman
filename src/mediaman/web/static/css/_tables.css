@@ -124,6 +124,8 @@ img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
 .toolbar-row .search-wrap { flex: 1; min-width: 260px; }
 .filter-pills { display: flex; gap: 6px; flex-wrap: wrap; }
 
+.lib-mobile-sort { margin-bottom: 16px; }
+
 .lib-row-protected { background: rgba(48,209,88,.04); }
 
 /* Snooze dropdown (split-button menu used by library + dashboard) */
