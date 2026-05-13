@@ -147,6 +147,8 @@ class SettingsUpdate(BaseModel):
     # ------------------------------------------------------------------
     openai_api_key: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
     openai_web_search_enabled: bool | None = None
+    # Allowlisted model identifier; validated by ``validate_openai_model``.
+    openai_model: Annotated[str | None, Field(max_length=32)] = None
 
     # ------------------------------------------------------------------
     # OMDb
@@ -247,6 +249,26 @@ class SettingsUpdate(BaseModel):
             for item in v:
                 if isinstance(item, str):
                     _reject_crlf(item)
+        return v
+
+    @field_validator("openai_model", mode="before")
+    @classmethod
+    def validate_openai_model(cls, v: object) -> object:
+        """Restrict ``openai_model`` to the allowlisted identifiers.
+
+        Defence-in-depth: the settings page renders a fixed ``<select>``
+        with these two options, but the API must reject anything else so
+        a hand-crafted POST cannot smuggle an arbitrary model string into
+        the OpenAI client.
+        """
+        if v is None or v == "":
+            return v
+        if not isinstance(v, str):
+            raise ValueError("openai_model must be a string")
+        _reject_crlf(v)
+        allowed = {"gpt-5.5", "gpt-5.4-mini"}
+        if v not in allowed:
+            raise ValueError(f"openai_model must be one of {sorted(allowed)}")
         return v
 
     @field_validator("scan_timezone", mode="before")

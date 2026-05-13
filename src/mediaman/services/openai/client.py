@@ -32,8 +32,11 @@ _OPENAI_CLIENT = SafeHTTPClient(
 
 logger = logging.getLogger(__name__)
 
-# Default OpenAI model for the /v1/responses API.
-_DEFAULT_MODEL = "gpt-4.1"
+# Default OpenAI model for the /v1/responses API. Falls back here when
+# the ``openai_model`` setting is unset (fresh install or pre-selector
+# upgrade). Must be one of the allowlisted values in
+# ``web/models/settings.py:validate_openai_model``.
+_DEFAULT_MODEL = "gpt-5.5"
 
 # Regex for validating web-search-derived recommendation titles.
 _SAFE_TITLE_RE = re.compile(r"^[\x20-\x7E]+$")

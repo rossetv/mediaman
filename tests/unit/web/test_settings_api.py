@@ -273,6 +273,7 @@ class TestSettingsPutPersistsEveryDeclaredKey:
         "grace_days": 7,
         "dry_run": True,
         "suggestions_enabled": False,
+        "openai_model": "gpt-5.4-mini",
     }
 
     # URL fields validated for http(s) scheme.
@@ -381,6 +382,56 @@ class TestSettingsPutPersistsEveryDeclaredKey:
             json={"scan_timezone": "Moon/FarSide"},
         )
         assert resp.status_code == 422
+
+    def test_put_rejects_openai_model_outside_allowlist(self, app_factory, authed_client, conn):
+        """openai_model must reject anything outside the fixed allowlist (HTTP 422).
+
+        Defence-in-depth — the UI ``<select>`` is the primary constraint
+        but the API cannot trust the client.
+        """
+        client = _client(app_factory, authed_client, conn)
+        resp = client.put("/api/settings", json={"openai_model": "gpt-evil"})
+        assert resp.status_code == 422
+
+    def test_put_with_only_model_change_preserves_existing_api_key(
+        self, app_factory, authed_client, conn
+    ):
+        """Saving only the model with the API-key field as '****' must NOT clobber
+        the stored OpenAI key.
+
+        The settings page renders the saved key as the ``****`` sentinel and
+        the write layer skips that row when the posted value equals the
+        sentinel (repository/settings.py:204-206). This test pins that the
+        invariant survives the new model field being saved alongside.
+        """
+        client = _client(app_factory, authed_client, conn)
+
+        # Seed an existing OpenAI key.
+        seed = client.put(
+            "/api/settings",
+            json={"openai_api_key": "sk-original-key-do-not-clobber"},
+        )
+        assert seed.status_code == 200, seed.json()
+
+        # Change ONLY the model; the API-key field still posts the sentinel.
+        change = client.put(
+            "/api/settings",
+            json={"openai_model": "gpt-5.4-mini", "openai_api_key": "****"},
+        )
+        assert change.status_code == 200, change.json()
+
+        # The stored key must still decrypt to the original value, not be
+        # blanked or overwritten with the sentinel.
+        from mediaman.services.openai.client import get_openai_key
+
+        config = client.app.state.config  # type: ignore[attr-defined]
+        stored = get_openai_key(conn, secret_key=config.secret_key)
+        assert stored == "sk-original-key-do-not-clobber"
+
+        # And the model must have been persisted.
+        get_resp = client.get("/api/settings")
+        assert get_resp.status_code == 200
+        assert get_resp.json().get("openai_model") == "gpt-5.4-mini"
 
     def test_put_rejects_library_sync_interval_out_of_range(self, app_factory, authed_client, conn):
         """library_sync_interval outside 0–1440 minutes must be rejected (HTTP 422)."""
