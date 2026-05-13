@@ -65,8 +65,10 @@ def _reset_refresh_state():
     from a prior test can't leak into this one. The running flag is now
     DB-backed so no module-level reset is needed."""
     _rec_refresh._refresh_result = None
+    _rec_refresh._refresh_thread = None
     yield
     _rec_refresh._refresh_result = None
+    _rec_refresh._refresh_thread = None
 
 
 def _stamp_last_refresh(conn, when: datetime) -> None:
@@ -236,6 +238,69 @@ class TestRefreshRateLimit:
         # Crucially: cooldown must NOT have been set.
         assert st["manual_refresh_available"] is True
         assert _throttle.last_manual_refresh(conn) is None
+
+    def test_status_reports_running_while_worker_is_alive(self, authed_client, app):
+        """Regression: even when the DB lease check returns False (e.g. the
+        worker has been running long enough for the heartbeat to lapse), the
+        status endpoint must still report ``running`` while the in-process
+        worker thread is alive. Otherwise the JS poll loop sees ``idle`` and
+        the button stays stuck on "Refreshing…" forever.
+        """
+        import threading
+
+        # Block the worker on an event so we can observe the "running"
+        # state from the polling endpoint deterministically.
+        block_until_observed = threading.Event()
+        worker_started = threading.Event()
+
+        def slow_refresh(*_args, **_kwargs):
+            worker_started.set()
+            # Hold the worker in-flight until the test releases it.
+            block_until_observed.wait(timeout=5)
+            return 1
+
+        with (
+            patch(
+                "mediaman.web.routes.recommended.refresh.build_plex_from_db",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "mediaman.web.routes.recommended.refresh.refresh_recommendations",
+                side_effect=slow_refresh,
+            ),
+            # Force the DB-lease check to return False so we are isolating
+            # the in-memory thread-alive path. Without the in-memory check
+            # this would flip status to "idle" while the worker is still
+            # working — the exact bug we are guarding against.
+            patch(
+                "mediaman.web.routes.recommended.refresh.is_refresh_running",
+                return_value=False,
+            ),
+        ):
+            resp = authed_client.post("/api/recommended/refresh")
+            assert resp.status_code == 200
+            assert resp.json().get("status") == "started"
+
+            # Wait for the worker to actually enter the slow_refresh stub
+            # so the in-memory thread reference is set and alive.
+            assert worker_started.wait(timeout=2)
+
+            # While the worker is held inside slow_refresh, the status
+            # endpoint must report "running" — even though the DB lease
+            # check is patched to return False.
+            st = authed_client.get("/api/recommended/refresh/status").json()
+            assert st["status"] == "running"
+
+            # Release the worker and wait for it to finish.
+            block_until_observed.set()
+            for _ in range(500):
+                st = authed_client.get("/api/recommended/refresh/status").json()
+                if st.get("status") == "done":
+                    break
+            else:
+                pytest.fail("Worker did not finish in time")
+
+        assert st["result"]["ok"] is True
 
 
 # ---------------------------------------------------------------------------
