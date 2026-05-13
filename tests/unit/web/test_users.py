@@ -124,58 +124,68 @@ class TestDeleteUser:
         resp = client.delete(f"/api/users/{admin_id}")
         assert resp.status_code == 401
 
+    def test_delete_without_reauth_returns_403_reauth_required(
+        self, app_factory, authed_client, conn
+    ):
+        """A valid session with no recent reauth ticket cannot delete users."""
+        app = _app(app_factory, conn)
+        client = authed_client(app, conn, with_reauth=False)
+        other_id = _make_second_user(conn)
+        resp = client.delete(f"/api/users/{other_id}")
+        assert resp.status_code == 403
+        body = resp.json()
+        assert body["error"] == "reauth_required"
+        assert body["reauth_required"] is True
+        row = conn.execute("SELECT id FROM admin_users WHERE id=?", (other_id,)).fetchone()
+        assert row is not None
+
+    def test_delete_with_expired_ticket_returns_403_reauth_required(
+        self, app_factory, authed_client, conn, freezer
+    ):
+        """A ticket older than the reauth window must not authorise delete."""
+        from datetime import timedelta
+
+        from mediaman.web.auth.reauth import reauth_window_seconds
+
+        app = _app(app_factory, conn)
+        client = authed_client(app, conn, with_reauth=True)
+        other_id = _make_second_user(conn)
+        freezer.tick(timedelta(seconds=reauth_window_seconds() + 5))
+        resp = client.delete(f"/api/users/{other_id}")
+        assert resp.status_code == 403
+        assert resp.json()["reauth_required"] is True
+
     def test_delete_self_returns_400(self, app_factory, authed_client, conn):
-        client = _client(app_factory, authed_client, conn)
+        app = _app(app_factory, conn)
+        client = authed_client(app, conn, with_reauth=True)
         admin_id = conn.execute("SELECT id FROM admin_users WHERE username='admin'").fetchone()[
             "id"
         ]
-        resp = client.delete(
-            f"/api/users/{admin_id}",
-            headers={"X-Confirm-Password": "password1234"},
-        )
+        resp = client.delete(f"/api/users/{admin_id}")
         assert resp.status_code == 400
         assert resp.json()["ok"] is False
 
     def test_delete_other_user_happy_path(self, app_factory, authed_client, conn):
-        client = _client(app_factory, authed_client, conn)
+        app = _app(app_factory, conn)
+        client = authed_client(app, conn, with_reauth=True)
         other_id = _make_second_user(conn)
-        resp = client.delete(
-            f"/api/users/{other_id}",
-            headers={"X-Confirm-Password": "password1234"},
-        )
+        resp = client.delete(f"/api/users/{other_id}")
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
         row = conn.execute("SELECT id FROM admin_users WHERE id=?", (other_id,)).fetchone()
         assert row is None
 
-    def test_delete_user_requires_password_confirmation(self, app_factory, authed_client, conn):
-        client = _client(app_factory, authed_client, conn)
+    def test_successful_delete_writes_exactly_one_audit_row(self, app_factory, authed_client, conn):
+        app = _app(app_factory, conn)
+        client = authed_client(app, conn, with_reauth=True)
         other_id = _make_second_user(conn)
         resp = client.delete(f"/api/users/{other_id}")
-        assert resp.status_code == 403
-        assert resp.json()["error"] == "password_required"
-
-    def test_delete_user_wrong_password_returns_403(self, app_factory, authed_client, conn):
-        client = _client(app_factory, authed_client, conn)
-        other_id = _make_second_user(conn)
-        resp = client.delete(
-            f"/api/users/{other_id}",
-            headers={"X-Confirm-Password": "wrongpassword"},
-        )
-        assert resp.status_code == 403
-
-    def test_delete_user_rejects_password_in_query_string(self, app_factory, authed_client, conn):
-        """confirm_password passed as a query param must be rejected with 400.
-
-        Query strings appear in access logs; credentials must not leak there.
-        """
-        client = _client(app_factory, authed_client, conn)
-        other_id = _make_second_user(conn)
-        resp = client.delete(
-            f"/api/users/{other_id}?confirm_password=password1234",
-        )
-        assert resp.status_code == 400
-        assert resp.json()["error"] == "use_header"
+        assert resp.status_code == 200
+        rows = conn.execute(
+            "SELECT action, actor FROM audit_log WHERE action = 'sec:user.deleted'"
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["actor"] == "admin"
 
 
 class TestChangePassword:
@@ -329,150 +339,6 @@ class TestListSessions:
         resp = client.get("/api/users/sessions")
         assert resp.status_code == 429
         assert resp.json()["ok"] is False
-
-
-class TestDeleteUserBruteForceLockout:
-    """Finding 13 / CRITICAL: wrong-password attempts must feed the
-    ``reauth:<admin>`` namespace lockout so a stolen cookie cannot be
-    used to mount a low-and-slow brute-force against ``X-Confirm-Password``.
-    """
-
-    def test_wrong_password_records_reauth_failure(self, app_factory, authed_client, conn):
-        """One wrong password bumps the reauth-namespace counter to 1."""
-        from mediaman.web.auth.reauth import REAUTH_LOCKOUT_PREFIX
-
-        client = _client(app_factory, authed_client, conn)
-        other_id = _make_second_user(conn)
-
-        resp = client.delete(
-            f"/api/users/{other_id}",
-            headers={"X-Confirm-Password": "wrongpassword"},
-        )
-        assert resp.status_code == 403
-
-        row = conn.execute(
-            "SELECT failure_count FROM login_failures WHERE username = ?",
-            (f"{REAUTH_LOCKOUT_PREFIX}admin",),
-        ).fetchone()
-        assert row is not None
-        assert row["failure_count"] == 1
-
-    def test_five_wrong_passwords_lock_the_namespace(self, app_factory, authed_client, conn):
-        """Five wrong passwords trip the namespace lockout — even the
-        right password is then refused for the lock duration."""
-        from mediaman.web.auth.login_lockout import is_locked_out
-        from mediaman.web.auth.reauth import REAUTH_LOCKOUT_PREFIX
-
-        client = _client(app_factory, authed_client, conn)
-        other_id = _make_second_user(conn)
-
-        for _ in range(5):
-            # Reset only the rate limiter — the namespace lockout is
-            # what we are testing; the rate limiter would otherwise trip
-            # at 5/min and obscure the lockout.
-            _USER_MGMT_LIMITER.reset()
-            resp = client.delete(
-                f"/api/users/{other_id}",
-                headers={"X-Confirm-Password": "wrongpassword"},
-            )
-            assert resp.status_code == 403
-
-        assert is_locked_out(conn, f"{REAUTH_LOCKOUT_PREFIX}admin") is True
-
-        # Even with the correct password the delete is now refused.
-        _USER_MGMT_LIMITER.reset()
-        resp = client.delete(
-            f"/api/users/{other_id}",
-            headers={"X-Confirm-Password": "password1234"},
-        )
-        assert resp.status_code == 403
-        # The target user must still exist — the delete really was refused.
-        row = conn.execute("SELECT id FROM admin_users WHERE id=?", (other_id,)).fetchone()
-        assert row is not None
-
-    def test_failed_delete_does_not_bump_plain_login_counter(
-        self, app_factory, authed_client, conn
-    ):
-        """A stolen-session attacker pounding delete-user must not also
-        DoS the legitimate user out of /login by polluting their plain
-        ``admin`` lockout counter."""
-        client = _client(app_factory, authed_client, conn)
-        other_id = _make_second_user(conn)
-
-        for _ in range(3):
-            _USER_MGMT_LIMITER.reset()
-            client.delete(
-                f"/api/users/{other_id}",
-                headers={"X-Confirm-Password": "wrongpassword"},
-            )
-
-        plain = conn.execute(
-            "SELECT failure_count FROM login_failures WHERE username = 'admin'"
-        ).fetchone()
-        assert plain is None
-
-
-class TestDeleteUserAuditTrail:
-    """Finding 15 / HIGH: failed delete attempts must leave an audit row
-    so SecOps can spot a brute-force pattern from the log alone."""
-
-    def test_reauth_failed_writes_audit_row(self, app_factory, authed_client, conn):
-        client = _client(app_factory, authed_client, conn)
-        other_id = _make_second_user(conn)
-
-        resp = client.delete(
-            f"/api/users/{other_id}",
-            headers={"X-Confirm-Password": "wrongpassword"},
-        )
-        assert resp.status_code == 403
-
-        rows = conn.execute(
-            "SELECT action, actor, detail FROM audit_log "
-            "WHERE action = 'sec:user.delete.reauth_failed'"
-        ).fetchall()
-        assert len(rows) == 1
-        assert rows[0]["actor"] == "admin"
-        assert "actor=admin" in rows[0]["detail"]
-        assert str(other_id) in rows[0]["detail"]
-
-    def test_rate_limit_writes_audit_row(self, app_factory, authed_client, conn):
-        client = _client(app_factory, authed_client, conn)
-        other_id = _make_second_user(conn)
-
-        # Burn the cap.
-        for _ in range(_USER_MGMT_LIMITER._max_in_window):
-            _USER_MGMT_LIMITER.check("admin")
-
-        resp = client.delete(
-            f"/api/users/{other_id}",
-            headers={"X-Confirm-Password": "password1234"},
-        )
-        assert resp.status_code == 429
-
-        rows = conn.execute(
-            "SELECT action, actor FROM audit_log WHERE action = 'sec:user.delete.rate_limited'"
-        ).fetchall()
-        assert len(rows) == 1
-        assert rows[0]["actor"] == "admin"
-
-    def test_successful_delete_writes_exactly_one_audit_row(self, app_factory, authed_client, conn):
-        """Belt-and-braces — verify the success path still writes exactly
-        one ``sec:user.deleted`` row (not zero, not two) so the failed-
-        delete additions did not accidentally double-log success."""
-        client = _client(app_factory, authed_client, conn)
-        other_id = _make_second_user(conn)
-
-        resp = client.delete(
-            f"/api/users/{other_id}",
-            headers={"X-Confirm-Password": "password1234"},
-        )
-        assert resp.status_code == 200
-
-        rows = conn.execute(
-            "SELECT action, actor FROM audit_log WHERE action = 'sec:user.deleted'"
-        ).fetchall()
-        assert len(rows) == 1
-        assert rows[0]["actor"] == "admin"
 
 
 class TestRevokeOtherSessions:

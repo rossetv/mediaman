@@ -123,26 +123,14 @@ def api_delete_user(
     user_id: int,
     request: Request,
     admin: str = Depends(get_current_admin),
-    x_confirm_password: str | None = Header(default=None),
+    session_token: str | None = Cookie(default=None),
 ) -> Response:
     """Delete an admin user. Cannot delete yourself.
 
-    Requires the caller's password via the ``X-Confirm-Password`` request
-    header. Passing the password in the query string is explicitly rejected —
-    query strings appear in access logs, proxies, and browser history, making
-    them unsuitable for credentials.
-
-    A compromised session cookie alone cannot delete other admins.
+    Requires a recent reauth ticket (``POST /api/auth/reauth`` within
+    the last :func:`~mediaman.web.auth.reauth.reauth_window_seconds`
+    seconds). A stolen session cookie alone cannot delete other admins.
     """
-    # Reject any attempt to pass the password via query string — it leaks
-    # into access logs and server-side request recording.
-    if "confirm_password" in request.query_params:
-        return respond_err(
-            "use_header",
-            status=400,
-            message="confirm_password must be sent via X-Confirm-Password header, not the query string",
-        )
-
     conn = get_db()
     client_ip = get_client_ip(request)
     if not _USER_MGMT_LIMITER.check(admin):
@@ -157,23 +145,9 @@ def api_delete_user(
         return respond_err(
             "too_many_requests", status=429, message="Too many user-management operations"
         )
-    pw = x_confirm_password or ""
-    # ``verify_reauth_password`` feeds wrong-password attempts into the
-    # ``reauth:<admin>`` namespace lockout so a stolen session cookie cannot
-    # be used to brute-force the password through this endpoint — the same
-    # 5/10/15 escalation that gates plain login also gates this delete.
-    if not verify_reauth_password(conn, admin, pw):
-        logger.warning("user.delete_rejected user=%s reason=reauth_required", admin)
-        security_event(
-            conn,
-            event="user.delete.reauth_failed",
-            actor=admin,
-            ip=client_ip,
-            detail={"target_id": user_id},
-        )
-        return respond_err(
-            "password_required", status=403, message="Password confirmation required"
-        )
+    if not has_recent_reauth(conn, session_token, admin):
+        logger.warning("user.delete_rejected actor=%s reason=reauth_required", admin)
+        return _unauthorised_reauth()
     try:
         deleted = delete_user(
             conn,
