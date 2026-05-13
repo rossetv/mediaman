@@ -87,3 +87,55 @@ def test_list_users_includes_email_field(conn: sqlite3.Connection) -> None:
 def test_list_users_email_is_none_when_unset(conn: sqlite3.Connection) -> None:
     users = list_users(conn)
     assert users[0]["email"] is None
+
+
+class TestSetUserEmailAuditInTransaction:
+    """Verify the audit-in-transaction path introduced by the audit_actor kwarg."""
+
+    def test_writes_audit_row_when_actor_supplied(self, conn: sqlite3.Connection) -> None:
+        """set_user_email with audit_actor writes a sec:user.email_updated row."""
+        set_user_email(conn, "rossetv", "ops@example.com", audit_actor="rossetv", audit_ip="1.2.3.4")
+        row = conn.execute(
+            "SELECT action, actor, detail FROM audit_log WHERE action = 'sec:user.email_updated'"
+        ).fetchone()
+        assert row is not None
+        assert row["actor"] == "rossetv"
+        assert '"cleared":false' in row["detail"]
+        assert get_user_email(conn, "rossetv") == "ops@example.com"
+
+    def test_clears_audit_row_has_cleared_true(self, conn: sqlite3.Connection) -> None:
+        """Clearing an email writes a detail with cleared:true."""
+        set_user_email(conn, "rossetv", "ops@example.com")
+        set_user_email(conn, "rossetv", None, audit_actor="rossetv", audit_ip="1.2.3.4")
+        row = conn.execute(
+            "SELECT detail FROM audit_log WHERE action = 'sec:user.email_updated'"
+        ).fetchone()
+        assert row is not None
+        assert '"cleared":true' in row["detail"]
+
+    def test_no_audit_row_without_actor(self, conn: sqlite3.Connection) -> None:
+        """set_user_email without audit_actor writes no audit row."""
+        set_user_email(conn, "rossetv", "ops@example.com")
+        row = conn.execute(
+            "SELECT * FROM audit_log WHERE action = 'sec:user.email_updated'"
+        ).fetchone()
+        assert row is None
+
+    def test_audit_failure_rolls_back_email_change(
+        self, conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When security_event_or_raise raises, the UPDATE rolls back."""
+
+        def _boom(c, *, event, actor, ip, detail):
+            raise sqlite3.OperationalError("audit table gone")
+
+        monkeypatch.setattr("mediaman.core.audit.security_event_or_raise", _boom)
+
+        with pytest.raises(sqlite3.OperationalError, match="audit table gone"):
+            set_user_email(
+                conn, "rossetv", "attacker@evil.test",
+                audit_actor="rossetv", audit_ip="1.2.3.4",
+            )
+
+        # Email must not have changed.
+        assert get_user_email(conn, "rossetv") is None
