@@ -451,7 +451,10 @@ def get_user_email(conn: sqlite3.Connection, username: str) -> str | None:
     ).fetchone()
     if row is None:
         return None
-    return row["email"]
+    # ``sqlite3.Row`` indexing is typed ``Any``; the column is declared
+    # ``TEXT`` (nullable) so the narrowing is sound.
+    email: str | None = row["email"]
+    return email
 
 
 def set_user_email(

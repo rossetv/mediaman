@@ -409,9 +409,7 @@ class TestResponseObjectUnwrapping:
                     "output": [
                         {
                             "type": "message",
-                            "content": [
-                                {"type": "output_text", "text": self._json.dumps(wrapped)}
-                            ],
+                            "content": [{"type": "output_text", "text": self._json.dumps(wrapped)}],
                         }
                     ]
                 }
@@ -431,9 +429,7 @@ class TestResponseObjectUnwrapping:
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
         insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
 
-        wrapped = {
-            "results": [{"title": "Severance", "media_type": "tv", "reason": "tense"}]
-        }
+        wrapped = {"results": [{"title": "Severance", "media_type": "tv", "reason": "tense"}]}
         fake_http.queue(
             "POST",
             fake_response(
@@ -441,9 +437,7 @@ class TestResponseObjectUnwrapping:
                     "output": [
                         {
                             "type": "message",
-                            "content": [
-                                {"type": "output_text", "text": self._json.dumps(wrapped)}
-                            ],
+                            "content": [{"type": "output_text", "text": self._json.dumps(wrapped)}],
                         }
                     ]
                 }

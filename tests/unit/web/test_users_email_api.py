@@ -82,9 +82,7 @@ class TestPatchOwnEmail:
         assert resp.json()["ok"] is True
         assert get_user_email(conn, "admin") is None
 
-    def test_invalid_email_returns_400_and_keeps_existing(
-        self, app_factory, authed_client, conn
-    ):
+    def test_invalid_email_returns_400_and_keeps_existing(self, app_factory, authed_client, conn):
         client = _client(app_factory, authed_client, conn)
         set_user_email(conn, "admin", "ops@example.com")
         resp = client.patch(
@@ -97,9 +95,7 @@ class TestPatchOwnEmail:
         # Unchanged.
         assert get_user_email(conn, "admin") == "ops@example.com"
 
-    def test_wrong_password_returns_403_and_keeps_existing(
-        self, app_factory, authed_client, conn
-    ):
+    def test_wrong_password_returns_403_and_keeps_existing(self, app_factory, authed_client, conn):
         client = _client(app_factory, authed_client, conn)
         set_user_email(conn, "admin", "ops@example.com")
         resp = client.patch(
@@ -146,8 +142,7 @@ class TestPatchOwnEmail:
         )
         assert resp.status_code == 200
         row = conn.execute(
-            "SELECT action, actor, detail FROM audit_log"
-            " WHERE action = 'sec:user.email_updated'"
+            "SELECT action, actor, detail FROM audit_log WHERE action = 'sec:user.email_updated'"
         ).fetchone()
         assert row is not None
         assert row["actor"] == "admin"
@@ -172,9 +167,7 @@ class TestPatchOwnEmail:
         assert row is not None
         assert '"cleared":true' in row["detail"]
 
-    def test_patch_email_writes_audit_row_on_reauth_failure(
-        self, app_factory, authed_client, conn
-    ):
+    def test_patch_email_writes_audit_row_on_reauth_failure(self, app_factory, authed_client, conn):
         """A wrong password triggers a sec:user.email_update.reauth_failed audit row."""
         client = _client(app_factory, authed_client, conn)
         resp = client.patch(
@@ -190,9 +183,7 @@ class TestPatchOwnEmail:
         assert row is not None
         assert row["actor"] == "admin"
 
-    def test_patch_email_writes_audit_row_on_rate_limit(
-        self, app_factory, authed_client, conn
-    ):
+    def test_patch_email_writes_audit_row_on_rate_limit(self, app_factory, authed_client, conn):
         """Tripping the rate limiter writes a sec:user.email_update.rate_limited row."""
         client = _client(app_factory, authed_client, conn)
         # Exhaust the per-actor bucket so the route call trips the limiter.

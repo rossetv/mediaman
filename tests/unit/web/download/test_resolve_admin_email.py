@@ -125,8 +125,6 @@ def test_submit_movie_records_notification_when_admin_has_email(_app_with_db):
 
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
-    row = db_conn.execute(
-        "SELECT email FROM download_notifications WHERE tmdb_id=12345"
-    ).fetchone()
+    row = db_conn.execute("SELECT email FROM download_notifications WHERE tmdb_id=12345").fetchone()
     assert row is not None
     assert row[0] == "admin@example.com"
