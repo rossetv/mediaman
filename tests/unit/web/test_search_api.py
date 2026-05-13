@@ -674,13 +674,17 @@ class TestDownloadNotifiesRequestingAdmin:
         self, mock_record, mock_build_radarr, authed_client, app
     ):
         """The notification email must be the admin who made the request, not a subscriber."""
+        from mediaman.web.auth.password_hash import set_user_email
+
         radarr = MagicMock()
         radarr.get_movie_by_tmdb.return_value = None
         radarr.add_movie.return_value = {"id": 1}
         mock_build_radarr.return_value = radarr
 
-        # Insert a subscriber with a different email to prove it's ignored
         conn = app.state.db
+        # Set a real email on the admin so the notification row is recorded.
+        set_user_email(conn, "admin", "admin@example.com")
+        # Insert a subscriber with a different email to prove it's ignored.
         insert_subscriber(conn, email="other@example.com")
 
         authed_client.post(
@@ -693,11 +697,11 @@ class TestDownloadNotifiesRequestingAdmin:
         )
 
         assert mock_record.called
-        # The email argument should be the admin username, not 'other@example.com'
+        # The email must be the admin's real address, not the subscriber's.
         call_email = (
             mock_record.call_args[1].get("email")
             if mock_record.call_args[1]
             else mock_record.call_args[0][1]
         )
-        assert call_email == "admin"
+        assert call_email == "admin@example.com"
         assert call_email != "other@example.com"
