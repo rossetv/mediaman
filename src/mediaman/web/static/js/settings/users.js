@@ -124,7 +124,7 @@
             del.type = 'button';
             del.className = 'link-danger';
             del.textContent = 'Delete';
-            del.addEventListener('click', function () { openDeleteDrawer(user); });
+            del.addEventListener('click', function () { deleteUserFlow(user); });
             row.appendChild(del);
           }
           list.appendChild(row);
@@ -138,7 +138,7 @@
       // reauth modal opened transparently by MM.reauth.run when the
       // DELETE returns 403 reauth_required.
       // ----------------------------------------------------------------
-      function openDeleteDrawer(user) {
+      function deleteUserFlow(user) {
         window.UIFeedback.confirm({
           title: 'Delete ' + user.username + '?',
           body: 'Irreversible. All active sessions for this user will be terminated.',
