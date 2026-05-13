@@ -166,8 +166,8 @@ class TestMailgunValidation:
     @pytest.mark.parametrize(
         ("address", "match"),
         [
-            ("", "Invalid recipient"),
-            ("notanemail", "Invalid recipient"),
+            ("", "Invalid email address"),
+            ("notanemail", "Invalid email address"),
         ],
         ids=["empty", "no-at-sign"],
     )
