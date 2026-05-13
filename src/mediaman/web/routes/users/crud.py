@@ -220,6 +220,12 @@ def api_set_my_email(
     client_ip = get_client_ip(request)
     if not _USER_MGMT_LIMITER.check(admin):
         logger.warning("user.email_update_throttled actor=%s", admin)
+        security_event(
+            conn,
+            event="user.email_update.rate_limited",
+            actor=admin,
+            ip=client_ip,
+        )
         return respond_err(
             "too_many_requests", status=429, message="Too many user-management operations"
         )
@@ -237,10 +243,14 @@ def api_set_my_email(
             "password_required", status=403, message="Password confirmation required"
         )
 
+    # Audit fail-closed: the audit row and the UPDATE land in the same
+    # BEGIN IMMEDIATE via set_user_email's audit_actor path, so a failed
+    # audit write rolls back the email change instead of leaving it
+    # untracked.
     try:
         from mediaman.web.auth.password_hash import set_user_email
 
-        set_user_email(conn, admin, body.email)
+        set_user_email(conn, admin, body.email, audit_actor=admin, audit_ip=client_ip)
     except ValueError as exc:
         return respond_err("invalid_email", status=400, message=str(exc))
     except sqlite3.Error:
@@ -249,13 +259,6 @@ def api_set_my_email(
             "internal_error", status=500, message="Internal error updating email"
         )
 
-    security_event(
-        conn,
-        event="user.email_updated",
-        actor=admin,
-        ip=client_ip,
-        detail={"cleared": not body.email.strip()},
-    )
     logger.info("user.email_updated actor=%s cleared=%s", admin, not body.email.strip())
     return respond_ok()
 

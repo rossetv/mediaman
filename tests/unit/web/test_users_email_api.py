@@ -135,3 +135,100 @@ class TestPatchOwnEmail:
         )
         assert resp.status_code == 401
         assert get_user_email(conn, "admin") is None
+
+    def test_patch_email_writes_audit_row_on_success(self, app_factory, authed_client, conn):
+        """Successful email update writes a sec:user.email_updated audit row."""
+        client = _client(app_factory, authed_client, conn)
+        resp = client.patch(
+            "/api/users/me/email",
+            json={"email": "ops@example.com"},
+            headers={"X-Confirm-Password": "password1234"},
+        )
+        assert resp.status_code == 200
+        row = conn.execute(
+            "SELECT action, actor, detail FROM audit_log"
+            " WHERE action = 'sec:user.email_updated'"
+        ).fetchone()
+        assert row is not None
+        assert row["actor"] == "admin"
+        assert '"cleared":false' in row["detail"]
+
+    def test_patch_clear_email_writes_audit_with_cleared_true(
+        self, app_factory, authed_client, conn
+    ):
+        """Clearing the email writes a sec:user.email_updated row with cleared:true."""
+        client = _client(app_factory, authed_client, conn)
+        # First set an address, then clear it.
+        set_user_email(conn, "admin", "ops@example.com")
+        resp = client.patch(
+            "/api/users/me/email",
+            json={"email": ""},
+            headers={"X-Confirm-Password": "password1234"},
+        )
+        assert resp.status_code == 200
+        row = conn.execute(
+            "SELECT detail FROM audit_log WHERE action = 'sec:user.email_updated'"
+        ).fetchone()
+        assert row is not None
+        assert '"cleared":true' in row["detail"]
+
+    def test_patch_email_writes_audit_row_on_reauth_failure(
+        self, app_factory, authed_client, conn
+    ):
+        """A wrong password triggers a sec:user.email_update.reauth_failed audit row."""
+        client = _client(app_factory, authed_client, conn)
+        resp = client.patch(
+            "/api/users/me/email",
+            json={"email": "attacker@evil.test"},
+            headers={"X-Confirm-Password": "wrongpassword"},
+        )
+        assert resp.status_code == 403
+        row = conn.execute(
+            "SELECT action, actor FROM audit_log"
+            " WHERE action = 'sec:user.email_update.reauth_failed'"
+        ).fetchone()
+        assert row is not None
+        assert row["actor"] == "admin"
+
+    def test_patch_email_writes_audit_row_on_rate_limit(
+        self, app_factory, authed_client, conn
+    ):
+        """Tripping the rate limiter writes a sec:user.email_update.rate_limited row."""
+        client = _client(app_factory, authed_client, conn)
+        # Exhaust the per-actor bucket so the route call trips the limiter.
+        for _ in range(_USER_MGMT_LIMITER._max_in_window):
+            _USER_MGMT_LIMITER.check("admin")
+
+        resp = client.patch(
+            "/api/users/me/email",
+            json={"email": "ops@example.com"},
+            headers={"X-Confirm-Password": "password1234"},
+        )
+        assert resp.status_code == 429
+        row = conn.execute(
+            "SELECT action, actor FROM audit_log"
+            " WHERE action = 'sec:user.email_update.rate_limited'"
+        ).fetchone()
+        assert row is not None
+        assert row["actor"] == "admin"
+
+    def test_update_email_body_rejects_extra_fields(self, app_factory, authed_client, conn):
+        """Stowaway fields in the request body must return HTTP 422."""
+        client = _client(app_factory, authed_client, conn)
+        resp = client.patch(
+            "/api/users/me/email",
+            json={"email": "ops@example.com", "stowaway": "x"},
+            headers={"X-Confirm-Password": "password1234"},
+        )
+        assert resp.status_code == 422
+
+    def test_update_email_body_rejects_overlong(self, app_factory, authed_client, conn):
+        """An address over 320 characters must return HTTP 422."""
+        client = _client(app_factory, authed_client, conn)
+        long_email = "a" * 321 + "@example.com"
+        resp = client.patch(
+            "/api/users/me/email",
+            json={"email": long_email},
+            headers={"X-Confirm-Password": "password1234"},
+        )
+        assert resp.status_code == 422

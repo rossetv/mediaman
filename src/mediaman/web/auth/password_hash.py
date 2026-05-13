@@ -458,6 +458,9 @@ def set_user_email(
     conn: sqlite3.Connection,
     username: str,
     email: str | None,
+    *,
+    audit_actor: str | None = None,
+    audit_ip: str = "",
 ) -> None:
     """Set or clear the notification email for *username*.
 
@@ -470,6 +473,12 @@ def set_user_email(
     "current authenticated admin" before calling, so a missing row would
     mean the session points at a deleted user, which is handled upstream.
     This function does not enforce that invariant itself.
+
+    Audit-in-transaction: when *audit_actor* is supplied, a
+    ``sec:user.email_updated`` row is written inside the same
+    ``BEGIN IMMEDIATE`` that updates the email column. If the audit
+    insert fails, the entire UPDATE rolls back — we never have a "the
+    email changed but no audit trail exists" outcome.
     """
     from mediaman.core.email_validation import validate_email_address
 
@@ -479,11 +488,34 @@ def set_user_email(
     else:
         normalised = email.strip()
         validate_email_address(normalised)
-    conn.execute(
-        "UPDATE admin_users SET email = ? WHERE username = ?",
-        (normalised, username),
-    )
-    conn.commit()
+
+    cleared = normalised is None
+
+    if audit_actor is not None:
+        from mediaman.core.audit import security_event_or_raise
+
+        # ``with conn:`` commits on normal exit and rolls back on exception;
+        # BEGIN IMMEDIATE here serialises the UPDATE and the audit INSERT so
+        # an audit failure rolls back the email change — fail-closed.
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "UPDATE admin_users SET email = ? WHERE username = ?",
+                (normalised, username),
+            )
+            security_event_or_raise(
+                conn,
+                event="user.email_updated",
+                actor=audit_actor,
+                ip=audit_ip,
+                detail={"cleared": cleared},
+            )
+    else:
+        conn.execute(
+            "UPDATE admin_users SET email = ? WHERE username = ?",
+            (normalised, username),
+        )
+        conn.commit()
 
 
 def delete_user(
