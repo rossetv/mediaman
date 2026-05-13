@@ -109,6 +109,7 @@
   background: var(--accent);
   border-radius: inherit;
   position: relative;
+  overflow: hidden; /* clip the shimmer ::after to the filled portion */
   transition: width .3s;
 }
 .dl-bar-fill::after,
