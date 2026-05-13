@@ -126,6 +126,9 @@ def _ensure_table(conn: sqlite3.Connection) -> None:
     )
 
 
+# TODO(reauth-cleanup): orphaned after the Users & Access reauth-modal
+# convergence (2026-05-13). Remove in a follow-up PR once we have
+# confirmed no caller appears in the meantime.
 def require_reauth(conn: sqlite3.Connection, admin: str, password: str) -> bool:
     """Return True if *password* matches *admin*'s current hash.
 
