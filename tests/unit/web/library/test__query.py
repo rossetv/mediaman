@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from mediaman.db import init_db, set_connection
 from mediaman.web.routes.library import (
     fetch_library,
@@ -213,6 +215,39 @@ class TestFetchLibrary:
         _insert_movie(conn, "m1", "Dune")
         _items, total = fetch_library(conn, sort="totally_wrong")
         assert total == 1
+
+    @pytest.mark.parametrize(
+        "sort_key",
+        [
+            "added_desc",
+            "added_asc",
+            "name_asc",
+            "name_desc",
+            "size_desc",
+            "size_asc",
+            "watched_desc",
+            "watched_asc",
+        ],
+    )
+    def test_every_valid_sort_executes(self, db_path, sort_key):
+        """Each VALID_SORTS value must produce syntactically valid SQL."""
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1", "Bravo")
+        _insert_movie(conn, "m2", "alpha")
+        items, total = fetch_library(conn, sort=sort_key)
+        assert total == 2
+        assert len(items) == 2
+
+    def test_name_asc_is_case_insensitive(self, db_path):
+        """name_asc sorts case-insensitively (a, B, C — not B, C, a)."""
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1", "Bravo")
+        _insert_movie(conn, "m2", "alpha")
+        _insert_movie(conn, "m3", "Charlie")
+        items, _ = fetch_library(conn, sort="name_asc")
+        assert [i["title"] for i in items] == ["alpha", "Bravo", "Charlie"]
 
     def test_kept_filter_only_shows_protected_items(self, db_path):
         """type=kept only returns items with an active protection row."""
