@@ -232,7 +232,9 @@
 .setg-pg .inp--num  { max-width: 72px; width: 72px; min-width: 0; text-align: right; font-variant-numeric: tabular-nums; }
 .setg-pg .inp--mono { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 13px; }
 
-.setg-pg .inp-wrap { position: relative; display: flex; align-items: stretch; }
+/* Wrap caps at .inp--lg's max-width so the absolute reveal button anchors
+   to the input's right edge, not the parent column's. */
+.setg-pg .inp-wrap { position: relative; display: block; width: 100%; max-width: 420px; }
 .setg-pg .inp-wrap .inp { padding-right: 66px; }
 .setg-pg .inp-reveal {
   position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
