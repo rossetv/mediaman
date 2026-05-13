@@ -109,7 +109,13 @@
           meta.appendChild(name);
           var sub = document.createElement('div');
           sub.className = 'usr-sub';
-          sub.textContent = user.created_at ? ('Joined ' + String(user.created_at).slice(0, 10)) : '';
+          var emailPart = user.email ? user.email : 'No email';
+          var joinedPart = user.created_at
+            ? 'joined ' + String(user.created_at).slice(0, 10)
+            : '';
+          sub.textContent = joinedPart
+            ? emailPart + ' · ' + joinedPart
+            : emailPart;
           meta.appendChild(sub);
           row.appendChild(meta);
 
@@ -476,9 +482,81 @@
       })();
 
       // ----------------------------------------------------------------
+      // Edit-email drawer (self card).
+      // Mirrors the inline-form pattern used by self-password-form.
+      // ----------------------------------------------------------------
+      function patchEmail(email, password) {
+        return MM.api.patch('/api/users/me/email', {
+          email: email,
+        }, {
+          headers: { 'X-Confirm-Password': password },
+        });
+      }
+
+      function initEmailEditor() {
+        var btn = document.getElementById('btn-edit-email');
+        var form = document.getElementById('self-email-form');
+        var cancel = document.getElementById('btn-cancel-email');
+        var submit = document.getElementById('btn-submit-email');
+        var emailInp = document.getElementById('self-email-input');
+        var pwInp = document.getElementById('self-email-password');
+        var msg = document.getElementById('email-result');
+        var display = document.getElementById('self-email-display');
+        if (!btn || !form) return;
+
+        function show() {
+          form.hidden = false;
+          msg.textContent = '';
+          msg.className = 'inline-form-msg';
+          pwInp.value = '';
+          emailInp.focus();
+        }
+        function hide() {
+          form.hidden = true;
+          msg.textContent = '';
+          msg.className = 'inline-form-msg';
+          pwInp.value = '';
+        }
+
+        btn.addEventListener('click', function () {
+          if (form.hidden) show(); else hide();
+        });
+        cancel.addEventListener('click', hide);
+
+        submit.addEventListener('click', function () {
+          submit.disabled = true;
+          msg.textContent = 'Saving…';
+          msg.className = 'inline-form-msg';
+          patchEmail(emailInp.value, pwInp.value)
+            .then(function (data) {
+              submit.disabled = false;
+              if (data && data.ok) {
+                msg.textContent = 'Saved';
+                msg.className = 'inline-form-msg ok';
+                var newVal = emailInp.value.trim();
+                if (display) {
+                  display.textContent = newVal || 'Not set · download alerts disabled';
+                }
+                btn.textContent = newVal ? 'Edit email' : 'Add email';
+                setTimeout(hide, 800);
+              } else {
+                msg.textContent = (data && data.message) || 'Could not save';
+                msg.className = 'inline-form-msg err';
+              }
+            })
+            .catch(function (err) {
+              submit.disabled = false;
+              msg.textContent = (err && err.message) || 'Could not save';
+              msg.className = 'inline-form-msg err';
+            });
+        });
+      }
+
+      // ----------------------------------------------------------------
       // Boot.
       // ----------------------------------------------------------------
       loadUsers();
+      initEmailEditor();
     },
   };
 
