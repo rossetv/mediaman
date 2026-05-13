@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import email.utils
 import logging
 
 import requests
 
+from mediaman.core.email_validation import validate_email_address as _validate_recipient
 from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 
 logger = logging.getLogger(__name__)
@@ -27,20 +27,6 @@ _CONSECUTIVE_5XX_ABORT = 2
 # Characters that must never appear in RFC 2822 header values (subject,
 # from, to) — a newline would allow header injection.
 _HEADER_INJECT_CHARS = frozenset("\r\n\0")
-
-
-def _validate_recipient(address: str) -> None:
-    """Raise ValueError if *address* is not a valid, injection-safe email address.
-
-    Checks performed:
-    - ``email.utils.parseaddr`` must yield a non-empty address.
-    - The raw string must not contain CR, LF, or NUL (header injection guard).
-    """
-    if any(c in address for c in _HEADER_INJECT_CHARS):
-        raise ValueError(f"Recipient address contains illegal characters: {address!r}")
-    _, parsed = email.utils.parseaddr(address)
-    if not parsed or "@" not in parsed:
-        raise ValueError(f"Invalid recipient email address: {address!r}")
 
 
 def _validate_header_value(value: str, field: str) -> None:
