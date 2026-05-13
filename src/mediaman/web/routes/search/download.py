@@ -113,20 +113,19 @@ class _DownloadRequest(BaseModel):
     search_seasons: list[int] | None = Field(default=None, max_length=100)
 
 
-# ``admin_users`` has no ``email`` column — the username is the only
-# identifier for the admin account, so it is intentionally re-used as
-# the notification ``email`` field on download_notifications rows. The
-# notification subsystem treats this as an opaque identifier (it does
-# not actually attempt SMTP delivery to a non-email value), but the
-# coupling is documented here so a future schema migration to a real
-# email column does not quietly leave this call site stale.
-def _resolve_admin_email(admin: str) -> str:
-    """Return the notification identifier for *admin*.
+def _resolve_admin_email(conn: sqlite3.Connection, admin: str) -> str | None:
+    """Return the notification email for *admin*, or ``None`` if unset.
 
-    Currently this is just the admin username; see the module-level
-    note above for why this is intentional.
+    Looks up ``admin_users.email`` via the auth repository. When the
+    admin has no email set the caller skips inserting a
+    ``download_notifications`` row entirely — the scheduler can only
+    deliver to a real address, and storing a placeholder (such as the
+    bare username) used to send the row into a forever-retry loop in
+    the Mailgun client.
     """
-    return admin
+    from mediaman.web.auth.password_hash import get_user_email
+
+    return get_user_email(conn, admin)
 
 
 router = APIRouter()
@@ -169,7 +168,10 @@ def _check_dedup(admin: str, body: _DownloadRequest) -> JSONResponse | None:
 
 
 def _submit_movie(
-    conn: sqlite3.Connection, secret_key: str, body: _DownloadRequest, notify_email: str
+    conn: sqlite3.Connection,
+    secret_key: str,
+    body: _DownloadRequest,
+    notify_email: str | None,
 ) -> JSONResponse:
     """Add a movie to Radarr and record the download notification."""
     radarr = build_radarr_from_db(conn, secret_key)
@@ -215,14 +217,20 @@ def _submit_movie(
         # ``except Exception`` would silently swallow programming bugs.
         logger.exception("Failed to add movie")
         return JSONResponse({"ok": False, "error": "Failed to add to Radarr"}, status_code=502)
-    _record_dn(
-        conn,
-        email=notify_email,
-        title=body.title,
-        media_type="movie",
-        tmdb_id=body.tmdb_id,
-        service="radarr",
-    )
+    if notify_email is not None:
+        _record_dn(
+            conn,
+            email=notify_email,
+            title=body.title,
+            media_type="movie",
+            tmdb_id=body.tmdb_id,
+            service="radarr",
+        )
+    else:
+        logger.info(
+            "search.download_notification_skipped reason=no_admin_email media=movie tmdb=%s",
+            body.tmdb_id,
+        )
     conn.commit()
     return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Radarr"})
 
@@ -249,7 +257,10 @@ def _resolve_tvdb_id(
 
 
 def _submit_tv(
-    conn: sqlite3.Connection, secret_key: str, body: _DownloadRequest, notify_email: str
+    conn: sqlite3.Connection,
+    secret_key: str,
+    body: _DownloadRequest,
+    notify_email: str | None,
 ) -> JSONResponse:
     """Add a series to Sonarr and record the download notification."""
     sonarr = build_sonarr_from_db(conn, secret_key)
@@ -289,15 +300,21 @@ def _submit_tv(
     except (SafeHTTPError, _requests.RequestException, ValueError, ArrError):
         logger.exception("Failed to add series")
         return JSONResponse({"ok": False, "error": "Failed to add to Sonarr"}, status_code=502)
-    _record_dn(
-        conn,
-        email=notify_email,
-        title=body.title,
-        media_type="tv",
-        tmdb_id=body.tmdb_id,
-        tvdb_id=tvdb_id,
-        service="sonarr",
-    )
+    if notify_email is not None:
+        _record_dn(
+            conn,
+            email=notify_email,
+            title=body.title,
+            media_type="tv",
+            tmdb_id=body.tmdb_id,
+            tvdb_id=tvdb_id,
+            service="sonarr",
+        )
+    else:
+        logger.info(
+            "search.download_notification_skipped reason=no_admin_email media=tv tmdb=%s",
+            body.tmdb_id,
+        )
     conn.commit()
     return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Sonarr"})
 
@@ -319,9 +336,7 @@ def api_download(
     conn = get_db()
     secret_key = request.app.state.config.secret_key
 
-    # Notification recipient: see ``_resolve_admin_email`` for the
-    # rationale on re-using the admin username.
-    notify_email = _resolve_admin_email(admin)
+    notify_email = _resolve_admin_email(conn, admin)
 
     if body.media_type == "movie":
         return _submit_movie(conn, secret_key, body, notify_email)
