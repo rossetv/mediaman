@@ -18,6 +18,7 @@ from mediaman.core.time import now_utc
 from mediaman.db import (
     finish_refresh_run,
     get_db,
+    heartbeat_refresh_run,
     is_refresh_running,
     open_thread_connection,
     start_refresh_run,
@@ -35,11 +36,25 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Shared state for the background worker. The ``_refresh_result`` dict is
-# mutated by the background thread and read by the polling endpoint;
-# without a lock the read could observe a half-built dict mid-assignment.
-# The lock is fine-grained — held only for the swap, not for the work itself.
+# Heartbeat the DB lease every minute while the worker is running so a
+# refresh that legitimately takes longer than _JOB_HEARTBEAT_STALE_SECONDS
+# (5 min — see db/connection.py) is not mistakenly treated as crashed by
+# is_refresh_running(). Without this the status endpoint would return
+# "idle" mid-refresh, the JS poll would never resolve, and the user would
+# see the button stuck on "Refreshing…" forever.
+_HEARTBEAT_INTERVAL_SECONDS = 60
+
+# Module-level mutable state for the background refresh worker. Mediaman
+# is single-worker by design (§1.12 in CODE_GUIDELINES.md), so in-process
+# state is sufficient; the DB lease (refresh_runs table) is the
+# cross-restart truth. ``_refresh_result`` carries the final payload to
+# the status endpoint; ``_refresh_thread`` lets the status endpoint
+# detect "worker is still alive in this process" when the DB lease check
+# disagrees (e.g. a transient DB error skipped a heartbeat). Both
+# reads/writes happen under the same lock so the two fields are never
+# observed torn against each other.
 _refresh_result: dict[str, object] | None = None
+_refresh_thread: threading.Thread | None = None
 _refresh_result_lock = threading.Lock()
 
 
@@ -54,6 +69,19 @@ def _get_refresh_result() -> dict[str, object] | None:
     """Atomically read the shared refresh result."""
     with _refresh_result_lock:
         return _refresh_result
+
+
+def _set_refresh_thread(thread: threading.Thread | None) -> None:
+    """Atomically replace the shared worker-thread reference."""
+    global _refresh_thread
+    with _refresh_result_lock:
+        _refresh_thread = thread
+
+
+def _refresh_thread_alive() -> bool:
+    """Return True if a worker thread is alive in this process."""
+    with _refresh_result_lock:
+        return _refresh_thread is not None and _refresh_thread.is_alive()
 
 
 @router.post("/api/recommended/refresh")
@@ -97,6 +125,26 @@ def api_refresh_recommendations(
 
     _db_path = request.app.state.db_path
     _secret_key = config.secret_key
+
+    # Reset stale result from a previous run so the polling endpoint
+    # doesn't immediately serve last refresh's payload to a new poll loop.
+    _set_refresh_result(None)
+
+    # Heartbeat ticker: keeps the DB lease alive while the worker thread
+    # is busy. Without this, refreshes longer than 5 min flip
+    # is_refresh_running() to False, the status endpoint returns "idle",
+    # and the JS poll never resolves.
+    heartbeat_stop = threading.Event()
+
+    def heartbeat_ticker() -> None:
+        """Renew the DB lease every minute until the worker signals stop."""
+        hb_conn = open_thread_connection(_db_path)
+        try:
+            while not heartbeat_stop.wait(_HEARTBEAT_INTERVAL_SECONDS):
+                with contextlib.suppress(Exception):
+                    heartbeat_refresh_run(hb_conn, run_id)
+        finally:
+            hb_conn.close()
 
     def run() -> None:
         """Execute the recommendation refresh in a background thread.
@@ -148,6 +196,7 @@ def api_refresh_recommendations(
                 finish_refresh_run(thread_conn, run_id, "error", str(exc))
         finally:
             _set_refresh_result(result)
+            heartbeat_stop.set()
             if not manual_refresh_recorded:
                 logger.info(
                     "Manual refresh did not complete successfully; "
@@ -155,8 +204,17 @@ def api_refresh_recommendations(
                 )
             thread_conn.close()
 
-    thread = threading.Thread(target=run, daemon=True)
+    # Both threads are named per §8.6 so py-spy / logs identify them.
+    # ``daemon=True`` so a process-level shutdown doesn't get blocked on
+    # an in-flight OpenAI call; the refresh is best-effort across
+    # restarts (the DB lease lapses naturally).
+    thread = threading.Thread(target=run, name="recommended-refresh", daemon=True)
+    hb_thread = threading.Thread(
+        target=heartbeat_ticker, name="recommended-refresh-heartbeat", daemon=True
+    )
+    _set_refresh_thread(thread)
     thread.start()
+    hb_thread.start()
     return JSONResponse({"status": "started"})
 
 
@@ -166,9 +224,19 @@ def api_refresh_status(admin: str = Depends(get_current_admin)) -> JSONResponse:
 
     Also returns cooldown info so the page can keep the button hidden
     after a successful refresh without needing a full reload.
+
+    The "running" signal combines two sources:
+
+    * ``is_refresh_running(conn)`` — DB-lease check, authoritative across
+      processes (e.g. when a second uvicorn worker handles the poll).
+    * ``_refresh_thread_alive()`` — in-process check, authoritative when
+      the lease has lapsed but the local worker is still doing work.
+      Treating the lease as truth here would flip the status to "idle"
+      mid-refresh and the JS poll loop, having no "idle" branch, would
+      spin forever — the user sees the button stuck on "Refreshing…".
     """
     conn = get_db()
-    running = is_refresh_running(conn)
+    running = is_refresh_running(conn) or _refresh_thread_alive()
     result = _get_refresh_result()
     cooldown = refresh_cooldown_remaining(conn)
     cooldown_payload: dict[str, object] = {"manual_refresh_available": cooldown is None}
