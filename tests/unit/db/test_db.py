@@ -170,9 +170,9 @@ class TestSchemaV13SessionColumns:
         init_db(str(db_path)).close()  # must not raise
 
     def test_schema_version_is_current(self, db_path):
-        assert DB_SCHEMA_VERSION == 35
+        assert DB_SCHEMA_VERSION == 36
         conn = init_db(str(db_path))
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 35
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 36
 
     def test_admin_sessions_has_security_columns(self, db_path):
         conn = init_db(str(db_path))

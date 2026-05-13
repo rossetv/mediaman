@@ -23,7 +23,7 @@ the bootstrap sequence with no side-effects beyond defining constants.
 
 from __future__ import annotations
 
-DB_SCHEMA_VERSION = 35
+DB_SCHEMA_VERSION = 36
 
 # Databases below this version cannot be migrated by this code — the
 # per-version migration files they need (v01..v33) no longer exist.
@@ -64,7 +64,8 @@ CREATE TABLE IF NOT EXISTS admin_users (
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    must_change_password INTEGER NOT NULL DEFAULT 0
+    must_change_password INTEGER NOT NULL DEFAULT 0,
+    email TEXT
 );
 
 CREATE TABLE IF NOT EXISTS admin_sessions (

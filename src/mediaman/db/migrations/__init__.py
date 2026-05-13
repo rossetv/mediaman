@@ -43,6 +43,9 @@ from mediaman.db.schema_definition import _SCHEMA, CUTOVER_VERSION, DB_SCHEMA_VE
 # the conventional pattern when migration files follow Django/Alembic
 # naming.
 _m0035_aes_v1_sunset = importlib.import_module("mediaman.db.migrations.0035_aes_v1_sunset")
+_m0036_admin_users_email = importlib.import_module(
+    "mediaman.db.migrations.0036_admin_users_email"
+)
 
 
 class SchemaTooOldError(RuntimeError):
@@ -71,6 +74,7 @@ class SchemaFromFutureError(RuntimeError):
 #: ``CUTOVER_VERSION + 1``).
 _POST_CUTOVER: list[tuple[int, Callable[[sqlite3.Connection], None]]] = [
     (35, _m0035_aes_v1_sunset.apply),
+    (36, _m0036_admin_users_email.apply),
 ]
 
 
