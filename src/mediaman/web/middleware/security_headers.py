@@ -43,6 +43,8 @@ from starlette.responses import Response
 #   * www.gravatar.com — Gravatar profile images (admin avatars, if any)
 #   * mediacover.radarr.video mediacover.sonarr.video — Radarr/Sonarr
 #     fallback for poster remoteUrls when TMDB is unreachable
+#   * artworks.thetvdb.com — TheTVDB artwork CDN used by Sonarr poster
+#     URLs that are surfaced on /downloads
 #   Previous value was ``https:`` (any HTTPS image host).  The tighter
 #   allowlist reduces the pixel-tracking surface to known services.
 # - ``object-src 'none'`` defangs plugin-based XSS.
@@ -55,7 +57,8 @@ _CSP_STATIC_DIRECTIVES = (
     "https://i.ytimg.com "
     "https://www.gravatar.com "
     "https://mediacover.radarr.video "
-    "https://mediacover.sonarr.video; "
+    "https://mediacover.sonarr.video "
+    "https://artworks.thetvdb.com; "
     "connect-src 'self'; "
     "frame-src https://www.youtube.com; "
     "frame-ancestors 'none'; "
