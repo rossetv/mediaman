@@ -190,8 +190,34 @@ def call_openai(
             content = re.sub(r"^```(?:json)?\s*", "", content)
             content = re.sub(r"\s*```\s*$", "", content)
 
-        raw_items: object = json.loads(content)
+        raw: object = json.loads(content)
+        # The /v1/responses API with ``text.format.type = "json_object"``
+        # rejects a top-level JSON array, so the model wraps our requested
+        # array inside an object. Our prompt asks for the wrapper key
+        # ``"items"``, but earlier model revisions chose ``"results"`` or
+        # ``"recommendations"`` instead — fall back to "first list-valued
+        # field" so a single rename in the model's behaviour doesn't
+        # silently nuke every recommendation again.
+        raw_items: object
+        if isinstance(raw, list):
+            raw_items = raw
+        elif isinstance(raw, dict):
+            raw_items = raw.get("items")
+            if not isinstance(raw_items, list):
+                raw_items = next(
+                    (v for v in raw.values() if isinstance(v, list)),
+                    None,
+                )
+        else:
+            raw_items = None
+
         if not isinstance(raw_items, list):
+            logger.warning(
+                "OpenAI response had no extractable list — top-level type was %s, "
+                "keys=%r. Returning empty batch.",
+                type(raw).__name__,
+                list(raw.keys()) if isinstance(raw, dict) else None,
+            )
             return []
 
         items: list[dict[str, object]] = [i for i in raw_items if isinstance(i, dict)]

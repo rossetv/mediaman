@@ -382,3 +382,110 @@ class TestJsonObjectFormat:
         result = openai_recommendations._call_openai("hello", conn, use_web_search=False)
         assert len(result) == 1
         assert result[0]["title"] == "Dune"
+
+
+class TestResponseObjectUnwrapping:
+    """``/v1/responses`` with ``text.format.type=json_object`` rejects a top-level
+    array, so the model wraps the requested array inside an object. The client
+    must unwrap that — earlier code returned ``[]`` silently whenever the parsed
+    JSON was anything other than a list, which manifested as
+    "OpenAI returned no recommendations" with zero diagnostic logs.
+    """
+
+    import json as _json
+
+    def test_items_wrapper_is_extracted(self, conn, monkeypatch, fake_http, fake_response):
+        """The canonical wrapper shape ``{"items": [...]}`` round-trips."""
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
+        insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
+
+        wrapped = {
+            "items": [{"title": "Inception", "media_type": "movie", "reason": "mind-bender"}]
+        }
+        fake_http.queue(
+            "POST",
+            fake_response(
+                json_data={
+                    "output": [
+                        {
+                            "type": "message",
+                            "content": [
+                                {"type": "output_text", "text": self._json.dumps(wrapped)}
+                            ],
+                        }
+                    ]
+                }
+            ),
+        )
+
+        result = openai_recommendations._call_openai("hello", conn, use_web_search=False)
+        assert len(result) == 1
+        assert result[0]["title"] == "Inception"
+
+    def test_alternative_wrapper_key_is_extracted(
+        self, conn, monkeypatch, fake_http, fake_response
+    ):
+        """If a future model version chooses ``"results"`` or
+        ``"recommendations"`` instead of ``"items"``, the parser falls back to
+        the first list-valued field rather than silently returning ``[]``."""
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
+        insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
+
+        wrapped = {
+            "results": [{"title": "Severance", "media_type": "tv", "reason": "tense"}]
+        }
+        fake_http.queue(
+            "POST",
+            fake_response(
+                json_data={
+                    "output": [
+                        {
+                            "type": "message",
+                            "content": [
+                                {"type": "output_text", "text": self._json.dumps(wrapped)}
+                            ],
+                        }
+                    ]
+                }
+            ),
+        )
+
+        result = openai_recommendations._call_openai("hello", conn, use_web_search=False)
+        assert len(result) == 1
+        assert result[0]["title"] == "Severance"
+
+    def test_unextractable_response_logs_warning_and_returns_empty(
+        self, conn, monkeypatch, fake_http, fake_response, caplog
+    ):
+        """A response shape with no list inside must log a warning before
+        returning empty — the earlier silent return left zero diagnostics
+        and made the bug nearly impossible to trace from logs alone."""
+        import logging
+
+        monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
+        insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
+
+        fake_http.queue(
+            "POST",
+            fake_response(
+                json_data={
+                    "output": [
+                        {
+                            "type": "message",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": '{"only_strings": "no list anywhere"}',
+                                }
+                            ],
+                        }
+                    ]
+                }
+            ),
+        )
+
+        with caplog.at_level(logging.WARNING, logger="mediaman.services.openai.client"):
+            result = openai_recommendations._call_openai("hello", conn, use_web_search=False)
+
+        assert result == []
+        assert any("no extractable list" in r.message for r in caplog.records)
