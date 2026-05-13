@@ -94,7 +94,9 @@ class TestSetUserEmailAuditInTransaction:
 
     def test_writes_audit_row_when_actor_supplied(self, conn: sqlite3.Connection) -> None:
         """set_user_email with audit_actor writes a sec:user.email_updated row."""
-        set_user_email(conn, "rossetv", "ops@example.com", audit_actor="rossetv", audit_ip="1.2.3.4")
+        set_user_email(
+            conn, "rossetv", "ops@example.com", audit_actor="rossetv", audit_ip="1.2.3.4"
+        )
         row = conn.execute(
             "SELECT action, actor, detail FROM audit_log WHERE action = 'sec:user.email_updated'"
         ).fetchone()
@@ -133,8 +135,11 @@ class TestSetUserEmailAuditInTransaction:
 
         with pytest.raises(sqlite3.OperationalError, match="audit table gone"):
             set_user_email(
-                conn, "rossetv", "attacker@evil.test",
-                audit_actor="rossetv", audit_ip="1.2.3.4",
+                conn,
+                "rossetv",
+                "attacker@evil.test",
+                audit_actor="rossetv",
+                audit_ip="1.2.3.4",
             )
 
         # Email must not have changed.

@@ -255,9 +255,7 @@ def api_set_my_email(
         return respond_err("invalid_email", status=400, message=str(exc))
     except sqlite3.Error:
         logger.exception("user.email_update failed actor=%s", admin)
-        return respond_err(
-            "internal_error", status=500, message="Internal error updating email"
-        )
+        return respond_err("internal_error", status=500, message="Internal error updating email")
 
     logger.info("user.email_updated actor=%s cleared=%s", admin, not body.email.strip())
     return respond_ok()

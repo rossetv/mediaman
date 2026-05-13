@@ -24,9 +24,6 @@ def apply(conn: sqlite3.Connection) -> None:
     running against a DB that was initialised directly from the v36
     baseline ``_SCHEMA`` and then set to ``user_version=34`` in tests).
     """
-    existing = {
-        row[1]
-        for row in conn.execute("PRAGMA table_info(admin_users)").fetchall()
-    }
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(admin_users)").fetchall()}
     if "email" not in existing:
         conn.execute("ALTER TABLE admin_users ADD COLUMN email TEXT")

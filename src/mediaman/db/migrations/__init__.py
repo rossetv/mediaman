@@ -43,9 +43,7 @@ from mediaman.db.schema_definition import _SCHEMA, CUTOVER_VERSION, DB_SCHEMA_VE
 # the conventional pattern when migration files follow Django/Alembic
 # naming.
 _m0035_aes_v1_sunset = importlib.import_module("mediaman.db.migrations.0035_aes_v1_sunset")
-_m0036_admin_users_email = importlib.import_module(
-    "mediaman.db.migrations.0036_admin_users_email"
-)
+_m0036_admin_users_email = importlib.import_module("mediaman.db.migrations.0036_admin_users_email")
 
 
 class SchemaTooOldError(RuntimeError):
