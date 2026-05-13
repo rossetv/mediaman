@@ -14,8 +14,13 @@
       <div class="usr-meta">
         <div class="usr-name">{{ username }}</div>
         <div class="usr-sub">Admin · signed in</div>
+        <div class="usr-sub" id="self-email-display">
+          {% if email %}{{ email }}{% else %}Not set · download alerts disabled{% endif %}
+        </div>
       </div>
       <div class="usr-self-actions">
+        {{ c.btn(("Edit email" if email else "Add email"),
+                 variant="secondary", size="sm", id="btn-edit-email") }}
         {{ c.btn("Change password", variant="secondary", size="sm", id="btn-change-password") }}
         {{ c.btn("Sign out other devices", variant="ghost", size="sm", id="btn-revoke-others") }}
       </div>
@@ -43,6 +48,28 @@
         {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-password") }}
         {{ c.btn("Update password", variant="primary", size="sm", id="btn-submit-password") }}
         <span class="inline-form-msg" id="password-result"></span>
+      </div>
+    </div>
+
+    <div class="inline-form inline-form--two" id="self-email-form" hidden>
+      <div class="inline-form-grid">
+        <label class="fld">
+          <span class="fld-lbl">Notification email</span>
+          <input class="inp" type="email" id="self-email-input"
+                 autocomplete="email" inputmode="email"
+                 placeholder="you@example.com"
+                 value="{{ email or '' }}">
+          <span class="fld-sub">Used for download-ready alerts. Leave empty to disable.</span>
+        </label>
+        <label class="fld">
+          <span class="fld-lbl">Your password (re-authenticate)</span>
+          <input class="inp" type="password" id="self-email-password" autocomplete="current-password">
+        </label>
+      </div>
+      <div class="inline-form-actions">
+        {{ c.btn("Cancel", variant="ghost", size="sm", id="btn-cancel-email") }}
+        {{ c.btn("Save email", variant="primary", size="sm", id="btn-submit-email") }}
+        <span class="inline-form-msg" id="email-result"></span>
       </div>
     </div>
   {% endcall %}

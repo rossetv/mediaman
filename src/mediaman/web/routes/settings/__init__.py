@@ -59,6 +59,7 @@ from mediaman.services.rate_limit import get_client_ip
 from mediaman.services.rate_limit.instances import SETTINGS_TEST_LIMITER as _SETTINGS_TEST_LIMITER
 from mediaman.services.rate_limit.instances import SETTINGS_WRITE_LIMITER as _SETTINGS_WRITE_LIMITER
 from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
+from mediaman.web.auth.password_hash import get_user_email as _get_user_email
 from mediaman.web.auth.reauth import has_recent_reauth
 from mediaman.web.models import SettingsUpdate
 from mediaman.web.repository.settings import (
@@ -165,12 +166,15 @@ def settings_page(request: Request) -> Response:
     _libs_raw = settings.get("plex_libraries") or []
     plex_libraries_selected: list[str] = list(_libs_raw) if isinstance(_libs_raw, list) else []
 
+    self_email = _get_user_email(conn, username)
+
     templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
         request,
         "settings.html",
         {
             "username": username,
+            "email": self_email,
             "nav_active": "settings",
             "settings": settings,
             "plex_libraries_selected": plex_libraries_selected,
