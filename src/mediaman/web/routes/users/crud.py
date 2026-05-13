@@ -6,6 +6,7 @@ Routes
 - POST /api/users                  — create a new admin user (reauth required)
 - DELETE /api/users/{user_id}      — delete a user (reauth required)
 - POST /api/users/{user_id}/unlock — clear a locked-out account (reauth required)
+- PATCH /api/users/me/email        — set or clear notification email (reauth required)
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 
-from fastapi import APIRouter, Cookie, Depends, Header, Request
+from fastapi import APIRouter, Cookie, Depends, Request
 from starlette.responses import Response
 
 from mediaman.core.audit import security_event
@@ -22,7 +23,7 @@ from mediaman.services.rate_limit import get_client_ip
 from mediaman.web.auth.login_lockout import admin_unlock_with_audit
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.password_hash import UserExistsError, create_user, delete_user, list_users
-from mediaman.web.auth.reauth import has_recent_reauth, verify_reauth_password
+from mediaman.web.auth.reauth import has_recent_reauth
 from mediaman.web.auth.user_crud import find_username_by_user_id
 from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.models.users import CreateUserBody, UpdateEmailBody
@@ -174,22 +175,15 @@ def api_set_my_email(
     body: UpdateEmailBody,
     request: Request,
     admin: str = Depends(get_current_admin),
-    x_confirm_password: str | None = Header(default=None),
+    session_token: str | None = Cookie(default=None),
 ) -> Response:
     """Set or clear the current admin's notification email.
 
-    Requires the caller's password via the ``X-Confirm-Password`` request
-    header — same pattern as ``DELETE /api/users/{user_id}``. A stolen
-    session cookie alone cannot redirect download alerts to an
-    attacker-controlled inbox.
+    Requires a recent reauth ticket (``POST /api/auth/reauth`` within
+    the last :func:`~mediaman.web.auth.reauth.reauth_window_seconds`
+    seconds). A stolen session cookie alone cannot redirect download
+    alerts to an attacker-controlled inbox.
     """
-    if "confirm_password" in request.query_params:
-        return respond_err(
-            "use_header",
-            status=400,
-            message="confirm_password must be sent via X-Confirm-Password header, not the query string",
-        )
-
     conn = get_db()
     client_ip = get_client_ip(request)
     if not _USER_MGMT_LIMITER.check(admin):
@@ -203,24 +197,10 @@ def api_set_my_email(
         return respond_err(
             "too_many_requests", status=429, message="Too many user-management operations"
         )
-
-    pw = x_confirm_password or ""
-    if not verify_reauth_password(conn, admin, pw):
+    if not has_recent_reauth(conn, session_token, admin):
         logger.warning("user.email_update_rejected actor=%s reason=reauth_required", admin)
-        security_event(
-            conn,
-            event="user.email_update.reauth_failed",
-            actor=admin,
-            ip=client_ip,
-        )
-        return respond_err(
-            "password_required", status=403, message="Password confirmation required"
-        )
+        return _unauthorised_reauth()
 
-    # Audit fail-closed: the audit row and the UPDATE land in the same
-    # BEGIN IMMEDIATE via set_user_email's audit_actor path, so a failed
-    # audit write rolls back the email change instead of leaving it
-    # untracked.
     try:
         from mediaman.web.auth.password_hash import set_user_email
 
