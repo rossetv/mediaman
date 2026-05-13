@@ -25,7 +25,7 @@ from mediaman.web.auth.password_hash import UserExistsError, create_user, delete
 from mediaman.web.auth.reauth import has_recent_reauth, verify_reauth_password
 from mediaman.web.auth.user_crud import find_username_by_user_id
 from mediaman.web.middleware.rate_limit import rate_limit
-from mediaman.web.models.users import CreateUserBody
+from mediaman.web.models.users import CreateUserBody, UpdateEmailBody
 from mediaman.web.responses import respond_err, respond_ok
 from mediaman.web.routes.users.rate_limits import _USER_CREATE_LIMITER, _USER_MGMT_LIMITER
 
@@ -193,6 +193,71 @@ def api_delete_user(
     return respond_err(
         "cannot_delete", status=400, message="Cannot delete yourself or user not found"
     )
+
+
+@router.patch("/api/users/me/email")
+def api_set_my_email(
+    body: UpdateEmailBody,
+    request: Request,
+    admin: str = Depends(get_current_admin),
+    x_confirm_password: str | None = Header(default=None),
+) -> Response:
+    """Set or clear the current admin's notification email.
+
+    Requires the caller's password via the ``X-Confirm-Password`` request
+    header — same pattern as ``DELETE /api/users/{user_id}``. A stolen
+    session cookie alone cannot redirect download alerts to an
+    attacker-controlled inbox.
+    """
+    if "confirm_password" in request.query_params:
+        return respond_err(
+            "use_header",
+            status=400,
+            message="confirm_password must be sent via X-Confirm-Password header, not the query string",
+        )
+
+    conn = get_db()
+    client_ip = get_client_ip(request)
+    if not _USER_MGMT_LIMITER.check(admin):
+        logger.warning("user.email_update_throttled actor=%s", admin)
+        return respond_err(
+            "too_many_requests", status=429, message="Too many user-management operations"
+        )
+
+    pw = x_confirm_password or ""
+    if not verify_reauth_password(conn, admin, pw):
+        logger.warning("user.email_update_rejected actor=%s reason=reauth_required", admin)
+        security_event(
+            conn,
+            event="user.email_update.reauth_failed",
+            actor=admin,
+            ip=client_ip,
+        )
+        return respond_err(
+            "password_required", status=403, message="Password confirmation required"
+        )
+
+    try:
+        from mediaman.web.auth.password_hash import set_user_email
+
+        set_user_email(conn, admin, body.email)
+    except ValueError as exc:
+        return respond_err("invalid_email", status=400, message=str(exc))
+    except sqlite3.Error:
+        logger.exception("user.email_update failed actor=%s", admin)
+        return respond_err(
+            "internal_error", status=500, message="Internal error updating email"
+        )
+
+    security_event(
+        conn,
+        event="user.email_updated",
+        actor=admin,
+        ip=client_ip,
+        detail={"cleared": not body.email.strip()},
+    )
+    logger.info("user.email_updated actor=%s cleared=%s", admin, not body.email.strip())
+    return respond_ok()
 
 
 @router.post("/api/users/{user_id}/unlock")
