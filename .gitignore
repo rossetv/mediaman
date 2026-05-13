@@ -61,6 +61,8 @@ auth.json
 .worktrees/
 .claude/
 docs/superpowers/
+docs/remediation/
+docs/plans/
 
 # Playwright MCP scratch + ad-hoc screenshots (dev only)
 .playwright-mcp/
