@@ -29,6 +29,8 @@ This package depends only on :mod:`sqlite3`; it MUST NOT import from
 rule).
 """
 
+from __future__ import annotations
+
 from mediaman.scanner.repository.media_items import (
     count_items_in_libraries,
     delete_media_items,

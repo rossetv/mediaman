@@ -32,11 +32,12 @@ def is_protected(conn: sqlite3.Connection, media_id: str) -> bool:
     The previous implementation used ``ORDER BY id DESC LIMIT 1`` to
     pick a single "latest" row, which gave the wrong answer whenever
     a higher-id row contradicted a still-authoritative lower-id one
-    (Domain 05 finding): an earlier ``protected_forever`` row could be
-    masked by a later expired ``snoozed`` row, falsely reporting the
-    item as unprotected and queuing it for deletion. The schema does
-    not enforce one-row-per-item, so we must not rely on row order —
-    we check the two protective states explicitly instead.
+    ``protected_forever`` wins over a later-id snooze because the schema
+    does not enforce one-row-per-item and row order is not a contract:
+    an earlier ``protected_forever`` row could otherwise be masked by a
+    later expired ``snoozed`` row, falsely reporting the item as
+    unprotected and queuing it for deletion. We check the two protective
+    states explicitly instead.
     """
     # protected_forever wins over everything: ignore execute_at and
     # token_used here. If even one such row exists, the item is kept.
@@ -147,7 +148,8 @@ def cleanup_expired_show_snoozes(conn: sqlite3.Connection, now_iso: str) -> int:
 def is_show_kept(conn: sqlite3.Connection, show_rating_key: str | None) -> bool:
     """Return True if the show has an active keep rule in ``kept_shows``.
 
-    Composed from two single-purpose helpers (Domain 05 finding):
+    Composed from two single-purpose helpers so each side is observable
+    in isolation:
 
     * :func:`_is_show_kept_pure` — the read.
     * :func:`cleanup_expired_show_snoozes` — the cleanup.
@@ -250,7 +252,8 @@ def clear_pending_deletions(
     ``BEGIN IMMEDIATE`` that deletes the rows. The pre-delete count
     lands in the audit detail. If the audit insert raises, the entire
     delete rolls back — we never end up with rows removed but no audit
-    trail (M27 fail-closed contract).
+    trail (the audit insert and the delete are atomic by design; neither
+    commits without the other).
     """
     with conn:
         conn.execute("BEGIN IMMEDIATE")

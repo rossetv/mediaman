@@ -178,8 +178,10 @@ def start_scheduler(
             misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
         )
         # Daily reaper for arr_search_throttle rows whose item has been
-        # deleted (Domain 06 #10): without this the table grows monotonically
-        # because individual deletions don't propagate to the throttle DB.
+        # deleted. arr_search_throttle rows are keyed by media_item_id; when
+        # the item is deleted the throttle row becomes a ghost — periodic
+        # reaping prevents monotonic table growth because individual deletions
+        # don't propagate to the throttle DB.
         _scheduler.add_job(
             lambda: reconcile_stranded_throttle(_open_db_for_job()),
             IntervalTrigger(hours=24),

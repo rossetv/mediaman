@@ -10,3 +10,5 @@ Each module implements one discrete phase of the scan pipeline:
 
 The engine imports from these modules and remains a thin orchestrator.
 """
+
+from __future__ import annotations

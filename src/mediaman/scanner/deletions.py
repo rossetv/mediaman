@@ -91,6 +91,9 @@ def _recover_stuck_deletions(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+# rationale: four distinct exception types (DeletionRefused, FileNotFoundError,
+# PermissionError/OSError, Exception) each require different recovery
+# actions; splitting by exception type would separate try from except.
 def _delete_file_on_disk(
     conn: sqlite3.Connection,
     row: sqlite3.Row,
@@ -102,9 +105,6 @@ def _delete_file_on_disk(
     returned so the caller can ``continue`` to the next row.  All
     try/except branches are contained here so no except clause is ever
     stranded in a different scope from its try.
-    # rationale: four distinct exception types (DeletionRefused, FileNotFoundError,
-    # PermissionError/OSError, Exception) each require different recovery
-    # actions; splitting by exception type would separate try from except.
     """
     try:
         delete_path(row["file_path"], allowed_roots=allowed_roots)
@@ -162,7 +162,7 @@ def _delete_file_on_disk(
         )
         conn.commit()
         return False
-    except Exception as exc:  # rationale: documented permanent-failure path — operator must see every unhandled deletion failure
+    except Exception as exc:
         # Unexpected exception type. Log + audit and treat as
         # permanent so the operator can investigate; leave the
         # row in 'deleting' for recovery to reconcile.
@@ -279,6 +279,9 @@ class DeletionExecutor:
         self._sonarr = sonarr_client
         self._radarr = radarr_client
 
+    # rationale: orchestrator — body is sequential phase calls plus
+    # the deletion loop; the loop counter state (deleted_count,
+    # reclaimed_bytes) spans all phases and ties them together.
     def execute(self) -> DeletionResult:
         """Run the deletion pass.
 
@@ -286,10 +289,6 @@ class DeletionExecutor:
         total. Cleans up expired snoozes before returning unless
         ``cleanup_snoozes`` was set to ``False`` at construction, ensuring
         a real dry-run preview never mutates ``scheduled_actions``.
-
-        # rationale: orchestrator — body is sequential phase calls plus
-        # the deletion loop; the loop counter state (deleted_count,
-        # reclaimed_bytes) spans all phases and ties them together.
 
         Pipeline:
         1. Load allowlist + recover stuck rows.

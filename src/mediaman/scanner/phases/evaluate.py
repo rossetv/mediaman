@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime
+from typing import Literal
 
 from mediaman.scanner._eligibility import is_inactive, is_old_enough
 
@@ -26,7 +27,7 @@ def evaluate_movie(
     watch_history: Sequence[Mapping[str, object]],
     min_age_days: int = 30,
     inactivity_days: int = 30,
-) -> str:
+) -> Literal["skip", "schedule_deletion"]:
     """Evaluate whether a movie should be scheduled for deletion.
 
     A movie is a deletion candidate when it has been in the library long enough
@@ -48,7 +49,7 @@ def evaluate_season(
     watch_history: Sequence[Mapping[str, object]],
     min_age_days: int = 30,
     inactivity_days: int = 30,
-) -> str:
+) -> Literal["skip", "schedule_deletion"]:
     """Evaluate whether a TV season should be scheduled for deletion.
 
     Returns ``"skip"`` or ``"schedule_deletion"``.

@@ -15,6 +15,14 @@ import sqlite3
 # rating-key collision from surfacing a movie title against a show-action row.
 SHOW_ACTIONS: tuple[str, ...] = ("kept_show", "removed_show_keep")
 
+# Maps UI filter labels to the set of DB action names they match.
+# ``kept`` and ``unkept`` each expand to multi-action IN clauses so the
+# synthetic UI label matches both legacy and current DB action names.
+_FILTER_MAP: dict[str, tuple[str, ...]] = {
+    "kept": ("protected", "protected_forever", "kept", "kept_show"),
+    "unkept": ("unprotected", "removed_show_keep"),
+}
+
 
 def count_audit_rows(conn: sqlite3.Connection, action: str | None) -> int:
     """Return the total number of audit_log rows for the given filter.
@@ -31,7 +39,8 @@ def count_audit_rows(conn: sqlite3.Connection, action: str | None) -> int:
         return row["n"] if row else 0
 
     where_sql, where_params = _media_where_clause(action)
-    row = conn.execute(
+    # rationale: where_sql comes from a hard-coded filter map; no user input enters the SQL fragment
+    row = conn.execute(  # nosec B608
         f"SELECT COUNT(*) AS n FROM audit_log al {where_sql}",
         where_params,
     ).fetchone()
@@ -94,7 +103,8 @@ def fetch_media_audit_rows(
         per_page,
         offset,
     )
-    return conn.execute(
+    # rationale: where_sql comes from a hard-coded filter map; no user input enters the SQL fragment
+    return conn.execute(  # nosec B608
         f"""
         SELECT
             al.id,
@@ -133,10 +143,6 @@ def _media_where_clause(action: str | None) -> tuple[str, tuple[str, ...]]:
     The ``kept`` and ``unkept`` filters expand to multi-action IN clauses so
     the synthetic UI label matches both legacy and current DB action names.
     """
-    _FILTER_MAP: dict[str, tuple[str, ...]] = {
-        "kept": ("protected", "protected_forever", "kept", "kept_show"),
-        "unkept": ("unprotected", "removed_show_keep"),
-    }
     if action and action in _FILTER_MAP:
         db_actions = _FILTER_MAP[action]
         placeholders = ",".join("?" * len(db_actions))
