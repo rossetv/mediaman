@@ -301,6 +301,122 @@ def test_tv_previous_airing_date_treated_as_aired_signal():
     assert compute_download_state("tv", 700, caches) == "in_library"
 
 
+# ---------------------------------------------------------------------------
+# attach_download_states — per-item Arr enrichment lifted out of the
+# /recommended page handler
+# ---------------------------------------------------------------------------
+
+from mediaman.services.arr.state import attach_download_states  # noqa: E402
+
+
+class _FakeArr:
+    """Stand-in for ``LazyArrClients`` that records whether each client
+    was actually requested, so a test can assert the lazy-build /
+    build-empty-half-once behaviour."""
+
+    def __init__(self, radarr=None, sonarr=None):
+        self._radarr = radarr
+        self._sonarr = sonarr
+        self.radarr_calls = 0
+        self.sonarr_calls = 0
+
+    def radarr(self):
+        self.radarr_calls += 1
+        return self._radarr
+
+    def sonarr(self):
+        self.sonarr_calls += 1
+        return self._sonarr
+
+
+def _batch(*items):
+    """Build a formatted batch dict, splitting items into trending/personal
+    by their ``category`` key (defaulting to personal)."""
+    trending = [i for i in items if i.get("category") == "trending"]
+    personal = [i for i in items if i.get("category") != "trending"]
+    return {"trending": trending, "personal": personal}
+
+
+def test_attach_download_states_mutates_items_in_place_and_returns_map():
+    radarr = MagicMock()
+    radarr.get_movies.return_value = [{"tmdbId": 100, "hasFile": True, "monitored": True}]
+    radarr.get_queue.return_value = []
+    arr = _FakeArr(radarr=radarr)
+
+    movie = {"id": "s1", "tmdb_id": 100, "media_type": "movie"}
+    batches = [_batch(movie)]
+    all_recs = attach_download_states(batches, arr)
+
+    # The item dict is mutated in place …
+    assert movie["download_state"] == "in_library"
+    # … and the same object is returned keyed by its id.
+    assert all_recs == {"s1": movie}
+    assert all_recs["s1"] is movie
+
+
+def test_attach_download_states_only_builds_clients_that_are_needed():
+    """A batch with only movie items must not build the Sonarr client,
+    and vice versa — the empty opposite-half is reused, not fetched."""
+    radarr = MagicMock()
+    radarr.get_movies.return_value = []
+    radarr.get_queue.return_value = []
+    arr = _FakeArr(radarr=radarr, sonarr=MagicMock())
+
+    batches = [_batch({"id": "m", "tmdb_id": 1, "media_type": "movie"})]
+    attach_download_states(batches, arr)
+
+    assert arr.radarr_calls == 1  # built once for the movie item
+    assert arr.sonarr_calls == 0  # never built — no TV item present
+
+
+def test_attach_download_states_builds_each_client_at_most_once():
+    radarr = MagicMock()
+    radarr.get_movies.return_value = []
+    radarr.get_queue.return_value = []
+    sonarr = MagicMock()
+    sonarr.get_series.return_value = []
+    sonarr.get_queue.return_value = []
+    arr = _FakeArr(radarr=radarr, sonarr=sonarr)
+
+    # Two movie items and two TV items spread across batches.
+    batches = [
+        _batch(
+            {"id": "m1", "tmdb_id": 1, "media_type": "movie"},
+            {"id": "t1", "tmdb_id": 2, "media_type": "tv"},
+        ),
+        _batch(
+            {"id": "m2", "tmdb_id": 3, "media_type": "movie"},
+            {"id": "t2", "tmdb_id": 4, "media_type": "tv"},
+        ),
+    ]
+    all_recs = attach_download_states(batches, arr)
+
+    assert arr.radarr_calls == 1
+    assert arr.sonarr_calls == 1
+    assert set(all_recs) == {"m1", "t1", "m2", "t2"}
+
+
+def test_attach_download_states_keeps_untracked_items_without_state():
+    """An item with no ``tmdb_id`` is still collected into the returned
+    map but never gets a ``download_state`` written."""
+    radarr = MagicMock()
+    radarr.get_movies.return_value = []
+    radarr.get_queue.return_value = []
+    arr = _FakeArr(radarr=radarr, sonarr=MagicMock())
+
+    no_tmdb = {"id": "x", "media_type": "movie"}
+    untracked = {"id": "y", "tmdb_id": 999, "media_type": "movie"}
+    batches = [_batch(no_tmdb, untracked)]
+    all_recs = attach_download_states(batches, arr)
+
+    assert "download_state" not in no_tmdb
+    # tmdb_id present but not in Radarr → compute returns None → no write.
+    assert "download_state" not in untracked
+    assert set(all_recs) == {"x", "y"}
+    # The movie client was still needed (untracked item has a tmdb_id).
+    assert arr.radarr_calls == 1
+
+
 def test_tv_unmonitored_aired_season_is_ignored():
     """An unmonitored aired season the user explicitly skipped doesn't drag the show into ``partial``."""
     series = {

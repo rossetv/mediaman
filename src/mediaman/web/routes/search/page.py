@@ -14,8 +14,6 @@ focuses on request/response shaping.
 from __future__ import annotations
 
 import logging
-import time
-from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import cast
 
@@ -30,14 +28,11 @@ from mediaman.web.auth.middleware import get_current_admin, resolve_page_session
 from mediaman.web.responses import respond_err
 
 from ._enrichment import (
-    _DISCOVER_CACHE_MAX_ENTRIES,
-    _DISCOVER_TMDB_TTL_SECONDS,
     _MAX_QUERY_LEN,
     _QUERY_LIMITER,
     _annotate_states,
-    _discover_cache,
-    _discover_cache_lock,
     _enrich_ratings,
+    _fetch_discover_shelf,
     _normalise_tmdb_item,
 )
 
@@ -132,38 +127,17 @@ def api_discover(request: Request, admin: str = Depends(get_current_admin)) -> J
     if client is None:
         return respond_err("tmdb_not_configured", status=502)
 
-    def _fetch_cached(
-        shelf_key: str,
-        fetch_fn: Callable[[int], list[dict[str, object]]],
-        inject_media_type: str | None,
-        page: int,
-    ) -> list[dict[str, object]]:
-        cache_key = f"{shelf_key}?page={page}"
-        now = time.monotonic()
-        with _discover_cache_lock:
-            entry = _discover_cache.get(cache_key)
-            if entry and now - entry[0] < _DISCOVER_TMDB_TTL_SECONDS:
-                return entry[1]
-        raw = fetch_fn(page)
-        if inject_media_type:
-            for x in raw:
-                x["media_type"] = inject_media_type
-        with _discover_cache_lock:
-            # rationale: bounded to prevent unbounded growth on malformed inputs;
-            # small clear-on-overflow is fine because TTL means stale entries
-            # refresh on next read.
-            if len(_discover_cache) >= _DISCOVER_CACHE_MAX_ENTRIES:
-                _discover_cache.clear()
-            _discover_cache[cache_key] = (now, raw)
-        return raw
-
     with ThreadPoolExecutor(max_workers=6) as pool:
-        f_trending_1 = pool.submit(_fetch_cached, "trending", client.trending, None, 1)
-        f_trending_2 = pool.submit(_fetch_cached, "trending", client.trending, None, 2)
-        f_movies_1 = pool.submit(_fetch_cached, "popular_movies", client.popular_movies, "movie", 1)
-        f_movies_2 = pool.submit(_fetch_cached, "popular_movies", client.popular_movies, "movie", 2)
-        f_tv_1 = pool.submit(_fetch_cached, "popular_tv", client.popular_tv, "tv", 1)
-        f_tv_2 = pool.submit(_fetch_cached, "popular_tv", client.popular_tv, "tv", 2)
+        f_trending_1 = pool.submit(_fetch_discover_shelf, "trending", client.trending, None, 1)
+        f_trending_2 = pool.submit(_fetch_discover_shelf, "trending", client.trending, None, 2)
+        f_movies_1 = pool.submit(
+            _fetch_discover_shelf, "popular_movies", client.popular_movies, "movie", 1
+        )
+        f_movies_2 = pool.submit(
+            _fetch_discover_shelf, "popular_movies", client.popular_movies, "movie", 2
+        )
+        f_tv_1 = pool.submit(_fetch_discover_shelf, "popular_tv", client.popular_tv, "tv", 1)
+        f_tv_2 = pool.submit(_fetch_discover_shelf, "popular_tv", client.popular_tv, "tv", 2)
         trending_raw = f_trending_1.result() + f_trending_2.result()
         movies_raw = f_movies_1.result() + f_movies_2.result()
         tv_raw = f_tv_1.result() + f_tv_2.result()

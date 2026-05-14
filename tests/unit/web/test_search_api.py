@@ -327,6 +327,93 @@ class TestDiscoverEndpoint:
         assert resp.status_code == 401
 
 
+class TestFetchDiscoverShelf:
+    """``_fetch_discover_shelf`` (lifted out of the ``api_discover``
+    handler) owns the discover TTL-cache: hit/miss decision, the
+    ``media_type`` stamp on cache-miss results, and the bounded-cache
+    clear-on-overflow."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_discover_cache(self):
+        from mediaman.web.routes.search._enrichment import _discover_cache
+
+        _discover_cache.clear()
+        yield
+        _discover_cache.clear()
+
+    def test_cache_miss_fetches_and_caches(self):
+        from mediaman.web.routes.search._enrichment import (
+            _discover_cache,
+            _fetch_discover_shelf,
+        )
+
+        calls = []
+
+        def fetch_fn(page):
+            calls.append(page)
+            return [{"id": 1, "title": "X"}]
+
+        result = _fetch_discover_shelf("trending", fetch_fn, None, 1)
+        assert result == [{"id": 1, "title": "X"}]
+        assert calls == [1]
+        # The page is now cached under the shelf+page key.
+        assert "trending?page=1" in _discover_cache
+
+    def test_cache_hit_within_ttl_skips_fetch(self):
+        from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
+
+        calls = []
+
+        def fetch_fn(page):
+            calls.append(page)
+            return [{"id": 99}]
+
+        first = _fetch_discover_shelf("popular_tv", fetch_fn, "tv", 2)
+        second = _fetch_discover_shelf("popular_tv", fetch_fn, "tv", 2)
+        # Second call served from cache — fetch_fn invoked exactly once.
+        assert calls == [2]
+        assert first is second
+
+    def test_injects_media_type_on_miss(self):
+        from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
+
+        def fetch_fn(page):
+            return [{"id": 1}, {"id": 2}]
+
+        # The popular-movies/TV TMDB endpoints omit media_type; the helper
+        # stamps it onto every item on a cache miss.
+        result = _fetch_discover_shelf("popular_movies", fetch_fn, "movie", 1)
+        assert all(item["media_type"] == "movie" for item in result)
+
+    def test_no_media_type_injection_when_none(self):
+        from mediaman.web.routes.search._enrichment import _fetch_discover_shelf
+
+        def fetch_fn(page):
+            return [{"id": 1}]
+
+        # trending results already carry media_type — None means "leave alone".
+        result = _fetch_discover_shelf("trending", fetch_fn, None, 1)
+        assert "media_type" not in result[0]
+
+    def test_overflow_clears_cache(self):
+        from mediaman.web.routes.search._enrichment import (
+            _DISCOVER_CACHE_MAX_ENTRIES,
+            _discover_cache,
+            _fetch_discover_shelf,
+        )
+
+        # Pre-fill the cache to the cap with stale dummy entries.
+        for i in range(_DISCOVER_CACHE_MAX_ENTRIES):
+            _discover_cache[f"stale?page={i}"] = (0.0, [])
+        assert len(_discover_cache) == _DISCOVER_CACHE_MAX_ENTRIES
+
+        # The next miss-write trips the overflow guard: the whole cache is
+        # cleared, then the fresh entry is written.
+        _fetch_discover_shelf("trending", lambda page: [{"id": 1}], None, 1)
+        assert "trending?page=1" in _discover_cache
+        assert len(_discover_cache) == 1
+
+
 def _tmdb_movie_payload():
     return {
         "id": 438631,

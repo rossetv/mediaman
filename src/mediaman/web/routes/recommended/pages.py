@@ -14,14 +14,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.responses import Response
 
 from mediaman.core.time import now_utc
-from mediaman.services.arr.state import (
-    LazyArrClients,
-    RadarrCaches,
-    SonarrCaches,
-    build_radarr_cache,
-    build_sonarr_cache,
-    compute_download_state,
-)
+from mediaman.services.arr.state import LazyArrClients, attach_download_states
 from mediaman.services.infra import get_bool_setting
 from mediaman.services.openai.recommendations.throttle import refresh_cooldown_remaining
 from mediaman.web.auth.middleware import resolve_page_session
@@ -159,26 +152,7 @@ def recommended_page(request: Request) -> Response:
     config = request.app.state.config
 
     arr = LazyArrClients(conn, config.secret_key)
-    radarr_cache: RadarrCaches | None = None
-    sonarr_cache: SonarrCaches | None = None
-
-    all_recs = {}
-    for batch in formatted_batches:
-        for item in batch["trending"] + batch["personal"]:  # type: ignore[operator]
-            if item.get("tmdb_id"):
-                if item["media_type"] == "movie":
-                    if radarr_cache is None:
-                        radarr_cache = build_radarr_cache(arr.radarr())
-                    caches = {**radarr_cache, **build_sonarr_cache(None)}
-                else:
-                    if sonarr_cache is None:
-                        sonarr_cache = build_sonarr_cache(arr.sonarr())
-                    caches = {**build_radarr_cache(None), **sonarr_cache}
-                state = compute_download_state(item["media_type"], item["tmdb_id"], caches)  # type: ignore[arg-type]  # item values are typed as object (from dict[str, object]); callers guarantee media_type is str and tmdb_id is int at this point
-                if state is not None:
-                    item["download_state"] = state
-
-            all_recs[item["id"]] = item
+    all_recs = attach_download_states(formatted_batches, arr)
 
     # Use an explicit type whitelist instead of ``default=str`` so an
     # unexpected non-JSON value crashes the handler loudly rather than
