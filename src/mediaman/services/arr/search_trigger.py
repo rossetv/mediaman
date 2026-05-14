@@ -1,3 +1,5 @@
+# rationale: one cohesive concept — the reservation-token / TOCTOU throttle protocol; all
+# functions are under the 60-line ceiling and the lock discipline spans the whole file.
 """Throttle state, persistence, and trigger-decision logic for auto-triggered Arr searches.
 
 This module is the single home for everything that governs whether and when
