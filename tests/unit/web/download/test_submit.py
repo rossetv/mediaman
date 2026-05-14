@@ -240,6 +240,35 @@ class TestDownloadSubmitMovie:
         ).fetchone()
         assert row is not None
 
+    def test_token_with_none_email_skips_notification(self, app_factory, conn, secret_key):
+        """A token minted with ``email=None`` still downloads, but records no
+        notification row — the admin who minted it had no email set."""
+        app = _app(app_factory, conn)
+        client = TestClient(app, raise_server_exceptions=True)
+        token = generate_download_token(
+            email=None,
+            action="download",
+            title="Dune",
+            media_type="movie",
+            tmdb_id=42,
+            recommendation_id=None,
+            secret_key=secret_key,
+        )
+
+        mock_radarr = MagicMock()
+        mock_radarr.add_movie.return_value = None
+
+        with patch(
+            "mediaman.web.routes.download.submit.build_radarr_from_db", return_value=mock_radarr
+        ):
+            resp = client.post(f"/download/{token}")
+
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        mock_radarr.add_movie.assert_called_once_with(42, "Dune")
+        count = conn.execute("SELECT COUNT(*) FROM download_notifications").fetchone()[0]
+        assert count == 0
+
 
 class TestDownloadSubmitTV:
     @pytest.fixture(autouse=True)

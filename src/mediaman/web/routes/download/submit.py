@@ -39,7 +39,7 @@ class DownloadPayload(TypedDict):
     token: str
     title: str
     tmdb_id: int | None
-    email: str
+    email: str | None
     audit_action: str
     audit_detail: str
     secret_key: str
@@ -48,7 +48,7 @@ class DownloadPayload(TypedDict):
 def _record_and_respond(
     *,
     conn: sqlite3.Connection,
-    email: str,
+    email: str | None,
     title: str,
     media_type: str,
     tmdb_id: int | None,
@@ -63,17 +63,22 @@ def _record_and_respond(
     Shared epilogue for :func:`_submit_to_radarr` and :func:`_submit_to_sonarr`
     — the ~25 lines that are identical between the two after the Arr client
     call succeeds.
+
+    *email* is ``None`` when the token was minted by an admin with no
+    notification email set; the download still completes, but the
+    notification row is skipped rather than stored undeliverable.
     """
     log_audit(conn, title, audit_action, audit_detail)
-    record_download_notification(
-        conn,
-        email=email,
-        title=title,
-        media_type=media_type,
-        tmdb_id=tmdb_id,
-        tvdb_id=tvdb_id,
-        service=service,
-    )
+    if email:
+        record_download_notification(
+            conn,
+            email=email,
+            title=title,
+            media_type=media_type,
+            tmdb_id=tmdb_id,
+            tvdb_id=tvdb_id,
+            service=service,
+        )
     conn.commit()
 
     poll_token = generate_poll_token(
@@ -275,12 +280,15 @@ def _build_dl_payload(
     title = payload.get("title", "")
     media_type = payload.get("mt", "")
     tmdb_id = payload.get("tmdb")
-    email = payload.get("email", "")
+    # ``email`` may be absent, empty, or explicitly None (token minted by an
+    # admin with no notification email) — normalise all three to None.
+    email = payload.get("email") or None
     action = payload.get("act", "download")
     is_redownload = action == "redownload"
     audit_action = "re_downloaded" if is_redownload else "downloaded"
+    by_clause = f" by {email}" if email else ""
     audit_detail = (
-        f"Re-downloaded by {email}" if is_redownload else f"Downloaded '{title}' by {email}"
+        f"Re-downloaded{by_clause}" if is_redownload else f"Downloaded '{title}'{by_clause}"
     )
     dl_payload: DownloadPayload = {
         "conn": conn,

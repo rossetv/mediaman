@@ -803,3 +803,43 @@ class TestUnsubscribeToken:
         # ttl_days=0 means exp=int(T)+0; advance the clock past T so exp < time.time()
         fake_clock[0] += 1.0
         assert validate_unsubscribe_token(token, _DOMAIN_KEY) is None
+
+
+class TestDownloadTokenOptionalEmail:
+    """A download token may carry ``email=None`` — minted by an admin who
+    has no notification email set. The redeemer then skips the
+    download-notification row instead of storing an unsendable address.
+    """
+
+    def test_none_email_round_trips(self):
+        from mediaman.crypto import generate_download_token, validate_download_token
+
+        token = generate_download_token(
+            email=None,
+            action="download",
+            title="Dune",
+            media_type="movie",
+            tmdb_id=42,
+            recommendation_id=None,
+            secret_key=_DOMAIN_KEY,
+        )
+        payload = validate_download_token(token, _DOMAIN_KEY)
+        assert payload is not None
+        assert payload["email"] is None
+        assert payload["title"] == "Dune"
+
+    def test_real_email_still_round_trips(self):
+        from mediaman.crypto import generate_download_token, validate_download_token
+
+        token = generate_download_token(
+            email="viewer@example.com",
+            action="download",
+            title="Dune",
+            media_type="movie",
+            tmdb_id=42,
+            recommendation_id=None,
+            secret_key=_DOMAIN_KEY,
+        )
+        payload = validate_download_token(token, _DOMAIN_KEY)
+        assert payload is not None
+        assert payload["email"] == "viewer@example.com"
