@@ -248,6 +248,8 @@ def _execute_paged_query(
     per_page: int,
 ) -> tuple[list[sqlite3.Row], int]:
     """Execute the count + paginated SELECT and return (rows, total)."""
+    # rationale: kept_where is a closed literal ternary (" WHERE is_kept = 1" or ""); order is
+    # resolved from _CTE_SORT via .get() with a hardcoded default — no user value enters the SQL text
     kept_where = " WHERE is_kept = 1" if kept_filter else ""
 
     count_row = conn.execute(
@@ -279,6 +281,7 @@ def _fetch_protection_maps(
 
     sa_map: dict[str, tuple[str, str | None]] = {}
     if item_ids:
+        # rationale: ph is purely "?" * len(item_ids) — no user value ever enters the SQL text
         ph = ",".join("?" * len(item_ids))
         for sa in conn.execute(
             f"SELECT media_item_id, action, execute_at "
@@ -293,6 +296,7 @@ def _fetch_protection_maps(
 
     ks_map: dict[str, tuple[str, str | None]] = {}
     if show_rkeys:
+        # rationale: ph is purely "?" * len(show_rkeys) — no user value ever enters the SQL text
         ph = ",".join("?" * len(show_rkeys))
         for ks in conn.execute(
             f"SELECT show_rating_key, action, execute_at "
@@ -415,6 +419,7 @@ def count_movies(conn: sqlite3.Connection) -> int:
 
 def count_tv_shows(conn: sqlite3.Connection) -> int:
     """Return the count of distinct TV shows (grouped by show_rating_key/show_title)."""
+    # rationale: placeholders is purely "?" * len(TV_SEASON_TYPES) — no user value ever enters the SQL text
     placeholders = ",".join("?" * len(TV_SEASON_TYPES))
     row = conn.execute(
         f"SELECT COUNT(*) AS n FROM ("
@@ -429,6 +434,7 @@ def count_tv_shows(conn: sqlite3.Connection) -> int:
 
 def count_anime_shows(conn: sqlite3.Connection) -> int:
     """Return the count of distinct anime shows (grouped by show_rating_key/show_title)."""
+    # rationale: placeholders is purely "?" * len(ANIME_SEASON_TYPES) — no user value ever enters the SQL text
     placeholders = ",".join("?" * len(ANIME_SEASON_TYPES))
     row = conn.execute(
         f"SELECT COUNT(*) AS n FROM ("

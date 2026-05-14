@@ -101,6 +101,7 @@ def load_settings(
     if keys is not None:
         if not keys:
             return {}
+        # rationale: placeholders is purely "?" * len(keys) — no user value ever enters the SQL text
         placeholders = ",".join("?" * len(keys))
         rows = conn.execute(
             f"SELECT key, value, encrypted FROM settings WHERE key IN ({placeholders})",
@@ -170,7 +171,7 @@ def write_settings(
     caller; only ciphertext lands on disk (§9.9). When *audit* is
     supplied, the row is appended via :func:`security_event_or_raise`
     inside the same transaction so any audit failure rolls the entire
-    settings write back (M27 fail-closed contract).
+    settings write back — if the audit insert fails, the entire write rolls back.
 
     The shape of *audit* mirrors the keyword arguments of
     :func:`mediaman.core.audit.security_event_or_raise` (``event``, ``actor``,

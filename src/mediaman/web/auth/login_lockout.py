@@ -112,7 +112,7 @@ def is_locked_out(conn: sqlite3.Connection, username: str) -> bool:
     check so a locked account short-circuits bcrypt entirely.
 
     ``username`` is normalised to lowercase before the lookup so that
-    ``Admin`` and ``admin`` share the same failure counter (M16).
+    ``Admin`` and ``admin`` share the same failure counter.
     """
     if not username:
         return False
@@ -240,11 +240,11 @@ def _apply_lockout(
       window. We compare *threshold band*, not *expiry timestamp*
       — otherwise every additional sub-threshold failure would
       slide the window forwards by a few microseconds and re-open
-      the M21 DoS.
+      a sustained attacker can trigger a denial-of-service against the operator.
     * If the account IS currently locked AND we're still in the
       same severity band, leave ``locked_until`` alone. Otherwise
       an unauthenticated attacker can keep an admin permanently
-      locked out by pinging the login endpoint forever (M21).
+      locked out by pinging the login endpoint in a loop.
 
     The counter still climbs (so the 10 / 15 thresholds remain
     reachable) — we only refuse to slide an existing window
@@ -321,7 +321,7 @@ def record_failure(conn: sqlite3.Connection, username: str) -> int | None:
     duration into a generic retry window).
 
     ``username`` is normalised to lowercase before writing so that
-    ``Admin`` and ``admin`` share the same failure counter (M16).
+    ``Admin`` and ``admin`` share the same failure counter.
     """
     if not username:
         return None
@@ -392,7 +392,8 @@ def admin_unlock_with_audit(
     Wraps :func:`admin_unlock` and :func:`security_event_or_raise` in a
     single ``BEGIN IMMEDIATE`` block so the unlock and the audit row
     land together — if the audit insert fails, the unlock rolls back
-    (M27 fail-closed contract). Returns the value of
+    so the unlock and the audit row land together — if the audit insert
+    fails, the unlock rolls back. Returns the value of
     :func:`admin_unlock` so the caller knows whether there was a lock
     to clear.
     """

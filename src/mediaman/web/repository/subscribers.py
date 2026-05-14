@@ -77,6 +77,7 @@ def fetch_active_subscribers_in(conn: sqlite3.Connection, emails: set[str]) -> l
     """
     if not emails:
         return []
+    # rationale: placeholders is purely "?" * len(emails) — no user value ever enters the SQL text
     placeholders = ",".join("?" * len(emails))
     rows = conn.execute(
         f"SELECT email FROM subscribers WHERE active=1 AND email IN ({placeholders})",

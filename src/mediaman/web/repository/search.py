@@ -34,6 +34,7 @@ def fetch_ratings_cache(
     """
     if not keys:
         return []
+    # rationale: placeholders is purely "(?, ?)" * len(keys) — no user value ever enters the SQL text
     placeholders = ",".join(["(?, ?)"] * len(keys))
     flat: list[object] = []
     for tmdb_id, media_type in keys:

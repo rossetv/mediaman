@@ -14,3 +14,5 @@ be independently mountable; shared helpers belong in ``mediaman.web.cookies``
 (session-cookie utilities), ``mediaman.web.auth.middleware`` (auth predicates),
 or the relevant service module.
 """
+
+from __future__ import annotations

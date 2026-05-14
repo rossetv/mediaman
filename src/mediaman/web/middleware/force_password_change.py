@@ -11,6 +11,8 @@ allowed paths.
 
 from __future__ import annotations
 
+import json
+
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
@@ -105,9 +107,7 @@ class ForcePasswordChangeMiddleware(BaseHTTPMiddleware):
                 status_code=302,
                 headers={"Location": "/force-password-change"},
             )
-        import json as _json
-
-        body = _json.dumps(
+        body = json.dumps(
             {
                 "detail": "password_change_required",
                 "message": "You must change your password before continuing.",

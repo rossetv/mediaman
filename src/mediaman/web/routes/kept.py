@@ -282,7 +282,8 @@ def _check_season_ownership(
     Returns ``None`` on success or a 400 envelope when any season is
     unowned. Logs the IDOR-fallback-would-have-triggered warning when
     the unowned IDs lack any show_rating_key — that branch is the
-    diagnostic carry-over from the pre-W1.8 fallback behaviour.
+    diagnostic carry-over from the previous fallback behaviour (seasons with no
+    show_rating_key were once silently accepted; logging here flags regressions).
     """
     owned_ids = fetch_owned_season_ids(conn, season_ids, resolved_key)
     if owned_ids == set(season_ids):
@@ -386,9 +387,9 @@ def api_keep_show(
         now_iso_str=now_iso_str,
     )
 
-    # W1.8: set_protected_state + log_audit share a single ``with conn:``
-    # block so a failure between the seasons write and the audit row
-    # rolls both back together. Helper extraction must preserve that.
+    # The seasons write and the audit row share one transaction so a failure
+    # between them rolls both back together. Helper extraction must preserve
+    # this coupling.
     with conn:
         set_protected_state(conn, to_update=to_update, to_insert=to_insert)
         log_audit(

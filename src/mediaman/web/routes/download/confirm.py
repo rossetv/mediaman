@@ -310,8 +310,8 @@ def _build_hero_context(
         size_done="",
         size_total="",
     )
-    # Finding 14: mint a short-lived poll token so the page can start
-    # polling immediately without exposing the long-lived download token.
+    # Mint a short-lived poll token so the page can start polling immediately
+    # without exposing the long-lived download token to the polling endpoint.
     poll_token = None
     if tmdb_id:
         poll_token = generate_poll_token(

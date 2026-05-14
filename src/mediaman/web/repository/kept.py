@@ -119,6 +119,7 @@ def fetch_seasons_for_show(conn: sqlite3.Connection, show_rating_key: str) -> li
     ids = [r["id"] for r in rows]
     kept_set: set[str] = set()
     if ids:
+        # rationale: placeholders is purely "?" * len(ids) — no user value ever enters the SQL text
         placeholders = ",".join("?" * len(ids))
         kept_rows = conn.execute(
             f"SELECT media_item_id FROM scheduled_actions "
@@ -176,6 +177,7 @@ def fetch_existing_actions_for_seasons(
     """
     if not season_ids:
         return {}
+    # rationale: placeholders is purely "?" * len(season_ids) — no user value ever enters the SQL text
     placeholders = ",".join("?" * len(season_ids))
     existing_rows = conn.execute(
         f"SELECT id, media_item_id FROM scheduled_actions "
@@ -222,6 +224,7 @@ def fetch_owned_season_ids(
     """Return the subset of ``season_ids`` whose media_items row is owned by ``show_rating_key``."""
     if not season_ids:
         return set()
+    # rationale: placeholders is purely "?" * len(season_ids) — no user value ever enters the SQL text
     placeholders = ",".join("?" * len(season_ids))
     rows = conn.execute(
         f"SELECT id FROM media_items WHERE id IN ({placeholders}) AND show_rating_key = ?",
@@ -239,6 +242,7 @@ def fetch_unkeyed_media_ids(conn: sqlite3.Connection, candidate_ids: set[str]) -
     """
     if not candidate_ids:
         return []
+    # rationale: placeholders is purely "?" * len(candidate_ids) — no user value ever enters the SQL text
     placeholders = ",".join("?" * len(candidate_ids))
     rows = conn.execute(
         f"SELECT id FROM media_items WHERE id IN ({placeholders}) "

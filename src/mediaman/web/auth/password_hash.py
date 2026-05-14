@@ -253,7 +253,7 @@ def authenticate(
       thresholds (5 → 10 → 15 failures → 15 min / 1 h / 24 h) are
       reachable only while the counter keeps climbing during the
       lock window — see the C6 test in ``test_login_lockout.py``.
-      Without the continued counter bump the M21 mitigation in
+      Without the continued counter bump the escalation-window logic in
       :mod:`mediaman.web.auth.login_lockout` cannot escalate to the 1-hour
       and 24-hour windows.
 

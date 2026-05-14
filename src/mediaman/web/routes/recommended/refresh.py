@@ -166,10 +166,9 @@ def api_refresh_recommendations(
                 )
                 if count > 0:
                     result = {"ok": True, "count": count}
-                    # Finding 29: cooldown only counts on success — a
-                    # failure must not lock the user out for 24h. Record
-                    # the timestamp here, after the work returned without
-                    # raising.
+                    # Cooldown only counts on success — a failure must not
+                    # lock the user out for 24h. Record the timestamp here,
+                    # after the work returned without raising.
                     record_manual_refresh(thread_conn, now_utc())
                     manual_refresh_recorded = True
                     finish_refresh_run(thread_conn, run_id, "done")

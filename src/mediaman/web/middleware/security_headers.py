@@ -26,9 +26,8 @@ from starlette.responses import Response
 #
 # ``style-src`` keeps ``'unsafe-inline'`` for now because several
 # templates still use ``style="display:none"`` inline attributes
-# (Domain 10 finding M2 / NIT). Migrating those to CSS classes is a
-# separate cleanup pass; until it lands the fallback prevents a CSP
-# violation on every page render.
+# Migrating those to CSS classes is a separate cleanup pass; until it
+# lands the fallback prevents a CSP violation on every page render.
 #
 # Templates expose the nonce via ``request.state.csp_nonce`` (set by
 # :class:`SecurityHeadersMiddleware`).  Any future inline ``<script>``
@@ -202,7 +201,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Server"] = "mediaman"
         # Cache-Control: no-store, private on every authenticated /api
         # response so a misconfigured reverse proxy / CDN cannot serve
-        # one user's data to another (Domain 02 cross-cutting). Static
+        # one user's data to another. Static
         # assets keep their default cacheability — they're served from
         # ``StaticFiles`` which sets its own headers, and we only add
         # this when the response doesn't already carry a Cache-Control.

@@ -46,9 +46,9 @@ router = APIRouter()
 # a thin extra layer that slows down a stolen-session attacker enough that
 # the operator notices the audit-log noise first.
 _FORCE_CHANGE_LIMITER = ActionRateLimiter(max_in_window=5, window_seconds=60, max_per_day=20)
-#: Per-IP companion to :data:`_FORCE_CHANGE_LIMITER` (M-2). Caps source-of-
-#: traffic just like the per-user bucket so a single attacker network
-#: cannot cycle through usernames to evade the per-user cap.
+#: Per-IP companion to :data:`_FORCE_CHANGE_LIMITER`. Caps source-of-traffic
+#: just like the per-user bucket so a single attacker network cannot cycle
+#: through usernames to evade the per-user cap.
 _FORCE_CHANGE_IP_LIMITER = ActionRateLimiter(max_in_window=5, window_seconds=60, max_per_day=20)
 
 
@@ -97,7 +97,9 @@ def force_change_submit(
     username, redirect = _resolve_session(request)
     if redirect is not None:
         return redirect
-    assert username is not None  # narrowed by _resolve_session contract
+    # _resolve_session returns (str, None) | (None, Response); the early return
+    # above leaves username as str, but mypy cannot narrow through union tuples.
+    username = cast(str, username)
 
     templates = cast(Jinja2Templates, request.app.state.templates)
     conn = get_db()
@@ -169,7 +171,9 @@ def force_change_submit(
     # change_password invalidates every session for the user; we need
     # to issue a fresh one so the admin lands on the dashboard logged
     # in under the new credential.
-    from mediaman.web.auth.session_store import create_session  # deferred: patched in tests
+    from mediaman.web.auth.session_store import (
+        create_session,  # late import: test patches the owning module
+    )
 
     new_token = create_session(
         conn,

@@ -308,9 +308,9 @@ def _finalise_delete(
     """Cleanup transaction: audit + scheduled_actions prune + row drop.
 
     Wrapped in ``BEGIN IMMEDIATE`` by :func:`finalise_delete_in_tx` so a
-    SQLite failure rolls the whole lot back together (M27 fail-closed
-    contract). The pending delete-intent row, if any, is marked complete
-    after the cleanup commits.
+    SQLite failure rolls the whole lot back together (fail-closed: no
+    half-deleted row). The pending delete-intent row, if any, is marked
+    complete after the cleanup commits.
     """
     title = snapshot.title
     rk = snapshot.plex_rating_key or ""

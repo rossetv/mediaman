@@ -124,7 +124,7 @@ def _test_bearer_api(url: str, api_key: str) -> JSONResponse:
     request / error-handling logic.  Returns a JSONResponse; never raises.
     """
     try:
-        # W1.32 carve-out: tester validates admin-typed bearer URL pre-save; no conn allowlist applies.
+        # Tester validates an admin-typed bearer URL pre-save; no conn-derived allowlist applies.
         SafeHTTPClient().get(
             url,
             headers={"Authorization": f"Bearer {api_key}"},
@@ -273,7 +273,7 @@ def test_omdb(settings: dict[str, object]) -> JSONResponse:
             {"ok": False, "error": "auth_failed: API key contains invalid characters"}
         )
     try:
-        # W1.32 carve-out: tester hits pinned host (www.omdbapi.com); no conn allowlist applies.
+        # Tester hits a pinned host (www.omdbapi.com); no conn-derived allowlist applies.
         resp = SafeHTTPClient().get(
             _OMDB_TEST_URL,
             params={"apikey": api_key, "i": "tt0111161"},

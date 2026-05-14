@@ -21,3 +21,5 @@ pure ASGI by necessity — it must enforce a cap as bytes stream in.
 Future migrations of the others should preserve every existing
 behaviour and test before flipping over.
 """
+
+from __future__ import annotations

@@ -72,7 +72,7 @@ def _pick_lookup_match(
     tmdb_id: int | None,
     tvdb_id: int | None,
     imdb_id: str | None,
-    id_keys: tuple[str, ...],
+    id_keys: tuple[str, ...] = (),
 ) -> tuple[Mapping[str, object] | None, str | None]:
     """Return (entry, error) for a Radarr/Sonarr lookup response."""
     if not lookup:
@@ -229,7 +229,6 @@ def _try_radarr_redownload(
             tmdb_id=tmdb_id,
             tvdb_id=None,
             imdb_id=imdb_id,
-            id_keys=("tmdbId", "imdbId"),
         )
         if entry is None:
             return None
@@ -336,7 +335,6 @@ def _try_sonarr_redownload(
             tmdb_id=tmdb_id,
             tvdb_id=tvdb_id,
             imdb_id=imdb_id,
-            id_keys=("tvdbId", "tmdbId", "imdbId"),
         )
         if entry is not None:
             resp = _sonarr_add_and_record(
