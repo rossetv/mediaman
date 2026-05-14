@@ -68,9 +68,9 @@ def load_config() -> Config:
             'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
         )
 
-    from mediaman.crypto._aes_key import _secret_key_looks_strong
+    from mediaman.crypto._aes_key import _is_secret_key_strong
 
-    if not _secret_key_looks_strong(secret_key):
+    if not _is_secret_key_strong(secret_key):
         raise ConfigError(
             "MEDIAMAN_SECRET_KEY looks weak. Use at least 64 hex chars "
             "(256 bits from secrets.token_hex(32)) or 43+ URL-safe "

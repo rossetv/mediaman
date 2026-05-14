@@ -39,7 +39,7 @@ class TestPickLookupMatch:
 
     def test_empty_lookup_returns_error(self):
         _, err = _pick_lookup_match(
-            [], title="Dune", year=2021, tmdb_id=None, tvdb_id=None, imdb_id=None, id_keys=()
+            [], title="Dune", year=2021, tmdb_id=None, tvdb_id=None, imdb_id=None
         )
         assert err == "No lookup results"
 
@@ -52,7 +52,6 @@ class TestPickLookupMatch:
             tmdb_id=42,
             tvdb_id=None,
             imdb_id=None,
-            id_keys=("tmdbId",),
         )
         assert err is None
         assert entry is not None
@@ -71,7 +70,6 @@ class TestPickLookupMatch:
             tmdb_id=42,
             tvdb_id=None,
             imdb_id=None,
-            id_keys=("tmdbId",),
         )
         assert err is not None
         assert "Ambiguous" in err
@@ -86,7 +84,6 @@ class TestPickLookupMatch:
             tmdb_id=None,
             tvdb_id=None,
             imdb_id=None,
-            id_keys=(),
         )
         assert err is None
         assert entry is not None
@@ -101,7 +98,6 @@ class TestPickLookupMatch:
             tmdb_id=None,
             tvdb_id=None,
             imdb_id=None,
-            id_keys=(),
         )
         assert err is not None
 
@@ -115,7 +111,6 @@ class TestPickLookupMatch:
             tmdb_id=None,
             tvdb_id=None,
             imdb_id=None,
-            id_keys=(),
         )
         assert err is not None
 
@@ -129,7 +124,6 @@ class TestPickLookupMatch:
             tmdb_id=42,
             tvdb_id=None,
             imdb_id=None,
-            id_keys=("tmdbId",),
         )
         assert err is not None
         assert "did not match" in err

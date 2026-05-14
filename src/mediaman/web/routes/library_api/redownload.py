@@ -72,7 +72,6 @@ def _pick_lookup_match(
     tmdb_id: int | None,
     tvdb_id: int | None,
     imdb_id: str | None,
-    id_keys: tuple[str, ...] = (),
 ) -> tuple[Mapping[str, object] | None, str | None]:
     """Return (entry, error) for a Radarr/Sonarr lookup response."""
     if not lookup:
