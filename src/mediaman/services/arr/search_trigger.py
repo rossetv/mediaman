@@ -30,6 +30,7 @@ import sqlite3
 import time
 import uuid
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import requests
@@ -87,10 +88,123 @@ _PER_ARR_THROTTLE_SECONDS = 15 * 60
 # ---- Public API: trigger decision ----
 
 
-# rationale: throttle check, Arr client construction, search dispatch, and
-# throttle-row write form an atomic guard — splitting the throttle read from
-# the search call would open a TOCTOU window where concurrent callers could
-# both pass the throttle check and both fire duplicate searches.
+@dataclass(frozen=True, slots=True)
+class _TriggerInputs:
+    """The coerced, guard-cleared inputs :func:`maybe_trigger_search` needs.
+
+    Produced by :func:`_parse_trigger_inputs` only when every cheap
+    pre-lock guard has passed. ``now`` is captured once here and threaded
+    through the lock phase and the commit phase so all three observe an
+    identical timestamp — exactly as the original inline preamble did.
+    """
+
+    dl_id: str
+    arr_id: int
+    kind: str  # "movie" or "series"
+    service: str  # "radarr" or "sonarr"
+    arr_throttle_key: str
+    now: float
+
+
+def _parse_trigger_inputs(
+    item: Mapping[str, object], matched_nzb: bool, secret_key: str
+) -> _TriggerInputs | None:
+    """Coerce ``item`` and run the cheap pre-lock guards; return inputs or ``None``.
+
+    Returns ``None`` (skip — do not trigger) when the item is upcoming,
+    matched to an NZBGet entry, has no ``secret_key``, has no ``arr_id``,
+    was added less than :data:`_SEARCH_STALE_SECONDS` ago, or has an
+    unrecognised ``kind``. This is the input-coercion preamble of
+    :func:`maybe_trigger_search`, lifted verbatim — it touches no shared
+    state and acquires no lock.
+    """
+    if item.get("is_upcoming"):
+        return None
+    if matched_nzb:
+        return None
+    if not secret_key:
+        return None
+    _arr_id_raw = item.get("arr_id")
+    arr_id: int = int(_arr_id_raw) if isinstance(_arr_id_raw, int) else 0
+    if not arr_id:
+        return None
+    _added_at_raw = item.get("added_at")
+    added_at: float = float(_added_at_raw) if isinstance(_added_at_raw, (int, float)) else 0.0
+    now = time.time()
+    if now - added_at < _SEARCH_STALE_SECONDS:
+        return None
+
+    _dl_id_raw = item.get("dl_id")
+    dl_id: str = str(_dl_id_raw) if isinstance(_dl_id_raw, str) else ""
+    _kind_raw = item.get("kind")
+    kind: str = str(_kind_raw) if isinstance(_kind_raw, str) else ""
+    if kind not in ("movie", "series"):
+        return None
+
+    service = "radarr" if kind == "movie" else "sonarr"
+    return _TriggerInputs(
+        dl_id=dl_id,
+        arr_id=arr_id,
+        kind=kind,
+        service=service,
+        arr_throttle_key=_arr_throttle_key(service, arr_id),
+        now=now,
+    )
+
+
+def _commit_or_rollback_reservation(
+    conn: sqlite3.Connection,
+    inputs: _TriggerInputs,
+    *,
+    triggered: bool,
+    previous_count: int,
+    prev_last: float,
+    my_token: str,
+) -> None:
+    """Phase 3: re-acquire the lock to commit the success or roll the slot back.
+
+    The token check guards against a sibling thread that overwrote our
+    reservation between phases 1 and 3 — without it, the prior
+    float-equality on ``now`` could either silently no-op our rollback
+    (if the sibling stamped a newer ``now``) or drop the sibling's
+    reservation. With the token, we either restore our prior value or
+    quietly defer to whoever beat us to the slot. Lifted verbatim from
+    the original ``finally`` block of :func:`maybe_trigger_search`; the
+    lock scope is unchanged.
+    """
+    dl_id = inputs.dl_id
+    now = inputs.now
+    new_count: int | None
+    with _state_lock:
+        if triggered:
+            new_count = previous_count + 1
+            _search_count[dl_id] = new_count
+            # Mirror the timestamp under the arr-id-stable key so a
+            # subsequent rename of the same series can't bypass the
+            # throttle by producing a fresh title-derived dl_id.
+            _last_search_trigger_by_arr[inputs.arr_throttle_key] = now
+            # Successful trigger keeps the reservation timestamp;
+            # the token is no longer load-bearing so drop it to
+            # avoid leaking memory.
+            if _reservation_tokens.get(dl_id) == my_token:
+                _reservation_tokens.pop(dl_id, None)
+        else:
+            # Roll back the reservation only if it's still ours.
+            if _reservation_tokens.get(dl_id) == my_token:
+                if prev_last > 0.0:
+                    _last_search_trigger[dl_id] = prev_last
+                else:
+                    _last_search_trigger.pop(dl_id, None)
+                _reservation_tokens.pop(dl_id, None)
+            new_count = None  # signals: do not persist
+
+    # The DB write is also outside the throttle lock — SQLite
+    # handles its own concurrency and we don't want to block sibling
+    # workers' throttle reads on a slow disk fsync.
+    if triggered and new_count is not None:
+        _save_trigger_to_db(conn, dl_id, now, new_count)
+
+
 def maybe_trigger_search(
     conn: sqlite3.Connection,
     item: Mapping[str, object],
@@ -112,6 +226,8 @@ def maybe_trigger_search(
 
     Locking discipline:
 
+    * The input coercion and cheap guards run first, in
+      :func:`_parse_trigger_inputs`, with no lock held.
     * The DB read is performed BEFORE acquiring the lock so that a slow
       SQLite query for one dl_id cannot serialise every other dl_id's
       throttle check across all workers — one blocked read would otherwise
@@ -119,41 +235,24 @@ def maybe_trigger_search(
       unrelated items.
     * Only the in-memory snapshot work — reading the cache, deciding
       whether the throttle window has expired, and reserving the slot
-      — runs under the lock.
+      — runs under the lock (phase 1, inline below).
     * The Radarr/Sonarr HTTP call runs entirely outside the lock so a
-      slow upstream cannot starve other workers' throttle reads.
+      slow upstream cannot starve other workers' throttle reads (phase 2,
+      inline below).
     * Each attempt registers a unique reservation token; rollback on
       failure compares against that token instead of float-equality on
       the timestamp, so a sibling worker overwriting the slot can no
       longer silently no-op the rollback — the token check distinguishes
       our own attempt from a sibling's fresh reservation that landed
       between our phase-1 reserve and phase-3 rollback.
-    * After the network call we re-acquire the lock to update memory,
-      and either persist the success or roll back the reservation on
-      failure.
+    * After the network call :func:`_commit_or_rollback_reservation`
+      re-acquires the lock to update memory, and either persists the
+      success or rolls back the reservation on failure (phase 3).
     """
-    if item.get("is_upcoming"):
+    inputs = _parse_trigger_inputs(item, matched_nzb, secret_key)
+    if inputs is None:
         return
-    if matched_nzb:
-        return
-    if not secret_key:
-        return
-    _arr_id_raw = item.get("arr_id")
-    arr_id: int = int(_arr_id_raw) if isinstance(_arr_id_raw, int) else 0
-    if not arr_id:
-        return
-    _added_at_raw = item.get("added_at")
-    added_at: float = float(_added_at_raw) if isinstance(_added_at_raw, (int, float)) else 0.0
-    now = time.time()
-    if now - added_at < _SEARCH_STALE_SECONDS:
-        return
-
-    _dl_id_raw = item.get("dl_id")
-    dl_id: str = str(_dl_id_raw) if isinstance(_dl_id_raw, str) else ""
-    _kind_raw = item.get("kind")
-    kind: str = str(_kind_raw) if isinstance(_kind_raw, str) else ""
-    if kind not in ("movie", "series"):
-        return
+    dl_id, arr_id, kind, now = inputs.dl_id, inputs.arr_id, inputs.kind, inputs.now
 
     # Phase 0: warm-up DB read — done OUTSIDE the lock so a slow SQLite
     # query for one dl_id can't serialise every other dl_id's throttle
@@ -169,8 +268,6 @@ def maybe_trigger_search(
     # timestamp means a sibling's newer reservation is never silently
     # nuked by our rollback.
     my_token = uuid.uuid4().hex
-    service = "radarr" if kind == "movie" else "sonarr"
-    arr_throttle_key = _arr_throttle_key(service, arr_id)
     with _state_lock:
         last = _last_search_trigger.get(dl_id, 0.0)
         previous_count = _search_count.get(dl_id, 0)
@@ -190,8 +287,8 @@ def maybe_trigger_search(
             return
         # Reserve: bump the in-memory marker and stamp our token so a
         # sibling worker sees this slot as recently triggered. If the
-        # network call fails we roll this back to *prev_last* in the
-        # finally block below — but only if the token still matches.
+        # network call fails we roll this back to *prev_last* in
+        # _commit_or_rollback_reservation — but only if the token still matches.
         prev_last = last
         _last_search_trigger[dl_id] = now
         _reservation_tokens[dl_id] = my_token
@@ -200,7 +297,7 @@ def maybe_trigger_search(
     triggered = False
     try:
         builders = {"radarr": build_radarr_from_db, "sonarr": build_sonarr_from_db}
-        client = builders[service](conn, secret_key)
+        client = builders[inputs.service](conn, secret_key)
         if client is None:
             return
         if kind == "movie":
@@ -210,10 +307,7 @@ def maybe_trigger_search(
         triggered = True
         # Late import: ``_deep_links`` lives in the ``download_queue`` package
         # whose ``__init__`` imports ``maybe_trigger_search`` from this module,
-        # so a top-level import here would cycle. The post-fire log mirrors
-        # the count update done inside the finally block (line below); keeping
-        # the value inline avoids shadowing the ``new_count: int | None``
-        # declaration the lock-protected commit path relies on.
+        # so a top-level import here would cycle.
         from mediaman.services.downloads.download_queue.classify import (
             _format_next_attempt,
         )
@@ -233,42 +327,15 @@ def maybe_trigger_search(
     ):
         logger.warning("Failed to trigger search for %s", dl_id, exc_info=True)
     finally:
-        # Phase 3: re-acquire the lock to commit or roll back. The token
-        # check guards against a sibling thread that overwrote our
-        # reservation between phases 1 and 3 — without it, the prior
-        # float-equality on ``now`` could either silently no-op our
-        # rollback (if the sibling stamped a newer ``now``) or drop the
-        # sibling's reservation. With the token, we either restore our
-        # prior value or quietly defer to whoever beat us to the slot.
-        new_count: int | None
-        with _state_lock:
-            if triggered:
-                new_count = previous_count + 1
-                _search_count[dl_id] = new_count
-                # Mirror the timestamp under the arr-id-stable key so a
-                # subsequent rename of the same series can't bypass the
-                # throttle by producing a fresh title-derived dl_id.
-                _last_search_trigger_by_arr[arr_throttle_key] = now
-                # Successful trigger keeps the reservation timestamp;
-                # the token is no longer load-bearing so drop it to
-                # avoid leaking memory.
-                if _reservation_tokens.get(dl_id) == my_token:
-                    _reservation_tokens.pop(dl_id, None)
-            else:
-                # Roll back the reservation only if it's still ours.
-                if _reservation_tokens.get(dl_id) == my_token:
-                    if prev_last > 0.0:
-                        _last_search_trigger[dl_id] = prev_last
-                    else:
-                        _last_search_trigger.pop(dl_id, None)
-                    _reservation_tokens.pop(dl_id, None)
-                new_count = None  # signals: do not persist
-
-        # The DB write is also outside the throttle lock — SQLite
-        # handles its own concurrency and we don't want to block sibling
-        # workers' throttle reads on a slow disk fsync.
-        if triggered and new_count is not None:
-            _save_trigger_to_db(conn, dl_id, now, new_count)
+        # Phase 3: re-acquire the lock to commit or roll back, then persist.
+        _commit_or_rollback_reservation(
+            conn,
+            inputs,
+            triggered=triggered,
+            previous_count=previous_count,
+            prev_last=prev_last,
+            my_token=my_token,
+        )
 
 
 def trigger_pending_searches(conn: sqlite3.Connection, secret_key: str) -> None:

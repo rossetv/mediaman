@@ -20,6 +20,7 @@ import pytest
 
 from mediaman.db import init_db
 from mediaman.services.arr.search_trigger import (
+    _parse_trigger_inputs,
     _save_trigger_to_db,
     _trigger_sonarr_partial_missing,
     get_search_info,
@@ -125,6 +126,62 @@ class TestGetSearchInfo:
         get_search_info("radarr:Tenet")
 
         assert calls["n"] == 1
+
+
+# ---------------------------------------------------------------------------
+# _parse_trigger_inputs — input-coercion preamble lifted out of
+# maybe_trigger_search (Phase-4 decomposition)
+# ---------------------------------------------------------------------------
+
+
+class TestParseTriggerInputs:
+    """The pre-lock guard cascade + coercion. Returns ``_TriggerInputs`` or ``None``."""
+
+    def _good_item(self) -> dict:
+        return {
+            "kind": "movie",
+            "dl_id": "radarr:Dune",
+            "arr_id": 55,
+            "is_upcoming": False,
+            "added_at": time.time() - 600,  # stale enough
+        }
+
+    def test_returns_inputs_when_all_guards_pass(self):
+        inputs = _parse_trigger_inputs(self._good_item(), matched_nzb=False, secret_key="k")
+        assert inputs is not None
+        assert inputs.dl_id == "radarr:Dune"
+        assert inputs.arr_id == 55
+        assert inputs.kind == "movie"
+        assert inputs.service == "radarr"
+        assert inputs.now > 0.0
+
+    def test_series_maps_to_sonarr_service(self):
+        item = {**self._good_item(), "kind": "series", "dl_id": "sonarr:Show"}
+        inputs = _parse_trigger_inputs(item, matched_nzb=False, secret_key="k")
+        assert inputs is not None
+        assert inputs.service == "sonarr"
+
+    def test_returns_none_when_upcoming(self):
+        item = {**self._good_item(), "is_upcoming": True}
+        assert _parse_trigger_inputs(item, matched_nzb=False, secret_key="k") is None
+
+    def test_returns_none_when_matched_nzb(self):
+        assert _parse_trigger_inputs(self._good_item(), matched_nzb=True, secret_key="k") is None
+
+    def test_returns_none_when_secret_key_empty(self):
+        assert _parse_trigger_inputs(self._good_item(), matched_nzb=False, secret_key="") is None
+
+    def test_returns_none_when_arr_id_missing(self):
+        item = {**self._good_item(), "arr_id": 0}
+        assert _parse_trigger_inputs(item, matched_nzb=False, secret_key="k") is None
+
+    def test_returns_none_when_added_too_recently(self):
+        item = {**self._good_item(), "added_at": time.time()}  # just added
+        assert _parse_trigger_inputs(item, matched_nzb=False, secret_key="k") is None
+
+    def test_returns_none_when_kind_unrecognised(self):
+        item = {**self._good_item(), "kind": "album"}
+        assert _parse_trigger_inputs(item, matched_nzb=False, secret_key="k") is None
 
 
 # ---------------------------------------------------------------------------

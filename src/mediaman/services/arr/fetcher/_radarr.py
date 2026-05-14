@@ -21,13 +21,8 @@ from mediaman.services.downloads.download_format import (
 )
 
 
-def fetch_radarr_queue(client: ArrClient) -> list[ArrCard]:
-    """Build Radarr download cards from an already-constructed client.
-
-    Returns cards for queue entries plus monitored movies still searching.
-    The inner loop over ``get_movies()`` keeps its own try/except so a
-    failure there doesn't wipe out the queue entries we already have.
-    """
+def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
+    """Phase 1: build one card per Radarr download-queue entry."""
     items: list[ArrCard] = []
     for q in client.get_queue():
         movie = q.get("movie") or {}
@@ -56,13 +51,20 @@ def fetch_radarr_queue(client: ArrClient) -> list[ArrCard]:
                 release_names=[release_name] if release_name else [],
             )
         )
+    return items
 
-    # Also include monitored movies still searching (not yet in queue).
-    # ``_iter_still_searching`` owns the outer try/except so a transient
-    # upstream failure doesn't discard the queue cards we already
-    # collected, and so both fetchers share a single exception-list
-    # contract.
-    queue_title_years = {(i["title"], i.get("year")) for i in items if i.get("kind") == "movie"}
+
+def _build_still_searching_cards(
+    client: ArrClient, queue_title_years: set[tuple[str, int | None]]
+) -> list[ArrCard]:
+    """Phase 2: build cards for monitored movies still searching (not yet in queue).
+
+    ``_iter_still_searching`` owns the outer try/except so a transient
+    upstream failure doesn't discard the queue cards already collected,
+    and so both fetchers share a single exception-list contract.
+    *queue_title_years* dedupes against movies already covered by phase 1.
+    """
+    items: list[ArrCard] = []
     for movie in _iter_still_searching(client.get_movies, service_label="Radarr"):
         m_title = movie.get("title", "")
         m_year = movie.get("year")
@@ -97,4 +99,17 @@ def fetch_radarr_queue(client: ArrClient) -> list[ArrCard]:
                 release_label=release_label,
             )
         )
+    return items
+
+
+def fetch_radarr_queue(client: ArrClient) -> list[ArrCard]:
+    """Build Radarr download cards from an already-constructed client.
+
+    Returns cards for queue entries plus monitored movies still searching.
+    The inner loop over ``get_movies()`` keeps its own try/except so a
+    failure there doesn't wipe out the queue entries we already have.
+    """
+    items = _build_queue_cards(client)
+    queue_title_years = {(i["title"], i.get("year")) for i in items if i.get("kind") == "movie"}
+    items.extend(_build_still_searching_cards(client, queue_title_years))
     return items

@@ -362,3 +362,85 @@ class TestMaybeAutoAbandon:
         maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
 
         assert called == []
+
+
+class TestShouldAutoAbandon:
+    """The guard cascade lifted out of maybe_auto_abandon (Phase-4 decomposition).
+
+    ``_should_auto_abandon`` returns a parsed ``_AbandonDecision`` only
+    when every guard passes, or ``None`` to signal "skip". These tests
+    pin that contract directly, independently of the abandon branches.
+    """
+
+    def _enabled(self, monkeypatch, enabled: bool = True) -> None:
+        monkeypatch.setattr(
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda conn, key, default=False: enabled,
+        )
+
+    def test_returns_none_when_setting_disabled(self, monkeypatch):
+        from mediaman.services.arr.auto_abandon import _should_auto_abandon
+
+        self._enabled(monkeypatch, enabled=False)
+        now = _time_mod.time()
+        item = {
+            "kind": "movie",
+            "dl_id": "radarr:X",
+            "arr_id": 1,
+            "added_at": now - 30 * 86_400,
+            "released_at": now - 365 * 86_400,
+            "is_upcoming": False,
+        }
+        assert _should_auto_abandon(MagicMock(), item, now) is None
+
+    def test_returns_decision_with_parsed_inputs_when_all_guards_pass(self, monkeypatch):
+        from mediaman.services.arr.auto_abandon import _should_auto_abandon
+
+        self._enabled(monkeypatch)
+        now = _time_mod.time()
+        item = {
+            "kind": "movie",
+            "dl_id": "radarr:Stale",
+            "arr_id": 77,
+            "added_at": now - 20 * 86_400,
+            "released_at": now - 90 * 86_400,
+            "is_upcoming": False,
+        }
+        decision = _should_auto_abandon(MagicMock(), item, now)
+        assert decision is not None
+        assert decision.dl_id == "radarr:Stale"
+        assert decision.arr_id == 77
+        # searching_for_seconds is int(now - added_at) — ~20 days.
+        assert decision.searching_for_seconds == 20 * 86_400
+
+    def test_returns_none_when_added_at_zero(self, monkeypatch):
+        from mediaman.services.arr.auto_abandon import _should_auto_abandon
+
+        self._enabled(monkeypatch)
+        now = _time_mod.time()
+        item = {
+            "kind": "movie",
+            "dl_id": "radarr:X",
+            "arr_id": 1,
+            "added_at": 0.0,
+            "released_at": now - 365 * 86_400,
+            "is_upcoming": False,
+        }
+        assert _should_auto_abandon(MagicMock(), item, now) is None
+
+    def test_returns_none_when_dl_id_or_arr_id_missing(self, monkeypatch):
+        from mediaman.services.arr.auto_abandon import _should_auto_abandon
+
+        self._enabled(monkeypatch)
+        now = _time_mod.time()
+        base = {
+            "kind": "movie",
+            "added_at": now - 20 * 86_400,
+            "released_at": now - 90 * 86_400,
+            "is_upcoming": False,
+        }
+        assert _should_auto_abandon(MagicMock(), {**base, "dl_id": "", "arr_id": 1}, now) is None
+        assert (
+            _should_auto_abandon(MagicMock(), {**base, "dl_id": "radarr:X", "arr_id": 0}, now)
+            is None
+        )

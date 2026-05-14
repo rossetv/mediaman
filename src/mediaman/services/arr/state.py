@@ -70,6 +70,70 @@ def series_has_files(series_data: SonarrSeries) -> bool:
     return (series_data.get("statistics") or {}).get("episodeFileCount", 0) > 0
 
 
+def _season_stats(season: ArrSeason) -> ArrSeasonStatistics:
+    """Return a season's ``statistics`` dict, or an empty one if absent/malformed."""
+    stats = season.get("statistics")
+    return stats if isinstance(stats, dict) else ArrSeasonStatistics()
+
+
+def _season_has_aired(season: ArrSeason) -> bool:
+    """Return True if Sonarr signals at least one episode of *season* has aired.
+
+    Sonarr v3 exposes this as ``previousAiring`` on the season's
+    statistics.  Older Sonarr versions used ``previousAiringDate`` on
+    the season payload itself; we accept either so a freshly-upgraded
+    Sonarr (or a downgrade) doesn't silently report every season as
+    unaired.
+    """
+    stats = _season_stats(season)
+    if stats.get("previousAiring"):
+        return True
+    return bool(season.get("previousAiringDate") or stats.get("previousAiringDate"))
+
+
+def _compute_series_state(series: SonarrSeries, tmdb_id: int, caches: ArrCaches) -> str | None:
+    """Return the download state for a tracked Sonarr *series*.
+
+    Extracted verbatim from the series branch of
+    :func:`compute_download_state`; *series* is the already-resolved
+    cache entry (never ``None``).
+    """
+    # Only consider seasons that have aired and are not season 0 (specials).
+    # We additionally require ``monitored=True`` so an unmonitored season
+    # the user explicitly skipped doesn't drag the show into ``partial``.
+    aired_seasons = [
+        s
+        for s in series.get("seasons", [])
+        if s.get("seasonNumber", 0) > 0 and s.get("monitored", True) and _season_has_aired(s)
+    ]
+
+    if aired_seasons:
+        # ``have_all`` requires ``episodeCount > 0`` per season on purpose:
+        # right after Sonarr flips a brand-new season to ``aired``, it
+        # briefly reports ``episodeCount == 0`` and ``episodeFileCount ==
+        # 0``.  Without the ``> 0`` guard the boolean ``0 >= 0`` would
+        # silently satisfy ``have_all`` and a fully-downloaded show with
+        # one not-yet-populated season would flip to ``in_library`` for
+        # one polling cycle.  Treating the season as ``partial`` for a
+        # cycle is the lesser evil — see ``test_arr_state.py:
+        # test_tv_aired_season_with_zero_episode_count_does_not_mask_partial``
+        # for the regression that pinned this behaviour.
+        have_any = any(_season_stats(s).get("episodeFileCount", 0) > 0 for s in aired_seasons)
+        have_all = all(
+            _season_stats(s).get("episodeFileCount", 0) >= _season_stats(s).get("episodeCount", 0)
+            and _season_stats(s).get("episodeCount", 0) > 0
+            for s in aired_seasons
+        )
+        if have_all:
+            return ACTION_IN_LIBRARY
+        if have_any:
+            return ACTION_PARTIAL
+
+    if tmdb_id in caches["sonarr_queue_tmdb_ids"]:
+        return ACTION_DOWNLOADING
+    return ACTION_QUEUED
+
+
 def compute_download_state(media_type: str, tmdb_id: int, caches: ArrCaches) -> str | None:
     """Return the download state for an item, or ``None`` if untracked.
 
@@ -102,59 +166,7 @@ def compute_download_state(media_type: str, tmdb_id: int, caches: ArrCaches) -> 
     series = caches["sonarr_series"].get(tmdb_id)
     if series is None:
         return None
-
-    def _stats(season: ArrSeason) -> ArrSeasonStatistics:
-        stats = season.get("statistics")
-        return stats if isinstance(stats, dict) else ArrSeasonStatistics()
-
-    def _has_aired(season: ArrSeason) -> bool:
-        """Return True if Sonarr signals at least one episode has aired.
-
-        Sonarr v3 exposes this as ``previousAiring`` on the season's
-        statistics.  Older Sonarr versions used ``previousAiringDate`` on
-        the season payload itself; we accept either so a freshly-upgraded
-        Sonarr (or a downgrade) doesn't silently report every season as
-        unaired.
-        """
-        stats = _stats(season)
-        if stats.get("previousAiring"):
-            return True
-        return bool(season.get("previousAiringDate") or stats.get("previousAiringDate"))
-
-    # Only consider seasons that have aired and are not season 0 (specials).
-    # We additionally require ``monitored=True`` so an unmonitored season
-    # the user explicitly skipped doesn't drag the show into ``partial``.
-    aired_seasons = [
-        s
-        for s in series.get("seasons", [])
-        if s.get("seasonNumber", 0) > 0 and s.get("monitored", True) and _has_aired(s)
-    ]
-
-    if aired_seasons:
-        # ``have_all`` requires ``episodeCount > 0`` per season on purpose:
-        # right after Sonarr flips a brand-new season to ``aired``, it
-        # briefly reports ``episodeCount == 0`` and ``episodeFileCount ==
-        # 0``.  Without the ``> 0`` guard the boolean ``0 >= 0`` would
-        # silently satisfy ``have_all`` and a fully-downloaded show with
-        # one not-yet-populated season would flip to ``in_library`` for
-        # one polling cycle.  Treating the season as ``partial`` for a
-        # cycle is the lesser evil — see ``test_arr_state.py:
-        # test_tv_aired_season_with_zero_episode_count_does_not_mask_partial``
-        # for the regression that pinned this behaviour.
-        have_any = any(_stats(s).get("episodeFileCount", 0) > 0 for s in aired_seasons)
-        have_all = all(
-            _stats(s).get("episodeFileCount", 0) >= _stats(s).get("episodeCount", 0)
-            and _stats(s).get("episodeCount", 0) > 0
-            for s in aired_seasons
-        )
-        if have_all:
-            return ACTION_IN_LIBRARY
-        if have_any:
-            return ACTION_PARTIAL
-
-    if tmdb_id in caches["sonarr_queue_tmdb_ids"]:
-        return ACTION_DOWNLOADING
-    return ACTION_QUEUED
+    return _compute_series_state(series, tmdb_id, caches)
 
 
 def build_radarr_cache(client: ArrClient | None) -> RadarrCaches:
