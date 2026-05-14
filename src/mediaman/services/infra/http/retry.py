@@ -26,6 +26,20 @@ Invariants
   *read_fn* and does not touch the session or SSRF state directly.
 """
 
+# rationale: 466 lines, over the 300-line target (under the 500 ceiling).
+# This file is one cohesive concept — the outbound-retry engine — and does
+# not decompose along a clean seam. Every name is part of that one engine:
+# the retry constants, the ``Retry-After`` parser, the body-snippet / safe-
+# path log helpers, ``_compute_delay``, the cross-iteration ``_LoopState``,
+# the three per-step handlers (``_handle_transport_error``,
+# ``_handle_retryable_status``, ``_finalise_response``), and ``dispatch_loop``
+# itself. The wave-2 ``dispatch_loop`` decomposition already extracted the
+# step handlers and the carry-over state; splitting further (e.g. lifting the
+# ``Retry-After`` parser into a sibling module) would be a sibling-dump that
+# fragments one tightly-coupled engine across files for no navigational gain.
+# The public surface is a single function, ``dispatch_loop``; everything else
+# is its private machinery and is exhaustively covered by ``test_retry.py``.
+
 from __future__ import annotations
 
 import email.utils

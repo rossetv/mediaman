@@ -49,6 +49,22 @@ The deny-list constants and stateless predicates live in
 public API and the allowlist composition.
 """
 
+# rationale: 410 lines, over the 300-line target (under the 500 ceiling).
+# This file is one cohesive security concept — "the single place in the
+# codebase that performs SSRF safety analysis" — and the genuinely separable
+# part (the stateless deny-list constants and predicates) has *already* been
+# extracted to ``_url_safety_blocks.py``. What remains does not decompose
+# along a clean seam: the apparent allowlist-composition boundary
+# (``allowed_outbound_hosts`` / ``_extract_host``) is only ~67 lines and is
+# entangled with the analysis path through the shared ``PINNED_EXTERNAL_HOSTS``
+# set and ``_host_in_allowlist`` semantics, so splitting it would scatter one
+# security-critical concept and its shared constants across files for no
+# navigational gain. Crucially, the ordering of the checks here — DNS-free
+# parse-level rejects, then the allowlist check, then the resolver-touching
+# IP checks — is itself a documented security property (fail-fast before
+# ``getaddrinfo``); keeping the orchestration in one file keeps that ordering
+# reviewable at a glance. Exhaustively covered by ``test_url_safety.py``.
+
 from __future__ import annotations
 
 import ipaddress
