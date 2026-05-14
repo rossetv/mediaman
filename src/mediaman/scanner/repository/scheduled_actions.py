@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from dataclasses import dataclass
 
 from mediaman.core.time import now_iso
 
@@ -14,6 +15,47 @@ DELETION_ACTION = "scheduled_deletion"
 
 # Default token TTL: 30 days from now.
 _TOKEN_TTL_DAYS = 30
+
+
+@dataclass(frozen=True, slots=True)
+class DeletionRow:
+    """A pending or stuck deletion joined with its ``media_items`` row.
+
+    Returned by :func:`fetch_pending_deletions` and
+    :func:`fetch_stuck_deletions` so the deletion executor consumes typed
+    attributes instead of a raw :class:`sqlite3.Row`. Both queries select
+    the same column set; columns a given query does not logically need
+    (``action`` for the pending path, the *arr ids for the stuck path)
+    are still selected so the dataclass shape is uniform — the executor
+    simply does not read them on that path.
+    """
+
+    id: int
+    media_item_id: str
+    action: str | None
+    file_path: str | None
+    file_size_bytes: int | None
+    title: str | None
+    plex_rating_key: str | None
+    radarr_id: int | None
+    sonarr_id: int | None
+    season_number: int | None
+
+
+def _row_to_deletion_row(row: sqlite3.Row) -> DeletionRow:
+    """Map a joined ``scheduled_actions``/``media_items`` row to a :class:`DeletionRow`."""
+    return DeletionRow(
+        id=row["id"],
+        media_item_id=row["media_item_id"],
+        action=row["action"],
+        file_path=row["file_path"],
+        file_size_bytes=row["file_size_bytes"],
+        title=row["title"],
+        plex_rating_key=row["plex_rating_key"],
+        radarr_id=row["radarr_id"],
+        sonarr_id=row["sonarr_id"],
+        season_number=row["season_number"],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -29,36 +71,23 @@ def is_protected(conn: sqlite3.Connection, media_id: str) -> bool:
     or if **any** of its ``snoozed`` rows still has ``execute_at`` in
     the future.
 
-    The previous implementation used ``ORDER BY id DESC LIMIT 1`` to
-    pick a single "latest" row, which gave the wrong answer whenever
-    a higher-id row contradicted a still-authoritative lower-id one
-    ``protected_forever`` wins over a later-id snooze because the schema
-    does not enforce one-row-per-item and row order is not a contract:
-    an earlier ``protected_forever`` row could otherwise be masked by a
-    later expired ``snoozed`` row, falsely reporting the item as
-    unprotected and queuing it for deletion. We check the two protective
-    states explicitly instead.
+    A ``protected_forever`` row is authoritative regardless of where it
+    sits in id order: the schema does not enforce one-row-per-item and
+    row order is not a contract, so an earlier ``protected_forever`` row
+    must not be masked by a later expired ``snoozed`` row. The single
+    ``OR`` query below checks both protective states in one round trip —
+    a match on either branch means the item is kept.
     """
-    # protected_forever wins over everything: ignore execute_at and
-    # token_used here. If even one such row exists, the item is kept.
-    if (
-        conn.execute(
-            "SELECT 1 FROM scheduled_actions "
-            "WHERE media_item_id = ? AND action = 'protected_forever' LIMIT 1",
-            (media_id,),
-        ).fetchone()
-        is not None
-    ):
-        return True
-    # No protected_forever row — fall back to active snoozes.
-    now = now_iso()
     return (
         conn.execute(
             "SELECT 1 FROM scheduled_actions "
-            "WHERE media_item_id = ? AND action = 'snoozed' "
-            "AND execute_at IS NOT NULL AND execute_at > ? "
+            "WHERE media_item_id = ? "
+            "  AND ("
+            "    action = 'protected_forever'"
+            "    OR (action = 'snoozed' AND execute_at IS NOT NULL AND execute_at > ?)"
+            "  ) "
             "LIMIT 1",
-            (media_id, now),
+            (media_id, now_iso()),
         ).fetchone()
         is not None
     )
@@ -180,16 +209,17 @@ def is_show_kept(conn: sqlite3.Connection, show_rating_key: str | None) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def fetch_stuck_deletions(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+def fetch_stuck_deletions(conn: sqlite3.Connection) -> list[DeletionRow]:
     """Return rows in ``scheduled_actions`` still marked ``deleting``.
 
     Returns an empty list if the ``delete_status`` column has not been
     migrated yet (older DB schemas).
     """
     try:
-        return conn.execute(
+        rows = conn.execute(
             "SELECT sa.id, sa.media_item_id, sa.action, mi.file_path, "
-            "mi.file_size_bytes, mi.title, mi.plex_rating_key "
+            "mi.file_size_bytes, mi.title, mi.plex_rating_key, "
+            "mi.radarr_id, mi.sonarr_id, mi.season_number "
             "FROM scheduled_actions sa "
             "LEFT JOIN media_items mi ON sa.media_item_id = mi.id "
             "WHERE sa.delete_status = 'deleting'"
@@ -197,12 +227,13 @@ def fetch_stuck_deletions(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     except sqlite3.OperationalError:
         # delete_status column not yet migrated — nothing to do.
         return []
+    return [_row_to_deletion_row(row) for row in rows]
 
 
-def fetch_pending_deletions(conn: sqlite3.Connection, now_iso: str) -> list[sqlite3.Row]:
+def fetch_pending_deletions(conn: sqlite3.Connection, now_iso: str) -> list[DeletionRow]:
     """Return all pending deletions whose grace period has elapsed."""
-    return conn.execute(
-        "SELECT sa.id, sa.media_item_id, mi.file_path, mi.file_size_bytes, "
+    rows = conn.execute(
+        "SELECT sa.id, sa.media_item_id, sa.action, mi.file_path, mi.file_size_bytes, "
         "mi.radarr_id, mi.sonarr_id, mi.season_number, mi.title, mi.plex_rating_key "
         "FROM scheduled_actions sa "
         "JOIN media_items mi ON sa.media_item_id = mi.id "
@@ -211,6 +242,7 @@ def fetch_pending_deletions(conn: sqlite3.Connection, now_iso: str) -> list[sqli
         "  AND (sa.delete_status IS NULL OR sa.delete_status = 'pending')",
         (now_iso,),
     ).fetchall()
+    return [_row_to_deletion_row(row) for row in rows]
 
 
 def mark_delete_status(conn: sqlite3.Connection, action_id: int, status: str) -> None:
@@ -226,11 +258,112 @@ def delete_scheduled_action(conn: sqlite3.Connection, action_id: int) -> None:
     conn.execute("DELETE FROM scheduled_actions WHERE id = ?", (action_id,))
 
 
+def delete_actions_for_media_items(conn: sqlite3.Connection, ids: list[str]) -> None:
+    """Delete every ``scheduled_actions`` row pointing at *ids*, in chunks.
+
+    Owned by this module because ``scheduled_actions`` is this
+    repository's table-group. The scanner's delete phase calls this
+    *before* :func:`media_items.delete_media_items` while holding the
+    same transaction at the call site, so the two DELETEs stay atomic
+    and a crash between them cannot orphan a ``scheduled_actions`` row
+    against a deleted ``media_items`` row. This function therefore opens
+    no transaction of its own.
+    """
+    if not ids:
+        return
+    for start in range(0, len(ids), 500):
+        chunk = ids[start : start + 500]
+        placeholders = ",".join("?" * len(chunk))
+        # rationale: §9.6 IN-clause batching — only "?" placeholders interpolated; every value is bound
+        conn.execute(  # nosec B608
+            f"DELETE FROM scheduled_actions WHERE media_item_id IN ({placeholders})",
+            tuple(chunk),
+        )
+
+
+def fetch_protected_media_ids(
+    conn: sqlite3.Connection,
+    media_ids: list[str],
+    now_iso_str: str,
+) -> set[str]:
+    """Return the subset of *media_ids* that are protected.
+
+    Batched, set-building replacement for the per-item
+    :func:`is_protected` round trip in the hot scan loop (§13.3). The
+    active-ness rule matches :func:`is_protected` byte-for-byte: a
+    ``protected_forever`` row (any ``token_used``) or a ``snoozed`` row
+    whose ``execute_at`` is non-NULL and in the future. Chunked into
+    groups of 500 to stay below SQLite's parameter limit.
+    """
+    if not media_ids:
+        return set()
+    found: set[str] = set()
+    for start in range(0, len(media_ids), 500):
+        chunk = media_ids[start : start + 500]
+        id_placeholders = ",".join("?" * len(chunk))
+        # rationale: §9.6 IN-clause batching — only "?" placeholders interpolated; every value is bound
+        rows = conn.execute(  # nosec B608
+            f"SELECT DISTINCT media_item_id FROM scheduled_actions "
+            f"WHERE media_item_id IN ({id_placeholders}) "
+            f"  AND ("
+            f"    action = 'protected_forever'"
+            f"    OR (action = 'snoozed' AND execute_at IS NOT NULL AND execute_at > ?)"
+            f"  )",
+            (*chunk, now_iso_str),
+        ).fetchall()
+        found.update(r["media_item_id"] for r in rows)
+    return found
+
+
+def fetch_already_scheduled_media_ids(
+    conn: sqlite3.Connection,
+    media_ids: list[str],
+) -> set[str]:
+    """Return the subset of *media_ids* with a pending ``scheduled_deletion``.
+
+    Batched, set-building replacement for the per-item
+    :func:`is_already_scheduled` round trip in the hot scan loop
+    (§13.3). The rule matches :func:`is_already_scheduled` exactly:
+    ``action = 'scheduled_deletion'`` with ``token_used = 0``. Chunked
+    into groups of 500 to stay below SQLite's parameter limit.
+    """
+    if not media_ids:
+        return set()
+    found: set[str] = set()
+    for start in range(0, len(media_ids), 500):
+        chunk = media_ids[start : start + 500]
+        id_placeholders = ",".join("?" * len(chunk))
+        # rationale: §9.6 IN-clause batching — only "?" placeholders interpolated; every value is bound
+        rows = conn.execute(  # nosec B608
+            f"SELECT DISTINCT media_item_id FROM scheduled_actions "
+            f"WHERE media_item_id IN ({id_placeholders}) "
+            f"  AND action = 'scheduled_deletion' AND token_used = 0",
+            tuple(chunk),
+        ).fetchall()
+        found.update(r["media_item_id"] for r in rows)
+    return found
+
+
 def cleanup_expired_snoozes(conn: sqlite3.Connection, now_iso: str) -> None:
     """Remove expired ``snoozed`` rows so items re-enter the scan pipeline."""
     conn.execute(
         "DELETE FROM scheduled_actions WHERE action = 'snoozed' AND execute_at < ?",
         (now_iso,),
+    )
+
+
+def count_pending_deletions(conn: sqlite3.Connection) -> int:
+    """Return the number of pending ``scheduled_deletion`` rows.
+
+    Counts only rows whose token has not yet been used — the same set
+    :func:`clear_pending_deletions` sweeps. Snoozes and protect-forever
+    rows are not counted.
+    """
+    return int(
+        conn.execute(
+            "SELECT COUNT(*) FROM scheduled_actions "
+            "WHERE action='scheduled_deletion' AND token_used=0"
+        ).fetchone()[0]
     )
 
 
@@ -253,14 +386,13 @@ def clear_pending_deletions(
     lands in the audit detail. If the audit insert raises, the entire
     delete rolls back — we never end up with rows removed but no audit
     trail (the audit insert and the delete are atomic by design; neither
-    commits without the other).
+    commits without the other). The count read is delegated to
+    :func:`count_pending_deletions` so the count is independently
+    callable.
     """
     with conn:
         conn.execute("BEGIN IMMEDIATE")
-        cleared = conn.execute(
-            "SELECT COUNT(*) FROM scheduled_actions "
-            "WHERE action='scheduled_deletion' AND token_used=0"
-        ).fetchone()[0]
+        cleared = count_pending_deletions(conn)
         conn.execute(
             "DELETE FROM scheduled_actions WHERE action='scheduled_deletion' AND token_used=0"
         )
@@ -272,6 +404,6 @@ def clear_pending_deletions(
                 event="scan.cleared",
                 actor=audit_actor,
                 ip=audit_ip,
-                detail={"count": int(cleared)},
+                detail={"count": cleared},
             )
-    return int(cleared)
+    return cleared

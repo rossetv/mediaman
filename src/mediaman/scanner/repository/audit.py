@@ -9,6 +9,7 @@ does not need.
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import dataclass
 
 # Action names that target a show row rather than a media_items row.
 # Pinning the JOIN to specific action names keeps a hypothetical Plex
@@ -22,6 +23,43 @@ _FILTER_MAP: dict[str, tuple[str, ...]] = {
     "kept": ("protected", "protected_forever", "kept", "kept_show"),
     "unkept": ("unprotected", "removed_show_keep"),
 }
+
+
+@dataclass(frozen=True, slots=True)
+class AuditRow:
+    """One audit-log row joined with its media/show title columns.
+
+    Returned by :func:`fetch_security_audit_rows` and
+    :func:`fetch_media_audit_rows` so the history route consumes typed
+    attributes instead of a raw :class:`sqlite3.Row`. Both queries
+    project the same nine columns — the security path supplies ``NULL``
+    for the three title columns so the shape is uniform.
+    """
+
+    id: int
+    media_item_id: str
+    action: str
+    detail: str | None
+    space_reclaimed_bytes: int | None
+    created_at: str
+    mi_title: str | None
+    plex_rating_key: str | None
+    ks_title: str | None
+
+
+def _row_to_audit_row(row: sqlite3.Row) -> AuditRow:
+    """Map a joined ``audit_log`` row to an :class:`AuditRow`."""
+    return AuditRow(
+        id=row["id"],
+        media_item_id=row["media_item_id"],
+        action=row["action"],
+        detail=row["detail"],
+        space_reclaimed_bytes=row["space_reclaimed_bytes"],
+        created_at=row["created_at"],
+        mi_title=row["mi_title"],
+        plex_rating_key=row["plex_rating_key"],
+        ks_title=row["ks_title"],
+    )
 
 
 def count_audit_rows(conn: sqlite3.Connection, action: str | None) -> int:
@@ -49,7 +87,7 @@ def count_audit_rows(conn: sqlite3.Connection, action: str | None) -> int:
 
 def fetch_security_audit_rows(
     conn: sqlite3.Connection, *, page: int, per_page: int
-) -> list[sqlite3.Row]:
+) -> list[AuditRow]:
     """Return a page of ``sec:*`` audit rows without joining any media tables.
 
     Security rows carry ``media_item_id='_security'`` which never matches
@@ -58,7 +96,7 @@ def fetch_security_audit_rows(
     LIKE so both the count and the page query are fast.
     """
     offset = (page - 1) * per_page
-    return conn.execute(
+    rows = conn.execute(
         """
         SELECT
             al.id,
@@ -77,6 +115,7 @@ def fetch_security_audit_rows(
         """,
         ("sec:%", per_page, offset),
     ).fetchall()
+    return [_row_to_audit_row(row) for row in rows]
 
 
 def fetch_media_audit_rows(
@@ -85,7 +124,7 @@ def fetch_media_audit_rows(
     action: str | None,
     page: int,
     per_page: int,
-) -> list[sqlite3.Row]:
+) -> list[AuditRow]:
     """Return a page of media-action audit rows.
 
     Security rows are NOT excluded by default so the unfiltered history view
@@ -104,7 +143,7 @@ def fetch_media_audit_rows(
         offset,
     )
     # rationale: where_sql comes from a hard-coded filter map; no user input enters the SQL fragment
-    return conn.execute(  # nosec B608
+    rows = conn.execute(  # nosec B608
         f"""
         SELECT
             al.id,
@@ -130,6 +169,7 @@ def fetch_media_audit_rows(
         """,
         params,
     ).fetchall()
+    return [_row_to_audit_row(row) for row in rows]
 
 
 # ---------------------------------------------------------------------------

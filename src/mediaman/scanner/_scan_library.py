@@ -16,10 +16,13 @@ roll back the in-flight library. The helpers themselves do not commit.
 from __future__ import annotations
 
 import logging
+import sqlite3
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
+from mediaman.core.time import now_iso
 from mediaman.scanner import repository
 from mediaman.scanner.fetch import PlexItemFetch
 from mediaman.scanner.phases.evaluate import evaluate_movie, evaluate_season
@@ -34,6 +37,39 @@ logger = logging.getLogger(__name__)
 __all__ = ["scan_items", "scan_movie_library", "scan_tv_library"]
 
 
+@dataclass(slots=True)
+class _GuardSets:
+    """Per-library protection / already-scheduled lookup sets.
+
+    Built once per library by :func:`_build_guard_sets` so the hot
+    per-item loop does ZERO ``scheduled_actions`` SELECTs for the
+    protection and already-scheduled guards (§13.3 — the previous code
+    issued up to three of those SELECTs per item). ``already_scheduled``
+    is mutable: when an item is freshly scheduled mid-loop it is added so
+    a later item sharing the same ``plex_rating_key`` observes it, exactly
+    as the per-item ``is_already_scheduled`` query did within the
+    connection's uncommitted view.
+    """
+
+    protected: frozenset[str]
+    already_scheduled: set[str]
+
+
+def _build_guard_sets(conn: sqlite3.Connection, media_ids: list[str]) -> _GuardSets:
+    """Batch-load the protection and already-scheduled sets for a library.
+
+    Replaces the per-item :func:`repository.is_protected` and
+    :func:`repository.is_already_scheduled` round trips with two
+    ``IN (...)`` queries (§13.3). The active-ness rules in the two
+    repository helpers match the per-item predicates byte-for-byte, so
+    the protection decision is identical before and after batching.
+    """
+    return _GuardSets(
+        protected=frozenset(repository.fetch_protected_media_ids(conn, media_ids, now_iso())),
+        already_scheduled=repository.fetch_already_scheduled_media_ids(conn, media_ids),
+    )
+
+
 def scan_items(
     engine: ScanEngine,
     fetched: list[PlexItemFetch],
@@ -46,13 +82,14 @@ def scan_items(
 ) -> None:
     """Shared iteration skeleton for movie and TV scan passes.
 
-    Iterates *fetched* items, upserts each one, applies the common
-    protection/schedule guards via :func:`_evaluate_scan_item`, then
-    routes the per-item ``decision`` through :func:`_apply_scan_decision`.
-    The two callers differ only in *media_type_fn* (selects the media
-    type string) and *evaluate_fn* (returns ``"schedule_deletion"``, a
-    skip marker, or ``None`` for an evaluator-driven early skip such as
-    the TV show-kept check).
+    Builds the per-library protection / already-scheduled guard sets in
+    two batched queries up front (§13.3), then iterates *fetched* items,
+    upserts each one, applies the common protection/schedule guards via
+    :func:`_evaluate_scan_item`, then routes the per-item ``decision``
+    through :func:`_apply_scan_decision`. The two callers differ only in
+    *media_type_fn* (selects the media type string) and *evaluate_fn*
+    (returns ``"schedule_deletion"``, a skip marker, or ``None`` for an
+    evaluator-driven early skip such as the TV show-kept check).
 
     *library_id* is reserved for future use — kept in the signature to
     mirror the per-library shape of the callers and avoid churn in the
@@ -60,18 +97,24 @@ def scan_items(
     rating keys so orphan detection can exclude them later.
     """
     del library_id  # reserved; see docstring
+    # §13.3: one batched query per guard, built before the loop — the
+    # protection state of an item cannot change under the per-item
+    # ``media_items`` upserts, so a single up-front read is identical to
+    # the old per-item SELECTs.
+    media_ids = [f.item["plex_rating_key"] for f in fetched]
+    guards = _build_guard_sets(engine._conn, media_ids)
     for f in fetched:
         summary["scanned"] += 1
         try:
             media_id, decision = _evaluate_scan_item(
-                engine, f, media_type_fn, evaluate_fn, seen_keys
+                engine, f, media_type_fn, evaluate_fn, seen_keys, guards
             )
             if decision is None or decision == _SKIP:
                 # ``None`` = evaluator early-skip (e.g. show-kept);
                 # ``_SKIP`` = guard-driven skip (protected / already scheduled).
                 summary["skipped"] += 1
                 continue
-            _apply_scan_decision(engine, media_id, decision, summary)
+            _apply_scan_decision(engine, media_id, decision, summary, guards)
         # rationale: per-item isolation boundary — a single corrupt or
         # unexpected item (bad Plex metadata, upsert constraint, evaluator
         # bug) must not abort the rest of the library scan. Errors are
@@ -101,6 +144,7 @@ def _evaluate_scan_item(
     media_type_fn: Callable[[PlexItemFetch], str],
     evaluate_fn: Callable[[PlexItemFetch, datetime, Sequence[Mapping[str, object]]], str | None],
     seen_keys: set[str] | None,
+    guards: _GuardSets,
 ) -> tuple[str, str | None]:
     """Upsert one item and return ``(media_id, decision)``.
 
@@ -110,6 +154,11 @@ def _evaluate_scan_item(
     the protection / already-scheduled guards fire we return
     ``(media_id, _SKIP)`` so the caller bumps the skipped counter
     without invoking the evaluator.
+
+    The protection and already-scheduled guards are answered from the
+    pre-built *guards* sets — no per-item ``scheduled_actions`` SELECT
+    (§13.3). The ``media_items`` upsert below cannot change either
+    guard's answer because neither guard reads ``media_items``.
     """
     conn = engine._conn
     item = f.item
@@ -119,9 +168,9 @@ def _evaluate_scan_item(
     _phase_upsert_item(conn, f, engine._arr_cache, media_type_fn(f))
     repository.update_last_watched(conn, media_id, f.watch_history)
 
-    if repository.is_protected(conn, media_id):
+    if media_id in guards.protected:
         return media_id, _SKIP
-    if repository.is_already_scheduled(conn, media_id):
+    if media_id in guards.already_scheduled:
         return media_id, _SKIP
 
     added_at = engine._resolve_added_at(cast(dict[str, object], item))
@@ -134,6 +183,7 @@ def _apply_scan_decision(
     media_id: str,
     decision: str,
     summary: dict[str, int],
+    guards: _GuardSets,
 ) -> None:
     """Apply a per-item decision (``schedule_deletion`` or skip).
 
@@ -141,6 +191,12 @@ def _apply_scan_decision(
     summary counter. Any decision other than ``"schedule_deletion"`` is
     treated as a skip so the caller doesn't have to duplicate the
     bookkeeping.
+
+    When an item is freshly scheduled, its id is added to
+    *guards.already_scheduled* so a later *fetched* item sharing the
+    same ``plex_rating_key`` is treated as already-scheduled — the same
+    answer the old per-item ``is_already_scheduled`` query gave from the
+    connection's uncommitted view.
     """
     if decision != "schedule_deletion":
         summary["skipped"] += 1
@@ -159,6 +215,7 @@ def _apply_scan_decision(
         grace_days=engine._grace_days,
         secret_key=engine._secret_key,
     )
+    guards.already_scheduled.add(media_id)
     summary["scheduled"] += 1
 
 
