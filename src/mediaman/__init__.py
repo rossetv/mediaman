@@ -11,6 +11,8 @@ Forbidden patterns: do not add application logic here; keep this file to
 version detection and nothing else.
 """
 
+from __future__ import annotations
+
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 

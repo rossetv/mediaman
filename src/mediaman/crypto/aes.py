@@ -24,13 +24,13 @@ from mediaman.core.time import now_iso as _now_iso
 from ._aes_key import (
     _CANARY_PLAINTEXT,
     _CANARY_SETTING_KEY,
-    _GCM_NONCE_LEN,
-    _GCM_TAG_LEN,
+    _GCM_NONCE_BYTES,
+    _GCM_TAG_BYTES,
     _MAX_CIPHERTEXT_LEN,
     _V2_PREFIX,
     CryptoInputError,
-    _db_path,
     _derive_aes_key_hkdf,
+    _get_db_path,
     _resolve_salt,
     _salt_cache_pop,
 )
@@ -57,7 +57,7 @@ def encrypt_value(
         raise ValueError("encrypt_value requires a salt source — pass conn=... or salt=...")
     key = _derive_aes_key_hkdf(secret_key, resolved_salt)
     aesgcm = AESGCM(key)
-    nonce = secrets.token_bytes(_GCM_NONCE_LEN)
+    nonce = secrets.token_bytes(_GCM_NONCE_BYTES)
     ciphertext = aesgcm.encrypt(nonce, plaintext.encode(), aad)
     return base64.urlsafe_b64encode(_V2_PREFIX + nonce + ciphertext).decode()
 
@@ -93,13 +93,13 @@ def decrypt_value(
 
     raw = base64.urlsafe_b64decode(encrypted)
 
-    if len(raw) >= 1 + _GCM_NONCE_LEN + _GCM_TAG_LEN and raw[:1] == _V2_PREFIX:
+    if len(raw) >= 1 + _GCM_NONCE_BYTES + _GCM_TAG_BYTES and raw[:1] == _V2_PREFIX:
         resolved_salt = _resolve_salt(conn, salt)
         if resolved_salt is not None:
             key = _derive_aes_key_hkdf(secret_key, resolved_salt)
             aesgcm = AESGCM(key)
-            nonce = raw[1 : 1 + _GCM_NONCE_LEN]
-            ciphertext = raw[1 + _GCM_NONCE_LEN :]
+            nonce = raw[1 : 1 + _GCM_NONCE_BYTES]
+            ciphertext = raw[1 + _GCM_NONCE_BYTES :]
             return aesgcm.decrypt(nonce, ciphertext, aad).decode()
 
     raise InvalidTag()
@@ -203,7 +203,7 @@ def _fail_canary(
     ``return _fail_canary(...)``.
     """
     logger.warning(message)
-    cache_key = _db_path(conn)
+    cache_key = _get_db_path(conn)
     if cache_key:
         _salt_cache_pop(cache_key)
     _invoke_on_failure(on_failure, reason)

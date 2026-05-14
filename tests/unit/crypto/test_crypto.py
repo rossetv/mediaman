@@ -293,11 +293,11 @@ class TestSaltCache:
         """Subsequent calls to _load_or_create_salt return cached value without DB hit."""
         # rationale: verifying the salt cache state requires inspecting _salt_cache
         # and _db_path directly; the public surface offers no way to observe caching.
-        from mediaman.crypto._aes_key import _db_path, _load_or_create_salt, _salt_cache
+        from mediaman.crypto._aes_key import _get_db_path, _load_or_create_salt, _salt_cache
 
         first = _load_or_create_salt(conn)
         # Must be in cache now, keyed by DB file path.
-        assert _db_path(conn) in _salt_cache
+        assert _get_db_path(conn) in _salt_cache
         second = _load_or_create_salt(conn)
         assert first == second
 
@@ -305,16 +305,16 @@ class TestSaltCache:
         """is_canary_valid returning False (key mismatch) must evict the cached salt."""
         # rationale: cache eviction on canary mismatch is internal behaviour;
         # verifying it requires direct access to _salt_cache and _db_path.
-        from mediaman.crypto._aes_key import _db_path, _load_or_create_salt, _salt_cache
+        from mediaman.crypto._aes_key import _get_db_path, _load_or_create_salt, _salt_cache
 
         # Prime the cache.
         _load_or_create_salt(conn)
-        assert _db_path(conn) in _salt_cache
+        assert _get_db_path(conn) in _salt_cache
         # Seed canary with correct key.
         is_canary_valid(conn, secret_key)
         # Now fail with a wrong key — cache must be cleared.
         is_canary_valid(conn, "wrong-key-32-chars-padding-xxxxx")
-        assert _db_path(conn) not in _salt_cache
+        assert _get_db_path(conn) not in _salt_cache
 
 
 class TestValidateSignedNarrowedException:

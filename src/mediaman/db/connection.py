@@ -27,7 +27,7 @@ from datetime import timedelta
 
 from mediaman.core.time import now_iso, now_utc
 
-from .schema_definition import _SCHEMA
+from .schema_definition import SCHEMA
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     _configure_connection(conn)
     _set_db_path(db_path)
-    conn.executescript(_SCHEMA)
+    conn.executescript(SCHEMA)
     conn.commit()
     return conn
 
@@ -183,7 +183,7 @@ def _check_job_table(table: str) -> None:
         raise ValueError(f"Unknown job-run table: {table!r}")
 
 
-def _job_owner_id() -> str:
+def _get_job_owner_id() -> str:
     """Return a per-process id used to attribute job-run rows.
 
     Uses the OS PID — strictly informational; we never compare owners
@@ -220,13 +220,18 @@ def _start_job_run(conn: sqlite3.Connection, table: str) -> int | None:
     :func:`heartbeat_job_run` calls keep the row visible as live.
     """
     _check_job_table(table)
+    # ``BEGIN IMMEDIATE`` obtains a reserved write lock upfront, preventing
+    # SQLITE_BUSY when the INSERT races with another writer.  The ``with conn:``
+    # context manager issues a deferred ``BEGIN`` instead, which does not
+    # guarantee the write lock until the first write statement — a second
+    # concurrent writer can acquire its own deferred lock and cause a collision.
     conn.execute("BEGIN IMMEDIATE")
     try:
         if _is_job_running(conn, table):
             conn.execute("ROLLBACK")
             return None
         now = now_iso()
-        owner = _job_owner_id()
+        owner = _get_job_owner_id()
         cursor = conn.execute(
             f"INSERT INTO {table} "
             "(started_at, status, owner_id, heartbeat_at) "

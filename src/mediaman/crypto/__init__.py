@@ -1,11 +1,19 @@
 """Encryption and HMAC-token signing — facade over :mod:`aes` and :mod:`tokens`.
 
 Callers import every symbol from :mod:`mediaman.crypto`.
+
+Allowed dependencies: :mod:`cryptography` (AESGCM, HKDF), stdlib :mod:`hmac`,
+:mod:`hashlib`, :mod:`secrets`, and :mod:`mediaman.core` (time helpers only).
+Forbidden: no DB access beyond canary/salt rows (via :mod:`mediaman.crypto.aes`
+only), no logging of key material, no imports from :mod:`mediaman.services` or
+:mod:`mediaman.web`.
 """
+
+from __future__ import annotations
+
 # ruff: noqa: F401 — this module is a deliberate re-export facade;
 # the "unused" imports ARE the public API, and the explicit ``import hmac``
 # line is patched by callers via ``mediaman.crypto.hmac.compare_digest``.
-
 # Re-export so ``mediaman.crypto.hmac.compare_digest`` patches still bind —
 # the test suite monkeypatches this attribute on the package.
 import hmac

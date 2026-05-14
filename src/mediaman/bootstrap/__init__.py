@@ -15,6 +15,8 @@ All names are re-exported unchanged from their canonical homes:
 - :mod:`mediaman.bootstrap.data_dir` — data-dir writability probe
 """
 
+from __future__ import annotations
+
 from mediaman.bootstrap.crypto import bootstrap_crypto
 from mediaman.bootstrap.db import bootstrap_db
 from mediaman.bootstrap.scan_jobs import bootstrap_scheduling, shutdown_scheduling

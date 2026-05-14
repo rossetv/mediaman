@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from mediaman.db import init_db, set_connection
-from mediaman.db.schema_definition import _SCHEMA
+from mediaman.db.schema_definition import SCHEMA
 from mediaman.main import create_app
 from mediaman.web.auth.password_hash import create_user, set_user_email
 from mediaman.web.auth.session_store import create_session
@@ -29,7 +29,7 @@ from mediaman.web.routes.search.download import _resolve_admin_email
 def conn() -> sqlite3.Connection:
     c = sqlite3.connect(":memory:")
     c.row_factory = sqlite3.Row
-    c.executescript(_SCHEMA)
+    c.executescript(SCHEMA)
     create_user(c, "rossetv", "TestPass!12345", enforce_policy=False)
     return c
 

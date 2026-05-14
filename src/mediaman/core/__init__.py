@@ -16,3 +16,5 @@ The practical consequence is that you can ``import mediaman.core.anything``
 at the top of any file without worrying about circular imports, missing
 config, or slow start-up side-effects.
 """
+
+from __future__ import annotations

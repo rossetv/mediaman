@@ -7,7 +7,7 @@ populated database is a no-op.
 
 from __future__ import annotations
 
-_SCHEMA = """
+SCHEMA = """
 -- === Settings / encrypted KV ===
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
