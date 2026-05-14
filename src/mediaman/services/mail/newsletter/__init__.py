@@ -22,15 +22,22 @@ from __future__ import annotations
 import logging
 import sqlite3
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from mediaman.core.format import format_day_month as _format_day_month
 from mediaman.core.time import now_utc
 
+from ._types import DeletedNewsletterItem, NewsletterRecItem, ScheduledNewsletterItem
 from .enrich import _annotate_rec_download_states
 from .recipients import _load_recipients, _send_to_recipients
 from .render import _TEMPLATE_DIR, _build_subject, _get_jinja_env
 from .schedule import _load_scheduled_items, _mark_notified
-from .summary import _load_deleted_items, _load_recommendations, _load_storage_stats
+from .summary import StorageSummary, _load_deleted_items, _load_recommendations, _load_storage_stats
+
+if TYPE_CHECKING:
+    from jinja2 import Template as _JinjaTemplate
+
+    from mediaman.services.mail.mailgun import MailgunClient as _MailgunClient
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +128,52 @@ def _load_mailgun_settings(conn: sqlite3.Connection, secret_key: str) -> Mailgun
     )
 
 
-def send_newsletter(
+def _build_send_context(
+    conn: sqlite3.Connection,
+    *,
+    mg_settings: MailgunSettings,
+    secret_key: str,
+    scheduled_items: list[ScheduledNewsletterItem],
+    dry_run: bool,
+) -> tuple[
+    list[DeletedNewsletterItem],
+    list[NewsletterRecItem],
+    StorageSummary,
+    _JinjaTemplate,
+    _MailgunClient,
+    str,
+    str,
+]:
+    """Load newsletter content and construct the Mailgun client + Jinja template.
+
+    Returns ``(deleted_items, this_week_items, storage_summary, template, mailgun, subject, report_date)``.
+    Factored out of :func:`send_newsletter` to keep the orchestrator body under 60 lines.
+    """
+    from mediaman.services.mail.mailgun import MailgunClient
+
+    now = now_utc()
+    deleted_items = _load_deleted_items(conn, secret_key, mg_settings.base_url, now)
+    this_week_items = _load_recommendations(conn)
+    storage_summary = _load_storage_stats(conn, now)
+
+    if this_week_items:
+        _annotate_rec_download_states(this_week_items, conn, secret_key)
+
+    env = _get_jinja_env()
+    if env is None:  # pragma: no cover
+        from jinja2 import Environment, FileSystemLoader
+
+        env = Environment(loader=FileSystemLoader(str(_TEMPLATE_DIR)), autoescape=True)
+    template = env.get_template("newsletter.html")
+
+    mailgun = MailgunClient(mg_settings.domain, mg_settings.api_key, mg_settings.from_address)
+    subject = _build_subject(scheduled_items, dry_run)
+    report_date = _format_day_month(now, long_month=True)
+
+    return deleted_items, this_week_items, storage_summary, template, mailgun, subject, report_date
+
+
+def send_newsletter(  # rationale: orchestrator body; the 14-kwarg dispatch to _send_to_recipients cannot be collapsed without a breaking API change
     conn: sqlite3.Connection,
     secret_key: str,
     dry_run: bool = False,
@@ -152,15 +204,10 @@ def send_newsletter(
         mark_notified: If True (default), mark scheduled items as notified=1
             after sending.
     """
-    from mediaman.services.mail.mailgun import MailgunClient
-
     mg_settings = _load_mailgun_settings(conn, secret_key)
     if not mg_settings.domain:
         # All four missing — already logged at DEBUG; skip silently.
         return
-    domain = mg_settings.domain
-    api_key = mg_settings.api_key
-    from_address = mg_settings.from_address
     base_url = mg_settings.base_url
 
     recipient_emails = _load_recipients(conn, recipients)
@@ -187,24 +234,15 @@ def send_newsletter(
         logger.debug("Newsletter skipped — nothing to report")
         return
 
-    now = now_utc()
-    deleted_items = _load_deleted_items(conn, secret_key, base_url, now)
-    this_week_items = _load_recommendations(conn)
-    storage_summary = _load_storage_stats(conn, now)
-
-    if this_week_items:
-        _annotate_rec_download_states(this_week_items, conn, secret_key)
-
-    env = _get_jinja_env()
-    if env is None:  # pragma: no cover
-        from jinja2 import Environment, FileSystemLoader
-
-        env = Environment(loader=FileSystemLoader(str(_TEMPLATE_DIR)), autoescape=True)
-    template = env.get_template("newsletter.html")
-
-    mailgun = MailgunClient(domain, api_key, from_address)
-    subject = _build_subject(scheduled_items, dry_run)
-    report_date = _format_day_month(now, long_month=True)
+    deleted_items, this_week_items, storage_summary, template, mailgun, subject, report_date = (
+        _build_send_context(
+            conn,
+            mg_settings=mg_settings,
+            secret_key=secret_key,
+            scheduled_items=scheduled_items,
+            dry_run=dry_run,
+        )
+    )
 
     successfully_sent = _send_to_recipients(
         recipient_emails=recipient_emails,
