@@ -13,6 +13,10 @@ from __future__ import annotations
 
 from mediaman.services.rate_limit.limiters import ActionRateLimiter, RateLimiter
 
+# These limiters must be module-level globals; per-request instantiation would
+# discard the sliding-window state between requests, making the limits ineffective.
+# Single-worker invariant — each is thread-safe via its internal threading.Lock.
+
 # Newsletter send limiter — shared by subscribers.py (/api/newsletter/send).
 # 3 sends per 5 minutes per admin, 10 per day.
 NEWSLETTER_LIMITER = ActionRateLimiter(max_in_window=3, window_seconds=300, max_per_day=10)

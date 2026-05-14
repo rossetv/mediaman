@@ -17,6 +17,7 @@ import json
 import logging
 import sqlite3
 import threading
+from collections.abc import Mapping
 from typing import Any, TypedDict
 
 import requests
@@ -36,9 +37,59 @@ _POSTER_BASE_W300 = "https://image.tmdb.org/t/p/w300"
 # DNS + TLS handshake costs against ``api.themoviedb.org`` instead of
 # reusing the connection pool.  We cache one client per (token, timeout)
 # pair so multiple callers share the same session.
+#
+# Max size: 4 entries — one per timeout variant with headroom for token
+# rotation (the old token's entry ages out as soon as the new one is used).
+# Beyond 4 entries the oldest is evicted so the cache cannot grow without
+# bound if callers vary ``timeout`` unexpectedly.  Rebuilt on process restart.
 # ---------------------------------------------------------------------------
 _CLIENT_CACHE: dict[tuple[str, float], TmdbClient] = {}
 _CLIENT_CACHE_LOCK = threading.Lock()
+_CLIENT_CACHE_MAXSIZE = 4
+
+
+class TmdbSearchResult(TypedDict, total=False):
+    """Subset of a TMDB ``/search/{movie|tv|multi}`` result item.
+
+    ``total=False`` because TMDB habitually omits optional keys from results.
+    Only the fields mediaman actually reads are listed; the upstream payload
+    includes many more.
+    """
+
+    id: int
+    title: str
+    name: str  # TV shows use ``name`` instead of ``title``
+    release_date: str
+    first_air_date: str  # TV shows
+    poster_path: str | None
+    vote_average: float
+    overview: str
+    media_type: str  # present in /search/multi results
+
+
+class TmdbDetailsPayload(TypedDict, total=False):
+    """Subset of a TMDB ``/{movie|tv}/{id}`` details response with appended sub-resources.
+
+    ``total=False`` because optional fields are omitted when empty.
+    The ``videos`` and ``credits`` sub-dicts are appended via
+    ``?append_to_response=videos,credits``.
+    """
+
+    id: int
+    title: str
+    name: str
+    release_date: str
+    first_air_date: str
+    poster_path: str | None
+    vote_average: float
+    overview: str
+    tagline: str
+    runtime: int
+    episode_run_time: list[int]
+    genres: list[dict[str, object]]
+    created_by: list[dict[str, object]]
+    credits: dict[str, object]
+    videos: dict[str, object]
 
 
 class TmdbCard(TypedDict):
@@ -143,6 +194,11 @@ class TmdbClient:
             if cached is not None:
                 return cached
             client = cls(token, timeout=timeout)
+            # Evict the oldest entry when the cache is full so it cannot
+            # grow without bound if callers vary the ``timeout`` parameter.
+            if len(_CLIENT_CACHE) >= _CLIENT_CACHE_MAXSIZE:
+                oldest_key = next(iter(_CLIENT_CACHE))
+                del _CLIENT_CACHE[oldest_key]
             _CLIENT_CACHE[cache_key] = client
             return client
 
@@ -211,7 +267,7 @@ class TmdbClient:
         *,
         year: int | None = None,
         media_type: str = "movie",
-    ) -> dict[str, object] | None:
+    ) -> TmdbSearchResult | None:
         """Search TMDB for the best matching movie or TV show.
 
         Returns the first result dict from ``/search/{movie|tv}``, or
@@ -230,7 +286,7 @@ class TmdbClient:
             return None
         return results[0] if results else None
 
-    def search_multi(self, title: str) -> dict[str, object] | None:
+    def search_multi(self, title: str) -> TmdbSearchResult | None:
         """Search TMDB across movies, TV, and people — returns the raw
         first result.
 
@@ -317,7 +373,7 @@ class TmdbClient:
             label=f"tv/popular(page={page})",
         )
 
-    def details(self, media_type: str, tmdb_id: int) -> dict[str, object] | None:
+    def details(self, media_type: str, tmdb_id: int) -> TmdbDetailsPayload | None:
         """Return the raw TMDB details payload with videos + credits appended.
 
         On HTTP or JSON errors returns ``None`` — callers should skip
@@ -329,7 +385,7 @@ class TmdbClient:
                 f"/{endpoint}/{tmdb_id}",
                 {"append_to_response": "videos,credits"},
             )
-            return result if isinstance(result, dict) else None
+            return result if isinstance(result, dict) else None  # type: ignore[return-value]
         except (SafeHTTPError, requests.RequestException, ValueError) as exc:
             self._log_request_failure(f"{endpoint}/{tmdb_id} details", exc)
             return None
@@ -339,13 +395,13 @@ class TmdbClient:
     # ------------------------------------------------------------------
 
     # rationale: ``data`` is a TMDB ``/search/{movie,tv}`` or ``/{movie,tv}/{id}``
-    # response.  Both endpoints emit dozens of fields beyond what mediaman reads;
-    # describing the full shape in a TypedDict would be busywork against an
-    # upstream contract that frequently grows new keys.  The shape helpers below
-    # access individual fields with ``.get()`` and isinstance guards, so the
-    # ``Any`` value-side is contained inside this method body.
+    # response.  Both endpoints emit dozens of fields beyond what mediaman reads.
+    # ``Mapping[str, Any]`` is used so callers can pass either a raw dict or a
+    # TypedDict (``TmdbSearchResult`` / ``TmdbDetailsPayload``) without a cast;
+    # field access uses ``.get()`` and isinstance guards, so the ``Any``
+    # value-side is contained inside this method body.
     @staticmethod
-    def shape_card(data: dict[str, Any]) -> TmdbCard:
+    def shape_card(data: Mapping[str, Any]) -> TmdbCard:
         """Return the compact-card shape for a TMDB search / details payload.
 
         Fields: ``year`` (int | None), ``poster_url`` (str | None, w300),
@@ -384,10 +440,11 @@ class TmdbClient:
         }
 
     # rationale: same reason as :meth:`shape_card` — TMDB's ``/{movie,tv}/{id}``
-    # detail response is wide and frequently extended.  Field access is guarded
-    # by ``.get()`` plus isinstance checks within the body.
+    # detail response is wide and frequently extended.  ``Mapping[str, Any]``
+    # accepts both raw dicts and ``TmdbDetailsPayload`` TypedDicts; field access
+    # is guarded by ``.get()`` plus isinstance checks within the body.
     @staticmethod
-    def shape_detail(data: dict[str, Any], *, media_type: str) -> TmdbDetail:
+    def shape_detail(data: Mapping[str, Any], *, media_type: str) -> TmdbDetail:
         """Return the rich-detail shape for a TMDB ``details`` payload.
 
         Fields: ``tagline``, ``runtime``, ``genres`` (JSON string or

@@ -12,8 +12,12 @@ import sqlite3
 from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
+import requests
+
 from mediaman.core.time import now_utc
 from mediaman.services.arr._types import RadarrMovie
+from mediaman.services.arr.base import ArrError
+from mediaman.services.infra import SafeHTTPError
 
 if TYPE_CHECKING:
     from jinja2 import Template
@@ -23,10 +27,6 @@ if TYPE_CHECKING:
     from mediaman.services.mail.mailgun import MailgunClient
 
 from mediaman.services.downloads._notification_backoff import (
-    _BACKOFF_BASE_SECONDS,
-    _BACKOFF_MAX_SECONDS,
-    _NOTIFY_BACKOFF,
-    _backoff_state,
     _clear_backoff,
     _is_backed_off,
     _record_arr_failure,
@@ -196,10 +196,10 @@ def _check_radarr_movie(
         return False, None, False
     try:
         movie = radarr_client.get_movie_by_tmdb(tmdb_id)
-    # rationale: transient outage / backoff — any error talking to Radarr
-    # must surface as arr_unreachable=True so the caller releases the
-    # claim and applies backoff (network blip, 5xx, malformed JSON).
-    except Exception:
+    # rationale: transient outage / backoff — network blips, 5xx responses,
+    # malformed JSON, and Radarr-specific errors must all surface as
+    # arr_unreachable=True so the caller releases the claim and applies backoff.
+    except (SafeHTTPError, requests.RequestException, ArrError):
         logger.warning(
             "Radarr lookup failed for notification id=%s tmdb=%s",
             row_id,
@@ -227,9 +227,10 @@ def _check_sonarr_series(
         return False, False
     try:
         ready = _sonarr_has_files(sonarr_client, tvdb_id=tvdb_id, tmdb_id=tmdb_id)
-    # rationale: transient outage / backoff — symmetric with the Radarr
-    # path; Sonarr blips become arr_unreachable=True for the caller.
-    except Exception:
+    # rationale: transient outage / backoff — symmetric with the Radarr path;
+    # network blips, 5xx responses, malformed JSON, and Sonarr-specific errors
+    # become arr_unreachable=True so the caller releases the claim and applies backoff.
+    except (SafeHTTPError, requests.RequestException, ArrError):
         logger.warning(
             "Sonarr lookup failed for notification id=%s",
             row_id,
@@ -331,7 +332,10 @@ def _process_one_notification(
         _clear_backoff(int(row_id))
         logger.info("Download notification sent to %s for '%s'", email, title)
 
-    except Exception:  # rationale: §6.4 site 2 — scheduler must survive a single bad row
+    except (SafeHTTPError, requests.RequestException, ArrError, sqlite3.Error):
+        # rationale: §6.4 outer boundary — scheduler must survive a single bad row;
+        # covers Mailgun transport failures (SafeHTTPError, RequestException),
+        # Radarr/Sonarr errors (ArrError), and DB write failures (sqlite3.Error).
         logger.exception("Failed to process download notification id=%s for '%s'", row_id, title)
         # Mailgun (or another downstream) failed — apply the same
         # backoff as for *arr outages so a Mailgun-down period
@@ -395,18 +399,6 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
 
 __all__ = [
     "STRANDED_CLAIM_GRACE_SECONDS",
-    "_BACKOFF_BASE_SECONDS",
-    "_BACKOFF_MAX_SECONDS",
-    "_NOTIFY_BACKOFF",
-    "_backoff_state",
-    "_claim_pending_notifications",
-    "_clear_backoff",
-    "_get_notification_template",
-    "_is_backed_off",
-    "_record_arr_failure",
-    "_release_claim",
-    "_release_claims_bulk",
-    "_sonarr_has_files",
     "check_download_notifications",
     "reconcile_stranded_notifications",
     "record_download_notification",

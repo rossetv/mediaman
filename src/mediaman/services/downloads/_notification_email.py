@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -39,9 +40,15 @@ logger = logging.getLogger(__name__)
 # was wasted work, so we cache one env per process and reuse it for every
 # call. The download-ready template lives next to the newsletter templates
 # under ``mediaman/web/templates`` and never changes at runtime.
+#
+# rationale: _NOTIFICATION_LOCK guards lazy initialisation of the two globals
+# below.  The notification path runs inside the APScheduler thread pool; without
+# a lock two concurrent ticks can both observe ``_NOTIFICATION_ENV is None``
+# and race to construct the Jinja environment (TOCTOU).
 # ---------------------------------------------------------------------------
 _NOTIFICATION_ENV = None
 _NOTIFICATION_TEMPLATE = None
+_NOTIFICATION_LOCK = threading.Lock()
 
 
 def get_notification_template() -> Template:
@@ -49,15 +56,21 @@ def get_notification_template() -> Template:
 
     Built lazily on first use rather than at import time so unit tests
     that never trigger this code path don't pay the Jinja import cost.
+    Thread-safe: _NOTIFICATION_LOCK prevents a TOCTOU race in the
+    APScheduler thread pool.
     """
     global _NOTIFICATION_ENV, _NOTIFICATION_TEMPLATE
     if _NOTIFICATION_TEMPLATE is not None:
         return _NOTIFICATION_TEMPLATE
-    from jinja2 import Environment, FileSystemLoader
+    with _NOTIFICATION_LOCK:
+        # Double-checked: another thread may have initialised while we waited.
+        if _NOTIFICATION_TEMPLATE is not None:
+            return _NOTIFICATION_TEMPLATE
+        from jinja2 import Environment, FileSystemLoader
 
-    template_dir = Path(__file__).parent.parent.parent / "web" / "templates"
-    _NOTIFICATION_ENV = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
-    _NOTIFICATION_TEMPLATE = _NOTIFICATION_ENV.get_template("email/download_ready.html")
+        template_dir = Path(__file__).parent.parent.parent / "web" / "templates"
+        _NOTIFICATION_ENV = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
+        _NOTIFICATION_TEMPLATE = _NOTIFICATION_ENV.get_template("email/download_ready.html")
     return _NOTIFICATION_TEMPLATE
 
 
