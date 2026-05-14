@@ -6,6 +6,8 @@ The module is mostly wiring/glue, so we test:
   is called with the correct arguments parsed from DB settings.
 """
 
+from __future__ import annotations
+
 import pytest
 
 from mediaman.bootstrap.validators import (
@@ -307,7 +309,7 @@ class TestBootstrapCryptoFailClosed:
 
 
 # ---------------------------------------------------------------------------
-# Finding 10: scheduler-setting validators
+# Scheduler setting validators reject invalid scan times, days, and timezones
 # ---------------------------------------------------------------------------
 
 

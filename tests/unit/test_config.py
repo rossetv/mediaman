@@ -1,5 +1,7 @@
 """Tests for bootstrap configuration."""
 
+from __future__ import annotations
+
 import pytest
 
 from mediaman.config import ConfigError, load_config

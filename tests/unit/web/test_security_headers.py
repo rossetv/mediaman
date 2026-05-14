@@ -867,7 +867,7 @@ class TestCspDirectives:
 
 
 # ---------------------------------------------------------------------------
-# Finding 20: CSP img-src tightened
+# CSP img-src must be tightened to only permit trusted image origins
 # ---------------------------------------------------------------------------
 
 

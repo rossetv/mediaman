@@ -1,5 +1,7 @@
 """Tests for the Plex fetch phase of the scan engine (run_scan / sync_library)."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 

@@ -62,7 +62,7 @@ def _clear_rate_limiters():
 
 
 # ---------------------------------------------------------------------------
-# M6 — POST /api/users requires recent reauth
+# POST /api/users requires a recent re-authentication ticket
 # ---------------------------------------------------------------------------
 
 
@@ -171,7 +171,7 @@ class TestReauthEndpoint:
 
 
 # ---------------------------------------------------------------------------
-# M8 — change_password attempts feed the reauth-namespace lockout
+# change_password attempts are tracked in the reauth-namespace lockout counter
 # ---------------------------------------------------------------------------
 
 
@@ -232,7 +232,7 @@ class TestChangePasswordThrottling:
 
 
 # ---------------------------------------------------------------------------
-# M21 — POST /api/users/{id}/unlock
+# POST /api/users/{id}/unlock requires a recent re-authentication ticket
 # ---------------------------------------------------------------------------
 
 

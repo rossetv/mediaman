@@ -6,3 +6,5 @@ All tests have been moved to:
   - test_engine_cleanup.py  (orphan guard / concurrent scan guard)
   - test_engine_write.py    (dry_run suppression / _resolve_added_at)
 """
+
+from __future__ import annotations

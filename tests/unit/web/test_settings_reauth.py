@@ -64,7 +64,7 @@ class TestSensitiveKeySetMembership:
 
 
 # ---------------------------------------------------------------------------
-# M7 — sensitive settings demand recent reauth
+# Sensitive settings endpoints require a recent re-authentication ticket
 # ---------------------------------------------------------------------------
 
 
@@ -166,7 +166,7 @@ class TestSensitiveSettingsRequireReauth:
 
 
 # ---------------------------------------------------------------------------
-# M27 — audit-in-transaction
+# Settings writes emit an audit row inside the same transaction
 # ---------------------------------------------------------------------------
 
 

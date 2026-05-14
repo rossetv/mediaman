@@ -6,6 +6,8 @@ has_expired_snooze, is_show_kept, cleanup_expired_show_snoozes,
 read_delete_allowed_roots_setting, cleanup_expired_snoozes, schedule_deletion.
 """
 
+from __future__ import annotations
+
 import json
 from datetime import UTC, datetime, timedelta
 

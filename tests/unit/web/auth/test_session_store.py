@@ -5,6 +5,8 @@ destroy_all_sessions_for, list_sessions_for, and the client-fingerprint
 helpers.
 """
 
+from __future__ import annotations
+
 import hashlib
 import logging
 import sqlite3
@@ -33,8 +35,7 @@ def conn(db_path):
 
 
 # ---------------------------------------------------------------------------
-# Finding 26: validate_session must not take the writer lock for ordinary
-# requests.
+# validate_session must not acquire the writer lock for ordinary read-only requests
 # ---------------------------------------------------------------------------
 
 

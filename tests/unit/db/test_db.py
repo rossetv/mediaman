@@ -1,5 +1,7 @@
 """Tests for database schema and operations."""
 
+from __future__ import annotations
+
 import sqlite3
 import threading
 from datetime import UTC

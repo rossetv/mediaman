@@ -1,5 +1,7 @@
 """Tests for the Radarr/Sonarr download-state helper."""
 
+from __future__ import annotations
+
 from mediaman.services.arr.state import compute_download_state
 
 

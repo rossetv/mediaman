@@ -1,5 +1,7 @@
 """Tests for delete-roots config parsing and two-phase delete / crash recovery."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 

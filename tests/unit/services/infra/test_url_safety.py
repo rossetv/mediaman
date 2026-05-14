@@ -337,19 +337,15 @@ class TestResolveSafeOutboundUrl:
 
 
 @pytest.fixture
-def settings_db():
-    """A throwaway in-memory SQLite DB with just the ``settings`` table.
+def settings_db(tmp_path):
+    """A properly configured DB via init_db for allowlist tests.
 
-    Built locally rather than through ``init_db`` to keep the test
-    independent of the migration runner; the schema mirrors what
-    ``allowed_outbound_hosts`` actually reads.
+    Uses the shared init_db so the connection gets WAL mode, row_factory,
+    foreign-key enforcement, and the full production schema.
     """
-    conn = sqlite3.connect(":memory:")
-    conn.row_factory = sqlite3.Row
-    conn.execute(
-        "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, "
-        "encrypted INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT '')"
-    )
+    from mediaman.db import init_db
+
+    conn = init_db(str(tmp_path / "url_safety_test.db"))
     yield conn
     conn.close()
 

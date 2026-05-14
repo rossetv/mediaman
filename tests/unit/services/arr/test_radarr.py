@@ -1,5 +1,7 @@
 """Tests for Radarr API client."""
 
+from __future__ import annotations
+
 import pytest
 
 from mediaman.services.arr.base import ArrClient, ArrConfigError

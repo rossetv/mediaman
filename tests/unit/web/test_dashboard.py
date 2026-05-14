@@ -152,7 +152,7 @@ class TestApiDashboardReclaimedChart:
 
 
 # ---------------------------------------------------------------------------
-# Finding 34: Dashboard re-download passes stable identifiers
+# Dashboard re-download passes stable identifiers (TMDB/TVDB/IMDB ids) to the redownload route
 # ---------------------------------------------------------------------------
 
 

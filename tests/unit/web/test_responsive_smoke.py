@@ -6,6 +6,8 @@ exercise routes — they are guardrails so that a template refactor
 doesn't silently delete the new tokens / classes.
 """
 
+from __future__ import annotations
+
 import re
 from pathlib import Path
 

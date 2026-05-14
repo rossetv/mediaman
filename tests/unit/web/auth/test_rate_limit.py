@@ -1,5 +1,7 @@
 """Tests for login rate limiting."""
 
+from __future__ import annotations
+
 import logging
 import threading
 import time

@@ -1,5 +1,7 @@
 """Tests for show-level keep rules, per-library orphan guard, and unknown library types."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 

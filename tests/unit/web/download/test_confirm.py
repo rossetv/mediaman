@@ -165,7 +165,7 @@ class TestDownloadPageConfirm:
 
 
 # ---------------------------------------------------------------------------
-# Finding 19: Trailer key validation
+# Trailer (HMAC) key validation rejects missing, malformed, and expired keys
 # ---------------------------------------------------------------------------
 
 

@@ -40,7 +40,7 @@ def _make_rec_app(conn) -> TestClient:
 
 
 # ---------------------------------------------------------------------------
-# Finding 15: Refuse to mint public download token without TMDB id
+# A public download token must not be minted when the recommended item has no TMDB id
 # ---------------------------------------------------------------------------
 
 
@@ -67,7 +67,7 @@ class TestFinding15MintRequiresTmdbId:
 
 
 # ---------------------------------------------------------------------------
-# Finding 15 (H-1): newsletter must skip redownload mint when no tmdb_id
+# Newsletter dispatch must skip the redownload token mint when the item has no tmdb_id
 # ---------------------------------------------------------------------------
 
 

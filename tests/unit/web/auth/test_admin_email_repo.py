@@ -6,7 +6,7 @@ import sqlite3
 
 import pytest
 
-from mediaman.db.schema_definition import SCHEMA
+from mediaman.db import init_db
 from mediaman.web.auth.password_hash import (
     create_user,
     get_user_email,
@@ -16,12 +16,11 @@ from mediaman.web.auth.password_hash import (
 
 
 @pytest.fixture
-def conn() -> sqlite3.Connection:
-    c = sqlite3.connect(":memory:")
-    c.row_factory = sqlite3.Row
-    c.executescript(SCHEMA)
+def conn(tmp_path) -> sqlite3.Connection:
+    c = init_db(str(tmp_path / "mediaman.db"))
     create_user(c, "rossetv", "TestPass!12345", enforce_policy=False)
-    return c
+    yield c
+    c.close()
 
 
 def test_get_user_email_returns_none_when_unset(conn: sqlite3.Connection) -> None:

@@ -1,5 +1,7 @@
 """Tests for movie scanning logic."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime, timedelta
 
 from mediaman.scanner.phases.evaluate import evaluate_movie
