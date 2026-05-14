@@ -212,9 +212,7 @@ def _fail_canary(
     return False
 
 
-def _upgrade_legacy_canary(
-    conn: sqlite3.Connection, ciphertext: str, secret_key: str
-) -> bool:
+def _upgrade_legacy_canary(conn: sqlite3.Connection, ciphertext: str, secret_key: str) -> bool:
     """Heal a pre-AAD canary row in place, returning whether it healed.
 
     Installs created before AAD binding (2026-04-18) seeded the
@@ -249,9 +247,7 @@ def _upgrade_legacy_canary(
         ),
     )
     conn.commit()
-    logger.info(
-        "AES canary upgraded in place — pre-AAD ciphertext re-encrypted with AAD binding."
-    )
+    logger.info("AES canary upgraded in place — pre-AAD ciphertext re-encrypted with AAD binding.")
     return True
 
 
