@@ -95,51 +95,51 @@ def refresh_recommendations(
 
     enrich_recommendations(all_recommendations, conn, secret_key)
 
-    if manual:
-        conn.execute("DELETE FROM suggestions WHERE batch_id = ?", (today,))
-    else:
-        cutoff_90d = (now - timedelta(days=90)).strftime("%Y-%m-%d")
-        conn.execute("DELETE FROM suggestions WHERE batch_id < ?", (cutoff_90d,))
-
     now_iso = now.isoformat()
     inserted = 0
-    for s in all_recommendations:
-        title = str(s.get("title") or "")
-        reason = str(s.get("reason") or "")
+    with conn:  # rolls back DELETE + any partial INSERTs on exception (§9.7)
+        if manual:
+            conn.execute("DELETE FROM suggestions WHERE batch_id = ?", (today,))
+        else:
+            cutoff_90d = (now - timedelta(days=90)).strftime("%Y-%m-%d")
+            conn.execute("DELETE FROM suggestions WHERE batch_id < ?", (cutoff_90d,))
 
-        conn.execute(
-            "INSERT INTO suggestions (title, year, media_type, category, tmdb_id, imdb_id, "
-            "description, reason, poster_url, trailer_url, rating, rt_rating, "
-            "tagline, runtime, genres, cast_json, director, trailer_key, imdb_rating, metascore, "
-            "batch_id, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                title,
-                s.get("year"),
-                s["media_type"],
-                s["category"],
-                s.get("tmdb_id"),
-                s.get("imdb_id"),
-                s.get("description"),
-                reason,
-                s.get("poster_url"),
-                s.get("trailer_url"),
-                s.get("rating"),
-                s.get("rt_rating"),
-                s.get("tagline"),
-                s.get("runtime"),
-                s.get("genres"),
-                s.get("cast_json"),
-                s.get("director"),
-                s.get("trailer_key"),
-                s.get("imdb_rating"),
-                s.get("metascore"),
-                today,
-                now_iso,
-            ),
-        )
-        inserted += 1
-    conn.commit()
+        for s in all_recommendations:
+            title = str(s.get("title") or "")
+            reason = str(s.get("reason") or "")
+
+            conn.execute(
+                "INSERT INTO suggestions (title, year, media_type, category, tmdb_id, imdb_id, "
+                "description, reason, poster_url, trailer_url, rating, rt_rating, "
+                "tagline, runtime, genres, cast_json, director, trailer_key, imdb_rating, metascore, "
+                "batch_id, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    title,
+                    s.get("year"),
+                    s["media_type"],
+                    s["category"],
+                    s.get("tmdb_id"),
+                    s.get("imdb_id"),
+                    s.get("description"),
+                    reason,
+                    s.get("poster_url"),
+                    s.get("trailer_url"),
+                    s.get("rating"),
+                    s.get("rt_rating"),
+                    s.get("tagline"),
+                    s.get("runtime"),
+                    s.get("genres"),
+                    s.get("cast_json"),
+                    s.get("director"),
+                    s.get("trailer_key"),
+                    s.get("imdb_rating"),
+                    s.get("metascore"),
+                    today,
+                    now_iso,
+                ),
+            )
+            inserted += 1
 
     logger.info(
         "Generated %d recommendations (%d trending, %d personal); inserted=%d skipped=%d",
