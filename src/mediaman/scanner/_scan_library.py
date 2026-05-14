@@ -115,15 +115,10 @@ def scan_items(
                 summary["skipped"] += 1
                 continue
             _apply_scan_decision(engine, media_id, decision, summary, guards)
-        # rationale: per-item isolation boundary — a single corrupt or
-        # unexpected item (bad Plex metadata, upsert constraint, evaluator
-        # bug) must not abort the rest of the library scan. Errors are
-        # recorded in summary["errors"] and logged with full traceback so
-        # operators can diagnose the root cause; the scheduler-level wrapper
-        # in runner.py handles job-level failures. This is an approved
-        # fifth boundary analogous to §6.4 site (2), scoped to individual
-        # items rather than the whole job.
-        except Exception:
+        except Exception:  # rationale: per-item isolation boundary — a single corrupt or malformed item cannot abort the entire library scan.
+            # Errors are recorded in summary["errors"] and logged with full
+            # traceback so operators can diagnose the root cause; the scheduler-level
+            # wrapper in runner.py handles job-level failures.
             summary["errors"] += 1
             logger.exception(
                 "%s scan item failed (plex_rating_key=%s)",
