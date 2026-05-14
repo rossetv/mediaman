@@ -31,6 +31,67 @@ class StorageSummary:
     reclaimed_total: int
 
 
+def _build_redownload_index(conn: sqlite3.Connection) -> dict[str, str]:
+    """Return a dict mapping lowercased media_item_id → most-recent re/download timestamp.
+
+    Used to exclude items that have already been re-downloaded from the
+    recently-deleted card list.  A single query replaces the per-row lookup
+    that would otherwise be an N+1 anti-pattern.
+    """
+    redownload_rows = conn.execute(
+        "SELECT media_item_id, created_at FROM audit_log "
+        "WHERE action IN ('re_downloaded', 'downloaded')"
+    ).fetchall()
+    redownload_times: dict[str, str] = {}
+    for rd in redownload_rows:
+        key = rd["media_item_id"].lower()
+        if key not in redownload_times or rd["created_at"] > redownload_times[key]:
+            redownload_times[key] = rd["created_at"]
+    return redownload_times
+
+
+def _format_deleted_card(
+    row: sqlite3.Row,
+    now: datetime,
+    base_url: str,
+    secret_key: str,
+) -> dict[str, object]:
+    """Build one deleted-item card dict from a DB row.
+
+    Computes the human-readable deletion date and the signed poster URL.
+    The ``tmdb_id`` field is set to ``None`` here and filled in later by
+    the batched suggestions query in :func:`_load_deleted_items`.
+    Pure function — no DB access.
+    """
+    title = row["title"] or _extract_title_from_detail(row["detail"])
+
+    days_ago = _parse_days_ago(row["created_at"], now)
+    if days_ago is None:
+        deleted_date = ""
+    elif days_ago == 0:
+        deleted_date = "today"
+    elif days_ago == 1:
+        deleted_date = "yesterday"
+    else:
+        deleted_date = f"{days_ago} days ago"
+
+    rating_key = row["plex_rating_key"] or _extract_rk_from_detail(row["detail"]) or ""
+    poster_url = (
+        f"{base_url}{sign_poster_url(rating_key, secret_key)}" if rating_key and base_url else ""
+    )
+    media_type = row["media_type"] or "movie"
+
+    return {
+        "title": title,
+        "poster_url": poster_url,
+        "deleted_date": deleted_date,
+        "file_size_bytes": row["space_reclaimed_bytes"] or 0,
+        "media_type": media_type,
+        # tmdb_id filled in below via the batched query
+        "tmdb_id": None,
+    }
+
+
 def _load_deleted_items(
     conn: sqlite3.Connection,
     secret_key: str,
@@ -65,15 +126,7 @@ def _load_deleted_items(
         (week_ago,),
     ).fetchall()
 
-    redownload_rows = conn.execute(
-        "SELECT media_item_id, created_at FROM audit_log "
-        "WHERE action IN ('re_downloaded', 'downloaded')"
-    ).fetchall()
-    redownload_times: dict[str, str] = {}
-    for rd in redownload_rows:
-        key = rd["media_item_id"].lower()
-        if key not in redownload_times or rd["created_at"] > redownload_times[key]:
-            redownload_times[key] = rd["created_at"]
+    redownload_times = _build_redownload_index(conn)
 
     # Build the per-row card list (excluding re-downloaded items) and
     # collect the (title, media_type) pairs we need to look up.
@@ -86,37 +139,10 @@ def _load_deleted_items(
         if last_redownload and last_redownload > row["created_at"]:
             continue
 
-        days_ago = _parse_days_ago(row["created_at"], now)
-        if days_ago is None:
-            deleted_date = ""
-        elif days_ago == 0:
-            deleted_date = "today"
-        elif days_ago == 1:
-            deleted_date = "yesterday"
-        else:
-            deleted_date = f"{days_ago} days ago"
-
-        rating_key = row["plex_rating_key"] or _extract_rk_from_detail(row["detail"]) or ""
-        poster_url = (
-            f"{base_url}{sign_poster_url(rating_key, secret_key)}"
-            if rating_key and base_url
-            else ""
-        )
-        media_type = row["media_type"] or "movie"
-
-        cards.append(
-            {
-                "title": title,
-                "poster_url": poster_url,
-                "deleted_date": deleted_date,
-                "file_size_bytes": row["space_reclaimed_bytes"] or 0,
-                "media_type": media_type,
-                # tmdb_id filled in below via the batched query
-                "tmdb_id": None,
-            }
-        )
+        card = _format_deleted_card(row, now, base_url, secret_key)
+        cards.append(card)
         if title is not None:
-            lookup_pairs.append((title, media_type))
+            lookup_pairs.append((title, card["media_type"]))  # type: ignore[arg-type]
 
     if not cards:
         return []

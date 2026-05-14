@@ -85,6 +85,124 @@ def _record_delivery_attempt(
         )
 
 
+def _mint_deleted_tokens(
+    items: list[DeletedNewsletterItem],
+    *,
+    email: str,
+    base_url: str,
+    secret_key: str,
+) -> None:
+    """Stamp ``redownload_url`` on each deleted item in-place.
+
+    Only mint a re-download token when we have a stable TMDB identifier;
+    without one, the /download submit endpoint would have to fall back to
+    title lookup, which can enqueue the wrong title.  When tmdb_id is
+    missing the template's ``{% if item.redownload_url %}`` guard hides
+    the button rather than render a link that would fail at submit.
+    """
+    for del_item in items:
+        item_tmdb = del_item.get("tmdb_id")
+        if base_url and item_tmdb:
+            token = generate_download_token(
+                email=email,
+                action="redownload",
+                title=del_item["title"],
+                media_type=del_item.get("media_type", "movie"),
+                tmdb_id=item_tmdb,
+                recommendation_id=None,
+                secret_key=secret_key,
+            )
+            del_item["redownload_url"] = f"{base_url}/download/{token}"
+        else:
+            del_item["redownload_url"] = ""
+
+
+def _mint_rec_tokens(
+    items: list[NewsletterRecItem],
+    *,
+    email: str,
+    base_url: str,
+    secret_key: str,
+) -> None:
+    """Stamp ``download_url`` on each recommendation item in-place."""
+    for rec_item in items:
+        if base_url:
+            token = generate_download_token(
+                email=email,
+                action="download",
+                title=rec_item["title"],
+                media_type=rec_item["media_type"],
+                tmdb_id=rec_item.get("tmdb_id"),
+                recommendation_id=rec_item.get("id"),
+                secret_key=secret_key,
+            )
+            rec_item["download_url"] = f"{base_url}/download/{token}"
+        else:
+            rec_item["download_url"] = ""
+
+
+def _render_for_recipient(
+    *,
+    email: str,
+    deleted_items: list[DeletedNewsletterItem],
+    this_week_items: list[NewsletterRecItem],
+    scheduled_items: list[ScheduledNewsletterItem],
+    storage: StorageStats,
+    reclaimed_week: int,
+    reclaimed_month: int,
+    reclaimed_total: int,
+    report_date: str,
+    base_url: str,
+    secret_key: str,
+    dry_run: bool,
+    grace_days: int,
+    template: _JinjaTemplate,
+) -> str:
+    """Mint per-recipient tokens and render the newsletter HTML.
+
+    Builds per-recipient shallow copies of deleted and recommendation items
+    so token URLs don't bleed between recipients, then mints unsubscribe and
+    download tokens before calling ``template.render``.
+
+    Returns the rendered HTML string — no side effects, no DB access.
+    """
+    unsub_token = generate_unsubscribe_token(email=email, secret_key=secret_key)
+    # The email is encoded inside the signed token — no need to expose it
+    # as a query parameter, which would leak PII into server logs.
+    unsub_url = (
+        f"{base_url}/unsubscribe?token={_url_quote(unsub_token, safe='')}" if base_url else ""
+    )
+    logger.debug("newsletter.unsub_url_minted recipient=%s", email)
+
+    # Build per-recipient shallow copies so token URLs don't bleed between recipients.
+    # Without this, recipient N's tokens overwrite recipient N-1's in the shared dicts.
+    recipient_deleted: list[DeletedNewsletterItem] = [
+        cast(DeletedNewsletterItem, dict(item)) for item in deleted_items
+    ]
+    recipient_this_week: list[NewsletterRecItem] = [
+        cast(NewsletterRecItem, dict(item)) for item in this_week_items
+    ]
+
+    _mint_deleted_tokens(recipient_deleted, email=email, base_url=base_url, secret_key=secret_key)
+    _mint_rec_tokens(recipient_this_week, email=email, base_url=base_url, secret_key=secret_key)
+
+    return template.render(
+        report_date=report_date,
+        storage=storage,
+        reclaimed_week=reclaimed_week,
+        reclaimed_month=reclaimed_month,
+        reclaimed_total=reclaimed_total,
+        scheduled_items=scheduled_items,
+        deleted_items=recipient_deleted,
+        this_week_items=recipient_this_week,
+        dashboard_url=base_url,
+        dry_run=dry_run,
+        base_url=base_url,
+        grace_days=grace_days,
+        unsubscribe_url=unsub_url,
+    )
+
+
 def _send_to_recipients(
     *,
     recipient_emails: list[str],
@@ -119,73 +237,21 @@ def _send_to_recipients(
     ]
     successfully_sent: list[str] = []
     for email in recipient_emails:
-        unsub_token = generate_unsubscribe_token(email=email, secret_key=secret_key)
-        # The email is encoded inside the signed token — no need to expose it
-        # as a query parameter, which would leak PII into server logs.
-        unsub_url = (
-            f"{base_url}/unsubscribe?token={_url_quote(unsub_token, safe='')}" if base_url else ""
-        )
-        logger.debug("newsletter.unsub_url_minted recipient=%s", email)
-
-        # Build per-recipient shallow copies so token URLs don't bleed between recipients.
-        # Without this, recipient N's tokens overwrite recipient N-1's in the shared dicts.
-        recipient_deleted: list[DeletedNewsletterItem] = [
-            cast(DeletedNewsletterItem, dict(item)) for item in deleted_items
-        ]
-        recipient_this_week: list[NewsletterRecItem] = [
-            cast(NewsletterRecItem, dict(item)) for item in this_week_items
-        ]
-
-        for del_item in recipient_deleted:
-            # Only mint a re-download token when we have a stable TMDB identifier;
-            # without one, the /download submit endpoint would have to fall back to
-            # title lookup, which can enqueue the wrong title.  When tmdb_id is
-            # missing the template's ``{% if item.redownload_url %}`` guard hides
-            # the button rather than render a link that would fail at submit.
-            item_tmdb = del_item.get("tmdb_id")
-            if base_url and item_tmdb:
-                token = generate_download_token(
-                    email=email,
-                    action="redownload",
-                    title=del_item["title"],
-                    media_type=del_item.get("media_type", "movie"),
-                    tmdb_id=item_tmdb,
-                    recommendation_id=None,
-                    secret_key=secret_key,
-                )
-                del_item["redownload_url"] = f"{base_url}/download/{token}"
-            else:
-                del_item["redownload_url"] = ""
-
-        for rec_item in recipient_this_week:
-            if base_url:
-                token = generate_download_token(
-                    email=email,
-                    action="download",
-                    title=rec_item["title"],
-                    media_type=rec_item["media_type"],
-                    tmdb_id=rec_item.get("tmdb_id"),
-                    recommendation_id=rec_item.get("id"),
-                    secret_key=secret_key,
-                )
-                rec_item["download_url"] = f"{base_url}/download/{token}"
-            else:
-                rec_item["download_url"] = ""
-
-        html = template.render(
-            report_date=report_date,
+        html = _render_for_recipient(
+            email=email,
+            deleted_items=deleted_items,
+            this_week_items=this_week_items,
+            scheduled_items=scheduled_items,
             storage=storage,
             reclaimed_week=reclaimed_week,
             reclaimed_month=reclaimed_month,
             reclaimed_total=reclaimed_total,
-            scheduled_items=scheduled_items,
-            deleted_items=recipient_deleted,
-            this_week_items=recipient_this_week,
-            dashboard_url=base_url,
-            dry_run=dry_run,
+            report_date=report_date,
             base_url=base_url,
+            secret_key=secret_key,
+            dry_run=dry_run,
             grace_days=grace_days,
-            unsubscribe_url=unsub_url,
+            template=template,
         )
         try:
             mailgun.send(to=email, subject=subject, html=html)

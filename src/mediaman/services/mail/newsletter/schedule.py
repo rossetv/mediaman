@@ -11,6 +11,58 @@ from ._time import _parse_days_ago
 from ._types import ScheduledNewsletterItem
 
 
+def _build_scheduled_card(
+    row: sqlite3.Row,
+    now: datetime,
+    base_url: str,
+    secret_key: str,
+) -> ScheduledNewsletterItem:
+    """Build one scheduled-deletion card dict from a DB row.
+
+    Computes the signed poster URL, the human-readable last-watched label,
+    and the media-type label.  Pure function — no DB access.
+    """
+    added_days_ago = _parse_days_ago(row["added_at"], now)
+    rating_key = row["plex_rating_key"] or ""
+    poster_url = (
+        f"{base_url}{sign_poster_url(rating_key, secret_key)}" if rating_key and base_url else ""
+    )
+
+    last_watched_info = None
+    lw_raw = row["last_watched_at"]
+    if lw_raw:
+        lw_days = _parse_days_ago(lw_raw, now)
+        if lw_days is not None:
+            if lw_days == 0:
+                last_watched_info = "Watched today"
+            elif lw_days == 1:
+                last_watched_info = "Watched yesterday"
+            else:
+                last_watched_info = f"Watched {lw_days} days ago"
+
+    media_type = row["media_type"] or "movie"
+    season_num = row["season_number"]
+    if media_type in ("tv_season", "season", "tv"):
+        type_label = f"TV · Season {season_num}" if season_num else "TV"
+    elif media_type in ("anime_season", "anime"):
+        type_label = f"Anime · Season {season_num}" if season_num else "Anime"
+    else:
+        type_label = "Movie"
+
+    return {
+        "title": row["title"],
+        "media_type": media_type,
+        "type_label": type_label,
+        "poster_url": poster_url,
+        "file_size_bytes": row["file_size_bytes"] or 0,
+        "added_days_ago": added_days_ago,
+        "last_watched_info": last_watched_info,
+        "keep_url": f"{base_url}/keep/{row['token']}",
+        "is_reentry": bool(row["is_reentry"]),
+        "_action_id": row["id"],
+    }
+
+
 def _load_scheduled_items(
     conn: sqlite3.Connection,
     secret_key: str,
@@ -42,52 +94,7 @@ def _load_scheduled_items(
             "WHERE sa.action='scheduled_deletion' AND sa.token_used=0"
         ).fetchall()
 
-    items: list[ScheduledNewsletterItem] = []
-    for row in rows:
-        added_days_ago = _parse_days_ago(row["added_at"], now)
-        rating_key = row["plex_rating_key"] or ""
-        poster_url = (
-            f"{base_url}{sign_poster_url(rating_key, secret_key)}"
-            if rating_key and base_url
-            else ""
-        )
-
-        last_watched_info = None
-        lw_raw = row["last_watched_at"]
-        if lw_raw:
-            lw_days = _parse_days_ago(lw_raw, now)
-            if lw_days is not None:
-                if lw_days == 0:
-                    last_watched_info = "Watched today"
-                elif lw_days == 1:
-                    last_watched_info = "Watched yesterday"
-                else:
-                    last_watched_info = f"Watched {lw_days} days ago"
-
-        media_type = row["media_type"] or "movie"
-        season_num = row["season_number"]
-        if media_type in ("tv_season", "season", "tv"):
-            type_label = f"TV · Season {season_num}" if season_num else "TV"
-        elif media_type in ("anime_season", "anime"):
-            type_label = f"Anime · Season {season_num}" if season_num else "Anime"
-        else:
-            type_label = "Movie"
-
-        items.append(
-            {
-                "title": row["title"],
-                "media_type": media_type,
-                "type_label": type_label,
-                "poster_url": poster_url,
-                "file_size_bytes": row["file_size_bytes"] or 0,
-                "added_days_ago": added_days_ago,
-                "last_watched_info": last_watched_info,
-                "keep_url": f"{base_url}/keep/{row['token']}",
-                "is_reentry": bool(row["is_reentry"]),
-                "_action_id": row["id"],
-            }
-        )
-
+    items = [_build_scheduled_card(row, now, base_url, secret_key) for row in rows]
     # Sort oldest first (most days ago at the top)
     items.sort(key=lambda x: x.get("added_days_ago") or 0, reverse=True)
     return items
