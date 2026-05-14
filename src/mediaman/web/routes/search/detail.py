@@ -141,6 +141,80 @@ def _build_arr_caches(
     return radarr_cache, sonarr_cache, sonarr_client
 
 
+def _build_detail_payload(
+    data: dict[str, Any],
+    media_type: str,
+    tmdb_id: int,
+    ratings: dict[str, str],
+    state: object,
+) -> dict[str, object]:
+    """Assemble the flat detail-card output dict from already-fetched data.
+
+    Pure transform: shapes the TMDB payload, the OMDb *ratings*, and the
+    computed download *state* into the JSON envelope the search/discover
+    UI consumes. OMDb rating fields are only added when present so the
+    client can distinguish "not rated" from "rated zero".
+    """
+    title = data.get("title") or data.get("name") or ""
+    date = data.get("release_date") or data.get("first_air_date") or ""
+    year = int(date[:4]) if date[:4].isdigit() else None
+
+    runtime, director, cast = _extract_credits(data, media_type)
+    trailer_key = _pick_trailer((data.get("videos") or {}).get("results") or [])
+
+    out: dict[str, object] = {
+        "tmdb_id": tmdb_id,
+        "media_type": media_type,
+        "title": title,
+        "year": year,
+        "tagline": data.get("tagline") or None,
+        "description": data.get("overview") or "",
+        "poster_url": _poster_url(data.get("poster_path")),
+        "backdrop_url": f"{_BACKDROP_BASE}{data['backdrop_path']}"
+        if data.get("backdrop_path")
+        else None,
+        "runtime": runtime,
+        "genres": [g["name"] for g in data.get("genres", [])],
+        "director": director,
+        "cast": cast,
+        "trailer_key": trailer_key,
+        "rating_tmdb": round(data["vote_average"], 1) if data.get("vote_average") else None,
+        "download_state": state,
+    }
+    if "imdb" in ratings:
+        out["rating_imdb"] = ratings["imdb"]
+    if "rt" in ratings:
+        out["rating_rt"] = ratings["rt"]
+    if "metascore" in ratings:
+        out["rating_metascore"] = ratings["metascore"]
+    return out
+
+
+def _build_seasons_block(
+    data: dict[str, Any], sonarr_info: _SonarrDetail
+) -> tuple[bool, list[dict[str, object]]]:
+    """Build the TV-only ``(sonarr_tracked, seasons)`` pair.
+
+    Season zero (specials) is filtered out; each season is flagged
+    ``in_library`` against the Sonarr-tracked season set.
+    """
+    seasons_in_lib = sonarr_info["seasons_in_library"]
+    seasons = [
+        {
+            "season_number": s["season_number"],
+            "name": s.get("name") or f"Season {s['season_number']}",
+            "episode_count": s.get("episode_count", 0),
+            "year": int(s["air_date"][:4])
+            if s.get("air_date") and s["air_date"][:4].isdigit()
+            else None,
+            "in_library": s["season_number"] in seasons_in_lib,
+        }
+        for s in data.get("seasons", [])
+        if s.get("season_number", 0) > 0
+    ]
+    return sonarr_info["tracked"], seasons
+
+
 @router.get("/api/search/detail/{media_type}/{tmdb_id}")
 def api_detail(
     media_type: str,
@@ -177,68 +251,27 @@ def api_detail(
     if raw_data is None:
         return respond_err("tmdb_request_failed", status=502)
     # rationale: ``TmdbClient.details`` returns ``dict[str, object]`` to
-    # describe the TMDB payload generically; this handler reads dozens of
-    # well-known TMDB fields below (title, release_date, runtime, credits,
-    # videos, seasons, ...).  A TypedDict for the full TMDB detail
-    # response would mirror the dozens of fields TMDB ships across movies
-    # and TV — far more than the ones mediaman reads.  Each access below
-    # is guarded by ``.get()`` and isinstance/type checks before use.
+    # describe the TMDB payload generically; the handler and its payload
+    # helpers read dozens of well-known TMDB fields (title, release_date,
+    # runtime, credits, videos, seasons, ...).  A TypedDict for the full
+    # TMDB detail response would mirror the dozens of fields TMDB ships
+    # across movies and TV — far more than the ones mediaman reads.  Each
+    # access is guarded by ``.get()`` and isinstance/type checks before use.
     data = _cast(dict[str, Any], raw_data)
 
-    title = data.get("title") or data.get("name") or ""
     date = data.get("release_date") or data.get("first_air_date") or ""
     year = int(date[:4]) if date[:4].isdigit() else None
-
-    runtime, director, cast = _extract_credits(data, media_type)
-    trailer_key = _pick_trailer((data.get("videos") or {}).get("results") or [])
+    title = data.get("title") or data.get("name") or ""
     ratings = fetch_ratings(title, year, media_type, conn=conn, secret_key=secret_key)
 
     radarr_cache, sonarr_cache, sonarr_client = _build_arr_caches(conn, secret_key, media_type)
     caches: ArrCaches = {**radarr_cache, **sonarr_cache}
     state = compute_download_state(media_type, tmdb_id, caches)
 
-    out: dict[str, object] = {
-        "tmdb_id": tmdb_id,
-        "media_type": media_type,
-        "title": title,
-        "year": year,
-        "tagline": data.get("tagline") or None,
-        "description": data.get("overview") or "",
-        "poster_url": _poster_url(data.get("poster_path")),
-        "backdrop_url": f"{_BACKDROP_BASE}{data['backdrop_path']}"
-        if data.get("backdrop_path")
-        else None,
-        "runtime": runtime,
-        "genres": [g["name"] for g in data.get("genres", [])],
-        "director": director,
-        "cast": cast,
-        "trailer_key": trailer_key,
-        "rating_tmdb": round(data["vote_average"], 1) if data.get("vote_average") else None,
-        "download_state": state,
-    }
-    if "imdb" in ratings:
-        out["rating_imdb"] = ratings["imdb"]
-    if "rt" in ratings:
-        out["rating_rt"] = ratings["rt"]
-    if "metascore" in ratings:
-        out["rating_metascore"] = ratings["metascore"]
+    out = _build_detail_payload(data, media_type, tmdb_id, ratings, state)
 
     if media_type == "tv":
         sonarr_info = _fetch_sonarr_series_detail(tmdb_id, sonarr_cache, sonarr_client)
-        out["sonarr_tracked"] = sonarr_info["tracked"]
-        seasons_in_lib = sonarr_info["seasons_in_library"]
-        out["seasons"] = [
-            {
-                "season_number": s["season_number"],
-                "name": s.get("name") or f"Season {s['season_number']}",
-                "episode_count": s.get("episode_count", 0),
-                "year": int(s["air_date"][:4])
-                if s.get("air_date") and s["air_date"][:4].isdigit()
-                else None,
-                "in_library": s["season_number"] in seasons_in_lib,
-            }
-            for s in data.get("seasons", [])
-            if s.get("season_number", 0) > 0
-        ]
+        out["sonarr_tracked"], out["seasons"] = _build_seasons_block(data, sonarr_info)
 
     return JSONResponse(out)

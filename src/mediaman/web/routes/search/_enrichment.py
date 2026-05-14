@@ -16,7 +16,12 @@ import sqlite3
 import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
+from concurrent.futures import (
+    CancelledError,
+    Future,
+    ThreadPoolExecutor,
+    as_completed,
+)
 from datetime import timedelta
 from functools import lru_cache
 
@@ -36,7 +41,11 @@ from mediaman.services.arr.state import (
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.omdb import fetch_ratings, get_omdb_key
 from mediaman.services.rate_limit import ActionRateLimiter
-from mediaman.web.repository.search import fetch_ratings_cache, upsert_ratings_cache
+from mediaman.web.repository.search import (
+    RatingsCacheRow,
+    fetch_ratings_cache,
+    upsert_ratings_cache,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +189,101 @@ def _annotate_states(results: list[dict[str, object]], request: Request) -> None
 # cost is on ``as_completed`` itself.
 _ENRICH_BUDGET_SECONDS = 6.0
 
+# Type alias for the ``(key, group)`` pairs threaded through the ratings
+# fan-out: a ``(tmdb_id, media_type)`` key and the result dicts sharing it.
+_RatingsKeyGroup = tuple[tuple[int, str], list[dict[str, object]]]
+# What a single ratings future resolves to: the key, its group, and the
+# ratings dict fetched from OMDb (empty on a fetch failure).
+_RatingsFetchResult = tuple[tuple[int, str], list[dict[str, object]], dict[str, str]]
+
+
+def _apply_ratings(group: list[dict[str, object]], rt: str | None, imdb: str | None) -> None:
+    """Stamp RT / IMDb ratings onto every result dict in *group*."""
+    for item in group:
+        if rt:
+            item["rt_rating"] = rt
+        if imdb:
+            item["imdb_rating"] = imdb
+
+
+def _partition_cached(
+    by_key: dict[tuple[int, str], list[dict[str, object]]],
+    rows: list[RatingsCacheRow],
+    cutoff: str,
+) -> list[_RatingsKeyGroup]:
+    """Split groups into cache hits (applied in place) and misses (returned).
+
+    For each ``(key, group)`` a fresh-enough cache row has its ratings
+    applied to the group immediately; everything else is collected as a
+    miss for the OMDb fan-out.
+    """
+    misses: list[_RatingsKeyGroup] = []
+    for key, group in by_key.items():
+        cached = next((r for r in rows if r.tmdb_id == key[0] and r.media_type == key[1]), None)
+        if cached and cached.fetched_at >= cutoff:
+            _apply_ratings(group, rt=cached.rt_rating, imdb=cached.imdb_rating)
+        else:
+            misses.append((key, group))
+    return misses
+
+
+def _fetch_ratings_for_group(
+    key_group: _RatingsKeyGroup, omdb_key: str | None
+) -> _RatingsFetchResult:
+    """Fetch OMDb ratings for one miss group; runs on the enrichment pool.
+
+    Returns ``(key, group, data)`` where *data* is the ratings dict (empty
+    on any fetch failure — a single bad lookup must not abort the fan-out).
+    """
+    key, group = key_group
+    probe = group[0]
+    try:
+        year_raw = probe.get("year")
+        year_int: int | None = year_raw if isinstance(year_raw, int) else None
+        data: dict[str, str] = fetch_ratings(
+            str(probe["title"]),
+            year_int,
+            str(probe["media_type"]),
+            omdb_key=omdb_key,
+        )
+    except (SafeHTTPError, _requests.RequestException, ValueError, TypeError):
+        logger.debug("Ratings fetch failed for %r — skipping", probe["title"], exc_info=True)
+        data = {}
+    return key, group, data
+
+
+def _drain_futures(
+    futures: list[Future[_RatingsFetchResult]], now_iso: str
+) -> list[tuple[int, str, str | None, str | None, str | None, str]]:
+    """Collect completed ratings futures within the wall-clock budget.
+
+    Applies each completed result to its group and returns the rows to
+    batch-write to the cache. The ``as_completed(timeout=...)`` budget is
+    the wall-clock bound; on ``TimeoutError`` anything not done is dropped
+    silently — but cached results from the misses that *did* complete are
+    still returned so they're warm for the next call.
+    """
+    pending_writes: list[tuple[int, str, str | None, str | None, str | None, str]] = []
+    try:
+        for fut in as_completed(futures, timeout=_ENRICH_BUDGET_SECONDS):
+            try:
+                key, group, data = fut.result()
+            except (SafeHTTPError, _requests.RequestException, ValueError, CancelledError):
+                continue
+            rt = data.get("rt")
+            imdb = data.get("imdb")
+            meta = data.get("metascore")
+            _apply_ratings(group, rt=rt, imdb=imdb)
+            pending_writes.append((key[0], key[1], imdb, rt, meta, now_iso))
+    except TimeoutError:
+        logger.debug(
+            "ratings enrichment timed out after %.1fs (%d/%d futures complete)",
+            _ENRICH_BUDGET_SECONDS,
+            sum(1 for f in futures if f.done()),
+            len(futures),
+        )
+    return pending_writes
+
 
 def _enrich_ratings(results: list[dict[str, object]], request: Request) -> None:
     conn = get_db()
@@ -196,23 +300,8 @@ def _enrich_ratings(results: list[dict[str, object]], request: Request) -> None:
     if not by_key:
         return
 
-    def _apply(group: list[dict[str, object]], rt: str | None, imdb: str | None) -> None:
-        for item in group:
-            if rt:
-                item["rt_rating"] = rt
-            if imdb:
-                item["imdb_rating"] = imdb
-
     rows = fetch_ratings_cache(conn, list(by_key.keys()))
-
-    misses: list[tuple[tuple[int, str], list[dict[str, object]]]] = []
-    for key, group in by_key.items():
-        cached = next((r for r in rows if r.tmdb_id == key[0] and r.media_type == key[1]), None)
-        if cached and cached.fetched_at >= cutoff:
-            _apply(group, rt=cached.rt_rating, imdb=cached.imdb_rating)
-        else:
-            misses.append((key, group))
-
+    misses = _partition_cached(by_key, rows, cutoff)
     if not misses:
         return
 
@@ -220,49 +309,11 @@ def _enrich_ratings(results: list[dict[str, object]], request: Request) -> None:
     # cross thread boundaries.
     resolved_omdb_key = get_omdb_key(conn, secret_key)
 
-    def fetch(
-        key_group: tuple[tuple[int, str], list[dict[str, object]]],
-    ) -> tuple[tuple[int, str], list[dict[str, object]], dict[str, str]]:
-        key, group = key_group
-        probe = group[0]
-        try:
-            year_raw = probe.get("year")
-            year_int: int | None = year_raw if isinstance(year_raw, int) else None
-            data: dict[str, str] = fetch_ratings(
-                str(probe["title"]),
-                year_int,
-                str(probe["media_type"]),
-                omdb_key=resolved_omdb_key,
-            )
-        except (SafeHTTPError, _requests.RequestException, ValueError, TypeError):
-            logger.debug("Ratings fetch failed for %r — skipping", probe["title"], exc_info=True)
-            data = {}
-        return key, group, data
-
     now_iso = _now_iso()
-    futures = [_get_executor().submit(fetch, kg) for kg in misses]
-    pending_writes: list[tuple[int, str, str | None, str | None, str | None, str]] = []
-    try:
-        for fut in as_completed(futures, timeout=_ENRICH_BUDGET_SECONDS):
-            try:
-                key, group, data = fut.result()
-            except (SafeHTTPError, _requests.RequestException, ValueError, CancelledError):
-                continue
-            rt = data.get("rt")
-            imdb = data.get("imdb")
-            meta = data.get("metascore")
-            _apply(group, rt=rt, imdb=imdb)
-            pending_writes.append((key[0], key[1], imdb, rt, meta, now_iso))
-    except TimeoutError:
-        # Budget exhausted — anything not done is dropped silently;
-        # cached results from the misses that did complete are still
-        # written below so they're warm for the next call.
-        logger.debug(
-            "ratings enrichment timed out after %.1fs (%d/%d futures complete)",
-            _ENRICH_BUDGET_SECONDS,
-            sum(1 for f in futures if f.done()),
-            len(futures),
-        )
+    futures = [
+        _get_executor().submit(_fetch_ratings_for_group, kg, resolved_omdb_key) for kg in misses
+    ]
+    pending_writes = _drain_futures(futures, now_iso)
     if pending_writes:
         try:
             upsert_ratings_cache(conn, pending_writes)

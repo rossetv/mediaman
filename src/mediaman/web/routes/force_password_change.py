@@ -22,6 +22,7 @@ up front what they need.
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import cast
 
 from fastapi import APIRouter, Form, Request
@@ -86,6 +87,88 @@ def force_change_page(request: Request) -> Response:
     )
 
 
+def _validate_force_change_inputs(
+    username: str,
+    old_password: str,
+    new_password: str,
+    confirm_password: str,
+) -> str | list[str] | None:
+    """Run the field-presence, password-match, and strength guards.
+
+    Returns ``None`` when the inputs are acceptable, an error string for
+    the field-presence / mismatch failures, or a list of policy issues
+    when the new password fails the strength policy. Strength is checked
+    last — no point touching bcrypt if the input fails the cheaper
+    guards first.
+    """
+    if not old_password or not new_password:
+        return "Please fill in every field."
+
+    if new_password != confirm_password:
+        return "The two new passwords don't match."
+
+    issues = password_issues(new_password, username=username)
+    if issues:
+        return issues
+
+    return None
+
+
+def _rotate_and_reissue(
+    conn: sqlite3.Connection,
+    username: str,
+    old_password: str,
+    new_password: str,
+    client_ip: str,
+    request: Request,
+) -> str | None:
+    """Rotate the credential via bcrypt and mint a fresh session.
+
+    Returns the new session token on success, or ``None`` when the old
+    password was wrong (the failure is audited here before returning so
+    the caller only has to re-render the form).
+
+    ``change_password`` invalidates every session for the user, so a
+    fresh one is minted here so the admin lands on the dashboard logged
+    in under the new credential.
+    """
+    ok = change_password(
+        conn,
+        username,
+        old_password,
+        new_password,
+        audit_actor=username,
+        audit_ip=client_ip,
+        audit_event="password.force_changed",
+    )
+
+    if not ok:
+        logger.info(
+            "force_password_change.wrong_old user=%s ip=%s",
+            username,
+            client_ip,
+        )
+        security_event(
+            conn,
+            event="password.force_change_failed",
+            actor=username,
+            ip=client_ip,
+            detail={"reason": "wrong_old_password"},
+        )
+        return None
+
+    from mediaman.web.auth.session_store import (
+        create_session,  # late import: test patches the owning module
+    )
+
+    return create_session(
+        conn,
+        username,
+        user_agent=request.headers.get("user-agent", ""),
+        client_ip=client_ip,
+    )
+
+
 @router.post("/force-password-change", response_class=HTMLResponse)
 def force_change_submit(
     request: Request,
@@ -126,61 +209,25 @@ def force_change_submit(
         )
         return _render(error="Too many attempts — wait a moment and try again.")
 
-    if not old_password or not new_password:
-        return _render(error="Please fill in every field.")
-
-    if new_password != confirm_password:
-        return _render(error="The two new passwords don't match.")
-
-    # Validate strength first — no point touching bcrypt if the input
-    # fails the policy.
-    issues = password_issues(new_password, username=username)
-    if issues:
-        return _render(issues=issues)
+    validation = _validate_force_change_inputs(
+        username, old_password, new_password, confirm_password
+    )
+    if isinstance(validation, list):
+        return _render(issues=validation)
+    if validation is not None:
+        return _render(error=validation)
 
     try:
-        ok = change_password(
-            conn,
-            username,
-            old_password,
-            new_password,
-            audit_actor=username,
-            audit_ip=client_ip,
-            audit_event="password.force_changed",
+        new_token = _rotate_and_reissue(
+            conn, username, old_password, new_password, client_ip, request
         )
     except ValueError:
         # Policy-enforced inside change_password — should be caught by
         # the earlier issues check, but belt-and-braces.
         return _render(error="Password does not meet the strength policy.")
 
-    if not ok:
-        logger.info(
-            "force_password_change.wrong_old user=%s ip=%s",
-            username,
-            client_ip,
-        )
-        security_event(
-            conn,
-            event="password.force_change_failed",
-            actor=username,
-            ip=client_ip,
-            detail={"reason": "wrong_old_password"},
-        )
+    if new_token is None:
         return _render(error="Current password is incorrect.")
-
-    # change_password invalidates every session for the user; we need
-    # to issue a fresh one so the admin lands on the dashboard logged
-    # in under the new credential.
-    from mediaman.web.auth.session_store import (
-        create_session,  # late import: test patches the owning module
-    )
-
-    new_token = create_session(
-        conn,
-        username,
-        user_agent=request.headers.get("user-agent", ""),
-        client_ip=client_ip,
-    )
 
     response = RedirectResponse("/", status_code=302)
     set_session_cookie(response, new_token, secure=is_request_secure(request))
