@@ -194,37 +194,26 @@ def _host_in_allowlist(hostname: str, allowed_hosts: frozenset[str] | set[str]) 
     return h in {a.lower().rstrip(".") for a in allowed_hosts}
 
 
-def resolve_safe_outbound_url(
-    url: str,
-    *,
-    strict_egress: bool | None = None,
-    allowed_hosts: frozenset[str] | set[str] | None = None,
-) -> tuple[bool, str | None, str | None]:
-    """Validate *url* and return a pinned IP for the eventual connection.
+def _parse_and_normalise(url: str) -> tuple[bool, str | None, str | None]:
+    """Parse and IDN-normalise *url*, applying the DNS-free reject rules.
 
-    Returns ``(safe, hostname, pinned_ip)``:
+    Returns ``(ok, host, None)`` mirroring
+    :func:`resolve_safe_outbound_url`'s ``(safe, hostname, pinned_ip)``
+    shape so the caller can forward a reject verbatim:
 
-    * ``safe`` — ``True`` only if every check in
-      :func:`is_safe_outbound_url` passes.
-    * ``hostname`` — the IDN-normalised hostname from the URL, or
-      ``None`` if the URL was malformed before host extraction. Useful
-      to the caller for installing a host-specific DNS pin.
-    * ``pinned_ip`` — the **validated** address that the eventual
-      connection must use, or ``None`` if no pin is required (URL
-      already contains a literal IP, or the URL was rejected). When
-      present, callers must connect to this exact address rather than
-      re-resolving the hostname — that's the DNS-rebinding defence.
+    * On rejection, ``ok`` is ``False`` and the second element is the
+      hostname to attribute — ``None`` when the URL was malformed before
+      host extraction, the **raw** hostname for a pre-IDN metadata-name
+      hit or an IDN-normalisation failure, the **normalised** hostname for
+      a post-IDN metadata-name hit. ``pinned_ip`` is always ``None``.
+    * On success, ``ok`` is ``True`` and the second element is the
+      IDN-normalised hostname the caller continues with.
 
-    When *allowed_hosts* is provided, the URL's hostname must appear in
-    that set (after IDN normalisation) **or** in
-    :data:`PINNED_EXTERNAL_HOSTS`, otherwise the URL is refused even if
-    the deny-list checks would pass. Pass ``None`` (the default) to
-    skip the allowlist check; pass an empty set to refuse every host
-    except the pinned externals.
-
-    The function is the single place in the codebase that performs
-    SSRF safety analysis; :func:`is_safe_outbound_url` simply discards
-    everything but the bool.
+    Covers, in order: empty/type check, parse, scheme check, userinfo
+    rejection, hostname extraction, the pre-IDN metadata-name check, IDN
+    normalisation, and the post-IDN metadata-name check. These are all the
+    checks that can be made without touching the resolver — keeping them
+    ahead of any ``getaddrinfo`` call is the documented fail-fast property.
     """
     if not url or not isinstance(url, str):
         return False, None, None
@@ -247,8 +236,6 @@ def resolve_safe_outbound_url(
     if not hostname:
         return False, None, None
 
-    strict = _strict_egress_enabled(strict_egress)
-
     # Block hostnames whose name alone is a red flag, before any DNS.
     if _host_is_metadata(hostname):
         return False, hostname, None
@@ -260,14 +247,35 @@ def resolve_safe_outbound_url(
     if _host_is_metadata(normalised):
         return False, normalised, None
 
-    # Allowlist check sits between the cheap parse-level rules and the
-    # expensive DNS lookups, so a refused host fails fast without
-    # touching ``socket.getaddrinfo``. We test against the IDN-
-    # normalised form so a Unicode lookalike (cyrillic 'а' in
-    # ``radarr.local``) cannot smuggle past an ASCII allowlist entry.
-    if allowed_hosts is not None and not _host_in_allowlist(normalised, allowed_hosts):
-        return False, normalised, None
+    return True, normalised, None
 
+
+def _check_literal_or_resolved(
+    normalised: str,
+    *,
+    strict: bool,
+) -> tuple[bool, str | None, str | None]:
+    """Resolve *normalised* to a validated pin, or reject it.
+
+    Returns the final ``(safe, hostname, pinned_ip)`` for the IP-level
+    portion of :func:`resolve_safe_outbound_url`. *normalised* has already
+    passed every DNS-free check; this is the part that may touch the
+    resolver.
+
+    Two branches, in the original order:
+
+    * **Literal IP** — when *normalised* is itself an IP literal, it is
+      checked directly against the deny-list (no DNS). A safe literal is
+      pinned to itself: modern urllib3 still calls
+      ``getaddrinfo("192.0.2.1", port)`` to build the connection tuple, so
+      pinning the literal short-circuits a process-wide monkeypatched
+      resolver that could otherwise redirect the connect.
+    * **Hostname** — resolved via ``socket.getaddrinfo``; rejected if it
+      fails to resolve at all, or if *any* returned address is blocked.
+      The first safe address is pinned (every returned address has already
+      been confirmed safe — the first is chosen for stability across
+      calls).
+    """
     # Literal IP in the URL → check directly, skip DNS.
     try:
         ip = ipaddress.ip_address(normalised)
@@ -304,6 +312,64 @@ def resolve_safe_outbound_url(
     # caller installs this in a thread-local DNS pin so the eventual
     # ``socket.getaddrinfo`` returns the same address we just verified.
     return True, normalised, str(addrs[0])
+
+
+def resolve_safe_outbound_url(
+    url: str,
+    *,
+    strict_egress: bool | None = None,
+    allowed_hosts: frozenset[str] | set[str] | None = None,
+) -> tuple[bool, str | None, str | None]:
+    """Validate *url* and return a pinned IP for the eventual connection.
+
+    Returns ``(safe, hostname, pinned_ip)``:
+
+    * ``safe`` — ``True`` only if every check in
+      :func:`is_safe_outbound_url` passes.
+    * ``hostname`` — the IDN-normalised hostname from the URL, or
+      ``None`` if the URL was malformed before host extraction. Useful
+      to the caller for installing a host-specific DNS pin.
+    * ``pinned_ip`` — the **validated** address that the eventual
+      connection must use, or ``None`` if no pin is required (URL
+      already contains a literal IP, or the URL was rejected). When
+      present, callers must connect to this exact address rather than
+      re-resolving the hostname — that's the DNS-rebinding defence.
+
+    When *allowed_hosts* is provided, the URL's hostname must appear in
+    that set (after IDN normalisation) **or** in
+    :data:`PINNED_EXTERNAL_HOSTS`, otherwise the URL is refused even if
+    the deny-list checks would pass. Pass ``None`` (the default) to
+    skip the allowlist check; pass an empty set to refuse every host
+    except the pinned externals.
+
+    The function is the single place in the codebase that performs
+    SSRF safety analysis; :func:`is_safe_outbound_url` simply discards
+    everything but the bool. The ordering — DNS-free parse-level rejects
+    (:func:`_parse_and_normalise`), then the allowlist check, then the
+    IP-level checks that may touch the resolver
+    (:func:`_check_literal_or_resolved`) — is itself a security property:
+    a refused host fails fast without ever reaching ``getaddrinfo``.
+    """
+    ok, normalised, _ = _parse_and_normalise(url)
+    if not ok:
+        # ``_parse_and_normalise`` already shaped the reject tuple
+        # (malformed → ``None`` host; metadata-name hit → the attributed
+        # hostname), and ``pinned_ip`` is always ``None`` on its rejects.
+        return ok, normalised, None
+    # ``ok`` is True ⇒ ``normalised`` is the IDN-normalised hostname.
+    assert normalised is not None
+
+    strict = _strict_egress_enabled(strict_egress)
+
+    # Allowlist check sits between the cheap parse-level rules and the
+    # expensive DNS lookups, so a refused host fails fast without
+    # touching ``socket.getaddrinfo``. We test against the IDN-
+    # normalised form so a Unicode lookalike (cyrillic 'а' in
+    # ``radarr.local``) cannot smuggle past an ASCII allowlist entry.
+    if allowed_hosts is not None and not _host_in_allowlist(normalised, allowed_hosts):
+        return False, normalised, None
+
+    return _check_literal_or_resolved(normalised, strict=strict)
 
 
 def is_safe_outbound_url(

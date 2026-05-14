@@ -33,6 +33,7 @@ import logging
 import random
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC
 from typing import Literal
 from urllib.parse import urlparse
@@ -173,6 +174,159 @@ def _compute_delay(
     return _RETRY_BACKOFFS[-1]
 
 
+@dataclass
+class _LoopState:
+    """Carry-over state mutated across :func:`dispatch_loop` iterations.
+
+    These four fields are the only state that survives between attempts and
+    therefore must be threaded through the per-step helpers verbatim:
+
+    * ``last_exc`` — the most recent transport exception, re-raised if every
+      attempt failed at the transport layer.
+    * ``last_status`` / ``last_snippet`` — the status code and body snippet of
+      the most recent *retryable* response, used to build the final error
+      once the attempt budget is exhausted on a retryable status.
+    * ``consecutive_5xx`` — running count of back-to-back 5xx responses,
+      driving the ``abort_after_consecutive_5xx`` early-abort policy. A
+      transport error resets it to ``0``; a non-5xx retryable status (429)
+      also resets it; a 5xx increments it.
+    """
+
+    last_exc: Exception | None = None
+    last_status: int | None = None
+    last_snippet: str = ""
+    consecutive_5xx: int = 0
+
+
+def _handle_transport_error(
+    exc: Exception,
+    *,
+    method: str,
+    url: str,
+    attempt: int,
+    attempts: int,
+    jitter_strategy: Literal["fixed", "full"],
+    make_error: Callable[..., Exception],
+    state: _LoopState,
+) -> None:
+    """Handle a transport-layer exception raised by ``dispatch_fn``.
+
+    Records the exception on *state*, resets the consecutive-5xx streak (a
+    transport error breaks any 5xx run), then either sleeps and returns — so
+    the caller's loop ``continue``s to the next attempt — or, when the attempt
+    budget is exhausted, raises the ``make_error`` exception. The behaviour is
+    identical to the inline ``except _RETRYABLE_EXCEPTIONS`` block it replaces.
+    """
+    logger.warning(
+        "HTTP %s %s transport error: %s",
+        method,
+        _safe_path(url),
+        type(exc).__name__,
+    )
+    state.last_exc = exc
+    # Transport errors break any consecutive-5xx streak.
+    state.consecutive_5xx = 0
+    if attempt + 1 < attempts:
+        time.sleep(_compute_delay(attempt, jitter_strategy=jitter_strategy))
+        return
+    raise make_error(
+        status_code=0,
+        body_snippet=f"transport error: {type(exc).__name__}",
+        url=url,
+    ) from exc
+
+
+def _handle_retryable_status(
+    response: requests.Response,
+    body: bytes,
+    *,
+    method: str,
+    url: str,
+    attempt: int,
+    attempts: int,
+    jitter_strategy: Literal["fixed", "full"],
+    abort_after_consecutive_5xx: int | None,
+    make_error: Callable[..., Exception],
+    state: _LoopState,
+) -> None:
+    """Handle a retryable status code (429/5xx) when more attempts remain.
+
+    Maintains the ``consecutive_5xx`` counter on *state*, enforces the
+    ``abort_after_consecutive_5xx`` early-abort policy (raising ``make_error``
+    when the threshold is hit), honours a ``Retry-After`` header on 429/503,
+    sleeps for the resulting delay, and finally records ``last_status`` /
+    ``last_snippet`` on *state* so the post-loop branch can build the final
+    error. On return the caller's loop ``continue``s to the next attempt. The
+    body is logic-identical to the inline retryable-status block it replaces.
+
+    Only called when ``response.status_code`` is in the retryable set *and*
+    ``attempt + 1 < attempts``.
+    """
+    logger.warning(
+        "HTTP %s %s returned %s — retrying",
+        method,
+        _safe_path(url),
+        response.status_code,
+    )
+    # Maintain the consecutive-5xx counter for early-abort callers.
+    if 500 <= response.status_code < 600:
+        state.consecutive_5xx += 1
+    else:
+        state.consecutive_5xx = 0
+    if (
+        abort_after_consecutive_5xx is not None
+        and state.consecutive_5xx >= abort_after_consecutive_5xx
+    ):
+        logger.warning(
+            "HTTP %s %s: %d consecutive 5xx — aborting retries",
+            method,
+            _safe_path(url),
+            state.consecutive_5xx,
+        )
+        snippet = _snippet(body)
+        response.close()
+        raise make_error(
+            status_code=response.status_code,
+            body_snippet=snippet,
+            url=url,
+        )
+    response.close()
+    # Honour ``Retry-After`` on 429/503; fall back to the schedule.
+    delay = _compute_delay(attempt, jitter_strategy=jitter_strategy)
+    if response.status_code in _RETRY_AFTER_STATUSES:
+        advised = _retry_after_seconds(response.headers.get("Retry-After"))
+        if advised is not None:
+            delay = advised
+    time.sleep(delay)
+    state.last_status = response.status_code
+    state.last_snippet = _snippet(body)
+
+
+def _finalise_response(
+    response: requests.Response,
+    body: bytes,
+    *,
+    url: str,
+    make_error: Callable[..., Exception],
+) -> requests.Response:
+    """Return *response* on a 2xx status, or raise ``make_error`` otherwise.
+
+    Reached once a response is neither a transport error nor a retryable
+    status with attempts left (either it is a 2xx, a non-retryable status, or
+    a retryable status on the final attempt). Behaviour is identical to the
+    inline non-2xx raise / ``return response`` it replaces.
+    """
+    if not (200 <= response.status_code < 300):
+        snippet = _snippet(body)
+        response.close()
+        raise make_error(
+            status_code=response.status_code,
+            body_snippet=snippet,
+            url=url,
+        )
+    return response
+
+
 def dispatch_loop(
     *,
     dispatch_fn: Callable[[], requests.Response],
@@ -192,6 +346,12 @@ def dispatch_loop(
     Retry policy: up to ``attempts`` total attempts, with backoff between attempts
     determined by *jitter_strategy*.  Honours ``Retry-After`` on 429/503 responses
     (delta-seconds and HTTP-date forms, capped to 60 seconds).
+
+    The loop body reads as three named steps — transport-error handling
+    (:func:`_handle_transport_error`), retryable-status handling
+    (:func:`_handle_retryable_status`), and the final non-2xx raise / success
+    return (:func:`_finalise_response`) — with the cross-iteration carry-over
+    state held in a single :class:`_LoopState`.
 
     Args:
         dispatch_fn: Zero-arg callable that issues a single HTTP request and
@@ -226,32 +386,23 @@ def dispatch_loop(
         Exception: Produced by *make_error* on non-2xx final status or transport error.
     """
     retryable = retryable_statuses or _RETRYABLE_STATUSES
-    last_exc: Exception | None = None
-    last_status: int | None = None
-    last_snippet: str = ""
-    consecutive_5xx = 0
+    state = _LoopState()
 
     for attempt in range(attempts):
         try:
             response = dispatch_fn()
         except _RETRYABLE_EXCEPTIONS as exc:
-            logger.warning(
-                "HTTP %s %s transport error: %s",
-                method,
-                _safe_path(url),
-                type(exc).__name__,
-            )
-            last_exc = exc
-            # Transport errors break any consecutive-5xx streak.
-            consecutive_5xx = 0
-            if attempt + 1 < attempts:
-                time.sleep(_compute_delay(attempt, jitter_strategy=jitter_strategy))
-                continue
-            raise make_error(
-                status_code=0,
-                body_snippet=f"transport error: {type(exc).__name__}",
+            _handle_transport_error(
+                exc,
+                method=method,
                 url=url,
-            ) from exc
+                attempt=attempt,
+                attempts=attempts,
+                jitter_strategy=jitter_strategy,
+                make_error=make_error,
+                state=state,
+            )
+            continue
 
         try:
             body = read_fn(response)
@@ -275,67 +426,32 @@ def dispatch_loop(
         response._content_consumed = True  # type: ignore[attr-defined]
 
         if response.status_code in retryable and attempt + 1 < attempts:
-            logger.warning(
-                "HTTP %s %s returned %s — retrying",
-                method,
-                _safe_path(url),
-                response.status_code,
+            _handle_retryable_status(
+                response,
+                body,
+                method=method,
+                url=url,
+                attempt=attempt,
+                attempts=attempts,
+                jitter_strategy=jitter_strategy,
+                abort_after_consecutive_5xx=abort_after_consecutive_5xx,
+                make_error=make_error,
+                state=state,
             )
-            # Maintain the consecutive-5xx counter for early-abort callers.
-            if 500 <= response.status_code < 600:
-                consecutive_5xx += 1
-            else:
-                consecutive_5xx = 0
-            if (
-                abort_after_consecutive_5xx is not None
-                and consecutive_5xx >= abort_after_consecutive_5xx
-            ):
-                logger.warning(
-                    "HTTP %s %s: %d consecutive 5xx — aborting retries",
-                    method,
-                    _safe_path(url),
-                    consecutive_5xx,
-                )
-                snippet = _snippet(body)
-                response.close()
-                raise make_error(
-                    status_code=response.status_code,
-                    body_snippet=snippet,
-                    url=url,
-                )
-            response.close()
-            # Honour ``Retry-After`` on 429/503; fall back to the schedule.
-            delay = _compute_delay(attempt, jitter_strategy=jitter_strategy)
-            if response.status_code in _RETRY_AFTER_STATUSES:
-                advised = _retry_after_seconds(response.headers.get("Retry-After"))
-                if advised is not None:
-                    delay = advised
-            time.sleep(delay)
-            last_status = response.status_code
-            last_snippet = _snippet(body)
             continue
 
-        if not (200 <= response.status_code < 300):
-            snippet = _snippet(body)
-            response.close()
-            raise make_error(
-                status_code=response.status_code,
-                body_snippet=snippet,
-                url=url,
-            )
-
-        return response
+        return _finalise_response(response, body, url=url, make_error=make_error)
 
     # All retries exhausted on a retryable status.
-    if last_status is not None:
+    if state.last_status is not None:
         raise make_error(
-            status_code=last_status,
-            body_snippet=last_snippet,
+            status_code=state.last_status,
+            body_snippet=state.last_snippet,
             url=url,
         )
     # Should be unreachable; keeps mypy happy.
-    assert last_exc is not None
-    raise last_exc
+    assert state.last_exc is not None
+    raise state.last_exc
 
 
 # Re-export for callers that import constants directly.
