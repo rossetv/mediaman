@@ -10,6 +10,15 @@ purpose label.  Adding a new token type means adding one purpose
 constant plus one ``generate_*`` / ``validate_*`` pair.
 """
 
+# rationale: one cohesive signing module — the TypedDict payload definitions,
+# the per-purpose purpose constants, the sub-key cache, and the
+# _encode_signed/_validate_signed primitives are all tightly coupled.
+# Splitting TypedDicts to _token_types.py and HMAC primitives to
+# _token_hmac.py would scatter the type contract from the signing
+# implementation without reducing complexity; every caller would still
+# import from both. The file sits at 429 lines — within the 500-line
+# ceiling — so a forced split is not justified.
+
 from __future__ import annotations
 
 import base64
