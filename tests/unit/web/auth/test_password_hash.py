@@ -317,7 +317,7 @@ class TestEmptyUsernameShortCircuit:
     empty-username requests at the endpoint and DoS the server's CPU."""
 
     def test_empty_username_does_not_call_bcrypt(self, conn):
-        with patch("mediaman.web.auth.password_hash.bcrypt") as mock_bcrypt:
+        with patch("mediaman.web.auth.password_hash._authenticate.bcrypt") as mock_bcrypt:
             assert authenticate(conn, "", "any-password") is False
             assert not mock_bcrypt.checkpw.called
             assert not mock_bcrypt.hashpw.called
@@ -348,7 +348,7 @@ class TestLockedAccountSkipsBcrypt:
         for _ in range(5):
             record_failure(conn, "alice")
         # Now patch bcrypt and confirm authenticate does not call it.
-        with patch("mediaman.web.auth.password_hash.bcrypt") as mock_bcrypt:
+        with patch("mediaman.web.auth.password_hash._authenticate.bcrypt") as mock_bcrypt:
             assert authenticate(conn, "alice", "anything") is False
             assert not mock_bcrypt.checkpw.called
             assert not mock_bcrypt.hashpw.called
@@ -371,7 +371,7 @@ class TestLockedAccountSkipsBcrypt:
         for _ in range(5):
             record_failure(conn, "ghost")
 
-        with patch("mediaman.web.auth.password_hash.bcrypt") as mock_bcrypt:
+        with patch("mediaman.web.auth.password_hash._authenticate.bcrypt") as mock_bcrypt:
             assert authenticate(conn, "alice", "anything") is False
             assert authenticate(conn, "ghost", "anything") is False
             assert not mock_bcrypt.checkpw.called
@@ -442,7 +442,7 @@ class TestChangePasswordTOCTOU:
             return result
 
         with patch(
-            "mediaman.web.auth.password_hash.authenticate",
+            "mediaman.web.auth.password_hash._change_password.authenticate",
             side_effect=authenticate_then_delete,
         ):
             ok = change_password(conn, "alice", "correct-old", "new-pass-2", enforce_policy=False)
