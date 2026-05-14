@@ -404,6 +404,31 @@ class TestReadDeleteAllowedRoots:
         roots = repository.read_delete_allowed_roots_setting(conn)
         assert roots == []
 
+    def test_corrupt_json_logs_warning_and_returns_empty(self, conn, monkeypatch, caplog):
+        """Corrupt JSON in the DB row must emit a WARNING (§6.7) and
+        still return [] so the caller's fail-closed behaviour is unchanged.
+        """
+        monkeypatch.delenv("MEDIAMAN_DELETE_ROOTS", raising=False)
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value, encrypted, updated_at) "
+            "VALUES ('delete_allowed_roots', ?, 0, '2026-01-01')",
+            ("{bad json",),
+        )
+        conn.commit()
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="mediaman.scanner.repository.settings"):
+            roots = repository.read_delete_allowed_roots_setting(conn)
+
+        assert roots == []
+        warning_records = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING and r.name == "mediaman.scanner.repository.settings"
+        ]
+        assert warning_records, "Expected a WARNING from the corrupt-JSON path; none was emitted"
+        assert "scanner.delete_roots.invalid_json" in warning_records[0].message
+
 
 # ---------------------------------------------------------------------------
 # cleanup_expired_snoozes
