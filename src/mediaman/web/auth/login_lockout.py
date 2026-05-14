@@ -1,3 +1,8 @@
+# rationale: one cohesive security state machine — every function is part of
+# a single lockout protocol (table bootstrap, counter UPSERT, decay, escalation,
+# admin unlock + audit).  Splitting by layer (DDL / DML / public API) would
+# fragment the protocol without adding a navigable concept boundary; the 416
+# lines are under the 500-line ceiling and the file owns exactly one concept.
 """Persistent per-username login lockout.
 
 The existing rate limiter in :mod:`mediaman.web.auth.rate_limit` is per-IP
