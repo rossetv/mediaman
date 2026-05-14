@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from dataclasses import dataclass
 from datetime import timedelta
 
 from mediaman.core.time import now_iso, now_utc
@@ -22,7 +23,37 @@ logger = logging.getLogger(__name__)
 STRANDED_CLAIM_GRACE_SECONDS = 3600
 
 
-def _claim_pending_notifications(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+@dataclass(frozen=True, slots=True)
+class ClaimedNotificationRow:
+    """A single ``download_notifications`` row returned by the atomic claim.
+
+    Fields mirror the SELECT column list in ``_claim_pending_notifications``
+    exactly.  Immutable and slotted per §5.2.
+    """
+
+    id: int
+    email: str
+    title: str
+    media_type: str
+    tmdb_id: int | None
+    tvdb_id: int | None
+    service: str
+
+
+def _row_to_claimed(row: sqlite3.Row) -> ClaimedNotificationRow:
+    """Map a raw ``sqlite3.Row`` from the claim SELECT to ``ClaimedNotificationRow``."""
+    return ClaimedNotificationRow(
+        id=int(row["id"]),
+        email=str(row["email"]),
+        title=str(row["title"]),
+        media_type=str(row["media_type"]),
+        tmdb_id=int(row["tmdb_id"]) if row["tmdb_id"] is not None else None,
+        tvdb_id=int(row["tvdb_id"]) if row["tvdb_id"] is not None else None,
+        service=str(row["service"]),
+    )
+
+
+def _claim_pending_notifications(conn: sqlite3.Connection) -> list[ClaimedNotificationRow]:
     """Atomically claim every un-notified notification row.
 
     Uses ``UPDATE ... WHERE notified=0 RETURNING`` so a sibling worker
@@ -45,7 +76,7 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[sqlite3.Row]:
             (claim_iso,),
         ).fetchall()
         conn.commit()
-        return rows
+        return [_row_to_claimed(r) for r in rows]
     except sqlite3.OperationalError:
         # Older SQLite without RETURNING — fall back to lock-then-claim.
         # ``with conn:`` commits on normal exit and rolls back on exception;
@@ -65,7 +96,7 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[sqlite3.Row]:
                     f"UPDATE download_notifications SET notified=2, claimed_at=? WHERE id IN ({placeholders})",
                     (claim_iso, *ids),
                 )
-            return rows
+            return [_row_to_claimed(r) for r in rows]
 
 
 def _release_claim(conn: sqlite3.Connection, row_id: int) -> None:

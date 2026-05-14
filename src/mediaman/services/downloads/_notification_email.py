@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from mediaman.services.arr._types import RadarrMovie
+from mediaman.services.downloads._notification_claims import ClaimedNotificationRow
 from mediaman.services.downloads.download_format import extract_poster_url
 
 if TYPE_CHECKING:
@@ -75,7 +76,7 @@ def get_notification_template() -> Template:
 
 
 def gather_email_meta(
-    row: sqlite3.Row,
+    row: ClaimedNotificationRow,
     movie: RadarrMovie | None,
     suggestions_by_tmdb: dict[int, sqlite3.Row],
 ) -> dict[str, str]:
@@ -85,8 +86,8 @@ def gather_email_meta(
     Radarr poster fallback.  Returns a flat dict of string values safe to
     pass directly to the Jinja template.
     """
-    tmdb_id = row["tmdb_id"]
-    service = row["service"]
+    tmdb_id = row.tmdb_id
+    service = row.service
 
     # Gather rich metadata for the email
     meta: dict[str, str] = {
@@ -123,7 +124,7 @@ def gather_email_meta(
 
 
 def build_email_payload(
-    row: sqlite3.Row,
+    row: ClaimedNotificationRow,
     movie: RadarrMovie | None,
     suggestions_by_tmdb: dict[int, sqlite3.Row],
     template: Template,
@@ -132,8 +133,8 @@ def build_email_payload(
 
     Returns ``(subject, html)``.
     """
-    title = row["title"]
-    media_type = row["media_type"]
+    title = row.title
+    media_type = row.media_type
 
     meta = gather_email_meta(row, movie, suggestions_by_tmdb)
     media_label = "Movie" if media_type == "movie" else "TV"

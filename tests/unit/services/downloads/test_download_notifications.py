@@ -309,7 +309,7 @@ class TestSonarrSeriesMatching:
 
         rows = _claim_pending_notifications(conn)
         assert len(rows) == 1
-        _release_claim(conn, rows[0]["id"])
+        _release_claim(conn, rows[0].id)
 
         # Visible to a follow-up claim again.
         rows2 = _claim_pending_notifications(conn)
@@ -479,7 +479,7 @@ class TestReconcileStrandedNotifications:
 
         row = conn.execute(
             "SELECT notified, claimed_at FROM download_notifications WHERE id=?",
-            (rows[0]["id"],),
+            (rows[0].id,),
         ).fetchone()
         assert row["notified"] == 2
         assert row["claimed_at"] is not None
@@ -569,3 +569,134 @@ class TestNarrowedExceptClauses:
 
         assert not ready
         assert arr_unreachable is True
+
+
+class TestClaimedNotificationRowDataclass:
+    """§9.5 — _claim_pending_notifications must return ClaimedNotificationRow dataclasses,
+    not raw sqlite3.Row objects.  Pins the field names and types so any future
+    SELECT column change is caught at the dataclass boundary rather than propagating
+    to call sites as a silent KeyError.
+    """
+
+    def _make_conn(self, tmp_path):
+        from mediaman.db import init_db
+
+        return init_db(str(tmp_path / "mm.db"))
+
+    def test_returns_list_of_claimed_notification_rows(self, tmp_path):
+        """_claim_pending_notifications must return ClaimedNotificationRow, not sqlite3.Row."""
+        from mediaman.services.downloads._notification_claims import (
+            ClaimedNotificationRow,
+            _claim_pending_notifications,
+        )
+
+        conn = self._make_conn(tmp_path)
+        insert_download_notification(
+            conn,
+            email="user@example.com",
+            title="Oppenheimer",
+            media_type="movie",
+            tmdb_id=872585,
+            tvdb_id=None,
+            service="radarr",
+        )
+
+        rows = _claim_pending_notifications(conn)
+
+        assert len(rows) == 1
+        assert isinstance(rows[0], ClaimedNotificationRow)
+
+    def test_dataclass_fields_match_select_columns(self, tmp_path):
+        """All seven SELECT columns must be present as dataclass attributes."""
+        from mediaman.services.downloads._notification_claims import (
+            _claim_pending_notifications,
+        )
+
+        conn = self._make_conn(tmp_path)
+        insert_download_notification(
+            conn,
+            email="u@example.com",
+            title="Dune",
+            media_type="movie",
+            tmdb_id=438631,
+            tvdb_id=None,
+            service="radarr",
+        )
+
+        rows = _claim_pending_notifications(conn)
+        row = rows[0]
+
+        # All SELECT columns must be accessible as attributes.
+        assert isinstance(row.id, int)
+        assert row.email == "u@example.com"
+        assert row.title == "Dune"
+        assert row.media_type == "movie"
+        assert row.tmdb_id == 438631
+        assert row.tvdb_id is None
+        assert row.service == "radarr"
+
+    def test_dataclass_is_immutable(self, tmp_path):
+        """ClaimedNotificationRow must be frozen — mutations must raise FrozenInstanceError."""
+        import pytest
+
+        from mediaman.services.downloads._notification_claims import (
+            _claim_pending_notifications,
+        )
+
+        conn = self._make_conn(tmp_path)
+        insert_download_notification(conn, title="Frozen")
+
+        rows = _claim_pending_notifications(conn)
+        with pytest.raises(Exception):  # FrozenInstanceError subclasses AttributeError
+            rows[0].title = "Mutated"  # type: ignore[misc]
+
+    def test_tvdb_and_tmdb_none_preserved(self, tmp_path):
+        """NULL columns in DB must map to None, not 0 or empty string."""
+        from mediaman.services.downloads._notification_claims import (
+            _claim_pending_notifications,
+        )
+
+        conn = self._make_conn(tmp_path)
+        insert_download_notification(
+            conn,
+            email="tv@example.com",
+            title="Severance",
+            media_type="tv",
+            tmdb_id=None,
+            tvdb_id=370524,
+            service="sonarr",
+        )
+
+        rows = _claim_pending_notifications(conn)
+        row = rows[0]
+
+        assert row.tmdb_id is None
+        assert row.tvdb_id == 370524
+
+    def test_claim_transaction_unchanged(self, tmp_path):
+        """Introducing the dataclass must not alter the atomic claim semantics.
+
+        After claim: notified=2, claimed_at is set.
+        A second call to _claim_pending_notifications returns nothing.
+        """
+        from mediaman.services.downloads._notification_claims import (
+            _claim_pending_notifications,
+        )
+
+        conn = self._make_conn(tmp_path)
+        insert_download_notification(conn, title="Atomic")
+
+        first = _claim_pending_notifications(conn)
+        assert len(first) == 1
+
+        # DB row is now claimed at notified=2.
+        db_row = conn.execute(
+            "SELECT notified, claimed_at FROM download_notifications WHERE id=?",
+            (first[0].id,),
+        ).fetchone()
+        assert db_row["notified"] == 2
+        assert db_row["claimed_at"] is not None
+
+        # Second call must find nothing — row is already claimed.
+        second = _claim_pending_notifications(conn)
+        assert second == []
