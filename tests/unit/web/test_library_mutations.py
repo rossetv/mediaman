@@ -684,8 +684,12 @@ class TestRedownloadTitleCap:
             )
         # Must not raise; result doesn't matter (lookup returns nothing)
         assert resp.status_code in (200, 400, 404)
-        # The lookup term must have been truncated to 256 chars
-        call_args = mock_radarr.lookup_by_term.call_args
-        if call_args is not None:
-            term_used = call_args[0][0] if call_args[0] else ""
-            assert len(term_used) <= 256 + 10  # +10 for URL encoding overhead
+        # The lookup MUST have been called — if it wasn't, truncation never happened.
+        assert mock_radarr.lookup_by_term.called, (
+            "lookup_by_term was never called; the redownload handler may have "
+            "short-circuited before performing the truncated lookup"
+        )
+        term_used = mock_radarr.lookup_by_term.call_args[0][0]
+        assert len(term_used) <= 256, (
+            f"Lookup term length {len(term_used)} exceeds the 256-char cap"
+        )
