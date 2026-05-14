@@ -90,7 +90,7 @@ def has_expired_snooze(conn: sqlite3.Connection, media_id: str) -> bool:
     return row is not None
 
 
-def _is_show_kept_pure(
+def is_show_kept_pure(
     conn: sqlite3.Connection,
     show_rating_key: str | None,
     *,
@@ -151,7 +151,7 @@ def is_show_kept(conn: sqlite3.Connection, show_rating_key: str | None) -> bool:
     Composed from two single-purpose helpers so each side is observable
     in isolation:
 
-    * :func:`_is_show_kept_pure` — the read.
+    * :func:`is_show_kept_pure` — the read.
     * :func:`cleanup_expired_show_snoozes` — the cleanup.
 
     The split makes each side observable in isolation. This top-level
@@ -159,12 +159,12 @@ def is_show_kept(conn: sqlite3.Connection, show_rating_key: str | None) -> bool:
     existing engine.py caller: when the read says the keep is no
     longer live (i.e. an expired snooze), we sweep the row out so the
     table doesn't accrete dead rows over time. Callers that want a
-    pure read should call :func:`_is_show_kept_pure` directly.
+    pure read should call :func:`is_show_kept_pure` directly.
     """
     if not show_rating_key:
         return False
     now = now_iso()
-    kept = _is_show_kept_pure(conn, show_rating_key, now_iso_str=now)
+    kept = is_show_kept_pure(conn, show_rating_key, now_iso_str=now)
     if not kept:
         # Either the row is missing or its snooze has lapsed; ask the
         # cleanup helper to remove any expired row for this key. Doing

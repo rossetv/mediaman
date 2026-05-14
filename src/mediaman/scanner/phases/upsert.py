@@ -27,7 +27,7 @@ from mediaman.core.time import now_utc
 from mediaman.crypto import generate_keep_token
 from mediaman.scanner import repository
 from mediaman.scanner.arr_dates import ArrDateCache
-from mediaman.scanner.fetch import _PlexItemFetch
+from mediaman.scanner.fetch import PlexItemFetch
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ DELETION_ACTION = "scheduled_deletion"
 
 def upsert_item(
     conn: sqlite3.Connection,
-    fetch: _PlexItemFetch,
+    fetch: PlexItemFetch,
     arr_cache: ArrDateCache,
     media_type: str,
 ) -> None:

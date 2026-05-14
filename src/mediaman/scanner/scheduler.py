@@ -81,7 +81,7 @@ def _close_tracked_connections() -> None:
         try:
             conn.close()
         except Exception:
-            logger.warning("scheduler.shutdown.close_db_failed", exc_info=True)
+            logger.exception("scheduler.shutdown.close_db_failed")
 
 
 def start_scheduler(

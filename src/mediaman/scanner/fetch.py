@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
-class _PlexItemFetch:
+class PlexItemFetch:
     """Network-read handoff between the scanner's fetch and write phases.
 
     The scanner fetches a library's full contents (items + watch history)
@@ -46,7 +46,7 @@ class PlexFetcher:
     """Wraps the Plex client for the scanner's two-phase fetch.
 
     A thin adapter around the existing Plex client that knows how to
-    produce :class:`_PlexItemFetch` records for both movie and show
+    produce :class:`PlexItemFetch` records for both movie and show
     libraries, swallowing watch-history errors so one flaky item can't
     derail an entire library sync.
     """
@@ -62,11 +62,11 @@ class PlexFetcher:
         self._library_types = library_types
         self._library_titles = library_titles or {}
 
-    def fetch_library_items(self, library_id: str) -> list[_PlexItemFetch]:
+    def fetch_library_items(self, library_id: str) -> list[PlexItemFetch]:
         """Fetch items + watch history for a library from Plex.
 
         Pure network-read helper; touches no DB. Returns one
-        :class:`_PlexItemFetch` per movie or per season.
+        :class:`PlexItemFetch` per movie or per season.
 
         **Fails closed on watch-history errors**. The
         previous code swallowed a per-item watch-history failure and
@@ -79,7 +79,7 @@ class PlexFetcher:
         item once Plex is healthy again.
         """
         lib_type = self._library_types.get(library_id, "movie")
-        out: list[_PlexItemFetch] = []
+        out: list[PlexItemFetch] = []
         if lib_type == "show":
             seasons = self._plex.get_show_seasons(library_id)
             lib_title = self._library_titles.get(library_id, "")
@@ -100,7 +100,7 @@ class PlexFetcher:
                     )
                     continue
                 out.append(
-                    _PlexItemFetch(
+                    PlexItemFetch(
                         item=season,
                         library_id=library_id,
                         media_type=media_type,
@@ -122,7 +122,7 @@ class PlexFetcher:
                     )
                     continue
                 out.append(
-                    _PlexItemFetch(
+                    PlexItemFetch(
                         item=item,
                         library_id=library_id,
                         media_type="movie",

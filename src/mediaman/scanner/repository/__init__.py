@@ -39,9 +39,7 @@ from mediaman.scanner.repository.media_items import (
     upsert_media_item,
 )
 from mediaman.scanner.repository.scheduled_actions import (
-    _TOKEN_TTL_DAYS,
     DELETION_ACTION,
-    _is_show_kept_pure,
     cleanup_expired_show_snoozes,
     cleanup_expired_snoozes,
     clear_pending_deletions,
@@ -52,14 +50,13 @@ from mediaman.scanner.repository.scheduled_actions import (
     is_already_scheduled,
     is_protected,
     is_show_kept,
+    is_show_kept_pure,
     mark_delete_status,
 )
 from mediaman.scanner.repository.settings import read_delete_allowed_roots_setting
 
 __all__ = [
     "DELETION_ACTION",
-    "_TOKEN_TTL_DAYS",
-    "_is_show_kept_pure",
     "cleanup_expired_show_snoozes",
     "cleanup_expired_snoozes",
     "clear_pending_deletions",
@@ -73,6 +70,7 @@ __all__ = [
     "is_already_scheduled",
     "is_protected",
     "is_show_kept",
+    "is_show_kept_pure",
     "mark_delete_status",
     "read_delete_allowed_roots_setting",
     "update_last_watched",
