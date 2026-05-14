@@ -85,9 +85,8 @@ class ScrubFilter(logging.Filter):
                         k: self._scrub(v) if isinstance(v, str) else v
                         for k, v in record.args.items()
                     }
-        except Exception:  # rationale: §6.4 site 5 — recursive-safe redaction boundary.
-            # A filter that raises silences the log record entirely, and calling
-            # logger.exception() here would recurse infinitely.  Returning True
+        except Exception:  # rationale: logging filter cannot call logger.* in its own except handler (would recurse infinitely through the filter itself); redaction failure must be swallowed and the record emitted unscrubbed rather than crash logging.
+            # A filter that raises silences the log record entirely. Returning True
             # lets the (possibly unscrubbed) record through rather than silencing
             # application logging.  This is the only safe option for a logging filter.
             return True
