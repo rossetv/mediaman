@@ -212,13 +212,17 @@ def _cleanup_expired_with_commit(conn: sqlite3.Connection, now_iso: str) -> None
         (now_iso,),
     )
     # rationale: best-effort reauth sweep — a failure here must not abort the
-    # session sweep that already ran; log and let the next sweep retry.
+    # session sweep that already ran, so we do not re-raise; but the failure
+    # must stay operator-visible (DEBUG is off in production), hence WARNING
+    # with the traceback. ``cleanup_expired_reauth`` is a single DELETE +
+    # commit, so the catch is narrowed to ``sqlite3.Error`` — a non-DB
+    # exception (a bug) propagates.
     try:
         from mediaman.web.auth.reauth import cleanup_expired_reauth
 
         cleanup_expired_reauth(conn, now_iso)
-    except Exception:  # pragma: no cover
-        logger.debug("session.cleanup: cleanup_expired_reauth failed", exc_info=True)
+    except sqlite3.Error:
+        logger.warning("session.cleanup: cleanup_expired_reauth failed", exc_info=True)
 
 
 def _try_delete_session(conn: sqlite3.Connection, token_hash: str, *, reason: str) -> None:
@@ -232,9 +236,13 @@ def _try_delete_session(conn: sqlite3.Connection, token_hash: str, *, reason: st
     """
     try:
         _delete_session_with_commit(conn, token_hash)
-    # rationale: best-effort session writes — bubbling this up would 500
-    # the user during validation; log and let the next request retry.
-    except Exception:
+    # rationale: a transient DB failure (lock contention) on this best-effort
+    # eviction write must not 500 the user during validation; log and let the
+    # next request retry. The catch is narrowed to ``sqlite3.Error`` on
+    # purpose — a non-DB exception (a bad import, a TypeError) is a real bug
+    # on the security-critical eviction path and MUST propagate rather than
+    # leave a stolen/expired session silently alive (fail closed).
+    except sqlite3.Error:
         logger.warning(
             "session.delete_failed reason=%s",
             reason,
@@ -334,8 +342,10 @@ def _maybe_refresh_last_used(
         _refresh_last_used_with_commit(conn, token_hash, now_iso)
     # rationale: best-effort session writes — refreshing last_used_at
     # is a freshness signal, not a correctness gate; never fail the
-    # request because the timestamp didn't update.
-    except Exception:
+    # request because the timestamp didn't update. Narrowed to
+    # ``sqlite3.Error`` for consistency with the other write helpers — a
+    # non-DB exception is a bug and propagates.
+    except sqlite3.Error:
         logger.warning(
             "session.last_used_at_refresh_failed user=%s",
             row["username"],
@@ -450,12 +460,22 @@ def destroy_session(
         revoke_reauth_by_hash_in_tx(conn, token_hash)
 
     logger.info("session.destroyed user=%s ip=%s", username or "-", ip or "-")
+    # rationale: the session row is already gone, so a failed audit write must
+    # not be re-raised — that would 500 a logout that has, in fact, happened.
+    # But "session revocation" is a required audit event (§7.5, §10.10): a
+    # failure here is an audit-coverage hole and MUST be operator-visible, so
+    # it logs at ERROR with the traceback (DEBUG is off in production). The
+    # catch is narrowed to ``sqlite3.Error`` — ``security_event`` is purely a
+    # DB write, so a non-DB exception (a broken import) is a bug and
+    # propagates. NOTE for the orchestrator: the rest of web/auth uses the
+    # transactional ``security_event_or_raise`` inside ``with conn:``; making
+    # logout fail-closed on audit is a larger, separately-scoped change.
     try:
         from mediaman.core.audit import security_event
 
         security_event(conn, event="session.destroy", actor=username, ip=ip)
-    except Exception:  # pragma: no cover — audit is best-effort; never block logout
-        logger.debug("session.destroy audit logging failed", exc_info=True)
+    except sqlite3.Error:
+        logger.exception("session.destroy audit logging failed")
 
 
 def destroy_all_sessions_for(conn: sqlite3.Connection, username: str) -> int:
@@ -469,13 +489,18 @@ def destroy_all_sessions_for(conn: sqlite3.Connection, username: str) -> int:
     cur = conn.execute("DELETE FROM admin_sessions WHERE username = ?", (username,))
     conn.commit()
     # rationale: best-effort reauth revocation — a failure here must not roll
-    # back the bulk session delete that already committed; log and continue.
+    # back the bulk session delete that already committed, so we do not
+    # re-raise; but a bulk purge leaving every reauth ticket alive is a
+    # security-relevant degradation, so the failure logs at WARNING with the
+    # traceback (DEBUG is off in production). ``revoke_all_reauth_for`` is a
+    # single DELETE + commit, so the catch is narrowed to ``sqlite3.Error`` —
+    # a non-DB exception (a bug) propagates.
     try:
         from mediaman.web.auth.reauth import revoke_all_reauth_for
 
         revoke_all_reauth_for(conn, username)
-    except Exception:  # pragma: no cover
-        logger.debug(
+    except sqlite3.Error:
+        logger.warning(
             "session.destroy_all: revoke_all_reauth_for failed user=%s", username, exc_info=True
         )
     return cur.rowcount
