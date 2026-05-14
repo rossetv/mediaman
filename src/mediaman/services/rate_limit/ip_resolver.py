@@ -156,7 +156,15 @@ def peer_is_trusted(peer: str | None, trusted: list[IPv4Network | IPv6Network]) 
     return _ip_in_networks(peer, trusted)
 
 
-def get_client_ip(request: _HasClientAndHeaders) -> str:
+def get_client_ip(
+    request: _HasClientAndHeaders,
+    # rationale: body is 58 executable lines (§3.1 ceiling is 60). The function
+    # is a single security decision tree: peer trust check → CF header → XFF
+    # chain → X-Real-IP → peer fallback. Splitting individual header checks
+    # into private helpers would distribute the trust-hierarchy logic across
+    # multiple call sites, making it harder to audit that every path applies
+    # the correct trust checks in the correct order.
+) -> str:
     """Extract the real client IP, respecting forwarded headers only from trusted proxies."""
     peer = request.client.host if request.client else None
     trusted = trusted_proxies()

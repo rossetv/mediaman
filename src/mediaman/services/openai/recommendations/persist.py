@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 import requests
 from plexapi.exceptions import PlexApiException
 
 from mediaman.core.time import now_utc
+from mediaman.services.openai.recommendations._types import RecommendationItem
 from mediaman.services.openai.recommendations.enrich import enrich_recommendations
 from mediaman.services.openai.recommendations.prompts import (
     generate_personal,
@@ -23,28 +24,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def refresh_recommendations(
-    conn: sqlite3.Connection,
-    plex_client: PlexClient | None,
-    manual: bool = False,
-    *,
-    secret_key: str,
-) -> int:
-    """Fetch watch history, generate both trending and personal recommendations.
-
-    Args:
-        conn: DB connection.
-        plex_client: Plex client for watch history and ratings.
-        manual: When True (user-triggered refresh), replace only today's batch.
-            When False (scheduled), keep historical batches and prune rows older
-            than 90 days.
-        secret_key: Encryption key for reading API credentials from DB settings.
-
-    Returns the total number of recommendations generated.
-    """
-    now = now_utc()
-    today = now.strftime("%Y-%m-%d")
-
+def _fetch_watch_history(conn: sqlite3.Connection) -> list[dict[str, object]]:
+    """Query the DB for the 50 most recently watched items, normalising media_type."""
     rows = conn.execute("""
         SELECT DISTINCT mi.title, mi.media_type, mi.last_watched_at
         FROM media_items mi
@@ -61,53 +42,56 @@ def refresh_recommendations(
         elif media_type != "anime":
             media_type = "movie"
         watch_history.append({"title": r["title"], "type": media_type})
+    return watch_history
 
-    user_ratings: list[PlexRatedItem] = []
+
+def _fetch_plex_ratings(plex_client: PlexClient | None) -> list[PlexRatedItem]:
+    """Return user ratings from Plex, or an empty list if unavailable."""
+    if plex_client is None:
+        return []
     try:
-        if plex_client is not None:
-            user_ratings = plex_client.get_user_ratings()
-            logger.info("Fetched %d user ratings from Plex", len(user_ratings))
+        ratings = plex_client.get_user_ratings()
+        logger.info("Fetched %d user ratings from Plex", len(ratings))
+        return ratings
     except (PlexApiException, requests.RequestException):
         logger.warning("Failed to fetch Plex user ratings — proceeding without them", exc_info=True)
+        return []
 
+
+def _fetch_previous_titles(conn: sqlite3.Connection, now: datetime) -> list[str]:
+    """Return distinct suggestion titles from the last 30 days (deduplication input)."""
     cutoff_30d = (now - timedelta(days=30)).strftime("%Y-%m-%d")
     prev_rows = conn.execute(
         "SELECT DISTINCT title FROM suggestions WHERE batch_id >= ?", (cutoff_30d,)
     ).fetchall()
-    previous_titles = [r["title"] for r in prev_rows]
+    return [r["title"] for r in prev_rows]
 
-    trending = generate_trending(conn, previous_titles, secret_key=secret_key)
-    personal = (
-        generate_personal(
-            conn,
-            watch_history,
-            user_ratings,
-            previous_titles,
-            secret_key=secret_key,
-        )
-        if watch_history
-        else []
-    )
-    all_recommendations = trending + personal
 
-    if not all_recommendations:
-        return 0
+def _insert_recommendations(
+    conn: sqlite3.Connection,
+    all_recommendations: list[RecommendationItem],
+    now: datetime,
+    today: str,
+    now_iso: str,
+    manual: bool,
+) -> int:
+    """Delete the appropriate batch and INSERT all recommendations inside one transaction.
 
-    enrich_recommendations(all_recommendations, conn, secret_key)
-
-    now_iso = now.isoformat()
+    The DELETE + INSERT loop is wrapped in ``with conn:`` so SQLite rolls back
+    to the pre-DELETE state on any exception (§9.7). The caller must not wrap
+    this in a second ``with conn:`` block.
+    """
     inserted = 0
     with conn:  # rolls back DELETE + any partial INSERTs on exception (§9.7)
         if manual:
             conn.execute("DELETE FROM suggestions WHERE batch_id = ?", (today,))
         else:
-            cutoff_90d = (now - timedelta(days=90)).strftime("%Y-%m-%d")
-            conn.execute("DELETE FROM suggestions WHERE batch_id < ?", (cutoff_90d,))
+            cutoff_90d_str = (now - timedelta(days=90)).strftime("%Y-%m-%d")
+            conn.execute("DELETE FROM suggestions WHERE batch_id < ?", (cutoff_90d_str,))
 
         for s in all_recommendations:
             title = str(s.get("title") or "")
             reason = str(s.get("reason") or "")
-
             conn.execute(
                 "INSERT INTO suggestions (title, year, media_type, category, tmdb_id, imdb_id, "
                 "description, reason, poster_url, trailer_url, rating, rt_rating, "
@@ -140,6 +124,57 @@ def refresh_recommendations(
                 ),
             )
             inserted += 1
+    return inserted
+
+
+def refresh_recommendations(
+    conn: sqlite3.Connection,
+    plex_client: PlexClient | None,
+    manual: bool = False,
+    *,
+    secret_key: str,
+) -> int:
+    """Fetch watch history, generate both trending and personal recommendations.
+
+    Args:
+        conn: DB connection.
+        plex_client: Plex client for watch history and ratings.
+        manual: When True (user-triggered refresh), replace only today's batch.
+            When False (scheduled), keep historical batches and prune rows older
+            than 90 days.
+        secret_key: Encryption key for reading API credentials from DB settings.
+
+    Returns the total number of recommendations generated.
+    """
+    now = now_utc()
+    today = now.strftime("%Y-%m-%d")
+
+    watch_history = _fetch_watch_history(conn)
+    user_ratings = _fetch_plex_ratings(plex_client)
+    previous_titles = _fetch_previous_titles(conn, now)
+
+    trending = generate_trending(conn, previous_titles, secret_key=secret_key)
+    personal = (
+        generate_personal(
+            conn,
+            watch_history,
+            user_ratings,
+            previous_titles,
+            secret_key=secret_key,
+        )
+        if watch_history
+        else []
+    )
+    all_recommendations = trending + personal
+
+    if not all_recommendations:
+        return 0
+
+    enrich_recommendations(all_recommendations, conn, secret_key)
+
+    inserted = _insert_recommendations(
+        conn, all_recommendations, now, today, now.isoformat(), manual
+    )
 
     logger.info(
         "Generated %d recommendations (%d trending, %d personal); inserted=%d skipped=%d",

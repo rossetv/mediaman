@@ -272,6 +272,12 @@ def generate_personal(
     previous_titles: list[str] | None = None,
     *,
     secret_key: str | None = None,
+    # rationale: body is 49 executable lines (§3.1 ceiling is 60). The function
+    # is kept as one unit because the byte-budget calculation for the Plex data
+    # block is a single coherent algorithm whose safety properties (never
+    # truncating mid-codepoint, never chopping the closing delimiter) can only
+    # be reasoned about as a whole. Splitting it would distribute the budget
+    # arithmetic across two functions, making the invariants harder to audit.
 ) -> list[RecommendationItem]:
     """Generate personalised recommendations based on watch history and user ratings.
 
