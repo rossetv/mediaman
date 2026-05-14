@@ -19,7 +19,7 @@ class DataDirNotWritableError(RuntimeError):
     """
 
 
-def _remediation_for(exc: OSError) -> str:
+def remediation_for(exc: OSError) -> str:
     """Return errno-tailored remediation advice for an OSError on the data dir."""
     proc_uid = os.geteuid()
     proc_gid = os.getegid()
@@ -41,7 +41,7 @@ def _remediation_for(exc: OSError) -> str:
     )
 
 
-def _assert_data_dir_writable(data_dir: Path) -> None:
+def assert_data_dir_writable(data_dir: Path) -> None:
     """Fail fast and loud if ``data_dir`` is not writable by this process.
 
     Uses a self-cleaning temp file rather than a fixed probe path so a
@@ -65,12 +65,12 @@ def _assert_data_dir_writable(data_dir: Path) -> None:
         raise DataDirNotWritableError(
             f"data dir {data_dir} is not writable by uid={proc_uid} "
             f"gid={proc_gid} (currently owned by {owner}); "
-            f"{_remediation_for(exc)}; underlying error: {exc}"
+            f"{remediation_for(exc)}; underlying error: {exc}"
         ) from exc
 
 
 __all__ = [
     "DataDirNotWritableError",
-    "_assert_data_dir_writable",
-    "_remediation_for",
+    "assert_data_dir_writable",
+    "remediation_for",
 ]

@@ -159,6 +159,11 @@ _TOKEN_PURPOSE_POLL = b"mediaman-token-poll-v1"
 
 _SUBKEY_CACHE_MAX_ENTRIES = 64
 
+# Per-process HMAC sub-key cache; avoids re-deriving for every token validation.
+# Single-worker invariant (§1.12). The entry count is bounded by
+# N_PURPOSES (5) × N_KEY_ROTATIONS — well below 64 in practice, so the
+# clear-all eviction path is never triggered in production; a comment rather
+# than lru_cache suffices here (§13.2).
 _subkey_cache: dict[tuple[str, bytes], bytes] = {}
 _subkey_cache_lock = threading.Lock()
 

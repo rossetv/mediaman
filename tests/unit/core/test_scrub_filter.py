@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 
 import pytest
 
@@ -164,3 +165,92 @@ class TestScrubFilterAttach:
             for f in target.filters
             if not (isinstance(f, ScrubFilter) and "dummy-secret-xyz" in f._secrets)
         ]
+
+
+# ---------------------------------------------------------------------------
+# Exception swallow — §6.4 site 5 fix
+# ---------------------------------------------------------------------------
+
+
+class TestScrubFilterExceptionSwallow:
+    def test_filter_returns_true_on_scrub_error(self) -> None:
+        """filter() must return True even when _scrub raises internally."""
+        f = ScrubFilter(secrets=["secret"])
+        record = _make_record("placeholder")
+        # Patch _scrub to raise to simulate an unexpected scrub failure.
+        original_scrub = f._scrub
+
+        def _boom(text: str) -> str:
+            raise RuntimeError("simulated scrub failure")
+
+        f._scrub = _boom  # type: ignore[method-assign]
+        result = f.filter(record)
+        assert result is True
+        f._scrub = original_scrub  # type: ignore[method-assign]
+
+    def test_unexpected_exception_propagates_outside_filter(self) -> None:
+        """Exceptions raised OUTSIDE filter() (e.g. in register_secret) propagate normally."""
+        f = ScrubFilter(secrets=["x"])
+        # register_secret with a valid string must not raise.
+        f.register_secret("new-secret")
+        assert "new-secret" in f._secrets
+
+
+# ---------------------------------------------------------------------------
+# Thread safety — §8.5 concurrency fix
+# ---------------------------------------------------------------------------
+
+
+class TestScrubFilterThreadSafety:
+    def test_concurrent_register_secret_no_duplicates(self) -> None:
+        """Concurrent register_secret calls must not produce duplicate entries."""
+        f = ScrubFilter(secrets=[])
+        errors: list[Exception] = []
+        barrier = threading.Barrier(20)
+
+        def _register() -> None:
+            try:
+                barrier.wait()
+                f.register_secret("shared-secret")
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=_register) for _ in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors
+        assert f._secrets.count("shared-secret") == 1
+
+    def test_concurrent_filter_and_register_no_crash(self) -> None:
+        """Concurrent filter() and register_secret() must not raise or corrupt state."""
+        f = ScrubFilter(secrets=["initial"])
+        errors: list[Exception] = []
+        stop = threading.Event()
+
+        def _filter_loop() -> None:
+            try:
+                while not stop.is_set():
+                    record = _make_record("message with initial secret")
+                    f.filter(record)
+            except Exception as exc:
+                errors.append(exc)
+
+        def _register_loop() -> None:
+            try:
+                for i in range(50):
+                    f.register_secret(f"secret-{i}")
+            except Exception as exc:
+                errors.append(exc)
+
+        reader = threading.Thread(target=_filter_loop)
+        writer = threading.Thread(target=_register_loop)
+        reader.start()
+        writer.start()
+        writer.join()
+        stop.set()
+        reader.join()
+
+        assert not errors

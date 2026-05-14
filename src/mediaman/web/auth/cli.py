@@ -7,7 +7,7 @@ import getpass
 import sys
 from pathlib import Path
 
-from mediaman.bootstrap.data_dir import DataDirNotWritableError, _assert_data_dir_writable
+from mediaman.bootstrap.data_dir import DataDirNotWritableError, assert_data_dir_writable
 from mediaman.config import ConfigError, load_config
 from mediaman.db import init_db
 from mediaman.web.auth.password_hash import create_user
@@ -108,7 +108,7 @@ def create_user_cli() -> None:
     data_dir = Path(config.data_dir)
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
-        _assert_data_dir_writable(data_dir)
+        assert_data_dir_writable(data_dir)
     except DataDirNotWritableError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)

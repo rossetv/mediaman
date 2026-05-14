@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING
 
 from mediaman.bootstrap.data_dir import (
     DataDirNotWritableError,
-    _assert_data_dir_writable,
-    _remediation_for,
+    assert_data_dir_writable,
+    remediation_for,
 )
 
 if TYPE_CHECKING:
@@ -51,9 +51,9 @@ def bootstrap_db(app: FastAPI, config: Config) -> None:
         proc_gid = os.getegid()
         raise DataDirNotWritableError(
             f"data dir {data_dir} could not be created by uid={proc_uid} "
-            f"gid={proc_gid}; {_remediation_for(exc)}; underlying error: {exc}"
+            f"gid={proc_gid}; {remediation_for(exc)}; underlying error: {exc}"
         ) from exc
-    _assert_data_dir_writable(data_dir)
+    assert_data_dir_writable(data_dir)
     db_path = str(Path(config.data_dir) / "mediaman.db")
     logger.info("DB initialised at %s", db_path)
     conn = init_db(db_path)

@@ -57,6 +57,9 @@ def init_db(db_path: str) -> sqlite3.Connection:
 
 
 _thread_local = threading.local()
+# Single-process connection registry; mutated only from the bootstrap thread
+# (§1.12 single-worker invariant) at startup and in test tear-down — no lock
+# required because there is never concurrent mutation in production code.
 _db_path: str | None = None
 _owning_thread: int | None = None
 _owning_conn: sqlite3.Connection | None = None
