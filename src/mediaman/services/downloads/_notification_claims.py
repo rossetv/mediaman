@@ -59,6 +59,7 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[sqlite3.Row]:
             ).fetchall()
             if rows:
                 ids = [r["id"] for r in rows]
+                # rationale: placeholder list built from integer row IDs only; no user input reaches the SQL string
                 placeholders = ",".join("?" * len(ids))
                 conn.execute(
                     f"UPDATE download_notifications SET notified=2, claimed_at=? WHERE id IN ({placeholders})",
@@ -103,6 +104,7 @@ def _release_claims_bulk(conn: sqlite3.Connection, row_ids: list[int]) -> None:
     if not row_ids:
         return
     try:
+        # rationale: placeholder list built from integer row IDs only; no user input reaches the SQL string
         placeholders = ",".join("?" * len(row_ids))
         conn.execute(
             f"UPDATE download_notifications SET notified=0, claimed_at=NULL "

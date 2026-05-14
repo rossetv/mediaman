@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import errno as _errno
 import logging
 import os
 import shutil
+import stat as _stat
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -121,8 +123,6 @@ def _check_symlink_via_nofollow(raw: str, candidate: Path) -> None:
             os.O_RDONLY | os.O_NOFOLLOW | os.O_DIRECTORY,
         )
     except OSError as exc:
-        import errno as _errno
-
         # ``O_NOFOLLOW`` on a symlink yields ``ELOOP`` on Linux but
         # ``ENOTDIR`` (and sometimes ``ELOOP``) on macOS, depending on
         # whether ``O_DIRECTORY`` or the symlink rule fires first.
@@ -131,7 +131,6 @@ def _check_symlink_via_nofollow(raw: str, candidate: Path) -> None:
             lst = os.lstat(str(candidate))
         except OSError:
             lst = None
-        import stat as _stat
 
         if lst is not None and _stat.S_ISLNK(lst.st_mode):
             raise DeletionRefused(
@@ -396,8 +395,6 @@ def _safe_rmtree(
         raise DeletionRefused(
             f"Refusing to delete '{resolved}' — different device from allowed root '{pinned_root}'."
         )
-
-    import stat as _stat
 
     if _stat.S_ISREG(lst.st_mode):
         os.unlink(str(resolved))

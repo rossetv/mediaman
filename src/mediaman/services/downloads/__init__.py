@@ -10,3 +10,5 @@ Allowed dependencies: ``mediaman.services.infra.http``, ``mediaman.crypto``,
 Forbidden patterns: do not import from ``mediaman.web`` — this package is
 consumed by background jobs and must remain independent of the HTTP layer.
 """
+
+from __future__ import annotations

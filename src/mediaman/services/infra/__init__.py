@@ -26,6 +26,8 @@ The only exception is a site with an explicit ``# rationale:`` comment
 explaining why the public surface cannot satisfy the requirement.
 """
 
+from __future__ import annotations
+
 from mediaman.services.infra.http import (
     SafeHTTPClient,
     SafeHTTPError,

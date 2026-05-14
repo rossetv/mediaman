@@ -88,9 +88,8 @@ def resolve_keep_decision(duration: str, *, days: int | None, now: datetime) -> 
 def token_hash(token: str) -> str:
     """Return a hex SHA-256 digest of *token* for storage in ``keep_tokens_used``.
 
-    Storing a hash rather than the raw token (Finding 16) means a leaked
-    DB dump cannot replay snooze actions.  Lookups must hash the inbound
-    token before comparing.
+    The raw token is hashed before storage so a leaked DB dump cannot replay
+    snooze actions.  Lookups must hash the inbound token before comparing.
     """
     return hashlib.sha256(token.encode()).hexdigest()
 
@@ -106,8 +105,7 @@ def lookup_verified_action(
     Rejecting on signature first stops forged tokens reaching the DB
     lookup at all.
 
-    Lookup is by ``token_hash`` (Finding 16): the raw token never lands
-    in the index.
+    Lookup is by ``token_hash`` so the raw token never lands in the index.
     """
     payload = validate_keep_token(token, secret_key)
     if payload is None:
@@ -244,8 +242,8 @@ def apply_keep_snooze(
 
     The UPDATE is guarded by ``action='scheduled_deletion'``,
     ``delete_status='pending'``, ``token_used=0`` and
-    ``execute_at >= now`` (Finding 13) so a concurrent mutation or an
-    already-expired row cannot accidentally be applied.  Returns the
+    ``execute_at >= now`` so a concurrent mutation or an already-expired row
+    cannot be accidentally applied.  Returns the
     rowcount (0 means nothing happened — caller should respond 409).
     """
     new_execute = (now + timedelta(days=days)).isoformat()

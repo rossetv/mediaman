@@ -205,10 +205,9 @@ def send_newsletter(
     )
 
     if mark_notified and successfully_sent:
-        # Finding 23: only flip ``notified=1`` for items that every
-        # active recipient was successfully delivered to. A partial
-        # failure now leaves the row at ``notified=0`` so the next scan
-        # tick re-attempts delivery for the recipients that missed out.
+        # Only flip ``notified=1`` for items where every active recipient was
+        # successfully delivered — a partial failure must leave the row at
+        # ``notified=0`` for re-attempt on the next tick.
         _mark_notified(
             conn,
             scheduled_items,

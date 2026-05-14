@@ -12,3 +12,5 @@ Forbidden patterns: do not let raw LLM output reach any other layer without
 passing through the ``_validate_llm_string`` filter — prompt-injection defence
 lives in ``recommendations.prompts``.
 """
+
+from __future__ import annotations

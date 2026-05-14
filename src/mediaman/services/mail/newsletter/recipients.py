@@ -137,12 +137,11 @@ def _send_to_recipients(
         ]
 
         for del_item in recipient_deleted:
-            # Finding 15: only mint a public re-download token when we have a
-            # stable TMDB identifier on the deleted item.  Without one, the
-            # public submit endpoint would have to fall back to title lookup,
-            # which can enqueue the wrong film/show.  When tmdb_id is missing
-            # the template's ``{% if item.redownload_url %}`` guard hides the
-            # button rather than render a link that would fail at submit.
+            # Only mint a re-download token when we have a stable TMDB identifier;
+            # without one, the /download submit endpoint would have to fall back to
+            # title lookup, which can enqueue the wrong title.  When tmdb_id is
+            # missing the template's ``{% if item.redownload_url %}`` guard hides
+            # the button rather than render a link that would fail at submit.
             item_tmdb = del_item.get("tmdb_id")
             if base_url and item_tmdb:
                 token = generate_download_token(

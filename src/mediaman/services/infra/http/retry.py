@@ -35,6 +35,7 @@ import time
 from collections.abc import Callable
 from datetime import UTC
 from typing import Literal
+from urllib.parse import urlparse
 
 import requests
 
@@ -135,8 +136,6 @@ def _safe_path(url: str) -> str:
     Query strings on outbound URLs often contain API keys — never log them.
     """
     try:
-        from urllib.parse import urlparse
-
         parsed = urlparse(url)
         host = parsed.hostname or "?"
         return f"{host}{parsed.path or '/'}"

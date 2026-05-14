@@ -11,3 +11,5 @@ reads.
 Forbidden patterns: do not import from ``mediaman.web`` or ``mediaman.scanner``
 — metadata clients are shared across the scanner pipeline and web routes.
 """
+
+from __future__ import annotations

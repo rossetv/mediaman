@@ -19,7 +19,7 @@ Security infrastructure and data types are in the sub-modules
 
 from __future__ import annotations
 
-import logging as _logging
+import logging
 import warnings as _warnings
 from datetime import UTC, datetime
 from typing import Literal
@@ -79,7 +79,7 @@ from mediaman.services.media_meta._plex_types import (
     PlexRatedItem as PlexRatedItem,
 )
 
-_logger = _logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class PlexClient:
@@ -101,7 +101,7 @@ class PlexClient:
         Args:
             url: Base URL of the Plex Media Server, e.g. ``http://plex:32400``.
             token: Plex authentication token (X-Plex-Token).
-            allowed_hosts: Optional SSRF allowlist (W1.32). When supplied,
+            allowed_hosts: Optional SSRF allowlist. When supplied,
                 every outbound call from the hardened plexapi session and
                 the raw history HTTP client refuses any host whose
                 IDN-normalised form is not in the set (or in
@@ -269,7 +269,7 @@ class PlexClient:
                 viewed_at = datetime.fromtimestamp(int(viewed_at_ts), tz=UTC)
                 account_id = int(v.get("accountID", 0))
             except (ValueError, TypeError, OSError, OverflowError):
-                _logger.debug(
+                logger.debug(
                     "plex.history.skip_malformed viewedAt=%r accountID=%r",
                     viewed_at_ts,
                     v.get("accountID"),
@@ -318,7 +318,7 @@ class PlexClient:
             except (PlexApiException, http_requests.RequestException) as exc:
                 # Older Plex servers may reject the filter — fall back to
                 # the slow path so the recommendation flow still works.
-                _logger.warning(
+                logger.warning(
                     "plex.user_ratings.filter_unsupported section=%s — falling back to "
                     "full enumeration: %s",
                     section.title,

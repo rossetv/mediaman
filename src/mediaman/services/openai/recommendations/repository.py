@@ -10,7 +10,7 @@ import sqlite3
 from dataclasses import dataclass
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SuggestionRow:
     """Minimal projection of a suggestions row used by the share-token and download routes."""
 

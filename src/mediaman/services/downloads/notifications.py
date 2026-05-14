@@ -162,6 +162,7 @@ def _fetch_suggestions_batch(
     tmdb_ids = sorted({int(r["tmdb_id"]) for r in runnable if r["tmdb_id"] is not None})
     suggestions_by_tmdb: dict[int, sqlite3.Row] = {}
     if tmdb_ids:
+        # rationale: placeholder list built from integer TMDB IDs only; no user input reaches the SQL string
         placeholders = ",".join("?" * len(tmdb_ids))
         sugg_rows = conn.execute(
             f"SELECT tmdb_id, year, runtime, director, description, rating, "

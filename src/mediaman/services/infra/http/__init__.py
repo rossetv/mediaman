@@ -11,6 +11,8 @@ Only the legitimate public surface is re-exported here; callers that need
 implementation-detail names import them from the canonical sub-module.
 """
 
+from __future__ import annotations
+
 from mediaman.services.infra.http.client import SafeHTTPClient, SafeHTTPError
 from mediaman.services.infra.http.dns_pinning import (
     ensure_hook_installed,

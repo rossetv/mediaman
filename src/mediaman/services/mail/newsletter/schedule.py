@@ -112,8 +112,8 @@ def _mark_notified(
 
     expected = set(active_recipients)
     fully_delivered: list[int] = []
-    # rationale: batched IN-clause replaces N+1 query
     placeholders = ",".join("?" * len(action_ids))
+    # rationale: placeholder list built from validated integer IDs only; no user input reaches this interpolation
     delivery_rows = conn.execute(
         f"SELECT scheduled_action_id, recipient FROM newsletter_deliveries "
         f"WHERE scheduled_action_id IN ({placeholders}) AND sent_at IS NOT NULL",
@@ -128,6 +128,7 @@ def _mark_notified(
 
     if fully_delivered:
         placeholders = ",".join("?" * len(fully_delivered))
+        # rationale: placeholder list built from validated integer IDs only; no user input reaches this interpolation
         conn.execute(
             f"UPDATE scheduled_actions SET notified=1 WHERE id IN ({placeholders})",
             fully_delivered,
