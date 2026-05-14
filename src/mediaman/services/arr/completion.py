@@ -287,41 +287,35 @@ def record_verified_completions(
     _batch_insert_completions(conn, to_insert)
 
 
-def fetch_and_sync_recent_downloads(
-    conn: sqlite3.Connection,
-    active_ids: set[str],
-    active_titles: set[str],
-    secret_key: str,
-) -> list[RecentDownloadItem]:
-    """Return recent downloads (last 7 days), excluding anything active.
+class _PosterLookup:
+    """Lazy, call-scoped Radarr/Sonarr poster maps for recent-downloads backfill.
 
-    Side effects: deletes rows whose item has reappeared in the active queue
-    (e.g. Radarr re-grabbed after a bad release) and backfills missing poster
-    URLs via Radarr/Sonarr.
+    Each service's library is fetched at most once per
+    :func:`fetch_and_sync_recent_downloads` call and indexed
+    ``{title: poster_url}``. ``None`` signals "not yet fetched"; an empty
+    dict means "fetched, nothing usable found". Replaces the former
+    ``_poster_from_arr`` nested closure — same lazy-load-and-look-up
+    behaviour, hoisted so it is independently testable.
     """
-    from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 
-    recent_rows = conn.execute(
-        "SELECT id, dl_id, title, media_type, poster_url, completed_at"
-        " FROM recent_downloads"
-        " WHERE completed_at >= datetime('now', '-7 days')"
-        " ORDER BY completed_at DESC"
-    ).fetchall()
-    recent: list[RecentDownloadItem] = []
-    radarr_posters: dict[str, str] | None = None
-    sonarr_posters: dict[str, str] | None = None
+    def __init__(self, conn: sqlite3.Connection, secret_key: str) -> None:
+        self._conn = conn
+        self._secret_key = secret_key
+        self._radarr_posters: dict[str, str] | None = None
+        self._sonarr_posters: dict[str, str] | None = None
 
-    def _poster_from_arr(service: str, title: str) -> str:
-        """Lazy-load Radarr/Sonarr poster maps, look up *title*."""
-        nonlocal radarr_posters, sonarr_posters
-        cache = radarr_posters if service == "radarr" else sonarr_posters
+    def poster_for(self, service: str, title: str) -> str:
+        """Return the poster URL for *title* from *service*, lazy-loading the map."""
+        from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
+
+        cache = self._radarr_posters if service == "radarr" else self._sonarr_posters
         if cache is None:
             cache = {}
             try:
                 client = (
-                    build_radarr_from_db(conn, secret_key)
+                    build_radarr_from_db(self._conn, self._secret_key)
                     if service == "radarr"
-                    else build_sonarr_from_db(conn, secret_key)
+                    else build_sonarr_from_db(self._conn, self._secret_key)
                 )
                 if client:
                     entries = client.get_movies() if service == "radarr" else client.get_series()
@@ -337,51 +331,92 @@ def fetch_and_sync_recent_downloads(
                     exc_info=True,
                 )
             if service == "radarr":
-                radarr_posters = cache
+                self._radarr_posters = cache
             else:
-                sonarr_posters = cache
+                self._sonarr_posters = cache
         return cache.get(title, "")
 
-    for r in recent_rows:
-        if r["dl_id"] in active_ids or r["title"] in active_titles:
-            # Item is back in the download queue — remove from recent
-            conn.execute("DELETE FROM recent_downloads WHERE id = ?", (r["id"],))
-            conn.commit()
-            continue
 
-        poster_url = r["poster_url"] or ""
-        if not poster_url:
-            dl_id = r["dl_id"] or ""
-            service = (
-                "radarr"
-                if dl_id.startswith("radarr:")
-                else ("sonarr" if dl_id.startswith("sonarr:") else "")
-            )
-            if not service:
-                service = "radarr" if r["media_type"] == "movie" else "sonarr"
-            poster_url = _poster_from_arr(service, r["title"])
-            if poster_url:
-                try:
-                    conn.execute(
-                        "UPDATE recent_downloads SET poster_url = ? WHERE id = ?",
-                        (poster_url, r["id"]),
-                    )
-                    conn.commit()
-                except sqlite3.Error:
-                    logger.warning(
-                        "Failed to backfill poster for %s",
-                        r["title"],
-                        exc_info=True,
-                    )
+def _sync_recent_row(
+    conn: sqlite3.Connection,
+    row: sqlite3.Row,
+    active_ids: set[str],
+    active_titles: set[str],
+    poster_lookup: _PosterLookup,
+) -> RecentDownloadItem | None:
+    """Process one ``recent_downloads`` row; return its item, or ``None`` if dropped.
 
-        recent.append(
-            {
-                "id": r["dl_id"],
-                "title": r["title"],
-                "media_type": r["media_type"],
-                "poster_url": poster_url,
-                "completed_at": r["completed_at"],
-            }
+    Per-row side effects (preserved verbatim from the original loop body):
+
+    * If the item has reappeared in the active queue, ``DELETE`` the row,
+      ``commit()``, and return ``None`` (the caller skips it).
+    * Otherwise, when the stored poster is missing, look it up via
+      *poster_lookup* and, on a hit, ``UPDATE`` the row and ``commit()``.
+    """
+    if row["dl_id"] in active_ids or row["title"] in active_titles:
+        # Item is back in the download queue — remove from recent
+        conn.execute("DELETE FROM recent_downloads WHERE id = ?", (row["id"],))
+        conn.commit()
+        return None
+
+    poster_url = row["poster_url"] or ""
+    if not poster_url:
+        dl_id = row["dl_id"] or ""
+        service = (
+            "radarr"
+            if dl_id.startswith("radarr:")
+            else ("sonarr" if dl_id.startswith("sonarr:") else "")
         )
+        if not service:
+            service = "radarr" if row["media_type"] == "movie" else "sonarr"
+        poster_url = poster_lookup.poster_for(service, row["title"])
+        if poster_url:
+            try:
+                conn.execute(
+                    "UPDATE recent_downloads SET poster_url = ? WHERE id = ?",
+                    (poster_url, row["id"]),
+                )
+                conn.commit()
+            except sqlite3.Error:
+                logger.warning(
+                    "Failed to backfill poster for %s",
+                    row["title"],
+                    exc_info=True,
+                )
 
+    return {
+        "id": row["dl_id"],
+        "title": row["title"],
+        "media_type": row["media_type"],
+        "poster_url": poster_url,
+        "completed_at": row["completed_at"],
+    }
+
+
+def fetch_and_sync_recent_downloads(
+    conn: sqlite3.Connection,
+    active_ids: set[str],
+    active_titles: set[str],
+    secret_key: str,
+) -> list[RecentDownloadItem]:
+    """Return recent downloads (last 7 days), excluding anything active.
+
+    Side effects: deletes rows whose item has reappeared in the active queue
+    (e.g. Radarr re-grabbed after a bad release) and backfills missing poster
+    URLs via Radarr/Sonarr. The per-row work — including the DELETE/UPDATE
+    and their commits — lives in :func:`_sync_recent_row`.
+    """
+    recent_rows = conn.execute(
+        "SELECT id, dl_id, title, media_type, poster_url, completed_at"
+        " FROM recent_downloads"
+        " WHERE completed_at >= datetime('now', '-7 days')"
+        " ORDER BY completed_at DESC"
+    ).fetchall()
+    poster_lookup = _PosterLookup(conn, secret_key)
+
+    recent: list[RecentDownloadItem] = []
+    for r in recent_rows:
+        item = _sync_recent_row(conn, r, active_ids, active_titles, poster_lookup)
+        if item is not None:
+            recent.append(item)
     return recent

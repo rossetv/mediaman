@@ -302,6 +302,46 @@ def test_tv_previous_airing_date_treated_as_aired_signal():
 
 
 # ---------------------------------------------------------------------------
+# _season_stats / _season_has_aired — pure helpers promoted out of
+# compute_download_state's series branch (Phase-4 decomposition)
+# ---------------------------------------------------------------------------
+
+from mediaman.services.arr.state import _season_has_aired, _season_stats  # noqa: E402
+
+
+class TestSeasonStats:
+    def test_returns_statistics_dict_when_present(self):
+        season = {"seasonNumber": 1, "statistics": {"episodeFileCount": 3}}
+        assert _season_stats(season) == {"episodeFileCount": 3}
+
+    def test_returns_empty_dict_when_statistics_absent(self):
+        assert _season_stats({"seasonNumber": 1}) == {}
+
+    def test_returns_empty_dict_when_statistics_malformed(self):
+        # A non-dict ``statistics`` (e.g. None or a list) must not raise.
+        assert _season_stats({"statistics": None}) == {}
+        assert _season_stats({"statistics": []}) == {}
+
+
+class TestSeasonHasAired:
+    def test_previous_airing_on_statistics_signals_aired(self):
+        season = {"statistics": {"previousAiring": "2020-01-01"}}
+        assert _season_has_aired(season) is True
+
+    def test_legacy_previous_airing_date_on_season_signals_aired(self):
+        # Older Sonarr exposed ``previousAiringDate`` on the season payload.
+        assert _season_has_aired({"previousAiringDate": "2019-05-05"}) is True
+
+    def test_legacy_previous_airing_date_on_statistics_signals_aired(self):
+        season = {"statistics": {"previousAiringDate": "2019-05-05"}}
+        assert _season_has_aired(season) is True
+
+    def test_no_airing_signal_is_unaired(self):
+        assert _season_has_aired({"statistics": {"episodeCount": 10}}) is False
+        assert _season_has_aired({"seasonNumber": 1}) is False
+
+
+# ---------------------------------------------------------------------------
 # attach_download_states — per-item Arr enrichment lifted out of the
 # /recommended page handler
 # ---------------------------------------------------------------------------

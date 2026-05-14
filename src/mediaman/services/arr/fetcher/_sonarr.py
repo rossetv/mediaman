@@ -152,14 +152,8 @@ def _aggregate_pack_episodes(card: ArrCard, card_series_id: int) -> None:
     _finalise_card_aggregates(card, eps, cluster_keys, cluster_counts, total_size, total_left)
 
 
-def fetch_sonarr_queue(client: ArrClient) -> list[ArrCard]:
-    """Build Sonarr download cards from an already-constructed client.
-
-    Groups queue episodes by series into one card each, then appends
-    cards for monitored series still searching. The inner loop over
-    ``get_series()`` keeps its own try/except for the same reason as
-    :func:`fetch_radarr_queue`.
-    """
+def _build_queue_cards(client: ArrClient) -> list[ArrCard]:
+    """Phase 1: group Sonarr download-queue episodes into one card per series."""
     items: list[ArrCard] = []
     series_map: dict[int, ArrCard] = {}  # series_id -> grouped card
 
@@ -213,15 +207,21 @@ def fetch_sonarr_queue(client: ArrClient) -> list[ArrCard]:
     for card_series_id, card in series_map.items():
         _aggregate_pack_episodes(card, card_series_id)
         items.append(card)
+    return items
 
-    # Also include monitored series still searching (not yet in queue).
-    # ``_iter_still_searching`` owns the outer try/except so a transient
-    # upstream failure doesn't discard the queue cards we already
-    # collected, and so both fetchers share a single exception-list
-    # contract.
-    queue_series_title_years = {
-        (i["title"], i.get("year")) for i in items if i.get("kind") == "series"
-    }
+
+def _build_still_searching_cards(
+    client: ArrClient, queue_series_title_years: set[tuple[str, int | None]]
+) -> list[ArrCard]:
+    """Phase 2: build cards for monitored series still searching (not yet in queue).
+
+    ``_iter_still_searching`` owns the outer try/except so a transient
+    upstream failure doesn't discard the queue cards already collected,
+    and so both fetchers share a single exception-list contract.
+    *queue_series_title_years* dedupes against series already covered by
+    phase 1.
+    """
+    items: list[ArrCard] = []
     for series in _iter_still_searching(client.get_series, service_label="Sonarr"):
         s_title = series.get("title", "")
         s_year = series.get("year")
@@ -273,4 +273,20 @@ def fetch_sonarr_queue(client: ArrClient) -> list[ArrCard]:
                 release_label=release_label,
             )
         )
+    return items
+
+
+def fetch_sonarr_queue(client: ArrClient) -> list[ArrCard]:
+    """Build Sonarr download cards from an already-constructed client.
+
+    Groups queue episodes by series into one card each, then appends
+    cards for monitored series still searching. The inner loop over
+    ``get_series()`` keeps its own try/except for the same reason as
+    :func:`fetch_radarr_queue`.
+    """
+    items = _build_queue_cards(client)
+    queue_series_title_years = {
+        (i["title"], i.get("year")) for i in items if i.get("kind") == "series"
+    }
+    items.extend(_build_still_searching_cards(client, queue_series_title_years))
     return items
