@@ -19,6 +19,7 @@ between FastAPI and that service.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import cast
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -97,18 +98,20 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
 
     # Determine state.
     now = now_utc()
-    execute_at = parse_execute_at(row["execute_at"], default=now)
+    execute_at = parse_execute_at(row.execute_at, default=now)
 
     if execute_at < now:
         state = "expired"
-    elif row["token_used"]:
+    elif row.token_used:
         state = "already_kept"
     else:
         state = "active"
 
-    # Format added_at for display (e.g. "14 May 2025")
-    item_dict = dict(row)
-    item_dict["added_display"] = format_added_display(item_dict.get("added_at"))
+    # Format added_at for display (e.g. "14 May 2025"). The template
+    # consumes ``item.<field>`` attribute access, so the dataclass is
+    # converted to a plain dict here and the derived display field added.
+    item_dict = asdict(row)
+    item_dict["added_display"] = format_added_display(item_dict["added_at"])
 
     # Compute "days left" server-side in the scheduled action's timezone
     # (UTC). Doing this in the template via ``execute_at.today()`` fails
@@ -199,7 +202,7 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
 
     rowcount = apply_keep_snooze(
         conn,
-        action_id=verified["id"],
+        action_id=verified.id,
         duration=duration,
         days=days,
         now=now,
@@ -211,7 +214,7 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
         return respond_err("already_processed", status=409)
 
     # Audit log only fires for the winning request.
-    log_audit(conn, verified["media_item_id"], "snoozed", f"Kept for {duration}")
+    log_audit(conn, verified.media_item_id, "snoozed", f"Kept for {duration}")
     conn.commit()
 
     return RedirectResponse(f"/keep/{token}", status_code=302)
@@ -258,12 +261,12 @@ def keep_forever(
         conn.rollback()
         return respond_err("invalid_or_expired", status=400)
 
-    rowcount = apply_keep_forever(conn, action_id=verified["id"], now=now)
+    rowcount = apply_keep_forever(conn, action_id=verified.id, now=now)
     if rowcount == 0:
         conn.commit()
         return respond_err("already_processed", status=409)
 
-    log_audit(conn, verified["media_item_id"], "snoozed", "Kept forever (admin)")
+    log_audit(conn, verified.media_item_id, "snoozed", "Kept forever (admin)")
     conn.commit()
 
     return respond_ok({"state": "protected_forever"})
