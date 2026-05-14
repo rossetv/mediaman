@@ -276,6 +276,76 @@ class TestSendNewsletter:
         assert resp.json()["ok"] is False
 
 
+class TestResolveNewsletterRecipients:
+    """``_resolve_newsletter_recipients`` normalises the requested list,
+    intersects it with the *active* subscribers, and filters each
+    candidate on CRLF-injection and email-format validity — returning the
+    deliverable list plus the count of post-intersection rejects that
+    feeds the audit detail."""
+
+    def test_normalises_and_intersects_active_only(self, app):
+        from mediaman.web.routes.subscribers import _resolve_newsletter_recipients
+
+        conn = app.state.db
+        _insert_subscriber(conn, "active@example.com", active=1)
+        _insert_subscriber(conn, "inactive@example.com", active=0)
+
+        # Mixed case / whitespace in the request must be normalised; the
+        # inactive subscriber and the unknown address must be dropped.
+        recipients, rejected = _resolve_newsletter_recipients(
+            conn,
+            ["  Active@Example.COM ", "inactive@example.com", "stranger@example.com"],
+        )
+        assert recipients == ["active@example.com"]
+        assert rejected == 0
+
+    def test_empty_request_returns_empty(self, app):
+        from mediaman.web.routes.subscribers import _resolve_newsletter_recipients
+
+        conn = app.state.db
+        # Non-string entries normalise away to an empty request set.
+        recipients, rejected = _resolve_newsletter_recipients(conn, [123, None])  # type: ignore[list-item]
+        assert recipients == []
+        assert rejected == 0
+
+    def test_crlf_injection_candidate_is_rejected_and_counted(self, app):
+        """A subscriber row whose email smuggles a CRLF must be dropped
+        from the send list and counted as a reject — header injection
+        into the outbound mail is a security boundary."""
+        from mediaman.web.routes.subscribers import _resolve_newsletter_recipients
+
+        conn = app.state.db
+        # Persist a malformed row directly (the add endpoint would reject
+        # it, but a hand-edited DB or migration could leave one). The
+        # column is lower-cased on write, so the stored value is too.
+        crlf_email = "evil@example.com\r\nbcc: victim@example.com"
+        conn.execute(
+            "INSERT INTO subscribers (email, active, created_at) VALUES (?, 1, datetime('now'))",
+            (crlf_email,),
+        )
+        conn.commit()
+
+        recipients, rejected = _resolve_newsletter_recipients(conn, [crlf_email])
+        assert recipients == []
+        assert rejected == 1
+
+    def test_malformed_email_candidate_is_rejected_and_counted(self, app):
+        from mediaman.web.routes.subscribers import _resolve_newsletter_recipients
+
+        conn = app.state.db
+        # An active row that is not a valid email address survives the
+        # intersection but fails the format check.
+        conn.execute(
+            "INSERT INTO subscribers (email, active, created_at) VALUES (?, 1, datetime('now'))",
+            ("not-an-email",),
+        )
+        conn.commit()
+
+        recipients, rejected = _resolve_newsletter_recipients(conn, ["not-an-email"])
+        assert recipients == []
+        assert rejected == 1
+
+
 # ---------------------------------------------------------------------------
 # Audit logging + rate limiting (Domain 03 findings 9-11, 14)
 # ---------------------------------------------------------------------------

@@ -271,3 +271,54 @@ class LazyArrClients:
             self._sonarr = build_sonarr_from_db(self._conn, self._secret_key)
             self._sonarr_built = True
         return self._sonarr
+
+
+def attach_download_states(
+    batches: list[dict[str, object]], arr: LazyArrClients
+) -> dict[object, dict[str, object]]:
+    """Annotate each recommendation with its Arr download state, in place.
+
+    Walks every ``trending``/``personal`` item across *batches*; for an
+    item with a ``tmdb_id`` it computes :func:`compute_download_state`
+    against the relevant Arr cache and, when that yields a non-``None``
+    state, writes it onto ``item["download_state"]``.
+
+    The Radarr and Sonarr caches are built lazily — at most once each, and
+    only if a movie / TV item is actually present — via *arr*. The two
+    *empty* cache halves are built once up front rather than per iteration
+    (the loop previously rebuilt the unused half on every opposite-branch
+    item, which was needless repeated work).
+
+    Returns a ``{item["id"]: item}`` map of every item seen, so the caller
+    can serialise the full set without re-walking the batches.
+    """
+    empty_radarr = build_radarr_cache(None)
+    empty_sonarr = build_sonarr_cache(None)
+
+    radarr_cache: RadarrCaches | None = None
+    sonarr_cache: SonarrCaches | None = None
+
+    all_recs: dict[object, dict[str, object]] = {}
+    for batch in batches:
+        trending = batch["trending"]
+        personal = batch["personal"]
+        if not isinstance(trending, list) or not isinstance(personal, list):
+            continue
+        for item in trending + personal:
+            tmdb_id = item.get("tmdb_id")
+            media_type = item.get("media_type")
+            if tmdb_id and isinstance(tmdb_id, int) and isinstance(media_type, str):
+                if media_type == "movie":
+                    if radarr_cache is None:
+                        radarr_cache = build_radarr_cache(arr.radarr())
+                    caches: ArrCaches = {**radarr_cache, **empty_sonarr}
+                else:
+                    if sonarr_cache is None:
+                        sonarr_cache = build_sonarr_cache(arr.sonarr())
+                    caches = {**empty_radarr, **sonarr_cache}
+                state = compute_download_state(media_type, tmdb_id, caches)
+                if state is not None:
+                    item["download_state"] = state
+
+            all_recs[item["id"]] = item
+    return all_recs

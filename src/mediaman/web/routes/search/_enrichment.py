@@ -14,6 +14,8 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
+import time
+from collections.abc import Callable
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from datetime import timedelta
 from functools import lru_cache
@@ -45,6 +47,46 @@ _DISCOVER_CACHE_MAX_ENTRIES = 32
 
 _discover_cache: dict[str, tuple[float, list[dict[str, object]]]] = {}
 _discover_cache_lock = threading.Lock()
+
+
+def _fetch_discover_shelf(
+    shelf_key: str,
+    fetch_fn: Callable[[int], list[dict[str, object]]],
+    inject_media_type: str | None,
+    page: int,
+) -> list[dict[str, object]]:
+    """Fetch one page of a discover shelf, served from a TTL cache.
+
+    On a cache hit within :data:`_DISCOVER_TMDB_TTL_SECONDS` the cached
+    list is returned untouched. On a miss the page is fetched via
+    *fetch_fn*, has ``media_type`` stamped onto each item when
+    *inject_media_type* is set (the popular-movies/TV endpoints don't
+    return it), and is written back under ``f"{shelf_key}?page={page}"``.
+    The cache is bounded to :data:`_DISCOVER_CACHE_MAX_ENTRIES`; on
+    overflow it is cleared wholesale — the TTL means stale entries would
+    refresh on the next read anyway, so a coarse clear is acceptable.
+
+    Lives here rather than in ``page.py`` because the cache and lock it
+    touches are module-level singletons owned by this module.
+    """
+    cache_key = f"{shelf_key}?page={page}"
+    now = time.monotonic()
+    with _discover_cache_lock:
+        entry = _discover_cache.get(cache_key)
+        if entry and now - entry[0] < _DISCOVER_TMDB_TTL_SECONDS:
+            return entry[1]
+    raw = fetch_fn(page)
+    if inject_media_type:
+        for x in raw:
+            x["media_type"] = inject_media_type
+    with _discover_cache_lock:
+        # rationale: bounded to prevent unbounded growth on malformed inputs;
+        # small clear-on-overflow is fine because TTL means stale entries
+        # refresh on next read.
+        if len(_discover_cache) >= _DISCOVER_CACHE_MAX_ENTRIES:
+            _discover_cache.clear()
+        _discover_cache[cache_key] = (now, raw)
+    return raw
 
 
 @lru_cache(maxsize=1)

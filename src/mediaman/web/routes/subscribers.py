@@ -70,6 +70,39 @@ def _validate_email(email: str) -> bool:
     return bool(_EMAIL_RE.match(email.strip()))
 
 
+def _resolve_newsletter_recipients(
+    conn: sqlite3.Connection, raw_recipients: list[str]
+) -> tuple[list[str], int]:
+    """Resolve the requested recipient list to deliverable subscriber emails.
+
+    Normalises the raw request list (lower-cased, stripped, non-strings
+    dropped), intersects it with the *active* subscribers so the endpoint
+    can only ever mail an opted-in address, then filters each candidate
+    on CRLF-injection and email-format validity.
+
+    Returns ``(recipients, rejected)`` where ``rejected`` counts candidates
+    that survived the subscriber intersection but failed the CRLF/format
+    check — that count feeds the ``newsletter.sent`` audit detail.
+    """
+    requested = {str(r).lower().strip() for r in raw_recipients if isinstance(r, str)}
+    if not requested:
+        return [], 0
+
+    allowed_emails = fetch_active_subscribers_in(conn, requested)
+
+    recipients: list[str] = []
+    rejected = 0
+    for candidate in allowed_emails:
+        if "\r" in candidate or "\n" in candidate:
+            rejected += 1
+            continue
+        if not _validate_email(candidate):
+            rejected += 1
+            continue
+        recipients.append(candidate)
+    return recipients, rejected
+
+
 @router.get("/api/subscribers")
 def api_list_subscribers(username: str = Depends(get_current_admin)) -> JSONResponse:
     """Return all subscribers as JSON."""
@@ -188,22 +221,10 @@ def api_send_newsletter(
 
     config = request.app.state.config
 
-    requested = {str(r).lower().strip() for r in raw_recipients if isinstance(r, str)}
-    if not requested:
+    if not any(isinstance(r, str) for r in raw_recipients):
         return respond_err("no_valid_recipients", status=400, message="No valid recipients")
 
-    allowed_emails = fetch_active_subscribers_in(conn, requested)
-
-    recipients: list[str] = []
-    rejected = 0
-    for candidate in allowed_emails:
-        if "\r" in candidate or "\n" in candidate:
-            rejected += 1
-            continue
-        if not _validate_email(candidate):
-            rejected += 1
-            continue
-        recipients.append(candidate)
+    recipients, rejected = _resolve_newsletter_recipients(conn, raw_recipients)
 
     if not recipients:
         logger.warning(
