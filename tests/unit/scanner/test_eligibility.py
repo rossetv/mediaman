@@ -3,6 +3,8 @@
 Covers: is_old_enough and is_inactive.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime, timedelta
 
 # rationale: is_old_enough and is_inactive are internal scanner helpers not

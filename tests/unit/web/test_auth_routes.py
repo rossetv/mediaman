@@ -14,6 +14,8 @@ users.passwords, users.sessions) no longer need to import a peer route
 just to ask the cookie-scheme question.
 """
 
+from __future__ import annotations
+
 from unittest.mock import MagicMock
 
 import pytest

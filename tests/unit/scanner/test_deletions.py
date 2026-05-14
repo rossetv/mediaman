@@ -4,6 +4,8 @@ Covers: DeletionExecutor.execute (dry_run, no allowed roots, actual delete
 path, stuck-state recovery) and _recover_stuck_deletions.
 """
 
+from __future__ import annotations
+
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 

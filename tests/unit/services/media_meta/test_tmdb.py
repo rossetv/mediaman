@@ -1,5 +1,7 @@
 """Tests for the unified TMDB client and shaping helpers."""
 
+from __future__ import annotations
+
 import pytest
 import requests
 

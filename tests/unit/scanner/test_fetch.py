@@ -4,6 +4,8 @@ Covers PlexFetcher.fetch_library_items for both movie and show libraries,
 including watch-history error tolerance.
 """
 
+from __future__ import annotations
+
 from unittest.mock import MagicMock
 
 import requests

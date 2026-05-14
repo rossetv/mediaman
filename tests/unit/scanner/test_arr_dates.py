@@ -4,6 +4,8 @@ Covers: normalise_path, ArrDateCache (lazy loading, Radarr/Sonarr build,
 error tolerance).
 """
 
+from __future__ import annotations
+
 from unittest.mock import MagicMock
 
 import requests

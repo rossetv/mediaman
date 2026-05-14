@@ -219,7 +219,7 @@ class TestDownloadStatusRadarr:
 
 
 # ---------------------------------------------------------------------------
-# Finding 14: status polling requires poll_token, not download token
+# Status polling endpoints require a poll_token, not the original download token
 # ---------------------------------------------------------------------------
 
 _STATUS_SECRET = "a" * 64

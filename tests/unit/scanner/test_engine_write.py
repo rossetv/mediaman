@@ -1,5 +1,7 @@
 """Tests for scan engine write-phase behaviour (dry_run suppression, added_at resolution)."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 

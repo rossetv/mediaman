@@ -128,8 +128,7 @@ class TestUnmarkTokenUsed:
 
 
 # ---------------------------------------------------------------------------
-# Finding 2: persistence to SQLite — token reuse must survive restarts
-# and cross-worker collisions.
+# Token persistence to SQLite: token reuse must survive restarts and cross-worker collisions
 # ---------------------------------------------------------------------------
 
 

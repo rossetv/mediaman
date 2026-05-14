@@ -284,6 +284,8 @@ class TestConcurrentRecordFailure:
             try:
                 import sqlite3
 
+                # Raw connect is intentional: each worker needs its own independent
+                # connection to exercise real concurrent WAL writes.
                 c = sqlite3.connect(str(db_file))
                 c.row_factory = sqlite3.Row
                 c.execute("PRAGMA busy_timeout=30000")
@@ -303,8 +305,11 @@ class TestConcurrentRecordFailure:
 
         import sqlite3
 
+        # Raw connect is intentional: a separate read connection to verify the
+        # final count after all worker threads have committed.
         c = sqlite3.connect(str(db_file))
         c.row_factory = sqlite3.Row
+        c.execute("PRAGMA busy_timeout=30000")
         row = c.execute(
             "SELECT failure_count FROM login_failures WHERE username = ?",
             ("alice",),

@@ -1,5 +1,7 @@
 """Tests for the OMDb ratings helper."""
 
+from __future__ import annotations
+
 import pytest
 
 from mediaman.db import init_db

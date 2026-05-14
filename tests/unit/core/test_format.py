@@ -1,5 +1,7 @@
 """Tests for the shared formatting helpers."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime, timedelta, timezone
 
 from mediaman.core.format import (

@@ -1,5 +1,7 @@
 """Tests for session management."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -147,8 +149,11 @@ class TestDeleteUser:
         # the table has only one admin left and refuse.
         import sqlite3
 
+        # Raw connect is intentional: a second independent connection is required
+        # to simulate a concurrent deletion (separate transaction, separate lock).
         conn2 = sqlite3.connect(conn.execute("PRAGMA database_list").fetchone()["file"])
         conn2.row_factory = sqlite3.Row
+        conn2.execute("PRAGMA busy_timeout=30000")
         conn2.execute("DELETE FROM admin_users WHERE id=?", (bob_id,))
         conn2.commit()
         conn2.close()

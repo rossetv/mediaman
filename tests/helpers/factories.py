@@ -10,6 +10,8 @@ needs a row inserted *and* available as a dict can do::
     media_id = insert_media_item(conn, **fields)
 """
 
+from __future__ import annotations
+
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock

@@ -1,5 +1,7 @@
 """Tests for scan engine orphan-cleanup phase and concurrent-scan guard."""
 
+from __future__ import annotations
+
 from unittest.mock import MagicMock
 
 import pytest

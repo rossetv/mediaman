@@ -117,7 +117,7 @@ class TestLibraryPage:
 
 
 # ---------------------------------------------------------------------------
-# Finding 35: Bulk keep/remove honours response.ok
+# Bulk keep/remove operations honour the response.ok flag from each item's API call
 # ---------------------------------------------------------------------------
 
 

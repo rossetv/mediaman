@@ -1,5 +1,7 @@
 """Shared test fixtures."""
 
+from __future__ import annotations
+
 import socket
 from pathlib import Path
 from unittest.mock import MagicMock

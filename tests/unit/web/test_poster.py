@@ -1,5 +1,7 @@
 """Tests for poster proxy endpoint security."""
 
+from __future__ import annotations
+
 import pytest
 import requests
 

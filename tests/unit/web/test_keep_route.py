@@ -328,7 +328,7 @@ def _make_keep_app_findings(app_factory, conn: sqlite3.Connection):
 
 
 # ---------------------------------------------------------------------------
-# Finding 12: "forever" rejected on public route, accepted on admin endpoint
+# "forever" duration is rejected on the public keep route but accepted on the admin endpoint
 # ---------------------------------------------------------------------------
 
 
@@ -368,7 +368,7 @@ class TestFinding12ForeverEndpointSeparation:
 
 
 # ---------------------------------------------------------------------------
-# Finding 13: Keep POST refuses expired / non-pending actions
+# Keep POST refuses to apply actions that are expired or not in pending state
 # ---------------------------------------------------------------------------
 
 
@@ -427,7 +427,7 @@ class TestFinding13KeepDeadlineCheck:
 
 
 # ---------------------------------------------------------------------------
-# Finding 16: Keep token hash storage
+# Keep tokens are stored as hashes, not as raw values
 # ---------------------------------------------------------------------------
 
 

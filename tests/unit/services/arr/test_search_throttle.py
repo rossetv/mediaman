@@ -226,7 +226,7 @@ class TestThrottleDbPersistence:
 
 
 # ---------------------------------------------------------------------------
-# Finding 25: lock is released during network I/O
+# The throttle lock is released during network I/O so it does not block other tasks
 # ---------------------------------------------------------------------------
 
 

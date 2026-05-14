@@ -6,6 +6,8 @@ and ``get_release``).  Either spec is valid here because none of these
 methods read :attr:`ArrClient.spec`; ``SONARR_SPEC`` is used arbitrarily.
 """
 
+from __future__ import annotations
+
 import pytest
 
 from mediaman.services.arr.base import ArrClient
@@ -112,21 +114,21 @@ class TestLastError:
 
     def test_last_error_set_on_get_failure(self, client, fake_http, fake_response):
         fake_http.queue("GET", fake_response(status=500, text="boom"))
-        with pytest.raises(Exception):
+        with pytest.raises(SafeHTTPError):
             client._get("/api/v3/system/status")
         assert client.last_error is not None
         assert len(client.last_error) > 0
 
     def test_last_error_set_on_post_failure(self, client, fake_http, fake_response):
         fake_http.queue("POST", fake_response(status=503, text="unavailable"))
-        with pytest.raises(Exception):
+        with pytest.raises(SafeHTTPError):
             client._post("/api/v3/command", {"name": "TestCommand"})
         assert client.last_error is not None
 
     def test_last_error_cleared_after_recovery(self, client, fake_http, fake_response):
         """A successful call after a failure should reset last_error."""
         fake_http.queue("GET", fake_response(status=500, text="boom"))
-        with pytest.raises(Exception):
+        with pytest.raises(SafeHTTPError):
             client._get("/fail")
         assert client.last_error is not None
 

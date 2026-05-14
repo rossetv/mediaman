@@ -1,5 +1,7 @@
 """Tests for the unified settings reader."""
 
+from __future__ import annotations
+
 import sqlite3
 
 import pytest

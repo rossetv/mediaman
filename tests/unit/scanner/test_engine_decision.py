@@ -1,5 +1,7 @@
 """Tests for the execute_deletions method of the scan engine."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 

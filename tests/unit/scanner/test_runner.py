@@ -1,5 +1,7 @@
 """Tests for run_scan_from_db disk-threshold filtering logic."""
 
+from __future__ import annotations
+
 import json
 import shutil
 from datetime import UTC, datetime
