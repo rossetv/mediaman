@@ -414,6 +414,146 @@ class TestFetchDiscoverShelf:
         assert len(_discover_cache) == 1
 
 
+class TestEnrichRatingsHelpers:
+    """Behaviour-parity coverage for the helpers lifted out of
+    ``_enrich_ratings``: the cache hit/miss partition, the per-group OMDb
+    fetch, and the budgeted ``as_completed`` drain. These exercise the
+    subtle bits the original inline closure carried — the TTL cutoff, the
+    "a bad fetch must not abort the fan-out" degradation, and the
+    "drop incomplete, still keep the completed misses" timeout path."""
+
+    def _row(self, tmdb_id, media_type, *, fetched_at, rt="80%", imdb="7.5"):
+        from mediaman.web.repository.search import RatingsCacheRow
+
+        return RatingsCacheRow(
+            tmdb_id=tmdb_id,
+            media_type=media_type,
+            imdb_rating=imdb,
+            rt_rating=rt,
+            metascore="74",
+            fetched_at=fetched_at,
+        )
+
+    def test_partition_applies_fresh_cache_hit_in_place(self):
+        from mediaman.web.routes.search._enrichment import _partition_cached
+
+        item = {"tmdb_id": 1, "media_type": "movie", "title": "Dune"}
+        by_key = {(1, "movie"): [item]}
+        rows = [self._row(1, "movie", fetched_at="2026-05-01T00:00:00")]
+
+        misses = _partition_cached(by_key, rows, cutoff="2026-04-01T00:00:00")
+
+        # Fresh hit — applied in place, not returned as a miss.
+        assert misses == []
+        assert item["rt_rating"] == "80%"
+        assert item["imdb_rating"] == "7.5"
+
+    def test_partition_treats_stale_cache_row_as_miss(self):
+        from mediaman.web.routes.search._enrichment import _partition_cached
+
+        item = {"tmdb_id": 2, "media_type": "tv", "title": "Arcane"}
+        by_key = {(2, "tv"): [item]}
+        # Row predates the cutoff — must be treated as a miss, not applied.
+        rows = [self._row(2, "tv", fetched_at="2026-01-01T00:00:00")]
+
+        misses = _partition_cached(by_key, rows, cutoff="2026-04-01T00:00:00")
+
+        assert misses == [((2, "tv"), [item])]
+        assert "rt_rating" not in item
+
+    def test_partition_treats_absent_row_as_miss(self):
+        from mediaman.web.routes.search._enrichment import _partition_cached
+
+        item = {"tmdb_id": 3, "media_type": "movie", "title": "Solaris"}
+        by_key = {(3, "movie"): [item]}
+
+        misses = _partition_cached(by_key, rows=[], cutoff="2026-04-01T00:00:00")
+
+        assert misses == [((3, "movie"), [item])]
+
+    def test_fetch_for_group_returns_omdb_data(self):
+        from mediaman.web.routes.search import _enrichment
+        from mediaman.web.routes.search._enrichment import _fetch_ratings_for_group
+
+        group = [{"tmdb_id": 1, "media_type": "movie", "title": "Dune", "year": 2021}]
+        with patch.object(
+            _enrichment, "fetch_ratings", return_value={"rt": "83%", "imdb": "8.0"}
+        ) as mock_fetch:
+            key, returned_group, data = _fetch_ratings_for_group(
+                ((1, "movie"), group), omdb_key="k"
+            )
+
+        assert key == (1, "movie")
+        assert returned_group is group
+        assert data == {"rt": "83%", "imdb": "8.0"}
+        # The OMDb key is threaded through explicitly, not closed over.
+        assert mock_fetch.call_args.kwargs["omdb_key"] == "k"
+
+    def test_fetch_for_group_degrades_to_empty_on_failure(self):
+        from mediaman.services.infra import SafeHTTPError
+        from mediaman.web.routes.search import _enrichment
+        from mediaman.web.routes.search._enrichment import _fetch_ratings_for_group
+
+        group = [{"tmdb_id": 9, "media_type": "movie", "title": "Boom", "year": 2000}]
+        with patch.object(
+            _enrichment,
+            "fetch_ratings",
+            side_effect=SafeHTTPError(status_code=500, body_snippet="x", url="http://omdb"),
+        ):
+            key, returned_group, data = _fetch_ratings_for_group(
+                ((9, "movie"), group), omdb_key="k"
+            )
+
+        # A single bad lookup must not raise — it degrades to empty data.
+        assert key == (9, "movie")
+        assert data == {}
+
+    def test_drain_futures_applies_results_and_returns_writes(self):
+        from concurrent.futures import Future
+
+        from mediaman.web.routes.search._enrichment import _drain_futures
+
+        group = [{"tmdb_id": 1, "media_type": "movie", "title": "Dune"}]
+        fut: Future = Future()
+        fut.set_result(((1, "movie"), group, {"rt": "83%", "imdb": "8.0", "metascore": "74"}))
+
+        writes = _drain_futures([fut], now_iso="2026-05-14T00:00:00")
+
+        # Ratings applied to the group in place...
+        assert group[0]["rt_rating"] == "83%"
+        assert group[0]["imdb_rating"] == "8.0"
+        # ...and the cache-write tuple is returned for the batch upsert.
+        assert writes == [(1, "movie", "8.0", "83%", "74", "2026-05-14T00:00:00")]
+
+    def test_drain_futures_keeps_completed_when_budget_exhausted(self):
+        """The subtle degradation path: when ``as_completed`` raises
+        ``TimeoutError`` mid-iteration, futures already drained still land
+        in ``pending_writes`` so the completed misses are written and warm
+        for the next call — only the incomplete ones are dropped."""
+        from concurrent.futures import Future
+
+        from mediaman.web.routes.search import _enrichment
+        from mediaman.web.routes.search._enrichment import _drain_futures
+
+        done_group = [{"tmdb_id": 1, "media_type": "movie", "title": "Done"}]
+        done_fut: Future = Future()
+        done_fut.set_result(((1, "movie"), done_group, {"rt": "90%", "imdb": "9.0"}))
+        stuck_fut: Future = Future()  # never resolves
+
+        def fake_as_completed(futures, timeout=None):
+            # Yield the finished future, then blow the budget — exactly
+            # what the real as_completed does when a future is still pending.
+            yield done_fut
+            raise TimeoutError
+
+        with patch.object(_enrichment, "as_completed", fake_as_completed):
+            writes = _drain_futures([done_fut, stuck_fut], now_iso="2026-05-14T00:00:00")
+
+        # The completed miss is still written despite the timeout.
+        assert writes == [(1, "movie", "9.0", "90%", None, "2026-05-14T00:00:00")]
+        assert done_group[0]["rt_rating"] == "90%"
+
+
 def _tmdb_movie_payload():
     return {
         "id": 438631,

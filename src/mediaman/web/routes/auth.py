@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import sqlite3
 from typing import cast
 
 from fastapi import APIRouter, Form, Request
@@ -76,74 +77,78 @@ def login_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "login.html", {"error": None})
 
 
-@router.post("/login", response_class=HTMLResponse)
-def login_submit(
-    request: Request,
-    username: str = Form(...),
-    password: str = Form(...),
-) -> Response:
-    """Authenticate a username/password submission, applying per-IP and per-username rate limits before touching the credential check.
+def _render_rate_limited(request: Request) -> Response:
+    """Re-render the login form with the throttle message and a Retry-After hint.
 
-    On success, issues a session cookie and redirects to the post-login destination; on failure, re-renders the form with a generic error to avoid leaking which field was wrong.
+    Hint compliant clients (and well-behaved scripts) that the window is
+    finite.  The value is the upper bound — actual unblock is
+    sliding-window — but it gives operators and automation a concrete
+    number to back off against.
     """
-    client_ip = get_client_ip(request)
-    if not _limiter.check(client_ip):
-        templates = cast(Jinja2Templates, request.app.state.templates)
-        response: Response = templates.TemplateResponse(
-            request,
-            "login.html",
-            {
-                "error": "Too many attempts. Try again later.",
-            },
-        )
-        # Hint compliant clients (and well-behaved scripts) that the
-        # window is finite.  The value is the upper bound — actual unblock
-        # is sliding-window — but it gives operators and automation a
-        # concrete number to back off against.
-        response.headers["Retry-After"] = str(_LOGIN_RATE_WINDOW_SECONDS)
-        return response
+    templates = cast(Jinja2Templates, request.app.state.templates)
+    response: Response = templates.TemplateResponse(
+        request,
+        "login.html",
+        {
+            "error": "Too many attempts. Try again later.",
+        },
+    )
+    response.headers["Retry-After"] = str(_LOGIN_RATE_WINDOW_SECONDS)
+    return response
 
-    conn = get_db()
-    if not authenticate(conn, username, password):
-        # On the failed-login path *username* is unauthenticated and
-        # therefore fully attacker-controlled — sanitise before it lands
-        # in the LOGGER message, the audit ``actor`` column, AND the
-        # audit ``detail`` blob (which is rendered into the history
-        # page UI).  Without this an attacker could stuff control
-        # bytes (CR/LF for log forging, ANSI escape codes for terminal
-        # injection) or a multi-megabyte string into every audit row.
-        safe_username = _sanitise_log_field(username, limit=_AUDIT_USERNAME_LIMIT)
-        logger.info("auth.login_failed user=%s ip=%s", safe_username, client_ip)
-        security_event(
-            conn,
-            event="login.failed",
-            actor=safe_username,
-            ip=client_ip,
-            detail={"reason": "bad_credentials"},
-        )
-        templates = cast(Jinja2Templates, request.app.state.templates)
-        return templates.TemplateResponse(
-            request,
-            "login.html",
-            {
-                "error": "Invalid username or password.",
-            },
-        )
 
-    user_agent = request.headers.get("user-agent", "")
+def _handle_failed_login(
+    conn: sqlite3.Connection, username: str, client_ip: str, request: Request
+) -> Response:
+    """Audit a failed credential check and re-render the form generically.
 
-    # Evaluate plaintext against the strength policy BEFORE we've
-    # stashed it elsewhere. If it fails, flip the must-change-password
-    # flag so the session-guard middleware funnels this user to the
-    # force-change page after login. We still issue a session — the
-    # force-change page needs authenticated access to update the
-    # password. We do NOT log the password anywhere.
-    #
-    # Coalesce the audit event: the flag is sticky until the user
-    # rotates the password, so logging ``password.weak_detected`` on
-    # every subsequent login generates one row per session for the
-    # same condition.  Only emit the event when we actually flip the
-    # flag from 0 to 1 — every later login is a no-op.
+    On the failed-login path *username* is unauthenticated and therefore
+    fully attacker-controlled — sanitise before it lands in the LOGGER
+    message, the audit ``actor`` column, AND the audit ``detail`` blob
+    (which is rendered into the history page UI).  Without this an
+    attacker could stuff control bytes (CR/LF for log forging, ANSI
+    escape codes for terminal injection) or a multi-megabyte string into
+    every audit row.
+    """
+    safe_username = _sanitise_log_field(username, limit=_AUDIT_USERNAME_LIMIT)
+    logger.info("auth.login_failed user=%s ip=%s", safe_username, client_ip)
+    security_event(
+        conn,
+        event="login.failed",
+        actor=safe_username,
+        ip=client_ip,
+        detail={"reason": "bad_credentials"},
+    )
+    templates = cast(Jinja2Templates, request.app.state.templates)
+    return templates.TemplateResponse(
+        request,
+        "login.html",
+        {
+            "error": "Invalid username or password.",
+        },
+    )
+
+
+def _flag_weak_password(
+    conn: sqlite3.Connection, username: str, password: str, client_ip: str
+) -> bool:
+    """Flip the must-change-password flag when the plaintext fails the policy.
+
+    Evaluates the plaintext against the strength policy. If it fails,
+    flips the flag so the session-guard middleware funnels this user to
+    the force-change page after login (we still issue a session — the
+    force-change page needs authenticated access to update the
+    password). We do NOT log the password anywhere.
+
+    Coalesce the audit event: the flag is sticky until the user rotates
+    the password, so logging ``password.weak_detected`` on every
+    subsequent login generates one row per session for the same
+    condition.  Only emit the event when we actually flip the flag from
+    0 to 1 — every later login is a no-op.
+
+    Returns whether the password was weak (used for the success-audit
+    ``force_rotation`` detail field).
+    """
     weak_password = not is_strong(password, username=username)
     if weak_password:
         already_flagged = user_must_change_password(conn, username)
@@ -160,6 +165,29 @@ def login_submit(
                 actor=username,
                 ip=client_ip,
             )
+    return weak_password
+
+
+@router.post("/login", response_class=HTMLResponse)
+def login_submit(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+) -> Response:
+    """Authenticate a username/password submission, applying per-IP and per-username rate limits before touching the credential check.
+
+    On success, issues a session cookie and redirects to the post-login destination; on failure, re-renders the form with a generic error to avoid leaking which field was wrong.
+    """
+    client_ip = get_client_ip(request)
+    if not _limiter.check(client_ip):
+        return _render_rate_limited(request)
+
+    conn = get_db()
+    if not authenticate(conn, username, password):
+        return _handle_failed_login(conn, username, client_ip, request)
+
+    user_agent = request.headers.get("user-agent", "")
+    weak_password = _flag_weak_password(conn, username, password, client_ip)
 
     token = create_session(
         conn,
