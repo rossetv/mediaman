@@ -33,6 +33,7 @@ from mediaman.services.downloads._notification_backoff import (
 )
 from mediaman.services.downloads._notification_claims import (
     STRANDED_CLAIM_GRACE_SECONDS,
+    ClaimedNotificationRow,
     _claim_pending_notifications,
     _release_claim,
     _release_claims_bulk,
@@ -97,7 +98,7 @@ def _sonarr_has_files(client: ArrClient, *, tvdb_id: int | None, tmdb_id: int | 
 def _build_mailgun_client(
     conn: sqlite3.Connection,
     secret_key: str,
-    pending: list[sqlite3.Row],
+    pending: list[ClaimedNotificationRow],
 ) -> MailgunClient | None:
     """Build a MailgunClient from settings, or None if Mailgun is not configured.
 
@@ -116,16 +117,16 @@ def _build_mailgun_client(
         # Single bulk UPDATE + single commit instead of N round-trips.
         # On a backlog of dozens of pending rows the per-row path used
         # to issue one fsync each.
-        _release_claims_bulk(conn, [int(r["id"]) for r in pending])
+        _release_claims_bulk(conn, [r.id for r in pending])
         return None
     return MailgunClient(mailgun_domain, mailgun_key, mailgun_from)
 
 
 def _partition_runnable(
     conn: sqlite3.Connection,
-    pending: list[sqlite3.Row],
+    pending: list[ClaimedNotificationRow],
     now_dt: datetime,
-) -> list[sqlite3.Row]:
+) -> list[ClaimedNotificationRow]:
     """Split *pending* into deferred (backed-off) and runnable rows.
 
     Releases deferred rows in bulk and returns only the rows that are
@@ -136,10 +137,10 @@ def _partition_runnable(
     # ``notified=0`` in bulk so the next tick can pick them up if their
     # backoff has elapsed.
     deferred_ids: list[int] = []
-    runnable: list[sqlite3.Row] = []
+    runnable: list[ClaimedNotificationRow] = []
     for row in pending:
-        if _is_backed_off(int(row["id"]), now_dt):
-            deferred_ids.append(int(row["id"]))
+        if _is_backed_off(row.id, now_dt):
+            deferred_ids.append(row.id)
         else:
             runnable.append(row)
     if deferred_ids:
@@ -149,7 +150,7 @@ def _partition_runnable(
 
 def _fetch_suggestions_batch(
     conn: sqlite3.Connection,
-    runnable: list[sqlite3.Row],
+    runnable: list[ClaimedNotificationRow],
 ) -> dict[int, sqlite3.Row]:
     """Return a tmdb_id → suggestions-row mapping fetched in a single query.
 
@@ -159,7 +160,7 @@ def _fetch_suggestions_batch(
     # Batch the suggestions lookup so an N-row tick only fires one query
     # instead of N. Skips when no row has a tmdb_id so we don't run a
     # ``WHERE tmdb_id IN ()`` (which is a syntax error in SQLite).
-    tmdb_ids = sorted({int(r["tmdb_id"]) for r in runnable if r["tmdb_id"] is not None})
+    tmdb_ids = sorted({r.tmdb_id for r in runnable if r.tmdb_id is not None})
     suggestions_by_tmdb: dict[int, sqlite3.Row] = {}
     if tmdb_ids:
         # rationale: placeholder list built from integer TMDB IDs only; no user input reaches the SQL string
@@ -241,7 +242,7 @@ def _check_sonarr_series(
 
 
 def _check_arr_availability(
-    row: sqlite3.Row,
+    row: ClaimedNotificationRow,
     arr: LazyArrClients,
     now_dt: datetime,
     conn: sqlite3.Connection,
@@ -261,19 +262,19 @@ def _check_arr_availability(
     # their own try/except — splitting further would separate the except
     # from its try across function boundaries.
     """
-    row_id = row["id"]
-    service = row["service"]
+    row_id = row.id
+    service = row.service
 
     if service == "radarr":
-        ready, movie, arr_unreachable = _check_radarr_movie(arr, row_id, row["tmdb_id"])
+        ready, movie, arr_unreachable = _check_radarr_movie(arr, row_id, row.tmdb_id)
     elif service == "sonarr":
-        ready, arr_unreachable = _check_sonarr_series(arr, row_id, row["tvdb_id"], row["tmdb_id"])
+        ready, arr_unreachable = _check_sonarr_series(arr, row_id, row.tvdb_id, row.tmdb_id)
         movie = None
     else:
         ready, movie, arr_unreachable = False, None, False
 
     if arr_unreachable:
-        _record_arr_failure(int(row_id), now_dt)
+        _record_arr_failure(row_id, now_dt)
         _release_claim(conn, row_id)
         return False, _ARR_UNREACHABLE
 
@@ -282,7 +283,7 @@ def _check_arr_availability(
 
 def _process_one_notification(
     conn: sqlite3.Connection,
-    row: sqlite3.Row,
+    row: ClaimedNotificationRow,
     arr: LazyArrClients,
     mailgun: MailgunClient,
     template: Template,
@@ -294,9 +295,9 @@ def _process_one_notification(
     Releases the claim back to ``notified=0`` on any failure so a later
     tick can retry.  Applies backoff on *arr outages and Mailgun failures.
     """
-    row_id = row["id"]
-    email = row["email"]
-    title = row["title"]
+    row_id = row.id
+    email = row.email
+    title = row.title
     # ``tvdb_id`` may not be present on very old DB rows created before
     # the v11 migration, but the ``SELECT`` above always aliases the
     # column so ``row["tvdb_id"]`` is defined — just possibly NULL.
