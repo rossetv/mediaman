@@ -1,3 +1,8 @@
+# rationale: this file is the orchestration layer for download notifications;
+# the three private submodules (_notification_backoff, _notification_claims,
+# _notification_email) already hold the decomposed helpers, leaving only glue
+# code here — a further split would distribute a single pipeline across four or
+# more files with no cohesive concept to name the extra module.
 """Download completion notifications.
 
 Polls Radarr/Sonarr for download requests that now have files and emails
