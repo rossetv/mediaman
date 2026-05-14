@@ -78,6 +78,12 @@ Service credentials (Plex, Sonarr, Radarr, NZBGet, Mailgun, TMDB, OMDb, OpenAI) 
 | `MEDIAMAN_BIND_HOST` | no | auto | Defaults to `0.0.0.0` inside Docker, `127.0.0.1` on bare metal. Set explicitly to override. |
 | `MEDIAMAN_TRUSTED_PROXIES` | no | (empty) | Comma-separated reverse-proxy IPs/CIDRs. Required for `X-Forwarded-For` / `X-Forwarded-Proto` to be honoured. Wildcards (`*`, `0.0.0.0/0`, `::/0`) are rejected with a CRITICAL log line — they would let any peer spoof the source IP and bypass per-IP rate limits. |
 | `MEDIAMAN_DELETE_ROOTS` | no\* | (empty) | Colon-separated allow-list of filesystem roots mediaman may delete from (`/media:/media2`). Deletion **fails closed** if unset. Legacy `,` separator still accepted with a deprecation warning. |
+| `MEDIAMAN_MAX_REQUEST_BYTES` | no | `8388608` (8 MiB) | Maximum request body size in bytes. Requests exceeding this cap are rejected with HTTP 413 before the body is read. Raise for large file uploads; lower for stricter DoS protection. |
+| `MEDIAMAN_ALLOWED_HOSTS` | no | (any) | Comma-separated list of allowed `Host:` header values (e.g. `mediaman.example.com,localhost`). Unset means all hosts are accepted (Starlette `AllowedHostsMiddleware` defaults to `["*"]`). Always set this in production. |
+| `MEDIAMAN_HSTS_ENABLED` | no | `false` | Set to `true` to emit `Strict-Transport-Security` headers. Only takes effect when the request is already over HTTPS. Must be explicitly opted in — there is no implicit default-on. |
+| `MEDIAMAN_HSTS_PRELOAD` | no | `false` | Set to `true` to append the `preload` directive to the HSTS header. Only meaningful when `MEDIAMAN_HSTS_ENABLED=true`. Only set this after your domain is confirmed on the HSTS preload list. |
+| `MEDIAMAN_FORCE_SECURE_COOKIES` | no | (auto) | Override the secure-cookie decision. `true` forces `Secure=true` on all session cookies regardless of scheme. `false` forces `Secure=false` (development / plaintext loopback only). Omit to use automatic detection (fails closed to secure on any ambiguous request). Also acts as a hard override for HSTS — setting this to `false` disables HSTS even when `MEDIAMAN_HSTS_ENABLED=true`. |
+| `MEDIAMAN_EAGER_APP` | no | (unset) | Set to `1` to instantiate the ASGI app at module import time (for `uvicorn mediaman.main:app` targets). Unset for all other entry points to avoid import-time side effects during tests and CLI subcommands. |
 | `TZ` | no | `UTC` | Scheduler timezone (any IANA name). |
 
 \* Required if you want deletion to actually do anything.
