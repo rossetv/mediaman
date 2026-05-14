@@ -40,6 +40,8 @@ _SHUTDOWN_TIMEOUT_SECONDS = 30
 # Stuck-deletion recovery is best-effort at startup, but a recurring
 # failure means deletions are leaking forever. We escalate to CRITICAL
 # once the failure repeats so the noise is impossible to miss.
+# Single-process bootstrap-thread invariant (§1.12) — mutated only from
+# bootstrap_scheduling; no lock required.
 _stuck_deletion_failures = 0
 
 
@@ -209,9 +211,9 @@ def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
         )
         return True
     # rationale: §6.4 site 4 — cold-start recovery; app stays up so the operator can investigate.
-    except Exception as e:
-        logger.exception("Could not start scheduler: %s", e)
-        app.state.scheduler_error = str(e) or e.__class__.__name__
+    except Exception as exc:
+        logger.exception("bootstrap.scheduler_start_failed", extra={"error": str(exc)})
+        app.state.scheduler_error = str(exc) or exc.__class__.__name__
         return False
 
 

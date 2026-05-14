@@ -12,14 +12,14 @@ import pytest
 import mediaman.bootstrap.data_dir as bootstrap_data_dir_mod
 from mediaman.bootstrap.data_dir import (
     DataDirNotWritableError,
-    _assert_data_dir_writable,
-    _remediation_for,
+    assert_data_dir_writable,
+    remediation_for,
 )
 
 
 def test_writable_dir_passes_silently_and_leaves_no_probe(tmp_path):
     """Happy path returns None and the probe self-cleans on success."""
-    _assert_data_dir_writable(tmp_path)
+    assert_data_dir_writable(tmp_path)
     assert list(tmp_path.iterdir()) == []
 
 
@@ -30,7 +30,7 @@ def test_readonly_dir_raises_actionable_error(tmp_path):
     tmp_path.chmod(0o500)
     try:
         with pytest.raises(DataDirNotWritableError) as excinfo:
-            _assert_data_dir_writable(tmp_path)
+            assert_data_dir_writable(tmp_path)
     finally:
         tmp_path.chmod(0o700)
     msg = str(excinfo.value)
@@ -59,14 +59,14 @@ def test_errno_aware_remediation(tmp_path, err_no, expected_substring):
         patch.object(bootstrap_data_dir_mod.tempfile, "NamedTemporaryFile", _raise),
         pytest.raises(DataDirNotWritableError) as excinfo,
     ):
-        _assert_data_dir_writable(tmp_path)
+        assert_data_dir_writable(tmp_path)
     assert expected_substring in str(excinfo.value)
 
 
 def test_unknown_errno_falls_back_to_chown_hint():
     """Errnos we don't enumerate still surface the most-likely-cause hint."""
     exc = OSError(errno.EIO, "I/O error")
-    advice = _remediation_for(exc)
+    advice = remediation_for(exc)
     assert "chown -R" in advice
     assert "errno=" in advice
 

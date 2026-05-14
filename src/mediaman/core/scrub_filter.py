@@ -27,6 +27,7 @@ Usage::
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Iterable
 
 
@@ -53,6 +54,9 @@ class ScrubFilter(logging.Filter):
         replacement: str = "***REDACTED***",
     ) -> None:
         super().__init__()
+        # Protects _secrets against concurrent register_secret calls from
+        # background threads (docstring advertises thread-safety).
+        self._lock = threading.Lock()
         # Deduplicate while preserving insertion order; filter empty strings.
         seen: set[str] = set()
         self._secrets: list[str] = []
@@ -81,11 +85,12 @@ class ScrubFilter(logging.Filter):
                         k: self._scrub(v) if isinstance(v, str) else v
                         for k, v in record.args.items()
                     }
-        except Exception:  # rationale: don't break logging if scrub raises — emit the (possibly unscrubbed) record rather than silence it
-            # A filter that raises silences the log record entirely.
-            # Swallow all errors and let the (possibly unscrubbed) record
-            # through rather than breaking application logging.
-            pass
+        except Exception:  # rationale: §6.4 site 5 — recursive-safe redaction boundary.
+            # A filter that raises silences the log record entirely, and calling
+            # logger.exception() here would recurse infinitely.  Returning True
+            # lets the (possibly unscrubbed) record through rather than silencing
+            # application logging.  This is the only safe option for a logging filter.
+            return True
         return True
 
     # ------------------------------------------------------------------
@@ -100,8 +105,11 @@ class ScrubFilter(logging.Filter):
         startup).  Empty strings are silently ignored.  Already-registered
         secrets are not duplicated.
         """
-        if secret and secret not in self._secrets:
-            self._secrets.append(secret)
+        if not secret:
+            return
+        with self._lock:
+            if secret not in self._secrets:
+                self._secrets.append(secret)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -109,7 +117,9 @@ class ScrubFilter(logging.Filter):
 
     def _scrub(self, text: str) -> str:
         """Return *text* with every secret replaced by the replacement string."""
-        for secret in self._secrets:
+        with self._lock:
+            secrets_snapshot = list(self._secrets)
+        for secret in secrets_snapshot:
             text = text.replace(secret, self._replacement)
         return text
 
@@ -163,6 +173,9 @@ class ScrubFilter(logging.Filter):
 #: secrets (e.g. a Plex token resolved from the DB after startup) without
 #: constructing a new filter instance.
 _root_filter: ScrubFilter | None = None
+# Protects _root_filter mutations in install_root_filter (§8.5 — module-level
+# mutable singleton accessible from multiple threads).
+_root_filter_lock = threading.Lock()
 
 
 def install_root_filter(secrets: Iterable[str] = ()) -> ScrubFilter:
@@ -188,17 +201,19 @@ def install_root_filter(secrets: Iterable[str] = ()) -> ScrubFilter:
     global _root_filter
     mediaman_logger = logging.getLogger("mediaman")
 
-    if _root_filter is None:
-        _root_filter = ScrubFilter(secrets=secrets)
-    else:
-        for s in secrets:
-            _root_filter.register_secret(s)
+    with _root_filter_lock:
+        if _root_filter is None:
+            _root_filter = ScrubFilter(secrets=secrets)
+        else:
+            for s in secrets:
+                _root_filter.register_secret(s)
+        local_ref = _root_filter
 
     for handler in mediaman_logger.handlers:
-        if _root_filter not in handler.filters:
-            handler.addFilter(_root_filter)
+        if local_ref not in handler.filters:
+            handler.addFilter(local_ref)
 
-    return _root_filter
+    return local_ref
 
 
 def register_secret(secret: str) -> None:
