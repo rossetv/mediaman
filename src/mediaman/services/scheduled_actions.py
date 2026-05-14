@@ -31,6 +31,7 @@ from mediaman.crypto import validate_keep_token
 
 __all__ = [
     "KeepDecision",
+    "VerifiedKeepAction",
     "apply_keep_forever",
     "apply_keep_snooze",
     "find_active_keep_action_by_id_and_token",
@@ -94,16 +95,95 @@ def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+# SELECT column list shared by both keep-action lookups: every
+# ``scheduled_actions`` column followed by the ``media_items`` display
+# columns.  Both queries below inline exactly these columns in this
+# order so a single ``_row_to_verified_keep_action`` mapper covers both.
+# It is kept as a literal in each query (not interpolated) so no string
+# is ever built into SQL — see CODE_GUIDELINES §9.6.
+
+
+@dataclass(frozen=True, slots=True)
+class VerifiedKeepAction:
+    """A ``scheduled_actions`` row joined with its parent ``media_items`` row.
+
+    Returned by :func:`lookup_verified_action` and
+    :func:`find_active_keep_action_by_id_and_token` so the keep routes
+    consume typed attributes rather than raw ``sqlite3.Row`` string keys
+    (per the repository-returns-dataclasses standard).  The field order
+    mirrors the shared SELECT column list: all ``scheduled_actions``
+    columns first, then the ``media_items`` display columns.  Nullable DB
+    columns are typed ``... | None`` accordingly.
+    """
+
+    # scheduled_actions columns
+    id: int
+    media_item_id: str
+    action: str
+    scheduled_at: str
+    execute_at: str | None
+    token: str | None
+    token_used: int
+    snoozed_at: str | None
+    snooze_duration: str | None
+    notified: int
+    is_reentry: int
+    delete_status: str | None
+    token_hash: str | None
+    # media_items columns (joined for display)
+    title: str
+    media_type: str
+    poster_path: str | None
+    file_size_bytes: int
+    plex_rating_key: str
+    added_at: str
+    show_title: str | None
+    season_number: int | None
+
+
+def _row_to_verified_keep_action(row: sqlite3.Row) -> VerifiedKeepAction:
+    """Map a joined ``scheduled_actions`` + ``media_items`` row to :class:`VerifiedKeepAction`.
+
+    *row* must have been produced by one of the two lookup queries in
+    this module, which project every ``scheduled_actions`` column plus
+    the ``media_items`` display columns.  Access is by column name so the
+    mapper is insensitive to any future re-ordering of the SELECT list.
+    """
+    return VerifiedKeepAction(
+        id=row["id"],
+        media_item_id=row["media_item_id"],
+        action=row["action"],
+        scheduled_at=row["scheduled_at"],
+        execute_at=row["execute_at"],
+        token=row["token"],
+        token_used=row["token_used"],
+        snoozed_at=row["snoozed_at"],
+        snooze_duration=row["snooze_duration"],
+        notified=row["notified"],
+        is_reentry=row["is_reentry"],
+        delete_status=row["delete_status"],
+        token_hash=row["token_hash"],
+        title=row["title"],
+        media_type=row["media_type"],
+        poster_path=row["poster_path"],
+        file_size_bytes=row["file_size_bytes"],
+        plex_rating_key=row["plex_rating_key"],
+        added_at=row["added_at"],
+        show_title=row["show_title"],
+        season_number=row["season_number"],
+    )
+
+
 def lookup_verified_action(
     conn: sqlite3.Connection, token: str, secret_key: str
-) -> sqlite3.Row | None:
+) -> VerifiedKeepAction | None:
     """Validate the keep-token HMAC, then look up its ``scheduled_actions`` row.
 
     Returns the row joined with ``media_items`` (so the caller has the
-    title, poster, etc. for display) or ``None`` for any failure: bad
-    signature, expired token, token/payload mismatch, or row absent.
-    Rejecting on signature first stops forged tokens reaching the DB
-    lookup at all.
+    title, poster, etc. for display) as a :class:`VerifiedKeepAction`, or
+    ``None`` for any failure: bad signature, expired token, token/payload
+    mismatch, or row absent.  Rejecting on signature first stops forged
+    tokens reaching the DB lookup at all.
 
     Lookup is by ``token_hash`` so the raw token never lands in the index.
     """
@@ -112,7 +192,10 @@ def lookup_verified_action(
         return None
 
     row: sqlite3.Row | None = conn.execute(
-        "SELECT sa.*, mi.title, mi.media_type, mi.poster_path, mi.file_size_bytes, "
+        "SELECT sa.id, sa.media_item_id, sa.action, sa.scheduled_at, sa.execute_at, "
+        "sa.token, sa.token_used, sa.snoozed_at, sa.snooze_duration, sa.notified, "
+        "sa.is_reentry, sa.delete_status, sa.token_hash, "
+        "mi.title, mi.media_type, mi.poster_path, mi.file_size_bytes, "
         "mi.plex_rating_key, mi.added_at, mi.show_title, mi.season_number "
         "FROM scheduled_actions sa "
         "JOIN media_items mi ON sa.media_item_id = mi.id "
@@ -131,42 +214,61 @@ def lookup_verified_action(
     ) != int(row["id"]):
         return None
 
-    return row
+    return _row_to_verified_keep_action(row)
 
 
 def find_active_keep_action_by_id_and_token(
     conn: sqlite3.Connection, action_id: int, token: str
-) -> sqlite3.Row | None:
+) -> VerifiedKeepAction | None:
     """Look up an active ``scheduled_deletion`` row by ``action_id`` + token hash.
 
-    Returns the row when ``action='scheduled_deletion'``,
+    Returns a :class:`VerifiedKeepAction` when ``action='scheduled_deletion'``,
     ``delete_status='pending'``, ``token_used=0`` and the deadline has
     not yet passed; otherwise ``None``.  Falls back to the raw token
     column for rows not yet migrated to ``token_hash``.
+
+    The ``JOIN media_items`` is on the ``media_item_id`` foreign key,
+    which is ``NOT NULL`` and always references an existing row, so the
+    join cannot change which ``scheduled_actions`` rows match — it only
+    attaches the display columns needed for the shared return shape.
     """
     th = token_hash(token)
     now = now_iso()
     row: sqlite3.Row | None = conn.execute(
-        "SELECT * FROM scheduled_actions "
-        "WHERE id = ? AND token_hash = ? "
-        "AND action = 'scheduled_deletion' "
-        "AND (delete_status IS NULL OR delete_status = 'pending') "
-        "AND token_used = 0 "
-        "AND execute_at >= ?",
+        "SELECT sa.id, sa.media_item_id, sa.action, sa.scheduled_at, sa.execute_at, "
+        "sa.token, sa.token_used, sa.snoozed_at, sa.snooze_duration, sa.notified, "
+        "sa.is_reentry, sa.delete_status, sa.token_hash, "
+        "mi.title, mi.media_type, mi.poster_path, mi.file_size_bytes, "
+        "mi.plex_rating_key, mi.added_at, mi.show_title, mi.season_number "
+        "FROM scheduled_actions sa "
+        "JOIN media_items mi ON sa.media_item_id = mi.id "
+        "WHERE sa.id = ? AND sa.token_hash = ? "
+        "AND sa.action = 'scheduled_deletion' "
+        "AND (sa.delete_status IS NULL OR sa.delete_status = 'pending') "
+        "AND sa.token_used = 0 "
+        "AND sa.execute_at >= ?",
         (action_id, th, now),
     ).fetchone()
     if row is not None:
-        return row
+        return _row_to_verified_keep_action(row)
     result: sqlite3.Row | None = conn.execute(
-        "SELECT * FROM scheduled_actions "
-        "WHERE id = ? AND token = ? "
-        "AND action = 'scheduled_deletion' "
-        "AND (delete_status IS NULL OR delete_status = 'pending') "
-        "AND token_used = 0 "
-        "AND execute_at >= ?",
+        "SELECT sa.id, sa.media_item_id, sa.action, sa.scheduled_at, sa.execute_at, "
+        "sa.token, sa.token_used, sa.snoozed_at, sa.snooze_duration, sa.notified, "
+        "sa.is_reentry, sa.delete_status, sa.token_hash, "
+        "mi.title, mi.media_type, mi.poster_path, mi.file_size_bytes, "
+        "mi.plex_rating_key, mi.added_at, mi.show_title, mi.season_number "
+        "FROM scheduled_actions sa "
+        "JOIN media_items mi ON sa.media_item_id = mi.id "
+        "WHERE sa.id = ? AND sa.token = ? "
+        "AND sa.action = 'scheduled_deletion' "
+        "AND (sa.delete_status IS NULL OR sa.delete_status = 'pending') "
+        "AND sa.token_used = 0 "
+        "AND sa.execute_at >= ?",
         (action_id, token, now),
     ).fetchone()
-    return result
+    if result is None:
+        return None
+    return _row_to_verified_keep_action(result)
 
 
 def mark_token_consumed(conn: sqlite3.Connection, token: str, now: datetime) -> bool:
@@ -206,8 +308,8 @@ def parse_execute_at(raw: object, *, default: datetime) -> datetime:
     return parsed if parsed is not None else default
 
 
-def is_pending_unexpired(verified: sqlite3.Row, now: datetime) -> bool:
-    """Confirm a ``scheduled_actions`` row is still actionable.
+def is_pending_unexpired(verified: VerifiedKeepAction, now: datetime) -> bool:
+    """Confirm a :class:`VerifiedKeepAction` is still actionable.
 
     Returns ``True`` only when the row is a pending
     ``scheduled_deletion`` (delete_status null or "pending") whose
@@ -215,14 +317,12 @@ def is_pending_unexpired(verified: sqlite3.Row, now: datetime) -> bool:
     deadline check that was duplicated across the snooze and forever
     POST handlers.
     """
-    execute_at = parse_execute_at(verified["execute_at"], default=now)
+    execute_at = parse_execute_at(verified.execute_at, default=now)
     if execute_at < now:
         return False
-    keys = verified.keys()
-    action_val = verified["action"] if "action" in keys else ""
-    delete_status_val = verified["delete_status"] if "delete_status" in keys else "pending"
-    if action_val != ACTION_SCHEDULED_DELETION:
+    if verified.action != ACTION_SCHEDULED_DELETION:
         return False
+    delete_status_val = verified.delete_status
     return not (delete_status_val is not None and delete_status_val != "pending")
 
 

@@ -14,7 +14,12 @@ from fastapi.testclient import TestClient
 from mediaman.config import Config
 from mediaman.crypto import generate_keep_token
 from mediaman.db import set_connection
-from mediaman.services.scheduled_actions import lookup_verified_action, token_hash
+from mediaman.services.scheduled_actions import (
+    VerifiedKeepAction,
+    find_active_keep_action_by_id_and_token,
+    lookup_verified_action,
+    token_hash,
+)
 from mediaman.web.routes.keep import (
     _KEEP_GET_LIMITER,
     _KEEP_POST_LIMITER,
@@ -78,7 +83,7 @@ class TestLookupVerifiedAction:
         row = lookup_verified_action(conn, token, SECRET)
 
         assert row is not None
-        assert row["media_item_id"] == "mi1"
+        assert row.media_item_id == "mi1"
 
     def test_invalid_hmac_returns_none(self, conn):
         _insert_media_item(conn)
@@ -140,6 +145,46 @@ class TestLookupVerifiedAction:
         row = lookup_verified_action(conn, token, "b" * 64)
 
         assert row is None
+
+    def test_returns_verified_keep_action_with_all_join_fields(self, conn):
+        """lookup_verified_action returns a VerifiedKeepAction carrying both the
+        scheduled_actions columns and the joined media_items display columns."""
+        insert_media_item(
+            conn,
+            id="mi1",
+            title="Some Show",
+            media_type="tv",
+            show_title="Some Show",
+            season_number=2,
+            plex_rating_key="rk-xyz",
+            poster_path="/posters/abc.jpg",
+            file_path="/f",
+            file_size_bytes=1234,
+        )
+        action_id = _insert_action(conn)
+        token = _make_keep_token(conn, "mi1", action_id)
+
+        row = lookup_verified_action(conn, token, SECRET)
+
+        assert isinstance(row, VerifiedKeepAction)
+        # scheduled_actions side
+        assert row.id == action_id
+        assert row.media_item_id == "mi1"
+        assert row.action == "scheduled_deletion"
+        assert row.execute_at is not None
+        assert row.token == token
+        assert row.token_used == 0
+        assert row.delete_status == "pending"
+        assert row.token_hash == token_hash(token)
+        # media_items side (the JOIN columns the route/template rely on)
+        assert row.title == "Some Show"
+        assert row.media_type == "tv"
+        assert row.show_title == "Some Show"
+        assert row.season_number == 2
+        assert row.poster_path == "/posters/abc.jpg"
+        assert row.file_size_bytes == 1234
+        assert row.plex_rating_key == "rk-xyz"
+        assert row.added_at  # NOT NULL in schema — always populated
 
 
 class TestKeepLimiters:
@@ -444,7 +489,36 @@ class TestFinding16KeepTokenHash:
 
         row = find_active_keep_action_by_id_and_token(conn, action_id, token)
         assert row is not None
-        assert row["id"] == action_id
+        assert row.id == action_id
+
+    def test_find_active_returns_verified_keep_action_with_join_fields(self, conn):
+        """find_active_keep_action_by_id_and_token returns a VerifiedKeepAction
+        whose media_items display columns are populated via the JOIN."""
+        insert_media_item(
+            conn,
+            id="mi1",
+            title="Joined Title",
+            media_type="movie",
+            plex_rating_key="rk-join",
+            poster_path="/p/join.jpg",
+            file_path="/f",
+            file_size_bytes=999,
+        )
+        action_id = _insert_scheduled_action_findings(conn)
+        token = _make_keep_token(conn, "mi1", action_id)
+
+        row = find_active_keep_action_by_id_and_token(conn, action_id, token)
+
+        assert isinstance(row, VerifiedKeepAction)
+        assert row.id == action_id
+        assert row.media_item_id == "mi1"
+        assert row.token_hash == token_hash(token)
+        # media_items columns attached by the JOIN
+        assert row.title == "Joined Title"
+        assert row.media_type == "movie"
+        assert row.poster_path == "/p/join.jpg"
+        assert row.file_size_bytes == 999
+        assert row.plex_rating_key == "rk-join"
 
     def test_find_active_returns_none_for_expired(self, conn):
         """Helper must return None when execute_at is in the past."""
