@@ -102,7 +102,7 @@ def _retry_after_seconds(value: str | None) -> float | None:
             return 0.0
         return min(seconds, _RETRY_AFTER_MAX_SECONDS)
     except (TypeError, ValueError):
-        pass
+        pass  # not a delta-seconds value — fall through to the HTTP-date form
     # HTTP-date form.
     try:
         target = email.utils.parsedate_to_datetime(raw)

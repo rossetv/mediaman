@@ -18,10 +18,14 @@ import sqlite3
 from collections.abc import Mapping
 from typing import NotRequired, TypedDict, cast
 
+import requests
+
 from mediaman.services.arr._types import RadarrMovie, SonarrSeries
+from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.fetcher import ArrCard
 from mediaman.services.arr.state import series_has_files
 from mediaman.services.downloads.download_format import extract_poster_url
+from mediaman.services.infra import SafeHTTPError
 
 logger = logging.getLogger(__name__)
 
@@ -106,23 +110,27 @@ class _ArrLibraryIndex:
     Fetches each service's library at most once per :func:`record_verified_completions`
     call and indexes by tmdbId + title for O(1) lookups.  ``None`` signals
     "not yet fetched"; an empty dict means "fetched, nothing found".
+
+    Use :meth:`radarr_by_id` / :meth:`radarr_by_title` / :meth:`sonarr_by_id` /
+    :meth:`sonarr_by_title` to access indexes — each calls the appropriate
+    ``ensure_*`` method and returns a non-optional dict.
     """
 
     def __init__(self, conn: sqlite3.Connection, secret_key: str) -> None:
         self._conn = conn
         self._secret_key = secret_key
-        self.radarr_by_id: dict[int, RadarrMovie] | None = None
-        self.radarr_by_title: dict[str, RadarrMovie] | None = None
-        self.sonarr_by_id: dict[int, SonarrSeries] | None = None
-        self.sonarr_by_title: dict[str, SonarrSeries] | None = None
+        self._radarr_by_id: dict[int, RadarrMovie] | None = None
+        self._radarr_by_title: dict[str, RadarrMovie] | None = None
+        self._sonarr_by_id: dict[int, SonarrSeries] | None = None
+        self._sonarr_by_title: dict[str, SonarrSeries] | None = None
 
     def ensure_radarr(self) -> None:
-        if self.radarr_by_id is not None:
+        if self._radarr_by_id is not None:
             return
         from mediaman.services.arr.build import build_radarr_from_db
 
         # Build indexes before marking as fetched — if get_movies() raises,
-        # radarr_by_id stays None so the next item retries (matching original behaviour).
+        # _radarr_by_id stays None so the next item retries (matching original behaviour).
         by_id: dict[int, RadarrMovie] = {}
         by_title: dict[str, RadarrMovie] = {}
         client = build_radarr_from_db(self._conn, self._secret_key)
@@ -131,10 +139,10 @@ class _ArrLibraryIndex:
                 by_id[int(tid)] = m
             if t := (m.get("title") or ""):
                 by_title[t] = m
-        self.radarr_by_id, self.radarr_by_title = by_id, by_title
+        self._radarr_by_id, self._radarr_by_title = by_id, by_title
 
     def ensure_sonarr(self) -> None:
-        if self.sonarr_by_id is not None:
+        if self._sonarr_by_id is not None:
             return
         from mediaman.services.arr.build import build_sonarr_from_db
 
@@ -146,7 +154,31 @@ class _ArrLibraryIndex:
                 by_id[int(tid)] = s
             if t := (s.get("title") or ""):
                 by_title[t] = s
-        self.sonarr_by_id, self.sonarr_by_title = by_id, by_title
+        self._sonarr_by_id, self._sonarr_by_title = by_id, by_title
+
+    def radarr_index_by_id(self) -> dict[int, RadarrMovie]:
+        """Return the Radarr-by-tmdbId index, fetching it if not yet loaded."""
+        self.ensure_radarr()
+        assert self._radarr_by_id is not None  # ensure_radarr post-condition
+        return self._radarr_by_id
+
+    def radarr_index_by_title(self) -> dict[str, RadarrMovie]:
+        """Return the Radarr-by-title index, fetching it if not yet loaded."""
+        self.ensure_radarr()
+        assert self._radarr_by_title is not None  # ensure_radarr post-condition
+        return self._radarr_by_title
+
+    def sonarr_index_by_id(self) -> dict[int, SonarrSeries]:
+        """Return the Sonarr-by-tmdbId index, fetching it if not yet loaded."""
+        self.ensure_sonarr()
+        assert self._sonarr_by_id is not None  # ensure_sonarr post-condition
+        return self._sonarr_by_id
+
+    def sonarr_index_by_title(self) -> dict[str, SonarrSeries]:
+        """Return the Sonarr-by-title index, fetching it if not yet loaded."""
+        self.ensure_sonarr()
+        assert self._sonarr_by_title is not None  # ensure_sonarr post-condition
+        return self._sonarr_by_title
 
 
 def _check_item_verified(c: CompletedItem, idx: _ArrLibraryIndex) -> bool:
@@ -157,11 +189,8 @@ def _check_item_verified(c: CompletedItem, idx: _ArrLibraryIndex) -> bool:
     dl_id = c["dl_id"]
     title = c["title"]
     if dl_id.startswith("radarr:"):
-        idx.ensure_radarr()
-        assert idx.radarr_by_id is not None
-        assert idx.radarr_by_title is not None
         tmdb_id = c.get("tmdb_id")
-        movie = idx.radarr_by_id.get(int(tmdb_id)) if tmdb_id else None
+        movie = idx.radarr_index_by_id().get(int(tmdb_id)) if tmdb_id else None
         if movie is None:
             if not tmdb_id:
                 logger.warning(
@@ -172,14 +201,11 @@ def _check_item_verified(c: CompletedItem, idx: _ArrLibraryIndex) -> bool:
                     dl_id,
                     title,
                 )
-            movie = idx.radarr_by_title.get(title)
+            movie = idx.radarr_index_by_title().get(title)
         return movie is not None and bool(movie.get("hasFile"))
     if dl_id.startswith("sonarr:"):
-        idx.ensure_sonarr()
-        assert idx.sonarr_by_id is not None
-        assert idx.sonarr_by_title is not None
         tmdb_id = c.get("tmdb_id")
-        series = idx.sonarr_by_id.get(int(tmdb_id)) if tmdb_id else None
+        series = idx.sonarr_index_by_id().get(int(tmdb_id)) if tmdb_id else None
         if series is None:
             if not tmdb_id:
                 logger.warning(
@@ -190,7 +216,7 @@ def _check_item_verified(c: CompletedItem, idx: _ArrLibraryIndex) -> bool:
                     dl_id,
                     title,
                 )
-            series = idx.sonarr_by_title.get(title)
+            series = idx.sonarr_index_by_title().get(title)
         return series is not None and series_has_files(series)
     # NZBGet-only items — no Arr verification possible
     return True
@@ -209,9 +235,7 @@ def _batch_insert_completions(
             to_insert,
         )
         conn.commit()
-    # rationale: §6.4 site 2 (scheduler-job-runner) — completion recording
-    # is best-effort; a SQLite hiccup must not abort the scan loop.
-    except Exception:
+    except sqlite3.Error:
         logger.warning(
             "Failed to record %d completed download(s)",
             len(to_insert),
@@ -246,10 +270,7 @@ def record_verified_completions(
     for c in completed:
         try:
             verified = _check_item_verified(c, idx)
-        # rationale: §6.4 site 2 (scheduler-job-runner) — a network error
-        # talking to Radarr/Sonarr must not skip the rest of the batch; log
-        # and continue so other completions still get recorded.
-        except Exception:
+        except (SafeHTTPError, requests.RequestException, ArrError):
             logger.warning(
                 "Failed to verify completion for %s — skipping", c["dl_id"], exc_info=True
             )
@@ -309,10 +330,7 @@ def fetch_and_sync_recent_downloads(
                         url = extract_poster_url(e.get("images"))
                         if url:
                             cache[t] = url
-            # rationale: §6.4 site 2 (scheduler-job-runner) — poster
-            # backfill is cosmetic; Arr outage leaves the cache empty and
-            # the UI falls back to titles without an image.
-            except Exception:
+            except (SafeHTTPError, requests.RequestException, ArrError):
                 logger.warning(
                     "Failed to fetch %s posters for backfill",
                     service,
@@ -349,9 +367,7 @@ def fetch_and_sync_recent_downloads(
                         (poster_url, r["id"]),
                     )
                     conn.commit()
-                # rationale: §6.4 site 2 (scheduler-job-runner) — poster URL
-                # backfill is cosmetic; a write blip must not abort the loop.
-                except Exception:
+                except sqlite3.Error:
                     logger.warning(
                         "Failed to backfill poster for %s",
                         r["title"],
