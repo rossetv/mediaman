@@ -87,11 +87,10 @@ def update_last_watched(
     """Store the most recent watch timestamp for a media item.
 
     Monotonic: the stored ``last_watched_at`` is only advanced, never
-    rewound. Plex's per-item watch history is paginated and does not
-    always return the full archive on every scan — a re-scan that fetches
-    only an older slice would otherwise drag the timestamp backwards
-    (Domain 05 finding) and re-qualify the item for deletion. We compare
-    in SQL via ``MAX(...)`` so the guard is atomic with the write.
+    rewound. Plex's paginated watch history may return an older slice on
+    a re-scan; advancing only is the correct monotonic contract — dragging
+    the timestamp backwards would re-qualify the item for deletion. We
+    compare in SQL via ``MAX(...)`` so the guard is atomic with the write.
     """
     if not watch_history:
         return
@@ -118,7 +117,8 @@ def count_items_in_libraries(conn: sqlite3.Connection, library_ids: list[int]) -
     if not library_ids:
         return 0
     lp = ",".join("?" * len(library_ids))
-    row = conn.execute(
+    # rationale: §9.6 IN-clause batching — only "?" placeholders interpolated; every value is bound
+    row = conn.execute(  # nosec B608
         f"SELECT COUNT(*) AS n FROM media_items WHERE plex_library_id IN ({lp})",
         tuple(library_ids),
     ).fetchone()
@@ -134,7 +134,8 @@ def fetch_ids_in_libraries(conn: sqlite3.Connection, library_ids: list[int]) -> 
     for start in range(0, len(library_ids), 500):
         chunk = library_ids[start : start + 500]
         lp = ",".join("?" * len(chunk))
-        rows = conn.execute(
+        # rationale: §9.6 IN-clause batching — only "?" placeholders interpolated; every value is bound
+        rows = conn.execute(  # nosec B608
             f"SELECT id FROM media_items WHERE plex_library_id IN ({lp})",
             tuple(chunk),
         ).fetchall()
@@ -169,11 +170,13 @@ def delete_media_items(conn: sqlite3.Connection, ids: list[str]) -> None:
         except sqlite3.OperationalError:
             in_outer_txn = True
         try:
-            conn.execute(
+            # rationale: §9.6 IN-clause batching — only "?" placeholders interpolated; every value is bound
+            conn.execute(  # nosec B608
                 f"DELETE FROM scheduled_actions WHERE media_item_id IN ({placeholders})",
                 tuple(chunk),
             )
-            conn.execute(
+            # rationale: §9.6 IN-clause batching — only "?" placeholders interpolated; every value is bound
+            conn.execute(  # nosec B608
                 f"DELETE FROM media_items WHERE id IN ({placeholders})",
                 tuple(chunk),
             )

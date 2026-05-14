@@ -11,6 +11,9 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import requests
+from plexapi.exceptions import PlexApiException
+
 from mediaman.services.media_meta._plex_types import (
     PlexMovieItem,
     PlexSeasonItem,
@@ -20,13 +23,10 @@ from mediaman.services.media_meta._plex_types import (
 if TYPE_CHECKING:
     from mediaman.services.media_meta.plex import PlexClient
 
-import requests
-from plexapi.exceptions import PlexApiException
-
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class _PlexItemFetch:
     """Network-read handoff between the scanner's fetch and write phases.
 

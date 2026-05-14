@@ -35,7 +35,8 @@ def read_delete_allowed_roots_setting(
 
     Documenting the precedence inline so anyone reading the deletion
     path can confirm at a glance that the unusual order — DB beats env
-    — is deliberate (Domain 05 finding).
+    — is deliberate: the admin UI value must not be silently overridden
+    by a stale container env var.
     """
     row = conn.execute("SELECT value FROM settings WHERE key='delete_allowed_roots'").fetchone()
     roots: list[str] = []
