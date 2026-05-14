@@ -7,8 +7,8 @@ endpoints, and the worker that calls into
 
 from __future__ import annotations
 
-import contextlib
 import logging
+import sqlite3
 import threading
 
 from fastapi import APIRouter, Depends, Request
@@ -141,8 +141,16 @@ def api_refresh_recommendations(
         hb_conn = open_thread_connection(_db_path)
         try:
             while not heartbeat_stop.wait(_HEARTBEAT_INTERVAL_SECONDS):
-                with contextlib.suppress(Exception):
+                try:
                     heartbeat_refresh_run(hb_conn, run_id)
+                except sqlite3.Error:
+                    # A transient DB hiccup skipping one heartbeat is tolerable —
+                    # the run lease lasts 5 min so a missed tick is harmless.
+                    logger.warning(
+                        "Heartbeat DB write failed for run_id=%s; skipping tick",
+                        run_id,
+                        exc_info=True,
+                    )
         finally:
             hb_conn.close()
 
@@ -191,8 +199,16 @@ def api_refresh_recommendations(
         except Exception as exc:  # rationale: §6.4 site 2 — background job runner; a single bad refresh must not leak a stuck "running" lease or crash the thread.
             logger.exception("Background recommendation refresh failed")
             result = {"ok": False, "error": "Recommendation refresh failed"}
-            with contextlib.suppress(Exception):
+            try:
                 finish_refresh_run(thread_conn, run_id, "error", str(exc))
+            except sqlite3.Error:
+                # A failure here leaves the run lease stuck in "running" until
+                # it expires — operationally significant, so log at ERROR with
+                # the traceback so the operator knows to check the DB.
+                logger.exception(
+                    "Failed to mark refresh run_id=%s as error; lease may be stuck",
+                    run_id,
+                )
         finally:
             _set_refresh_result(result)
             heartbeat_stop.set()
