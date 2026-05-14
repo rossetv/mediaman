@@ -1,16 +1,16 @@
 """Public keep page — token-authenticated snooze for scheduled deletions.
 
-Finding 12: "forever" keep is now a separate authenticated, CSRF-protected
-endpoint (POST /api/keep/{token}/forever) that requires a valid admin
-session rather than accepting the action on the CSRF-exempt public route.
+The "forever" keep lives on a separate authenticated, CSRF-protected endpoint
+(POST /api/keep/{token}/forever) so that privileged action requires a valid
+admin session rather than being accepted on the CSRF-exempt public route.
 
-Finding 13: the guarded UPDATE requires action='scheduled_deletion',
+The guarded UPDATE requires action='scheduled_deletion',
 delete_status='pending', token_used=0, and execute_at >= now() so that
 expired or already-processed rows cannot be snoozed.
 
-Finding 16: only the SHA-256 token hash is written to ``scheduled_actions``
-for new snooze rows.  Lookups use ``token_hash`` (joined with signed action
-id) instead of the raw token.
+Only the SHA-256 token hash is written to ``scheduled_actions`` for new snooze
+rows.  Lookups use ``token_hash`` (joined with signed action id) instead of
+the raw token so the plaintext never touches the database.
 
 The shared verification, parsing, and guarded-UPDATE helpers live in
 :mod:`mediaman.services.scheduled_actions` — this file is now thin glue
@@ -140,7 +140,7 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
     :mod:`mediaman.web` — adding a sibling ``POST /keep/...`` will NOT
     silently inherit the exemption.
 
-    Token invalidation strategy (H27):
+    Token invalidation strategy:
 
     1. HMAC-verify the token first — forged tokens never touch the DB.
     2. Attempt to INSERT the token hash into ``keep_tokens_used``.  If
@@ -149,10 +149,11 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
        ``rowcount`` check is a second defence against a concurrent POST
        racing step 2.
 
-    Finding 12: ``duration='forever'`` is rejected here and must be submitted
-    to ``POST /api/keep/{token}/forever`` instead (admin-only, CSRF-protected).
+    ``duration='forever'`` is rejected here and must be submitted to
+    ``POST /api/keep/{token}/forever`` instead (admin-only, CSRF-protected),
+    ensuring the privileged action requires a valid admin session.
 
-    Finding 13: the guarded UPDATE requires action='scheduled_deletion',
+    The guarded UPDATE requires action='scheduled_deletion',
     delete_status='pending', and execute_at >= now so an expired or
     non-pending row cannot be acted upon.
 
@@ -185,8 +186,8 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
         conn.commit()
         return respond_err("already_processed", status=409)
 
-    # Finding 13: confirm the action is still pending and the deadline has
-    # not passed.  If the deadline has already passed, return the same
+    # Confirm the action is still pending and the deadline has not passed.
+    # If the deadline has already passed, return the same
     # "invalid_or_expired" error so callers get a clear signal.
     if not is_pending_unexpired(verified, now):
         conn.rollback()
@@ -194,8 +195,7 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
 
     # ``duration`` is non-"forever" by the early reject above, so the
     # mapping is guaranteed to yield an int.
-    days = VALID_KEEP_DURATIONS[duration]
-    assert days is not None
+    days = cast(int, VALID_KEEP_DURATIONS[duration])
 
     rowcount = apply_keep_snooze(
         conn,
@@ -229,10 +229,11 @@ def keep_forever(
     CSRF-exempt prefix list).  The public /keep/{token} POST no longer
     accepts duration='forever' — it returns 400 to any caller that tries.
 
-    Finding 12: separates forever-keep onto a dedicated authenticated route.
-    Finding 13: guards the UPDATE with action, delete_status, token_used, and
-    execute_at just like the regular snooze path.
-    Finding 16: marks the token as consumed via hash in keep_tokens_used.
+    Forever-keep lives on a dedicated authenticated route so the privileged
+    action requires a valid admin session.  The UPDATE is guarded by action,
+    delete_status, token_used, and execute_at, matching the regular snooze path.
+    The token is consumed by recording its hash in keep_tokens_used so replays
+    are rejected even if the scheduled_actions row is updated concurrently.
     """
     conn = get_db()
     config = request.app.state.config

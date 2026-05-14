@@ -453,8 +453,8 @@ def download_status(
 ) -> JSONResponse:
     """Poll the download progress for a recently-requested item.
 
-    Finding 14: unauthenticated callers must supply a ``poll_token``
-    (short-lived, service/tmdb-bound) returned by the submit endpoint.
+    Unauthenticated callers must supply a ``poll_token`` (short-lived,
+    service/tmdb-bound) returned by the submit endpoint.
     Authenticated admins may poll without a token.
 
     ``service`` is constrained to the literal set ``{"radarr", "sonarr"}``
@@ -469,11 +469,11 @@ def download_status(
         return respond_err("too_many_requests", status=429)
 
     if not admin:
-        # Finding 14: unauthenticated polling must use a short-lived
-        # poll_token.  The long-lived download token is no longer accepted
-        # for status polling — it is single-use and only valid for the
-        # /download/{token} POST.  Clients receive a poll_token in the
-        # submit response and must use it exclusively for polling.
+        # Unauthenticated polling must use a short-lived poll_token.  The
+        # long-lived download token is not accepted for status polling — it
+        # is single-use and only valid for the /download/{token} POST.
+        # Clients receive a poll_token in the submit response and must use
+        # it exclusively for polling.
         authenticated = False
 
         if poll_token is not None and len(poll_token) <= 4096:

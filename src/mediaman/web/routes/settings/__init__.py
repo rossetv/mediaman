@@ -51,7 +51,12 @@ from mediaman.core.time import now_iso
 from mediaman.db import get_db
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_plex_from_db
-from mediaman.services.infra import ConfigDecryptError, SafeHTTPError
+from mediaman.services.infra import (
+    ConfigDecryptError,
+    SafeHTTPError,
+    disk_usage_allowed_roots,
+    resolve_safe_path,
+)
 from mediaman.services.infra import (
     is_safe_outbound_url as is_safe_outbound_url,  # re-exported for patch targets
 )
@@ -511,8 +516,6 @@ def api_disk_usage(
     request: Request, path: str = "", admin: str = Depends(get_current_admin)
 ) -> JSONResponse:
     """Return disk usage stats for a whitelisted filesystem path."""
-    from mediaman.services.infra import disk_usage_allowed_roots, resolve_safe_path
-
     if not path:
         return respond_err("path_required", status=400, message="path parameter is required")
     if len(path) > 4096:

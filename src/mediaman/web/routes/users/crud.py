@@ -22,7 +22,14 @@ from mediaman.db import get_db
 from mediaman.services.rate_limit import get_client_ip
 from mediaman.web.auth.login_lockout import admin_unlock_with_audit
 from mediaman.web.auth.middleware import get_current_admin
-from mediaman.web.auth.password_hash import UserExistsError, create_user, delete_user, list_users
+from mediaman.web.auth.password_hash import (
+    UserExistsError,
+    create_user,
+    delete_user,
+    list_users,
+    set_user_email,
+)
+from mediaman.web.auth.password_policy import password_issues
 from mediaman.web.auth.reauth import has_recent_reauth
 from mediaman.web.auth.user_crud import find_username_by_user_id
 from mediaman.web.middleware.rate_limit import rate_limit
@@ -84,8 +91,6 @@ def api_create_user(
         return respond_err(
             "invalid_username", status=400, message="Username must be between 3 and 64 characters"
         )
-
-    from mediaman.web.auth.password_policy import password_issues
 
     issues = password_issues(password, username=username)
     if issues:
@@ -202,8 +207,6 @@ def api_set_my_email(
         return _unauthorised_reauth()
 
     try:
-        from mediaman.web.auth.password_hash import set_user_email
-
         set_user_email(conn, admin, body.email, audit_actor=admin, audit_ip=client_ip)
     except ValueError as exc:
         return respond_err("invalid_email", status=400, message=str(exc))

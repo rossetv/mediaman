@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from typing import cast
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response
@@ -181,19 +182,17 @@ def proxy_poster(
     plex_base, plex_token, cred_err = _load_plex_credentials(conn, config.secret_key)
     if cred_err is not None:
         return cred_err
-    assert plex_base is not None
-    assert plex_token is not None
 
     content, content_type, fetch_err = _resolve_poster_content(
-        conn, rating_key, plex_base, plex_token, config
+        conn, rating_key, cast(str, plex_base), cast(str, plex_token), config
     )
     if fetch_err is not None:
         return fetch_err
-    assert content is not None
 
-    _write_poster_cache(cache_dir, cached_path, rating_key, content, content_type)
+    poster_bytes = cast(bytes, content)
+    _write_poster_cache(cache_dir, cached_path, rating_key, poster_bytes, content_type)
     return Response(
-        content=content,
+        content=poster_bytes,
         media_type=content_type,
         headers={"Cache-Control": f"public, max-age={_CACHE_MAX_AGE_SECONDS}"},
     )

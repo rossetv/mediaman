@@ -91,7 +91,7 @@ def validate_url_fields(body: dict[str, object]) -> JSONResponse | None:
                     status=400,
                     message=f"{url_key} must be an http(s) URL",
                 )
-            # W1.32 carve-out: validates admin-typed URL pre-save (no conn allowlist applies).
+            # URL is validated pre-save against admin-typed input; no conn-derived allowlist applies here.
             if not is_safe_outbound_url(candidate):
                 logger.warning(
                     "settings.ssrf_blocked key=%s value=%s",

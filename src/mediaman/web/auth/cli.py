@@ -7,9 +7,11 @@ import getpass
 import sys
 from pathlib import Path
 
+from mediaman.bootstrap.data_dir import DataDirNotWritableError, _assert_data_dir_writable
 from mediaman.config import ConfigError, load_config
 from mediaman.db import init_db
 from mediaman.web.auth.password_hash import create_user
+from mediaman.web.auth.password_policy import password_issues
 
 
 def _prompt_username() -> str:
@@ -86,8 +88,6 @@ def create_user_cli() -> None:
     else:
         password = args.password or getpass.getpass("Password: ")
 
-    from mediaman.web.auth.password_policy import password_issues
-
     issues = password_issues(password, username=username)
     if issues:
         print("Error: password does not meet the strength policy:", file=sys.stderr)
@@ -105,11 +105,6 @@ def create_user_cli() -> None:
     # preflight ``bootstrap_db`` uses so the operator gets the
     # actionable ``chown`` hint instead of an opaque sqlite traceback
     # when the bind mount is owned by the wrong uid.
-    from mediaman.bootstrap.data_dir import (
-        DataDirNotWritableError,
-        _assert_data_dir_writable,
-    )
-
     data_dir = Path(config.data_dir)
     try:
         data_dir.mkdir(parents=True, exist_ok=True)

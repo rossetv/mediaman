@@ -57,7 +57,7 @@ def _fill_tmdb_posters(
     (e.g. multiple "Barbie" deletions) only trigger one API call.
 
     ``secret_key`` is threaded in from the request handler to avoid
-    redundant ``load_config()`` calls per request (H25).
+    redundant ``load_config()`` calls per request.
     """
     from mediaman.services.media_meta.tmdb import TmdbClient
 

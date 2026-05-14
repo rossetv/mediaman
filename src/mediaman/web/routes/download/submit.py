@@ -113,10 +113,10 @@ def _submit_to_radarr(payload: DownloadPayload) -> JSONResponse:
     secret_key = payload["secret_key"]
 
     if not tmdb_id:
-        # Finding 15: never resolve a public download link by title alone — an
-        # ambiguous or remade title can enqueue the wrong film.  Require a
-        # stable TMDB identifier; the token is released so a corrected link
-        # (with an identifier) can be issued.
+        # Never resolve a public download link by title alone — an ambiguous or
+        # remade title can enqueue the wrong film.  Require a stable TMDB
+        # identifier; the token is released so a corrected link (with an
+        # identifier) can be issued.
         _unmark_token_used(token)
         return JSONResponse(
             {
@@ -166,8 +166,8 @@ def _submit_to_sonarr(payload: DownloadPayload) -> JSONResponse:
     secret_key = payload["secret_key"]
 
     if not tmdb_id:
-        # Finding 15: refuse public Sonarr submissions without a stable TMDB
-        # identifier — title-only lookup_by_term can enqueue the wrong show.
+        # Refuse public Sonarr submissions without a stable TMDB identifier —
+        # title-only lookup_by_term can enqueue the wrong show.
         _unmark_token_used(token)
         return JSONResponse(
             {

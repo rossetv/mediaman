@@ -383,7 +383,7 @@ def validate_session(
 ) -> str | None:
     """Return the username for a valid, non-expired session token.
 
-    Finding 26: ordinary requests must not take a SQLite writer lock.
+    Ordinary requests must not take a SQLite writer lock.
     Validation is a read-only SELECT by default; write transactions are
     only opened when state actually changes (idle/expired delete,
     fingerprint mismatch delete, last_used_at refresh, periodic
@@ -460,16 +460,17 @@ def destroy_session(
         revoke_reauth_by_hash_in_tx(conn, token_hash)
 
     logger.info("session.destroyed user=%s ip=%s", username or "-", ip or "-")
-    # rationale: the session row is already gone, so a failed audit write must
-    # not be re-raised — that would 500 a logout that has, in fact, happened.
-    # But "session revocation" is a required audit event (§7.5, §10.10): a
-    # failure here is an audit-coverage hole and MUST be operator-visible, so
-    # it logs at ERROR with the traceback (DEBUG is off in production). The
-    # catch is narrowed to ``sqlite3.Error`` — ``security_event`` is purely a
-    # DB write, so a non-DB exception (a broken import) is a bug and
-    # propagates. NOTE for the orchestrator: the rest of web/auth uses the
-    # transactional ``security_event_or_raise`` inside ``with conn:``; making
-    # logout fail-closed on audit is a larger, separately-scoped change.
+    # rationale: ``security_event`` swallows all exceptions internally and never
+    # propagates a DB error to this call site — it is a best-effort audit helper
+    # by design.  This ``except sqlite3.Error`` guard therefore protects the
+    # dynamic-import / call-dispatch path only (e.g. a module-load error before
+    # the function body executes).  Any such failure is logged visibly at ERROR
+    # so an operator can see the audit-coverage gap in production.  The session
+    # row is already deleted at this point, so re-raising would 500 a logout
+    # that has in fact succeeded — catching and logging is the correct behaviour.
+    # NOTE for the orchestrator: the rest of web/auth uses the transactional
+    # ``security_event_or_raise`` inside ``with conn:``; making logout
+    # fail-closed on audit is a larger, separately-scoped change.
     try:
         from mediaman.core.audit import security_event
 
@@ -547,10 +548,10 @@ def list_sessions_for(conn: sqlite3.Connection, username: str) -> list[SessionMe
         (username,),
     ).fetchall()
     # Build each ``SessionMetadata`` explicitly so a future column-type
-    # drift surfaces as a type-checker error instead of being silently
-    # papered over by ``cast()``.  The audited finding noted that
-    # ``cast(SessionMetadata, dict(r))`` was a lie to mypy — the row
-    # could carry any types and the cast would still pass.
+    # drift surfaces as a type-checker error rather than being silently
+    # papered over by a blanket ``cast()``.  A ``cast(SessionMetadata,
+    # dict(r))`` would let any column type mismatch pass mypy undetected;
+    # the explicit constructor makes a type drift a compile-time break.
     return [
         SessionMetadata(
             created_at=r["created_at"],
