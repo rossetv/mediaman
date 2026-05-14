@@ -213,6 +213,94 @@ class TestRefreshRecommendations:
             result = refresh_recommendations(conn, plex_client=client, secret_key="x" * 64)
         assert result == 0  # no recommendations, but no crash
 
+    def test_refresh_recommendations_rolls_back_on_partial_insert_failure(self, conn):
+        """If an INSERT fails mid-loop, the DELETE must be rolled back atomically.
+
+        Pre-condition: the suggestions table contains one row from a prior batch.
+        A bad recommendation row is injected as the second item so that the real
+        ``conn.execute(INSERT …)`` raises an IntegrityError (non-null column
+        violation via a None ``media_type``).
+        Post-condition: the original row must still be present — NOT deleted and
+        NOT partially replaced.
+        """
+        from datetime import datetime
+
+        yesterday = (
+            datetime.now(UTC)
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .strftime("%Y-%m-%d")
+        )
+        insert_suggestion(
+            conn,
+            title="Pre-existing Rec",
+            media_type="movie",
+            category="trending",
+            reason="was here before",
+            batch_id=yesterday,
+            created_at="2026-01-01T00:00:00",
+        )
+
+        # Two recommendations — the second has media_type=None which violates
+        # the NOT NULL constraint on suggestions.media_type, causing a real
+        # sqlite3.IntegrityError mid-loop with no monkeypatching required.
+        rec_template = {
+            "year": None,
+            "tmdb_id": None,
+            "imdb_id": None,
+            "description": None,
+            "reason": "reason",
+            "trailer_url": None,
+            "poster_url": None,
+            "rt_rating": None,
+            "imdb_rating": None,
+            "metascore": None,
+            "tagline": None,
+            "runtime": None,
+            "genres": None,
+            "cast_json": None,
+            "director": None,
+            "trailer_key": None,
+            "rating": None,
+        }
+        good_rec = {
+            **rec_template,
+            "title": "New Rec 1",
+            "media_type": "movie",
+            "category": "trending",
+        }
+        # media_type is accessed via s["media_type"] in the INSERT loop — omitting it
+        # triggers a KeyError mid-loop with no monkeypatching required.
+        bad_rec = {
+            **rec_template,
+            "title": "New Rec 2",
+            "media_type": "movie",
+            "category": "trending",
+        }
+        bad_rec.pop("media_type")  # now KeyError when the loop hits s["media_type"]
+        two_recs = [good_rec, bad_rec]
+
+        with (
+            patch(
+                "mediaman.services.openai.recommendations.persist.generate_trending",
+                return_value=two_recs,
+            ),
+            patch(
+                "mediaman.services.openai.recommendations.persist.generate_personal",
+                return_value=[],
+            ),
+            patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
+            pytest.raises(KeyError),
+        ):
+            refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
+
+        rows = conn.execute("SELECT title FROM suggestions").fetchall()
+        titles = {r["title"] for r in rows}
+        # The pre-existing row must have survived; partial-insert state must not exist.
+        assert "Pre-existing Rec" in titles, "DELETE was not rolled back — pre-existing row is gone"
+        assert "New Rec 1" not in titles, (
+            "Partial INSERT state was committed — rollback did not occur"
+        )
+
     def test_watch_history_from_db_used(self, conn):
         """Media items in the DB are picked up and passed as watch history."""
         insert_media_item(
