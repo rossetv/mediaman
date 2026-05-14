@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from mediaman.core.format import rk_from_audit_detail as _extract_rk_from_detail
@@ -14,6 +15,20 @@ from ._time import _parse_days_ago
 from ._types import DeletedNewsletterItem, NewsletterRecItem, StorageStats
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class StorageSummary:
+    """Disk-usage and reclaimed-space totals for the newsletter.
+
+    Returned by :func:`_load_storage_stats` instead of a 4-tuple so
+    callers can access fields by name and static analysis can check them.
+    """
+
+    stats: StorageStats
+    reclaimed_week: int
+    reclaimed_month: int
+    reclaimed_total: int
 
 
 def _load_deleted_items(
@@ -60,7 +75,10 @@ def _load_deleted_items(
         if key not in redownload_times or rd["created_at"] > redownload_times[key]:
             redownload_times[key] = rd["created_at"]
 
-    items: list[DeletedNewsletterItem] = []
+    # Build the per-row card list (excluding re-downloaded items) and
+    # collect the (title, media_type) pairs we need to look up.
+    cards: list[dict[str, object]] = []
+    lookup_pairs: list[tuple[str, str]] = []
     for row in deleted_rows:
         title = row["title"] or _extract_title_from_detail(row["detail"])
 
@@ -86,38 +104,63 @@ def _load_deleted_items(
         )
         media_type = row["media_type"] or "movie"
 
-        # Cross-reference the recommendations cache so the recipient loop
-        # has a stable identifier for items that originated as a
-        # suggestion. Items with no matching suggestion row fall through
-        # with no tmdb_id and the template hides the button.
-        sugg = conn.execute(
-            "SELECT tmdb_id FROM suggestions "
-            "WHERE title = ? AND media_type = ? AND tmdb_id IS NOT NULL "
-            "ORDER BY created_at DESC LIMIT 1",
-            (title, media_type),
-        ).fetchone()
-        tmdb_id = sugg["tmdb_id"] if sugg else None
-
-        items.append(
+        cards.append(
             {
                 "title": title,
                 "poster_url": poster_url,
                 "deleted_date": deleted_date,
                 "file_size_bytes": row["space_reclaimed_bytes"] or 0,
                 "media_type": media_type,
-                "tmdb_id": tmdb_id,
+                # tmdb_id filled in below via the batched query
+                "tmdb_id": None,
             }
         )
+        if title is not None:
+            lookup_pairs.append((title, media_type))
+
+    if not cards:
+        return []
+
+    # Batch-fetch tmdb_ids for all remaining items in a single query.
+    # §13.3: issuing one SELECT per deleted row is an N+1 anti-pattern.
+    # Duplicate (title, media_type) pairs are deduplicated by the dict;
+    # rows with None titles were excluded above and fall through with
+    # tmdb_id=None (template hides the re-download button for those).
+    tmdb_by_title_type: dict[tuple[str, str], int] = {}
+    if lookup_pairs:
+        unique_pairs = list(dict.fromkeys(lookup_pairs))
+        # rationale: placeholder list built from (title, media_type) tuples
+        # collected from DB rows; no raw user input reaches this interpolation.
+        placeholders = ",".join("(?,?)" for _ in unique_pairs)
+        flat_params = [v for pair in unique_pairs for v in pair]
+        sugg_rows = conn.execute(
+            f"SELECT title, media_type, tmdb_id FROM suggestions "
+            f"WHERE (title, media_type) IN ({placeholders}) "
+            f"AND tmdb_id IS NOT NULL "
+            f"ORDER BY created_at DESC",
+            flat_params,
+        ).fetchall()
+        for sr in sugg_rows:
+            key = (sr["title"], sr["media_type"])
+            # Keep the first (most-recent) hit per pair.
+            if key not in tmdb_by_title_type:
+                tmdb_by_title_type[key] = sr["tmdb_id"]
+
+    items: list[DeletedNewsletterItem] = []
+    for card in cards:
+        card["tmdb_id"] = tmdb_by_title_type.get(
+            (card["title"], card["media_type"])  # type: ignore[arg-type]
+        )
+        items.append(card)  # type: ignore[arg-type]
 
     return items
 
 
-def _load_storage_stats(
-    conn: sqlite3.Connection, now: datetime
-) -> tuple[StorageStats, int, int, int]:
+def _load_storage_stats(conn: sqlite3.Connection, now: datetime) -> StorageSummary:
     """Build storage stats and reclaimed-space totals.
 
-    Returns ``(storage_dict, reclaimed_week, reclaimed_month, reclaimed_total)``.
+    Returns a :class:`StorageSummary` dataclass with fields
+    ``stats``, ``reclaimed_week``, ``reclaimed_month``, ``reclaimed_total``.
     """
     from mediaman.services.infra import get_aggregate_disk_usage, get_media_path
 
@@ -172,7 +215,12 @@ def _load_storage_stats(
     ).fetchone()
     reclaimed_total = reclaimed_total_row["total"] if reclaimed_total_row else 0
 
-    return storage, reclaimed_week, reclaimed_month, reclaimed_total
+    return StorageSummary(
+        stats=storage,
+        reclaimed_week=reclaimed_week,
+        reclaimed_month=reclaimed_month,
+        reclaimed_total=reclaimed_total,
+    )
 
 
 def _load_recommendations(conn: sqlite3.Connection) -> list[NewsletterRecItem]:

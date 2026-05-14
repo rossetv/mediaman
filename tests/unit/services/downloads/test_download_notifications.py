@@ -484,3 +484,88 @@ class TestReconcileStrandedNotifications:
         assert row["notified"] == 2
         assert row["claimed_at"] is not None
         assert row["claimed_at"] != ""
+
+
+class TestNarrowedExceptClauses:
+    """§6.4 — the three catch clauses in the Radarr/Sonarr probes must catch the
+    concrete failure types (SafeHTTPError, requests.RequestException, ArrError)
+    and release the claim on each.  They must NOT swallow programmer errors like
+    TypeError or AttributeError.
+    """
+
+    def _make_conn(self, tmp_path):
+        from mediaman.db import init_db
+
+        return init_db(str(tmp_path / "mm.db"))
+
+    def test_check_radarr_movie_handles_safe_http_error(self, tmp_path, monkeypatch):
+        """SafeHTTPError from Radarr get_movie_by_tmdb → arr_unreachable=True."""
+        from unittest.mock import MagicMock
+
+        from mediaman.services.downloads.notifications import _check_radarr_movie
+        from mediaman.services.infra import SafeHTTPError
+
+        arr = MagicMock()
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.side_effect = SafeHTTPError(
+            status_code=503, body_snippet="", url="https://radarr"
+        )
+        arr.radarr.return_value = radarr
+
+        ready, movie, arr_unreachable = _check_radarr_movie(arr, row_id=1, tmdb_id=12345)
+
+        assert not ready
+        assert movie is None
+        assert arr_unreachable is True
+
+    def test_check_radarr_movie_handles_arr_error(self, tmp_path, monkeypatch):
+        """ArrError from Radarr → arr_unreachable=True."""
+        from unittest.mock import MagicMock
+
+        from mediaman.services.arr.base import ArrError
+        from mediaman.services.downloads.notifications import _check_radarr_movie
+
+        arr = MagicMock()
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.side_effect = ArrError("Radarr down")
+        arr.radarr.return_value = radarr
+
+        ready, movie, arr_unreachable = _check_radarr_movie(arr, row_id=1, tmdb_id=12345)
+
+        assert not ready
+        assert arr_unreachable is True
+
+    def test_check_sonarr_series_handles_request_exception(self, tmp_path, monkeypatch):
+        """requests.RequestException from Sonarr → arr_unreachable=True."""
+        from unittest.mock import MagicMock
+
+        import requests
+
+        from mediaman.services.downloads.notifications import _check_sonarr_series
+
+        arr = MagicMock()
+        sonarr = MagicMock()
+        sonarr.get_series.side_effect = requests.ConnectionError("network down")
+        arr.sonarr.return_value = sonarr
+
+        ready, arr_unreachable = _check_sonarr_series(arr, row_id=1, tvdb_id=99999, tmdb_id=None)
+
+        assert not ready
+        assert arr_unreachable is True
+
+    def test_check_sonarr_series_handles_arr_error(self, tmp_path):
+        """ArrError from Sonarr → arr_unreachable=True."""
+        from unittest.mock import MagicMock
+
+        from mediaman.services.arr.base import ArrError
+        from mediaman.services.downloads.notifications import _check_sonarr_series
+
+        arr = MagicMock()
+        sonarr = MagicMock()
+        sonarr.get_series.side_effect = ArrError("Sonarr 500")
+        arr.sonarr.return_value = sonarr
+
+        ready, arr_unreachable = _check_sonarr_series(arr, row_id=1, tvdb_id=99999, tmdb_id=None)
+
+        assert not ready
+        assert arr_unreachable is True

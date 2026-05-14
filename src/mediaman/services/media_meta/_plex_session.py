@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging as _logging
 import re as _re
 import sys as _sys
 from typing import Any
@@ -15,9 +16,12 @@ from mediaman.services.infra import (
     resolve_safe_outbound_url as _resolve_safe_outbound_url_default,
 )
 
-# pin is not re-exported from mediaman.services.infra; import directly
-# from the http sub-package which owns it.
+# rationale: pin is not re-exported via mediaman.services.infra — the DNS-pinning
+# primitive is internal to SafeHTTPClient and adding it to the public surface would
+# expand the infra contract unnecessarily.
 from mediaman.services.infra.http import pin
+
+_logger = _logging.getLogger(__name__)
 
 # Name of the parent module — used to look up the potentially-monkeypatched
 # ``resolve_safe_outbound_url`` at call time so test fixtures that patch
@@ -177,7 +181,7 @@ class _SafePlexSession(http_requests.Session):
                 status_code=response.status_code,
                 body_snippet=str(exc),
                 url=_scrub_plex_token(url),
-            ) from None
+            ) from exc
         response._content = body
         # ``_content_consumed`` is a private requests internal; setattr keeps
         # mypy quiet about poking at non-public attributes.
@@ -200,7 +204,10 @@ class _SafePlexSession(http_requests.Session):
                         f"Plex response body too large: declared {declared} > cap {max_bytes}"
                     )
             except ValueError:
-                pass
+                _logger.debug(
+                    "plex._read_capped: non-integer Content-Length %r; streaming without pre-check",
+                    declared,
+                )
         buf = bytearray()
         for chunk in response.iter_content(chunk_size=65536):
             if not chunk:

@@ -41,7 +41,7 @@ from mediaman.services.arr.completion import (
 from mediaman.services.arr.fetcher import fetch_arr_queue
 from mediaman.services.arr.search_trigger import maybe_trigger_search
 from mediaman.services.downloads.download_queue.classify import (
-    arr_base_urls as _arr_base_urls,
+    arr_base_urls as _arr_base_urls,  # noqa: F401 — retained for test-patching; private, not in __all__
 )
 from mediaman.services.downloads.download_queue.items import (
     DownloadsResponse,
@@ -66,13 +66,6 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "DownloadsResponse",
-    "_arr_base_urls",
-    "_enrich_with_tmdb_ids",
-    "_maybe_record_completions",
-    "_previous_initialised",
-    "_previous_queue",
-    "_reset_previous_queue",
-    "_state_lock",
     "build_downloads_response",
     "build_episode_dicts",
     "build_nzbget_from_db",

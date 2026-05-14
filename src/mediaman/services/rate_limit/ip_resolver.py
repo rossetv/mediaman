@@ -176,7 +176,11 @@ def get_client_ip(request: _HasClientAndHeaders) -> str:
                 ipaddress.ip_address(cf_ip)
                 return cf_ip
             except ValueError:
-                pass
+                logger.debug(
+                    "rate_limit.ip_resolver: invalid cf-connecting-ip %r from peer %s; ignoring",
+                    cf_ip,
+                    peer,
+                )
 
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:
@@ -221,6 +225,10 @@ def get_client_ip(request: _HasClientAndHeaders) -> str:
             ipaddress.ip_address(x_real)
             return x_real
         except ValueError:
-            pass
+            logger.debug(
+                "rate_limit.ip_resolver: invalid x-real-ip %r from peer %s; ignoring",
+                x_real,
+                peer,
+            )
 
     return peer or _UNKNOWN_PEER

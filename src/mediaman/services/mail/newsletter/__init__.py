@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from dataclasses import dataclass
 
 from mediaman.core.format import format_day_month as _format_day_month
 from mediaman.core.time import now_utc
@@ -34,6 +35,20 @@ from .summary import _load_deleted_items, _load_recommendations, _load_storage_s
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True, slots=True)
+class MailgunSettings:
+    """Validated Mailgun settings loaded from the database.
+
+    Returned by :func:`_load_mailgun_settings` instead of a plain 4-tuple
+    so callers can access fields by name and static analysis can check them.
+    """
+
+    domain: str
+    api_key: str
+    from_address: str
+    base_url: str
+
+
 class NewsletterConfigError(Exception):
     """Raised when the newsletter cannot be sent due to missing configuration.
 
@@ -42,14 +57,15 @@ class NewsletterConfigError(Exception):
     """
 
 
-def _load_mailgun_settings(conn: sqlite3.Connection, secret_key: str) -> tuple[str, str, str, str]:
+def _load_mailgun_settings(conn: sqlite3.Connection, secret_key: str) -> MailgunSettings:
     """Read and validate the four required Mailgun settings.
 
-    Returns ``(domain, api_key, from_address, base_url)``.
+    Returns a :class:`MailgunSettings` dataclass.  All fields are empty
+    strings when *all four* settings are missing (caller should return
+    early quietly).
 
     Raises :exc:`NewsletterConfigError` when some (but not all) required
-    settings are missing.  When *all* four are missing, logs at DEBUG and
-    returns empty strings (caller should then return early quietly).
+    settings are missing.
     """
     from mediaman.services.infra import get_string_setting
 
@@ -89,7 +105,7 @@ def _load_mailgun_settings(conn: sqlite3.Connection, secret_key: str) -> tuple[s
             "base_url",
         }:
             logger.debug("Newsletter skipped — Mailgun not configured")
-            return "", "", "", ""
+            return MailgunSettings(domain="", api_key="", from_address="", base_url="")
         logger.error(
             "Newsletter aborted — required setting(s) missing: %s. "
             "Configure all of mailgun_domain, mailgun_api_key, "
@@ -100,7 +116,9 @@ def _load_mailgun_settings(conn: sqlite3.Connection, secret_key: str) -> tuple[s
             f"Newsletter cannot be sent: missing required setting(s): {', '.join(missing)}"
         )
 
-    return domain, api_key, from_address, base_url
+    return MailgunSettings(
+        domain=domain, api_key=api_key, from_address=from_address, base_url=base_url
+    )
 
 
 def send_newsletter(
@@ -136,10 +154,14 @@ def send_newsletter(
     """
     from mediaman.services.mail.mailgun import MailgunClient
 
-    domain, api_key, from_address, base_url = _load_mailgun_settings(conn, secret_key)
-    if not domain:
+    mg_settings = _load_mailgun_settings(conn, secret_key)
+    if not mg_settings.domain:
         # All four missing — already logged at DEBUG; skip silently.
         return
+    domain = mg_settings.domain
+    api_key = mg_settings.api_key
+    from_address = mg_settings.from_address
+    base_url = mg_settings.base_url
 
     recipient_emails = _load_recipients(conn, recipients)
     if recipient_emails is None:
@@ -168,7 +190,7 @@ def send_newsletter(
     now = now_utc()
     deleted_items = _load_deleted_items(conn, secret_key, base_url, now)
     this_week_items = _load_recommendations(conn)
-    storage, reclaimed_week, reclaimed_month, reclaimed_total = _load_storage_stats(conn, now)
+    storage_summary = _load_storage_stats(conn, now)
 
     if this_week_items:
         _annotate_rec_download_states(this_week_items, conn, secret_key)
@@ -189,10 +211,10 @@ def send_newsletter(
         scheduled_items=scheduled_items,
         deleted_items=deleted_items,
         this_week_items=this_week_items,
-        storage=storage,
-        reclaimed_week=reclaimed_week,
-        reclaimed_month=reclaimed_month,
-        reclaimed_total=reclaimed_total,
+        storage=storage_summary.stats,
+        reclaimed_week=storage_summary.reclaimed_week,
+        reclaimed_month=storage_summary.reclaimed_month,
+        reclaimed_total=storage_summary.reclaimed_total,
         subject=subject,
         base_url=base_url,
         secret_key=secret_key,
