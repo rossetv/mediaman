@@ -4,8 +4,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
 from fastapi.testclient import TestClient
 
+from mediaman.scanner.repository.audit import (
+    AuditRow,
+    fetch_media_audit_rows,
+    fetch_security_audit_rows,
+)
 from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.session_store import create_session
 from mediaman.web.routes.history import _PER_PAGE_DEFAULT, _PER_PAGE_MAX
@@ -281,6 +287,53 @@ class TestDetailControlByteScrubbing:
         # Newline and tab are visible whitespace — must NOT be stripped.
         assert "\n" in items[0]["detail"]
         assert "\t" in items[0]["detail"]
+
+
+class TestAuditRowShape:
+    """``fetch_media_audit_rows`` / ``fetch_security_audit_rows`` return a
+    frozen, slotted ``AuditRow`` dataclass — never a raw ``sqlite3.Row``
+    (§9.5). Both queries project the same nine-field shape.
+    """
+
+    def test_media_audit_rows_return_audit_rows(self, conn):
+        insert_audit_log(conn, media_item_id="m1", action="scanned", detail="hello")
+        rows = fetch_media_audit_rows(conn, action=None, page=1, per_page=25)
+        assert len(rows) == 1
+        row = rows[0]
+        assert isinstance(row, AuditRow)
+        # Attribute access — not subscript.
+        assert row.media_item_id == "m1"
+        assert row.action == "scanned"
+        assert row.detail == "hello"
+
+    def test_security_audit_rows_return_audit_rows(self, conn):
+        from mediaman.core.audit import security_event
+
+        security_event(conn, event="settings.write", actor="admin", ip="127.0.0.1", detail="d")
+        rows = fetch_security_audit_rows(conn, page=1, per_page=25)
+        assert len(rows) == 1
+        row = rows[0]
+        assert isinstance(row, AuditRow)
+        assert row.action == "sec:settings.write"
+        # Security rows project NULL for the media-title columns.
+        assert row.mi_title is None
+        assert row.ks_title is None
+
+    def test_audit_row_is_frozen_and_slotted(self):
+        row = AuditRow(
+            id=1,
+            media_item_id="m1",
+            action="scanned",
+            detail=None,
+            space_reclaimed_bytes=None,
+            created_at="2026-01-01T00:00:00+00:00",
+            mi_title=None,
+            plex_rating_key=None,
+            ks_title=None,
+        )
+        with pytest.raises((AttributeError, TypeError)):
+            row.action = "mutated"  # type: ignore[misc]
+        assert not hasattr(row, "__dict__")
 
 
 class TestSecurityTitleHoist:

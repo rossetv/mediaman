@@ -168,16 +168,44 @@ class TestCountAndFetchLibraryItems:
 
 
 # ---------------------------------------------------------------------------
-# delete_media_items
+# delete_media_items / delete_actions_for_media_items
 # ---------------------------------------------------------------------------
 
 
 class TestDeleteMediaItems:
-    def test_deletes_items_and_actions(self, conn):
+    def test_split_delete_clears_both_tables(self, conn):
+        """The scanner delete phase drops ``scheduled_actions`` first then
+        ``media_items``; together the two repository functions clear both
+        tables. ``delete_media_items`` no longer cascades on its own —
+        the foreign key requires the actions to go first.
+        """
         _insert_item(conn)
         _insert_action(conn)
+        repository.delete_actions_for_media_items(conn, ["m1"])
         repository.delete_media_items(conn, ["m1"])
         assert conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone() is None
+        assert (
+            conn.execute("SELECT id FROM scheduled_actions WHERE media_item_id='m1'").fetchone()
+            is None
+        )
+
+    def test_delete_media_items_touches_only_media_items(self, conn):
+        """``delete_media_items`` issues only the ``media_items`` DELETE —
+        the ``scheduled_actions`` table belongs to its own repository.
+        """
+        _insert_item(conn)
+        # No scheduled_actions row, so the media_items DELETE has no FK to trip.
+        repository.delete_media_items(conn, ["m1"])
+        assert conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone() is None
+
+    def test_delete_actions_for_media_items_leaves_media_item(self, conn):
+        """``delete_actions_for_media_items`` removes only the action rows;
+        the ``media_items`` row is untouched.
+        """
+        _insert_item(conn)
+        _insert_action(conn)
+        repository.delete_actions_for_media_items(conn, ["m1"])
+        assert conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone() is not None
         assert (
             conn.execute("SELECT id FROM scheduled_actions WHERE media_item_id='m1'").fetchone()
             is None
@@ -186,6 +214,7 @@ class TestDeleteMediaItems:
     def test_empty_list_is_noop(self, conn):
         _insert_item(conn)
         repository.delete_media_items(conn, [])
+        repository.delete_actions_for_media_items(conn, [])
         assert conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone() is not None
 
 
@@ -593,19 +622,190 @@ class TestScheduleDeletionRace:
 
 
 # ---------------------------------------------------------------------------
-# delete_media_items — atomic chunk transaction (Domain 05)
+# delete_media_items + delete_actions_for_media_items — atomic two-table delete
 # ---------------------------------------------------------------------------
 
 
 class TestDeleteMediaItemsAtomic:
-    def test_clean_path_commits_both_deletes(self, conn):
-        """Happy path: both ``scheduled_actions`` and ``media_items`` rows go."""
+    def test_two_table_delete_under_one_transaction_clears_both(self, conn):
+        """The delete phase wraps both repository DELETEs in one
+        ``with conn:`` transaction so they commit (or roll back)
+        together. After the pair runs, both tables are empty for m1.
+        """
         _insert_item(conn, media_id="m1")
         _insert_action(conn, media_id="m1")
-        repository.delete_media_items(conn, ["m1"])
+        with conn:
+            repository.delete_actions_for_media_items(conn, ["m1"])
+            repository.delete_media_items(conn, ["m1"])
         # Both tables must be empty for m1.
         assert conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone() is None
         assert (
             conn.execute("SELECT id FROM scheduled_actions WHERE media_item_id='m1'").fetchone()
             is None
         )
+
+
+# ---------------------------------------------------------------------------
+# DeletionRow dataclass — §9.5 typed return shape
+# ---------------------------------------------------------------------------
+
+
+class TestDeletionRowShape:
+    """``fetch_pending_deletions`` / ``fetch_stuck_deletions`` return a
+    frozen, slotted ``DeletionRow`` dataclass — never a raw ``sqlite3.Row``.
+    """
+
+    def test_pending_deletions_return_deletion_rows(self, conn):
+        _insert_item(conn, media_id="m1", title="Pending Film", file_path="/m/p.mkv")
+        past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+        _insert_action(conn, media_id="m1", action="scheduled_deletion", execute_at=past)
+        rows = repository.fetch_pending_deletions(conn, datetime.now(UTC).isoformat())
+        assert len(rows) == 1
+        row = rows[0]
+        assert isinstance(row, repository.DeletionRow)
+        # Attribute access — not subscript.
+        assert row.media_item_id == "m1"
+        assert row.title == "Pending Film"
+        assert row.file_path == "/m/p.mkv"
+        assert row.action == "scheduled_deletion"
+
+    def test_stuck_deletions_return_deletion_rows(self, conn):
+        _insert_item(conn, media_id="m2", title="Stuck Film")
+        _insert_action(conn, media_id="m2", action="scheduled_deletion", delete_status="deleting")
+        rows = repository.fetch_stuck_deletions(conn)
+        assert len(rows) == 1
+        assert isinstance(rows[0], repository.DeletionRow)
+        assert rows[0].media_item_id == "m2"
+        assert rows[0].title == "Stuck Film"
+
+    def test_deletion_row_is_frozen_and_slotted(self):
+        row = repository.DeletionRow(
+            id=1,
+            media_item_id="m1",
+            action="scheduled_deletion",
+            file_path="/m/x.mkv",
+            file_size_bytes=10,
+            title="X",
+            plex_rating_key="rk",
+            radarr_id=None,
+            sonarr_id=None,
+            season_number=None,
+        )
+        with pytest.raises((AttributeError, TypeError)):
+            row.title = "mutated"  # type: ignore[misc]
+        # slots=True — no __dict__.
+        assert not hasattr(row, "__dict__")
+
+
+# ---------------------------------------------------------------------------
+# count_pending_deletions — §9.4 count split out of clear_pending_deletions
+# ---------------------------------------------------------------------------
+
+
+class TestCountPendingDeletions:
+    def test_counts_only_unused_scheduled_deletions(self, conn):
+        _insert_item(conn, media_id="m1")
+        _insert_item(conn, media_id="m2")
+        _insert_item(conn, media_id="m3")
+        _insert_action(conn, media_id="m1", action="scheduled_deletion", token="t1", token_used=0)
+        _insert_action(conn, media_id="m2", action="scheduled_deletion", token="t2", token_used=0)
+        # token_used=1 must NOT count.
+        _insert_action(conn, media_id="m3", action="scheduled_deletion", token="t3", token_used=1)
+        assert repository.count_pending_deletions(conn) == 2
+
+    def test_zero_when_no_pending(self, conn):
+        _insert_item(conn)
+        assert repository.count_pending_deletions(conn) == 0
+
+    def test_count_matches_clear_return_value(self, conn):
+        """``count_pending_deletions`` returns exactly what
+        ``clear_pending_deletions`` reports it removed."""
+        _insert_item(conn, media_id="m1")
+        _insert_item(conn, media_id="m2")
+        _insert_action(conn, media_id="m1", action="scheduled_deletion", token="t1")
+        _insert_action(conn, media_id="m2", action="scheduled_deletion", token="t2")
+        counted = repository.count_pending_deletions(conn)
+        cleared = repository.clear_pending_deletions(conn)
+        assert counted == cleared == 2
+
+
+# ---------------------------------------------------------------------------
+# Batched guard sets — §13.3 N+1 elimination parity
+# ---------------------------------------------------------------------------
+
+
+class TestBatchedGuardSetParity:
+    """The batched ``fetch_protected_media_ids`` /
+    ``fetch_already_scheduled_media_ids`` set builders must return EXACTLY
+    the ids for which the per-item ``is_protected`` / ``is_already_scheduled``
+    predicates return True — the protection decision must be identical
+    before and after the N+1 fix.
+    """
+
+    def _seed_mixed_population(self, conn):
+        """Five items, one per protection state, plus their action rows."""
+        now = datetime.now(UTC)
+        future = (now + timedelta(days=7)).isoformat()
+        past = (now - timedelta(days=1)).isoformat()
+        # protected_forever
+        _insert_item(conn, media_id="prot")
+        _insert_action(conn, media_id="prot", action="protected_forever", token="pf")
+        # active snooze
+        _insert_item(conn, media_id="snoozed")
+        _insert_action(conn, media_id="snoozed", action="snoozed", token="sn", execute_at=future)
+        # expired snooze — NOT protected
+        _insert_item(conn, media_id="expired")
+        _insert_action(conn, media_id="expired", action="snoozed", token="snx", execute_at=past)
+        # pending scheduled_deletion — already scheduled, NOT protected
+        _insert_item(conn, media_id="sched")
+        _insert_action(conn, media_id="sched", action="scheduled_deletion", token="sd")
+        # unprotected, no action rows at all
+        _insert_item(conn, media_id="plain")
+        return ["prot", "snoozed", "expired", "sched", "plain"]
+
+    def test_protected_set_matches_per_item_is_protected(self, conn):
+        media_ids = self._seed_mixed_population(conn)
+        now_iso_str = datetime.now(UTC).isoformat()
+        batched = repository.fetch_protected_media_ids(conn, media_ids, now_iso_str)
+        per_item = {mid for mid in media_ids if repository.is_protected(conn, mid)}
+        assert batched == per_item
+        # Sanity: exactly protected_forever + active snooze.
+        assert batched == {"prot", "snoozed"}
+
+    def test_already_scheduled_set_matches_per_item(self, conn):
+        media_ids = self._seed_mixed_population(conn)
+        batched = repository.fetch_already_scheduled_media_ids(conn, media_ids)
+        per_item = {mid for mid in media_ids if repository.is_already_scheduled(conn, mid)}
+        assert batched == per_item
+        assert batched == {"sched"}
+
+    def test_used_token_scheduled_deletion_not_in_set(self, conn):
+        """A consumed ``scheduled_deletion`` token must be excluded — matches
+        ``is_already_scheduled``'s ``token_used = 0`` predicate."""
+        _insert_item(conn, media_id="used")
+        _insert_action(conn, media_id="used", action="scheduled_deletion", token="ut", token_used=1)
+        batched = repository.fetch_already_scheduled_media_ids(conn, ["used"])
+        assert batched == set()
+        assert repository.is_already_scheduled(conn, "used") is False
+
+    def test_empty_media_ids_returns_empty_sets(self, conn):
+        assert (
+            repository.fetch_protected_media_ids(conn, [], datetime.now(UTC).isoformat()) == set()
+        )
+        assert repository.fetch_already_scheduled_media_ids(conn, []) == set()
+
+    def test_chunking_above_500_preserves_membership(self, conn):
+        """The 500-id chunk loop must not drop or duplicate ids — seed 600
+        items, half protected, and assert the batched set is exact."""
+        protected_ids = []
+        all_ids = []
+        for i in range(600):
+            mid = f"c{i}"
+            _insert_item(conn, media_id=mid)
+            all_ids.append(mid)
+            if i % 2 == 0:
+                _insert_action(conn, media_id=mid, action="protected_forever", token=f"pf-{i}")
+                protected_ids.append(mid)
+        batched = repository.fetch_protected_media_ids(conn, all_ids, datetime.now(UTC).isoformat())
+        assert batched == set(protected_ids)
+        assert len(batched) == 300

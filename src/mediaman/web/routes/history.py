@@ -15,6 +15,7 @@ from starlette.responses import Response
 from mediaman.core.format import format_bytes
 from mediaman.db import get_db
 from mediaman.scanner.repository.audit import (
+    AuditRow,
     count_audit_rows,
     fetch_media_audit_rows,
     fetch_security_audit_rows,
@@ -81,9 +82,9 @@ def _scrub_detail(detail: str | None) -> str:
     return _CONTROL_BYTES_RE.sub("", detail)
 
 
-def _build_item(r: sqlite3.Row) -> dict[str, object]:
+def _build_item(r: AuditRow) -> dict[str, object]:
     """Render an audit_log row into the dict the template/JSON expects."""
-    action = r["action"]
+    action = r.action
     is_security = isinstance(action, str) and action.startswith("sec:")
 
     if is_security:
@@ -91,28 +92,26 @@ def _build_item(r: sqlite3.Row) -> dict[str, object]:
         action_label = action[4:]
         badge = "badge-action-security"
     else:
-        title = r["mi_title"] or r["ks_title"]
-        if not title and r["detail"]:
-            m = re.search(r"'([^']+)'", r["detail"])
+        resolved_title = r.mi_title or r.ks_title
+        if not resolved_title and r.detail:
+            m = re.search(r"'([^']+)'", r.detail)
             if m:
-                title = m.group(1)
-        title = title or "Unknown"
+                resolved_title = m.group(1)
+        title = resolved_title or "Unknown"
         action_label = ACTION_LABELS.get(action, action)
         badge = ACTION_BADGE_CLASS.get(action, "badge-action-scanned")
 
     return {
-        "id": r["id"],
-        "media_item_id": r["media_item_id"],
+        "id": r.id,
+        "media_item_id": r.media_item_id,
         "action": action,
         "action_label": action_label,
         "badge_class": badge,
-        "detail": _scrub_detail(r["detail"]),
-        "space_impact": format_bytes(r["space_reclaimed_bytes"])
-        if r["space_reclaimed_bytes"]
-        else "",
-        "created_at": r["created_at"],
+        "detail": _scrub_detail(r.detail),
+        "space_impact": format_bytes(r.space_reclaimed_bytes) if r.space_reclaimed_bytes else "",
+        "created_at": r.created_at,
         "title": title,
-        "plex_rating_key": r["plex_rating_key"],
+        "plex_rating_key": r.plex_rating_key,
         "is_security": is_security,
     }
 

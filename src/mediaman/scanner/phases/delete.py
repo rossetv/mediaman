@@ -91,7 +91,15 @@ def remove_orphans(
     if not orphan_ids:
         return 0
 
-    repository.delete_media_items(conn, orphan_ids)
+    # Atomic two-table delete: the matching ``scheduled_actions`` rows
+    # are dropped first, then the ``media_items`` rows, both inside one
+    # transaction so a crash, foreign-key violation, or concurrent
+    # writer cannot leave a ``scheduled_actions`` row pointing at a
+    # deleted ``media_items`` row. Each repository call chunks its own
+    # IN-clause; the ``with conn:`` here owns the transaction boundary.
+    with conn:
+        repository.delete_actions_for_media_items(conn, orphan_ids)
+        repository.delete_media_items(conn, orphan_ids)
     logger.info(
         "Removed %d orphaned media items no longer in Plex",
         len(orphan_ids),

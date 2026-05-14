@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import sqlite3
 from collections.abc import Mapping, Sequence
@@ -144,46 +143,24 @@ def fetch_ids_in_libraries(conn: sqlite3.Connection, library_ids: list[int]) -> 
 
 
 def delete_media_items(conn: sqlite3.Connection, ids: list[str]) -> None:
-    """Delete ``media_items`` rows and their ``scheduled_actions`` in chunks.
+    """Delete ``media_items`` rows in chunks.
 
-    Each chunk's two DELETEs run inside a ``BEGIN IMMEDIATE`` so that a
-    process crash, foreign-key violation, or concurrent writer cannot
-    leave the DB with ``scheduled_actions`` rows pointing at a deleted
-    ``media_items`` row (or vice versa). Without the explicit
-    transaction the two ``conn.execute`` calls would be split across
-    SQLite's autocommit boundary, opening a window where a crash
-    between them yields exactly the orphan we're trying to avoid.
+    Issues only the ``media_items`` DELETE — the matching
+    ``scheduled_actions`` rows belong to the ``scheduled_actions``
+    repository and are removed by
+    :func:`scheduled_actions.delete_actions_for_media_items`, which the
+    scanner's delete phase calls first while holding one transaction
+    around both so the pair stays atomic (a crash between them must not
+    orphan a ``scheduled_actions`` row against a deleted ``media_items``
+    row). This function therefore opens no transaction of its own.
     """
     if not ids:
         return
     for start in range(0, len(ids), 500):
         chunk = ids[start : start + 500]
         placeholders = ",".join("?" * len(chunk))
-        # If the caller already opened a transaction (the scanner
-        # frequently does for the wider scan), BEGIN IMMEDIATE will
-        # raise OperationalError — fall back to the existing in-flight
-        # transaction in that case so we still run as one atomic
-        # block, just under the caller's transaction scope.
-        in_outer_txn = False
-        try:
-            conn.execute("BEGIN IMMEDIATE")
-        except sqlite3.OperationalError:
-            in_outer_txn = True
-        try:
-            # rationale: §9.6 IN-clause batching — only "?" placeholders interpolated; every value is bound
-            conn.execute(  # nosec B608
-                f"DELETE FROM scheduled_actions WHERE media_item_id IN ({placeholders})",
-                tuple(chunk),
-            )
-            # rationale: §9.6 IN-clause batching — only "?" placeholders interpolated; every value is bound
-            conn.execute(  # nosec B608
-                f"DELETE FROM media_items WHERE id IN ({placeholders})",
-                tuple(chunk),
-            )
-            if not in_outer_txn:
-                conn.execute("COMMIT")
-        except sqlite3.Error:
-            if not in_outer_txn:
-                with contextlib.suppress(sqlite3.Error):
-                    conn.execute("ROLLBACK")
-            raise
+        # rationale: §9.6 IN-clause batching — only "?" placeholders interpolated; every value is bound
+        conn.execute(  # nosec B608
+            f"DELETE FROM media_items WHERE id IN ({placeholders})",
+            tuple(chunk),
+        )
