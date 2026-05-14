@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from mediaman.bootstrap.data_dir import DataDirNotWritableError, assert_data_dir_writable
-from mediaman.config import ConfigError, load_config
+from mediaman.config import Config, ConfigError, load_config
 from mediaman.db import init_db
 from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.password_policy import password_issues
@@ -45,6 +45,65 @@ def _read_password_from_stdin() -> str:
     return pw.rstrip("\n").rstrip("\r")
 
 
+def _resolve_credentials(args: argparse.Namespace) -> tuple[str, str]:
+    """Acquire ``(username, password)`` from flags, stdin, or interactive prompt.
+
+    Enforces the ``--password`` / ``--password-stdin`` mutual exclusion,
+    then resolves the username (flag or interactive prompt) and the
+    password (stdin, flag, or interactive prompt). Exits the process
+    with the appropriate non-zero status on a mutual-exclusion clash or
+    a password that fails the strength policy.
+    """
+    if args.password and args.password_stdin:
+        print(
+            "Error: --password and --password-stdin are mutually exclusive.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    username = (args.username or "").strip() or _prompt_username()
+
+    if args.password_stdin:
+        password = _read_password_from_stdin()
+    else:
+        password = args.password or getpass.getpass("Password: ")
+
+    issues = password_issues(password, username=username)
+    if issues:
+        print("Error: password does not meet the strength policy:", file=sys.stderr)
+        for item in issues:
+            print(f"  - {item}", file=sys.stderr)
+        sys.exit(1)
+
+    return username, password
+
+
+def _preflight_data_dir(config: Config) -> Path:
+    """Create the data dir if absent and confirm it is writable.
+
+    Mirrors the bootstrap layer: runs the same data-dir writability
+    preflight ``bootstrap_db`` uses so the operator gets the actionable
+    ``chown`` hint instead of an opaque sqlite traceback when the bind
+    mount is owned by the wrong uid. Exits the process with status 1 on
+    a writability or creation failure; otherwise returns the data-dir
+    :class:`~pathlib.Path`.
+    """
+    data_dir = Path(config.data_dir)
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        assert_data_dir_writable(data_dir)
+    except DataDirNotWritableError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except OSError as exc:
+        print(
+            f"Error: data dir {data_dir} could not be created: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return data_dir
+
+
 def create_user_cli() -> None:
     """CLI entry point for creating admin users.
 
@@ -74,26 +133,7 @@ def create_user_cli() -> None:
     )
     args = parser.parse_args()
 
-    if args.password and args.password_stdin:
-        print(
-            "Error: --password and --password-stdin are mutually exclusive.",
-            file=sys.stderr,
-        )
-        sys.exit(2)
-
-    username = (args.username or "").strip() or _prompt_username()
-
-    if args.password_stdin:
-        password = _read_password_from_stdin()
-    else:
-        password = args.password or getpass.getpass("Password: ")
-
-    issues = password_issues(password, username=username)
-    if issues:
-        print("Error: password does not meet the strength policy:", file=sys.stderr)
-        for item in issues:
-            print(f"  - {item}", file=sys.stderr)
-        sys.exit(1)
+    username, password = _resolve_credentials(args)
 
     try:
         config = load_config()
@@ -101,23 +141,7 @@ def create_user_cli() -> None:
         print(f"Error: configuration is invalid: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    # Mirror the bootstrap layer: run the same data-dir writability
-    # preflight ``bootstrap_db`` uses so the operator gets the
-    # actionable ``chown`` hint instead of an opaque sqlite traceback
-    # when the bind mount is owned by the wrong uid.
-    data_dir = Path(config.data_dir)
-    try:
-        data_dir.mkdir(parents=True, exist_ok=True)
-        assert_data_dir_writable(data_dir)
-    except DataDirNotWritableError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(1)
-    except OSError as exc:
-        print(
-            f"Error: data dir {data_dir} could not be created: {exc}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    data_dir = _preflight_data_dir(config)
 
     db_path = str(data_dir / "mediaman.db")
     conn = init_db(db_path)

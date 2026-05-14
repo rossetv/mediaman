@@ -84,6 +84,103 @@ def _close_tracked_connections() -> None:
             logger.exception("scheduler.shutdown.close_db_failed")
 
 
+def _register_scan_jobs(
+    scheduler: BackgroundScheduler,
+    *,
+    scan_fn: Callable[[], None],
+    day_of_week: str,
+    hour: int,
+    minute: int,
+    timezone: str,
+    sync_fn: Callable[[], None] | None,
+    sync_interval_minutes: int,
+) -> None:
+    """Register the weekly scan and the optional library-sync job.
+
+    Called by :func:`start_scheduler` *while ``_scheduler_lock`` is still
+    held* — extracting it does not release the lock, so the
+    all-jobs-or-no-jobs registration window is preserved.
+    """
+    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.interval import IntervalTrigger
+
+    scheduler.add_job(
+        scan_fn,
+        trigger=CronTrigger(
+            day_of_week=day_of_week,
+            hour=hour,
+            minute=minute,
+            timezone=timezone,
+        ),
+        id="weekly_scan",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+    )
+    if sync_fn and sync_interval_minutes > 0:
+        scheduler.add_job(
+            sync_fn,
+            trigger=IntervalTrigger(minutes=sync_interval_minutes),
+            id="library_sync",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+        )
+
+
+def _register_maintenance_jobs(
+    scheduler: BackgroundScheduler,
+    *,
+    secret_key: str,
+) -> None:
+    """Register the fixed-cadence background maintenance jobs.
+
+    Called by :func:`start_scheduler` *while ``_scheduler_lock`` is still
+    held* — extracting it does not release the lock, so the
+    all-jobs-or-no-jobs registration window is preserved.
+    """
+    from apscheduler.triggers.interval import IntervalTrigger
+
+    from mediaman.services.arr._throttle_persistence import reconcile_stranded_throttle
+    from mediaman.services.arr.completion import cleanup_recent_downloads
+    from mediaman.services.arr.search_trigger import trigger_pending_searches
+
+    scheduler.add_job(
+        lambda: cleanup_recent_downloads(_open_db_for_job()),
+        IntervalTrigger(hours=6),
+        id="cleanup_recent_downloads",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+    )
+    scheduler.add_job(
+        lambda: trigger_pending_searches(_open_db_for_job(), secret_key),
+        IntervalTrigger(hours=1),
+        id="trigger_pending_searches",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+    )
+    # Daily reaper for arr_search_throttle rows whose item has been
+    # deleted. arr_search_throttle rows are keyed by media_item_id; when
+    # the item is deleted the throttle row becomes a ghost — periodic
+    # reaping prevents monotonic table growth because individual deletions
+    # don't propagate to the throttle DB.
+    scheduler.add_job(
+        lambda: reconcile_stranded_throttle(_open_db_for_job()),
+        IntervalTrigger(hours=24),
+        id="reconcile_stranded_throttle",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+    )
+
+
 def start_scheduler(
     *,
     scan_fn: Callable[[], None],
@@ -121,13 +218,10 @@ def start_scheduler(
         process comes back, but a multi-hour outage is treated as
         "skip this tick" rather than letting catch-up work pile up.
     """
+    # rationale: every job must be registered inside one ``_scheduler_lock``
+    # acquisition — the ``_register_*`` helpers are invoked while the lock is
+    # still held so there is never a window where only some jobs exist.
     from apscheduler.schedulers.background import BackgroundScheduler
-    from apscheduler.triggers.cron import CronTrigger
-    from apscheduler.triggers.interval import IntervalTrigger
-
-    from mediaman.services.arr._throttle_persistence import reconcile_stranded_throttle
-    from mediaman.services.arr.completion import cleanup_recent_downloads
-    from mediaman.services.arr.search_trigger import trigger_pending_searches
 
     global _scheduler
     with _scheduler_lock:
@@ -135,62 +229,17 @@ def start_scheduler(
             logger.debug("start_scheduler: scheduler already running, skipping duplicate start")
             return _scheduler
         _scheduler = BackgroundScheduler()
-        _scheduler.add_job(
-            scan_fn,
-            trigger=CronTrigger(
-                day_of_week=day_of_week,
-                hour=hour,
-                minute=minute,
-                timezone=timezone,
-            ),
-            id="weekly_scan",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-            misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
+        _register_scan_jobs(
+            _scheduler,
+            scan_fn=scan_fn,
+            day_of_week=day_of_week,
+            hour=hour,
+            minute=minute,
+            timezone=timezone,
+            sync_fn=sync_fn,
+            sync_interval_minutes=sync_interval_minutes,
         )
-        if sync_fn and sync_interval_minutes > 0:
-            _scheduler.add_job(
-                sync_fn,
-                trigger=IntervalTrigger(minutes=sync_interval_minutes),
-                id="library_sync",
-                replace_existing=True,
-                max_instances=1,
-                coalesce=True,
-                misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
-            )
-        _scheduler.add_job(
-            lambda: cleanup_recent_downloads(_open_db_for_job()),
-            IntervalTrigger(hours=6),
-            id="cleanup_recent_downloads",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-            misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
-        )
-        _scheduler.add_job(
-            lambda: trigger_pending_searches(_open_db_for_job(), secret_key),
-            IntervalTrigger(hours=1),
-            id="trigger_pending_searches",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-            misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
-        )
-        # Daily reaper for arr_search_throttle rows whose item has been
-        # deleted. arr_search_throttle rows are keyed by media_item_id; when
-        # the item is deleted the throttle row becomes a ghost — periodic
-        # reaping prevents monotonic table growth because individual deletions
-        # don't propagate to the throttle DB.
-        _scheduler.add_job(
-            lambda: reconcile_stranded_throttle(_open_db_for_job()),
-            IntervalTrigger(hours=24),
-            id="reconcile_stranded_throttle",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-            misfire_grace_time=_DEFAULT_MISFIRE_GRACE_SECONDS,
-        )
+        _register_maintenance_jobs(_scheduler, secret_key=secret_key)
         _scheduler.start()
         return _scheduler
 

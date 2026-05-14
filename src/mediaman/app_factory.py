@@ -46,6 +46,64 @@ _TEMPLATE_DIR = Path(__file__).parent / "web" / "templates"
 # ---------------------------------------------------------------------------
 
 
+def _run_startup_reconciliation(app: FastAPI) -> None:
+    """Reconcile state stranded by a crash on a previous run.
+
+    Two idempotent, best-effort sweeps, run after the scheduler has
+    started:
+
+    1. In-flight manual delete operations that crashed between the
+       external Radarr/Sonarr call and the local DB cleanup.
+    2. ``download_notifications`` rows stranded at ``notified=2`` by a
+       crashed worker.
+
+    Neither failure aborts startup — the web UI must still come up so an
+    operator can investigate.
+    """
+    # Reconcile any in-flight manual delete operations that crashed
+    # between the external Radarr/Sonarr call and the local DB cleanup.
+    # Idempotent — safe to run on every cold start.
+    try:
+        from mediaman.web.repository.delete_intents import reconcile_pending_delete_intents
+
+        reconciled = reconcile_pending_delete_intents()
+        if reconciled:
+            logger.info("Reconciled %d pending delete intent(s) at startup", reconciled)
+    # rationale: §6.4 site 4 (cold-start) — startup reconciliation is
+    # best-effort; failing it must not block the rest of bootstrap.
+    except Exception:
+        logger.exception("delete-intent reconciliation failed at startup; continuing")
+
+    # Reconcile download_notifications rows stranded at notified=2 by a
+    # crashed worker.
+    try:
+        from mediaman.services.downloads.notifications import (
+            reconcile_stranded_notifications,
+        )
+
+        reset = reconcile_stranded_notifications(app.state.db)
+        if reset:
+            logger.info("Reconciled %d stranded download notification(s) at startup", reset)
+    # rationale: §6.4 site 4 (cold-start) — best-effort reconciliation;
+    # don't block startup if the DB query path is briefly unhappy.
+    except Exception:
+        logger.exception("download-notification reconciliation failed at startup; continuing")
+
+
+def _shutdown(app: FastAPI, scheduler_started: bool) -> None:
+    """Tear down in reverse dependency order: scheduler, then DB.
+
+    The scheduler is stopped first (only if it actually started) so no
+    background job is mid-flight against a connection that ``close()``
+    is about to invalidate.
+    """
+    if scheduler_started:
+        shutdown_scheduling()
+
+    app.state.db.close()
+    logger.info("Mediaman shutting down")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Startup and shutdown lifecycle.
@@ -57,6 +115,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
        refuses to spawn background jobs that would silently fail.
     3. Scheduling — opt-in; failures here are logged but do NOT take
        the web UI down.
+    4. Startup reconciliation — best-effort sweeps of crash-stranded
+       state, after the scheduler is up.
 
     Fatal startup errors are converted into a single clean log line
     followed by ``sys.exit(1)`` rather than allowed to surface as an
@@ -100,64 +160,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     scheduler_started = bootstrap_scheduling(app, config)
 
-    # Reconcile any in-flight manual delete operations that crashed
-    # between the external Radarr/Sonarr call and the local DB cleanup.
-    # Idempotent — safe to run on every cold start.
-    try:
-        from mediaman.web.repository.delete_intents import reconcile_pending_delete_intents
-
-        reconciled = reconcile_pending_delete_intents()
-        if reconciled:
-            logger.info("Reconciled %d pending delete intent(s) at startup", reconciled)
-    # rationale: §6.4 site 4 (cold-start) — startup reconciliation is
-    # best-effort; failing it must not block the rest of bootstrap.
-    except Exception:
-        logger.exception("delete-intent reconciliation failed at startup; continuing")
-
-    # Reconcile download_notifications rows stranded at notified=2 by a
-    # crashed worker.
-    try:
-        from mediaman.services.downloads.notifications import (
-            reconcile_stranded_notifications,
-        )
-
-        reset = reconcile_stranded_notifications(app.state.db)
-        if reset:
-            logger.info("Reconciled %d stranded download notification(s) at startup", reset)
-    # rationale: §6.4 site 4 (cold-start) — best-effort reconciliation;
-    # don't block startup if the DB query path is briefly unhappy.
-    except Exception:
-        logger.exception("download-notification reconciliation failed at startup; continuing")
+    _run_startup_reconciliation(app)
 
     logger.info("Mediaman started on port %s", config.port)
     yield
 
-    if scheduler_started:
-        shutdown_scheduling()
-
-    app.state.db.close()
-    logger.info("Mediaman shutting down")
+    _shutdown(app, scheduler_started)
 
 
-def create_app() -> FastAPI:
-    """Create and configure the FastAPI application."""
-    app = FastAPI(
-        title="Mediaman",
-        lifespan=lifespan,
-        docs_url=None,
-        redoc_url=None,
-        openapi_url=None,
-    )
+def _register_routers(app: FastAPI) -> None:
+    """Mount every route module's router on *app*.
 
-    from mediaman.web import register_security_middleware
-
-    register_security_middleware(app)
-
-    if _STATIC_DIR.is_dir():
-        app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
-
-    app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
-
+    The router imports are deferred into this function body (rather than
+    placed at module top) so importing :mod:`mediaman.app_factory` does
+    not transitively import every route module and its dependencies —
+    the import-cost property the original inline block established is
+    preserved here.
+    """
     from mediaman.web.routes.auth import router as auth_router
     from mediaman.web.routes.dashboard import router as dashboard_router
     from mediaman.web.routes.download import router as download_router
@@ -193,6 +212,16 @@ def create_app() -> FastAPI:
     app.include_router(search_router)
     app.include_router(recommended_router)
     app.include_router(users_router)
+
+
+def _register_probes(app: FastAPI) -> None:
+    """Register the ``/healthz`` and ``/readyz`` container probes on *app*.
+
+    Both endpoints close over ``app.state`` (the readiness probe reads
+    the scheduler/canary flags stashed there by the lifespan), so they
+    must be defined where *app* is in scope — hence *app* is passed in
+    rather than the probes living at module scope.
+    """
 
     @app.get("/healthz", include_in_schema=False)
     def healthz() -> dict[str, str]:
@@ -235,5 +264,28 @@ def create_app() -> FastAPI:
             if scheduler_error:
                 body["scheduler_error"] = str(scheduler_error)
         return JSONResponse(body, status_code=200 if ready else 503)
+
+
+def create_app() -> FastAPI:
+    """Create and configure the FastAPI application."""
+    app = FastAPI(
+        title="Mediaman",
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+
+    from mediaman.web import register_security_middleware
+
+    register_security_middleware(app)
+
+    if _STATIC_DIR.is_dir():
+        app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+    app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+
+    _register_routers(app)
+    _register_probes(app)
 
     return app
