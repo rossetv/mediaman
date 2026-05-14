@@ -556,7 +556,7 @@ class TestAtomicSessionAndReauthDelete:
         # Sanity: confirm session_store imports the function lazily so
         # the patch test is meaningful (not testing module-level import
         # state).
-        assert hasattr(session_store, "_delete_session_with_commit")
+        assert hasattr(session_store._writes, "_delete_session_with_commit")
 
     def test_idle_expiry_failure_does_not_500(self, conn, monkeypatch, freezer):
         """A *transient DB* failure during idle-expiry must NOT propagate
@@ -660,7 +660,7 @@ class TestSwallowedFailuresAreVisible:
         monkeypatch.setattr(reauth, "cleanup_expired_reauth", boom)
 
         with caplog.at_level(logging.WARNING, logger="mediaman.web.auth.session_store"):
-            session_store._cleanup_expired_with_commit(conn, datetime.now(UTC).isoformat())
+            session_store._writes._cleanup_expired_with_commit(conn, datetime.now(UTC).isoformat())
 
         visible = [
             r
@@ -738,10 +738,12 @@ class TestEvictionPathFailsClosedOnNonDbError:
             # it must escape.
             raise TypeError("simulated programming error on the eviction path")
 
-        monkeypatch.setattr(session_store, "_delete_session_with_commit", boom)
+        monkeypatch.setattr(session_store._writes, "_delete_session_with_commit", boom)
 
         with pytest.raises(TypeError, match="simulated programming error"):
-            session_store._try_delete_session(conn, _hash_token(token), reason="idle_expired")
+            session_store._writes._try_delete_session(
+                conn, _hash_token(token), reason="idle_expired"
+            )
 
     def test_sqlite_error_in_delete_is_still_swallowed(self, conn, monkeypatch, caplog):
         """The narrowing must not regress the intended behaviour: a
@@ -754,12 +756,12 @@ class TestEvictionPathFailsClosedOnNonDbError:
         def boom(_conn, _token_hash):
             raise sqlite3.OperationalError("database is locked")
 
-        monkeypatch.setattr(session_store, "_delete_session_with_commit", boom)
+        monkeypatch.setattr(session_store._writes, "_delete_session_with_commit", boom)
 
         with caplog.at_level(logging.WARNING, logger="mediaman.web.auth.session_store"):
             # Must NOT raise — a transient DB failure on the best-effort
             # eviction write is logged and retried next request.
-            session_store._try_delete_session(
+            session_store._writes._try_delete_session(
                 conn, _hash_token(token), reason="fingerprint_mismatch"
             )
 
@@ -788,28 +790,29 @@ class TestCleanupThrottleStampedAfterCompletion:
 
         # Reset the module-global throttle so the test starts in a
         # known state.
-        monkeypatch.setattr(session_store, "_last_cleanup_at", 0.0)
+        monkeypatch.setattr(session_store._validate, "_last_cleanup_at", 0.0)
 
         # Use a fake monotonic clock that we advance explicitly inside
         # slow_cleanup, so we never sleep for real.
         # All callers — both test code and session_store production code —
-        # go through session_store.time.monotonic (via the patched binding).
+        # go through session_store._validate.time.monotonic (via the patched
+        # binding).
         fake_clock = [1000.0]
 
         def fake_monotonic() -> float:
             return fake_clock[0]
 
-        monkeypatch.setattr(session_store.time, "monotonic", fake_monotonic)
+        monkeypatch.setattr(session_store._validate.time, "monotonic", fake_monotonic)
 
         # Pretend the cleanup itself takes a measurable sliver of time so
         # we can distinguish "stamped at entry" from "stamped at exit".
-        original_cleanup = session_store._cleanup_expired_with_commit
+        original_cleanup = session_store._validate._cleanup_expired_with_commit
 
         def slow_cleanup(*args, **kwargs):
             original_cleanup(*args, **kwargs)
             fake_clock[0] += 0.1  # advance the fake clock by 100 ms — no real sleep
 
-        monkeypatch.setattr(session_store, "_cleanup_expired_with_commit", slow_cleanup)
+        monkeypatch.setattr(session_store._validate, "_cleanup_expired_with_commit", slow_cleanup)
 
         token = create_session(conn, "alice")
         before = fake_monotonic()  # == 1000.0 (entry clock value)
@@ -820,8 +823,8 @@ class TestCleanupThrottleStampedAfterCompletion:
         # If the bug were still present, ``_last_cleanup_at`` would equal
         # the value of ``time.monotonic()`` BEFORE slow_cleanup ran, i.e.
         # 1000.0, not 1000.1.
-        assert session_store._last_cleanup_at >= before + 0.04
-        assert session_store._last_cleanup_at <= after + 0.001
+        assert session_store._validate._last_cleanup_at >= before + 0.04
+        assert session_store._validate._last_cleanup_at <= after + 0.001
 
 
 # ---------------------------------------------------------------------------
