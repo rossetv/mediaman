@@ -19,13 +19,18 @@ from tests.helpers.factories import insert_download_notification, insert_setting
 
 def _load_template():
     template_dir = (
-        Path(__file__).parent.parent.parent.parent.parent / "src" / "mediaman" / "web" / "templates"
+        Path(__file__).parent.parent.parent.parent.parent
+        / "src"
+        / "mediaman"
+        / "services"
+        / "downloads"
+        / "templates"
     )
     env = Environment(
         loader=FileSystemLoader(str(template_dir)),
         autoescape=True,
     )
-    return env.get_template("email/download_ready.html")
+    return env.get_template("download_ready.html")
 
 
 def _render(**overrides):
@@ -117,9 +122,9 @@ class TestDownloadReadyTemplate:
             Path(__file__).parent.parent.parent.parent.parent
             / "src"
             / "mediaman"
-            / "web"
+            / "services"
+            / "downloads"
             / "templates"
-            / "email"
             / "download_ready.html"
         )
         src = template_path.read_text()

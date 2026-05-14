@@ -39,8 +39,8 @@ logger = logging.getLogger(__name__)
 # ``check_download_notifications`` is called once per library sync. Building
 # a fresh ``Environment`` (filesystem walk + template compilation) every tick
 # was wasted work, so we cache one env per process and reuse it for every
-# call. The download-ready template lives next to the newsletter templates
-# under ``mediaman/web/templates`` and never changes at runtime.
+# call. The download-ready template lives adjacent to this module under
+# ``mediaman/services/downloads/templates/`` and never changes at runtime.
 #
 # rationale: _NOTIFICATION_LOCK guards lazy initialisation of the two globals
 # below.  The notification path runs inside the APScheduler thread pool; without
@@ -53,7 +53,7 @@ _NOTIFICATION_LOCK = threading.Lock()
 
 
 def get_notification_template() -> Template:
-    """Return the cached ``email/download_ready.html`` Jinja template.
+    """Return the cached ``download_ready.html`` Jinja template.
 
     Built lazily on first use rather than at import time so unit tests
     that never trigger this code path don't pay the Jinja import cost.
@@ -69,9 +69,9 @@ def get_notification_template() -> Template:
             return _NOTIFICATION_TEMPLATE
         from jinja2 import Environment, FileSystemLoader
 
-        template_dir = Path(__file__).parent.parent.parent / "web" / "templates"
+        template_dir = Path(__file__).parent / "templates"
         _NOTIFICATION_ENV = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
-        _NOTIFICATION_TEMPLATE = _NOTIFICATION_ENV.get_template("email/download_ready.html")
+        _NOTIFICATION_TEMPLATE = _NOTIFICATION_ENV.get_template("download_ready.html")
     return _NOTIFICATION_TEMPLATE
 
 

@@ -14,7 +14,15 @@ from jinja2 import Environment, FileSystemLoader
 
 @pytest.fixture
 def env() -> Environment:
-    template_dir = Path(__file__).resolve().parents[4] / "src" / "mediaman" / "web" / "templates"
+    template_dir = (
+        Path(__file__).resolve().parents[4]
+        / "src"
+        / "mediaman"
+        / "services"
+        / "mail"
+        / "newsletter"
+        / "templates"
+    )
     return Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
 
 
@@ -112,7 +120,7 @@ def _full_context(dry_run: bool = False) -> dict:
 
 
 def test_full_render(env: Environment) -> None:
-    html = env.get_template("email/newsletter.html").render(**_full_context())
+    html = env.get_template("newsletter.html").render(**_full_context())
 
     assert html.startswith("<!DOCTYPE html>")
     assert "</html>" in html
@@ -141,7 +149,7 @@ def test_empty_scheduled_and_deleted(env: Environment) -> None:
     ctx["scheduled_items"] = []
     ctx["deleted_items"] = []
 
-    html = env.get_template("email/newsletter.html").render(**ctx)
+    html = env.get_template("newsletter.html").render(**ctx)
 
     assert "scheduled for deletion" not in html
     assert "Deleted Since Last Report" not in html
@@ -150,7 +158,7 @@ def test_empty_scheduled_and_deleted(env: Environment) -> None:
 
 
 def test_dry_run_banner_renders(env: Environment) -> None:
-    html = env.get_template("email/newsletter.html").render(**_full_context(dry_run=True))
+    html = env.get_template("newsletter.html").render(**_full_context(dry_run=True))
 
     assert "DRY RUN MODE" in html
 
@@ -159,7 +167,7 @@ def test_singular_grace_day(env: Environment) -> None:
     ctx = _full_context()
     ctx["grace_days"] = 1
 
-    html = env.get_template("email/newsletter.html").render(**ctx)
+    html = env.get_template("newsletter.html").render(**ctx)
 
     assert "1 day left" in html
     assert "1 days left" not in html

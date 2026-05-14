@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # import (beneficial for tests and CLI subcommands that never send mail) while
 # still sharing the compiled environment across all subsequent calls.
 # ---------------------------------------------------------------------------
-_TEMPLATE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "web" / "templates"
+_TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 try:
     from jinja2 import Environment, FileSystemLoader
