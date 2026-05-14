@@ -13,8 +13,8 @@
 > in the codebase today, not a target to drift toward. Every rule applies to every
 > PR. No file in the codebase exceeds the 500-line ceiling; if a future PR needs
 > to add one, write a `# rationale:` header at the top of the file explaining why
-> the split would do more harm than good and add the file to a carve-out list in
-> this preamble in the same PR.
+> the split would do more harm than good. That in-file header is the single
+> canonical carve-out mechanism — there is no separate list to maintain.
 >
 > No function in the codebase exceeds the 60-line ceiling without a `# rationale:`
 > header. Module-level mutable state is permitted only with a `threading.Lock`
@@ -25,8 +25,9 @@
 
 ## TL;DR — the ten rules most often violated
 
-1. Use the shared HTTP client; no new `requests.get` outside
-   `services/infra/http/` ([§8.1](#81-outbound-http-only-via-the-shared-client)).
+1. All outbound HTTP goes through a `SafeHTTPClient` instance; a `requests` verb
+   call (`.get`/`.post`/…) outside `services/infra/http/` is the blocker
+   ([§8.1](#81-outbound-http-only-via-the-shared-client)).
 2. Repository functions return dataclasses, not `sqlite3.Row`
    ([§9.5](#95-repository-returns-dataclasses-never-raw-rows)).
 3. Parameter-substitute every SQL value; no f-string SQL, ever
@@ -220,7 +221,7 @@ defect. The diagram is the contract.
                                    │
                                    ▼
             ┌──────────────────────────────────────────────┐
-            │      db/   (schema, connection, migrations)  │
+            │      db/   (schema, connection, WAL config)  │
             └──────────────────────┬───────────────────────┘
                                    │
                                    ▼
@@ -234,8 +235,10 @@ defect. The diagram is the contract.
 **Purpose.** Pure, dependency-free utilities: time parsing, formatting, small
 data primitives.
 
-**Allowed deps.** Standard library only. No third-party imports. No internal imports — `core`
-is a leaf.
+**Allowed deps.** Standard library only. No third-party imports. No imports from any
+*other* internal package — `core` is a leaf. Importing a sibling module *within*
+`core/` (e.g. `core.audit` importing `core.time`) is fine: it creates no cross-package
+cycle and avoids duplicating a trivial utility.
 
 **Forbidden patterns.** No I/O. No logging side-effects at import time. No global mutable
 state. No `requests`, no `sqlite3`, no `apscheduler`.
@@ -266,10 +269,7 @@ not domain data and have no repository elsewhere. Pushing them through
 `db/` would invert the dependency (`db/` would import `crypto/`) and add
 indirection with no security benefit, since the SQL is exactly two
 `SELECT … FROM settings WHERE key=?` statements plus the matching
-seed-on-first-run `INSERT OR IGNORE`. The legacy-ciphertext migration in
-`crypto/_aes_migrate.py` also reads the `settings` table — same
-exception applies there, because the rows being migrated are the
-crypto-owned encrypted-settings rows.
+seed-on-first-run `INSERT OR IGNORE`.
 
 **Forbidden patterns.** No DB access beyond the rows named above. No
 logging of key material, plaintexts, ciphertexts, or HMACs (except
@@ -290,19 +290,21 @@ request handlers. Idempotency is a goal, not an excuse to invoke them at runtime
 
 ### 2.4 `db/`
 
-**Purpose.** SQLite schema, migration runner, connection lifecycle, WAL configuration. Owns
+**Purpose.** SQLite schema, connection lifecycle, WAL configuration. Owns
 the only `sqlite3.connect` call in the production codebase.
 
 **Allowed deps.** `sqlite3`, `core/`. `crypto/` reads/writes its own
 canary and salt rows in the `settings` table itself (see [§2.2](#22-crypto));
-`db/` does not import `crypto/`. `db/migrations/` may import nothing
-outside `db/` — migrations must be hermetic.
+`db/` does not import `crypto/`.
 
 **Forbidden patterns.** No business logic. No queries against domain tables — those live in
 the `repository/` of the owning package. No reading of the connection from a global.
 
-**Naming.** `db/connection.py`, `db/schema_definition.py`, `db/migrations/00NN_*.py`. Each
-migration filename starts with a zero-padded sequence number; gaps are forbidden.
+**Naming.** `db/connection.py` owns connection lifecycle and `init_db`;
+`db/schema_definition.py` holds the schema as DDL-as-code — a single `_SCHEMA`
+string of `CREATE … IF NOT EXISTS` statements that `init_db` applies idempotently
+on every startup. There is no migration runner and no `db/migrations/` directory;
+see [§9.2](#92-the-schema-is-ddl-as-code-applied-idempotently).
 
 ### 2.5 `scanner/`
 
@@ -333,12 +335,19 @@ through the documented public surface of that sibling.
 
 **Subpackages:**
 
-- `services/infra/` — shared plumbing: `http/client.py` (the only `requests.Session` allowed
-  in the codebase), `settings_reader.py`, `storage.py`, `format.py`, `url_safety.py`,
-  `path_safety.py`. Other services import `infra`; `infra` imports nothing from a sibling.
-- `services/arr/` — Sonarr + Radarr. Driven by a single `spec` so client divergence stays
-  declarative. `base.ArrClient` is the only HTTP-facing class; `sonarr.py` and `radarr.py`
-  are thin shims for backwards-compatible imports.
+- `services/infra/` — shared plumbing: `http/client.py` (the `SafeHTTPClient` every
+  outbound call goes through), `settings_reader.py`, `storage.py`, `format.py`,
+  `url_safety.py`, `path_safety.py`. Other services import `infra`; `infra` imports
+  nothing from a sibling. A caller may construct a `requests.Session` and pass it to
+  `SafeHTTPClient` via the `session=` parameter for connection-pool reuse, but must
+  never call a `requests` verb on that bare session directly — see
+  [§8.1](#81-outbound-http-only-via-the-shared-client).
+- `services/arr/` — Sonarr + Radarr. Driven by a single `ArrSpec` so client divergence
+  stays declarative. `base.ArrClient` is the only HTTP-facing class; there are no
+  `sonarr.py` / `radarr.py` modules and no `SonarrClient` / `RadarrClient` classes.
+  Concrete clients are built by `build.py`'s factory functions
+  (`build_radarr_from_db`, `build_sonarr_from_db`), each returning a spec-bound
+  `ArrClient`.
 - `services/downloads/` — NZBGet client, queue model, format detection. Owns its own DB
   tables (`download_format/`, `download_queue/`).
 - `services/mail/` — Mailgun client and the newsletter renderer. `newsletter/` builds the
@@ -364,7 +373,11 @@ through the documented public surface of that sibling.
    `templates/_components.html`. Render-time logic belongs in the route or a small
    view-model in `web/models/`.
 4. `web/auth/` is the only place that touches the `sessions` and `users` tables.
-5. `web/middleware/` writes responses; it does not call services.
+5. `web/middleware/` writes responses; it must not call a service to perform *domain
+   computation*. Importing a stateless primitive from `services/` is permitted — the
+   FastAPI-bound `@rate_limit` decorator lives in `web/middleware/` and imports the
+   limiter primitives and the IP-extraction helper from `services/rate_limit/`,
+   because the decorator is intentionally FastAPI-coupled and cannot live below `web/`.
 
 **Subpackages:**
 
@@ -381,9 +394,11 @@ through the documented public surface of that sibling.
 
 ### 2.8 Cross-package rules
 
-1. `core/` imports nothing internal. Period.
+1. `core/` imports nothing from any *other* internal package. Importing a sibling
+   module within `core/` is fine (see [§2.1](#21-core)).
 2. `crypto/` imports only `core/`.
-3. `db/` imports only `core/` and `crypto/`.
+3. `db/` imports only `core/`. It does *not* import `crypto/` — `crypto/` owns the
+   read/write of its own `settings` rows (see [§2.2](#22-crypto)).
 4. `services/*` imports `db/`, `core/`, `crypto/`, and other `services/*` only via public
    surfaces.
 5. `scanner/` imports `db/`, `core/`, `crypto/`, `services/*`. Never `web/`.
@@ -401,14 +416,20 @@ through the documented public surface of that sibling.
   growing.
 - **Functions: target 30 lines, ceiling 60.** A 60-line function does not fit on a laptop
   screen with the call site visible; the reviewer cannot hold both the surrounding context
-  and the body in working memory.
-- **Imports: max 30 per file.** More usually means the module is doing too much; ask
-  whether two modules are hiding inside the file.
+  and the body in working memory. The count is **executable body lines** — it excludes
+  the `def`/signature line(s), decorators, the docstring, and blank lines. A long,
+  thorough docstring does not push a function toward a `# rationale:` it does not need;
+  the ceiling is about the *body* the reviewer has to hold in their head.
+- **Imports: max 30 per file.** The count is 30 imported *names*: `from x import A, B`
+  counts as two, a re-export `import X as X` counts as one. More usually means the module
+  is doing too much; ask whether two modules are hiding inside the file.
 
-Exceptions to either ceiling require a one-line `# rationale:` comment at the top of the
-file or function explaining why no decomposition is possible. "It would be awkward" is not
-a rationale; "this is a single SQL statement that resists splitting and is exhaustively
-tested at the public boundary" is.
+Exceptions to either ceiling require a one-line `# rationale:` comment explaining why no
+decomposition is possible. For a file, the comment is a header at the top of the file; for
+a function, it sits immediately above the `def` — above any decorator. "It would be
+awkward" is not a rationale; "this is a single SQL statement that resists splitting and is
+exhaustively tested at the public boundary" is. This in-file `# rationale:` header is the
+single canonical carve-out mechanism — there is no separate carve-out list anywhere.
 
 ### 3.2 One concept per file
 
@@ -799,9 +820,18 @@ remediation.
 ### 6.1 Domain exceptions live where they are raised
 
 Each subsystem owns its exception hierarchy in the same module that raises it.
-`services/arr/base.py` defines `ArrError`, `ArrAuthError`, `ArrTimeoutError`. The HTTP
-layer in `services/infra/http/client.py` defines `HttpError`, `HttpRetryExhausted`. The
-scanner's deletion executor defines `DeletionError` next to the executor.
+`services/arr/_transport.py` defines `ArrError`, `ArrConfigError`, `ArrKindMismatch`,
+and `ArrUpstreamError` (re-exported through `services/arr/__init__.py` as the package's
+public error surface). The HTTP layer in `services/infra/http/client.py` defines
+`SafeHTTPError`. The scanner's deletion executor defines `DeletionError` next to the
+executor.
+
+The split is deliberate: **infra owns transport-shaped failures, arr owns
+domain-shaped failures.** There is no `ArrAuthError` or `ArrTimeoutError` — auth
+(401/403) and timeout failures are transport-shaped, so they surface as `SafeHTTPError`
+from the shared HTTP client and arr callers catch them as such. `ArrConfigError` (the
+integration is not configured) and `ArrKindMismatch` (a Sonarr spec was handed Radarr
+data, or vice versa) are genuinely domain-shaped and belong to arr.
 
 Generic `RuntimeError`, `Exception`, `ValueError` (outside argument validation), and
 `AssertionError` (outside development-time invariants) are not domain errors. Raising one
@@ -814,20 +844,24 @@ specific case is a subclass:
 
 ```python
 class ArrError(Exception):
-    """Base for all Sonarr/Radarr client failures."""
+    """Base for all Sonarr/Radarr domain failures."""
 
-class ArrAuthError(ArrError):
-    """API key invalid or insufficient permission."""
+class ArrConfigError(ArrError):
+    """The Sonarr/Radarr integration is not configured (no URL or API key)."""
 
-class ArrTimeoutError(ArrError):
-    """Upstream did not respond within the configured budget."""
+class ArrKindMismatch(ArrError):
+    """A Sonarr-bound spec was handed Radarr data, or vice versa."""
 
 class ArrUpstreamError(ArrError):
-    """Upstream returned a 5xx after retries were exhausted."""
+    """Upstream returned an unusable response (e.g. a null body where a
+    record was expected)."""
 ```
 
-Subclasses are domain-shaped, not HTTP-status-shaped. `ArrAuthError` covers 401 and 403
-because the *caller's* response is the same — show the API-key warning in settings.
+Subclasses are domain-shaped, not HTTP-status-shaped. Transport-shaped failures —
+timeouts, connection errors, 401/403, 5xx after retries — are *not* in this hierarchy:
+they surface as `SafeHTTPError` from the shared HTTP client ([§8.1](#81-outbound-http-only-via-the-shared-client)),
+and arr callers catch `SafeHTTPError` alongside `ArrError`. infra owns the transport
+shape; arr owns the domain shape.
 
 ### 6.3 `raise X from original` is mandatory
 
@@ -838,15 +872,15 @@ forensic evidence; severing it is destruction of evidence.
 ```python
 # Good
 try:
-    response = self._session.get(url, timeout=self._timeout)
-except requests.Timeout as e:
-    raise ArrTimeoutError(f"timeout after {self._timeout}s") from e
+    path.unlink()
+except OSError as e:
+    raise DeletionError(f"could not delete {path}") from e
 
 # Bad — caller cannot diagnose.
 try:
-    response = self._session.get(url, timeout=self._timeout)
-except requests.Timeout:
-    raise ArrTimeoutError("timed out")
+    path.unlink()
+except OSError:
+    raise DeletionError("delete failed")
 ```
 
 ### 6.4 `except Exception:` is reserved for outermost loops
@@ -1041,6 +1075,12 @@ this inside an `except` block.
 `print(...)` is a tool for one-off scripts. Production code uses the logger. The CI lint
 gate fails on a `print` call inside `src/mediaman/`.
 
+Two narrow carve-outs exist for operator-facing output, which is exactly the use this
+rule's justification describes: a console-script entry point — a `*_cli` function
+registered in `pyproject.toml`'s `[project.scripts]`, such as `web/auth/cli.py`'s
+`mediaman-create-user` — and the process entry point's pre-logging fatal-config-error
+path in `main.py` may use `print()`. The lint gate excludes those.
+
 ### 7.9 Observability surfaces
 
 - `GET /healthz` — liveness only. Always 200 if the loop is responsive.
@@ -1067,23 +1107,29 @@ touched from every request. State that crosses a thread is shared state.
 ### 8.1 Outbound HTTP only via the shared client
 
 All outbound HTTP traffic — Sonarr, Radarr, NZBGet, TMDB, OMDb, Mailgun, OpenAI, poster
-fetch — goes through `services/infra/http/client.py`. A new `requests.get(...)`,
-`urllib.request.urlopen(...)`, or `httpx.Client()` outside that module is a code-review
-blocker.
+fetch — goes through a `SafeHTTPClient` instance from `services/infra/http/client.py`.
+The underlying `requests.Session` *may* be supplied via the `session=` constructor
+parameter for connection-pool reuse, and several modules legitimately do exactly that.
+What is forbidden is calling a `requests` verb on a bare session directly: a
+`requests.get(...)`/`.post(...)`, a `urllib.request.urlopen(...)`, or an
+`httpx.Client()` *outside* `services/infra/http/` is the code-review blocker.
 
-The shared client owns: connection pooling, the SSRF allowlist
-([§10](#10-security)), retry/backoff, the timeout budget, the user-agent header, and TLS
-verification. A bespoke client gets one of those wrong eventually; the shared one gets all
-of them right by construction.
+`SafeHTTPClient` owns: connection pooling, retry/backoff, the timeout budget, the
+user-agent header, TLS verification, and the SSRF *deny-list* — RFC1918, link-local,
+loopback and IPv6 ULA ranges are refused unconditionally on every call. The SSRF
+*allowlist* is a different matter: it is currently opt-in, exposed via the
+`allowed_hosts=` parameter, pending the [§10.6](#106-ssrf-allowlist-for-outbound)
+follow-up. A bespoke client gets one of these wrong eventually; the shared one gets the
+transport controls right by construction.
 
 ```python
-# Good
-from mediaman.services.infra.http.client import get_http_client
+# Good — construct SafeHTTPClient directly; supply a session for pool reuse.
+from mediaman.services.infra.http.client import SafeHTTPClient
 
-client = get_http_client()
-response = client.get(url, timeout=10.0)
+client = SafeHTTPClient(base_url, session=session)
+response = client.get(path, timeout=10.0)
 
-# Bad
+# Bad — a requests verb on a bare session, outside services/infra/http/.
 import requests
 response = requests.get(url, timeout=10.0)
 ```
@@ -1200,42 +1246,52 @@ either commit incrementally or document why they cannot.
 ## 9. Database
 
 mediaman is a SQLite shop. Every persistent fact lives in `mediaman.db`, which is
-WAL-mode, encrypted-at-rest for sensitive columns via `crypto/`, and migrated forward by a
-sequence-numbered runner. The database is the source of truth; in-memory state is a cache.
+WAL-mode and encrypted-at-rest for sensitive columns via `crypto/`. The schema is
+declared as DDL-as-code and applied idempotently on startup — there is no migration
+runner ([§9.2](#92-the-schema-is-ddl-as-code-applied-idempotently)). The database is the
+source of truth; in-memory state is a cache.
 
 ### 9.1 Schema is declared, not derived
 
 The schema lives in `db/schema_definition.py` as a literal sequence of `CREATE TABLE` and
 `CREATE INDEX` statements. There is no ORM. Reading the schema file tells you what shapes
-exist; reading a Python class never does as authoritatively. Any change to the schema goes
-through a migration — never by editing the definition file alone.
+exist; reading a Python class never does as authoritatively. A schema change is made by
+editing `db/schema_definition.py` directly — see [§9.2](#92-the-schema-is-ddl-as-code-applied-idempotently)
+for the rules that keep that safe.
 
-### 9.2 Migrations are append-only
+### 9.2 The schema is DDL-as-code, applied idempotently
 
-`db/migrations/` contains zero-padded files (`0001_initial.py`, `0002_*.py`, …). Numbers
-are never reused; gaps are forbidden. A migration:
+There is no migration runner and no `db/migrations/` directory — the sequence-numbered
+migration framework was removed deliberately. The schema is declared as DDL-as-code: a
+single `_SCHEMA` string in `db/schema_definition.py` holding every `CREATE TABLE` and
+`CREATE INDEX` statement, each written `IF NOT EXISTS`. `db/connection.py`'s `init_db`
+runs the whole script via `executescript` on every startup; because every statement is
+`IF NOT EXISTS`, opening an already-populated database is a no-op and the call is
+idempotent.
 
-1. Has a single `apply(conn: sqlite3.Connection) -> None` function.
-2. Is idempotent against a partially-applied state (use `IF NOT EXISTS`, `INSERT OR
-   IGNORE`, etc.).
-3. Imports nothing outside `db/` and the standard library — migrations must run on a
-   bare process before the rest of the package is loaded.
-4. Carries a header docstring naming the change in plain English: "0014: Add
-   `keep_tokens_used.consumed_at` to support replay-window forensics."
+The rules that follow from this:
 
-A merged migration is immutable. If a bug ships, write a follow-up migration that fixes
-the data; never edit the original.
+1. Every statement in `_SCHEMA` is idempotent — `CREATE TABLE IF NOT EXISTS`,
+   `CREATE INDEX IF NOT EXISTS`. A bare `CREATE TABLE` would fail on the second startup.
+2. `_SCHEMA` is additive in practice: a column added to an existing table needs an
+   `ALTER TABLE` guarded so re-running it is safe, because `executescript` runs the
+   whole file every boot. A *destructive* change (dropping or renaming a column,
+   back-filling data) has no runner to sequence it — it is a deliberate, reviewed,
+   one-off and must be reasoned about explicitly in the PR, not assumed to "just apply".
+3. The schema file is the single source of truth for what shapes exist. Reading it tells
+   you the current schema in full; there is no migration history to replay.
 
-### 9.3 No hand-edits outside a migration
+### 9.3 No hand-edits to a production database
 
 `sqlite3 mediaman.db "UPDATE ..."` against a production database is a one-way ticket to a
 divergent fleet. Every state change is either:
 
-- a migration, or
+- a schema change committed to `db/schema_definition.py`, or
 - code running through a repository function and recorded in `audit_log`.
 
-If a one-off correction is needed, write a migration. The next deployment carries it
-forward, and the change is auditable.
+If a one-off data correction is needed, it goes through a reviewed code path — a
+repository function or a documented maintenance routine — never an ad-hoc shell edit, so
+the change is auditable.
 
 ### 9.4 One repository module per table-group
 
@@ -1273,6 +1329,16 @@ def fetch_pending_deletions(conn: sqlite3.Connection) -> list[ScheduledAction]:
 def fetch_pending_deletions(conn) -> list[sqlite3.Row]: ...
 ```
 
+A public repository function never returns a raw `sqlite3.Row`, and it never returns a
+bare `dict` — *except* at one documented kind of boundary. A handful of web-repository
+functions (`recommended.py:fetch_recommendations`, `library_query.py:fetch_library`)
+return `list[dict]` because the route feeds the keys straight onto a Jinja template, so a
+dataclass would add ceremony without removing the coupling. Returning `list[dict]` from a
+public repository function is permitted **only** at such a template-feeding boundary and
+**only** with a `# rationale:` comment naming the consuming template. Everywhere else,
+repository functions return dataclasses. Private helpers may pass `sqlite3.Row` between
+themselves within a module — the raw row simply must not cross the public boundary.
+
 ### 9.6 Parameter-substitute, always
 
 ```python
@@ -1284,18 +1350,35 @@ conn.execute(f"SELECT 1 FROM scheduled_actions WHERE id = {action_id}")
 ```
 
 Even if the value is "obviously safe" — a counter, an enum, a known integer — use a
-parameter. The cost is one tuple; the savings is "we never had a SQL injection". A `f`-string
-or `%`-formatting that builds SQL is a code-review blocker.
+parameter. The cost is one tuple; the savings is "we never had a SQL injection".
+Interpolating an actual *value* into SQL — by `f`-string, `%`-formatting, or `+`
+concatenation — is a code-review blocker, no exceptions.
 
-The only legitimate dynamic-SQL pattern is interpolating a constant column name from a
-small allowlist:
+Two dynamic-SQL patterns are legitimate, because neither interpolates a value:
 
-```python
-_SORTABLE = {"added_at", "title", "size_bytes"}
-if sort_key not in _SORTABLE:
-    raise ValueError(f"unsortable column: {sort_key!r}")
-sql = f"SELECT * FROM media_items ORDER BY {sort_key} DESC"
-```
+1. **A constant column name from a small allowlist.** The interpolated text is a fixed
+   identifier chosen from a closed set, never caller data:
+
+   ```python
+   _SORTABLE = {"added_at", "title", "size_bytes"}
+   if sort_key not in _SORTABLE:
+       raise ValueError(f"unsortable column: {sort_key!r}")
+   sql = f"SELECT * FROM media_items ORDER BY {sort_key} DESC"
+   ```
+
+2. **The `IN ({placeholders})` batched-query pattern** from
+   [§13.3](#133-n1-queries-are-bugs), where `placeholders` is a string built from only
+   `?` characters (`",".join("?" * n)`). No value is ever interpolated — every value
+   stays in the parameter tuple; only the *count* of placeholders is dynamic:
+
+   ```python
+   placeholders = ",".join("?" * len(media_ids))  # rationale: §13.3 IN-clause batching; only "?" interpolated
+   sql = f"SELECT id, title FROM media_items WHERE id IN ({placeholders})"
+   rows = conn.execute(sql, media_ids).fetchall()
+   ```
+
+   Each such site carries a `# rationale:` comment, because Bandit's `B608` flags the
+   `f`-string and the comment is what tells the reviewer it is the sanctioned pattern.
 
 ### 9.7 Transactions are explicit
 
@@ -1335,14 +1418,16 @@ Plaintext never lands on disk; ciphertext never escapes the repository.
 ### 9.10 Foreign keys, on
 
 `PRAGMA foreign_keys = ON` is set on every connection in `db/connection.py`. Tests must
-respect it. A migration that introduces a new FK pre-checks the data and fails loudly if
-the FK would be violated.
+respect it. A schema change that introduces a new FK is reasoned about against the
+existing data in the PR — an FK added to a table with violating rows fails loudly the
+next time `init_db` runs, which is the intended loud failure.
 
 ### 9.11 Schema queries (`sqlite_master`) are forbidden in production paths
 
-A production code path that introspects the schema is a sign someone wanted a migration
-and reached for runtime introspection instead. Schema is declared, migrations apply it;
-the code path runs against a known shape.
+A production code path that introspects the schema is a sign someone wanted a schema
+change and reached for runtime introspection instead. The schema is declared in
+`db/schema_definition.py` and applied by `init_db`; the code path runs against a known
+shape.
 
 ## 10. Security
 
@@ -1398,7 +1483,7 @@ variable. Every other secret (Plex token, Sonarr API key, NZBGet password, Mailg
 TMDB key, OMDb key, OpenAI key) is encrypted at rest via `crypto/` and decrypted at the
 repository boundary. A new secret follows the same pattern:
 
-1. Add a column in a migration.
+1. Add a column to `db/schema_definition.py` ([§9.2](#92-the-schema-is-ddl-as-code-applied-idempotently)).
 2. Encrypt on write, decrypt on read inside the repository.
 3. Configure via the web UI; never via env, never in `working_directory/`.
 
@@ -1483,7 +1568,7 @@ confirmations) log against the token's identity, never the IP alone.
 
 User-agent is intentionally not recorded: mediaman is single-operator self-hosted, so the
 forensic value of UA-string variation is near zero and not worth the schema and plumbing
-cost. If a deployment ever wants it, the migration is mechanical.
+cost. If a deployment ever wants it, the schema change is mechanical.
 
 ### 10.11 Mandatory security tests for new code
 
@@ -1709,13 +1794,14 @@ the source tree for the first time.
 ```python
 """Sonarr/Radarr (`*arr`) HTTP client.
 
-Driven by a single ``ArrSpec`` (see ``spec.py``); concrete clients
-(``SonarrClient``, ``RadarrClient``) are thin shims pre-bound to the
-right spec. The base client owns retries, auth headers, and timeout
-budget; depends on ``services/infra/http``.
+Driven by a single ``ArrSpec`` (see ``spec.py``); a concrete client is
+an ``ArrClient`` bound to the right spec, built by ``build.py``'s
+``build_radarr_from_db`` / ``build_sonarr_from_db`` factories. The
+client owns retries, auth headers, and timeout budget; depends on
+``services/infra/http``.
 
-Forbidden: importing ``web/`` or ``scanner/``; calling ``requests``
-directly; storing API keys in module state.
+Forbidden: importing ``web/`` or ``scanner/``; calling a ``requests``
+verb directly; storing API keys in module state.
 """
 ```
 
