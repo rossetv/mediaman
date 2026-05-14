@@ -72,6 +72,7 @@ docs/plans/
 # Pre-OSS audit artefacts (local only)
 .review/
 FINDINGS.md
+PLAN.md
 
 # macOS Finder duplicate-suffix shadow files (e.g. "foo 2.py")
 * [0-9].py
