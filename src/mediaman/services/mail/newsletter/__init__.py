@@ -200,7 +200,7 @@ def send_newsletter(
         from jinja2 import Environment, FileSystemLoader
 
         env = Environment(loader=FileSystemLoader(str(_TEMPLATE_DIR)), autoescape=True)
-    template = env.get_template("email/newsletter.html")
+    template = env.get_template("newsletter.html")
 
     mailgun = MailgunClient(domain, api_key, from_address)
     subject = _build_subject(scheduled_items, dry_run)
