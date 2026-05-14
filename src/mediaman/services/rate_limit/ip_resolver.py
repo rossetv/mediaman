@@ -23,9 +23,36 @@ import functools
 import ipaddress
 import logging
 import os
+from collections.abc import Mapping
 from ipaddress import IPv4Network, IPv6Network
+from typing import Protocol, runtime_checkable
 
-from fastapi import Request
+
+class _AddressLike(Protocol):
+    """Minimal interface for the ``client`` attribute of an HTTP request."""
+
+    @property
+    def host(self) -> str: ...
+
+
+@runtime_checkable
+class _HasClientAndHeaders(Protocol):
+    """Minimal structural interface for an HTTP request object.
+
+    ``get_client_ip`` only ever reads ``request.client.host`` and calls
+    ``request.headers.get(...)``; this Protocol captures exactly that
+    surface so the function stays decoupled from any specific web
+    framework at runtime.  FastAPI's ``Request``, Starlette's
+    ``Request``, and any test double with the same shape all satisfy it
+    structurally.
+    """
+
+    @property
+    def client(self) -> _AddressLike | None: ...
+
+    @property
+    def headers(self) -> Mapping[str, str]: ...
+
 
 _logger = logging.getLogger(__name__)
 
@@ -130,7 +157,7 @@ def peer_is_trusted(peer: str | None, trusted: list[IPv4Network | IPv6Network]) 
     return _ip_in_networks(peer, trusted)
 
 
-def get_client_ip(request: Request) -> str:
+def get_client_ip(request: _HasClientAndHeaders) -> str:
     """Extract the real client IP, respecting forwarded headers only from trusted proxies."""
     peer = request.client.host if request.client else None
     trusted = trusted_proxies()
