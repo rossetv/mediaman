@@ -55,6 +55,25 @@ def _resolve_max_request_bytes() -> int:
     return value
 
 
+def _declared_length_over_cap(scope: Scope, max_bytes: int) -> bool:
+    """Return True if a ``Content-Length`` header already exceeds *max_bytes*.
+
+    Fast path: lets :meth:`BodySizeLimitMiddleware.__call__` reject an
+    oversize request before reading any body bytes. A malformed
+    ``Content-Length`` is treated as ``-1`` (not over the cap) so the
+    streaming byte-counter still gets a chance to enforce the limit.
+    Returns False when no ``Content-Length`` header is present.
+    """
+    for header_name, header_value in scope.get("headers", []):
+        if header_name == b"content-length":
+            try:
+                declared = int(header_value)
+            except ValueError:
+                declared = -1
+            return declared > max_bytes
+    return False
+
+
 async def _send_413(send: Send) -> None:
     """Emit a minimal ``413 Payload Too Large`` response with ``close``."""
     await send(
@@ -111,6 +130,16 @@ class BodySizeLimitMiddleware:
             self._cached_max = _resolve_max_request_bytes()
         return self._cached_max
 
+    # rationale: the streaming-wrapper closures below
+    # (``_streaming_receive`` / ``_watching_send``) share three pieces of
+    # ``nonlocal`` state — ``body_total``, ``oversize``, ``first_consumed``,
+    # ``response_started`` — with each other AND with ``__call__``, which
+    # reads ``oversize``/``response_started`` *after* the inner app returns
+    # to decide whether a final 413 is still safe. Lifting them into a
+    # factory would force that state into a shared mutable object, scattering
+    # the request-size DoS-cap accounting away from its enforcement point;
+    # the declared-length fast path is extracted (``_declared_length_over_cap``)
+    # but the streaming counter stays co-located with its cap check by design.
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
@@ -124,16 +153,9 @@ class BodySizeLimitMiddleware:
             return
 
         # Fast path: declared Content-Length over the cap.
-        for header_name, header_value in scope.get("headers", []):
-            if header_name == b"content-length":
-                try:
-                    declared = int(header_value)
-                except ValueError:
-                    declared = -1
-                if declared > max_bytes:
-                    await _send_413(send)
-                    return
-                break
+        if _declared_length_over_cap(scope, max_bytes):
+            await _send_413(send)
+            return
 
         # Read the first request message up front so we can short-
         # circuit with a 413 without invoking the inner app at all when

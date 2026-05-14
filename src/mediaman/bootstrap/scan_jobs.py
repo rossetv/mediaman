@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import sqlite3
 import threading
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from fastapi import FastAPI
 
@@ -120,10 +122,96 @@ def _run_library_sync_job(secret_key: str) -> None:
         logger.exception("Library sync failed")
 
 
+def _recover_stuck_deletions_at_boot(conn: sqlite3.Connection) -> None:
+    """Reconcile rows left in the 'deleting' state by a previous crash.
+
+    Best-effort and safe even if no scan runs this boot. A recurring
+    failure means deletions are leaking forever, so the
+    ``_stuck_deletion_failures`` counter escalates the log to CRITICAL
+    once the failure repeats.
+    """
+    global _stuck_deletion_failures
+    try:
+        from mediaman.scanner.deletions import _recover_stuck_deletions
+
+        _recover_stuck_deletions(conn)
+        _stuck_deletion_failures = 0
+    except Exception:  # rationale: §6.4 site 4 — cold-start recovery
+        _stuck_deletion_failures += 1
+        if _stuck_deletion_failures > 1:
+            logger.critical(
+                "Stuck-deletion recovery has failed %d consecutive boot(s); "
+                "deletions left in the 'deleting' state will accumulate "
+                "until the underlying error is resolved.",
+                _stuck_deletion_failures,
+                exc_info=True,
+            )
+        else:
+            logger.exception("Stuck-deletion recovery failed at startup")
+
+
+@dataclass(frozen=True, slots=True)
+class _SchedulerConfig:
+    """Validated scheduler settings read fresh from the DB at boot."""
+
+    scan_day: str
+    hour: int
+    minute: int
+    scan_tz: str
+    sync_interval: int
+
+
+def _read_scheduler_config(conn: sqlite3.Connection) -> _SchedulerConfig:
+    """Read and validate the scheduler settings from the DB.
+
+    Each value is passed through its :mod:`mediaman.bootstrap.validators`
+    check so a malformed setting raises here (and is caught by
+    :func:`bootstrap_scheduling`'s cold-start handler) rather than
+    reaching APScheduler.
+    """
+    from mediaman.services.infra import get_string_setting as _get_setting
+
+    scan_day = validate_scan_day(_get_setting(conn, "scan_day", default="mon"))
+    scan_time = _get_setting(conn, "scan_time", default="09:00")
+    scan_tz = validate_scan_timezone(_get_setting(conn, "scan_timezone", default="UTC"))
+    hour, minute = validate_scan_time(scan_time)
+    sync_interval = validate_sync_interval(
+        _get_setting(conn, "library_sync_interval", default="30")
+    )
+    return _SchedulerConfig(
+        scan_day=scan_day,
+        hour=hour,
+        minute=minute,
+        scan_tz=scan_tz,
+        sync_interval=sync_interval,
+    )
+
+
+def _build_scheduler_callbacks(
+    db_path: str | None, secret_key: str
+) -> tuple[Callable[[], None], Callable[[], None]]:
+    """Build the ``(scan, sync)`` APScheduler callbacks.
+
+    The callbacks close over *db_path* and *secret_key* because they are
+    invoked from APScheduler worker threads where ``app`` is not in
+    scope — the caller captures both off ``app.state``/``config`` while
+    it still can and threads them in here.
+    """
+
+    def scan_callback() -> None:
+        """APScheduler callback: run the weekly scheduled scan in a worker thread."""
+        _run_scheduled_scan(db_path, secret_key)
+
+    def sync_callback() -> None:
+        """APScheduler callback: run the periodic library sync in a worker thread."""
+        _run_library_sync_job(secret_key)
+
+    return scan_callback, sync_callback
+
+
 def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
     """Start the APScheduler jobs. Returns True iff the scheduler actually started."""
     from mediaman.scanner.scheduler import start_scheduler
-    from mediaman.services.infra import get_string_setting as _get_setting
 
     conn = app.state.db
     canary_ok = getattr(app.state, "canary_ok", True)
@@ -136,8 +224,6 @@ def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
     # to ssh into the container and tail the python logs.
     app.state.scheduler_error = None
 
-    global _stuck_deletion_failures
-
     try:
         if not canary_ok:
             raise SchedulerStartupRefused(
@@ -147,67 +233,35 @@ def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
                 "can investigate."
             )
 
-        # Reconcile any rows left in the 'deleting' state by a previous
-        # crash — safe even if no scan runs this boot.
-        try:
-            from mediaman.scanner.deletions import _recover_stuck_deletions
+        _recover_stuck_deletions_at_boot(conn)
 
-            _recover_stuck_deletions(conn)
-            _stuck_deletion_failures = 0
-        except Exception:  # rationale: §6.4 site 4 — cold-start recovery
-            _stuck_deletion_failures += 1
-            if _stuck_deletion_failures > 1:
-                logger.critical(
-                    "Stuck-deletion recovery has failed %d consecutive boot(s); "
-                    "deletions left in the 'deleting' state will accumulate "
-                    "until the underlying error is resolved.",
-                    _stuck_deletion_failures,
-                    exc_info=True,
-                )
-            else:
-                logger.exception("Stuck-deletion recovery failed at startup")
-
-        scan_day = validate_scan_day(_get_setting(conn, "scan_day", default="mon"))
-        scan_time = _get_setting(conn, "scan_time", default="09:00")
-        scan_tz = validate_scan_timezone(_get_setting(conn, "scan_timezone", default="UTC"))
-        hour, minute = validate_scan_time(scan_time)
+        sched_config = _read_scheduler_config(conn)
 
         # Capture the secret key and the DB path now; the scheduler
         # callbacks are invoked from APScheduler worker threads where
         # ``app`` is not in scope.
         secret_key = config.secret_key
         db_path = getattr(app.state, "db_path", None)
-
-        def scan_callback() -> None:
-            """APScheduler callback: run the weekly scheduled scan in a worker thread."""
-            _run_scheduled_scan(db_path, secret_key)
-
-        def sync_callback() -> None:
-            """APScheduler callback: run the periodic library sync in a worker thread."""
-            _run_library_sync_job(secret_key)
-
-        sync_interval = validate_sync_interval(
-            _get_setting(conn, "library_sync_interval", default="30")
-        )
+        scan_callback, sync_callback = _build_scheduler_callbacks(db_path, secret_key)
 
         start_scheduler(
             scan_fn=scan_callback,
-            day_of_week=scan_day,
-            hour=hour,
-            minute=minute,
-            timezone=scan_tz,
+            day_of_week=sched_config.scan_day,
+            hour=sched_config.hour,
+            minute=sched_config.minute,
+            timezone=sched_config.scan_tz,
             sync_fn=sync_callback,
-            sync_interval_minutes=sync_interval,
+            sync_interval_minutes=sched_config.sync_interval,
             secret_key=secret_key,
         )
         app.state.scheduler_healthy = True
         logger.info(
             "Scheduler started: scan every %s at %02d:%02d %s, library sync every %d min",
-            scan_day,
-            hour,
-            minute,
-            scan_tz,
-            sync_interval,
+            sched_config.scan_day,
+            sched_config.hour,
+            sched_config.minute,
+            sched_config.scan_tz,
+            sched_config.sync_interval,
         )
         return True
     # rationale: §6.4 site 4 — cold-start recovery; app stays up so the operator can investigate.
