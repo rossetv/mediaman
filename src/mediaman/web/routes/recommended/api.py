@@ -26,6 +26,7 @@ from mediaman.services.openai.recommendations.repository import (
 )
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.password_hash import get_user_email
 from mediaman.web.repository.recommended import fetch_recommendations
 
 logger = logging.getLogger(__name__)
@@ -108,8 +109,11 @@ def api_share_token(
     expires_at_ts = int(_time.time()) + ttl_days * 86400
     expires_at = datetime.fromtimestamp(expires_at_ts, tz=UTC).isoformat()
 
+    # ``admin`` is a username, not an address — resolve the admin's
+    # notification email (``None`` when unset). The token still authorises
+    # the download; the redeemer skips the notification when it is None.
     share_token = generate_download_token(
-        email=admin,
+        email=get_user_email(conn, admin),
         action="download",
         title=row.title,
         media_type=row.media_type,
@@ -145,12 +149,17 @@ def _sanitise_title(title: str | None) -> str:
 def _add_rec_to_radarr(
     conn: sqlite3.Connection,
     *,
-    admin: str,
+    notify_email: str | None,
     row: sqlite3.Row,
     recommendation_id: int,
     secret_key: str,
 ) -> JSONResponse:
-    """Add a movie recommendation to Radarr, record notification, and return response."""
+    """Add a movie recommendation to Radarr, record notification, and return response.
+
+    *notify_email* is the issuing admin's resolved notification address, or
+    ``None`` when they have no email set — in which case the movie is still
+    added but no notification row is recorded.
+    """
     client = build_radarr_from_db(conn, secret_key)
     if not client:
         return JSONResponse({"ok": False, "error": "Radarr not configured"})
@@ -159,14 +168,15 @@ def _add_rec_to_radarr(
     client.add_movie(tmdb_id, safe_title)
     logger.info("Added movie '%s' (tmdb:%d) to Radarr", safe_title, tmdb_id)
     mark_downloaded(conn, recommendation_id, now_iso())
-    record_download_notification(
-        conn,
-        email=admin,
-        title=safe_title,
-        media_type="movie",
-        tmdb_id=tmdb_id,
-        service="radarr",
-    )
+    if notify_email:
+        record_download_notification(
+            conn,
+            email=notify_email,
+            title=safe_title,
+            media_type="movie",
+            tmdb_id=tmdb_id,
+            service="radarr",
+        )
     conn.commit()
     return JSONResponse({"ok": True, "message": f"Added '{safe_title}' to Radarr"})
 
@@ -174,12 +184,17 @@ def _add_rec_to_radarr(
 def _add_rec_to_sonarr(
     conn: sqlite3.Connection,
     *,
-    admin: str,
+    notify_email: str | None,
     row: sqlite3.Row,
     recommendation_id: int,
     secret_key: str,
 ) -> JSONResponse:
-    """Add a TV recommendation to Sonarr, record notification, and return response."""
+    """Add a TV recommendation to Sonarr, record notification, and return response.
+
+    *notify_email* is the issuing admin's resolved notification address, or
+    ``None`` when they have no email set — in which case the show is still
+    added but no notification row is recorded.
+    """
     client = build_sonarr_from_db(conn, secret_key)
     if not client:
         return JSONResponse({"ok": False, "error": "Sonarr not configured"})
@@ -194,15 +209,16 @@ def _add_rec_to_sonarr(
     client.add_series(tvdb_id, safe_title)
     logger.info("Added series '%s' (tvdb:%d) to Sonarr", safe_title, tvdb_id)
     mark_downloaded(conn, recommendation_id, now_iso())
-    record_download_notification(
-        conn,
-        email=admin,
-        title=safe_title,
-        media_type="tv",
-        tmdb_id=tmdb_id,
-        tvdb_id=tvdb_id,
-        service="sonarr",
-    )
+    if notify_email:
+        record_download_notification(
+            conn,
+            email=notify_email,
+            title=safe_title,
+            media_type="tv",
+            tmdb_id=tmdb_id,
+            tvdb_id=tvdb_id,
+            service="sonarr",
+        )
     conn.commit()
     return JSONResponse({"ok": True, "message": f"Added '{safe_title}' to Sonarr"})
 
@@ -225,18 +241,22 @@ def api_download_recommendation(
     if not row["tmdb_id"]:
         return JSONResponse({"ok": False, "error": "No TMDB ID -- cannot add to Radarr/Sonarr"})
 
+    # ``admin`` is a username; resolve it to the admin's notification email
+    # once (``None`` when unset) and hand the resolved value to the helpers.
+    notify_email = get_user_email(conn, admin)
+
     try:
         if row["media_type"] == "movie":
             return _add_rec_to_radarr(
                 conn,
-                admin=admin,
+                notify_email=notify_email,
                 row=row,
                 recommendation_id=recommendation_id,
                 secret_key=config.secret_key,
             )
         return _add_rec_to_sonarr(
             conn,
-            admin=admin,
+            notify_email=notify_email,
             row=row,
             recommendation_id=recommendation_id,
             secret_key=config.secret_key,

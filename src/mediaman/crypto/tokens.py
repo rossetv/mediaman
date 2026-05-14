@@ -46,8 +46,10 @@ class KeepTokenPayload(TypedDict):
 class DownloadTokenPayload(TypedDict):
     """Payload carried by a download token (email download CTA)."""
 
-    email: str
-    """Recipient email address."""
+    email: str | None
+    """Recipient email address, or ``None`` when the issuing admin has no
+    notification email set — the redeemer then skips the notification row
+    rather than storing an undeliverable address."""
     act: str
     """Action identifier: ``"download"`` or ``"redownload"``."""
     title: str
@@ -120,7 +122,7 @@ class TokenPayload(TypedDict, total=False):
     """
 
     exp: int | float
-    email: str
+    email: str | None
     act: str
     title: str
     mt: str
@@ -278,7 +280,7 @@ def validate_keep_token(token: str, secret_key: str) -> KeepTokenPayload | None:
 
 def generate_download_token(
     *,
-    email: str,
+    email: str | None,
     action: str,
     title: str,
     media_type: str,
@@ -288,6 +290,11 @@ def generate_download_token(
     ttl_days: int = 14,
 ) -> str:
     """Issue a download-token for *email* with the standard 14-day TTL.
+
+    *email* may be ``None`` when the issuing admin has no notification
+    email set; the token still authorises the download, and the redeemer
+    skips the download-notification row instead of storing an
+    undeliverable address.
 
     .. warning::
 
