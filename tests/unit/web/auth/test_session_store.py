@@ -6,6 +6,8 @@ helpers.
 """
 
 import hashlib
+import logging
+import sqlite3
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -556,9 +558,17 @@ class TestAtomicSessionAndReauthDelete:
         assert hasattr(session_store, "_delete_session_with_commit")
 
     def test_idle_expiry_failure_does_not_500(self, conn, monkeypatch, freezer):
-        """A failure during idle-expiry must NOT propagate to the
-        validate_session caller — the user just sees "not authenticated"
-        for that request and the next request retries cleanly."""
+        """A *transient DB* failure during idle-expiry must NOT propagate
+        to the validate_session caller — the user just sees "not
+        authenticated" for that request and the next request retries
+        cleanly.
+
+        WP-C3: ``_try_delete_session`` now catches ``sqlite3.Error`` only,
+        so the failure simulated here must be a DB error (lock
+        contention is the only thing the swallow legitimately
+        contemplates). A non-DB exception is a bug and is asserted to
+        propagate by ``TestEvictionPathFailsClosedOnNonDbError``.
+        """
         from mediaman.web.auth import reauth
 
         token = create_session(conn, "alice")
@@ -569,12 +579,195 @@ class TestAtomicSessionAndReauthDelete:
         conn.commit()
 
         def boom(_conn, _hash):
-            raise RuntimeError("transient lock")
+            raise sqlite3.OperationalError("database is locked")
 
         monkeypatch.setattr(reauth, "revoke_reauth_by_hash_in_tx", boom)
 
         # Must not raise; must return None (session invalid).
         assert validate_session(conn, token) is None
+
+
+# ---------------------------------------------------------------------------
+# WP-C3: audit/cleanup swallows must be operator-visible, not DEBUG-hidden,
+# and the eviction-path catches must be DB-only so a real bug fails closed.
+# ---------------------------------------------------------------------------
+
+
+class TestSwallowedFailuresAreVisible:
+    """WP-C3: several best-effort writes in ``session_store`` previously
+    logged a swallowed failure at ``logger.debug(..., exc_info=True)``.
+    DEBUG is disabled in production, so those failures were invisible —
+    including the audit-log write for a session destruction, a required
+    audit event. The swallow stays (these writes are genuinely
+    best-effort) but the log level is raised so the failure is seen.
+    """
+
+    def test_destroy_session_audit_failure_is_logged_at_warning_or_above(
+        self, conn, monkeypatch, caplog
+    ):
+        """A failing audit write inside ``destroy_session`` must produce a
+        log record at WARNING or above — not a DEBUG line that production
+        never emits — and the logout must still complete.
+        """
+        from mediaman.core import audit
+
+        token = create_session(conn, "alice")
+
+        def boom(*_args, **_kwargs):
+            # security_event swallows its own internals, so patch the
+            # whole callable to force destroy_session's handler. A
+            # sqlite3.Error is the narrowed catch the handler expects.
+            raise sqlite3.OperationalError("simulated audit-log write failure")
+
+        monkeypatch.setattr(audit, "security_event", boom)
+
+        with caplog.at_level(logging.WARNING, logger="mediaman.web.auth.session_store"):
+            # Must not raise — the session row is already gone; a failed
+            # audit write must never 500 a logout that has happened.
+            destroy_session(conn, token)
+
+        # The failure is operator-visible: a WARNING-or-above record exists.
+        visible = [
+            r
+            for r in caplog.records
+            if r.name == "mediaman.web.auth.session_store"
+            and r.levelno >= logging.WARNING
+            and "audit" in r.getMessage().lower()
+        ]
+        assert visible, "destroy_session audit failure must log at WARNING or above"
+        # And it carries the traceback for forensics.
+        assert visible[0].exc_info is not None
+
+        # The logout still took effect despite the audit failure.
+        assert validate_session(conn, token) is None
+
+    def test_cleanup_reauth_sweep_failure_is_logged_at_warning_or_above(
+        self, conn, monkeypatch, caplog
+    ):
+        """A failing reauth sweep inside ``_cleanup_expired_with_commit``
+        must log at WARNING or above and must not abort the session
+        sweep that already ran.
+        """
+        from mediaman.web.auth import reauth, session_store
+
+        # An expired session row so the session sweep has work to do.
+        expired = create_session(conn, "alice", ttl_seconds=-1)
+
+        def boom(_conn, _now_iso):
+            raise sqlite3.OperationalError("simulated reauth sweep failure")
+
+        monkeypatch.setattr(reauth, "cleanup_expired_reauth", boom)
+
+        with caplog.at_level(logging.WARNING, logger="mediaman.web.auth.session_store"):
+            session_store._cleanup_expired_with_commit(conn, datetime.now(UTC).isoformat())
+
+        visible = [
+            r
+            for r in caplog.records
+            if r.name == "mediaman.web.auth.session_store" and r.levelno >= logging.WARNING
+        ]
+        assert visible, "cleanup_expired_reauth failure must log at WARNING or above"
+        assert visible[0].exc_info is not None
+
+        # The session sweep still ran — the expired row is gone.
+        row = conn.execute(
+            "SELECT 1 FROM admin_sessions WHERE token_hash = ?",
+            (_hash_token(expired),),
+        ).fetchone()
+        assert row is None
+
+    def test_destroy_all_reauth_revoke_failure_is_logged_at_warning_or_above(
+        self, conn, monkeypatch, caplog
+    ):
+        """A failing bulk reauth revoke inside ``destroy_all_sessions_for``
+        must log at WARNING or above and must not roll back the session
+        delete that already committed.
+        """
+        from mediaman.web.auth import reauth
+
+        create_session(conn, "alice")
+        create_session(conn, "alice")
+
+        def boom(_conn, _username):
+            raise sqlite3.OperationalError("simulated bulk reauth revoke failure")
+
+        monkeypatch.setattr(reauth, "revoke_all_reauth_for", boom)
+
+        with caplog.at_level(logging.WARNING, logger="mediaman.web.auth.session_store"):
+            count = destroy_all_sessions_for(conn, "alice")
+
+        # The session delete still committed despite the reauth failure.
+        assert count == 2
+        assert (
+            conn.execute(
+                "SELECT COUNT(*) AS n FROM admin_sessions WHERE username = ?",
+                ("alice",),
+            ).fetchone()["n"]
+            == 0
+        )
+
+        visible = [
+            r
+            for r in caplog.records
+            if r.name == "mediaman.web.auth.session_store" and r.levelno >= logging.WARNING
+        ]
+        assert visible, "revoke_all_reauth_for failure must log at WARNING or above"
+        assert visible[0].exc_info is not None
+
+
+class TestEvictionPathFailsClosedOnNonDbError:
+    """WP-C3: ``_try_delete_session`` previously caught ``Exception``,
+    so a programming error (bad import, ``TypeError``) on the
+    security-critical session-eviction path was silently downgraded to a
+    WARNING and the stolen/expired session was left alive — fail *open*.
+    The catch is now ``sqlite3.Error`` only: a non-DB exception
+    propagates so a real bug is loud, not a silent failure-to-evict.
+    """
+
+    def test_non_db_exception_in_delete_propagates(self, conn, monkeypatch):
+        """A non-``sqlite3.Error`` raised by the delete call must NOT be
+        swallowed by ``_try_delete_session`` — it must propagate."""
+        from mediaman.web.auth import session_store
+
+        token = create_session(conn, "alice")
+
+        def boom(_conn, _token_hash):
+            # A TypeError stands in for any non-DB bug (bad import, etc.)
+            # on the eviction path. Pre-fix this was swallowed; post-fix
+            # it must escape.
+            raise TypeError("simulated programming error on the eviction path")
+
+        monkeypatch.setattr(session_store, "_delete_session_with_commit", boom)
+
+        with pytest.raises(TypeError, match="simulated programming error"):
+            session_store._try_delete_session(conn, _hash_token(token), reason="idle_expired")
+
+    def test_sqlite_error_in_delete_is_still_swallowed(self, conn, monkeypatch, caplog):
+        """The narrowing must not regress the intended behaviour: a
+        genuine ``sqlite3.Error`` (lock contention) is still caught and
+        logged, never bubbled into ``validate_session``'s caller."""
+        from mediaman.web.auth import session_store
+
+        token = create_session(conn, "alice")
+
+        def boom(_conn, _token_hash):
+            raise sqlite3.OperationalError("database is locked")
+
+        monkeypatch.setattr(session_store, "_delete_session_with_commit", boom)
+
+        with caplog.at_level(logging.WARNING, logger="mediaman.web.auth.session_store"):
+            # Must NOT raise — a transient DB failure on the best-effort
+            # eviction write is logged and retried next request.
+            session_store._try_delete_session(
+                conn, _hash_token(token), reason="fingerprint_mismatch"
+            )
+
+        visible = [
+            r
+            for r in caplog.records
+            if r.name == "mediaman.web.auth.session_store" and r.levelno >= logging.WARNING
+        ]
+        assert visible, "a swallowed sqlite3.Error on the eviction path must still log"
 
 
 # ---------------------------------------------------------------------------
