@@ -15,6 +15,7 @@ import json
 import logging
 import re
 import sqlite3
+from typing import Any
 
 import requests
 
@@ -109,6 +110,113 @@ def is_web_search_title_safe(title: str) -> bool:
     return not re.search(r"https?://", title, re.IGNORECASE)
 
 
+def _build_request(
+    prompt: str,
+    model: str,
+    api_key: str,
+    web_search_active: bool,
+) -> tuple[dict[str, object], dict[str, str]]:
+    """Build the Responses-API request body and auth headers.
+
+    ``web_search_active`` controls whether the ``web_search_preview`` tool
+    and the "ALWAYS search the web" instruction are included. Both the
+    directive and the tool must arrive together — or neither — so the model
+    is never told to do something it has no way to do.
+    """
+    body: dict[str, object] = {
+        "model": model,
+        "input": prompt,
+        "text": {"format": {"type": "json_object"}},
+    }
+    if web_search_active:
+        body["instructions"] = (
+            "You are a media recommendation engine. ALWAYS search the web to find "
+            "current, real, accurate information. Do not rely on training data alone. "
+            "Return only valid JSON."
+        )
+        body["tools"] = [{"type": "web_search_preview"}]
+    else:
+        body["instructions"] = "You are a media recommendation engine. Return only valid JSON."
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    return body, headers
+
+
+def _parse_response(data: Any) -> list[dict[str, object]] | None:
+    """Extract the list of recommendation dicts from a Responses-API payload.
+
+    The ``/v1/responses`` API rejects a top-level JSON array, so the model
+    wraps our requested array inside an object. Our prompt asks for the
+    wrapper key ``"items"``, but earlier model revisions chose ``"results"``
+    or ``"recommendations"`` — fall back to "first list-valued field" so a
+    single rename does not silently nuke every recommendation.
+
+    Returns the list of dict items, or ``None`` if no extractable list was
+    found (caller logs and returns ``[]``).
+    """
+    content = ""
+    for item in data.get("output", []):
+        if item.get("type") == "message":
+            for part in item.get("content", []):
+                if part.get("type") == "output_text":
+                    content = part.get("text", "")
+                    break
+
+    content = content.strip()
+    # Defensive fallback: strip markdown code fences if the model ignored
+    # the json_object format request and wrapped the output anyway.
+    if content.startswith("```"):
+        content = re.sub(r"^```(?:json)?\s*", "", content)
+        content = re.sub(r"\s*```\s*$", "", content)
+
+    raw: object = json.loads(content)
+    raw_items: object
+    if isinstance(raw, list):
+        raw_items = raw
+    elif isinstance(raw, dict):
+        raw_items = raw.get("items")
+        if not isinstance(raw_items, list):
+            raw_items = next(
+                (v for v in raw.values() if isinstance(v, list)),
+                None,
+            )
+    else:
+        raw_items = None
+
+    if not isinstance(raw_items, list):
+        logger.warning(
+            "OpenAI response had no extractable list — top-level type was %s, "
+            "keys=%r. Returning empty batch.",
+            type(raw).__name__,
+            list(raw.keys()) if isinstance(raw, dict) else None,
+        )
+        return None
+
+    return [i for i in raw_items if isinstance(i, dict)]
+
+
+def _handle_error(exc: Exception) -> list[dict[str, object]]:
+    """Log *exc* appropriately and return the safe empty-batch sentinel ``[]``.
+
+    Centralises the error-path logging so ``call_openai`` reads as a decision
+    tree rather than a mix of business logic and error handling.
+    """
+    if isinstance(exc, SafeHTTPError):
+        if exc.status_code == 401:
+            logger.error("OpenAI API key rejected (401) — check settings")
+        else:
+            logger.exception("OpenAI API returned HTTP error: %s", exc)
+    elif isinstance(exc, requests.Timeout):
+        logger.warning("OpenAI API call timed out after 30 s", exc_info=True)
+    elif isinstance(exc, requests.RequestException):
+        logger.exception("OpenAI API network error: %s", exc)
+    else:
+        logger.exception("Failed to parse OpenAI response: %s", exc)
+    return []
+
+
 def call_openai(
     prompt: str,
     conn: sqlite3.Connection | None,
@@ -146,84 +254,11 @@ def call_openai(
     model = get_openai_model(conn)
 
     try:
-        body: dict[str, object] = {
-            "model": model,
-            "input": prompt,
-            "text": {"format": {"type": "json_object"}},
-        }
-        if web_search_active:
-            # ``instructions`` only needs to push the model toward live
-            # data when the web-search tool is actually wired up. Sending
-            # the "ALWAYS search the web" line without the tool meant the
-            # model was told to do something it had no way to do, which
-            # both wastes prompt tokens and primes a higher
-            # hallucination rate. Now both the directive and the tool
-            # arrive together — or neither.
-            body["instructions"] = (
-                "You are a media recommendation engine. ALWAYS search the web to find "
-                "current, real, accurate information. Do not rely on training data alone. "
-                "Return only valid JSON."
-            )
-            body["tools"] = [{"type": "web_search_preview"}]
-        else:
-            body["instructions"] = "You are a media recommendation engine. Return only valid JSON."
-
-        resp = _OPENAI_CLIENT.post(
-            "/v1/responses",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            json=body,
-        )
-        data = resp.json()
-
-        content = ""
-        for item in data.get("output", []):
-            if item.get("type") == "message":
-                for part in item.get("content", []):
-                    if part.get("type") == "output_text":
-                        content = part.get("text", "")
-                        break
-
-        content = content.strip()
-        # Defensive fallback: strip markdown code fences if the model ignored
-        # the json_object format request and wrapped the output anyway.
-        if content.startswith("```"):
-            content = re.sub(r"^```(?:json)?\s*", "", content)
-            content = re.sub(r"\s*```\s*$", "", content)
-
-        raw: object = json.loads(content)
-        # The /v1/responses API with ``text.format.type = "json_object"``
-        # rejects a top-level JSON array, so the model wraps our requested
-        # array inside an object. Our prompt asks for the wrapper key
-        # ``"items"``, but earlier model revisions chose ``"results"`` or
-        # ``"recommendations"`` instead — fall back to "first list-valued
-        # field" so a single rename in the model's behaviour doesn't
-        # silently nuke every recommendation again.
-        raw_items: object
-        if isinstance(raw, list):
-            raw_items = raw
-        elif isinstance(raw, dict):
-            raw_items = raw.get("items")
-            if not isinstance(raw_items, list):
-                raw_items = next(
-                    (v for v in raw.values() if isinstance(v, list)),
-                    None,
-                )
-        else:
-            raw_items = None
-
-        if not isinstance(raw_items, list):
-            logger.warning(
-                "OpenAI response had no extractable list — top-level type was %s, "
-                "keys=%r. Returning empty batch.",
-                type(raw).__name__,
-                list(raw.keys()) if isinstance(raw, dict) else None,
-            )
+        body, headers = _build_request(prompt, model, api_key, web_search_active)
+        resp = _OPENAI_CLIENT.post("/v1/responses", headers=headers, json=body)
+        items = _parse_response(resp.json())
+        if items is None:
             return []
-
-        items: list[dict[str, object]] = [i for i in raw_items if isinstance(i, dict)]
 
         if web_search_active:
             for item in items:
@@ -237,18 +272,11 @@ def call_openai(
 
         return items
 
-    except SafeHTTPError as exc:
-        if exc.status_code == 401:
-            logger.error("OpenAI API key rejected (401) — check settings")
-        else:
-            logger.exception("OpenAI API returned HTTP error: %s", exc)
-        return []
-    except requests.Timeout:
-        logger.warning("OpenAI API call timed out after 30 s", exc_info=True)
-        return []
-    except requests.RequestException as exc:
-        logger.exception("OpenAI API network error: %s", exc)
-        return []
-    except (ValueError, KeyError) as exc:
-        logger.exception("Failed to parse OpenAI response: %s", exc)
-        return []
+    except (
+        SafeHTTPError,
+        requests.Timeout,
+        requests.RequestException,
+        ValueError,
+        KeyError,
+    ) as exc:
+        return _handle_error(exc)

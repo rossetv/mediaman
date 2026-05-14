@@ -162,72 +162,74 @@ def build_matched_item(
     )
 
 
-def build_unmatched_arr_item(
+def _derive_series_state(episodes: list[dict[str, object]]) -> str:
+    """Derive the card state from episode list for an unmatched series item."""
+    if episodes and all(e["state"] == "ready" for e in episodes):
+        return "almost_ready"
+    if any(e["state"] in ("downloading", "queued") for e in episodes):
+        return "downloading"
+    return map_state(None, has_nzbget_match=False)
+
+
+def _build_unmatched_series_item(
     arr: ArrCard,
     arr_base_urls: dict[str, str],
     build_search_hint: Callable[..., str],
     build_arr_link: Callable[[ArrCard, dict[str, str]], str],
+    search_count: int,
+    last_search_ts: float,
+    added_at: float,
+    abandon_visible_now: bool,
 ) -> DownloadItem:
-    """Build a download-card item for an *arr entry with no NZBGet match.
-
-    Derives the card state from episode progress (series) or reported
-    percentage (movie) so callers don't need kind-specific logic.
-
-    ``abandon_visible`` becomes True once the item has been searching for
-    at least :data:`~mediaman.services.arr.auto_abandon._ABANDON_BUTTON_VISIBLE_AFTER_SECONDS`
-    seconds (10 hours by default), measured against ``added_at``.
-    """
-    from mediaman.services.arr.auto_abandon import _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS
-    from mediaman.services.arr.search_trigger import get_search_info
-
-    search_count, last_search_ts = get_search_info(arr.get("dl_id", ""))
-    added_at = arr.get("added_at", 0.0)
-    now = time.time()
-    # Guard: added_at=0 means the timestamp is missing; now - 0 ≈ 1.7e9 s
-    # which would make every such item look like it has been searching for
-    # years, showing the Abandon button immediately.
-    abandon_visible_now = added_at > 0.0 and now - added_at >= _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS
-    if arr.get("kind") == "series":
-        episodes = build_episode_dicts(arr.get("episodes", []))
-        if episodes and all(e["state"] == "ready" for e in episodes):
-            state = "almost_ready"
-        elif any(e["state"] in ("downloading", "queued") for e in episodes):
-            state = "downloading"
-        else:
-            state = map_state(None, has_nzbget_match=False)
-        search_hint = (
-            build_search_hint(
-                search_count, last_search_ts, added_at, time.time(), dl_id=arr.get("dl_id", "")
-            )
-            if state == "searching"
-            else ""
+    """Build the card for an unmatched series arr entry."""
+    episodes = build_episode_dicts(arr.get("episodes", []))
+    state = _derive_series_state(episodes)
+    search_hint = (
+        build_search_hint(
+            search_count, last_search_ts, added_at, time.time(), dl_id=arr.get("dl_id", "")
         )
-        raw_episodes = arr.get("episodes", [])
-        stuck_seasons = _stuck_seasons_from_episodes(raw_episodes) if state == "searching" else []
-        return build_item(
-            dl_id=arr.get("dl_id", ""),
-            title=arr.get("title", "Unknown"),
-            media_type="series",
-            poster_url=arr.get("poster_url", ""),
-            state=state,
-            progress=arr.get("progress", 0),
-            eta="Post-processing…" if state == "almost_ready" else "",
-            size_done=arr.get("done_str", ""),
-            size_total=arr.get("size_str", ""),
-            episodes=episodes,
-            episode_summary=build_episode_summary(episodes),
-            has_pack=arr.get("has_pack", False),
-            search_count=search_count,
-            last_search_ts=last_search_ts,
-            added_at=added_at,
-            search_hint=search_hint,
-            arr_link=build_arr_link(arr, arr_base_urls),
-            arr_source=arr.get("source", ""),
-            abandon_visible=(state == "searching" and abandon_visible_now),
-            stuck_seasons=stuck_seasons,
-            arr_id=arr.get("arr_id") or 0,
-            kind="series",
-        )
+        if state == "searching"
+        else ""
+    )
+    raw_episodes = arr.get("episodes", [])
+    stuck_seasons = _stuck_seasons_from_episodes(raw_episodes) if state == "searching" else []
+    return build_item(
+        dl_id=arr.get("dl_id", ""),
+        title=arr.get("title", "Unknown"),
+        media_type="series",
+        poster_url=arr.get("poster_url", ""),
+        state=state,
+        progress=arr.get("progress", 0),
+        eta="Post-processing…" if state == "almost_ready" else "",
+        size_done=arr.get("done_str", ""),
+        size_total=arr.get("size_str", ""),
+        episodes=episodes,
+        episode_summary=build_episode_summary(episodes),
+        has_pack=arr.get("has_pack", False),
+        search_count=search_count,
+        last_search_ts=last_search_ts,
+        added_at=added_at,
+        search_hint=search_hint,
+        arr_link=build_arr_link(arr, arr_base_urls),
+        arr_source=arr.get("source", ""),
+        abandon_visible=(state == "searching" and abandon_visible_now),
+        stuck_seasons=stuck_seasons,
+        arr_id=arr.get("arr_id") or 0,
+        kind="series",
+    )
+
+
+def _build_unmatched_movie_item(
+    arr: ArrCard,
+    arr_base_urls: dict[str, str],
+    build_search_hint: Callable[..., str],
+    build_arr_link: Callable[[ArrCard, dict[str, str]], str],
+    search_count: int,
+    last_search_ts: float,
+    added_at: float,
+    abandon_visible_now: bool,
+) -> DownloadItem:
+    """Build the card for an unmatched movie arr entry."""
     state = (
         "almost_ready"
         if (arr.get("progress") or 0) >= 100
@@ -260,4 +262,52 @@ def build_unmatched_arr_item(
         stuck_seasons=[],
         arr_id=arr.get("arr_id") or 0,
         kind="movie",
+    )
+
+
+def build_unmatched_arr_item(
+    arr: ArrCard,
+    arr_base_urls: dict[str, str],
+    build_search_hint: Callable[..., str],
+    build_arr_link: Callable[[ArrCard, dict[str, str]], str],
+) -> DownloadItem:
+    """Build a download-card item for an *arr entry with no NZBGet match.
+
+    Derives the card state from episode progress (series) or reported
+    percentage (movie) so callers don't need kind-specific logic.
+
+    ``abandon_visible`` becomes True once the item has been searching for
+    at least :data:`~mediaman.services.arr.auto_abandon._ABANDON_BUTTON_VISIBLE_AFTER_SECONDS`
+    seconds (10 hours by default), measured against ``added_at``.
+    """
+    from mediaman.services.arr.auto_abandon import _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS
+    from mediaman.services.arr.search_trigger import get_search_info
+
+    search_count, last_search_ts = get_search_info(arr.get("dl_id", ""))
+    added_at = arr.get("added_at", 0.0)
+    now = time.time()
+    # Guard: added_at=0 means the timestamp is missing; now - 0 ≈ 1.7e9 s
+    # which would make every such item look like it has been searching for
+    # years, showing the Abandon button immediately.
+    abandon_visible_now = added_at > 0.0 and now - added_at >= _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS
+    if arr.get("kind") == "series":
+        return _build_unmatched_series_item(
+            arr,
+            arr_base_urls,
+            build_search_hint,
+            build_arr_link,
+            search_count,
+            last_search_ts,
+            added_at,
+            abandon_visible_now,
+        )
+    return _build_unmatched_movie_item(
+        arr,
+        arr_base_urls,
+        build_search_hint,
+        build_arr_link,
+        search_count,
+        last_search_ts,
+        added_at,
+        abandon_visible_now,
     )

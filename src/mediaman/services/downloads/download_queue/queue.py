@@ -100,6 +100,58 @@ def parse_nzb_queue(
     return nzb_parsed
 
 
+def _find_best_nzb_match(
+    arr_candidates: list[str],
+    arr_is_series: bool,
+    nzb_parsed: list[dict[str, object]],
+    normalise_for_match: Callable[[str], str],
+) -> dict[str, object] | None:
+    """Return the unmatched NZB entry with the largest remaining size that matches *arr_candidates*.
+
+    Prefers the entry with the most data left to download so that a partially
+    downloaded pack is preferred over an older completed one still in the queue.
+    Returns ``None`` when no candidate matches.
+    """
+    best_remain = -1.0
+    matched_nzb = None
+    for nzb in nzb_parsed:
+        if nzb["_matched"]:
+            continue
+        if not arr_is_series and nzb.get("looks_like_series"):
+            continue
+        title_val = nzb.get("title") or ""
+        nzb_t_norm = normalise_for_match(title_val if isinstance(title_val, str) else "")
+        if not nzb_t_norm:
+            continue
+        if nzb_matches_arr(nzb_t_norm, arr_candidates):
+            raw_remain = nzb.get("remain_mb", 0) or 0
+            remain = float(raw_remain) if isinstance(raw_remain, int | float) else 0.0
+            if remain > best_remain:
+                best_remain = remain
+                matched_nzb = nzb
+    return matched_nzb
+
+
+def _mark_series_nzb_matches(
+    arr_candidates: list[str],
+    nzb_parsed: list[dict[str, object]],
+    normalise_for_match: Callable[[str], str],
+) -> None:
+    """Mark all NZB entries that match *arr_candidates* as ``_matched=True`` in place.
+
+    Used after the primary match to claim sibling NZBs for the same series
+    (e.g. individual episode files when a series pack is the primary match)
+    so they are not also picked up as standalone unmatched items.
+    """
+    for nzb in nzb_parsed:
+        if nzb["_matched"]:
+            continue
+        title_val = nzb.get("title") or ""
+        nzb_t_norm = normalise_for_match(title_val if isinstance(title_val, str) else "")
+        if nzb_t_norm and nzb_matches_arr(nzb_t_norm, arr_candidates):
+            nzb["_matched"] = True
+
+
 def build_arr_items(
     conn: sqlite3.Connection,
     arr_items: list[ArrCard],
@@ -156,38 +208,17 @@ def build_arr_items(
         ]
         arr_candidates = [c for c in [arr_title_norm, *release_name_norms] if c]
         arr_is_series = arr.get("kind") == "series"
-        matched_nzb = None
 
-        if arr_candidates:
-            best_remain = -1.0
-            for nzb in nzb_parsed:
-                if nzb["_matched"]:
-                    continue
-                if not arr_is_series and nzb.get("looks_like_series"):
-                    continue
-                title_val = nzb.get("title") or ""
-                nzb_t_norm = normalise_for_match(title_val if isinstance(title_val, str) else "")
-                if not nzb_t_norm:
-                    continue
-                if nzb_matches_arr(nzb_t_norm, arr_candidates):
-                    raw_remain = nzb.get("remain_mb", 0) or 0
-                    remain = float(raw_remain) if isinstance(raw_remain, int | float) else 0.0
-                    if remain > best_remain:
-                        best_remain = remain
-                        matched_nzb = nzb
+        matched_nzb = (
+            _find_best_nzb_match(arr_candidates, arr_is_series, nzb_parsed, normalise_for_match)
+            if arr_candidates
+            else None
+        )
 
         if matched_nzb and not matched_nzb["_matched"]:
             matched_nzb["_matched"] = True
             if arr_is_series and arr_candidates:
-                for nzb in nzb_parsed:
-                    if nzb["_matched"]:
-                        continue
-                    title_val2 = nzb.get("title") or ""
-                    nzb_t_norm = normalise_for_match(
-                        title_val2 if isinstance(title_val2, str) else ""
-                    )
-                    if nzb_t_norm and nzb_matches_arr(nzb_t_norm, arr_candidates):
-                        nzb["_matched"] = True
+                _mark_series_nzb_matches(arr_candidates, nzb_parsed, normalise_for_match)
             raw_status = matched_nzb["raw_status"]
             state = map_state(
                 raw_status if isinstance(raw_status, str) else None, has_nzbget_match=True
