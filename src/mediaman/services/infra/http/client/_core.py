@@ -1,246 +1,35 @@
-"""``SafeHTTPClient`` — SSRF- and size-aware outbound HTTP wrapper.
+"""The :class:`SafeHTTPClient` class — the public outbound HTTP surface.
 
-Responsibility
---------------
-Compose :mod:`.dns_pinning`, :mod:`.streaming`, and :mod:`.retry` into a
-single class that every outbound service call (Radarr, Sonarr, Plex, TMDB,
-OMDb, Mailgun, NZBGet, OpenAI) passes through.
+This module owns the client class and its near-identical
+``get``/``post``/``put``/``delete`` verb methods plus the ``_request``
+orchestration that threads each call through the safety machinery. The
+low-level transport, the per-call SSRF / dispatch indirection helpers, and
+the timeout / size-cap defaults live in :mod:`._request`; the error type
+lives in :mod:`._errors`.
 
-The six safety properties it enforces, in order:
-
-1. **SSRF re-validation** — :func:`~mediaman.services.infra.url_safety.resolve_safe_outbound_url`
-   is called on every request, re-resolving DNS so a one-off whitelist check
-   cannot be bypassed by a DNS rebind attack.
-2. **DNS pinning** — the IP returned by the SSRF guard is pinned via
-   :func:`~.dns_pinning.pin` for the duration of the request, closing the
-   window between the safety check and the actual ``socket.getaddrinfo`` call.
-3. **No redirects** — ``allow_redirects=False`` ensures the final response
-   comes from the host we validated, not from a redirect target.
-4. **Split timeout** — ``(connect=5, read=30)`` so a slow-loris read cannot
-   pin a worker for the full minute a single-value timeout would allow.
-5. **Size cap** — response bodies are streamed and aborted at ``max_bytes``
-   (default 8 MiB), preventing a compromised upstream from exhausting memory.
-6. **Retry only on idempotent methods** — GET retries 429/5xx by default;
-   POST/PUT/DELETE never retry unless the caller passes ``retry=True``.
-
-Errors are raised as :class:`SafeHTTPError`, which carries the final status
-code, a truncated body snippet, and the URL so callers can log or surface the
-failure without digging into a ``requests.Response``.
-
-Patchability note
------------------
 ``_dispatch`` and ``resolve_safe_outbound_url`` are resolved at call time
-through the ``mediaman.services.infra.http_client`` module namespace (via
-``sys.modules``) rather than via a static import binding.  This is required
-so that ``monkeypatch.setattr(http_client, "_dispatch", ...)`` in tests
-intercepts the actual transport call — otherwise pytest's monkeypatch would
-change the name in the wrong module dict and the original function would still
-be invoked.  The same applies to ``resolve_safe_outbound_url``.
+through the ``mediaman.services.infra.http.client`` package namespace (via
+``sys.modules``) — see :mod:`._request` for why that seam has to be dynamic.
 """
 
 from __future__ import annotations
 
 import contextlib
-import json as _json
-import logging
-import sys
-import time  # noqa: F401 — tests patch http.client.time.sleep via monkeypatch
 from typing import Any, Literal
 
 import requests
 
+from mediaman.services.infra.http.client._errors import SafeHTTPError
+from mediaman.services.infra.http.client._request import (
+    _DEFAULT_MAX_BYTES,
+    _DEFAULT_TIMEOUT_SECONDS,
+    _USER_AGENT,
+    _invoke_dispatch,
+    _resolve_outbound,
+)
 from mediaman.services.infra.http.dns_pinning import ensure_hook_installed, pin
 from mediaman.services.infra.http.retry import _RETRY_BACKOFFS, dispatch_loop
 from mediaman.services.infra.http.streaming import _read_capped
-from mediaman.services.infra.url_safety import (
-    resolve_safe_outbound_url as _resolve_safe_outbound_url,
-)
-
-logger = logging.getLogger(__name__)
-
-# Public alias so tests can monkeypatch ``http.client.resolve_safe_outbound_url``
-# and have ``_request`` pick up the patched version via sys.modules lookup.
-resolve_safe_outbound_url = _resolve_safe_outbound_url
-
-_HTTP_CLIENT_MODULE = "mediaman.services.infra.http.client"
-
-# ---------------------------------------------------------------------------
-# Module-level constants
-# ---------------------------------------------------------------------------
-
-#: Default per-call timeouts.  Connect is short — a TCP handshake that hasn't
-#: completed in 5 s means the target is unreachable.  Read is generous because
-#: OpenAI and TMDB occasionally take 20-30 s.
-_DEFAULT_TIMEOUT_SECONDS: tuple[float, float] = (5.0, 30.0)
-
-#: Default response-size cap.  8 MiB is well above any sane JSON API payload
-#: but low enough that a pathological upstream cannot pin memory on a worker.
-_DEFAULT_MAX_BYTES = 8 * 1024 * 1024
-
-
-def _build_user_agent() -> str:
-    """Return ``mediaman/<version>`` for outbound HTTP attribution.
-
-    Lazy import keeps this module free of an early package-level import.
-    Falls back to a fixed string when the version cannot be resolved (e.g.
-    running uninstalled from source).
-    """
-    try:
-        from mediaman import __version__ as version
-
-        return f"mediaman/{version}"
-    except ImportError:
-        return "mediaman/dev"
-
-
-_USER_AGENT = _build_user_agent()
-
-
-# ---------------------------------------------------------------------------
-# Error type
-# ---------------------------------------------------------------------------
-
-
-class SafeHTTPError(Exception):
-    """Raised when a :class:`SafeHTTPClient` call returns a non-2xx.
-
-    Carries the final status code, a truncated body snippet, and the URL that
-    failed.  The snippet is UTF-8 best-effort — binary bodies are replaced
-    rather than raising a secondary decode error.
-    """
-
-    def __init__(self, status_code: int, body_snippet: str, url: str) -> None:
-        self.status_code = status_code
-        self.body_snippet = body_snippet
-        self.url = url
-        super().__init__(f"HTTP {status_code} from {url}: {body_snippet[:120]}")
-
-    def json_error(self) -> dict[str, object] | None:
-        """Return the parsed JSON error body, or ``None`` if not JSON."""
-        try:
-            parsed = _json.loads(self.body_snippet)
-        except (ValueError, TypeError):
-            return None
-        return parsed if isinstance(parsed, dict) else None
-
-
-# ---------------------------------------------------------------------------
-# Low-level transport function
-# ---------------------------------------------------------------------------
-
-# rationale: caller / json / data / auth mirror ``requests.Session.request``
-# (and ``requests.adapters.HTTPAdapter``), which themselves accept ``Any``
-# for these parameters — there is no upstream stub that pins the shape.
-# Tightening here would force every caller in the codebase to either cast
-# or duplicate the requests library's permissive contract. The same
-# applies to ``params: dict[str, Any]``: ``requests`` accepts values of
-# any JSON-serialisable type for query parameters. The rationale below
-# applies to every ``Any`` site in :func:`_dispatch` and the verb methods
-# on :class:`SafeHTTPClient`.
-
-
-def _dispatch(
-    caller: Any,
-    method: str,
-    url: str,
-    *,
-    headers: dict[str, str] | None,
-    params: dict[str, Any] | None,
-    json: Any,
-    data: Any,
-    auth: Any,
-    timeout: tuple[float, float],
-) -> requests.Response:
-    """Issue a single HTTP request via *caller* with safe defaults.
-
-    Split out so tests can patch the transport at one well-known point
-    without caring about the retry / SSRF machinery above it.
-    """
-    resp: requests.Response = caller.request(
-        method,
-        url,
-        headers=headers,
-        params=params,
-        json=json,
-        data=data,
-        auth=auth,
-        timeout=timeout,
-        allow_redirects=False,
-        stream=True,
-    )
-    return resp
-
-
-# ---------------------------------------------------------------------------
-# Per-request helpers
-# ---------------------------------------------------------------------------
-
-
-def _resolve_outbound(
-    url: str,
-    allowed_hosts: frozenset[str] | None,
-) -> tuple[bool, str | None, str | None]:
-    """Run the SSRF guard on *url*, returning ``(safe, hostname, pinned_ip)``.
-
-    ``resolve_safe_outbound_url`` is looked up at call time from this
-    module's namespace (via ``sys.modules``) rather than the static import
-    binding, so that ``monkeypatch.setattr(http_client,
-    "resolve_safe_outbound_url", ...)`` in tests intercepts the real guard.
-    See the module docstring for why the patch seam has to be dynamic.
-
-    ``allowed_hosts`` is only forwarded when the caller actually supplied an
-    allowlist: a ``None`` allowlist is equivalent to omitting the kwarg from
-    the upstream call, which preserves compatibility with monkeypatches that
-    accept ``url`` alone (and the older ``url, strict_egress=...`` shape).
-    """
-    _http_client_mod = sys.modules.get(_HTTP_CLIENT_MODULE)
-    _resolve = (
-        getattr(_http_client_mod, "resolve_safe_outbound_url", None)
-        if _http_client_mod is not None
-        else None
-    ) or _resolve_safe_outbound_url
-    if allowed_hosts is None:
-        return _resolve(url)
-    return _resolve(url, allowed_hosts=allowed_hosts)
-
-
-def _invoke_dispatch(
-    caller: Any,
-    method: str,
-    url: str,
-    *,
-    headers: dict[str, str] | None,
-    params: dict[str, Any] | None,
-    json: Any,
-    data: Any,
-    auth: Any,
-    timeout: tuple[float, float],
-) -> requests.Response:
-    """Issue one transport call, resolving ``_dispatch`` at call time.
-
-    ``_dispatch`` is looked up from this module's namespace (via
-    ``sys.modules``) on every call so that
-    ``monkeypatch.setattr(http_client, "_dispatch", ...)`` in tests
-    intercepts the actual transport. Lifted out of ``_request`` so the
-    orchestrator stays a flat table of contents; the behaviour is identical
-    to the former nested ``_dispatch_fn`` closure.
-    """
-    _hc = sys.modules.get(_HTTP_CLIENT_MODULE)
-    _d = getattr(_hc, "_dispatch", None) if _hc is not None else None
-    if _d is None:
-        _d = _dispatch
-    return _d(
-        caller,
-        method,
-        url,
-        headers=headers,
-        params=params,
-        json=json,
-        data=data,
-        auth=auth,
-        timeout=timeout,
-    )
-
 
 # ---------------------------------------------------------------------------
 # The client
