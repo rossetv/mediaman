@@ -33,7 +33,7 @@ _SCAN_TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 # APScheduler accepts either a single weekday token or a comma-separated
 # list. We deliberately allow only canonical short names so a typo like
 # "moon" trips early instead of silently producing a never-firing trigger.
-_VALID_DAY_TOKENS = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+_VALID_DAY_TOKENS = frozenset({"mon", "tue", "wed", "thu", "fri", "sat", "sun"})
 
 # Wildcard tokens uvicorn happily accepts but mediaman refuses: both
 # expand "trust this proxy" to "trust every peer", and uvicorn's

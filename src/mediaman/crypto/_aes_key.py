@@ -53,8 +53,8 @@ _MAX_CIPHERTEXT_LEN = 65_536  # 64 KiB
 
 # AES-GCM constants — RFC 5116 fixes both at these widths for the
 # 128-bit-tag profile we use.
-_GCM_NONCE_LEN = 12
-_GCM_TAG_LEN = 16
+_GCM_NONCE_BYTES = 12
+_GCM_TAG_BYTES = 16
 
 # Minimum unique-character thresholds for the two accepted secret-key
 # shapes (see :func:`_secret_key_looks_strong`).  Calibrated against
@@ -160,7 +160,7 @@ def _salt_cache_pop(cache_key: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _db_path(conn: sqlite3.Connection) -> str:
+def _get_db_path(conn: sqlite3.Connection) -> str:
     """Return the absolute path of the primary database attached to *conn*."""
     row = conn.execute("PRAGMA database_list").fetchone()
     return row[2] if row else ""
@@ -184,7 +184,7 @@ def _load_or_create_salt(conn: sqlite3.Connection) -> bytes:
             or if the salt persisted on first run has an unexpected length
             after the INSERT/re-read cycle.
     """
-    cache_key = _db_path(conn)
+    cache_key = _get_db_path(conn)
     if cache_key:
         cached = _salt_cache_get(cache_key)
         if cached is not None:
