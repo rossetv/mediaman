@@ -23,8 +23,9 @@ layer) and therefore lives in :mod:`mediaman.web.middleware.rate_limit`.
 Import it directly from that module using the full dotted path.
 """
 
-# ruff: noqa: F401 — deliberate re-export facade.
+from __future__ import annotations
 
+# ruff: noqa: F401 — deliberate re-export facade.
 from mediaman.services.rate_limit.ip_resolver import (
     _ip_in_networks,
     get_client_ip,

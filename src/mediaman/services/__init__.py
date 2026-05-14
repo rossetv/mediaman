@@ -11,3 +11,5 @@ Allowed dependencies: ``mediaman.crypto`` (for secret decryption), ``mediaman.db
 Forbidden patterns: do not import from ``mediaman.web`` — services must remain
 usable outside the HTTP request context (background jobs, CLI scripts).
 """
+
+from __future__ import annotations

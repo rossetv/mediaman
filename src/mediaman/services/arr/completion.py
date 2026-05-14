@@ -237,7 +237,7 @@ def record_verified_completions(
     present on the completed item (older entries, NZB-only grabs).  The
     fallback logs a WARNING because two same-titled releases would be
     silently merged on that path; once :func:`detect_completed` reliably
-    propagates ``tmdb_id`` from the queue snapshot (D6 fix), the fallback
+    propagates ``tmdb_id`` from the queue snapshot, the fallback
     becomes vanishingly rare.
     """
     idx = _ArrLibraryIndex(conn, secret_key)
@@ -261,7 +261,8 @@ def record_verified_completions(
 
         to_insert.append((c["dl_id"], c["title"], c["media_type"], c["poster_url"]))
 
-    # Single batch insert + single commit (D26 / per-row fsyncs finding).
+    # Single batch insert + single commit — per-row commits fsync once each,
+    # which dominates the loop cost on a large completion set.
     _batch_insert_completions(conn, to_insert)
 
 

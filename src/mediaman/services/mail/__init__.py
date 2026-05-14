@@ -11,3 +11,5 @@ Allowed dependencies: ``mediaman.services.infra.http``, ``mediaman.crypto``,
 Forbidden patterns: do not import from ``mediaman.web`` — mail dispatch runs as
 a background step inside the scanner pipeline.
 """
+
+from __future__ import annotations

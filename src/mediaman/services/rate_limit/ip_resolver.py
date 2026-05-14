@@ -25,7 +25,7 @@ import logging
 import os
 from collections.abc import Mapping
 from ipaddress import IPv4Network, IPv6Network
-from typing import Protocol, runtime_checkable
+from typing import Protocol
 
 
 class _AddressLike(Protocol):
@@ -35,14 +35,13 @@ class _AddressLike(Protocol):
     def host(self) -> str: ...
 
 
-@runtime_checkable
 class _HasClientAndHeaders(Protocol):
     """Minimal structural interface for an HTTP request object.
 
     ``get_client_ip`` only ever reads ``request.client.host`` and calls
     ``request.headers.get(...)``; this Protocol captures exactly that
     surface so the function stays decoupled from any specific web
-    framework at runtime.  FastAPI's ``Request``, Starlette's
+    framework at static-analysis time.  FastAPI's ``Request``, Starlette's
     ``Request``, and any test double with the same shape all satisfy it
     structurally.
     """
@@ -54,7 +53,7 @@ class _HasClientAndHeaders(Protocol):
     def headers(self) -> Mapping[str, str]: ...
 
 
-_logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 # Sentinel returned when no peer address could be determined. Centralised
 # so callers comparing against it don't sprinkle a magic string.
@@ -79,7 +78,7 @@ def _parse_proxy_env(env_var: str) -> list[IPv4Network | IPv6Network]:
         if not token:
             continue
         if token == "*":
-            _logger.critical(
+            logger.critical(
                 "%s contains the literal wildcard '*'; refusing to trust "
                 "any proxy. Set explicit CIDR ranges instead — a wildcard "
                 "would allow spoofed forwarded headers from any peer and "
@@ -90,7 +89,7 @@ def _parse_proxy_env(env_var: str) -> list[IPv4Network | IPv6Network]:
         try:
             networks.append(ipaddress.ip_network(token, strict=False))
         except ValueError:
-            _logger.warning(
+            logger.warning(
                 "%s contains invalid CIDR/IP entry %r; skipping. Fix the "
                 "configuration to silence this warning.",
                 env_var,
@@ -187,7 +186,7 @@ def get_client_ip(request: _HasClientAndHeaders) -> str:
             try:
                 ipaddress.ip_address(entry)
             except ValueError:
-                _logger.warning(
+                logger.warning(
                     "x-forwarded-for contains non-IP entry %r from peer %s; skipping.",
                     entry,
                     peer,
@@ -206,7 +205,7 @@ def get_client_ip(request: _HasClientAndHeaders) -> str:
         # client identity is unknown and we'd be silently rate-limiting
         # the wrong actor — surface it loudly.
         if valid_entries:
-            _logger.warning(
+            logger.warning(
                 "x-forwarded-for chain %r from peer %s has no untrusted "
                 "entries; falling back to peer. This usually indicates a "
                 "misconfigured trusted-proxy list.",

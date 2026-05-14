@@ -39,7 +39,7 @@ def _resolve_safe_outbound_url(
     requiring a circular import.
 
     ``allowed_hosts`` is threaded through so per-session allowlist
-    enforcement (W1.32) reaches the underlying helper. When ``None``,
+    enforcement reaches the underlying helper. When ``None``,
     the helper falls back to deny-list-only validation.
     """
     plex_mod = _sys.modules.get(_PLEX_MODULE_NAME)
@@ -107,7 +107,7 @@ class _SafePlexSession(http_requests.Session):
 
     def __init__(self, *, allowed_hosts: frozenset[str] | None = None) -> None:
         super().__init__()
-        # Per-session allowlist (W1.32). The caller derives the
+        # Per-session allowlist. The caller derives the
         # composed set once at the boundary via
         # :func:`~mediaman.services.infra.url_safety.allowed_outbound_hosts`
         # and threads it through ``PlexClient`` to here. ``None`` means

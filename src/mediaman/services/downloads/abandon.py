@@ -21,7 +21,7 @@ from mediaman.services.infra import SafeHTTPError
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class AbandonResult:
     """Outcome of an abandon call.
 

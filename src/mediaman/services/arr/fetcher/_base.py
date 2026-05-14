@@ -75,7 +75,7 @@ def _format_size_fields(size: int, sizeleft: int) -> tuple[str, str]:
     return format_bytes(size), format_bytes(size - sizeleft)
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class FetchResult:
     """Container returned by :func:`fetch_arr_queue_result`.
 

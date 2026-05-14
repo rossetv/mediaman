@@ -79,6 +79,7 @@ class _TransportMixin:
         #: Set to the error string of the last failed call; ``None`` on success.
         self.last_error: str | None = None
 
+    # Any: raw resp.json() of an arbitrary *arr endpoint; callers cast() to the right _types TypedDict.
     def _get(self, path: str) -> dict[Any, Any] | list[Any]:
         """Perform an authenticated GET.  Sets :attr:`last_error` on failure.
 
@@ -108,6 +109,7 @@ class _TransportMixin:
             self.last_error = str(exc)
             raise
 
+    # Any: raw resp.json() of an arbitrary *arr endpoint; callers cast() to the right _types TypedDict.
     def _post(self, path: str, data: Mapping[str, Any]) -> dict[Any, Any] | list[Any]:
         """Perform an authenticated POST.  Sets :attr:`last_error` on failure."""
         try:

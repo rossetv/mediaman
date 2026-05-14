@@ -5,6 +5,8 @@ existing imports such as ``from mediaman.services.downloads.download_format impo
 build_item`` continue to work without modification.
 """
 
+from __future__ import annotations
+
 from mediaman.services.downloads.download_format._classify import (
     classify_movie_upcoming,
     classify_series_upcoming,

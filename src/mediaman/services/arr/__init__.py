@@ -13,6 +13,8 @@ Forbidden patterns: do not import from ``mediaman.web`` or ``mediaman.scanner``
 graph.
 """
 
+from __future__ import annotations
+
 from mediaman.services.arr._transport import ArrConfigError, ArrError, ArrKindMismatch
 
 __all__ = ["ArrConfigError", "ArrError", "ArrKindMismatch"]

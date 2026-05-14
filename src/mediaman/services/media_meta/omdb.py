@@ -38,7 +38,7 @@ OMDB_API_BASE_URL = "https://www.omdbapi.com"
 # Module-level client + session so the connection pool is shared across
 # calls.
 _OMDB_SESSION = requests.Session()
-# W1.32 carve-out: pinned host (``www.omdbapi.com`` ∈ PINNED_EXTERNAL_HOSTS); deny-list only.
+# pinned host (``www.omdbapi.com`` ∈ PINNED_EXTERNAL_HOSTS); deny-list validation only.
 _OMDB_CLIENT = SafeHTTPClient(OMDB_API_BASE_URL, session=_OMDB_SESSION)
 
 logger = logging.getLogger(__name__)
