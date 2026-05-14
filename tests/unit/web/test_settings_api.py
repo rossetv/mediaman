@@ -62,7 +62,7 @@ class TestPlexLibrariesEndpoint:
             {"id": "2", "type": "show", "title": "TV Shows"},
         ]
 
-        with patch("mediaman.web.routes.settings.build_plex_from_db") as mock_build:
+        with patch("mediaman.web.routes.settings.api.build_plex_from_db") as mock_build:
             mock_client = MagicMock()
             mock_client.get_libraries.return_value = fake_libraries
             mock_build.return_value = mock_client
@@ -97,7 +97,7 @@ class TestPlexLibrariesEndpoint:
 
         client = _client(app_factory, authed_client, conn)
 
-        with patch("mediaman.web.routes.settings.build_plex_from_db") as mock_build:
+        with patch("mediaman.web.routes.settings.api.build_plex_from_db") as mock_build:
             import requests as _requests
 
             mock_client = MagicMock()
@@ -129,7 +129,7 @@ class TestDiskUsageAPI:
         fake_usage = type(shutil.disk_usage("/"))(1000, 400, 600)
 
         with patch(
-            "mediaman.web.routes.settings.shutil.disk_usage",
+            "mediaman.web.routes.settings.api.shutil.disk_usage",
             return_value=fake_usage,
         ):
             resp = client.get("/api/settings/disk-usage?path=/media/movies")
@@ -167,7 +167,7 @@ class TestDiskUsageAPI:
         client = _client(app_factory, authed_client, conn)
 
         with patch(
-            "mediaman.web.routes.settings.shutil.disk_usage",
+            "mediaman.web.routes.settings.api.shutil.disk_usage",
             side_effect=FileNotFoundError("not found"),
         ):
             resp = client.get("/api/settings/disk-usage?path=/nonexistent-but-allowed")
@@ -612,6 +612,7 @@ class TestSettingsTestServiceTimeout:
         import threading
 
         from mediaman.web.routes import settings as settings_module
+        from mediaman.web.routes.settings import api as settings_api
 
         def slow_tester(_settings):
             # Block long enough that the production timeout (0.1 s) fires
@@ -623,7 +624,10 @@ class TestSettingsTestServiceTimeout:
 
             return JSONResponse({"ok": True})
 
-        monkeypatch.setattr(settings_module, "_TESTER_TIMEOUT_SECONDS", 0.1)
+        # ``_run_tester_with_timeout`` reads the cap from its own module
+        # (``settings.api``); patch it there. ``_SERVICE_TESTERS`` is the
+        # shared TESTERS dict, so ``setitem`` via the barrel reaches it.
+        monkeypatch.setattr(settings_api, "_TESTER_TIMEOUT_SECONDS", 0.1)
         monkeypatch.setitem(settings_module._SERVICE_TESTERS, "plex", slow_tester)
 
         client = _client(app_factory, authed_client, conn)
