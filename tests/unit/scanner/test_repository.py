@@ -338,11 +338,10 @@ class TestIsShowKept:
         """``is_show_kept`` reports ``False`` for an expired snoozed keep
         and sweeps the row away as part of the same call.
 
-        Domain 05: the read and the cleanup are now expressed as two
-        separate helpers (``_is_show_kept_pure`` and
-        ``cleanup_expired_show_snoozes``); this top-level function
-        composes them so the legacy "ask + clean" contract observed by
-        the scan engine still holds.
+        The read and the cleanup are expressed as two separate helpers
+        (``is_show_kept_pure`` and ``cleanup_expired_show_snoozes``); this
+        top-level function composes them so the legacy "ask + clean" contract
+        observed by the scan engine still holds.
         """
         past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
         insert_kept_show(
@@ -356,15 +355,14 @@ class TestIsShowKept:
         )
 
     def test_pure_read_helper_does_not_mutate(self, conn):
-        """Domain 05: the underlying ``_is_show_kept_pure`` helper is
-        side-effect-free — it never touches the DB even when the row is
-        an expired snooze.
+        """``is_show_kept_pure`` is side-effect-free — it never touches the DB
+        even when the row is an expired snooze.
         """
         past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
         insert_kept_show(
             conn, show_rating_key="rk-pure", show_title="Show", action="snoozed", execute_at=past
         )
-        result = repository._is_show_kept_pure(conn, "rk-pure")
+        result = repository.is_show_kept_pure(conn, "rk-pure")
         assert result is False
         assert (
             conn.execute("SELECT id FROM kept_shows WHERE show_rating_key='rk-pure'").fetchone()

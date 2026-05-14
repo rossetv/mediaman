@@ -51,7 +51,7 @@ from mediaman.scanner.deletions import (
     DeletionExecutor,
     DeletionResult,
 )
-from mediaman.scanner.fetch import PlexFetcher, _PlexItemFetch
+from mediaman.scanner.fetch import PlexFetcher, PlexItemFetch
 from mediaman.scanner.phases.delete import remove_orphans
 from mediaman.scanner.phases.upsert import upsert_item as _phase_upsert_item
 from mediaman.services.infra import get_bool_setting as _get_bool_setting
@@ -199,7 +199,7 @@ class ScanEngine:
         )
         return summary
 
-    def _sync_phase_fetch(self, summary: dict[str, int]) -> dict[str, list[_PlexItemFetch]]:
+    def _sync_phase_fetch(self, summary: dict[str, int]) -> dict[str, list[PlexItemFetch]]:
         """Pull every library's items + watch history from Plex into memory.
 
         Returns a ``lib_id -> [PlexItemFetch]`` mapping. No DB writes
@@ -209,7 +209,7 @@ class ScanEngine:
         successfully-fetched libraries so the write phase will not
         observe a partial fetch.
         """
-        per_lib_fetches: dict[str, list[_PlexItemFetch]] = {}
+        per_lib_fetches: dict[str, list[PlexItemFetch]] = {}
         for lib_id in self._library_ids:
             try:
                 per_lib_fetches[lib_id] = self._fetcher.fetch_library_items(lib_id)
@@ -221,7 +221,7 @@ class ScanEngine:
 
     def _sync_phase_write(
         self,
-        per_lib_fetches: dict[str, list[_PlexItemFetch]],
+        per_lib_fetches: dict[str, list[PlexItemFetch]],
         summary: dict[str, int],
     ) -> None:
         """Apply per-library UPSERTs + orphan cleanup, one transaction each.

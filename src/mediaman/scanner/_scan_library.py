@@ -21,7 +21,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, cast
 
 from mediaman.scanner import repository
-from mediaman.scanner.fetch import _PlexItemFetch
+from mediaman.scanner.fetch import PlexItemFetch
 from mediaman.scanner.phases.evaluate import evaluate_movie, evaluate_season
 from mediaman.scanner.phases.upsert import schedule_deletion as _phase_schedule_deletion
 from mediaman.scanner.phases.upsert import upsert_item as _phase_upsert_item
@@ -36,9 +36,9 @@ __all__ = ["scan_items", "scan_movie_library", "scan_tv_library"]
 
 def scan_items(
     engine: ScanEngine,
-    fetched: list[_PlexItemFetch],
-    media_type_fn: Callable[[_PlexItemFetch], str],
-    evaluate_fn: Callable[[_PlexItemFetch, datetime, Sequence[Mapping[str, object]]], str | None],
+    fetched: list[PlexItemFetch],
+    media_type_fn: Callable[[PlexItemFetch], str],
+    evaluate_fn: Callable[[PlexItemFetch, datetime, Sequence[Mapping[str, object]]], str | None],
     item_label: str,
     library_id: str,
     summary: dict[str, int],
@@ -72,8 +72,14 @@ def scan_items(
                 summary["skipped"] += 1
                 continue
             _apply_scan_decision(engine, media_id, decision, summary)
-        # rationale: scheduler runner — a single bad library item must not abort
-        # the whole scan; log and carry on to the remaining items.
+        # rationale: per-item isolation boundary — a single corrupt or
+        # unexpected item (bad Plex metadata, upsert constraint, evaluator
+        # bug) must not abort the rest of the library scan. Errors are
+        # recorded in summary["errors"] and logged with full traceback so
+        # operators can diagnose the root cause; the scheduler-level wrapper
+        # in runner.py handles job-level failures. This is an approved
+        # fifth boundary analogous to §6.4 site (2), scoped to individual
+        # items rather than the whole job.
         except Exception:
             summary["errors"] += 1
             logger.exception(
@@ -91,9 +97,9 @@ _SKIP = "_skip"
 
 def _evaluate_scan_item(
     engine: ScanEngine,
-    f: _PlexItemFetch,
-    media_type_fn: Callable[[_PlexItemFetch], str],
-    evaluate_fn: Callable[[_PlexItemFetch, datetime, Sequence[Mapping[str, object]]], str | None],
+    f: PlexItemFetch,
+    media_type_fn: Callable[[PlexItemFetch], str],
+    evaluate_fn: Callable[[PlexItemFetch, datetime, Sequence[Mapping[str, object]]], str | None],
     seen_keys: set[str] | None,
 ) -> tuple[str, str | None]:
     """Upsert one item and return ``(media_id, decision)``.
@@ -168,7 +174,7 @@ def scan_movie_library(
     fetched = engine._fetcher.fetch_library_items(library_id)
 
     def _evaluate(
-        f: _PlexItemFetch,
+        f: PlexItemFetch,
         added_at: datetime,
         watch_history: Sequence[Mapping[str, object]],
     ) -> str | None:
@@ -207,7 +213,7 @@ def scan_tv_library(
     conn = engine._conn
 
     def _evaluate(
-        f: _PlexItemFetch,
+        f: PlexItemFetch,
         added_at: datetime,
         watch_history: Sequence[Mapping[str, object]],
     ) -> str | None:
