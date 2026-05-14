@@ -206,7 +206,7 @@ def _normalise_host(hostname: str) -> str | None:
         ipaddress.ip_address(hostname)
         return hostname
     except ValueError:
-        pass
+        pass  # not an IP literal — fall through to IDN encoding
     try:
         return idna.encode(hostname, uts46=True, transitional=False).decode("ascii")
     except idna.IDNAError:

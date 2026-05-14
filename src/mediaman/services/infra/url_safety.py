@@ -272,7 +272,7 @@ def resolve_safe_outbound_url(
     try:
         ip = ipaddress.ip_address(normalised)
     except ValueError:
-        pass
+        pass  # not an IP literal — fall through to DNS resolution below
     else:
         if _ip_is_blocked(ip, strict=strict):
             return False, normalised, None

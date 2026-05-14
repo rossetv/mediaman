@@ -17,11 +17,15 @@ import pytest
 import requests
 
 from mediaman.db import init_db
+from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.completion import (
+    _batch_insert_completions,
     cleanup_recent_downloads,
     detect_completed,
+    fetch_and_sync_recent_downloads,
     record_verified_completions,
 )
+from mediaman.services.infra import SafeHTTPError
 from tests.helpers.factories import insert_recent_download
 
 # ---------------------------------------------------------------------------
@@ -460,3 +464,224 @@ class TestDetectCompletedTmdbId:
         }
         result = detect_completed(previous, {})
         assert "tmdb_id" not in result[0]
+
+
+# ---------------------------------------------------------------------------
+# Narrowed except-clause tests (Phase 3 fixes)
+# ---------------------------------------------------------------------------
+
+
+class TestBatchInsertCompletionsExceptNarrowing:
+    """_batch_insert_completions catches only sqlite3.Error, not broad Exception."""
+
+    def test_sqlite_error_is_caught_and_logged(self, caplog):
+        """A sqlite3.Error during executemany is caught — insertion failure is non-fatal."""
+        # Use a plain MagicMock — _batch_insert_completions only calls
+        # conn.executemany and conn.commit, so a real sqlite3.Connection is
+        # not required here.
+        mock_conn = MagicMock(spec=sqlite3.Connection)
+        mock_conn.executemany.side_effect = sqlite3.OperationalError("disk full")
+
+        with caplog.at_level("WARNING", logger="mediaman"):
+            # Must not raise
+            _batch_insert_completions(mock_conn, [("radarr:X", "Film", "movie", "")])
+
+        assert any("Failed to record" in r.message for r in caplog.records)
+
+    def test_unexpected_exception_propagates(self):
+        """A non-sqlite3 error (programming mistake) is NOT swallowed."""
+        mock_conn = MagicMock(spec=sqlite3.Connection)
+        mock_conn.executemany.side_effect = TypeError("tuple shape wrong")
+
+        with pytest.raises(TypeError, match="tuple shape wrong"):
+            _batch_insert_completions(mock_conn, [("radarr:X", "Film", "movie", "")])
+
+
+class TestRecordVerifiedCompletionsExceptNarrowing:
+    """record_verified_completions catches only network/arr errors, not broad Exception."""
+
+    def test_safe_http_error_is_caught(self, conn, monkeypatch):
+        """SafeHTTPError from the arr client is caught — item is skipped, not raised."""
+        mock_radarr = MagicMock()
+        mock_radarr.get_movies.side_effect = SafeHTTPError(503, "gateway error", "http://arr/")
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_radarr_from_db",
+            lambda *a, **kw: mock_radarr,
+        )
+
+        completed = [
+            {"dl_id": "radarr:Dune", "title": "Dune", "media_type": "movie", "poster_url": ""}
+        ]
+        # Must not raise
+        record_verified_completions(conn, completed, SECRET_KEY)
+
+        rows = conn.execute("SELECT dl_id FROM recent_downloads").fetchall()
+        assert len(rows) == 0
+
+    def test_arr_error_is_caught(self, conn, monkeypatch):
+        """ArrError from the arr client is caught — item is skipped, not raised."""
+        mock_radarr = MagicMock()
+        mock_radarr.get_movies.side_effect = ArrError("upstream error")
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_radarr_from_db",
+            lambda *a, **kw: mock_radarr,
+        )
+
+        completed = [
+            {"dl_id": "radarr:Dune", "title": "Dune", "media_type": "movie", "poster_url": ""}
+        ]
+        record_verified_completions(conn, completed, SECRET_KEY)
+
+        rows = conn.execute("SELECT dl_id FROM recent_downloads").fetchall()
+        assert len(rows) == 0
+
+    def test_unexpected_exception_propagates(self, conn, monkeypatch):
+        """A non-network/arr error (e.g. RuntimeError) propagates — it is not swallowed."""
+        mock_radarr = MagicMock()
+        mock_radarr.get_movies.side_effect = RuntimeError("unexpected bug")
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_radarr_from_db",
+            lambda *a, **kw: mock_radarr,
+        )
+
+        completed = [
+            {"dl_id": "radarr:Dune", "title": "Dune", "media_type": "movie", "poster_url": ""}
+        ]
+        with pytest.raises(RuntimeError, match="unexpected bug"):
+            record_verified_completions(conn, completed, SECRET_KEY)
+
+
+class TestFetchAndSyncPosterExceptNarrowing:
+    """fetch_and_sync_recent_downloads poster-fetch and poster-backfill except narrowing."""
+
+    def test_poster_fetch_arr_error_is_caught(self, conn, monkeypatch):
+        """ArrError during poster-map fetch is caught — item still appears without a poster."""
+        insert_recent_download(conn, dl_id="radarr:Dune", title="Dune", media_type="movie")
+
+        mock_radarr = MagicMock()
+        mock_radarr.get_movies.side_effect = ArrError("radarr down")
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_radarr_from_db",
+            lambda *a, **kw: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_sonarr_from_db",
+            lambda *a, **kw: None,
+        )
+
+        result = fetch_and_sync_recent_downloads(
+            conn, active_ids=set(), active_titles=set(), secret_key=SECRET_KEY
+        )
+        assert len(result) == 1
+        assert result[0]["poster_url"] == ""
+
+    def test_poster_fetch_unexpected_error_propagates(self, conn, monkeypatch):
+        """A non-arr error during poster-map fetch propagates — it is not swallowed."""
+        insert_recent_download(conn, dl_id="radarr:Dune", title="Dune", media_type="movie")
+
+        mock_radarr = MagicMock()
+        mock_radarr.get_movies.side_effect = RuntimeError("unexpected bug")
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_radarr_from_db",
+            lambda *a, **kw: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_sonarr_from_db",
+            lambda *a, **kw: None,
+        )
+
+        with pytest.raises(RuntimeError, match="unexpected bug"):
+            fetch_and_sync_recent_downloads(
+                conn, active_ids=set(), active_titles=set(), secret_key=SECRET_KEY
+            )
+
+    def test_poster_backfill_sqlite_error_is_caught(self, conn, monkeypatch, tmp_path):
+        """sqlite3.Error during the poster-backfill UPDATE is caught — row still returned.
+
+        Uses a Python subclass of sqlite3.Connection to intercept execute()
+        without patching the immutable C type.
+        """
+        # Use a fresh DB backed by the same file so we can create a subclassed
+        # connection that wraps it.
+        db_path = str(tmp_path / "sub.db")
+        from mediaman.db import init_db as _init_db
+
+        real_conn = _init_db(db_path)
+        insert_recent_download(real_conn, dl_id="radarr:Dune", title="Dune", media_type="movie")
+        real_conn.close()
+
+        class _FailUpdateConn(sqlite3.Connection):
+            def execute(self, sql, *args, **kwargs):  # type: ignore[override]
+                if sql.strip().upper().startswith("UPDATE"):
+                    raise sqlite3.OperationalError("disk full")
+                return super().execute(sql, *args, **kwargs)
+
+        subconn = sqlite3.connect(db_path, factory=_FailUpdateConn)
+        subconn.row_factory = sqlite3.Row
+
+        mock_radarr = MagicMock()
+        mock_radarr.get_movies.return_value = [
+            {
+                "title": "Dune",
+                "images": [{"coverType": "poster", "remoteUrl": "http://img/dune.jpg"}],
+            }
+        ]
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_radarr_from_db",
+            lambda *a, **kw: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_sonarr_from_db",
+            lambda *a, **kw: None,
+        )
+
+        try:
+            # Must not raise — poster backfill is best-effort
+            result = fetch_and_sync_recent_downloads(
+                subconn, active_ids=set(), active_titles=set(), secret_key=SECRET_KEY
+            )
+            assert len(result) == 1
+        finally:
+            subconn.close()
+
+    def test_poster_backfill_unexpected_error_propagates(self, conn, monkeypatch, tmp_path):
+        """A non-sqlite3 error during poster-backfill UPDATE propagates."""
+        db_path = str(tmp_path / "sub.db")
+        from mediaman.db import init_db as _init_db
+
+        real_conn = _init_db(db_path)
+        insert_recent_download(real_conn, dl_id="radarr:Dune", title="Dune", media_type="movie")
+        real_conn.close()
+
+        class _FailUpdateConn(sqlite3.Connection):
+            def execute(self, sql, *args, **kwargs):  # type: ignore[override]
+                if sql.strip().upper().startswith("UPDATE"):
+                    raise RuntimeError("filesystem gone")
+                return super().execute(sql, *args, **kwargs)
+
+        subconn = sqlite3.connect(db_path, factory=_FailUpdateConn)
+        subconn.row_factory = sqlite3.Row
+
+        mock_radarr = MagicMock()
+        mock_radarr.get_movies.return_value = [
+            {
+                "title": "Dune",
+                "images": [{"coverType": "poster", "remoteUrl": "http://img/dune.jpg"}],
+            }
+        ]
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_radarr_from_db",
+            lambda *a, **kw: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_sonarr_from_db",
+            lambda *a, **kw: None,
+        )
+
+        try:
+            with pytest.raises(RuntimeError, match="filesystem gone"):
+                fetch_and_sync_recent_downloads(
+                    subconn, active_ids=set(), active_titles=set(), secret_key=SECRET_KEY
+                )
+        finally:
+            subconn.close()
