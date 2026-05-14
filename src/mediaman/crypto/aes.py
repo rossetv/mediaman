@@ -165,8 +165,6 @@ def is_canary_valid(
             aad=_CANARY_SETTING_KEY.encode(),
         )
     except (InvalidTag, ValueError):
-        if _upgrade_legacy_canary(conn, row["value"], secret_key):
-            return True
         return _fail_canary(
             conn,
             on_failure,
@@ -210,45 +208,6 @@ def _fail_canary(
         _salt_cache_pop(cache_key)
     _invoke_on_failure(on_failure, reason)
     return False
-
-
-def _upgrade_legacy_canary(conn: sqlite3.Connection, ciphertext: str, secret_key: str) -> bool:
-    """Heal a pre-AAD canary row in place, returning whether it healed.
-
-    Installs created before AAD binding (2026-04-18) seeded the
-    ``aes_kdf_canary`` row as a v2 ciphertext with no AAD. The
-    legacy-ciphertext migration excluded the canary key, so once the
-    no-AAD fallback was removed from :func:`decrypt_value` those rows
-    stopped decrypting under the AAD-bound path.
-
-    A no-AAD decrypt that yields the known canary plaintext proves the
-    AES key itself is correct — only the ciphertext's AAD shape is stale.
-    When that holds, the row is re-encrypted with AAD so the upgrade
-    happens exactly once. Any other outcome (wrong key, corrupt row)
-    returns ``False`` and the caller reports a genuine canary failure.
-    """
-    try:
-        legacy = decrypt_value(ciphertext, secret_key, conn=conn, aad=None)
-    except (InvalidTag, ValueError):
-        return False
-    if legacy != _CANARY_PLAINTEXT:
-        return False
-    conn.execute(
-        "UPDATE settings SET value=?, updated_at=? WHERE key=?",
-        (
-            encrypt_value(
-                _CANARY_PLAINTEXT,
-                secret_key,
-                conn=conn,
-                aad=_CANARY_SETTING_KEY.encode(),
-            ),
-            _now_iso(),
-            _CANARY_SETTING_KEY,
-        ),
-    )
-    conn.commit()
-    logger.info("AES canary upgraded in place — pre-AAD ciphertext re-encrypted with AAD binding.")
-    return True
 
 
 def _invoke_on_failure(

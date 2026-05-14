@@ -25,10 +25,7 @@ from mediaman.crypto import (
 # heuristics. Testing them directly is necessary to verify HKDF derivation
 # correctness, salt persistence/caching behaviour, and entropy boundary values —
 # the public encrypt/decrypt surface does not expose these internals.
-# _CANARY_PLAINTEXT is the constant the canary round-trips; tests of the
-# pre-AAD heal path must encrypt it to forge a legacy canary row.
 from mediaman.crypto._aes_key import (
-    _CANARY_PLAINTEXT,
     _derive_aes_key_hkdf,
     _load_or_create_salt,
     _secret_key_looks_strong,
@@ -149,71 +146,6 @@ class TestCanary:
             ok = is_canary_valid(conn, "different-secret-32-chars-YYYYYY")
         assert ok is False
         assert any("AES key mismatch" in rec.message for rec in caplog.records)
-
-
-class TestCanaryPreAadHeal:
-    """Installs created before AAD binding (2026-04-18) seeded the
-    ``aes_kdf_canary`` row without AAD. The legacy-ciphertext migration
-    excluded the canary key, so once the no-AAD fallback was removed from
-    ``decrypt_value`` those rows stopped decrypting. ``is_canary_valid``
-    must heal a legacy canary in place rather than report a key mismatch.
-    """
-
-    @staticmethod
-    def _seed_legacy_canary(conn: sqlite3.Connection, secret_key: str) -> str:
-        """Insert a pre-AAD (no-AAD) canary row and return its ciphertext."""
-        legacy_ct = encrypt_value(_CANARY_PLAINTEXT, secret_key, conn=conn, aad=None)
-        conn.execute(
-            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 1, ?)",
-            ("aes_kdf_canary", legacy_ct, "2026-01-01"),
-        )
-        conn.commit()
-        return legacy_ct
-
-    def test_legacy_canary_heals_and_upgrades_row(self, conn, secret_key):
-        legacy_ct = self._seed_legacy_canary(conn, secret_key)
-
-        assert is_canary_valid(conn, secret_key) is True
-
-        upgraded = conn.execute("SELECT value FROM settings WHERE key='aes_kdf_canary'").fetchone()[
-            "value"
-        ]
-        assert upgraded != legacy_ct
-        # The row now decrypts *with* AAD — the legacy shape is gone.
-        assert (
-            decrypt_value(upgraded, secret_key, conn=conn, aad=b"aes_kdf_canary")
-            == _CANARY_PLAINTEXT
-        )
-
-    def test_healed_canary_passes_on_next_run(self, conn, secret_key):
-        self._seed_legacy_canary(conn, secret_key)
-        assert is_canary_valid(conn, secret_key) is True
-        assert is_canary_valid(conn, secret_key) is True
-
-    def test_legacy_canary_with_wrong_key_still_fails(self, conn, secret_key):
-        """The no-AAD decrypt must not heal under the wrong key — that
-        would defeat the canary's purpose of detecting a key change."""
-        self._seed_legacy_canary(conn, secret_key)
-
-        ok = is_canary_valid(conn, "different-secret-32-chars-YYYYYY")
-
-        assert ok is False
-
-    def test_legacy_canary_wrong_key_audits_decrypt_failure(self, conn, secret_key):
-        self._seed_legacy_canary(conn, secret_key)
-
-        ok = is_canary_valid(
-            conn,
-            "different-secret-32-chars-YYYYYY",
-            on_failure=_make_canary_audit_callback(conn),
-        )
-
-        assert ok is False
-        rows = conn.execute(
-            "SELECT detail FROM audit_log WHERE action=?",
-            ("sec:aes.canary_failed",),
-        ).fetchall()
-        assert any("canary_decrypt_invalid_tag" in r["detail"] for r in rows)
 
 
 class TestKeepTokens:
