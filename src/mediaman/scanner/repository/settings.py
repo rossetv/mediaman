@@ -45,7 +45,13 @@ def read_delete_allowed_roots_setting(
             if isinstance(parsed, list):
                 roots = [str(r) for r in parsed if r]
         except (ValueError, TypeError):
-            pass
+            logger.warning(
+                "scanner.delete_roots.invalid_json — could not parse "
+                "delete_allowed_roots setting value %r; "
+                "falling through to env-var / fail-closed path.",
+                row["value"],
+                exc_info=True,
+            )
     if not roots:
         env_val = os.environ.get("MEDIAMAN_DELETE_ROOTS", "")
         if env_val:
