@@ -35,7 +35,12 @@ _POSTER_FANOUT_WORKERS = 4
 
 @lru_cache(maxsize=1)
 def _get_poster_executor() -> ThreadPoolExecutor:
-    """Return the shared poster-fanout executor (lazy)."""
+    """Return the shared poster-fanout executor (lazy).
+
+    Process-life global: the executor is never shut down — it lives for the
+    process lifetime so repeated dashboard renders share the same thread pool
+    rather than spawning and tearing down threads on every request.
+    """
     return ThreadPoolExecutor(
         max_workers=_POSTER_FANOUT_WORKERS,
         thread_name_prefix="dashboard_poster",
@@ -61,6 +66,11 @@ def _fill_tmdb_posters(
     """
     from mediaman.services.media_meta.tmdb import TmdbClient
 
+    # timeout=5.0 overrides TmdbClient's default (10s read) so each per-title
+    # lookup cannot eat more than 5s — keeping the total wall-clock budget
+    # (_POSTER_FANOUT_BUDGET_SECONDS = 6s) meaningful across the worker pool.
+    # TmdbClient routes through SafeHTTPClient, so SSRF allowlist and retry
+    # behaviour are still governed by services/infra/http/client.py.
     client = TmdbClient.from_db(conn, secret_key, timeout=5.0)
     if client is None:
         return

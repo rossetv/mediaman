@@ -71,6 +71,9 @@ _cache_gc_lock = threading.Lock()
 _cache_gc_counter_lock = threading.Lock()
 _cache_gc_counter = 0
 
+# rationale: single-worker, per-process cache root — guarded so two
+# concurrent first requests cannot both see None and both mkdir.
+_cache_dir_lock = threading.Lock()
 #: The poster cache directory.  Populated on first request from the
 #: app config.  Tests reset this to ``None`` between runs.
 _cache_dir: Path | None = None
@@ -87,8 +90,10 @@ def get_cache_dir(data_dir: str) -> Path:
     """
     global _cache_dir
     if _cache_dir is None:
-        _cache_dir = Path(data_dir) / "poster_cache"
-        _cache_dir.mkdir(parents=True, exist_ok=True)
+        with _cache_dir_lock:
+            if _cache_dir is None:
+                _cache_dir = Path(data_dir) / "poster_cache"
+                _cache_dir.mkdir(parents=True, exist_ok=True)
     return _cache_dir
 
 
@@ -108,7 +113,7 @@ def _sweep_oldest(entries: list[tuple[float, int, Path]], total: int) -> None:
                 try:
                     sidecar.unlink()
                 except FileNotFoundError:
-                    pass
+                    pass  # sidecar already gone — nothing to sweep
                 except OSError:
                     logger.debug("Failed to unlink sidecar for %s", path, exc_info=True)
         except FileNotFoundError:

@@ -145,16 +145,10 @@ def gc_expired_tokens(conn: sqlite3.Connection | None = None) -> None:
 def _evict_cache_locked() -> None:
     """Trim the LRU cache to within :data:`_TOKEN_USED_CACHE_MAX`.
 
-    Caller must already hold :data:`_USED_TOKENS_LOCK`. Two-pass:
-
-    1. First drop any entries whose ``exp`` has elapsed — those are
-       cheap wins that don't lose any meaningful state.
-    2. If the cache is still over the cap, evict in insertion order
-       (the LRU end of the ``OrderedDict``). This bounds memory on a
-       sustained-load instance with 14-day-TTL tokens that would
-       otherwise pile up indefinitely. An evicted entry is harmless —
-       the next request for that token will miss the cache and consult
-       the DB, which is still authoritative.
+    Caller must hold :data:`_USED_TOKENS_LOCK`. Expired entries are pruned
+    first; remaining overflow is evicted in insertion order. An evicted
+    entry is harmless — the cache only holds DB-confirmed digests, so a
+    miss falls back to the authoritative DB table.
     """
     now = time.time()
     for k, v in list(_USED_TOKENS.items()):
@@ -167,26 +161,11 @@ def _evict_cache_locked() -> None:
 def _mark_token_used(token: str, exp: int) -> bool:
     """Atomically mark *token* as consumed. Return ``False`` if already used.
 
-    The DB is the source of truth. The in-memory cache is a bounded
-    fast-path negative cache populated *after* the DB call returns, so
-    it cannot make a claim the DB doesn't also know about.
-
-    Order:
-
-    1. Cheap in-process check: if the digest is already in the cache,
-       return ``False`` — this is a confirmed replay (the cache only
-       holds digests the DB has previously seen).
-    2. ``INSERT OR IGNORE`` against ``used_download_tokens``. The
-       rowcount tells us whether this is the first claim or someone
-       else got there first.
-    3. Either way, populate the cache with the digest so future
-       requests can short-circuit step 2.
-
-    On DB failure during step 2 the function logs CRITICAL and
-    re-raises. The caller (the submit handler) translates that into a
-    503 so the operator can retry once the DB recovers — failing closed
-    is preferable to letting a replay sneak through on the optimistic
-    cache write.
+    The DB is authoritative; the in-memory cache is a bounded fast-path
+    negative cache populated only *after* a successful DB claim, so the
+    cache only ever holds DB-confirmed digests. On DB failure this function
+    logs CRITICAL and re-raises — failing closed is preferable to letting a
+    replay through on an unverified cache write.
     """
     digest = _digest(token)
     with _USED_TOKENS_LOCK:
