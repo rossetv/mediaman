@@ -1,5 +1,15 @@
 """Download submit endpoint."""
 
+# rationale: 430 lines, over the 300-line target but under the 500 ceiling.
+# Not split further: this is one concept — the POST /download/{token} flow —
+# and it is already decomposed into small private helpers (token validation,
+# the two-phase claim, the Arr submit branches, the shared success epilogue,
+# the already-exists handler). The Radarr and Sonarr submit helpers share
+# _record_and_respond and the _unmark_token_used release path and both build
+# their Arr client through ``build_*_from_db`` patched at this module path by
+# the test suite; carving them into siblings would fragment the single
+# token-flow and scatter that monkeypatch surface for no navigability gain.
+
 from __future__ import annotations
 
 import logging
