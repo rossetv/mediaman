@@ -172,6 +172,77 @@ def _dispatch(
 
 
 # ---------------------------------------------------------------------------
+# Per-request helpers
+# ---------------------------------------------------------------------------
+
+
+def _resolve_outbound(
+    url: str,
+    allowed_hosts: frozenset[str] | None,
+) -> tuple[bool, str | None, str | None]:
+    """Run the SSRF guard on *url*, returning ``(safe, hostname, pinned_ip)``.
+
+    ``resolve_safe_outbound_url`` is looked up at call time from this
+    module's namespace (via ``sys.modules``) rather than the static import
+    binding, so that ``monkeypatch.setattr(http_client,
+    "resolve_safe_outbound_url", ...)`` in tests intercepts the real guard.
+    See the module docstring for why the patch seam has to be dynamic.
+
+    ``allowed_hosts`` is only forwarded when the caller actually supplied an
+    allowlist: a ``None`` allowlist is equivalent to omitting the kwarg from
+    the upstream call, which preserves compatibility with monkeypatches that
+    accept ``url`` alone (and the older ``url, strict_egress=...`` shape).
+    """
+    _http_client_mod = sys.modules.get(_HTTP_CLIENT_MODULE)
+    _resolve = (
+        getattr(_http_client_mod, "resolve_safe_outbound_url", None)
+        if _http_client_mod is not None
+        else None
+    ) or _resolve_safe_outbound_url
+    if allowed_hosts is None:
+        return _resolve(url)
+    return _resolve(url, allowed_hosts=allowed_hosts)
+
+
+def _invoke_dispatch(
+    caller: Any,
+    method: str,
+    url: str,
+    *,
+    headers: dict[str, str] | None,
+    params: dict[str, Any] | None,
+    json: Any,
+    data: Any,
+    auth: Any,
+    timeout: tuple[float, float],
+) -> requests.Response:
+    """Issue one transport call, resolving ``_dispatch`` at call time.
+
+    ``_dispatch`` is looked up from this module's namespace (via
+    ``sys.modules``) on every call so that
+    ``monkeypatch.setattr(http_client, "_dispatch", ...)`` in tests
+    intercepts the actual transport. Lifted out of ``_request`` so the
+    orchestrator stays a flat table of contents; the behaviour is identical
+    to the former nested ``_dispatch_fn`` closure.
+    """
+    _hc = sys.modules.get(_HTTP_CLIENT_MODULE)
+    _d = getattr(_hc, "_dispatch", None) if _hc is not None else None
+    if _d is None:
+        _d = _dispatch
+    return _d(
+        caller,
+        method,
+        url,
+        headers=headers,
+        params=params,
+        json=json,
+        data=data,
+        auth=auth,
+        timeout=timeout,
+    )
+
+
+# ---------------------------------------------------------------------------
 # The client
 # ---------------------------------------------------------------------------
 
@@ -407,25 +478,10 @@ class SafeHTTPClient:
         ensure_hook_installed()
         url = self._resolve_url(path_or_url)
 
-        # Resolve ``resolve_safe_outbound_url`` through ``http_client``'s module
-        # namespace at call time so tests can patch it via
-        # ``monkeypatch.setattr(http_client, "resolve_safe_outbound_url", ...)``.
-        _http_client_mod = sys.modules.get(_HTTP_CLIENT_MODULE)
-        _resolve = (
-            getattr(_http_client_mod, "resolve_safe_outbound_url", None)
-            if _http_client_mod is not None
-            else None
-        ) or _resolve_safe_outbound_url
-
-        # Preserve compatibility with monkeypatches that accept ``url``
-        # alone (and the older ``url, strict_egress=...`` shape) by only
-        # forwarding ``allowed_hosts`` when the caller actually supplied
-        # an allowlist. A ``None`` allowlist is equivalent to omitting
-        # the kwarg from the upstream call.
-        if self._allowed_hosts is None:
-            safe, hostname, pinned_ip = _resolve(url)
-        else:
-            safe, hostname, pinned_ip = _resolve(url, allowed_hosts=self._allowed_hosts)
+        # SSRF re-validation on every call (re-resolves DNS — the rebind
+        # defence). ``_resolve_outbound`` performs the ``sys.modules`` lookup
+        # of the guard so tests can patch it; see its docstring.
+        safe, hostname, pinned_ip = _resolve_outbound(url, self._allowed_hosts)
         if not safe:
             raise SafeHTTPError(
                 status_code=0,
@@ -439,13 +495,7 @@ class SafeHTTPClient:
         attempts = 1 + (len(_RETRY_BACKOFFS) if retry else 0)
 
         def _dispatch_fn() -> requests.Response:
-            # Resolve ``_dispatch`` through ``http_client``'s module namespace
-            # at call time so tests can patch it with monkeypatch.
-            _hc = sys.modules.get(_HTTP_CLIENT_MODULE)
-            _d = getattr(_hc, "_dispatch", None) if _hc is not None else None
-            if _d is None:
-                _d = _dispatch
-            return _d(
+            return _invoke_dispatch(
                 caller,
                 method,
                 url,
@@ -458,11 +508,7 @@ class SafeHTTPClient:
             )
 
         def _read_fn(response: requests.Response) -> bytes:
-            return _read_capped(
-                response,
-                cap,
-                expected_content_type=expected_content_type,
-            )
+            return _read_capped(response, cap, expected_content_type=expected_content_type)
 
         ctx = pin(hostname, pinned_ip) if (hostname and pinned_ip) else contextlib.nullcontext()
         with ctx:
