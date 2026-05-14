@@ -115,6 +115,16 @@ def create_user(
     ``BEGIN IMMEDIATE`` that inserts the user. If the audit insert
     blows up, the user-creation rolls back — we never have a "user
     minted but no audit trail exists" outcome.
+
+    Raises:
+        UserExistsError: *username* is already taken (mapped from the
+            ``UNIQUE`` constraint on ``admin_users.username``).
+        ValueError: *password* fails the strength policy — only when
+            *enforce_policy* is true.
+        sqlite3.IntegrityError: any other integrity-constraint failure
+            that is not the username-uniqueness collision; it is
+            re-raised unchanged after being logged so the caller sees
+            the original error rather than a swallowed one.
     """
     if enforce_policy:
         from mediaman.web.auth.password_policy import password_issues
@@ -317,6 +327,16 @@ def change_password(
     the session DELETE so a thief who held a reauth ticket cannot
     redeem it under the freshly-issued sessions that follow the
     password change.
+
+    Raises:
+        ValueError: *new_password* fails the strength policy — only
+            when *enforce_policy* is true. Raised before the
+            transaction opens, so nothing is written.
+        sqlite3.Error: a ``security_event_or_raise`` audit-write
+            failure (or any other DB error inside the ``with conn:``
+            block) propagates and rolls the whole rotation back —
+            fail-closed, so a password change never lands without its
+            audit row.
     """
     from mediaman.web.auth.login_lockout import (
         is_locked_out,
@@ -413,9 +433,12 @@ def change_password(
         # is a stale 1-2 entry sitting around.
         # rationale: best-effort failure-counter cleanup — the password has already
         # changed; a stale counter entry is cosmetic noise, not a correctness failure.
+        # Narrowed to ``sqlite3.Error``: ``record_success`` is a single DELETE +
+        # commit, so a DB error is the only failure worth swallowing here. A
+        # non-DB exception means a bug in ``record_success`` and must propagate.
         try:
             record_success(conn, namespace)
-        except Exception:  # pragma: no cover — counter cleanup is best-effort
+        except sqlite3.Error:  # pragma: no cover — counter cleanup is best-effort
             logger.exception("password.change counter cleanup failed user=%s", username)
     logger.info("password.changed user=%s sessions_revoked=all", username)
     return True
@@ -579,10 +602,13 @@ def delete_user(
     # rationale: best-effort reauth revocation — the user row is already deleted;
     # a leftover ticket is a minor hygiene gap, not a security hole, and must
     # not roll back or block the successful delete response.
+    # Narrowed to ``sqlite3.Error``: ``revoke_all_reauth_for`` is _ensure_table +
+    # DELETE + commit, so a DB error is the only failure worth swallowing here. A
+    # non-DB exception (a bad import, a ``TypeError``) means a bug and must surface.
     try:
         from mediaman.web.auth.reauth import revoke_all_reauth_for
 
         revoke_all_reauth_for(conn, target_username)
-    except Exception:  # pragma: no cover — never break flow on cleanup failure
+    except sqlite3.Error:  # pragma: no cover — never break flow on cleanup failure
         logger.exception("delete_user reauth cleanup failed user=%s", target_username)
     return True

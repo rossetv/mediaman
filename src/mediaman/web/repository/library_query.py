@@ -377,6 +377,12 @@ def _shape_rows(
     return items
 
 
+# rationale: §9.5 permits a repository returning ``list[dict]`` at a documented
+# template-feeding boundary. ``mediaman.web.routes.library.library_page`` passes
+# these display-ready dicts straight onto the ``library.html`` Jinja template as
+# ``items``; the keys are shaped for that template (``type_css``, ``type_label``,
+# ``protection_label``, ...) and a dataclass would add ceremony without removing
+# the template's column coupling.
 def fetch_library(
     conn: sqlite3.Connection,
     q: str = "",
