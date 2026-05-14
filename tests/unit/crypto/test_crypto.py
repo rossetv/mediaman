@@ -1,5 +1,7 @@
 """Tests for encryption and token signing."""
 
+from __future__ import annotations
+
 import base64
 import contextlib
 import secrets
@@ -21,14 +23,14 @@ from mediaman.crypto import (
 )
 
 # rationale: _derive_aes_key_hkdf, _load_or_create_salt, and
-# _secret_key_looks_strong are cryptographic primitives and security-critical
+# _is_secret_key_strong are cryptographic primitives and security-critical
 # heuristics. Testing them directly is necessary to verify HKDF derivation
 # correctness, salt persistence/caching behaviour, and entropy boundary values —
 # the public encrypt/decrypt surface does not expose these internals.
 from mediaman.crypto._aes_key import (
     _derive_aes_key_hkdf,
+    _is_secret_key_strong,
     _load_or_create_salt,
-    _secret_key_looks_strong,
 )
 from mediaman.db import init_db
 from tests.helpers.factories import insert_settings
@@ -73,7 +75,7 @@ class TestAesEncryption:
 
     def test_wrong_key_fails(self, secret_key, conn):
         encrypted = encrypt_value("secret", secret_key, conn=conn)
-        with pytest.raises(Exception):
+        with pytest.raises(InvalidTag):
             decrypt_value(encrypted, "wrong-key", conn=conn)
 
     def test_encrypt_requires_salt_source(self, secret_key):
@@ -343,7 +345,7 @@ class TestValidateSignedNarrowedException:
 
 
 class TestSecretKeyEntropyHardened:
-    """The audit's HIGH finding on `_secret_key_looks_strong`.
+    """The audit's HIGH finding on `_is_secret_key_strong`.
 
     The previous heuristic accepted 43-char ``[A-Za-z0-9_-]`` strings
     with as few as 8 unique characters, which is far below the 256-bit
@@ -351,7 +353,7 @@ class TestSecretKeyEntropyHardened:
     reject the audit's worked example and any structurally similar
     low-entropy input.
 
-    # rationale: _secret_key_looks_strong is a security-critical entropy
+    # rationale: _is_secret_key_strong is a security-critical entropy
     # heuristic; its exact pass/fail thresholds must be verified against
     # known examples. The public surface (is_canary_valid) wraps this but
     # requires a full DB + AES round-trip that obscures boundary behaviour.
@@ -361,21 +363,21 @@ class TestSecretKeyEntropyHardened:
         """The audit's example: 43 chars, 10 unique — must be refused."""
         bad = "abcdefghij" * 4 + "abc"  # 43 chars, 10 unique
         assert len(bad) == 43
-        assert _secret_key_looks_strong(bad) is False
+        assert _is_secret_key_strong(bad) is False
 
     def test_rejects_8_unique_64_char_hex(self):
         """64 hex chars but only 8 unique digits is structured low-entropy."""
         bad = "deadbeef" * 8  # 64 hex chars, 8 unique
-        assert _secret_key_looks_strong(bad) is False
+        assert _is_secret_key_strong(bad) is False
 
     def test_rejects_single_char_repeat(self):
-        assert _secret_key_looks_strong("a" * 64) is False
-        assert _secret_key_looks_strong("0" * 64) is False
+        assert _is_secret_key_strong("a" * 64) is False
+        assert _is_secret_key_strong("0" * 64) is False
 
     def test_rejects_short_input(self):
-        assert _secret_key_looks_strong("") is False
-        assert _secret_key_looks_strong("short") is False
-        assert _secret_key_looks_strong("a" * 31) is False
+        assert _is_secret_key_strong("") is False
+        assert _is_secret_key_strong("short") is False
+        assert _is_secret_key_strong("a" * 31) is False
 
     def test_rejects_43_char_decoding_to_too_few_bytes(self):
         """The base64url path requires ≥32 decoded bytes (token_urlsafe(32)+)."""
@@ -385,7 +387,7 @@ class TestSecretKeyEntropyHardened:
         # but invalid as base64. The implementation accepts 43+ chars
         # that decode cleanly — anything that fails to decode is None.
         bad_decode = "!" * 43  # not in [A-Za-z0-9_-], rejected by regex
-        assert _secret_key_looks_strong(bad_decode) is False
+        assert _is_secret_key_strong(bad_decode) is False
 
     def test_accepts_token_hex_32(self):
         """Real-world ``secrets.token_hex(32)`` keys must always pass."""
@@ -393,19 +395,19 @@ class TestSecretKeyEntropyHardened:
 
         # 1000 samples — one rejection here would be a regression.
         for _ in range(1000):
-            assert _secret_key_looks_strong(secrets.token_hex(32)) is True
+            assert _is_secret_key_strong(secrets.token_hex(32)) is True
 
     def test_accepts_token_urlsafe_32(self):
         """Real-world ``secrets.token_urlsafe(32)`` keys must always pass."""
         import secrets
 
         for _ in range(1000):
-            assert _secret_key_looks_strong(secrets.token_urlsafe(32)) is True
+            assert _is_secret_key_strong(secrets.token_urlsafe(32)) is True
 
     def test_accepts_test_fixture_value(self):
         """The widely-used test fixture (``"0123456789abcdef" * 4``) must
         keep passing — too many call sites depend on it for a bump now."""
-        assert _secret_key_looks_strong("0123456789abcdef" * 4) is True
+        assert _is_secret_key_strong("0123456789abcdef" * 4) is True
 
 
 class TestAesGcmAadStrict:

@@ -57,7 +57,7 @@ _GCM_NONCE_BYTES = 12
 _GCM_TAG_BYTES = 16
 
 # Minimum unique-character thresholds for the two accepted secret-key
-# shapes (see :func:`_secret_key_looks_strong`).  Calibrated against
+# shapes (see :func:`_is_secret_key_strong`).  Calibrated against
 # 100k samples of secrets.token_hex(32) / token_urlsafe(32) — both
 # bars sit well below the natural minimum a true CSPRNG produces, so
 # legitimate keys are accepted while structured low-entropy strings
@@ -71,7 +71,7 @@ _MIN_URLSAFE_UNIQUE = 18
 # ---------------------------------------------------------------------------
 
 
-def _secret_key_looks_strong(secret: str) -> bool:
+def _is_secret_key_strong(secret: str) -> bool:
     """Return True if *secret* meets the minimum-entropy bar for ``MEDIAMAN_SECRET_KEY``.
 
     The check accepts exactly two shapes:
