@@ -630,23 +630,32 @@ class TestPosterPublicRateLimit:
         cache_mod._cache_dir = None
         return TestClient(app), POSTER_PUBLIC_LIMITER
 
-    def test_unauthenticated_burst_is_throttled(self, tmp_path):
+    def test_unauthenticated_requests_within_allowance_succeed(self, tmp_path):
+        """First 60 requests (the documented allowance) must all return 200."""
         from mediaman.web.routes.poster import sign_poster_url
 
         client, _ = self._setup(tmp_path)
         signed = sign_poster_url("12345", self._KEY)
 
-        # Limiter is 60/min per /24 (or /64 for v6). Burst slightly past.
-        ok = 0
-        throttled = 0
-        for _ in range(70):
+        for i in range(60):
             r = client.get(signed)
-            if r.status_code == 200:
-                ok += 1
-            elif r.status_code == 429:
-                throttled += 1
-        assert ok == 60
-        assert throttled == 10
+            assert r.status_code == 200, f"Request {i + 1}/60 expected 200 but got {r.status_code}"
+
+    def test_unauthenticated_request_beyond_allowance_is_throttled(self, tmp_path):
+        """Request 61 (first beyond the 60/min cap) must return 429."""
+        from mediaman.web.routes.poster import sign_poster_url
+
+        client, _ = self._setup(tmp_path)
+        signed = sign_poster_url("12345", self._KEY)
+
+        for i in range(60):
+            r = client.get(signed)
+            assert r.status_code == 200, (
+                f"Setup request {i + 1}/60 expected 200 but got {r.status_code}"
+            )
+
+        r = client.get(signed)
+        assert r.status_code == 429
 
     def test_admin_bypasses_ip_cap(self, tmp_path):
         client, _ = self._setup(tmp_path)
