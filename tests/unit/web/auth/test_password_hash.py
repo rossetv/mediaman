@@ -483,3 +483,130 @@ class TestChangePasswordReauthInsideTransaction:
             "SELECT 1 FROM reauth_tickets WHERE username = ?", ("alice",)
         ).fetchone()
         assert ticket_row is None
+
+
+# ---------------------------------------------------------------------------
+# Best-effort counter-cleanup catch is narrowed to sqlite3.Error
+# ---------------------------------------------------------------------------
+
+
+class TestChangePasswordCounterCleanupCatchNarrowed:
+    """The post-transaction ``record_success`` counter cleanup in
+    :func:`change_password` is best-effort: a ``sqlite3.Error`` is
+    swallowed (the password has already changed), but any non-DB
+    exception is a bug in ``record_success`` and must propagate rather
+    than being silently swallowed.
+
+    ``record_success`` is also called by ``authenticate`` on the
+    success path *before* the cleanup site, so the patches below raise
+    only for the ``reauth:<username>`` namespace — that is the argument
+    the post-transaction cleanup call passes, never the bare username
+    the ``authenticate`` path uses.
+    """
+
+    @staticmethod
+    def _raise_for_reauth_namespace(exc: Exception):
+        def _side_effect(_conn, namespace, *_a, **_kw):
+            if namespace.startswith("reauth:"):
+                raise exc
+            return None
+
+        return _side_effect
+
+    def test_sqlite_error_in_counter_cleanup_is_swallowed(self, conn, caplog):
+        import logging
+        import sqlite3
+
+        create_user(conn, "alice", "old-pass", enforce_policy=False)
+        # ``record_success`` is imported into change_password's body from
+        # login_lockout; patch it there so only the cleanup call raises.
+        with (
+            patch(
+                "mediaman.web.auth.login_lockout.record_success",
+                side_effect=self._raise_for_reauth_namespace(
+                    sqlite3.OperationalError("database is locked")
+                ),
+            ),
+            caplog.at_level(logging.ERROR, logger="mediaman"),
+        ):
+            ok = change_password(conn, "alice", "old-pass", "new-pass", enforce_policy=False)
+        # The rotation still succeeds — the counter cleanup is best-effort.
+        assert ok is True
+        assert authenticate(conn, "alice", "new-pass") is True
+        # And the swallowed failure is logged at ERROR via logger.exception.
+        assert any("counter cleanup failed" in r.getMessage() for r in caplog.records), (
+            "expected a logged counter-cleanup failure"
+        )
+
+    def test_non_sqlite_error_in_counter_cleanup_propagates(self, conn):
+        # A bug in record_success (e.g. a TypeError) is NOT swallowed —
+        # the narrowed ``except sqlite3.Error`` lets it surface.
+        create_user(conn, "alice", "old-pass", enforce_policy=False)
+        with (
+            patch(
+                "mediaman.web.auth.login_lockout.record_success",
+                side_effect=self._raise_for_reauth_namespace(TypeError("record_success bug")),
+            ),
+            pytest.raises(TypeError, match="record_success bug"),
+        ):
+            change_password(conn, "alice", "old-pass", "new-pass", enforce_policy=False)
+        # The password change itself already committed before the
+        # best-effort cleanup ran — the propagating bug does not undo it.
+        assert authenticate(conn, "alice", "new-pass") is True
+
+
+# ---------------------------------------------------------------------------
+# Best-effort reauth-cleanup catch in delete_user is narrowed to sqlite3.Error
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteUserReauthCleanupCatchNarrowed:
+    """The post-transaction ``revoke_all_reauth_for`` cleanup in
+    :func:`delete_user` is best-effort: a ``sqlite3.Error`` is swallowed
+    (the user row is already gone), but any non-DB exception is a bug
+    and must propagate rather than being silently swallowed."""
+
+    def _uid(self, conn, username: str) -> int:
+        return conn.execute("SELECT id FROM admin_users WHERE username=?", (username,)).fetchone()[
+            "id"
+        ]
+
+    def test_sqlite_error_in_reauth_cleanup_is_swallowed(self, conn, caplog):
+        import logging
+        import sqlite3
+
+        create_user(conn, "alice", "p1", enforce_policy=False)
+        create_user(conn, "bob", "p2", enforce_policy=False)
+        # ``revoke_all_reauth_for`` is imported into delete_user's body
+        # from reauth; patch it there so the cleanup call raises.
+        with (
+            patch(
+                "mediaman.web.auth.reauth.revoke_all_reauth_for",
+                side_effect=sqlite3.OperationalError("database is locked"),
+            ),
+            caplog.at_level(logging.ERROR, logger="mediaman"),
+        ):
+            ok = delete_user(conn, self._uid(conn, "bob"), current_username="alice")
+        # The delete still succeeds — the reauth cleanup is best-effort.
+        assert ok is True
+        assert [u["username"] for u in list_users(conn)] == ["alice"]
+        assert any("reauth cleanup failed" in r.getMessage() for r in caplog.records), (
+            "expected a logged reauth-cleanup failure"
+        )
+
+    def test_non_sqlite_error_in_reauth_cleanup_propagates(self, conn):
+        # A bug in the cleanup path (e.g. a TypeError) is NOT swallowed —
+        # the narrowed ``except sqlite3.Error`` lets it surface.
+        create_user(conn, "alice", "p1", enforce_policy=False)
+        create_user(conn, "bob", "p2", enforce_policy=False)
+        with (
+            patch(
+                "mediaman.web.auth.reauth.revoke_all_reauth_for",
+                side_effect=TypeError("revoke_all_reauth_for bug"),
+            ),
+            pytest.raises(TypeError, match="revoke_all_reauth_for bug"),
+        ):
+            delete_user(conn, self._uid(conn, "bob"), current_username="alice")
+        # The delete transaction already committed before the best-effort
+        # cleanup ran — the propagating bug does not undo it.
+        assert [u["username"] for u in list_users(conn)] == ["alice"]

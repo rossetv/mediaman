@@ -5,6 +5,12 @@ from __future__ import annotations
 import sqlite3
 
 
+# rationale: §9.5 permits a repository returning ``list[dict]`` at a
+# documented template-feeding boundary. ``mediaman.web.routes.recommended.pages``
+# groups these rows by ``batch_id`` and renders the dict keys straight onto the
+# ``recommended.html`` Jinja template (and ``recommended/api.py`` serialises the
+# same dicts as JSON); a dataclass would add ceremony without removing the
+# template's column coupling.
 def fetch_recommendations(conn: sqlite3.Connection) -> list[dict[str, object]]:
     """Return cached recommendations from the DB, ordered by type then insertion order.
 
