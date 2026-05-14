@@ -196,4 +196,4 @@ def api_library_sync(request: Request, admin: str = Depends(get_current_admin)) 
             ip=get_client_ip(request),
             detail={"error": str(exc)[:200]},
         )
-        return respond_err("sync_failed", status=200, message="Library sync failed")
+        return respond_err("sync_failed", status=502, message="Library sync failed")

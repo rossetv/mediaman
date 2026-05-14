@@ -250,7 +250,7 @@ class TestLibrarySync:
             side_effect=_requests.ConnectionError("plex down"),
         ):
             resp = client.post("/api/library/sync")
-        assert resp.status_code == 200
+        assert resp.status_code == 502
         assert resp.json()["ok"] is False
 
 
