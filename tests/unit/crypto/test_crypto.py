@@ -175,9 +175,9 @@ class TestCanaryPreAadHeal:
 
         assert is_canary_valid(conn, secret_key) is True
 
-        upgraded = conn.execute(
-            "SELECT value FROM settings WHERE key='aes_kdf_canary'"
-        ).fetchone()["value"]
+        upgraded = conn.execute("SELECT value FROM settings WHERE key='aes_kdf_canary'").fetchone()[
+            "value"
+        ]
         assert upgraded != legacy_ct
         # The row now decrypts *with* AAD — the legacy shape is gone.
         assert (
