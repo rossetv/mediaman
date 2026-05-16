@@ -49,7 +49,7 @@ class TestDownloadPageGet:
         mock_radarr.get_movie_by_tmdb.return_value = None
 
         with patch(
-            "mediaman.web.routes.download.confirm.build_radarr_from_db", return_value=mock_radarr
+            "mediaman.web.routes.download._arr_cache.build_radarr_from_db", return_value=mock_radarr
         ):
             resp = client.get(f"/download/{token}")
 
@@ -96,7 +96,7 @@ class TestDownloadPageGet:
         mock_radarr.get_queue.return_value = []
 
         with patch(
-            "mediaman.web.routes.download.confirm.build_radarr_from_db", return_value=mock_radarr
+            "mediaman.web.routes.download._arr_cache.build_radarr_from_db", return_value=mock_radarr
         ):
             resp = client.get(f"/download/{token}")
 
@@ -121,7 +121,7 @@ class TestDownloadPageGet:
 
         try:
             with patch(
-                "mediaman.web.routes.download.confirm.build_radarr_from_db",
+                "mediaman.web.routes.download._arr_cache.build_radarr_from_db",
                 return_value=mock_radarr,
             ):
                 for _ in range(cap):

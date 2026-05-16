@@ -143,7 +143,9 @@ class TestAllowedPosterHost:
 
         from mediaman.web.routes.poster import _is_allowed_poster_host
 
-        with patch("mediaman.web.routes.poster.fetch.is_safe_outbound_url", return_value=True):
+        with patch(
+            "mediaman.web.routes.poster._validation.is_safe_outbound_url", return_value=True
+        ):
             return _is_allowed_poster_host(url)
 
     def _deny(self, url: str) -> bool:
@@ -199,7 +201,9 @@ class TestAllowedPosterHost:
 
         from mediaman.web.routes.poster import _is_allowed_poster_host
 
-        with patch("mediaman.web.routes.poster.fetch.is_safe_outbound_url", return_value=False):
+        with patch(
+            "mediaman.web.routes.poster._validation.is_safe_outbound_url", return_value=False
+        ):
             assert not _is_allowed_poster_host("https://image.tmdb.org/t/p/w500/x.jpg")
 
 
@@ -391,7 +395,7 @@ class TestArrPosterByStoredId:
                 "mediaman.web.routes.poster.fetch.build_radarr_from_db", return_value=mock_radarr
             ),
             patch("mediaman.web.routes.poster.fetch._POSTER_HTTP") as mock_http,
-            patch("mediaman.web.routes.poster.fetch.is_safe_outbound_url", return_value=True),
+            patch("mediaman.web.routes.poster._validation.is_safe_outbound_url", return_value=True),
         ):
             mock_resp = MagicMock()
             mock_resp.content = b"right"
@@ -514,7 +518,7 @@ class TestPosterCacheAtomicWrite:
 
         with (
             patch("mediaman.web.routes.poster.fetch._POSTER_HTTP") as mock_http,
-            patch("mediaman.web.routes.poster.fetch.is_safe_outbound_url", return_value=True),
+            patch("mediaman.web.routes.poster._validation.is_safe_outbound_url", return_value=True),
             patch(
                 "mediaman.web.routes.poster.fetch.sanitise_plex_url",
                 return_value="https://localhost",

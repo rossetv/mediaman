@@ -6,8 +6,6 @@ import json
 import logging
 import re
 import sqlite3
-import threading
-import time
 from collections.abc import Mapping
 from typing import cast
 
@@ -19,15 +17,7 @@ from fastapi.templating import Jinja2Templates
 from mediaman.crypto import generate_poll_token, validate_download_token
 from mediaman.db import get_db
 from mediaman.services.arr import ArrError
-from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
-from mediaman.services.arr.state import (
-    ArrCaches,
-    RadarrCaches,
-    SonarrCaches,
-    build_radarr_cache,
-    build_sonarr_cache,
-    compute_download_state,
-)
+from mediaman.services.arr.state import ArrCaches, compute_download_state
 from mediaman.services.downloads.download_format import build_item
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.item_enrichment import enrich_redownload_item
@@ -36,6 +26,21 @@ from mediaman.web.repository.download import (
     SuggestionEnrichment,
     fetch_suggestion_enrichment,
 )
+from mediaman.web.routes.download._arr_cache import (
+    _get_radarr_cache_cached,
+    _get_sonarr_cache_cached,
+    _reset_arr_cache_for_tests,
+)
+
+__all__ = [
+    "_DOWNLOAD_LIMITER_GET",
+    "_get_radarr_cache_cached",
+    "_get_sonarr_cache_cached",
+    "_reset_arr_cache_for_tests",
+    "download_page",
+    "router",
+    "validate_youtube_id",
+]
 
 # YouTube video IDs are exactly 11 URL-safe base64 characters.
 _YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -46,78 +51,6 @@ router = APIRouter()
 
 # Rate limiter for the public download GET endpoint.
 _DOWNLOAD_LIMITER_GET = RateLimiter(max_attempts=30, window_seconds=60)
-
-# ---------------------------------------------------------------------------
-# Per-service Arr-state cache.
-#
-# Each GET /download/{token} previously issued four outbound HTTP calls
-# (Radarr movies + queue, Sonarr series + queue) on every render. With
-# one valid public token, an attacker driving the rate limit (30 req/min)
-# would multiply that into 120 outbound requests/min/IP — effectively a
-# request amplifier against the operator's home Arr boxes. Cache the
-# per-service snapshot for a short window so a burst of confirm-page
-# loads collapses to one set of upstream calls.
-#
-# TTL is 30s: long enough to absorb a confirm-page burst, short enough
-# that a state change (admin adds a movie elsewhere) is reflected on the
-# next click without manual refresh. The cache is process-local so
-# multi-worker deploys re-fetch per worker — that is acceptable since
-# the limit is per-IP per-worker as well.
-# ---------------------------------------------------------------------------
-
-_ARR_CACHE_TTL_SECONDS = 30.0
-_ARR_CACHE_LOCK = threading.Lock()
-# (service_name, secret_key_fingerprint) -> (timestamp, cache_payload).
-# The payload is either a RadarrCaches or SonarrCaches TypedDict; the
-# caller knows which one to expect from the service tag in the key.
-_ARR_CACHE: dict[tuple[str, str], tuple[float, RadarrCaches | SonarrCaches]] = {}
-
-
-def _key_fingerprint(secret_key: str) -> str:
-    """Short fingerprint of *secret_key* for use as a cache key.
-
-    The full key never appears in the cache; only its first 8 bytes of a
-    hash. Different deployments with different secrets do not collide.
-    """
-    import hashlib
-
-    return hashlib.sha256(secret_key.encode()).hexdigest()[:16]
-
-
-def _get_radarr_cache_cached(conn: sqlite3.Connection, secret_key: str) -> RadarrCaches:
-    """Return the Radarr cache dict, using a process-wide TTL cache."""
-    key = ("radarr", _key_fingerprint(secret_key))
-    now = time.monotonic()
-    with _ARR_CACHE_LOCK:
-        hit = _ARR_CACHE.get(key)
-        if hit and now - hit[0] < _ARR_CACHE_TTL_SECONDS:
-            return hit[1]  # type: ignore[return-value]
-    radarr_client = build_radarr_from_db(conn, secret_key)
-    cache = build_radarr_cache(radarr_client)
-    with _ARR_CACHE_LOCK:
-        _ARR_CACHE[key] = (now, cache)
-    return cache
-
-
-def _get_sonarr_cache_cached(conn: sqlite3.Connection, secret_key: str) -> SonarrCaches:
-    """Return the Sonarr cache dict, using a process-wide TTL cache."""
-    key = ("sonarr", _key_fingerprint(secret_key))
-    now = time.monotonic()
-    with _ARR_CACHE_LOCK:
-        hit = _ARR_CACHE.get(key)
-        if hit and now - hit[0] < _ARR_CACHE_TTL_SECONDS:
-            return hit[1]  # type: ignore[return-value]
-    sonarr_client = build_sonarr_from_db(conn, secret_key)
-    cache = build_sonarr_cache(sonarr_client)
-    with _ARR_CACHE_LOCK:
-        _ARR_CACHE[key] = (now, cache)
-    return cache
-
-
-def _reset_arr_cache_for_tests() -> None:
-    """Clear the Arr-state cache. Test helper; never call in production."""
-    with _ARR_CACHE_LOCK:
-        _ARR_CACHE.clear()
 
 
 def validate_youtube_id(s: str | None) -> str | None:

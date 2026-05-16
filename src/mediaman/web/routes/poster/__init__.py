@@ -10,10 +10,13 @@ Package layout
     Filesystem cache state and helpers: directory bootstrap, atomic
     write, LRU sweep, sidecar mime persistence.
 
+``poster/_validation.py``
+    Pure validation helpers: rating-key validation, mime coercion,
+    allowed-host check, and Plex URL sanitiser.
+
 ``poster/fetch.py``
-    Outbound HTTP fetch logic, SSRF guards, and pure URL/mime helpers
-    (rating-key validation, mime coercion, allowed-host check, Plex
-    URL sanitiser, Plex/Radarr/Sonarr fetchers).
+    Outbound HTTP fetch logic and SSRF-allowlist client construction
+    for Plex and the Radarr/Sonarr fallback path.
 
 ``poster/__init__.py`` (this module)
     FastAPI route handler, rate limiters, auth gate, and back-compat
@@ -54,6 +57,15 @@ from mediaman.services.rate_limit.instances import (
     POSTER_PUBLIC_LIMITER as _POSTER_PUBLIC_LIMITER,
 )
 from mediaman.web.auth.middleware import get_optional_admin
+from mediaman.web.routes.poster._validation import (
+    is_allowed_poster_host as _is_allowed_poster_host,
+)
+from mediaman.web.routes.poster._validation import (
+    is_valid_rating_key as _validate_rating_key,
+)
+from mediaman.web.routes.poster._validation import (
+    safe_mime as _safe_mime,
+)
 from mediaman.web.routes.poster.cache import (
     CACHE_MAX_AGE_SECONDS as _CACHE_MAX_AGE_SECONDS,
 )
@@ -73,19 +85,10 @@ from mediaman.web.routes.poster.fetch import (
     fetch_arr_poster as _fetch_arr_poster,
 )
 from mediaman.web.routes.poster.fetch import (
-    is_allowed_poster_host as _is_allowed_poster_host,
-)
-from mediaman.web.routes.poster.fetch import (
-    is_valid_rating_key as _validate_rating_key,
-)
-from mediaman.web.routes.poster.fetch import (
     load_plex_credentials as _load_plex_credentials,
 )
 from mediaman.web.routes.poster.fetch import (
     resolve_poster_content as _resolve_poster_content,
-)
-from mediaman.web.routes.poster.fetch import (
-    safe_mime as _safe_mime,
 )
 
 __all__ = [

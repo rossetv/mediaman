@@ -264,7 +264,7 @@ class TestPlexSSRFRefusalAtScan:
 
         with (
             patch(
-                "mediaman.scanner.runner._build_plex",
+                "mediaman.scanner._plex_builder._build_plex",
                 side_effect=SSRFRefused("SSRF guard refused plex_url"),
             ),
             patch("mediaman.scanner.engine.ScanEngine") as MockEngine,
@@ -284,7 +284,7 @@ class TestPlexSSRFRefusalAtScan:
 
         with (
             patch(
-                "mediaman.scanner.runner._build_plex",
+                "mediaman.scanner._plex_builder._build_plex",
                 side_effect=SSRFRefused("SSRF guard refused plex_url"),
             ),
             patch("mediaman.scanner.engine.ScanEngine") as MockEngine,
