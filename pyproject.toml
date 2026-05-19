@@ -33,7 +33,7 @@ classifiers = [
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi~=0.136",
-    "uvicorn[standard]~=0.46",
+    "uvicorn[standard]~=0.47",
     "jinja2~=3.1",
     "plexapi~=4.18",
     "requests~=2.34",
