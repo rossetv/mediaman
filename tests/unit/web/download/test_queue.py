@@ -470,3 +470,40 @@ class TestNzbSeriesMatching:
         assert card["title"] == "Married at First Sight (AU)"
         assert card["poster_url"] == "http://img/mafs.jpg"
         assert card["state"] == "downloading"
+
+
+class TestDownloadsSubtitle:
+    """The page-header subtitle line — the single source of truth for the
+    queue-count copy shared by the server template and the poll-driven JS."""
+
+    @pytest.mark.parametrize(
+        ("hero", "queue", "upcoming", "expected"),
+        [
+            # Nothing downloading, nothing scheduled — empty-state card says it all.
+            (None, [], [], ""),
+            # Nothing downloading, releases scheduled — the bug case.
+            (None, [], [{}], "Nothing downloading · 1 coming soon"),
+            (None, [], [{}, {}], "Nothing downloading · 2 coming soon"),
+            # Something downloading.
+            ({"id": "h"}, [], [], "1 item in progress"),
+            ({"id": "h"}, [{}], [], "2 items in progress"),
+            ({"id": "h"}, [{}], [{}, {}], "2 items in progress · 2 coming soon"),
+            ({"id": "h"}, [], [{}], "1 item in progress · 1 coming soon"),
+        ],
+    )
+    def test_subtitle_cases(self, hero, queue, upcoming, expected):
+        from mediaman.services.downloads.download_queue import _downloads_subtitle
+
+        assert _downloads_subtitle(hero, queue, upcoming) == expected
+
+    def test_response_includes_subtitle(self, monkeypatch):
+        conn = _fake_conn_empty_recent()
+        monkeypatch.setattr(
+            "mediaman.services.downloads.download_queue.fetch_arr_queue", lambda c, _sk: []
+        )
+        monkeypatch.setattr(
+            "mediaman.services.downloads.download_queue.build_nzbget_from_db", lambda c, _sk: None
+        )
+
+        resp = _build_downloads_response(conn, "test-key")
+        assert resp["subtitle"] == ""

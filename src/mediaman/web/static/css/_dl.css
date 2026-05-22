@@ -226,14 +226,8 @@
 }
 .dl-compact-list { display: flex; flex-direction: column; gap: 8px; }
 
-.dl-empty-message {
-  padding: 60px 20px;
-  text-align: center;
-  background: var(--s1);
-  border: 1px dashed var(--hair);
-  border-radius: var(--r-lg);
-  color: var(--t3);
-}
+/* The "nothing downloading" empty state uses the shared .empty primitive
+   (see _base.css §18 / the c.empty() macro) — no bespoke rule here. */
 
 /* Episodes drawer */
 .dl-hero-episodes-toggle,
