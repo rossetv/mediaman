@@ -42,6 +42,7 @@ class DownloadsResponse(TypedDict):
     queue: list[dict[str, object]]
     upcoming: list[dict[str, object]]
     recent: list[dict[str, object]]
+    subtitle: str
 
 
 # ---------------------------------------------------------------------------

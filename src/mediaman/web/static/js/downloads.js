@@ -37,19 +37,23 @@
     var dom = buildDom();
     var heroContainer = document.getElementById('dl-hero-container');
     var queueContainer = document.getElementById('dl-queue-container');
-    var emptyEl = document.getElementById('dl-empty');
+    var emptyContainer = document.getElementById('dl-empty-container');
     var recentContainer = document.getElementById('dl-recent-container');
-    var header = root.querySelector('.page-header');
-    var subtitle = header ? header.querySelector('p') : null;
+    var header = root.querySelector('.ph');
 
-    var totalActive = (data.hero ? 1 : 0) + (data.queue ? data.queue.length : 0);
-
-    /* Update subtitle */
-    if (subtitle) {
-      if (totalActive > 0) {
-        dom.setText(subtitle, totalActive + ' item' + (totalActive !== 1 ? 's' : '') + ' in progress');
-      } else {
-        dom.setText(subtitle, '');
+    /* Subtitle — the server computes the line (data.subtitle, the single
+       source of truth for the count copy); the page just syncs the <p>,
+       creating or removing it as the line appears or empties. */
+    if (header) {
+      var subtitle = header.querySelector('p');
+      if (data.subtitle) {
+        if (!subtitle) {
+          subtitle = document.createElement('p');
+          header.appendChild(subtitle);
+        }
+        dom.setText(subtitle, data.subtitle);
+      } else if (subtitle) {
+        subtitle.parentNode.removeChild(subtitle);
       }
     }
 
@@ -62,8 +66,6 @@
         if (header) header.after(heroContainer);
       }
       renderHero().updateHero(heroContainer, data.hero);
-      /* Remove empty state */
-      if (emptyEl) { emptyEl.style.display = 'none'; }
     } else {
       if (heroContainer) { while (heroContainer.firstChild) heroContainer.removeChild(heroContainer.firstChild); }
     }
@@ -110,22 +112,23 @@
           }
         }
       }
-      /* Remove empty state */
-      if (emptyEl) { emptyEl.style.display = 'none'; }
     } else {
       if (queueContainer) {
         while (queueContainer.firstChild) queueContainer.removeChild(queueContainer.firstChild);
       }
     }
 
-    /* Empty state */
-    if (!data.hero && (!data.queue || data.queue.length === 0)) {
-      if (!emptyEl) {
-        emptyEl = dom.buildEmptyState();
-        var afterHeader = heroContainer || queueContainer || header;
-        if (afterHeader) afterHeader.after(emptyEl);
+    /* Empty state — #dl-empty-container is always in the DOM at a fixed
+       position (above "Coming soon"); fill it with the empty card when
+       nothing is downloading, clear it otherwise. */
+    if (emptyContainer) {
+      var nothingActive = !data.hero && (!data.queue || data.queue.length === 0);
+      var hasCard = emptyContainer.firstElementChild !== null;
+      if (nothingActive && !hasCard) {
+        emptyContainer.appendChild(dom.buildEmptyState());
+      } else if (!nothingActive && hasCard) {
+        while (emptyContainer.firstChild) emptyContainer.removeChild(emptyContainer.firstChild);
       }
-      emptyEl.style.display = '';
     }
 
     /* Upcoming */

@@ -68,6 +68,7 @@ def downloads_page(request: Request) -> Response:
             "queue": data["queue"],
             "upcoming": data["upcoming"],
             "recent": data["recent"],
+            "subtitle": data["subtitle"],
         },
     )
 

@@ -82,14 +82,18 @@
     return item;
   }
 
-  /* Build empty state element safely. */
+  /* Build the "nothing downloading" empty state.
+
+     Mirrors the c.empty() macro markup (.empty > .empty-ico + h3 + p) and
+     the download-tray glyph defined in downloads.html, so the poll-built
+     card is identical to the server-rendered one. The #dl-empty-container
+     owns the id — this builder returns only the inner card. */
   function buildEmptyState() {
     var el = document.createElement('div');
-    el.className = 'dl-empty-message';
-    el.id = 'dl-empty';
+    el.className = 'empty';
 
     var icon = document.createElement('div');
-    icon.className = 'empty-state__icon';
+    icon.className = 'empty-ico';
     var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('width', '28');
     svg.setAttribute('height', '28');
@@ -114,8 +118,12 @@
     icon.appendChild(svg);
     el.appendChild(icon);
 
+    var h3 = document.createElement('h3');
+    h3.textContent = 'All caught up';
+    el.appendChild(h3);
+
     var p = document.createElement('p');
-    p.textContent = 'All caught up — nothing downloading right now.';
+    p.textContent = 'Nothing downloading right now.';
     el.appendChild(p);
 
     return el;

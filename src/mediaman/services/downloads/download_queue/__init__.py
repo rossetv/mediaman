@@ -225,6 +225,41 @@ def _maybe_record_completions(
 
 
 # ---------------------------------------------------------------------------
+# Page-header subtitle
+# ---------------------------------------------------------------------------
+
+
+def _downloads_subtitle(
+    hero: dict[str, object] | None,
+    queue: list[dict[str, object]],
+    upcoming: list[dict[str, object]],
+) -> str:
+    """Build the Downloads page-header subtitle summarising queue state.
+
+    The line is the single source of truth for both the server-rendered
+    page and the poll-driven JS update, so the count logic lives in one
+    place. Four cases:
+
+    * something downloading       → ``"2 items in progress"``
+      (with ``" · 3 coming soon"`` appended when releases are scheduled)
+    * nothing downloading, but
+      releases are scheduled       → ``"Nothing downloading · 3 coming soon"``
+    * nothing downloading,
+      nothing scheduled            → ``""`` — the empty-state card says it all
+    """
+    active = (1 if hero else 0) + len(queue)
+    coming = len(upcoming)
+    if active:
+        line = f"{active} item{'s' if active != 1 else ''} in progress"
+        if coming:
+            line += f" · {coming} coming soon"
+        return line
+    if coming:
+        return f"Nothing downloading · {coming} coming soon"
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
@@ -240,7 +275,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     settings (NZBGet password, Radarr/Sonarr API keys).
 
     Returns ``{"hero": dict|None, "queue": list[dict], "upcoming":
-    list[dict], "recent": list[dict]}``.
+    list[dict], "recent": list[dict], "subtitle": str}``.
     """
     from mediaman.services.downloads.download_format import select_hero
 
@@ -300,9 +335,11 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
     active_titles = {cast(str, item["title"]) for item in items_as_dicts}
     recent = fetch_and_sync_recent_downloads(conn, active_ids, active_titles, secret_key)
 
+    upcoming = cast(list[dict[str, object]], upcoming_items)
     return {
         "hero": hero,
         "queue": queue,
-        "upcoming": cast(list[dict[str, object]], upcoming_items),
+        "upcoming": upcoming,
         "recent": cast(list[dict[str, object]], recent),
+        "subtitle": _downloads_subtitle(hero, queue, upcoming),
     }
