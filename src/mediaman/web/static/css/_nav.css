@@ -124,7 +124,7 @@
   text-decoration: none;
   letter-spacing: -.005em;
 }
-.nav-tab svg { width: 22px; height: 22px; stroke: currentColor; fill: none; }
+.nav-tab > .fa-solid { font-size: 20px; }
 .nav-tab:hover,
 .nav-tab.on { color: var(--accent); }
 
@@ -180,7 +180,7 @@
   text-align: left;
   transition: background .15s;
 }
-.nav-more-item svg { width: 20px; height: 20px; stroke: currentColor; fill: none; flex-shrink: 0; }
+.nav-more-item > .fa-solid { font-size: 18px; flex-shrink: 0; }
 .nav-more-item .chev { margin-left: auto; color: var(--t3); font-size: 18px; }
 .nav-more-item:hover { background: var(--s3); }
 .nav-more-item.on { background: var(--s3); color: var(--accent); }

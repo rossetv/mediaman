@@ -53,19 +53,10 @@
     }
     var badge = document.createElement('div');
     badge.className = 'dl-recent-badge';
-    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('width', '14');
-    svg.setAttribute('height', '14');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('fill', 'none');
-    svg.setAttribute('stroke', '#fff');
-    svg.setAttribute('stroke-width', '3');
-    svg.setAttribute('stroke-linecap', 'round');
-    svg.setAttribute('stroke-linejoin', 'round');
-    var polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-    polyline.setAttribute('points', '20 6 9 17 4 12');
-    svg.appendChild(polyline);
-    badge.appendChild(svg);
+    var badgeIcon = document.createElement('i');
+    badgeIcon.className = 'fa-solid fa-check';
+    badgeIcon.setAttribute('aria-hidden', 'true');
+    badge.appendChild(badgeIcon);
     poster.appendChild(badge);
     item.appendChild(poster);
 
@@ -94,28 +85,10 @@
 
     var icon = document.createElement('div');
     icon.className = 'empty-ico';
-    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('width', '28');
-    svg.setAttribute('height', '28');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('fill', 'none');
-    svg.setAttribute('stroke', 'currentColor');
-    svg.setAttribute('stroke-width', '1.5');
-    svg.setAttribute('stroke-linecap', 'round');
-    svg.setAttribute('stroke-linejoin', 'round');
-    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4');
-    svg.appendChild(path);
-    var poly = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-    poly.setAttribute('points', '7 10 12 15 17 10');
-    svg.appendChild(poly);
-    var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('x1', '12');
-    line.setAttribute('y1', '15');
-    line.setAttribute('x2', '12');
-    line.setAttribute('y2', '3');
-    svg.appendChild(line);
-    icon.appendChild(svg);
+    var iconEl = document.createElement('i');
+    iconEl.className = 'fa-solid fa-download';
+    iconEl.setAttribute('aria-hidden', 'true');
+    icon.appendChild(iconEl);
     el.appendChild(icon);
 
     var h3 = document.createElement('h3');
@@ -309,12 +282,10 @@
     btn.setAttribute('data-stuck-seasons', '[]');
     btn.setAttribute('aria-label', 'Stop tracking');
     btn.setAttribute('title', 'Stop tracking');
-    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', 'M6 6l12 12M18 6L6 18');
-    svg.appendChild(path);
-    btn.appendChild(svg);
+    var xIcon = document.createElement('i');
+    xIcon.className = 'fa-solid fa-xmark';
+    xIcon.setAttribute('aria-hidden', 'true');
+    btn.appendChild(xIcon);
     abandonWrap.appendChild(btn);
     row.appendChild(abandonWrap);
 

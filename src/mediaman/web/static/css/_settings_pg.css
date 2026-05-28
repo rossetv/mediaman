@@ -81,7 +81,7 @@
     font-size: 13.5px;
     scroll-snap-align: center;
   }
-  .setg-pg .setg-rail-item svg { width: 15px; height: 15px; }
+  .setg-pg .setg-rail-item > .fa-solid { font-size: 13px; }
   /* Active chip sits above the ::before/::after fade gradients so its edge
      never picks up a darkened band when it lands inside the 32px fade zone.
      Inactive chips stay below so the fades still cue horizontal scroll. */
@@ -111,12 +111,11 @@
 }
 .setg-pg .setg-rail-item:hover { color: var(--t1); background: rgba(255,255,255,.04); }
 .setg-pg .setg-rail-item.on    { color: var(--t1); background: var(--s2); }
-.setg-pg .setg-rail-item svg {
-  width: 16px; height: 16px;
-  stroke: currentColor; fill: none; stroke-width: 1.8;
+.setg-pg .setg-rail-item > .fa-solid {
+  font-size: 14px;
   flex-shrink: 0; opacity: .75;
 }
-.setg-pg .setg-rail-item.on svg { opacity: 1; color: var(--accent); }
+.setg-pg .setg-rail-item.on > .fa-solid { opacity: 1; color: var(--accent); }
 .setg-pg .setg-rail-item .rail-count {
   margin-left: auto;
   font-size: 10.5px; font-weight: 600; color: var(--t3);

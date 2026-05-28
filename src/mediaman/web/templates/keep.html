@@ -32,10 +32,7 @@
           <img src="/api/poster/{{ item.plex_rating_key }}" alt="">
         {% else %}
           <div class="item-poster-empty">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
-              <polyline points="21 15 16 10 5 21"/>
-            </svg>
+            <i class="fa-solid fa-image" aria-hidden="true"></i>
           </div>
         {% endif %}
       </div>
@@ -112,10 +109,7 @@
           <img src="/api/poster/{{ item.plex_rating_key }}" alt="">
         {% else %}
           <div class="item-poster-empty">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
-              <polyline points="21 15 16 10 5 21"/>
-            </svg>
+            <i class="fa-solid fa-image" aria-hidden="true"></i>
           </div>
         {% endif %}
       </div>
@@ -139,9 +133,7 @@
 
       <div class="already-kept-msg">
         <div class="check-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-success">
-            <polyline points="20 6 9 17 4 12"/>
-          </svg>
+          <i class="fa-solid fa-check text-success" aria-hidden="true"></i>
         </div>
         <div class="msg-title">
           {% if item.snooze_duration %}Already kept for {{ item.snooze_duration }}{% else %}Already kept{% endif %}
@@ -180,9 +172,7 @@
 
       <div class="expired-msg">
         <div class="expired-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="36" height="36">
-            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-          </svg>
+          <i class="fa-regular fa-clock" aria-hidden="true"></i>
         </div>
         <div class="expired-title">This link has expired</div>
         <div class="expired-detail">

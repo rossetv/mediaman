@@ -15,6 +15,16 @@
    ============================================================================ #}
 
 
+{# Font Awesome icon. `name` is the FA glyph slug (e.g. "fa-house"); `style`
+   picks the FA family ("solid", "regular", "brands"). Extra classes via
+   `extra_class`. Icons are decorative by default (aria-hidden="true"); pass
+   aria_hidden=false and an aria_label when the icon carries meaning on its own.
+#}
+{% macro icon(name, style="solid", extra_class="", aria_hidden=true, aria_label="") -%}
+<i class="fa-{{ style }} {{ name }}{% if extra_class %} {{ extra_class }}{% endif %}"{% if aria_hidden %} aria-hidden="true"{% endif %}{% if aria_label %} aria-label="{{ aria_label }}"{% endif %}></i>
+{%- endmacro %}
+
+
 {# Button — variants: primary, secondary, ghost, success, danger, accent-soft.
    sizes: sm, lg. Pass `tag="a"` for an anchor, `extra_class` for one-off
    layout helpers, `data_attrs` for a dict of data-* attributes (auto-escaped),
@@ -348,7 +358,7 @@
     <div class="hd-actions">
       {{ conn_pill(service) }}
       {% if include_test %}<button type="button" class="btn-test" data-test-service="{{ service }}">Test</button>{% endif %}
-      <svg class="intg-chev" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><polyline points="6 9 12 15 18 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <i class="fa-solid fa-chevron-down intg-chev" aria-hidden="true"></i>
     </div>
   </div>
   <div class="intg-card-bd" id="intg-body-{{ service }}" hidden>
@@ -418,6 +428,6 @@
         data-stuck-seasons='{{ stuck_seasons }}'
         aria-label="{{ label }}"
         title="{{ label }}">
-  <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+  <i class="fa-solid fa-xmark" aria-hidden="true"></i>
 </button>
 {%- endmacro %}

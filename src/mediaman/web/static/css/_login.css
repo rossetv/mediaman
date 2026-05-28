@@ -132,7 +132,7 @@
   margin-bottom: 14px;
   margin-top: 18px;
 }
-.fpc-eyebrow-icon { width: 14px; height: 14px; stroke-width: 2; }
+.fpc-eyebrow-icon { font-size: 12px; }
 .fpc-title {
   font-family: var(--font-display);
   font-size: 24px;

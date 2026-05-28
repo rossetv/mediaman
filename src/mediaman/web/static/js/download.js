@@ -172,15 +172,10 @@
       var toggle = document.createElement('div');
       toggle.className = 'dl-hero-episodes-toggle';
       toggle.setAttribute('data-v', 'ep-toggle');
-      var toggleSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      toggleSvg.setAttribute('width', '14'); toggleSvg.setAttribute('height', '14');
-      toggleSvg.setAttribute('viewBox', '0 0 24 24'); toggleSvg.setAttribute('fill', 'none');
-      toggleSvg.setAttribute('stroke', 'currentColor'); toggleSvg.setAttribute('stroke-width', '2.5');
-      toggleSvg.setAttribute('stroke-linecap', 'round');
-      var polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-      polyline.setAttribute('points', '9 18 15 12 9 6');
-      toggleSvg.appendChild(polyline);
-      toggle.appendChild(toggleSvg);
+      var chevIcon = document.createElement('i');
+      chevIcon.className = 'fa-solid fa-chevron-right';
+      chevIcon.setAttribute('aria-hidden', 'true');
+      toggle.appendChild(chevIcon);
       var countSpan = document.createElement('span');
       countSpan.textContent = episodes.length + ' episode' + (episodes.length !== 1 ? 's' : '');
       toggle.appendChild(countSpan);
@@ -282,28 +277,12 @@
     var resultEl = document.getElementById('download-result');
     resultEl.replaceChildren();
 
-    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('width', '48'); svg.setAttribute('height', '48');
-    svg.setAttribute('fill', 'none');
-    svg.setAttribute('stroke', success ? '#30d158' : '#ff453a');
-    svg.setAttribute('stroke-width', '2');
-    svg.setAttribute('stroke-linecap', 'round'); svg.setAttribute('stroke-linejoin', 'round');
-    var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circle.setAttribute('cx', '12'); circle.setAttribute('cy', '12'); circle.setAttribute('r', '10');
-    svg.appendChild(circle);
-    if (success) {
-      var pl = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-      pl.setAttribute('points', '8 12 11 15 16 9');
-      svg.appendChild(pl);
-    } else {
-      var l1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      l1.setAttribute('x1','15'); l1.setAttribute('y1','9'); l1.setAttribute('x2','9'); l1.setAttribute('y2','15');
-      var l2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      l2.setAttribute('x1','9'); l2.setAttribute('y1','9'); l2.setAttribute('x2','15'); l2.setAttribute('y2','15');
-      svg.appendChild(l1); svg.appendChild(l2);
-    }
-    resultEl.appendChild(svg);
+    var resultIcon = document.createElement('i');
+    resultIcon.className = 'fa-solid ' + (success ? 'fa-circle-check' : 'fa-circle-xmark') + ' dl-result-icon';
+    if (success) resultIcon.classList.add('dl-result-icon--success');
+    else resultIcon.classList.add('dl-result-icon--error');
+    resultIcon.setAttribute('aria-hidden', 'true');
+    resultEl.appendChild(resultIcon);
 
     var titleDiv = document.createElement('div');
     titleDiv.className = 'dl-result-title';

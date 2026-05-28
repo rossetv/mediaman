@@ -20,7 +20,7 @@
       <div class="u-flex">
         {{ c.btn("Scan now", variant="ghost", id="scan-btn",
                  data_attrs={"action": "trigger-scan"},
-                 icon='<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> ') }}
+                 icon='<i class="fa-solid fa-rotate-right" aria-hidden="true"></i> ') }}
         <span id="scan-status" class="scan-status"></span>
       </div>
     </div>
@@ -85,7 +85,7 @@
           <button type="button" class="btn btn--icon btn--secondary btn-sm-caret"
                   aria-haspopup="menu" aria-expanded="false"
                   aria-label="More keep options">
-            <svg viewBox="0 0 24 24" class="svg-icon-xs"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
+            <i class="fa-solid fa-ellipsis svg-icon-xs" aria-hidden="true"></i>
           </button>
           <div class="snooze-dropdown" role="menu">
             <button class="snooze-option" role="menuitem" tabindex="-1" data-action="keep-tile" data-duration="7d">7 days</button>

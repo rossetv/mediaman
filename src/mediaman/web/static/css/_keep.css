@@ -62,18 +62,6 @@
   text-align: center;
   box-shadow: var(--shadow-card);
 }
-.keep-card { max-width: 540px; margin: 80px auto; padding: 40px; background: var(--s1); border: 1px solid var(--hair); border-radius: var(--r-lg); text-align: center; box-shadow: var(--shadow-card); }
-.keep-check {
-  width: 72px; height: 72px;
-  margin: 0 auto 24px;
-  border-radius: 50%;
-  background: rgba(48,209,88,.15);
-  display: grid;
-  place-items: center;
-}
-.keep-check svg { width: 36px; height: 36px; color: var(--success); stroke: currentColor; fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
-.keep-card h1 { font-size: 28px; font-weight: 600; letter-spacing: -.025em; margin-bottom: 8px; }
-.keep-card p { color: var(--t2); margin-bottom: 24px; font-size: 15px; }
 
 .status-pill {
   display: inline-flex;
@@ -113,6 +101,7 @@
   place-items: center;
   color: var(--t4);
 }
+.item-poster-empty .fa-image { font-size: 42px; }
 
 .item-title {
   font-family: var(--font-display);
@@ -185,13 +174,12 @@
 .keep-footer a { color: var(--accent); font-size: 13px; }
 
 .already-kept-msg { margin: 18px 0; }
-.check-icon { display: grid; place-items: center; margin-bottom: 8px; }
-.check-icon svg { width: 36px; height: 36px; }
+.check-icon { display: grid; place-items: center; margin-bottom: 8px; font-size: 30px; }
 .msg-title { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
 .msg-detail { color: var(--t2); font-size: 13px; line-height: 1.5; }
 
 .expired-msg { margin: 24px 0; color: var(--t2); }
-.expired-icon { display: grid; place-items: center; margin-bottom: 12px; color: var(--t3); }
+.expired-icon { display: grid; place-items: center; margin-bottom: 12px; color: var(--t3); font-size: 32px; }
 .expired-title { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
 .expired-detail { font-size: 13px; line-height: 1.5; color: var(--t3); }
 

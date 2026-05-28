@@ -114,9 +114,7 @@
   {% if item.download_state == "in_library" %}
     {# Already in library — success message #}
     <div class="dl-result">
-      <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="#30d158" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="10"/><polyline points="8 12 11 15 16 9"/>
-      </svg>
+      <i class="fa-solid fa-circle-check dl-result-icon dl-result-icon--success" aria-hidden="true"></i>
       <div class="dl-result-title dl-result-title--success">Already in your library</div>
       <div class="dl-result-detail">This title is available to watch in Plex.</div>
     </div>
@@ -165,9 +163,7 @@
       <div class="status-dot dot-muted"></div> Expired
     </div>
     <div class="dl-expired-icon-wrap">
-      <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-      </svg>
+      <i class="fa-regular fa-clock dl-expired-icon" aria-hidden="true"></i>
     </div>
     <h1 class="dl-expired-title">This download link has expired</h1>
     <div class="dl-expired-sub">Download links are valid for 14 days after the newsletter is sent.</div>
