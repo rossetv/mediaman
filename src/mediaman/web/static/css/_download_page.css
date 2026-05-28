@@ -236,6 +236,10 @@
   display: grid;
   place-items: center;
 }
+.dl-expired-icon { font-size: 40px; color: rgba(255,255,255,0.3); }
+.dl-result-icon { font-size: 44px; margin-bottom: 8px; }
+.dl-result-icon--success { color: #30d158; }
+.dl-result-icon--error { color: #ff453a; }
 .dl-expired-title { font-size: 22px; font-weight: 600; letter-spacing: -.025em; }
 .dl-expired-sub   { color: var(--t3); font-size: 14px; }
 .dl-expired-back  { margin-top: 6px; }

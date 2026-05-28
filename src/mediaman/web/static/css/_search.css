@@ -24,15 +24,11 @@
 .search-box:focus-within,
 .search-wrap:focus-within { border-color: var(--accent); background: var(--s3); }
 
-.search-box svg,
+.search-box .fa-magnifying-glass,
 .search-wrap .search-icon,
 .search-icon {
-  width: 18px; height: 18px;
+  font-size: 16px;
   color: var(--t3);
-  stroke: currentColor;
-  fill: none;
-  stroke-width: 2;
-  stroke-linecap: round;
   flex-shrink: 0;
 }
 

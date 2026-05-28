@@ -71,7 +71,7 @@
   {# ----- Team members ----- #}
   {% set team_actions %}
     {{ c.btn("Add user", variant="primary", size="sm", id="btn-add-user",
-             icon='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> ') }}
+             icon='<i class="fa-solid fa-plus" aria-hidden="true"></i> ') }}
   {% endset %}
   {% call c.setg_card(title="Team", sub="Every account below has full admin access.",
                          header_actions=team_actions, pad=True) %}

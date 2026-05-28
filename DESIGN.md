@@ -245,6 +245,18 @@ Glass spec — both `.nav-glass` and `.nav-topbar` use:
 - Logout sits in `.nav-logout-form` inside `.nav-links` at the far right of the desktop rail.
 - The nav floats above content, maintaining its dark translucent glass regardless of section background.
 
+### Icons
+
+- **Library:** self-hosted Font Awesome Free 6 (`/static/fonts/fontawesome/`). No CDN, no npm dep — the CSS + woff2 files ship with the app.
+- **Loaded once** in `base.html` before page CSS, so FA classes can be styled by app-specific overrides.
+- **Usage:** prefer the `c.icon()` macro from `_components.html` for new icons; raw `<i class="fa-solid fa-NAME">` is acceptable for one-off inline placements.
+  - `{{ c.icon("fa-magnifying-glass") }}` — decorative search glyph (default `aria-hidden="true"`)
+  - `{{ c.icon("fa-rotate-right", extra_class="my-spinner") }}` — pass extra classes for layout/animation
+  - `{{ c.icon("fa-slack", style="brands") }}` — switches to the brands family
+- **Sizing:** style via `font-size` on a wrapper or the icon itself — FA glyphs scale with `font-size`, not `width`/`height`. Don't use `width:` / `stroke:` rules; they no longer apply.
+- **Accessibility:** decorative icons get `aria-hidden="true"` (the default in the macro). When an icon is the *only* content of an interactive element, the parent must carry an `aria-label`.
+- **No inline SVGs.** All template icons go through Font Awesome. The one exception is the `<select>` chevron in `_settings_pg.css`, which uses a data-URI SVG because `background-image` cannot consume a font glyph.
+
 ### Image Treatment
 - Products on solid-color fields (black or white) — no backgrounds, no context, just the object
 - Full-bleed section images that span the entire viewport width

@@ -249,10 +249,10 @@
 }
 .dl-hero-episodes-toggle:hover,
 .dl-compact-episodes-toggle:hover { background: rgba(255,255,255,.14); color: var(--t1); }
-.dl-hero-episodes-toggle svg,
-.dl-compact-episodes-toggle svg { transition: transform .2s; }
-.dl-hero-episodes-toggle.open svg,
-.dl-compact-episodes-toggle.open svg { transform: rotate(90deg); }
+.dl-hero-episodes-toggle .fa-chevron-right,
+.dl-compact-episodes-toggle .fa-chevron-right { transition: transform .2s; }
+.dl-hero-episodes-toggle.open .fa-chevron-right,
+.dl-compact-episodes-toggle.open .fa-chevron-right { transform: rotate(90deg); }
 
 .dl-hero-episodes,
 .dl-compact-episodes {
@@ -342,6 +342,8 @@
   border-radius: 50%;
   background: rgba(48,209,88,.85);
   backdrop-filter: blur(8px);
+  color: #fff;
+  font-size: 13px;
 }
 .dl-recent-title {
   font-size: 13px;

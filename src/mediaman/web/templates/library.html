@@ -36,7 +36,7 @@
   <form method="get" action="/library" id="toolbar-form">
     <div class="toolbar-row">
       <div class="search-box">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i>
         <input type="text" name="q" value="{{ q }}" placeholder="Search library…"
                autocomplete="off">
       </div>
@@ -139,9 +139,9 @@
                 data-show-rk="{{ item.show_rating_key }}" data-show-title="{{ item.show_title_raw | e }}">
                 <button type="button" class="keep-trigger keep-trigger--kept"
                   aria-haspopup="menu" aria-expanded="false" aria-label="Manage keep">
-                  <svg class="keep-trigger__tick" viewBox="0 0 24 24" aria-hidden="true"><polyline points="5 12 10 17 19 8"/></svg>
+                  <i class="fa-solid fa-check keep-trigger__tick" aria-hidden="true"></i>
                   <span>Kept</span>
-                  <svg class="keep-trigger__chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                  <i class="fa-solid fa-chevron-down keep-trigger__chev" aria-hidden="true"></i>
                 </button>
                 <div class="snooze-dropdown" role="menu">
                   <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="7d">Keep 7 days</button>
@@ -158,7 +158,7 @@
                 <button type="button" class="keep-trigger"
                   aria-haspopup="menu" aria-expanded="false" aria-label="Keep this item">
                   <span>Keep</span>
-                  <svg class="keep-trigger__chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                  <i class="fa-solid fa-chevron-down keep-trigger__chev" aria-hidden="true"></i>
                 </button>
                 <div class="snooze-dropdown" role="menu">
                   <button class="snooze-option" role="menuitem" tabindex="-1" data-keep-dur="7d">7 days</button>
