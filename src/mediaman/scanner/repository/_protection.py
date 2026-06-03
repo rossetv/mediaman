@@ -221,6 +221,46 @@ def fetch_already_scheduled_media_ids(
     return found
 
 
+def fetch_kept_show_keys(
+    conn: sqlite3.Connection,
+    show_rating_keys: list[str],
+    now_iso_str: str,
+) -> set[str]:
+    """Return the subset of *show_rating_keys* with a live keep rule.
+
+    Batched, set-building replacement for the per-season
+    :func:`is_show_kept_pure` round trip in the TV scan loop. The
+    live-keep rule matches :func:`is_show_kept_pure` exactly: a
+    ``protected_forever`` row, or a row whose ``execute_at`` is non-NULL
+    and still in the future. ``kept_shows.show_rating_key`` is ``UNIQUE``
+    (see the schema), so there is at most one row per key and the set
+    answer equals the helper's ``LIMIT 1`` read byte-for-byte. Chunked
+    into groups of 500 to stay below SQLite's parameter limit.
+
+    Unlike :func:`is_show_kept`, this performs **no** cleanup write: the
+    caller sweeps expired snoozes once up front via
+    :func:`cleanup_expired_show_snoozes` before building this set.
+    """
+    if not show_rating_keys:
+        return set()
+    found: set[str] = set()
+    for start in range(0, len(show_rating_keys), 500):
+        chunk = show_rating_keys[start : start + 500]
+        key_placeholders = ",".join("?" * len(chunk))
+        # rationale: §9.6 IN-clause batching — only "?" placeholders interpolated; every value is bound
+        rows = conn.execute(  # nosec B608
+            f"SELECT show_rating_key FROM kept_shows "
+            f"WHERE show_rating_key IN ({key_placeholders}) "
+            f"  AND ("
+            f"    action = 'protected_forever'"
+            f"    OR (execute_at IS NOT NULL AND execute_at > ?)"
+            f"  )",
+            (*chunk, now_iso_str),
+        ).fetchall()
+        found.update(r["show_rating_key"] for r in rows)
+    return found
+
+
 def cleanup_expired_snoozes(conn: sqlite3.Connection, now_iso: str) -> None:
     """Remove expired ``snoozed`` rows so items re-enter the scan pipeline."""
     conn.execute(
