@@ -216,12 +216,29 @@ jobs:
             exit 1
           fi
 
-  docker:
-    name: Docker build
-    # Gate the image push on every check-job, not just tests. A lint or
+  # Build each architecture on its OWN native runner, in parallel — amd64 on the
+  # standard runner, arm64 on GitHub's free public-repo arm64 runner. This
+  # avoids QEMU emulation entirely (an emulated arm64 build of this image is
+  # minutes slower, almost all of it in apt/dpkg), so the wall-clock cost is
+  # roughly one native build rather than amd64 + emulated-arm64 in series. The
+  # tests and other check jobs run ONCE as the shared gate below; neither arch
+  # leg re-runs them.
+  docker-build:
+    name: Build (${{ matrix.platform.arch }})
+    # Gate the image build on every check-job, not just tests. A lint or
     # bandit regression is not an excuse to ship.
     needs: [tests, lint, typecheck, security-scan, dependency-audit, lock-up-to-date]
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - arch: amd64
+            runner: ubuntu-latest
+            target: linux/amd64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            target: linux/arm64
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
@@ -241,31 +258,92 @@ jobs:
         if: github.event_name == 'pull_request'
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7
         with:
+          platforms: ${{ matrix.platform.target }}
           push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          # Provenance/SBOM attestation enabled by default in v6 tries to
-          # fetch the PR's git context from the public endpoint, which 500s
-          # on Dependabot PRs. PR builds only validate the Dockerfile can
-          # build; the main-branch push picks up attestation as normal.
+          # Per-arch gha cache scope so the two legs don't clobber each other.
+          cache-from: type=gha,scope=${{ matrix.platform.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.platform.arch }}
+          # Provenance/SBOM stays off: it fetches the PR's git context from the
+          # public endpoint, which 500s on Dependabot PRs, and it complicates
+          # the push-by-digest path below. PR builds only validate that the
+          # Dockerfile compiles natively on each arch — the safety net that
+          # catches a missing aarch64 wheel hash in requirements.lock on the PR.
           provenance: false
           sbom: false
 
-      - name: Build and push
+      - name: Build and push by digest
+        id: build
         if: github.event_name == 'push'
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7
         with:
-          push: true
-          platforms: linux/amd64
-          tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/mediaman:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/mediaman:sha-${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          platforms: ${{ matrix.platform.target }}
+          # Push the per-arch image by content digest only (no tag). The human
+          # tags are attached to the merged manifest list in docker-merge.
+          outputs: type=image,name=${{ secrets.DOCKERHUB_USERNAME }}/mediaman,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.platform.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.platform.arch }}
+          provenance: false
+          sbom: false
+
+      - name: Export digest
+        if: github.event_name == 'push'
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          digest="${{ steps.build.outputs.digest }}"
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: digest-${{ matrix.platform.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Assemble the two per-arch digests into a single multi-arch manifest list and
+  # attach the human tags. Cheap (no build) — just a registry-side manifest op.
+  docker-merge:
+    name: Docker manifest push
+    needs: docker-build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create and push manifest list
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          repo="${{ secrets.DOCKERHUB_USERNAME }}/mediaman"
+          # Each file is named after a per-arch image digest; combine them into
+          # one manifest list under both tags so `docker pull` auto-selects the
+          # amd64 or arm64 variant per host.
+          docker buildx imagetools create \
+            -t "${repo}:latest" \
+            -t "${repo}:sha-${{ github.sha }}" \
+            $(printf "${repo}@sha256:%s " *)
+
+      - name: Inspect manifest
+        run: |
+          docker buildx imagetools inspect "${{ secrets.DOCKERHUB_USERNAME }}/mediaman:sha-${{ github.sha }}"
 
   cloudflare-refresh:
     name: Cloudflare cache purge
-    needs: docker
+    needs: docker-merge
     # Guard: only run on the canonical repository so forks do not attempt
     # to contact the maintainer's Cloudflare zone.
     if: github.event_name == 'push' && github.repository == 'rossetv/mediaman'
