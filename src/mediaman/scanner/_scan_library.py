@@ -264,15 +264,31 @@ def scan_tv_library(
     fetched = engine._fetcher.fetch_library_items(library_id)
     conn = engine._conn
 
+    # §13.3-style batching for the show-kept guard. The previous code called
+    # repository.is_show_kept() once per season, issuing one ``kept_shows``
+    # SELECT — plus, on the not-kept path, one DELETE — for every season in the
+    # library (O(seasons) round trips against a one-row-per-show table).
+    # Instead: sweep expired snoozes once up front, then load the live keep set
+    # in batched IN-queries so the per-season check is a pure set membership
+    # test. ``kept_shows.show_rating_key`` is UNIQUE, so the set answer equals
+    # the old per-season LIMIT-1 read byte-for-byte, and the single bulk DELETE
+    # sweeps exactly the rows the per-season cleanup would have (an expired
+    # snooze is never "kept", so removing it eagerly changes no decision).
+    now = now_iso()
+    repository.cleanup_expired_show_snoozes(conn, now)
+    show_keys = [
+        key for key in {f.item.get("show_rating_key") for f in fetched} if isinstance(key, str)
+    ]
+    kept_show_keys = repository.fetch_kept_show_keys(conn, show_keys, now)
+
     def _evaluate(
         f: PlexItemFetch,
         added_at: datetime,
         watch_history: Sequence[Mapping[str, object]],
     ) -> str | None:
-        season = f.item
-        raw_key = season.get("show_rating_key")
+        raw_key = f.item.get("show_rating_key")
         show_key = raw_key if isinstance(raw_key, str) else None
-        if repository.is_show_kept(conn, show_key):
+        if show_key is not None and show_key in kept_show_keys:
             return None  # show is protected; skip all its seasons
         return evaluate_season(
             added_at=added_at,
