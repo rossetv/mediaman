@@ -30,15 +30,24 @@ class TestDeletePath:
 
 
 class TestAggregateDiskUsage:
-    def test_returns_usage_for_single_device(self, tmp_path):
-        """When all subdirs are on the same device, result has expected keys."""
-        import shutil
+    def test_returns_usage_for_single_device(self, tmp_path, mocker):
+        """When all subdirs are on the same device, result has expected keys.
+
+        ``shutil.disk_usage`` is pinned to a fixed reading: a live disk read
+        fluctuates as other processes (notably xdist workers writing their own
+        tmp dirs) touch the filesystem between calls, which would make the
+        aggregate drift from a separately-sampled reference and flake under
+        parallel test execution.
+        """
+        from collections import namedtuple
+
+        usage = namedtuple("usage", ["total", "used", "free"])(1000, 400, 600)
+        mocker.patch("shutil.disk_usage", return_value=usage)
 
         (tmp_path / "subdir").mkdir()
-        single = shutil.disk_usage(str(tmp_path))
         agg = get_aggregate_disk_usage(str(tmp_path))
-        assert agg["total_bytes"] == single.total
-        assert agg["used_bytes"] == single.used
+        assert agg["total_bytes"] == usage.total
+        assert agg["used_bytes"] == usage.used
 
     def test_nonexistent_path_raises(self):
         with pytest.raises(FileNotFoundError):
