@@ -44,7 +44,11 @@ jobs:
         # Coverage threshold lives in pyproject.toml ([tool.coverage.report]
         # fail_under). Don't override it here — one source of truth.
         # --maxfail bounds runtime when a refactor breaks many tests at once.
-        run: pytest -q --cov=mediaman --cov-report=term-missing --maxfail=10
+        # -n auto spreads the ~2700 tests across the runner's CPUs (pytest-cov
+        # combines per-worker coverage automatically). The suite is verified
+        # parallel-safe; any test that depends on a live filesystem/clock
+        # reading must pin it so it can't drift between workers.
+        run: pytest -q --cov=mediaman --cov-report=term-missing --maxfail=10 -n auto
 
   lint:
     name: Lint (ruff)
