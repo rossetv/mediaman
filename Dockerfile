@@ -6,9 +6,14 @@ FROM python:3.12.9-slim@sha256:48a11b7ba705fd53bf15248d1f94d36c39549903c5d59edcf
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
+# No build toolchain is installed: every pinned dependency in requirements.lock
+# ships a prebuilt cp312 wheel for both linux/amd64 and linux/arm64, and the
+# project itself is pure Python, so nothing is ever compiled from an sdist and
+# gcc is never invoked. This shaves the apt layer (and its slow dpkg unpack)
+# off both arch builds. If a future dependency lacks a wheel for a target arch,
+# the build fails loudly at the pip step below — reinstate build-essential
+# (plus rust, for pyo3/maturin packages such as cryptography or pydantic-core)
+# at that point.
 WORKDIR /app
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
