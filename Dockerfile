@@ -19,15 +19,25 @@ COPY pyproject.toml ./
 COPY requirements.lock ./
 COPY src/ src/
 # Pin all transitive dependencies to the audited versions in requirements.lock,
-# then install the project itself (which re-uses the already-installed deps).
-RUN pip install --no-cache-dir --require-hashes -r requirements.lock && pip install --no-cache-dir --no-deps .
+# then install the project itself (which re-uses the already-installed deps),
+# then pre-compile the whole venv to .pyc so the runtime image starts with
+# bytecode already present. compileall writes bytecode regardless of
+# PYTHONDONTWRITEBYTECODE, and COPYing the venv preserves the .py mtimes so the
+# .pyc files stay valid in the final stage (both stages pin the same digest, so
+# the interpreter that compiled them matches the one that loads them).
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock \
+    && pip install --no-cache-dir --no-deps . \
+    && python -m compileall -q /opt/venv
 
 # Stage 2: Production — lean image; no build tools, no test deps.
 # Same digest as the builder stage — both must match for reproducible builds.
 FROM python:3.12.9-slim@sha256:48a11b7ba705fd53bf15248d1f94d36c39549903c5d59edcfa2f3f84126e7b44
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+# PYTHONDONTWRITEBYTECODE is deliberately NOT set in the runtime stage (only in
+# the builder). The venv copied from the builder already ships pre-compiled
+# .pyc, so imports are fast; leaving bytecode writing enabled lets Python cache
+# any lazily-imported module on first use instead of recompiling it every time.
+ENV PYTHONUNBUFFERED=1
 
 # Create a fixed UID/GID 1000:1000 so the container always owns /data
 # with a predictable numeric identity. The compose file does not need to
