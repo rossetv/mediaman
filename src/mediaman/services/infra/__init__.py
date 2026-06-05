@@ -51,6 +51,7 @@ from mediaman.services.infra.storage import (
     get_aggregate_disk_usage,
     get_directory_size,
     get_disk_usage_for_paths,
+    path_within_delete_roots,
 )
 from mediaman.services.infra.url_safety import (
     PINNED_EXTERNAL_HOSTS,
@@ -80,6 +81,7 @@ __all__ = [
     "get_string_setting",
     "is_safe_outbound_url",
     "parse_delete_roots_env",
+    "path_within_delete_roots",
     "resolve_safe_outbound_url",
     "resolve_safe_path",
 ]

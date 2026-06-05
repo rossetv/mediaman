@@ -426,12 +426,18 @@ class ScanEngine:
                 item.get("file_path", ""),
                 arr_date_str,
             )
-        # Plex ``added_at`` is the file-arrival time and is the
-        # correct source. ``updated_at`` is a metadata-refresh marker;
-        # using it would mean every subtitle/poster refresh resets
-        # the eligibility clock, so it must only be a last-resort
-        # fallback when ``added_at`` is missing entirely.
-        candidate = item.get("added_at") or item.get("updated_at")
+        # Plex ``added_at`` is the file-arrival time and the only correct
+        # eligibility source. ``updated_at`` is a metadata-refresh marker —
+        # every subtitle/poster refresh resets it — so it is deliberately
+        # NOT used as a fallback: doing so would (a) keep recently-touched
+        # items permanently young and immune to deletion, and (b) diverge
+        # from ``upsert_media_item``, which stores ``added_at or now`` and
+        # never consults ``updated_at``. With ``updated_at`` dropped, the
+        # eligibility clock and the persisted ``media_items.added_at`` agree.
+        # A missing ``added_at`` falls straight to ``now`` via
+        # ``_ensure_tz(None)`` — the item is treated as freshly added and
+        # simply ages in on subsequent scans.
+        candidate = item.get("added_at")
         if candidate is not None and not isinstance(candidate, datetime):
             candidate = None
         return _ensure_tz(candidate)

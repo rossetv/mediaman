@@ -22,8 +22,11 @@ def is_protected(conn: sqlite3.Connection, media_id: str) -> bool:
 
     An item is protected if **any** of its ``scheduled_actions`` rows
     has ``action='protected_forever'`` (regardless of ``token_used``),
-    or if **any** of its ``snoozed`` rows still has ``execute_at`` in
-    the future.
+    or if **any** of its ``snoozed`` rows still has ``execute_at`` at or
+    after *now*. The boundary is inclusive (``>=``) so the protection
+    side owns the exact-``now`` instant; :func:`cleanup_expired_snoozes`
+    uses the complementary strict ``<`` so the two never overlap and a
+    snooze whose ``execute_at`` equals *now* is treated as still active.
 
     A ``protected_forever`` row is authoritative regardless of where it
     sits in id order: the schema does not enforce one-row-per-item and
@@ -38,7 +41,7 @@ def is_protected(conn: sqlite3.Connection, media_id: str) -> bool:
             "WHERE media_item_id = ? "
             "  AND ("
             "    action = 'protected_forever'"
-            "    OR (action = 'snoozed' AND execute_at IS NOT NULL AND execute_at > ?)"
+            "    OR (action = 'snoozed' AND execute_at IS NOT NULL AND execute_at >= ?)"
             "  ) "
             "LIMIT 1",
             (media_id, now_iso()),
@@ -169,7 +172,8 @@ def fetch_protected_media_ids(
     :func:`is_protected` round trip in the hot scan loop (§13.3). The
     active-ness rule matches :func:`is_protected` byte-for-byte: a
     ``protected_forever`` row (any ``token_used``) or a ``snoozed`` row
-    whose ``execute_at`` is non-NULL and in the future. Chunked into
+    whose ``execute_at`` is non-NULL and at or after *now* (inclusive
+    ``>=`` boundary, matching :func:`is_protected`). Chunked into
     groups of 500 to stay below SQLite's parameter limit.
     """
     if not media_ids:
@@ -184,7 +188,7 @@ def fetch_protected_media_ids(
             f"WHERE media_item_id IN ({id_placeholders}) "
             f"  AND ("
             f"    action = 'protected_forever'"
-            f"    OR (action = 'snoozed' AND execute_at IS NOT NULL AND execute_at > ?)"
+            f"    OR (action = 'snoozed' AND execute_at IS NOT NULL AND execute_at >= ?)"
             f"  )",
             (*chunk, now_iso_str),
         ).fetchall()
@@ -262,8 +266,20 @@ def fetch_kept_show_keys(
 
 
 def cleanup_expired_snoozes(conn: sqlite3.Connection, now_iso: str) -> None:
-    """Remove expired ``snoozed`` rows so items re-enter the scan pipeline."""
+    """Remove expired *unconsumed* ``snoozed`` rows so items re-enter scanning.
+
+    Scoped to ``token_used = 0`` deliberately. A ``snoozed`` row with
+    ``token_used = 1`` is the audit-grade record that the user once asked
+    to keep this item, and it is the **sole** re-entry signal read by
+    :func:`has_expired_snooze` (which matches only consumed rows). Sweeping
+    consumed rows here would destroy that signal, so an item whose snooze
+    expired more than one deletion-pass ago would be re-scheduled with
+    ``is_reentry = False`` and a normal grace period instead of being
+    flagged as a re-entry. Unconsumed expired snoozes carry no re-entry
+    meaning and are still swept so they cannot mask a fresh evaluation.
+    """
     conn.execute(
-        "DELETE FROM scheduled_actions WHERE action = 'snoozed' AND execute_at < ?",
+        "DELETE FROM scheduled_actions "
+        "WHERE action = 'snoozed' AND token_used = 0 AND execute_at < ?",
         (now_iso,),
     )

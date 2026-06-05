@@ -15,6 +15,7 @@ roll back the in-flight library. The helpers themselves do not commit.
 
 from __future__ import annotations
 
+import enum
 import logging
 import sqlite3
 from collections.abc import Callable, Mapping, Sequence
@@ -25,7 +26,7 @@ from typing import TYPE_CHECKING, cast
 from mediaman.core.time import now_iso
 from mediaman.scanner import repository
 from mediaman.scanner.fetch import PlexItemFetch
-from mediaman.scanner.phases.evaluate import evaluate_movie, evaluate_season
+from mediaman.scanner.phases.evaluate import evaluate_item
 from mediaman.scanner.phases.upsert import schedule_deletion as _phase_schedule_deletion
 from mediaman.scanner.phases.upsert import upsert_item as _phase_upsert_item
 
@@ -34,7 +35,28 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["scan_items", "scan_movie_library", "scan_tv_library"]
+__all__ = ["ScanDecision", "scan_items", "scan_movie_library", "scan_tv_library"]
+
+
+class ScanDecision(enum.Enum):
+    """The three explicit outcomes of evaluating one scanned item.
+
+    Replaces the previous stringly-typed channel that multiplexed three
+    states onto ``str | None`` (``"schedule_deletion"``, the ``"_skip"``
+    guard sentinel, and ``None`` for an evaluator early-skip), which forced
+    the caller to comment-explain which was which and risked a future
+    evaluator string colliding with the guard sentinel (M1 / §4.3).
+
+    * :attr:`SCHEDULE` — the item is eligible; schedule a deletion.
+    * :attr:`SKIP_GUARD` — a protection / already-scheduled guard fired
+      before the evaluator ran.
+    * :attr:`SKIP_EVAL` — the evaluator declined (too new, watched
+      recently, or an evaluator early-skip such as a kept show).
+    """
+
+    SCHEDULE = "schedule"
+    SKIP_GUARD = "skip_guard"
+    SKIP_EVAL = "skip_eval"
 
 
 @dataclass(slots=True)
@@ -76,7 +98,6 @@ def scan_items(
     media_type_fn: Callable[[PlexItemFetch], str],
     evaluate_fn: Callable[[PlexItemFetch, datetime, Sequence[Mapping[str, object]]], str | None],
     item_label: str,
-    library_id: str,
     summary: dict[str, int],
     seen_keys: set[str] | None = None,
 ) -> None:
@@ -91,12 +112,9 @@ def scan_items(
     (returns ``"schedule_deletion"``, a skip marker, or ``None`` for an
     evaluator-driven early skip such as the TV show-kept check).
 
-    *library_id* is reserved for future use — kept in the signature to
-    mirror the per-library shape of the callers and avoid churn in the
-    rest of the call graph. *seen_keys*, when provided, accumulates Plex
-    rating keys so orphan detection can exclude them later.
+    *seen_keys*, when provided, accumulates Plex rating keys so orphan
+    detection can exclude them later.
     """
-    del library_id  # reserved; see docstring
     # §13.3: one batched query per guard, built before the loop — the
     # protection state of an item cannot change under the per-item
     # ``media_items`` upserts, so a single up-front read is identical to
@@ -109,15 +127,22 @@ def scan_items(
             media_id, decision = _evaluate_scan_item(
                 engine, f, media_type_fn, evaluate_fn, seen_keys, guards
             )
-            if decision is None or decision == _SKIP:
-                # ``None`` = evaluator early-skip (e.g. show-kept);
-                # ``_SKIP`` = guard-driven skip (protected / already scheduled).
+            if decision is not ScanDecision.SCHEDULE:
+                # SKIP_GUARD (protected / already scheduled) or SKIP_EVAL
+                # (too new / watched recently / kept show) — count and move on.
                 summary["skipped"] += 1
                 continue
-            _apply_scan_decision(engine, media_id, decision, summary, guards)
-        except Exception:  # rationale: per-item isolation boundary — a single corrupt or malformed item cannot abort the entire library scan.
-            # Errors are recorded in summary["errors"] and logged with full
-            # traceback so operators can diagnose the root cause; the scheduler-level
+            _apply_scan_decision(engine, media_id, summary, guards)
+        except (KeyError, TypeError, ValueError, RuntimeError, sqlite3.Error):
+            # rationale: per-item isolation boundary, narrowed to the
+            # exception types a corrupt/malformed Plex item or a transient
+            # DB error can raise — a missing key, a wrong-typed field, an
+            # unparseable value, a Plex-client RuntimeError, or a SQLite
+            # error. A genuine programming bug (AttributeError, NameError,
+            # ...) is deliberately NOT caught here so it propagates and is
+            # not silently masked as an "item error". Caught errors are
+            # recorded in summary["errors"] and logged with full traceback
+            # so operators can diagnose the root cause; the scheduler-level
             # wrapper in runner.py handles job-level failures.
             summary["errors"] += 1
             logger.exception(
@@ -127,12 +152,6 @@ def scan_items(
             )
 
 
-# Sentinel returned by _evaluate_scan_item when a guard short-circuits
-# evaluation. Kept distinct from None (evaluator early-skip) and from any
-# real evaluator string so scan_items can distinguish the two skip paths.
-_SKIP = "_skip"
-
-
 def _evaluate_scan_item(
     engine: ScanEngine,
     f: PlexItemFetch,
@@ -140,15 +159,15 @@ def _evaluate_scan_item(
     evaluate_fn: Callable[[PlexItemFetch, datetime, Sequence[Mapping[str, object]]], str | None],
     seen_keys: set[str] | None,
     guards: _GuardSets,
-) -> tuple[str, str | None]:
+) -> tuple[str, ScanDecision]:
     """Upsert one item and return ``(media_id, decision)``.
 
-    ``decision`` is the evaluator's return value
-    (``"schedule_deletion"``, a skip marker, or ``None`` for an
-    evaluator-driven early skip such as the TV show-kept check). When
-    the protection / already-scheduled guards fire we return
-    ``(media_id, _SKIP)`` so the caller bumps the skipped counter
-    without invoking the evaluator.
+    The returned :class:`ScanDecision` makes the three outcomes explicit:
+    :attr:`~ScanDecision.SKIP_GUARD` when the protection / already-scheduled
+    guards fire (no evaluator call), :attr:`~ScanDecision.SCHEDULE` when the
+    evaluator returns ``"schedule_deletion"``, and
+    :attr:`~ScanDecision.SKIP_EVAL` for any other evaluator result
+    (``"skip"`` or ``None`` — e.g. the TV show-kept early skip).
 
     The protection and already-scheduled guards are answered from the
     pre-built *guards* sets — no per-item ``scheduled_actions`` SELECT
@@ -164,28 +183,28 @@ def _evaluate_scan_item(
     repository.update_last_watched(conn, media_id, f.watch_history)
 
     if media_id in guards.protected:
-        return media_id, _SKIP
+        return media_id, ScanDecision.SKIP_GUARD
     if media_id in guards.already_scheduled:
-        return media_id, _SKIP
+        return media_id, ScanDecision.SKIP_GUARD
 
     added_at = engine._resolve_added_at(cast(dict[str, object], item))
-    decision = evaluate_fn(f, added_at, f.watch_history)
-    return media_id, decision
+    result = evaluate_fn(f, added_at, f.watch_history)
+    if result == "schedule_deletion":
+        return media_id, ScanDecision.SCHEDULE
+    return media_id, ScanDecision.SKIP_EVAL
 
 
 def _apply_scan_decision(
     engine: ScanEngine,
     media_id: str,
-    decision: str,
     summary: dict[str, int],
     guards: _GuardSets,
 ) -> None:
-    """Apply a per-item decision (``schedule_deletion`` or skip).
+    """Schedule a deletion for *media_id* and bump the summary counter.
 
-    Branches on dry-run mode and re-entry status; bumps the matching
-    summary counter. Any decision other than ``"schedule_deletion"`` is
-    treated as a skip so the caller doesn't have to duplicate the
-    bookkeeping.
+    Only ever called for a :attr:`ScanDecision.SCHEDULE` item — skips are
+    handled by the caller — so this branches solely on dry-run mode and
+    re-entry status.
 
     When an item is freshly scheduled, its id is added to
     *guards.already_scheduled* so a later *fetched* item sharing the
@@ -193,9 +212,6 @@ def _apply_scan_decision(
     answer the old per-item ``is_already_scheduled`` query gave from the
     connection's uncommitted view.
     """
-    if decision != "schedule_deletion":
-        summary["skipped"] += 1
-        return
     if engine._dry_run:
         # Dry-run preview: count what *would* be scheduled but write
         # nothing. Both ``scheduled_actions`` and the audit_log row
@@ -230,7 +246,7 @@ def scan_movie_library(
         added_at: datetime,
         watch_history: Sequence[Mapping[str, object]],
     ) -> str | None:
-        return evaluate_movie(
+        return evaluate_item(
             added_at=added_at,
             watch_history=watch_history,
             min_age_days=engine._min_age_days,
@@ -243,7 +259,6 @@ def scan_movie_library(
         media_type_fn=lambda f: "movie",
         evaluate_fn=_evaluate,
         item_label="Movie",
-        library_id=library_id,
         summary=summary,
         seen_keys=seen_keys,
     )
@@ -290,7 +305,7 @@ def scan_tv_library(
         show_key = raw_key if isinstance(raw_key, str) else None
         if show_key is not None and show_key in kept_show_keys:
             return None  # show is protected; skip all its seasons
-        return evaluate_season(
+        return evaluate_item(
             added_at=added_at,
             watch_history=watch_history,
             min_age_days=engine._min_age_days,
@@ -303,7 +318,6 @@ def scan_tv_library(
         media_type_fn=lambda f: f.media_type,
         evaluate_fn=_evaluate,
         item_label="TV",
-        library_id=library_id,
         summary=summary,
         seen_keys=seen_keys,
     )

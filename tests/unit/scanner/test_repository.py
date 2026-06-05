@@ -119,6 +119,57 @@ class TestUpsertMediaItem:
         # The stored date must come from arr_date, not Plex's 2024-01-01.
         assert "2023-06-15" in row["added_at"]
 
+    def test_conflict_refreshes_plex_library_id(self, conn):
+        """M4: a Plex section re-org moves an item between libraries. The
+        ON CONFLICT update must refresh ``plex_library_id`` so the orphan
+        guard's universe (``count_items_in_libraries`` /
+        ``fetch_ids_in_libraries``) attributes the item to its new library
+        rather than carrying a stale id that ghosts the old library and
+        under-counts the new one.
+        """
+        item = self._item_dict()
+        repository.upsert_media_item(
+            conn, item=item, library_id="1", media_type="movie", arr_date=None
+        )
+        # Same id, re-organised into library 2.
+        repository.upsert_media_item(
+            conn, item=item, library_id="2", media_type="movie", arr_date=None
+        )
+        row = conn.execute("SELECT plex_library_id FROM media_items WHERE id='m1'").fetchone()
+        assert row["plex_library_id"] == 2
+        # Orphan-guard universe sees it under the NEW library only.
+        assert repository.count_items_in_libraries(conn, [2]) == 1
+        assert repository.count_items_in_libraries(conn, [1]) == 0
+
+    def test_conflict_refreshes_show_title_and_season_number(self, conn):
+        """M4: corrected upstream season metadata (``show_title`` /
+        ``season_number``) must propagate on conflict rather than stick at
+        the stale first-seen value.
+        """
+        item = {
+            "plex_rating_key": "s1",
+            "title": "Season 1",
+            "show_title": "Old Show Name",
+            "season_number": 1,
+            "added_at": datetime(2024, 1, 1, tzinfo=UTC),
+            "file_path": "/media/show/s1",
+            "file_size_bytes": 1,
+            "poster_path": None,
+        }
+        repository.upsert_media_item(
+            conn, item=item, library_id="3", media_type="season", arr_date=None
+        )
+        item["show_title"] = "Corrected Show Name"
+        item["season_number"] = 2
+        repository.upsert_media_item(
+            conn, item=item, library_id="3", media_type="season", arr_date=None
+        )
+        row = conn.execute(
+            "SELECT show_title, season_number FROM media_items WHERE id='s1'"
+        ).fetchone()
+        assert row["show_title"] == "Corrected Show Name"
+        assert row["season_number"] == 2
+
 
 # ---------------------------------------------------------------------------
 # update_last_watched
@@ -485,6 +536,36 @@ class TestCleanupExpiredSnoozes:
             conn.execute("SELECT id FROM scheduled_actions WHERE token='sn-fut'").fetchone()
             is not None
         )
+
+    def test_expired_consumed_snooze_still_marks_reentry_on_next_scan(self, conn):
+        """H1: the cleanup sweep must NOT delete an expired *consumed*
+        (``token_used = 1``) snooze. That row is the sole re-entry signal
+        read by ``has_expired_snooze``; deleting it would silently make
+        re-entry detection never fire for any item whose snooze lapsed
+        more than one deletion-pass ago. An unconsumed expired snooze is
+        still swept.
+        """
+        _insert_item(conn)
+        past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        # The consumed keep-token row that records "the user once snoozed this".
+        _insert_action(conn, action="snoozed", token="sn-consumed", execute_at=past, token_used=1)
+        # An unconsumed expired snooze that SHOULD still be swept.
+        _insert_action(conn, action="snoozed", token="sn-unused", execute_at=past, token_used=0)
+
+        repository.cleanup_expired_snoozes(conn, datetime.now(UTC).isoformat())
+        conn.commit()
+
+        # Consumed row survives; unconsumed row removed.
+        assert (
+            conn.execute("SELECT id FROM scheduled_actions WHERE token='sn-consumed'").fetchone()
+            is not None
+        )
+        assert (
+            conn.execute("SELECT id FROM scheduled_actions WHERE token='sn-unused'").fetchone()
+            is None
+        )
+        # The re-entry signal still fires on the next scan.
+        assert repository.has_expired_snooze(conn, "m1") is True
 
 
 # ---------------------------------------------------------------------------

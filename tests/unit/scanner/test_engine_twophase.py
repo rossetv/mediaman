@@ -204,12 +204,16 @@ class TestTwoPhaseDelete:
         ).fetchone()
         assert row["delete_status"] == "pending"
 
-    def test_recover_file_absent_completes_cleanup(self, conn, mock_plex):
-        """Recovery: a 'deleting' row whose file is already gone gets
-        its audit entry written and the row removed."""
+    def test_recover_file_absent_completes_cleanup(self, conn, mock_plex, tmp_path, monkeypatch):
+        """Recovery: a 'deleting' row whose file is already gone — but whose
+        path is within the configured delete roots — gets its audit entry
+        written and the row removed."""
         from mediaman.scanner.deletions import recover_stuck_deletions
 
-        self._insert_item(conn, "r2", file_path="/definitely/not/here/x.mkv")
+        root = tmp_path / "library"
+        root.mkdir()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        self._insert_item(conn, "r2", file_path=str(root / "x.mkv"))
         self._insert_sched(
             conn,
             "r2",

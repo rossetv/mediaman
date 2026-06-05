@@ -27,7 +27,12 @@ from mediaman.core.time import now_utc
 from mediaman.scanner import repository
 from mediaman.scanner.repository import DeletionRow
 from mediaman.services.arr.base import ArrError
-from mediaman.services.infra import DeletionRefused, SafeHTTPError, delete_path
+from mediaman.services.infra import (
+    DeletionRefused,
+    SafeHTTPError,
+    delete_path,
+    path_within_delete_roots,
+)
 
 if TYPE_CHECKING:
     from mediaman.services.arr.base import ArrClient
@@ -49,9 +54,17 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
     scheduler on startup. For each row marked ``deleting`` we check
     whether the on-disk file is still present:
 
-    * File absent -> the rm completed but the follow-up bookkeeping was
-      never committed. Convert to a normal ``deleted`` cleanup: write
-      the audit entry and drop the row.
+    * File absent **and** the stored path was within the configured
+      delete roots -> the rm completed but the follow-up bookkeeping was
+      never committed. Convert to a normal ``deleted`` cleanup: write the
+      audit entry (crediting the freed bytes) and drop the row.
+    * File absent **but** the stored path was NOT within the configured
+      delete roots (empty path, or an operator changed
+      ``MEDIAMAN_DELETE_ROOTS`` between the crash and restart, or the row's
+      path was always bogus) -> mediaman could never have deleted it, so we
+      must NOT fabricate a "deleted N bytes" audit row (that would corrupt
+      the audit trail and the reclaimed-bytes stats — a §7.5/§10.10 security
+      surface). Reset to ``pending`` and log loudly instead.
     * File present -> the rm never ran. Reset to ``pending`` so the next
       normal run retries cleanly.
 
@@ -62,6 +75,10 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
     if not rows:
         return
 
+    # Read the allowlist once so the file-absent branch can confirm the
+    # stored path was ever deletable before crediting freed bytes.
+    allowed_roots = repository.read_delete_allowed_roots_setting(conn)
+
     for row in rows:
         file_path = row.file_path or ""
         file_present = bool(file_path) and os.path.lexists(file_path)
@@ -69,6 +86,19 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
             logger.warning(
                 "engine.delete.recover id=%s path=%r — file still present, "
                 "reverting status to 'pending'",
+                row.id,
+                file_path,
+            )
+            repository.mark_delete_status(conn, row.id, "pending")
+        elif not path_within_delete_roots(file_path, allowed_roots):
+            # File is gone but the path was never inside an allowed root —
+            # mediaman did not (and could not) delete it. Do NOT write a
+            # phantom "deleted" audit row. Reset to pending and shout.
+            logger.error(
+                "engine.delete.recover id=%s path=%r — file absent but path is "
+                "outside the configured delete_allowed_roots (or roots are "
+                "unconfigured). Refusing to fabricate a 'deleted' audit entry; "
+                "reverting status to 'pending' for operator review.",
                 row.id,
                 file_path,
             )
@@ -209,6 +239,7 @@ def _commit_deletion(conn: sqlite3.Connection, row: DeletionRow) -> None:
 
 def _unmonitor_arr(
     row: DeletionRow,
+    *,
     radarr_client: ArrClient | None,
     sonarr_client: ArrClient | None,
 ) -> None:
@@ -348,7 +379,7 @@ class DeletionExecutor:
                 continue
 
             _commit_deletion(self._conn, row)
-            _unmonitor_arr(row, self._radarr, self._sonarr)
+            _unmonitor_arr(row, radarr_client=self._radarr, sonarr_client=self._sonarr)
 
             deleted_count += 1
             reclaimed_bytes += row.file_size_bytes or 0

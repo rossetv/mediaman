@@ -98,7 +98,6 @@ class TestScanItemsErrorIsolation:
                 media_type_fn=lambda f: "movie",
                 evaluate_fn=lambda f, added_at, wh: "skip",
                 item_label="Movie",
-                library_id="1",
                 summary=summary,
             )
 
@@ -119,10 +118,10 @@ class TestScanItemsErrorIsolation:
             call_count += 1
             if call_count == 1:
                 raise ValueError("first item dies")
-            # Return a sentinel that scan_items treats as skip
-            from mediaman.scanner._scan_library import _SKIP
+            # Return a decision that scan_items treats as skip
+            from mediaman.scanner._scan_library import ScanDecision
 
-            return (f.item["plex_rating_key"], _SKIP)
+            return (f.item["plex_rating_key"], ScanDecision.SKIP_GUARD)
 
         fetched = [_make_fetch("item-1"), _make_fetch("item-2")]
 
@@ -136,7 +135,6 @@ class TestScanItemsErrorIsolation:
                 media_type_fn=lambda f: "movie",
                 evaluate_fn=lambda f, added_at, wh: "skip",
                 item_label="Movie",
-                library_id="1",
                 summary=summary,
             )
 
@@ -149,11 +147,11 @@ class TestScanItemsErrorIsolation:
         engine = _StubEngine(conn)
         summary = {"scanned": 0, "skipped": 0, "scheduled": 0, "errors": 0}
 
-        from mediaman.scanner._scan_library import _SKIP
+        from mediaman.scanner._scan_library import ScanDecision
 
         with patch(
             "mediaman.scanner._scan_library._evaluate_scan_item",
-            return_value=("rk-ok", _SKIP),
+            return_value=("rk-ok", ScanDecision.SKIP_GUARD),
         ):
             scan_items(
                 engine,
@@ -161,7 +159,6 @@ class TestScanItemsErrorIsolation:
                 media_type_fn=lambda f: "movie",
                 evaluate_fn=lambda f, added_at, wh: "skip",
                 item_label="Movie",
-                library_id="1",
                 summary=summary,
             )
 
@@ -172,10 +169,10 @@ class TestScanItemsErrorIsolation:
 
 def _movie_evaluate(engine):
     """Build the movie evaluate_fn the real scan_movie_library uses."""
-    from mediaman.scanner.phases.evaluate import evaluate_movie
+    from mediaman.scanner.phases.evaluate import evaluate_item
 
     def _evaluate(f, added_at, watch_history):
-        return evaluate_movie(
+        return evaluate_item(
             added_at=added_at,
             watch_history=watch_history,
             min_age_days=engine._min_age_days,
@@ -197,7 +194,7 @@ class TestN1BatchingProtectionParity:
 
     def _seed(self, conn):
         """Four 60-day-old, never-watched items — all deletion-eligible by
-        ``evaluate_movie`` — one per guard state."""
+        ``evaluate_item`` — one per guard state."""
         now = datetime.now(UTC)
         old_added = (now - timedelta(days=60)).isoformat()
         for mid in ("prot", "snoozed", "sched", "plain"):
@@ -258,7 +255,6 @@ class TestN1BatchingProtectionParity:
             media_type_fn=lambda f: "movie",
             evaluate_fn=_movie_evaluate(engine),
             item_label="Movie",
-            library_id="1",
             summary=summary,
         )
 

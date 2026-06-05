@@ -10,6 +10,23 @@ import sqlite3
 logger = logging.getLogger(__name__)
 
 
+def read_setting(conn: sqlite3.Connection, key: str) -> str | None:
+    """Return the raw ``settings.value`` for *key*, or ``None`` if absent.
+
+    The single repository entry point for the duplicated inline
+    ``SELECT value FROM settings WHERE key=?`` reads that previously lived
+    in :mod:`runner` and :mod:`phases.delete` (§9.4 — the repository owns
+    the SQL). The value is returned verbatim (no JSON / bool coercion);
+    callers parse it for their own needs. A missing row and a row with a
+    SQL ``NULL`` value both yield ``None``.
+    """
+    row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    if row is None:
+        return None
+    value = row["value"]
+    return None if value is None else str(value)
+
+
 def read_delete_allowed_roots_setting(
     conn: sqlite3.Connection,
 ) -> list[str]:

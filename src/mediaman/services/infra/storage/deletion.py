@@ -25,6 +25,38 @@ from mediaman.services.infra.storage._delete_roots import (
 )
 
 
+def path_within_delete_roots(path: str, allowed_roots: list[str]) -> bool:
+    """Return True iff *path* is a strict descendant of a validated delete root.
+
+    A pure containment predicate — it performs **no** filesystem mutation
+    and never raises. Use it to decide whether a stored path *would have
+    been* deletable by :func:`delete_path` when the file itself is already
+    absent (so the device / symlink checks in :func:`_safe_rmtree` cannot
+    run). The crash-recovery path uses it to refuse crediting "freed bytes"
+    for a path that was never inside the configured roots.
+
+    Returns ``False`` (fail-closed) when *path* is empty, not absolute, the
+    allowlist is empty or malformed (any forbidden / relative / symlink
+    root), or *path* resolves to a root itself rather than a strict
+    descendant. The strict-descendant rule matches :func:`delete_path`
+    exactly so the predicate and the executor never disagree.
+    """
+    if not path or not isinstance(path, str):
+        return False
+    raw = Path(path)
+    if not raw.is_absolute():
+        return False
+    try:
+        resolved_roots = _validate_delete_roots(allowed_roots)
+    except DeletionRefused:
+        return False
+    # resolve() on a missing path simply normalises it (there is no
+    # symlink on disk to follow), which is the correct, conservative
+    # behaviour for the file-absent recovery case.
+    resolved = raw.resolve()
+    return any(root in resolved.parents for root in resolved_roots)
+
+
 def delete_path(path: str, *, allowed_roots: list[str] | None = None) -> None:
     """Delete a file or directory, with mandatory path validation.
 

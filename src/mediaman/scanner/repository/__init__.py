@@ -17,7 +17,7 @@ when it changes.
   protection/schedule reads and mutations on ``scheduled_actions`` and
   ``kept_shows``.
 * :mod:`mediaman.scanner.repository.settings` — table-group 4:
-  ``read_delete_allowed_roots_setting``.
+  ``read_delete_allowed_roots_setting``, ``read_setting``.
 
 **Repository purity contract:** this package is pure SQL — it must not
 import crypto primitives at module level.  Token generation lives in
@@ -59,7 +59,10 @@ from mediaman.scanner.repository.scheduled_actions import (
     is_show_kept_pure,
     mark_delete_status,
 )
-from mediaman.scanner.repository.settings import read_delete_allowed_roots_setting
+from mediaman.scanner.repository.settings import (
+    read_delete_allowed_roots_setting,
+    read_setting,
+)
 
 __all__ = [
     "DELETION_ACTION",
@@ -85,6 +88,7 @@ __all__ = [
     "is_show_kept_pure",
     "mark_delete_status",
     "read_delete_allowed_roots_setting",
+    "read_setting",
     "update_last_watched",
     "upsert_media_item",
 ]
