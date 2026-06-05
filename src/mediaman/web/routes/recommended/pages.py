@@ -152,7 +152,7 @@ def recommended_page(request: Request) -> Response:
     config = request.app.state.config
 
     arr = LazyArrClients(conn, config.secret_key)
-    all_recs = attach_download_states(formatted_batches, arr)
+    all_recs = attach_download_states(formatted_batches, arr, conn)
 
     # Use an explicit type whitelist instead of ``default=str`` so an
     # unexpected non-JSON value crashes the handler loudly rather than

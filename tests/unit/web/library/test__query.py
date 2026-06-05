@@ -340,3 +340,46 @@ class TestFetchStats:
         _insert_movie(conn, "m1", "Old Movie", added_at=old_date)
         stats = fetch_stats(conn)
         assert stats["stale"] >= 1
+
+    def test_stale_count_groups_seasons_into_one_per_show(self, db_path):
+        """A stale show with many seasons counts as one stale item, not N.
+
+        Regression: ``count_stale`` counted raw rows while the type counts
+        grouped seasons into shows, so a single 10-season show inflated the
+        "Stale" stat past the total item count (the impossible ``266 of 138``).
+        """
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        old_date = (datetime.now(UTC) - timedelta(days=60)).isoformat()
+        for season in (1, 2, 3):
+            _insert_tv_season(
+                conn, f"s{season}", "Old Show", "rk-old", season=season, added_at=old_date
+            )
+        stats = fetch_stats(conn)
+        assert stats["tv"] == 1
+        assert stats["stale"] == 1  # three stale seasons collapse to one stale show
+        assert stats["stale"] <= stats["total"]
+
+    def test_stale_count_never_exceeds_total(self, db_path):
+        """Mixed library: stale (display-item unit) is always ≤ total."""
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        old_date = (datetime.now(UTC) - timedelta(days=60)).isoformat()
+        _insert_movie(conn, "m1", "Old Movie", added_at=old_date)
+        for season in range(1, 6):
+            _insert_tv_season(
+                conn, f"s{season}", "Old Show", "rk-old", season=season, added_at=old_date
+            )
+        stats = fetch_stats(conn)
+        assert stats["total"] == 2  # one movie + one grouped show
+        assert stats["stale"] == 2  # both are stale, counted in the same unit
+        assert stats["stale"] <= stats["total"]
+
+    def test_recently_added_show_is_not_stale(self, db_path):
+        """A show whose seasons are all fresh is not counted as stale."""
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        for season in (1, 2):
+            _insert_tv_season(conn, f"s{season}", "Fresh Show", "rk-fresh", season=season)
+        stats = fetch_stats(conn)
+        assert stats["stale"] == 0

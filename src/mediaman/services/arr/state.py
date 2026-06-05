@@ -286,7 +286,9 @@ class LazyArrClients:
 
 
 def attach_download_states(
-    batches: list[dict[str, object]], arr: LazyArrClients
+    batches: list[dict[str, object]],
+    arr: LazyArrClients,
+    conn: sqlite3.Connection | None = None,
 ) -> dict[object, dict[str, object]]:
     """Annotate each recommendation with its Arr download state, in place.
 
@@ -294,6 +296,17 @@ def attach_download_states(
     item with a ``tmdb_id`` it computes :func:`compute_download_state`
     against the relevant Arr cache and, when that yields a non-``None``
     state, writes it onto ``item["download_state"]``.
+
+    Self-healing of stale ``downloaded_at``: that column is stamped when the
+    user adds a recommendation to Radarr/Sonarr and was never cleared when
+    the media subsequently left Arr (deleted, abandoned). The card template
+    and modal fall back to showing "Queued" off ``downloaded_at`` whenever
+    no live ``download_state`` is present, so a long-gone item showed a
+    phantom "Queued" badge forever. Here, when the relevant Arr client is
+    configured *and* reports the item untracked, we clear the stale flag —
+    both in memory (so this render is correct) and in the DB (*conn*, so it
+    stays fixed). We only clear when the client is configured, so an
+    Arr-down / unconfigured render never wipes a freshly-optimistic flag.
 
     The Radarr and Sonarr caches are built lazily — at most once each, and
     only if a movie / TV item is actually present — via *arr*. The two
@@ -309,6 +322,10 @@ def attach_download_states(
 
     radarr_cache: RadarrCaches | None = None
     sonarr_cache: SonarrCaches | None = None
+    radarr_configured = False
+    sonarr_configured = False
+
+    stale_flag_ids: list[object] = []
 
     all_recs: dict[object, dict[str, object]] = {}
     for batch in batches:
@@ -322,15 +339,35 @@ def attach_download_states(
             if tmdb_id and isinstance(tmdb_id, int) and isinstance(media_type, str):
                 if media_type == "movie":
                     if radarr_cache is None:
-                        radarr_cache = build_radarr_cache(arr.radarr())
+                        client = arr.radarr()
+                        radarr_configured = client is not None
+                        radarr_cache = build_radarr_cache(client)
                     caches: ArrCaches = {**radarr_cache, **empty_sonarr}
+                    configured = radarr_configured
                 else:
                     if sonarr_cache is None:
-                        sonarr_cache = build_sonarr_cache(arr.sonarr())
+                        client = arr.sonarr()
+                        sonarr_configured = client is not None
+                        sonarr_cache = build_sonarr_cache(client)
                     caches = {**empty_radarr, **sonarr_cache}
+                    configured = sonarr_configured
                 state = compute_download_state(media_type, tmdb_id, caches)
                 if state is not None:
                     item["download_state"] = state
+                elif configured and item.get("downloaded_at"):
+                    # Arr is reachable and no longer tracks this item — the
+                    # download_at flag is stale. Clear it so the badge heals.
+                    item["downloaded_at"] = None
+                    stale_flag_ids.append(item["id"])
 
             all_recs[item["id"]] = item
+
+    if conn is not None and stale_flag_ids:
+        placeholders = ",".join("?" * len(stale_flag_ids))
+        conn.execute(
+            f"UPDATE suggestions SET downloaded_at = NULL WHERE id IN ({placeholders})",
+            stale_flag_ids,
+        )
+        conn.commit()
+
     return all_recs

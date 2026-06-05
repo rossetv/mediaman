@@ -7,6 +7,7 @@ from mediaman.services.infra import (
     delete_path,
     get_aggregate_disk_usage,
     get_directory_size,
+    get_disk_usage_for_paths,
 )
 
 
@@ -60,6 +61,88 @@ class TestAggregateDiskUsage:
         agg = get_aggregate_disk_usage(str(tmp_path))
         assert agg["total_bytes"] > 0
         assert agg["free_bytes"] > 0
+
+    def test_dedups_binds_by_usage_tuple_not_stdev(self, tmp_path, mocker):
+        """Container binds share a synthetic ``st_dev``; the dedup must key on
+        the ``(total, used, free)`` reading so genuinely-separate drives are
+        summed while same-drive subdirs are merged.
+
+        Mirrors the OrbStack/Docker layout: ``/media`` (overlay) with movies
+        on one disk and tv+anime on another single disk.
+        """
+        from collections import namedtuple
+
+        usage = namedtuple("usage", ["total", "used", "free"])
+        movies = tmp_path / "movies"
+        tv = tmp_path / "tv"
+        anime = tmp_path / "anime"
+        for d in (movies, tv, anime):
+            d.mkdir()
+        readings = {
+            str(tmp_path): usage(900, 100, 800),  # overlay base
+            str(movies): usage(4_600, 221, 4_379),  # HDD5
+            str(tv): usage(13_000, 209, 12_791),  # HDD14
+            str(anime): usage(13_000, 209, 12_791),  # also HDD14 — same reading
+        }
+        mocker.patch("shutil.disk_usage", side_effect=lambda p: readings[p])
+
+        agg = get_aggregate_disk_usage(str(tmp_path))
+        # base + movies + tv; anime is the same disk as tv (deduped).
+        assert agg["total_bytes"] == 900 + 4_600 + 13_000
+        assert agg["used_bytes"] == 100 + 221 + 209
+
+
+class TestDiskUsageForPaths:
+    def test_sums_distinct_disks(self, tmp_path, mocker):
+        """Separate drives (different readings) are summed."""
+        from collections import namedtuple
+
+        usage = namedtuple("usage", ["total", "used", "free"])
+        movies = tmp_path / "movies"
+        tv = tmp_path / "tv"
+        for d in (movies, tv):
+            d.mkdir()
+        readings = {
+            str(movies): usage(4_600, 221, 4_379),
+            str(tv): usage(13_000, 209, 12_791),
+        }
+        mocker.patch("shutil.disk_usage", side_effect=lambda p: readings[p])
+
+        agg = get_disk_usage_for_paths([str(movies), str(tv)])
+        assert agg["total_bytes"] == 4_600 + 13_000
+        assert agg["used_bytes"] == 221 + 209
+
+    def test_same_disk_paths_counted_once(self, tmp_path, mocker):
+        """Two library folders on one physical drive must not double-count."""
+        from collections import namedtuple
+
+        usage = namedtuple("usage", ["total", "used", "free"])
+        tv = tmp_path / "tv"
+        anime = tmp_path / "anime"
+        for d in (tv, anime):
+            d.mkdir()
+        same = usage(13_000, 209, 12_791)
+        mocker.patch("shutil.disk_usage", return_value=same)
+
+        agg = get_disk_usage_for_paths([str(tv), str(anime)])
+        assert agg["total_bytes"] == 13_000  # not 26_000
+        assert agg["used_bytes"] == 209
+
+    def test_skips_missing_paths(self, tmp_path, mocker):
+        """A non-existent configured path is ignored, not fatal."""
+        from collections import namedtuple
+
+        usage = namedtuple("usage", ["total", "used", "free"])
+        real = tmp_path / "movies"
+        real.mkdir()
+        mocker.patch("shutil.disk_usage", return_value=usage(100, 10, 90))
+
+        agg = get_disk_usage_for_paths([str(real), str(tmp_path / "ghost")])
+        assert agg["total_bytes"] == 100
+
+    def test_empty_paths_returns_zeroes(self):
+        agg = get_disk_usage_for_paths([])
+        assert agg == {"total_bytes": 0, "used_bytes": 0, "free_bytes": 0}
 
 
 class TestDeletePathValidation:

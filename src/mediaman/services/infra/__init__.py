@@ -50,6 +50,7 @@ from mediaman.services.infra.storage import (
     delete_path,
     get_aggregate_disk_usage,
     get_directory_size,
+    get_disk_usage_for_paths,
 )
 from mediaman.services.infra.url_safety import (
     PINNED_EXTERNAL_HOSTS,
@@ -72,6 +73,7 @@ __all__ = [
     "get_aggregate_disk_usage",
     "get_bool_setting",
     "get_directory_size",
+    "get_disk_usage_for_paths",
     "get_int_setting",
     "get_media_path",
     "get_setting",
