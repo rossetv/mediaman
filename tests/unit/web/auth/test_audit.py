@@ -203,3 +203,49 @@ class TestActorColumn:
         row = conn.execute("SELECT actor, detail FROM audit_log").fetchone()
         assert row["actor"] == "admin"
         assert "actor=admin" in row["detail"]
+
+
+class TestSecurityBodyInjectionStripped:
+    """M6: CR/LF/NUL in free-form audit fields must be stripped so a caller
+    cannot forge log-line boundaries or spoof ``actor=``/``ip=`` fields a
+    later log-grep would attribute to the system.
+    """
+
+    def test_newline_in_actor_stripped(self):
+        from mediaman.core.audit import _format_security_body
+
+        body = _format_security_body("admin\nactor=root", "1.2.3.4", None)
+        assert "\n" not in body
+        assert "\r" not in body
+        # The injected text is collapsed onto the same line; no second
+        # forged record can be parsed out.
+        assert body.count("\n") == 0
+
+    def test_crlf_in_string_detail_stripped(self):
+        from mediaman.core.audit import _format_security_body
+
+        body = _format_security_body("alice", "1.2.3.4", "ok\r\nactor=root ip=9.9.9.9")
+        assert "\r" not in body and "\n" not in body
+
+    def test_nul_in_ip_stripped(self):
+        from mediaman.core.audit import _format_security_body
+
+        body = _format_security_body("alice", "1.2.3.4\x00evil", None)
+        assert "\x00" not in body
+
+    def test_clean_fields_unchanged(self):
+        from mediaman.core.audit import _format_security_body
+
+        body = _format_security_body("alice", "1.2.3.4", "all good")
+        assert body == "actor=alice ip=1.2.3.4 all good"
+
+    def test_injection_via_security_event_does_not_split_row(self, conn):
+        security_event(
+            conn,
+            event="login.failed",
+            actor="evil\nactor=admin",
+            ip="1.2.3.4",
+        )
+        rows = conn.execute("SELECT detail FROM audit_log").fetchall()
+        assert len(rows) == 1
+        assert "\n" not in rows[0]["detail"]

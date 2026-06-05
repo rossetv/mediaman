@@ -163,6 +163,11 @@ def _salt_cache_pop(cache_key: str) -> None:
 def _get_db_path(conn: sqlite3.Connection) -> str:
     """Return the absolute path of the primary database attached to *conn*."""
     row = conn.execute("PRAGMA database_list").fetchone()
+    # An in-memory DB (``:memory:``) reports an empty file column, so this
+    # returns ``""``. Callers treat an empty path as "do not cache"
+    # (``if cache_key:``), which intentionally disables the salt cache for
+    # in-memory DBs — desirable, since tests use ``:memory:`` and want a
+    # fresh salt per connection rather than a stale cross-test entry.
     return row[2] if row else ""
 
 
@@ -212,6 +217,10 @@ def _load_or_create_salt(conn: sqlite3.Connection) -> bytes:
     # actually landed.
     new_salt = secrets.token_bytes(16)
     encoded = base64.b64encode(new_salt).decode()
+    # encrypted=0 is load-bearing: ``is_canary_valid`` treats "encrypted
+    # rows exist but the canary is absent" as tampering and refuses to
+    # boot. The salt row must stay encrypted=0 so a fresh install (salt
+    # present, canary not yet seeded) does not trip that guard.
     conn.execute(
         "INSERT OR IGNORE INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?)",
         (_SALT_SETTING_KEY, encoded, _now_iso()),
@@ -219,6 +228,11 @@ def _load_or_create_salt(conn: sqlite3.Connection) -> bytes:
     conn.commit()
 
     row = conn.execute("SELECT value FROM settings WHERE key=?", (_SALT_SETTING_KEY,)).fetchone()
+    if row is None or not row["value"]:
+        # The INSERT was ignored AND no row is present — the row vanished
+        # between commit and re-read (concurrent delete or an unexpected
+        # trigger). Fail loud rather than dereferencing ``None`` (§1.11).
+        raise CryptoError("HKDF salt vanished after first-run insert")
     decoded = base64.b64decode(row["value"])
     if len(decoded) != 16:
         raise CryptoError(

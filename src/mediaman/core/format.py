@@ -41,7 +41,11 @@ def title_from_audit_detail(detail: str | None) -> str:
     * ``"Deleted: Some Title [rk:123]"`` — scanner engine
     * ``"Deleted 'Some Title' by admin [rk:123]"`` — library route
 
-    Returns ``"Unknown"`` when *detail* is empty or does not match.
+    Returns ``"Unknown"`` only when *detail* is empty. When *detail* is
+    non-empty but does not match either pattern, the (length-capped) input
+    is echoed back unchanged — a best-effort title is more useful to the
+    dashboard/newsletter than a generic placeholder for a row that simply
+    used an unrecognised wording.
 
     Long inputs are truncated to :data:`_AUDIT_TITLE_MAX_INPUT` before
     matching to bound the regex worst case; a malformed audit row
@@ -186,8 +190,8 @@ def safe_json_list(value: object) -> list[object]:
     if not isinstance(value, (str, bytes, bytearray)):
         return []
     try:
-        result = json.loads(value)
-        return result if isinstance(result, list) else []
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, list) else []
     except (json.JSONDecodeError, TypeError):
         return []
 
@@ -240,15 +244,17 @@ def relative_day_label(
     a passed-deadline still renders as "Expires today" / "Deletes today".
     """
     delta = (target - now).days
-    if delta == 0 or (delta < 0 and past is None):
-        return today
     if delta == 1:
         return tomorrow
     if delta > 0:
         return future(delta)
-    # delta < 0 and past is not None — checked above.
-    assert past is not None
-    return past(-delta)
+    # delta <= 0 from here. A past date renders via ``past`` when one was
+    # supplied; otherwise (and for delta == 0) it collapses to ``today``.
+    # Testing ``past is None`` here narrows the type for the call below
+    # without a runtime ``assert`` (§16.3).
+    if delta < 0 and past is not None:
+        return past(-delta)
+    return today
 
 
 def days_ago(value: str | None) -> str:

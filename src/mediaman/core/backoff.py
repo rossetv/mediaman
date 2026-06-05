@@ -34,6 +34,7 @@ other mediaman modules.
 from __future__ import annotations
 
 import hashlib
+import math
 import random
 
 
@@ -69,6 +70,19 @@ class ExponentialBackoff:
     ) -> None:
         if jitter < 0.0 or jitter >= 1.0:
             raise ValueError(f"jitter must be in [0.0, 1.0), got {jitter!r}")
+        # Reject NaN/inf and negatives on the delay floats. A NaN base
+        # poisons every ``min()`` (NaN comparisons are False), silently
+        # corrupting the scheduler's sleep math; an inf ceiling defeats the
+        # cap. Validate at construction so the failure surfaces at the call
+        # site rather than as a mystery sleep much later.
+        if not math.isfinite(base_seconds) or base_seconds < 0.0:
+            raise ValueError(f"base_seconds must be finite and >= 0, got {base_seconds!r}")
+        if not math.isfinite(max_seconds) or max_seconds < 0.0:
+            raise ValueError(f"max_seconds must be finite and >= 0, got {max_seconds!r}")
+        if max_seconds < base_seconds:
+            raise ValueError(
+                f"max_seconds ({max_seconds!r}) must be >= base_seconds ({base_seconds!r})"
+            )
         self._base = base_seconds
         self._max = max_seconds
         self._jitter = jitter
@@ -79,7 +93,9 @@ class ExponentialBackoff:
         Args:
             attempts: Number of failures observed so far.  The first failure
                 (``attempts == 1``) returns ``base_seconds``; subsequent
-                failures double until ``max_seconds`` is reached.
+                failures double until ``max_seconds`` is reached. Any
+                ``attempts <= 1`` (including ``0`` and negatives) also
+                returns ``base_seconds`` — there is no "zero delay" case.
             seed: Byte string used to derive a deterministic jitter
                 multiplier.  Required when ``jitter > 0``; ignored (and
                 should be ``None``) when ``jitter == 0``.
@@ -93,8 +109,10 @@ class ExponentialBackoff:
                 "acceptable here because the delay is re-evaluated on every poll"
             )
 
-        n = max(attempts, 0)
-        base_delay: float = min(self._base * 2.0 ** max(n - 1, 0), self._max)
+        # ``max(attempts - 1, 0)`` already floors the exponent, so any
+        # ``attempts <= 1`` (including 0 and negatives) yields ``base_seconds``.
+        # No separate clamp on ``attempts`` is needed.
+        base_delay: float = min(self._base * 2.0 ** max(attempts - 1, 0), self._max)
 
         if self._jitter == 0.0 or seed is None:
             return base_delay

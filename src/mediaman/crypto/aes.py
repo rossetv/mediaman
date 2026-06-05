@@ -11,6 +11,7 @@ between rows fails authentication.
 from __future__ import annotations
 
 import base64
+import binascii
 import collections.abc
 import logging
 import secrets
@@ -82,8 +83,11 @@ def decrypt_value(
             settings row's key name.
 
     Raises:
-        CryptoInputError: If *encrypted* is empty or exceeds the maximum
-            ciphertext length.
+        CryptoInputError: If *encrypted* is empty, exceeds the maximum
+            ciphertext length, or is not valid base64url.
+        ValueError: On a v2-shaped ciphertext when no salt source is
+            supplied (neither *conn* nor *salt*) — a key-material
+            configuration error, distinct from an authentication failure.
         InvalidTag: When the ciphertext fails authentication.
     """
     if not encrypted:
@@ -91,16 +95,27 @@ def decrypt_value(
     if len(encrypted) > _MAX_CIPHERTEXT_LEN:
         raise CryptoInputError("decrypt_value: ciphertext exceeds max length")
 
-    raw = base64.urlsafe_b64decode(encrypted)
+    # ``encrypted`` is attacker/DB-controlled; a malformed base64 string
+    # raises ``binascii.Error`` (a ``ValueError`` subclass). Surface it as
+    # the documented ``CryptoInputError`` so callers catching the contract
+    # don't see an unexpected error type escape (H3).
+    try:
+        raw = base64.urlsafe_b64decode(encrypted)
+    except (binascii.Error, ValueError) as exc:
+        raise CryptoInputError("decrypt_value: ciphertext is not valid base64") from exc
 
     if len(raw) >= 1 + _GCM_NONCE_BYTES + _GCM_TAG_BYTES and raw[:1] == _V2_PREFIX:
         resolved_salt = _resolve_salt(conn, salt)
-        if resolved_salt is not None:
-            key = _derive_aes_key_hkdf(secret_key, resolved_salt)
-            aesgcm = AESGCM(key)
-            nonce = raw[1 : 1 + _GCM_NONCE_BYTES]
-            ciphertext = raw[1 + _GCM_NONCE_BYTES :]
-            return aesgcm.decrypt(nonce, ciphertext, aad).decode()
+        if resolved_salt is None:
+            # v2-shaped input but no key material — a programming/config
+            # error, not a tampered ciphertext. Raise a distinct ValueError
+            # (matching encrypt_value) rather than a misleading InvalidTag.
+            raise ValueError("decrypt_value requires a salt source — pass conn=... or salt=...")
+        key = _derive_aes_key_hkdf(secret_key, resolved_salt)
+        aesgcm = AESGCM(key)
+        nonce = raw[1 : 1 + _GCM_NONCE_BYTES]
+        ciphertext = raw[1 + _GCM_NONCE_BYTES :]
+        return aesgcm.decrypt(nonce, ciphertext, aad).decode()
 
     raise InvalidTag()
 
@@ -164,7 +179,7 @@ def is_canary_valid(
             conn=conn,
             aad=_CANARY_SETTING_KEY.encode(),
         )
-    except (InvalidTag, ValueError):
+    except (InvalidTag, ValueError, CryptoInputError):
         return _fail_canary(
             conn,
             on_failure,
@@ -222,5 +237,5 @@ def _invoke_on_failure(
         return
     try:
         on_failure(reason)
-    except Exception:  # pragma: no cover; rationale: best-effort audit write — never override the canary's security verdict because the audit callback raised
+    except Exception:  # pragma: no cover; rationale: a buggy or slow audit closure (e.g. a signature-mismatch TypeError) must not flip the canary's security verdict — log it and return the verdict the crypto check produced
         logger.exception("canary on_failure callback raised reason=%s", reason)
