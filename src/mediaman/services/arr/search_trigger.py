@@ -40,6 +40,7 @@ import requests
 if TYPE_CHECKING:
     from mediaman.services.arr.fetcher import ArrCard
 
+from mediaman.services.arr import ArrError
 from mediaman.services.arr._throttle_persistence import (  # noqa: F401
     _STRANDED_THROTTLE_TTL_SECONDS,
     _load_throttle_from_db,
@@ -69,7 +70,6 @@ from mediaman.services.arr._throttle_state import (
     _search_backoff_seconds as _search_backoff_seconds,
 )
 from mediaman.services.arr.auto_abandon import maybe_auto_abandon
-from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.fetcher import fetch_arr_queue
 from mediaman.services.infra import ConfigDecryptError, SafeHTTPError
@@ -149,7 +149,7 @@ def _parse_trigger_inputs(
         arr_id=arr_id,
         kind=kind,
         service=service,
-        arr_throttle_key=_arr_throttle_key(service, arr_id),
+        arr_throttle_key=_arr_throttle_key(service),
         now=now,
     )
 
@@ -181,10 +181,13 @@ def _commit_or_rollback_reservation(
         if triggered:
             new_count = previous_count + 1
             _search_count[dl_id] = new_count
-            # Mirror the timestamp under the arr-id-stable key so a
-            # subsequent rename of the same series can't bypass the
-            # throttle by producing a fresh title-derived dl_id.
-            _last_search_trigger_by_arr[inputs.arr_throttle_key] = now
+            # Stamp the per-arr-instance fan-out cap with (now, dl_id) so the
+            # next *different* eligible item on this instance is skipped in
+            # phase 1 for the throttle window — capping fan-out to ONE search
+            # per instance per window. Storing the dl_id lets this same item
+            # keep advancing on its own backoff, while a renamed item (fresh
+            # dl_id) is correctly blocked.
+            _last_search_trigger_by_arr[inputs.arr_throttle_key] = (now, dl_id)
             # Successful trigger keeps the reservation timestamp;
             # the token is no longer load-bearing so drop it to
             # avoid leaking memory.
@@ -223,7 +226,9 @@ def maybe_trigger_search(
     - item is upcoming (Radarr/Sonarr correctly won't search for it)
     - item is matched to an NZBGet entry (actively downloading)
     - item was added less than 5 minutes ago
-    - a search was triggered for the same dl_id within the last 15 minutes
+    - a search was triggered for the same dl_id within its per-item backoff
+    - ANY search was triggered for the same arr instance within the last 15
+      minutes (the per-arr-instance fan-out cap)
     - secret_key is empty
 
     Locking discipline:
@@ -271,6 +276,19 @@ def maybe_trigger_search(
     # nuked by our rollback.
     my_token = uuid.uuid4().hex
     with _state_lock:
+        # Per-arr-instance fan-out cap (B2): if a *different* item on this arr
+        # instance fired within _PER_ARR_THROTTLE_SECONDS, skip — this bounds 50
+        # stuck movies to ONE Radarr search per window rather than 50
+        # simultaneous MoviesSearch commands hammering the indexer. The stored
+        # dl_id is checked so the *same* item is NOT blocked here — it still
+        # advances along its own per-item backoff below (a renamed item presents
+        # a fresh dl_id and so is correctly blocked). Best-effort in-process
+        # state (§1.12); see _last_search_trigger_by_arr.
+        arr_last_epoch, arr_last_dl_id = _last_search_trigger_by_arr.get(
+            inputs.arr_throttle_key, (0.0, "")
+        )
+        if arr_last_dl_id != dl_id and now - arr_last_epoch < _PER_ARR_THROTTLE_SECONDS:
+            return
         last = _last_search_trigger.get(dl_id, 0.0)
         previous_count = _search_count.get(dl_id, 0)
         if last == 0.0 and persisted_epoch > 0.0:
@@ -424,19 +442,23 @@ def _trigger_sonarr_partial_missing(
         if item.get("kind") == "series" and item.get("arr_id")
     }
 
-    # The per-``dl_id`` throttle in ``maybe_trigger_search`` collapses
-    # under a Sonarr title rename — a renamed series produces a fresh
-    # ``sonarr:{title}`` key on every tick, bypassing the throttle.
-    # Pre-filter on the arr-id-stable parallel throttle so a renamed
-    # series we recently triggered cannot be re-poked here.
+    # Cheap pre-filter on the per-arr-instance fan-out cap: this pass only ever
+    # builds *fresh* ``sonarr:{title}`` dl_ids (series the main pass didn't
+    # cover), so if Sonarr fired any search within the window the inner
+    # ``maybe_trigger_search`` would skip every one of them anyway (different
+    # dl_id within the window). Short-circuit the whole pass — including the
+    # missing-series fetch — rather than building synthetic items only to have
+    # them all gated. This also closes the title-rename bypass: a renamed series
+    # presents a fresh dl_id, but the instance-level window still gates it.
     now = time.time()
+    with _state_lock:
+        arr_last_epoch, _ = _last_search_trigger_by_arr.get(_arr_throttle_key("sonarr"), (0.0, ""))
+    if now - arr_last_epoch < _PER_ARR_THROTTLE_SECONDS:
+        return
+
     missing = sonarr_client.get_missing_series()
     for series_id, title in missing.items():
         if series_id in already_poked:
-            continue
-        with _state_lock:
-            arr_last = _last_search_trigger_by_arr.get(_arr_throttle_key("sonarr", series_id), 0.0)
-        if now - arr_last < _PER_ARR_THROTTLE_SECONDS:
             continue
         maybe_trigger_search(
             conn,

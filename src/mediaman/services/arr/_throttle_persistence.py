@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import time
 from datetime import UTC, timedelta
 
 from mediaman.core.time import now_utc
 from mediaman.services.arr._throttle_state import (
+    _arr_throttle_key,
     _last_search_trigger,
     _last_search_trigger_by_arr,
     _reservation_tokens,
@@ -29,6 +31,14 @@ from mediaman.services.arr._throttle_state import (
 logger = logging.getLogger(__name__)
 
 _STRANDED_THROTTLE_TTL_SECONDS = 90 * 24 * 60 * 60  # 90 days
+
+# Rate-limit for the persist-failure WARNING (M7): a wedged disk would
+# otherwise emit one WARNING per dl_id per tick, drowning the log. We log at
+# most once per this window and fold the suppressed count into the next line.
+# Best-effort in-process counters (§1.12); reset on restart.
+_PERSIST_WARN_INTERVAL_SECONDS = 60.0
+_persist_warn_last: float = 0.0
+_persist_warn_suppressed: int = 0
 
 
 def _load_throttle_from_db(conn: sqlite3.Connection, dl_id: str) -> tuple[float, int]:
@@ -96,9 +106,37 @@ def _save_trigger_to_db(conn: sqlite3.Connection, dl_id: str, epoch: float, coun
     # See _load_throttle_from_db: DatabaseError covers OperationalError.
     # sqlite3.InterfaceError is deliberately not caught (programmer error).
     except sqlite3.DatabaseError:
-        logger.warning(
-            "arr_search_trigger: failed to persist throttle for %s", dl_id, exc_info=True
-        )
+        # In-memory state stays correct for the running process; only the
+        # persisted row is now behind. A missing/stale row is read back as
+        # "unknown" (zeros) by _load_throttle_from_db / get_search_info, never
+        # as "never fired", so the throttle re-warms rather than re-firing
+        # blindly. Rate-limit the WARNING so a wedged disk can't spam one line
+        # per dl_id per tick.
+        _warn_persist_failure(dl_id)
+
+
+def _warn_persist_failure(dl_id: str) -> None:
+    """Emit a rate-limited WARNING for a throttle-persist failure (M7).
+
+    Logs at most once per :data:`_PERSIST_WARN_INTERVAL_SECONDS`, folding the
+    number of suppressed failures since the last line into the message so the
+    operator still sees the scale of a wedged disk without log flooding.
+    """
+    global _persist_warn_last, _persist_warn_suppressed
+    now = time.monotonic()
+    if now - _persist_warn_last < _PERSIST_WARN_INTERVAL_SECONDS:
+        _persist_warn_suppressed += 1
+        return
+    suppressed = _persist_warn_suppressed
+    _persist_warn_suppressed = 0
+    _persist_warn_last = now
+    logger.warning(
+        "arr_search_trigger: failed to persist throttle for %s "
+        "(%d further failures suppressed since last warning)",
+        dl_id,
+        suppressed,
+        exc_info=True,
+    )
 
 
 def get_search_info(dl_id: str) -> tuple[int, float]:
@@ -235,19 +273,28 @@ def reconcile_stranded_throttle(
     return deleted
 
 
-def clear_throttle(conn: sqlite3.Connection, dl_id: str) -> None:
+def clear_throttle(conn: sqlite3.Connection, dl_id: str, *, service: str | None = None) -> None:
     """Forget every trace of *dl_id* from the search-throttle subsystem.
 
     Removes the persisted ``arr_search_throttle`` row and drops the entry
-    from both in-memory caches.  Used by the abandon flow so a future
+    from the in-memory caches.  Used by the abandon flow so a future
     re-monitor starts a fresh search-count rather than inheriting a stale
     "Searched 52×" hint.
+
+    *service* ("radarr"/"sonarr"), when supplied, also pops the per-arr-
+    instance fan-out-cap entry so an abandon immediately followed by a
+    re-monitor of the same item can search straight away instead of waiting
+    out the remaining _PER_ARR_THROTTLE_SECONDS window. The abandon flow
+    always knows the service, so it always passes it; the parameter is
+    optional only to keep older call sites compiling.
 
     Idempotent: calling on a key that was never seen is a no-op.
     """
     with _state_lock:
         _last_search_trigger.pop(dl_id, None)
         _search_count.pop(dl_id, None)
+        if service is not None:
+            _last_search_trigger_by_arr.pop(_arr_throttle_key(service), None)
     try:
         conn.execute("DELETE FROM arr_search_throttle WHERE key=?", (dl_id,))
         conn.commit()

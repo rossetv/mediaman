@@ -174,7 +174,7 @@ class _SonarrMixin:
         if not isinstance(seasons, list):
             raise ArrUpstreamError(f"Sonarr series {series_id} has no 'seasons' list")
         for season in seasons:
-            if season["seasonNumber"] == season_number:
+            if season.get("seasonNumber") == season_number:
                 season["monitored"] = True
         self._put(f"/api/v3/series/{series_id}", series)  # type: ignore[attr-defined]
         self._post(  # type: ignore[attr-defined]
@@ -195,7 +195,8 @@ class _SonarrMixin:
         out: dict[int, str] = {}
         page = 1
         page_size = 250
-        for _ in range(100):  # hard cap to prevent runaway paging
+        max_pages = 100
+        for _ in range(max_pages):  # hard cap to prevent runaway paging
             data = self._get(  # type: ignore[attr-defined]
                 f"/api/v3/wanted/missing?page={page}&pageSize={page_size}"
                 "&includeSeries=true&monitored=true"
@@ -215,6 +216,16 @@ class _SonarrMixin:
             if page * page_size >= total:
                 break
             page += 1
+        else:
+            # Exited via the page-count cap, not the totalRecords condition —
+            # the wanted/missing list is being silently truncated. Warn so the
+            # un-poked series past the cap are observable.
+            logger.warning(
+                "sonarr.get_missing_series: hit the %d-page cap (%d series) — "
+                "wanted/missing list may be truncated",
+                max_pages,
+                len(out),
+            )
         return out
 
     def add_series(

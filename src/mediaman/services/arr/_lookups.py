@@ -8,6 +8,7 @@ duplicated per flavour.
 from __future__ import annotations
 
 from typing import cast
+from urllib.parse import quote
 
 from requests import RequestException
 
@@ -41,10 +42,12 @@ class _LookupsMixin:
     def lookup_by_term(self, term: str, *, endpoint: str) -> list[ArrLookupResult]:
         """Return lookup results for a free-text search term.
 
-        *term* must already be URL-encoded by the caller if it contains
-        spaces or special characters.
+        *term* is URL-encoded here (``quote`` with no safe characters) so a
+        title containing ``&``, ``#`` or a space cannot inject a spurious
+        query parameter into the upstream request. Callers pass the raw
+        title — do NOT pre-encode.
         """
-        result = self._get(f"{endpoint}?term={term}") or []  # type: ignore[attr-defined]
+        result = self._get(f"{endpoint}?term={quote(term, safe='')}") or []  # type: ignore[attr-defined]
         return cast(list[ArrLookupResult], result)
 
     def get_release(self, item_id: int, *, endpoint: str) -> dict[str, object] | None:

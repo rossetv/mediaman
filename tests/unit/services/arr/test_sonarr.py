@@ -177,6 +177,37 @@ class TestArrClientSonarr:
         assert put_call[2]["json"]["seasons"][0]["monitored"] is True
         assert len(_calls(fake_http, "POST")) == 1
 
+    def test_remonitor_season_tolerates_season_missing_season_number(
+        self, client, fake_http, fake_response
+    ):
+        """M6: a malformed season lacking ``seasonNumber`` must not KeyError.
+
+        ``remonitor_season`` uses ``.get("seasonNumber")`` (matching
+        ``unmonitor_season``) so a ``total=False`` season dict missing the
+        field is skipped, not raised on. The target season is still updated.
+        """
+        fake_http.queue(
+            "GET",
+            fake_response(
+                json_data={
+                    "id": 1,
+                    "title": "Test",
+                    "seasons": [
+                        {"monitored": False},  # malformed — no seasonNumber
+                        {"seasonNumber": 2, "monitored": False},
+                    ],
+                }
+            ),
+        )
+        fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("POST", fake_response(status=201, json_data={}))
+        # Must not raise KeyError on the malformed season.
+        client.remonitor_season(series_id=1, season_number=2)
+        put_call = _calls(fake_http, "PUT")[0]
+        seasons = put_call[2]["json"]["seasons"]
+        assert seasons[1]["monitored"] is True  # target season remonitored
+        assert seasons[0].get("monitored") is False  # malformed one untouched
+
     def test_test_connection(self, client, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data={"version": "4.0"}))
         assert client.is_reachable() is True

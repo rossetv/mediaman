@@ -18,8 +18,8 @@ from typing import TYPE_CHECKING
 
 import requests
 
+from mediaman.services.arr import ArrError
 from mediaman.services.arr._types import RadarrMovie, SonarrSeries
-from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.state import series_has_files
 from mediaman.services.infra import SafeHTTPError
 
@@ -86,25 +86,32 @@ class _ArrLibraryIndex:
     def radarr_index_by_id(self) -> dict[int, RadarrMovie]:
         """Return the Radarr-by-tmdbId index, fetching it if not yet loaded."""
         self.ensure_radarr()
-        assert self._radarr_by_id is not None  # ensure_radarr post-condition
+        # ensure_radarr post-condition: both indexes are set together. An
+        # explicit raise (not assert) so the invariant holds under ``-O``,
+        # where asserts are stripped — §6.1 (AssertionError is not a domain error).
+        if self._radarr_by_id is None:
+            raise ArrError("Radarr index requested before ensure_radarr populated it")
         return self._radarr_by_id
 
     def radarr_index_by_title(self) -> dict[str, RadarrMovie]:
         """Return the Radarr-by-title index, fetching it if not yet loaded."""
         self.ensure_radarr()
-        assert self._radarr_by_title is not None  # ensure_radarr post-condition
+        if self._radarr_by_title is None:
+            raise ArrError("Radarr index requested before ensure_radarr populated it")
         return self._radarr_by_title
 
     def sonarr_index_by_id(self) -> dict[int, SonarrSeries]:
         """Return the Sonarr-by-tmdbId index, fetching it if not yet loaded."""
         self.ensure_sonarr()
-        assert self._sonarr_by_id is not None  # ensure_sonarr post-condition
+        if self._sonarr_by_id is None:
+            raise ArrError("Sonarr index requested before ensure_sonarr populated it")
         return self._sonarr_by_id
 
     def sonarr_index_by_title(self) -> dict[str, SonarrSeries]:
         """Return the Sonarr-by-title index, fetching it if not yet loaded."""
         self.ensure_sonarr()
-        assert self._sonarr_by_title is not None  # ensure_sonarr post-condition
+        if self._sonarr_by_title is None:
+            raise ArrError("Sonarr index requested before ensure_sonarr populated it")
         return self._sonarr_by_title
 
 

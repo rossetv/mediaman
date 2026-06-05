@@ -119,11 +119,12 @@ class ArrClient(
         out: list[ArrQueueItem] = []
         page = 1
         page_size = 500
+        max_pages = 20
         if self.spec.kind == "series":
             extra = "&includeSeries=true&includeEpisode=true"
         else:
             extra = "&includeMovie=true"
-        for _ in range(20):  # hard cap to prevent runaway paging
+        for _ in range(max_pages):  # hard cap to prevent runaway paging
             data = self._get(f"/api/v3/queue?page={page}&pageSize={page_size}{extra}")
             if not isinstance(data, dict):
                 break
@@ -135,4 +136,15 @@ class ArrClient(
             if page * page_size >= total:
                 break
             page += 1
+        else:
+            # Exited via the page-count cap, not the totalRecords condition —
+            # the queue is being silently truncated. Warn so the orphaned
+            # records (every NZB past the cap) are at least observable.
+            logger.warning(
+                "%s.get_queue: hit the %d-page cap (%d records) — queue may be "
+                "truncated; records beyond this point are not being processed",
+                self.spec.kind,
+                max_pages,
+                len(out),
+            )
         return out

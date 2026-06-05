@@ -63,11 +63,14 @@ class _RadarrMixin:
         """
         self._require_movie("unmonitor_movie")  # type: ignore[attr-defined]
 
+        def apply_unmonitor(movie: RadarrMovie) -> None:
+            movie["monitored"] = False
+
         self._unmonitor_with_retry(  # type: ignore[attr-defined]
             fetch_entity=lambda: self.get_movie_by_id(movie_id),
             put_url=f"/api/v3/movie/{movie_id}",
             is_already_unmonitored=lambda movie: not bool(movie.get("monitored", False)),
-            apply_unmonitor=lambda movie: movie.__setitem__("monitored", False),
+            apply_unmonitor=apply_unmonitor,
             log_prefix="radarr.unmonitor_movie",
             log_id=f"movie_id={movie_id}",
             max_retries=max_retries,
@@ -116,10 +119,17 @@ class _RadarrMixin:
         return cast(RadarrMovie, self._post("/api/v3/movie", movie_data))  # type: ignore[attr-defined]
 
     def get_movie_by_tmdb(self, tmdb_id: int) -> RadarrMovie | None:
-        """Find a movie in the library by its TMDB ID, or ``None`` if not found."""
+        """Find a movie in the library by its TMDB ID, or ``None`` if not found.
+
+        Uses Radarr's ``GET /api/v3/movie?tmdbId=`` server-side filter so a
+        single lookup is one indexed query, not a full-library dump and
+        linear scan. The endpoint returns a (possibly empty) list of the
+        matching library entries.
+        """
         self._require_movie("get_movie_by_tmdb")  # type: ignore[attr-defined]
-        for movie in self.get_movies():
-            if movie.get("tmdbId") == tmdb_id:
-                return movie
-        logger.debug("get_movie_by_tmdb: no match for tmdb_id=%s", tmdb_id)
-        return None
+        data = self._get(f"/api/v3/movie?tmdbId={tmdb_id}")  # type: ignore[attr-defined]
+        if not isinstance(data, list) or not data:
+            logger.debug("get_movie_by_tmdb: no match for tmdb_id=%s", tmdb_id)
+            return None
+        first = data[0]
+        return cast(RadarrMovie, first) if isinstance(first, dict) else None

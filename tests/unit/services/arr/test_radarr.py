@@ -85,6 +85,30 @@ class TestArrClientRadarr:
         # Only the failed first PUT — no clobbering retry.
         assert len(puts) == 1
 
+    def test_get_movie_by_tmdb_uses_server_side_filter(self, client, fake_http, fake_response):
+        """M5 — get_movie_by_tmdb queries ?tmdbId= rather than dumping the library.
+
+        A single lookup must hit ``/api/v3/movie?tmdbId=<id>`` (one indexed
+        query) and return the first matching entry, not fetch every movie and
+        linear-scan.
+        """
+        fake_http.queue(
+            "GET",
+            fake_response(json_data=[{"id": 9, "tmdbId": 603, "title": "The Matrix"}]),
+        )
+        movie = client.get_movie_by_tmdb(603)
+        assert movie is not None
+        assert movie["title"] == "The Matrix"
+        get_call = _find_call(fake_http, "GET")
+        assert "/api/v3/movie?tmdbId=603" in get_call[1]
+
+    def test_get_movie_by_tmdb_returns_none_on_empty_filter_result(
+        self, client, fake_http, fake_response
+    ):
+        """An empty filter response means no match — return None, not raise."""
+        fake_http.queue("GET", fake_response(json_data=[]))
+        assert client.get_movie_by_tmdb(999999) is None
+
     def test_delete_movie_sends_delete_request(self, client, fake_http, fake_response):
         """delete_movie issues a DELETE with the correct URL."""
         fake_http.queue("DELETE", fake_response(content=b""))

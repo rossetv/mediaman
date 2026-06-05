@@ -219,6 +219,44 @@ class TestMaybeAutoAbandon:
         assert called == [{"series_id": 7, "season_numbers": [2, 5], "dl_id": "sonarr:Show"}]
         assert captured_events[0]["detail"]["seasons"] == [2, 5]
 
+    def test_non_numeric_season_number_does_not_abort_abandon(self, monkeypatch):
+        """L4: a malformed (non-numeric) ``season_number`` is treated as 0 and
+        filtered, not raised on — the valid seasons still abandon."""
+        from mediaman.services.arr.auto_abandon import maybe_auto_abandon
+
+        monkeypatch.setattr(
+            "mediaman.services.arr.auto_abandon.get_bool_setting",
+            lambda conn, key, default=False: True,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.auto_abandon.security_event",
+            lambda conn, **kw: None,
+        )
+        called = []
+        monkeypatch.setattr(
+            "mediaman.services.downloads.abandon.abandon_seasons",
+            lambda *a, **kw: called.append(kw),
+        )
+
+        now = _time_mod.time()
+        item = {
+            "kind": "series",
+            "dl_id": "sonarr:Show",
+            "arr_id": 7,
+            "added_at": now - 15 * 86_400,
+            "released_at": now - 200 * 86_400,
+            "is_upcoming": False,
+            "episodes": [
+                {"season_number": "not-a-number"},  # malformed → treated as 0
+                {"season_number": None},  # missing → treated as 0
+                {"season_number": "3"},  # numeric string → parsed to 3
+                {"season_number": 4},
+            ],
+        }
+        # Must not raise ValueError.
+        maybe_auto_abandon(MagicMock(), "secret", item=item, now=now)
+        assert called == [{"series_id": 7, "season_numbers": [3, 4], "dl_id": "sonarr:Show"}]
+
     def test_skips_upcoming_movie_even_when_added_long_ago(self, monkeypatch):
         """Coming-soon movies must never auto-abandon, even if added > 14 d ago.
 

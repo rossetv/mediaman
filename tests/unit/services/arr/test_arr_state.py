@@ -457,6 +457,37 @@ def test_attach_download_states_keeps_untracked_items_without_state():
     assert arr.radarr_calls == 1
 
 
+def test_attach_skips_and_logs_unrecognised_media_type(caplog):
+    """H4: an item with a usable tmdb_id but a media_type that isn't
+    "movie"/"tv" must be skipped+logged, not silently classed as a series.
+
+    Regression: ``compute_download_state`` treats anything that isn't
+    "movie" as a Sonarr series, so a stray value ("anime", "tv " with
+    whitespace) would be looked up in the sonarr cache and mislabelled.
+    """
+    import logging
+
+    radarr = MagicMock()
+    radarr.get_movies.return_value = []
+    radarr.get_queue.return_value = []
+    sonarr = MagicMock()
+    sonarr.get_series.return_value = []
+    sonarr.get_queue.return_value = []
+    arr = _FakeArr(radarr=radarr, sonarr=sonarr)
+
+    bad = {"id": "z", "tmdb_id": 555, "media_type": "anime"}
+    batches = [_batch(bad)]
+    with caplog.at_level(logging.WARNING):
+        all_recs = attach_download_states(batches, arr)
+
+    # No misclassification: never written a download_state, never built the
+    # sonarr client to look it up as a series.
+    assert "download_state" not in bad
+    assert arr.sonarr_calls == 0
+    assert set(all_recs) == {"z"}
+    assert any("unrecognised media_type" in r.message for r in caplog.records)
+
+
 def test_attach_clears_stale_downloaded_at_when_arr_configured_and_absent():
     """A ``downloaded_at`` flag on an item Radarr no longer tracks is stale.
 

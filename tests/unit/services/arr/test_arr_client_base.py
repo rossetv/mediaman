@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from mediaman.services.arr.base import ArrClient
+from mediaman.services.arr.base import ArrClient, ArrUpstreamError
 from mediaman.services.arr.spec import SONARR_SPEC
 from mediaman.services.infra import SafeHTTPError
 
@@ -137,6 +137,25 @@ class TestLastError:
         assert client.last_error is None
 
 
+class TestPostNullBodyGuard:
+    """B1 — _post must fail closed on a null upstream body like _get does.
+
+    Add-flow callers (add_series/add_movie/add_series_with_seasons) cast the
+    POST result and read a field off it; a literal ``null`` body would
+    otherwise surface as a bare AttributeError, not a domain error.
+    """
+
+    def test_post_raises_arr_upstream_error_on_null_body(self, client, fake_http, fake_response):
+        # A 200 with a literal JSON ``null`` body — resp.json() returns None.
+        fake_http.queue("POST", fake_response(status=200, content=b"null"))
+        with pytest.raises(ArrUpstreamError):
+            client._post("/api/v3/series", {"title": "X"})
+
+    def test_post_returns_dict_on_normal_body(self, client, fake_http, fake_response):
+        fake_http.queue("POST", fake_response(json_data={"id": 7, "title": "X"}))
+        assert client._post("/api/v3/series", {"title": "X"}) == {"id": 7, "title": "X"}
+
+
 class TestPublicLookupHelpers:
     """H14 — public helpers that replace direct _get() calls at call sites."""
 
@@ -171,6 +190,20 @@ class TestPublicLookupHelpers:
         assert result == [{"title": "Dune"}]
         _, url, _ = fake_http.calls[0]
         assert "term=Dune" in url
+
+    def test_lookup_by_term_url_encodes_special_characters(self, client, fake_http, fake_response):
+        """M1 — lookup_by_term URL-encodes the term inside the helper.
+
+        A term with ``&`` or a space must not inject a spurious query
+        parameter into the upstream request; the raw characters must be
+        percent-encoded so the whole title stays in the ``term`` value.
+        """
+        fake_http.queue("GET", fake_response(json_data=[]))
+        client.lookup_by_term("Tom & Jerry: The Movie", endpoint="/api/v3/movie/lookup")
+        _, url, _ = fake_http.calls[0]
+        # The raw '&' and spaces must be gone from the query — encoded instead.
+        assert "term=Tom%20%26%20Jerry" in url or "term=Tom+%26+Jerry" in url
+        assert "&Jerry" not in url  # no injected spurious parameter
 
     def test_lookup_returns_empty_list_when_none(self, client, fake_http, fake_response):
         """Helpers return [] when the upstream response is empty."""

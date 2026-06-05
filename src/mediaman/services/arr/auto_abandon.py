@@ -54,6 +54,30 @@ class _AbandonDecision:
     searching_for_seconds: int
 
 
+def _parse_season_number(ep: object) -> int:
+    """Return *ep*'s ``season_number`` as an int, or 0 if absent/non-numeric.
+
+    ``item["episodes"]`` is typed ``Mapping[str, object]`` and is untrusted
+    here, so a malformed ``season_number`` (missing, ``None``, or a
+    non-numeric string) must not raise — it is treated as season 0 (which
+    the caller filters out) rather than aborting the whole abandon for the
+    item via the scheduler's outer handler.
+    """
+    if not isinstance(ep, dict):
+        return 0
+    raw = ep.get("season_number")
+    if isinstance(raw, bool):  # bool is an int subclass — exclude explicitly
+        return 0
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return int(raw)
+        except ValueError:
+            return 0
+    return 0
+
+
 def _should_auto_abandon(
     conn: sqlite3.Connection, item: Mapping[str, object], now: float
 ) -> _AbandonDecision | None:
@@ -165,13 +189,7 @@ def _abandon_series_with_audit(
     # monitored separately — we never want to auto-unmonitor them.
     _episodes_raw = item.get("episodes")
     _episodes: list[object] = list(_episodes_raw) if isinstance(_episodes_raw, list) else []
-    seasons = sorted(
-        {
-            int(ep.get("season_number") or 0)
-            for ep in _episodes
-            if isinstance(ep, dict) and int(ep.get("season_number") or 0) > 0
-        }
-    )
+    seasons = sorted({n for n in (_parse_season_number(ep) for ep in _episodes) if n > 0})
     if not seasons:
         return
     security_event(
