@@ -66,12 +66,24 @@ class ArrCaches(RadarrCaches, SonarrCaches):
 
 
 def series_has_files(series_data: SonarrSeries) -> bool:
-    """Return True if Sonarr reports at least one episode file is present."""
+    """Return True if Sonarr reports at least one episode file is present.
+
+    Assumes ``absent == 0`` for ``episodeFileCount``: the ``_types``
+    TypedDicts are ``total=False`` and *arr omits *only* zero-valued integer
+    counts (never a populated one), so a missing field is safely read as 0.
+    Do not "fix" the ``.get(..., 0)`` into a strict subscript — that would
+    KeyError on the legitimate zero-count case.
+    """
     return (series_data.get("statistics") or {}).get("episodeFileCount", 0) > 0
 
 
 def _season_stats(season: ArrSeason) -> ArrSeasonStatistics:
-    """Return a season's ``statistics`` dict, or an empty one if absent/malformed."""
+    """Return a season's ``statistics`` dict, or an empty one if absent/malformed.
+
+    Assumes ``absent == 0`` for every count read off the returned dict
+    (``episodeFileCount`` / ``episodeCount``): *arr omits only zero-valued
+    counts, so the ``.get(..., 0)`` reads at the call sites are correct.
+    """
     stats = season.get("statistics")
     return stats if isinstance(stats, dict) else ArrSeasonStatistics()
 
@@ -285,6 +297,13 @@ class LazyArrClients:
         return self._sonarr
 
 
+# NOTE (§3.2): this module hosts several concepts — state constants, state
+# computation, cache builders, LazyArrClients, and this recommendation-
+# annotation orchestrator. ``attach_download_states`` arguably belongs nearer
+# the recommendations service, but its ``suggestions``-table UPDATE cannot move
+# into the ``mediaman.web.repository`` layer (the arr package sits below web in
+# the dependency graph and must not import upward). Left here under the 500-line
+# ceiling; split it out only if the file grows past the ceiling.
 def attach_download_states(
     batches: list[dict[str, object]],
     arr: LazyArrClients,
@@ -336,7 +355,12 @@ def attach_download_states(
         for item in trending + personal:
             tmdb_id = item.get("tmdb_id")
             media_type = item.get("media_type")
-            if tmdb_id and isinstance(tmdb_id, int) and isinstance(media_type, str):
+            # media_type comes straight off the recommendation dict and feeds
+            # compute_download_state, where anything that isn't "movie" is
+            # treated as a TV series. Validate it explicitly so a malformed or
+            # unexpected value (e.g. "anime", "tv " with whitespace) is
+            # skipped+logged rather than silently misclassified as Sonarr.
+            if tmdb_id and isinstance(tmdb_id, int) and media_type in ("movie", "tv"):
                 if media_type == "movie":
                     if radarr_cache is None:
                         client = arr.radarr()
@@ -359,15 +383,31 @@ def attach_download_states(
                     # download_at flag is stale. Clear it so the badge heals.
                     item["downloaded_at"] = None
                     stale_flag_ids.append(item["id"])
+            elif tmdb_id and isinstance(tmdb_id, int) and media_type is not None:
+                # Has a usable tmdb_id but a media_type we can't classify —
+                # don't silently treat it as a series. Skip and log so the bad
+                # value surfaces rather than producing a wrong/None state.
+                logger.warning(
+                    "attach_download_states: skipping item id=%r tmdb_id=%s — "
+                    "unrecognised media_type %r (expected 'movie' or 'tv')",
+                    item.get("id"),
+                    tmdb_id,
+                    media_type,
+                )
 
             all_recs[item["id"]] = item
 
     if conn is not None and stale_flag_ids:
         placeholders = ",".join("?" * len(stale_flag_ids))
-        conn.execute(
-            f"UPDATE suggestions SET downloaded_at = NULL WHERE id IN ({placeholders})",
-            stale_flag_ids,
-        )
-        conn.commit()
+        # The in-memory ``downloaded_at = None`` self-heal above and this DB
+        # write are one fact (clear the stale badge); run the write inside an
+        # explicit transaction (§9.7) so a locked-DB failure rolls back cleanly
+        # rather than leaving a half-applied state on this render path.
+        with conn:
+            # rationale: placeholders is purely "?" * len(stale_flag_ids) — no user value ever enters the SQL text
+            conn.execute(
+                f"UPDATE suggestions SET downloaded_at = NULL WHERE id IN ({placeholders})",
+                stale_flag_ids,
+            )
 
     return all_recs

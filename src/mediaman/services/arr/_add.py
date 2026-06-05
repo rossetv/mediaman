@@ -14,10 +14,13 @@ touches them and the underlying lists barely change at runtime.
 
 from __future__ import annotations
 
+import logging
 from typing import cast
 
 from mediaman.services.arr._transport import ArrConfigError
 from mediaman.services.arr._types import ArrQualityProfile, ArrRootFolder
+
+logger = logging.getLogger(__name__)
 
 
 class _AddFlowMixin:
@@ -62,7 +65,10 @@ class _AddFlowMixin:
         """Return the id of the lowest-numbered quality profile.
 
         Used by the add-flow when the caller doesn't pin a specific
-        profile.  Cached on the instance.  Raises :exc:`ArrConfigError`
+        profile.  ``min(id)`` is an arbitrary default — profile ids reflect
+        creation order, not quality — so the selected name+id is logged at
+        INFO and callers are expected to pass ``quality_profile_id`` when the
+        choice matters.  Cached on the instance.  Raises :exc:`ArrConfigError`
         when no quality profiles are configured (which would otherwise
         have silently picked id ``4`` whether such a profile existed).
         """
@@ -70,12 +76,23 @@ class _AddFlowMixin:
             return self._quality_profile_cache
         result = self._get("/api/v3/qualityprofile")  # type: ignore[attr-defined]
         profiles = cast(list[ArrQualityProfile], result) if isinstance(result, list) else []
-        ids = [int(p["id"]) for p in profiles if isinstance(p.get("id"), int)]
-        if not ids:
+        valid = [p for p in profiles if isinstance(p.get("id"), int)]
+        if not valid:
             raise ArrConfigError(
                 f"{type(self).__name__}: no quality profiles configured — "
                 "set one in the service's UI before adding releases"
             )
-        chosen = min(ids)
+        chosen_profile = min(valid, key=lambda p: int(p["id"]))
+        chosen = int(chosen_profile["id"])
+        # Profile ids are assigned in creation order, not quality order, so
+        # min(id) is an arbitrary default — log it so the operator can see
+        # which profile new adds will land on and pin a different one if
+        # this isn't what they want.
+        logger.info(
+            "%s: auto-selected quality profile %r (id=%d) — pass quality_profile_id to override",
+            type(self).__name__,
+            chosen_profile.get("name", "<unnamed>"),
+            chosen,
+        )
         self._quality_profile_cache = chosen
         return chosen

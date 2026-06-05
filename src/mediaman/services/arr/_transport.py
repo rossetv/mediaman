@@ -111,11 +111,19 @@ class _TransportMixin:
 
     # Any: raw resp.json() of an arbitrary *arr endpoint; callers cast() to the right _types TypedDict.
     def _post(self, path: str, data: Mapping[str, Any]) -> dict[Any, Any] | list[Any]:
-        """Perform an authenticated POST.  Sets :attr:`last_error` on failure."""
+        """Perform an authenticated POST.  Sets :attr:`last_error` on failure.
+
+        Raises :exc:`ArrUpstreamError` if the response body is null (empty
+        or explicitly null JSON) — every add-flow caller reads a field off
+        the POST result (e.g. ``new_series.get("id")``), so a ``None`` body
+        must fail closed here rather than surface as a bare ``AttributeError``.
+        """
         try:
             resp = self._http.post(path, headers=self._headers, json=data)
             self.last_error = None
             result: dict[Any, Any] | list[Any] = resp.json()
+            if result is None:
+                raise ArrUpstreamError(f"Arr returned null for {path}")
             return result
         except (SafeHTTPError, requests.RequestException, ValueError) as exc:
             # preserve-and-rethrow — see _get.
@@ -149,24 +157,37 @@ class _TransportMixin:
         log_id: str,
         max_retries: int = 3,
     ) -> None:
-        """Optimistic-concurrency read-modify-write to set ``monitored=False``.
+        """Read-modify-write to set ``monitored=False``, retrying on transport failures.
 
         Both :meth:`~mediaman.services.arr.base.ArrClient.unmonitor_season` and
         :meth:`~mediaman.services.arr.base.ArrClient.unmonitor_movie` use this
-        helper.  Raises :exc:`ArrError` when ``max_retries`` rounds all hit a
-        concurrent write.
+        helper.
+
+        Each attempt re-reads the entity, applies ``apply_unmonitor``, and
+        PUTs the full payload. The retry loop covers *transport* failures
+        only: a failed PUT (network/HTTP error) yields to a fresh re-read on
+        the next pass. It does NOT detect or recover from write-write races —
+        Sonarr/Radarr expose no ETag/version, so a PUT that a sibling later
+        clobbers is indistinguishable from success and the loop returns after
+        the first successful PUT without re-reading to confirm. Under the
+        single-worker model (§1.12) genuine concurrent re-monitors are rare,
+        so transport-retry is the only guarantee offered. Raises
+        :exc:`ArrError` when ``max_retries`` consecutive PUTs all fail at the
+        transport layer.
         """
         last_observed: bool | None = None
         for attempt in range(max_retries):
             entity = fetch_entity()
             if is_already_unmonitored(entity):
-                # Already unmonitored — desired state achieved either on
-                # the first attempt (nothing to do) or on a retry where
-                # a concurrent writer beat us to the punch.
+                # Already unmonitored — desired state achieved either on the
+                # first attempt (nothing to do) or on a retry after a prior
+                # transport-level PUT failure, where the re-read now shows the
+                # item unmonitored (our earlier PUT may in fact have landed
+                # despite the failed response, or another writer set it).
                 if last_observed is True:
                     logger.warning(
-                        "%s: concurrent writer set monitored=False "
-                        "on %s while we were retrying — exiting cleanly",
+                        "%s: %s already unmonitored on re-read after a prior "
+                        "transport failure — exiting cleanly",
                         log_prefix,
                         log_id,
                     )

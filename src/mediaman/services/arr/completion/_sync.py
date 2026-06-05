@@ -22,7 +22,7 @@ from typing import cast
 
 import requests
 
-from mediaman.services.arr.base import ArrError
+from mediaman.services.arr import ArrError
 from mediaman.services.arr.completion._types import CompletedItem, RecentDownloadItem
 from mediaman.services.arr.fetcher import ArrCard
 from mediaman.services.downloads.download_format import extract_poster_url

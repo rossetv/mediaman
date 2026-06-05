@@ -63,7 +63,7 @@ def abandon_movie(
     except (SafeHTTPError, requests.RequestException, ArrError):
         logger.warning("abandon_movie: unmonitor_movie failed for %s", dl_id, exc_info=True)
         return AbandonResult(kind="movie", failed=[0], dl_id=dl_id)
-    clear_throttle(conn, dl_id)
+    clear_throttle(conn, dl_id, service="radarr")
     logger.info("abandon_movie: unmonitored arr_id=%s dl_id=%s", arr_id, dl_id)
     return AbandonResult(kind="movie", succeeded=[0], dl_id=dl_id)
 
@@ -106,7 +106,7 @@ def abandon_series(
 
     if not monitored_seasons:
         # Nothing left to unmonitor — treat as success.
-        clear_throttle(conn, dl_id)
+        clear_throttle(conn, dl_id, service="sonarr")
         logger.info(
             "abandon_series: no monitored seasons for series_id=%s dl_id=%s",
             series_id,
@@ -166,7 +166,7 @@ def abandon_seasons(
             failed.append(season)
 
     if succeeded and not failed:
-        clear_throttle(conn, dl_id)
+        clear_throttle(conn, dl_id, service="sonarr")
     logger.info(
         "abandon_seasons: dl_id=%s succeeded=%s failed=%s",
         dl_id,

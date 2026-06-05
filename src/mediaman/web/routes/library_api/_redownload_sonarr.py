@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 import sqlite3
 from collections.abc import Mapping
-from urllib.parse import quote as _url_quote
 
 import requests
 from fastapi.responses import JSONResponse
@@ -107,7 +106,8 @@ def _try_sonarr_redownload(
     swallowed.
     """
     try:
-        results = sonarr_client.lookup_by_term(_url_quote(title), endpoint="/api/v3/series/lookup")
+        # lookup_by_term URL-encodes the term internally — pass the raw title.
+        results = sonarr_client.lookup_by_term(title, endpoint="/api/v3/series/lookup")
         entry, err = _pick_lookup_match(
             results or [],
             title=title,

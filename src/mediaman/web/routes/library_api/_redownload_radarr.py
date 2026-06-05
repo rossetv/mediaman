@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 import sqlite3
 from collections.abc import Mapping
-from urllib.parse import quote as _url_quote
 
 import requests
 from fastapi.responses import JSONResponse
@@ -93,7 +92,8 @@ def _try_radarr_redownload(
     log and return ``None`` so the Sonarr fallback gets a chance.
     """
     try:
-        lookup = client.lookup_by_term(_url_quote(title), endpoint="/api/v3/movie/lookup")
+        # lookup_by_term URL-encodes the term internally — pass the raw title.
+        lookup = client.lookup_by_term(title, endpoint="/api/v3/movie/lookup")
         entry, _err = _pick_lookup_match(
             lookup or [],
             title=title,

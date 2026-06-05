@@ -226,6 +226,107 @@ class TestThrottleDbPersistence:
 
 
 # ---------------------------------------------------------------------------
+# B2 / H1 — per-arr-instance fan-out cap on the PRIMARY maybe_trigger_search path
+# ---------------------------------------------------------------------------
+
+
+class TestPerArrInstanceFanOutCap:
+    """The documented per-arr-instance throttle is enforced on the primary path.
+
+    B2: two distinct stuck items on the same arr instance must fire only ONE
+    search within ``_PER_ARR_THROTTLE_SECONDS``. The same item must still
+    advance along its own per-item backoff. H1: abandon (clear_throttle with a
+    service) resets the per-instance cap so an immediate re-monitor can search.
+    """
+
+    def _radarr(self, monkeypatch):
+        mock_radarr = MagicMock()
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_radarr_from_db",
+            lambda c, sk: mock_radarr,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.search_trigger.build_sonarr_from_db",
+            lambda c, sk: None,
+        )
+        return mock_radarr
+
+    def _item(self, dl_id: str, arr_id: int) -> dict:
+        return {
+            "kind": "movie",
+            "dl_id": dl_id,
+            "arr_id": arr_id,
+            "is_upcoming": False,
+            "added_at": time.time() - 600,
+        }
+
+    def test_two_stuck_items_same_instance_fire_only_one_search(self, db_conn, monkeypatch):
+        """B2: two different movies on the same Radarr instance → ONE search."""
+        mock_radarr = self._radarr(monkeypatch)
+
+        maybe_trigger_search(
+            db_conn, self._item("radarr:Movie A", 100), matched_nzb=False, secret_key="k"
+        )
+        maybe_trigger_search(
+            db_conn, self._item("radarr:Movie B", 101), matched_nzb=False, secret_key="k"
+        )
+
+        assert mock_radarr.search_movie.call_count == 1, (
+            "the per-arr-instance cap must collapse two distinct items to one search "
+            "within the window"
+        )
+
+    def test_same_item_still_advances_on_its_own_backoff(self, db_conn, monkeypatch):
+        """The fan-out cap must NOT block the SAME item advancing its backoff."""
+        from mediaman.services.arr import _throttle_state as _ts
+        from mediaman.services.arr import search_trigger as st
+
+        mock_radarr = self._radarr(monkeypatch)
+        monkeypatch.setattr(_ts._SEARCH_BACKOFF, "deterministic_multiplier", lambda seed: 1.0)
+        clock = [1_700_000_000.0]
+        monkeypatch.setattr(st.time, "time", lambda: clock[0])
+
+        item = {
+            "kind": "movie",
+            "dl_id": "radarr:Same Movie",
+            "arr_id": 200,
+            "is_upcoming": False,
+            "added_at": clock[0] - 600,
+        }
+        st.maybe_trigger_search(db_conn, item, matched_nzb=False, secret_key="k")
+        assert mock_radarr.search_movie.call_count == 1
+        # Advance past the 2-min interval(1) per-item gate — the SAME dl_id must
+        # bypass the per-instance cap and fire again.
+        clock[0] += 121
+        st.maybe_trigger_search(db_conn, item, matched_nzb=False, secret_key="k")
+        assert mock_radarr.search_movie.call_count == 2
+
+    def test_clear_throttle_with_service_resets_instance_cap(self, db_conn, monkeypatch):
+        """H1: abandon (clear_throttle service=...) lets a re-monitor search at once."""
+        from mediaman.services.arr.search_trigger import clear_throttle
+
+        mock_radarr = self._radarr(monkeypatch)
+
+        # Item A fires and stamps the radarr instance cap.
+        maybe_trigger_search(
+            db_conn, self._item("radarr:Movie A", 100), matched_nzb=False, secret_key="k"
+        )
+        assert mock_radarr.search_movie.call_count == 1
+        # Without an abandon, item B would be capped (proved above). Abandon A,
+        # which clears the per-instance cap for radarr.
+        clear_throttle(db_conn, "radarr:Movie A", service="radarr")
+
+        # A different item on the same instance can now search immediately.
+        maybe_trigger_search(
+            db_conn, self._item("radarr:Movie B", 101), matched_nzb=False, secret_key="k"
+        )
+        assert mock_radarr.search_movie.call_count == 2, (
+            "clear_throttle(service=...) must reset the per-instance cap so an "
+            "abandon+remonitor starts fresh"
+        )
+
+
+# ---------------------------------------------------------------------------
 # The throttle lock is released during network I/O so it does not block other tasks
 # ---------------------------------------------------------------------------
 
