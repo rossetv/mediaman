@@ -109,62 +109,6 @@ def lookup_verified_action(
     return _row_to_verified_keep_action(row)
 
 
-def find_active_keep_action_by_id_and_token(
-    conn: sqlite3.Connection, action_id: int, token: str
-) -> VerifiedKeepAction | None:
-    """Look up an active ``scheduled_deletion`` row by ``action_id`` + token hash.
-
-    Returns a :class:`VerifiedKeepAction` when ``action='scheduled_deletion'``,
-    ``delete_status='pending'``, ``token_used=0`` and the deadline has
-    not yet passed; otherwise ``None``.  Falls back to the raw token
-    column for rows not yet migrated to ``token_hash``.
-
-    The ``JOIN media_items`` is on the ``media_item_id`` foreign key,
-    which is ``NOT NULL`` and always references an existing row, so the
-    join cannot change which ``scheduled_actions`` rows match — it only
-    attaches the display columns needed for the shared return shape.
-    """
-    from mediaman.core.time import now_iso
-
-    th = token_hash(token)
-    now = now_iso()
-    row: sqlite3.Row | None = conn.execute(
-        "SELECT sa.id, sa.media_item_id, sa.action, sa.scheduled_at, sa.execute_at, "
-        "sa.token, sa.token_used, sa.snoozed_at, sa.snooze_duration, sa.notified, "
-        "sa.is_reentry, sa.delete_status, sa.token_hash, "
-        "mi.title, mi.media_type, mi.poster_path, mi.file_size_bytes, "
-        "mi.plex_rating_key, mi.added_at, mi.show_title, mi.season_number "
-        "FROM scheduled_actions sa "
-        "JOIN media_items mi ON sa.media_item_id = mi.id "
-        "WHERE sa.id = ? AND sa.token_hash = ? "
-        "AND sa.action = 'scheduled_deletion' "
-        "AND (sa.delete_status IS NULL OR sa.delete_status = 'pending') "
-        "AND sa.token_used = 0 "
-        "AND sa.execute_at >= ?",
-        (action_id, th, now),
-    ).fetchone()
-    if row is not None:
-        return _row_to_verified_keep_action(row)
-    result: sqlite3.Row | None = conn.execute(
-        "SELECT sa.id, sa.media_item_id, sa.action, sa.scheduled_at, sa.execute_at, "
-        "sa.token, sa.token_used, sa.snoozed_at, sa.snooze_duration, sa.notified, "
-        "sa.is_reentry, sa.delete_status, sa.token_hash, "
-        "mi.title, mi.media_type, mi.poster_path, mi.file_size_bytes, "
-        "mi.plex_rating_key, mi.added_at, mi.show_title, mi.season_number "
-        "FROM scheduled_actions sa "
-        "JOIN media_items mi ON sa.media_item_id = mi.id "
-        "WHERE sa.id = ? AND sa.token = ? "
-        "AND sa.action = 'scheduled_deletion' "
-        "AND (sa.delete_status IS NULL OR sa.delete_status = 'pending') "
-        "AND sa.token_used = 0 "
-        "AND sa.execute_at >= ?",
-        (action_id, token, now),
-    ).fetchone()
-    if result is None:
-        return None
-    return _row_to_verified_keep_action(result)
-
-
 def mark_token_consumed(conn: sqlite3.Connection, token: str, now: datetime) -> bool:
     """Insert a token hash into ``keep_tokens_used``; return ``True`` on a fresh insert.
 

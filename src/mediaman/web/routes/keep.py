@@ -34,7 +34,6 @@ from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.services.scheduled_actions import (
     apply_keep_forever,
     apply_keep_snooze,
-    find_active_keep_action_by_id_and_token,
     format_added_display,
     is_pending_unexpired,
     lookup_verified_action,
@@ -56,9 +55,6 @@ _KEEP_POST_LIMITER = RateLimiter(max_attempts=10, window_seconds=60)
 
 
 __all__ = [
-    "_KEEP_GET_LIMITER",
-    "_KEEP_POST_LIMITER",
-    "find_active_keep_action_by_id_and_token",
     "router",
 ]
 

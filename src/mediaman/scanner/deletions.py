@@ -2,7 +2,7 @@
 
 All deletion-time concerns live here:
 
-* Stuck-state recovery (``_recover_stuck_deletions``) for rows left in
+* Stuck-state recovery (:func:`recover_stuck_deletions`) for rows left in
   the ``deleting`` state by a previous crash between the on-disk rm and
   the DB cleanup commit.
 * Allowlist enforcement via :func:`repository.read_delete_allowed_roots_setting`.
@@ -42,7 +42,7 @@ class DeletionResult(TypedDict):
     reclaimed_bytes: int
 
 
-def _recover_stuck_deletions(conn: sqlite3.Connection) -> None:
+def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
     """Reconcile ``scheduled_actions`` rows left in the ``deleting`` state.
 
     Called at the start of :meth:`DeletionExecutor.execute` and by the
@@ -125,7 +125,7 @@ def _delete_file_on_disk(
     except FileNotFoundError as exc:
         # The file vanished between fetch and rm — likely
         # deleted out-of-band. The standard recovery path
-        # (_recover_stuck_deletions sees file absent → marks
+        # (recover_stuck_deletions sees file absent → marks
         # deleted) handles this cleanly on the next run, so
         # leave the row in 'deleting' state. Treated as
         # transient because the action row itself is still
@@ -133,7 +133,7 @@ def _delete_file_on_disk(
         logger.info(
             "engine.delete.file_missing id=%s path=%r — "
             "leaving row in 'deleting' state; next run will "
-            "complete cleanup via _recover_stuck_deletions: %s",
+            "complete cleanup via recover_stuck_deletions: %s",
             row.id,
             row.file_path,
             exc,
@@ -144,7 +144,7 @@ def _delete_file_on_disk(
         # (read-only filesystem, ACL refusal, low-level I/O
         # error, IsADirectoryError, etc.). Leave the row in
         # 'deleting' state so a subsequent run can inspect via
-        # _recover_stuck_deletions (file present → reset to
+        # recover_stuck_deletions (file present → reset to
         # pending; file gone → mark deleted), and emit an
         # explicit audit entry now so the failure is visible
         # to the operator without waiting for the next scan.
@@ -306,7 +306,7 @@ class DeletionExecutor:
 
         # Recover any rows left in the 'deleting' state by a previous
         # crash between the on-disk rm and the DB cleanup commit.
-        _recover_stuck_deletions(self._conn)
+        recover_stuck_deletions(self._conn)
 
         rows = repository.fetch_pending_deletions(self._conn, now.isoformat())
 
@@ -332,7 +332,7 @@ class DeletionExecutor:
 
             # Two-phase delete: mark the row 'deleting' and commit BEFORE
             # removing the file. If we crash between this commit and the
-            # rm, the next run's _recover_stuck_deletions() can inspect
+            # rm, the next run's recover_stuck_deletions() can inspect
             # the row and decide whether the file is still there (reset
             # to pending) or already gone (mark deleted).
             logger.info(

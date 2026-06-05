@@ -59,7 +59,7 @@ def is_pending_unexpired(verified: VerifiedKeepAction, now: datetime) -> bool:
     if verified.action != ACTION_SCHEDULED_DELETION:
         return False
     delete_status_val = verified.delete_status
-    return not (delete_status_val is not None and delete_status_val != "pending")
+    return delete_status_val in (None, "pending")
 
 
 # ---------------------------------------------------------------------------

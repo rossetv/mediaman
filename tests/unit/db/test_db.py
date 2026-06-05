@@ -55,6 +55,31 @@ class TestInitDb:
         enabled = cursor.fetchone()[0]
         assert enabled == 1
 
+    def test_init_db_closes_connection_on_schema_error(self, db_path, monkeypatch):
+        """B-02: if schema application fails, init_db must close the connection.
+
+        A leaked file descriptor would accumulate on repeated boot-crash-retry
+        loops. We inject invalid DDL via the SCHEMA constant so executescript
+        raises, then confirm the connection is closed by attempting to use it.
+        """
+        import sqlite3 as _sqlite3
+
+        import mediaman.db.connection as _conn_module
+
+        # Inject a broken DDL fragment so executescript raises sqlite3.OperationalError.
+        monkeypatch.setattr(_conn_module, "SCHEMA", "THIS IS NOT VALID SQL !!!;")
+
+        with pytest.raises(_sqlite3.Error):
+            init_db(str(db_path))
+
+        # After the failure, the connection registered by _set_db_path is gone;
+        # attempting a fresh init_db on the same path must succeed (no file-lock
+        # left behind by a half-open connection).
+        monkeypatch.undo()  # restore real SCHEMA
+        conn = init_db(str(db_path))
+        assert conn is not None
+        conn.close()
+
 
 class TestSchemaV3:
     def test_media_items_has_show_rating_key(self, db_path):

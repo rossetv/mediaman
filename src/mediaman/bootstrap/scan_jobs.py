@@ -132,9 +132,9 @@ def _recover_stuck_deletions_at_boot(conn: sqlite3.Connection) -> None:
     """
     global _stuck_deletion_failures
     try:
-        from mediaman.scanner.deletions import _recover_stuck_deletions
+        from mediaman.scanner.deletions import recover_stuck_deletions
 
-        _recover_stuck_deletions(conn)
+        recover_stuck_deletions(conn)
         _stuck_deletion_failures = 0
     except Exception:  # rationale: §6.4 site 4 — cold-start recovery
         _stuck_deletion_failures += 1
@@ -214,7 +214,7 @@ def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
     from mediaman.scanner.scheduler import start_scheduler
 
     conn = app.state.db
-    canary_ok = getattr(app.state, "canary_ok", True)
+    canary_ok = getattr(app.state, "canary_ok", False)  # fail-closed: unset → refuse to start
 
     # Default to "not ready" — only flipped to True at the end of the
     # successful path. /readyz reads this flag to decide its 200/503.
@@ -290,10 +290,9 @@ def shutdown_scheduling() -> None:
     done = threading.Event()
 
     def _drain() -> None:
-        # rationale: shutdown path — log and proceed so SIGTERM completes.
         try:
             stop_scheduler()
-        except Exception:  # pragma: no cover — best-effort shutdown
+        except Exception:  # rationale: §6.4 shutdown path — log and proceed so SIGTERM completes  # pragma: no cover — best-effort shutdown
             logger.exception("scheduler shutdown raised — abandoning in-flight jobs")
         finally:
             done.set()

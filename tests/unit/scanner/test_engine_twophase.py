@@ -89,7 +89,7 @@ class TestDeleteRootsSeparator:
 
 class TestTwoPhaseDelete:
     """C30: deletions must mark a 'deleting' status before the rm so a
-    crash mid-way can be recovered by _recover_stuck_deletions."""
+    crash mid-way can be recovered by recover_stuck_deletions."""
 
     def _insert_item(self, conn, item_id, file_path="/tmp/fake", size=1_000_000):
         insert_media_item(
@@ -185,7 +185,7 @@ class TestTwoPhaseDelete:
     ):
         """Recovery: a 'deleting' row whose file is still on disk is
         reset to 'pending' so the next run retries it."""
-        from mediaman.scanner.deletions import _recover_stuck_deletions
+        from mediaman.scanner.deletions import recover_stuck_deletions
 
         live = tmp_path / "live.mkv"
         live.write_bytes(b"x")
@@ -197,7 +197,7 @@ class TestTwoPhaseDelete:
             status="deleting",
         )
 
-        _recover_stuck_deletions(conn)
+        recover_stuck_deletions(conn)
 
         row = conn.execute(
             "SELECT delete_status FROM scheduled_actions WHERE media_item_id='r1'"
@@ -207,7 +207,7 @@ class TestTwoPhaseDelete:
     def test_recover_file_absent_completes_cleanup(self, conn, mock_plex):
         """Recovery: a 'deleting' row whose file is already gone gets
         its audit entry written and the row removed."""
-        from mediaman.scanner.deletions import _recover_stuck_deletions
+        from mediaman.scanner.deletions import recover_stuck_deletions
 
         self._insert_item(conn, "r2", file_path="/definitely/not/here/x.mkv")
         self._insert_sched(
@@ -217,7 +217,7 @@ class TestTwoPhaseDelete:
             status="deleting",
         )
 
-        _recover_stuck_deletions(conn)
+        recover_stuck_deletions(conn)
 
         row = conn.execute("SELECT * FROM scheduled_actions WHERE media_item_id='r2'").fetchone()
         assert row is None

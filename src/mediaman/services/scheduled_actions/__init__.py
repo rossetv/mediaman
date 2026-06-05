@@ -1,11 +1,10 @@
 """Shared service helpers for the ``scheduled_actions`` table.
 
-Domain 02 noted that ``web/routes/keep.py`` and ``web/routes/kept.py`` had
-extensive overlap: the same execute-at parsing, the same token-hash insert
-into ``keep_tokens_used``, the same guarded UPDATE for snooze/forever, and
-the same human-readable expiry formatter were copy-pasted across both
-files (and twice within ``keep.py`` alone).  This package is the single
-source of truth for that logic so the route layer stays thin.
+The two keep-route handlers in ``web/routes/keep.py`` and
+``web/routes/kept.py`` previously duplicated the same execute-at parsing,
+token-hash insert into ``keep_tokens_used``, guarded UPDATE for
+snooze/forever, and human-readable expiry formatter.  This package is the
+single source of truth for that logic so the route layer stays thin.
 
 All DB-bound helpers take ``conn: sqlite3.Connection`` as the first
 positional argument and never call ``conn.commit()`` themselves —
@@ -19,12 +18,13 @@ Package layout:
 - ``_display``: human-readable expiry and date formatters
 """
 
+from __future__ import annotations
+
 from mediaman.services.scheduled_actions._display import (
     format_added_display,
     format_expiry,
 )
 from mediaman.services.scheduled_actions._lookup import (
-    find_active_keep_action_by_id_and_token,
     lookup_verified_action,
     mark_token_consumed,
     token_hash,
@@ -46,7 +46,6 @@ __all__ = [
     "VerifiedKeepAction",
     "apply_keep_forever",
     "apply_keep_snooze",
-    "find_active_keep_action_by_id_and_token",
     "format_added_display",
     "format_expiry",
     "is_pending_unexpired",

@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS admin_users (
 );
 
 CREATE TABLE IF NOT EXISTS admin_sessions (
+    -- TODO(mediaman): token is retained as the PRIMARY KEY for legacy rows
+    -- whose session_token_hash migration has not yet completed.  Once all rows
+    -- carry token_hash and the session-lookup path no longer falls back to
+    -- raw-token comparison, drop this column and promote token_hash to PK.
     token TEXT PRIMARY KEY,
     username TEXT NOT NULL REFERENCES admin_users(username) ON DELETE CASCADE,
     created_at TEXT NOT NULL,
@@ -63,6 +67,9 @@ CREATE TABLE IF NOT EXISTS scheduled_actions (
     action TEXT NOT NULL,
     scheduled_at TEXT NOT NULL,
     execute_at TEXT,
+    -- TODO(mediaman): token is retained for legacy rows not yet migrated to
+    -- token_hash-only storage (§10.2).  Once all rows carry token_hash and
+    -- the raw-token fallback lookup path is retired, this column can be dropped.
     token TEXT UNIQUE,
     token_used INTEGER NOT NULL DEFAULT 0,
     snoozed_at TEXT,
