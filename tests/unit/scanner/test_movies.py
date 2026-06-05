@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from mediaman.scanner.phases.evaluate import evaluate_movie
+from mediaman.scanner.phases.evaluate import evaluate_item
 
 
 def _now():
@@ -13,7 +13,7 @@ def _now():
 
 class TestEvaluateMovie:
     def test_skip_recently_added(self):
-        result = evaluate_movie(
+        result = evaluate_item(
             added_at=_now() - timedelta(days=10),
             watch_history=[],
             min_age_days=30,
@@ -22,7 +22,7 @@ class TestEvaluateMovie:
         assert result == "skip"
 
     def test_delete_old_never_watched(self):
-        result = evaluate_movie(
+        result = evaluate_item(
             added_at=_now() - timedelta(days=60),
             watch_history=[],
             min_age_days=30,
@@ -31,7 +31,7 @@ class TestEvaluateMovie:
         assert result == "schedule_deletion"
 
     def test_skip_recently_watched(self):
-        result = evaluate_movie(
+        result = evaluate_item(
             added_at=_now() - timedelta(days=60),
             watch_history=[{"viewed_at": _now() - timedelta(days=5)}],
             min_age_days=30,
@@ -40,7 +40,7 @@ class TestEvaluateMovie:
         assert result == "skip"
 
     def test_delete_watched_long_ago(self):
-        result = evaluate_movie(
+        result = evaluate_item(
             added_at=_now() - timedelta(days=60),
             watch_history=[{"viewed_at": _now() - timedelta(days=45)}],
             min_age_days=30,
@@ -49,7 +49,7 @@ class TestEvaluateMovie:
         assert result == "schedule_deletion"
 
     def test_skip_when_any_recent_watch(self):
-        result = evaluate_movie(
+        result = evaluate_item(
             added_at=_now() - timedelta(days=90),
             watch_history=[
                 {"viewed_at": _now() - timedelta(days=60)},

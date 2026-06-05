@@ -137,7 +137,7 @@ def fetch_pending_deletions(conn: sqlite3.Connection, now_iso: str) -> list[Dele
         "FROM scheduled_actions sa "
         "JOIN media_items mi ON sa.media_item_id = mi.id "
         "WHERE sa.action = 'scheduled_deletion' "
-        "  AND sa.execute_at < ? "
+        "  AND sa.execute_at <= ? "
         "  AND (sa.delete_status IS NULL OR sa.delete_status = 'pending')",
         (now_iso,),
     ).fetchall()

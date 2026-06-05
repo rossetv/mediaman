@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from mediaman.scanner.phases.evaluate import evaluate_season
+from mediaman.scanner.phases.evaluate import evaluate_item
 
 
 def _now():
@@ -13,7 +13,7 @@ def _now():
 
 class TestEvaluateSeason:
     def test_skip_recently_added(self):
-        result = evaluate_season(
+        result = evaluate_item(
             added_at=_now() - timedelta(days=10),
             watch_history=[],
             min_age_days=30,
@@ -22,7 +22,7 @@ class TestEvaluateSeason:
         assert result == "skip"
 
     def test_delete_old_never_watched(self):
-        result = evaluate_season(
+        result = evaluate_item(
             added_at=_now() - timedelta(days=60),
             watch_history=[],
             min_age_days=30,
@@ -35,7 +35,7 @@ class TestEvaluateSeason:
             {"viewed_at": _now() - timedelta(days=40), "episode_title": f"Ep {i}"}
             for i in range(10)
         ]
-        result = evaluate_season(
+        result = evaluate_item(
             added_at=_now() - timedelta(days=90),
             watch_history=watches,
             min_age_days=30,
@@ -45,7 +45,7 @@ class TestEvaluateSeason:
 
     def test_skip_partially_watched_recently(self):
         watches = [{"viewed_at": _now() - timedelta(days=5), "episode_title": "Ep 1"}]
-        result = evaluate_season(
+        result = evaluate_item(
             added_at=_now() - timedelta(days=60),
             watch_history=watches,
             min_age_days=30,
@@ -58,7 +58,7 @@ class TestEvaluateSeason:
             {"viewed_at": _now() - timedelta(days=50), "episode_title": "Ep 1"},
             {"viewed_at": _now() - timedelta(days=48), "episode_title": "Ep 2"},
         ]
-        result = evaluate_season(
+        result = evaluate_item(
             added_at=_now() - timedelta(days=90),
             watch_history=watches,
             min_age_days=30,

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, NamedTuple, TypedDict, cast
 
 import requests
 
+from mediaman.scanner import repository
 from mediaman.services.arr.base import ArrError
 from mediaman.services.arr.build import (
     build_plex_from_db as _build_plex,
@@ -120,11 +121,11 @@ def _reset_plex_client_cache() -> None:
 
 def _load_library_ids(conn: sqlite3.Connection) -> list[str]:
     """Read plex_libraries from settings, returning [] on missing or corrupt JSON."""
-    row = conn.execute("SELECT value FROM settings WHERE key='plex_libraries'").fetchone()
-    if not row:
+    raw = repository.read_setting(conn, "plex_libraries")
+    if not raw:
         return []
     try:
-        parsed = json.loads(row["value"])
+        parsed = json.loads(raw)
         return [str(v) for v in parsed] if isinstance(parsed, list) else []
     except json.JSONDecodeError:
         logger.warning("plex_libraries setting contains invalid JSON — scanning no libraries")
@@ -141,13 +142,24 @@ def _filter_libraries_by_disk(
     Libraries with no threshold, threshold of 0, or any exception from
     ``get_disk_usage`` are always included (fail open).
     """
-    raw = conn.execute("SELECT value FROM settings WHERE key='disk_thresholds'").fetchone()
+    raw = repository.read_setting(conn, "disk_thresholds")
     if not raw:
         return lib_ids
 
     try:
-        thresholds = json.loads(raw["value"])
+        thresholds = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
+        return lib_ids
+
+    # Fail open on a corrupt non-dict value (e.g. a JSON array or string):
+    # the next line indexes ``thresholds.get(lib_id)``, which would raise
+    # AttributeError and abort the whole scan. Mirror the isinstance guard
+    # ``_load_library_ids`` applies to its list payload.
+    if not isinstance(thresholds, dict):
+        logger.warning(
+            "disk_thresholds setting is not a JSON object — scanning all "
+            "libraries (disk filter disabled for this run)."
+        )
         return lib_ids
 
     filtered = []
@@ -314,8 +326,7 @@ def run_scan_from_db(
     min_age = _get_int_setting(conn, "min_age_days", default=30)
     inactivity = _get_int_setting(conn, "inactivity_days", default=30)
     grace = _get_int_setting(conn, "grace_days", default=14)
-    dry_run_row = conn.execute("SELECT value FROM settings WHERE key='dry_run'").fetchone()
-    dry_run = bool(dry_run_row and dry_run_row["value"] == "true")
+    dry_run = repository.read_setting(conn, "dry_run") == "true"
 
     # ── Run ──────────────────────────────────────────────────────────────────
     engine = ScanEngine(

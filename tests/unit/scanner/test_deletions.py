@@ -235,9 +235,13 @@ class TestRecoverStuckDeletions:
         ).fetchone()
         assert row["delete_status"] == "pending"
 
-    def test_completes_cleanup_when_file_gone(self, conn, tmp_path):
-        # File does NOT exist — should log as already-deleted and remove the row.
-        missing_path = str(tmp_path / "already_gone.mkv")
+    def test_completes_cleanup_when_file_gone(self, conn, tmp_path, monkeypatch):
+        # File does NOT exist but its path is within the configured delete
+        # roots — should log as already-deleted and remove the row.
+        root = tmp_path / "library"
+        root.mkdir()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        missing_path = str(root / "already_gone.mkv")
 
         _insert_media(conn, media_id="m3", file_path=missing_path)
         insert_scheduled_action(
@@ -258,6 +262,73 @@ class TestRecoverStuckDeletions:
     def test_no_stuck_rows_is_noop(self, conn):
         # Must not raise when there are no deleting rows.
         recover_stuck_deletions(conn)
+
+    def test_file_gone_outside_roots_does_not_fabricate_audit(self, conn, tmp_path, monkeypatch):
+        """M5: a 'deleting' row whose file is absent but whose stored path is
+        OUTSIDE the configured delete roots must NOT be completed as a
+        deletion — mediaman could never have removed it, so writing a
+        'deleted N bytes' audit row would corrupt the audit trail and the
+        reclaimed-bytes stats. The row is reset to 'pending' and no audit
+        entry is created.
+        """
+        root = tmp_path / "library"
+        root.mkdir()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        # Path is absent AND outside the configured root.
+        outside_path = str(tmp_path / "elsewhere" / "ghost.mkv")
+
+        _insert_media(conn, media_id="m4", file_path=outside_path)
+        insert_scheduled_action(
+            conn,
+            media_item_id="m4",
+            action="scheduled_deletion",
+            token="tok-m4",
+            execute_at="2020-01-01",
+            token_used=False,
+            delete_status="deleting",
+        )
+
+        recover_stuck_deletions(conn)
+
+        # Row preserved and reset to pending for operator review.
+        row = conn.execute(
+            "SELECT delete_status FROM scheduled_actions WHERE media_item_id='m4'"
+        ).fetchone()
+        assert row is not None
+        assert row["delete_status"] == "pending"
+        # No phantom 'deleted' audit entry was fabricated.
+        audit = conn.execute(
+            "SELECT action FROM audit_log WHERE media_item_id='m4' AND action='deleted'"
+        ).fetchone()
+        assert audit is None
+
+    def test_file_gone_with_empty_path_does_not_fabricate_audit(self, conn, monkeypatch):
+        """M5: an empty stored path is never within any root, so the
+        file-absent branch must not complete a deletion off it either.
+        """
+        monkeypatch.delenv("MEDIAMAN_DELETE_ROOTS", raising=False)
+        _insert_media(conn, media_id="m5", file_path="")
+        insert_scheduled_action(
+            conn,
+            media_item_id="m5",
+            action="scheduled_deletion",
+            token="tok-m5",
+            execute_at="2020-01-01",
+            token_used=False,
+            delete_status="deleting",
+        )
+
+        recover_stuck_deletions(conn)
+
+        row = conn.execute(
+            "SELECT delete_status FROM scheduled_actions WHERE media_item_id='m5'"
+        ).fetchone()
+        assert row is not None
+        assert row["delete_status"] == "pending"
+        audit = conn.execute(
+            "SELECT action FROM audit_log WHERE media_item_id='m5' AND action='deleted'"
+        ).fetchone()
+        assert audit is None
 
 
 # ---------------------------------------------------------------------------

@@ -188,10 +188,11 @@ class TestRunScanDryRun:
 
 
 class TestResolveAddedAt:
-    """D05 findings 2 + 3: ``_resolve_added_at`` must prefer Arr date,
-    then Plex ``added_at``, and only fall back to ``updated_at`` as a
-    last resort. An unparseable Arr date must fall through, not be
-    substituted with ``now()``.
+    """D05 findings 2 + 3 and M3: ``_resolve_added_at`` must prefer Arr date,
+    then Plex ``added_at``, and otherwise fall straight to ``now`` — it must
+    NOT consult ``updated_at`` (a metadata-refresh marker), so the eligibility
+    clock agrees with the stored ``media_items.added_at``. An unparseable Arr
+    date must fall through, not be substituted with ``now()``.
     """
 
     def test_prefers_added_at_over_updated_at(self, conn, mock_plex, freezer):
@@ -241,3 +242,27 @@ class TestResolveAddedAt:
         item = {"file_path": bad_path, "added_at": old_added}
         resolved = engine._resolve_added_at(item)
         assert abs((resolved - old_added).total_seconds()) < 2
+
+    def test_missing_added_at_does_not_fall_back_to_updated_at(self, conn, mock_plex, freezer):
+        """M3: with no Arr date and no ``added_at``, ``updated_at`` must be
+        ignored entirely and the clock falls straight to ``now`` — so a
+        subtitle/poster refresh can never keep an item permanently young, and
+        the eligibility clock matches the ``now``-stored ``media_items.added_at``.
+        """
+        engine = ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=[],
+            library_types={},
+            secret_key="k",
+        )
+        recent_updated = datetime.now(UTC) - timedelta(hours=1)
+        item = {
+            "file_path": "/media/movies/NoAdded",
+            "updated_at": recent_updated,
+        }
+        resolved = engine._resolve_added_at(item)
+        # Falls to now (frozen), NOT to the recent updated_at marker. If
+        # updated_at were still wired in, resolved would equal recent_updated.
+        assert abs((resolved - datetime.now(UTC)).total_seconds()) < 2
+        assert abs((resolved - recent_updated).total_seconds()) > 3000

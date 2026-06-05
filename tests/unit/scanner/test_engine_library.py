@@ -326,6 +326,74 @@ class TestOrphanGuardTwoScanConfirmation:
         assert self._count_lib2(conn) == 10
 
 
+class TestOrphanGuardPerLibraryConfirmation:
+    """M2: confirmation is PER LIBRARY. ``remove_orphans`` must only prune a
+    library on a suspicious scan if THAT specific library was already pending
+    from the previous run (a second consecutive suspicious look at it). A
+    library that is merely *part of* a larger previously-pending set, but is
+    seeing its own first suspicious scan, must be deferred — not pruned.
+    """
+
+    def _populate(self, conn, lib_id, n):
+        for i in range(n):
+            insert_media_item(
+                conn,
+                id=f"item-{lib_id}-{i}",
+                title=f"t-{i}",
+                plex_library_id=lib_id,
+                plex_rating_key=f"item-{lib_id}-{i}",
+                added_at="2026-01-01",
+                file_path=f"/media/{lib_id}/{i}",
+                file_size_bytes=1,
+            )
+
+    def _count(self, conn, lib_id):
+        return conn.execute(
+            "SELECT COUNT(*) FROM media_items WHERE plex_library_id=?", (lib_id,)
+        ).fetchone()[0]
+
+    def test_suspicious_scan_of_lib_not_yet_pending_defers_not_prunes(self, conn):
+        """Pending = {1, 2}; this run scans only library 1, suspiciously.
+        Library 1 was NOT individually pending (only 2 was, and 1 arrived
+        via a larger set in a prior run that no longer holds), so its first
+        confirming look must defer — items preserved — and library 1 becomes
+        pending. The old subset logic wrongly pruned here.
+        """
+        from mediaman.scanner.phases.delete import (
+            _get_pending_guard_libs,
+            _set_pending_guard_libs,
+            remove_orphans,
+        )
+
+        self._populate(conn, 1, 10)
+        # Seed library 2 as the only genuinely-pending library.
+        _set_pending_guard_libs(conn, {2})
+        conn.commit()
+
+        # Suspicious scan of library 1 (Plex returned nothing).
+        removed = remove_orphans(conn, seen_keys=set(), scanned_libs={1})
+
+        assert removed == 0
+        assert self._count(conn, 1) == 10  # not pruned — deferred
+        # Library 1 is now recorded pending alongside the still-pending 2.
+        assert _get_pending_guard_libs(conn) == {1, 2}
+
+    def test_second_suspicious_scan_of_already_pending_lib_prunes(self, conn):
+        """When the specific library was already pending, a second
+        suspicious scan confirms and prunes it.
+        """
+        from mediaman.scanner.phases.delete import _set_pending_guard_libs, remove_orphans
+
+        self._populate(conn, 1, 10)
+        _set_pending_guard_libs(conn, {1})  # already pending from a prior run
+        conn.commit()
+
+        removed = remove_orphans(conn, seen_keys=set(), scanned_libs={1})
+
+        assert removed == 10
+        assert self._count(conn, 1) == 0
+
+
 class TestUnknownLibraryType:
     """D05 finding 6: a library with no type mapping must be skipped
     loudly, not scanned as 'movie' by default.

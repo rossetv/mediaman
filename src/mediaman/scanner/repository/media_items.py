@@ -1,4 +1,20 @@
-"""SQL operations on the `media_items` table."""
+"""SQL operations on the ``media_items`` table.
+
+**What.** The table-group-1 repository helpers: the per-scan ``upsert_media_item``
+write, the monotonic ``update_last_watched`` watch-clock advance, the orphan
+guard's ``count_items_in_libraries`` / ``fetch_ids_in_libraries`` reads, and the
+``delete_media_items`` bulk remove.
+
+**Why.** Centralising every ``media_items`` statement here keeps the engine and
+scan loop reading as orchestration rather than a pile of SQL literals (§9.4),
+and makes the schema contract — column set, ON CONFLICT mutability, the
+``MAX(...)`` no-rewind guard — visible in one place.
+
+**Forbids.** Pure SQL only: no crypto, no token logic (that lives in
+:func:`phases.upsert.schedule_deletion`), and no transaction management for the
+delete helpers — ``delete_media_items`` deliberately opens no transaction so the
+caller can keep it atomic with the sibling ``scheduled_actions`` delete.
+"""
 
 from __future__ import annotations
 
@@ -27,6 +43,17 @@ def upsert_media_item(
     Uses *arr_date* (from Radarr/Sonarr) when available, else falls back
     to Plex's ``addedAt``. The ``added_at`` column is always updated to
     reflect the best known date.
+
+    Mutable vs immutable columns (ON CONFLICT contract): ``id`` (which
+    equals ``plex_rating_key``) is the only immutable identity column —
+    it is the conflict target and is never rewritten. **Every** other
+    column is mutable metadata that the latest Plex/arr view owns, so
+    each is refreshed on conflict. This deliberately includes
+    ``plex_library_id``, ``show_title`` and ``season_number``: a Plex
+    section re-org moves an item between libraries, and leaving a stale
+    ``plex_library_id`` would mis-attribute the row in the orphan guard's
+    universe (``count_items_in_libraries`` / ``fetch_ids_in_libraries``),
+    under-counting the new library and leaving a ghost in the old one.
     """
     now = now_iso()
 
@@ -53,6 +80,9 @@ def upsert_media_item(
         ON CONFLICT(id) DO UPDATE SET
             title = excluded.title,
             media_type = excluded.media_type,
+            show_title = excluded.show_title,
+            season_number = excluded.season_number,
+            plex_library_id = excluded.plex_library_id,
             show_rating_key = excluded.show_rating_key,
             added_at = excluded.added_at,
             file_path = excluded.file_path,
