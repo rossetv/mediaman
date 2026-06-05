@@ -252,7 +252,7 @@ def _register_probes(app: FastAPI) -> None:
         tail the python logs to discover *why*.
         """
         scheduler_healthy = bool(getattr(app.state, "scheduler_healthy", False))
-        canary_ok = bool(getattr(app.state, "canary_ok", True))
+        canary_ok = bool(getattr(app.state, "canary_ok", False))  # fail-closed: unset → not ready
         ready = scheduler_healthy and canary_ok
         body: dict[str, str] = {
             "status": "ready" if ready else "not_ready",

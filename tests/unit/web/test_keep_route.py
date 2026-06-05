@@ -16,7 +16,6 @@ from mediaman.crypto import generate_keep_token
 from mediaman.db import set_connection
 from mediaman.services.scheduled_actions import (
     VerifiedKeepAction,
-    find_active_keep_action_by_id_and_token,
     lookup_verified_action,
     token_hash,
 )
@@ -479,21 +478,19 @@ class TestFinding13KeepDeadlineCheck:
 class TestFinding16KeepTokenHash:
     """Finding 16: token hash helpers and insert-only-hash logic."""
 
-    def test_find_active_keep_action_by_id_and_token(self, conn):
-        """Helper must return the row when token hash matches and conditions are met."""
-        from mediaman.web.routes.keep import find_active_keep_action_by_id_and_token
-
+    def test_lookup_verified_action_returns_row_when_token_matches(self, conn):
+        """lookup_verified_action must return the row when HMAC is valid and conditions are met."""
         _insert_media_item(conn)
         action_id = _insert_scheduled_action_findings(conn)
         token = _make_keep_token(conn, "mi1", action_id)
 
-        row = find_active_keep_action_by_id_and_token(conn, action_id, token)
+        row = lookup_verified_action(conn, token, SECRET)
         assert row is not None
         assert row.id == action_id
 
-    def test_find_active_returns_verified_keep_action_with_join_fields(self, conn):
-        """find_active_keep_action_by_id_and_token returns a VerifiedKeepAction
-        whose media_items display columns are populated via the JOIN."""
+    def test_lookup_verified_action_returns_verified_keep_action_with_join_fields(self, conn):
+        """lookup_verified_action returns a VerifiedKeepAction whose media_items display
+        columns are populated via the JOIN."""
         insert_media_item(
             conn,
             id="mi1",
@@ -507,7 +504,7 @@ class TestFinding16KeepTokenHash:
         action_id = _insert_scheduled_action_findings(conn)
         token = _make_keep_token(conn, "mi1", action_id)
 
-        row = find_active_keep_action_by_id_and_token(conn, action_id, token)
+        row = lookup_verified_action(conn, token, SECRET)
 
         assert isinstance(row, VerifiedKeepAction)
         assert row.id == action_id
@@ -520,37 +517,22 @@ class TestFinding16KeepTokenHash:
         assert row.file_size_bytes == 999
         assert row.plex_rating_key == "rk-join"
 
-    def test_find_active_returns_none_for_expired(self, conn):
-        """Helper must return None when execute_at is in the past."""
-
-        from mediaman.web.routes.keep import find_active_keep_action_by_id_and_token
-
-        _insert_media_item(conn)
-        action_id = _insert_scheduled_action_findings(conn, execute_at_offset_days=-1)
-        token = _make_keep_token(conn, "mi1", action_id)
-
-        row = find_active_keep_action_by_id_and_token(conn, action_id, token)
-        assert row is None
-
-    def test_find_active_returns_none_for_wrong_token(self, conn):
-        """Helper must return None when token does not match the hash in the row."""
+    def test_lookup_verified_action_returns_none_for_wrong_secret(self, conn):
+        """lookup_verified_action must return None when the signing secret is wrong."""
         import time as _time
 
         from mediaman.crypto import generate_keep_token
-        from mediaman.web.routes.keep import find_active_keep_action_by_id_and_token
 
         _insert_media_item(conn)
         action_id = _insert_scheduled_action_findings(conn)
-        _make_keep_token(conn, "mi1", action_id)
-
-        # Use a different token
+        # Mint a token with a different secret — HMAC check must reject it
         wrong_token = generate_keep_token(
             media_item_id="mi1",
             action_id=action_id,
             expires_at=int(_time.time()) + 86400,
             secret_key="b" * 64,
         )
-        row = find_active_keep_action_by_id_and_token(conn, action_id, wrong_token)
+        row = lookup_verified_action(conn, wrong_token, SECRET)
         assert row is None
 
     def test_schedule_deletion_writestoken_hash(self, conn):

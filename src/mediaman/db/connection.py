@@ -49,10 +49,14 @@ def init_db(db_path: str) -> sqlite3.Connection:
     existing database.
     """
     conn = sqlite3.connect(db_path)
-    _configure_connection(conn)
-    _set_db_path(db_path)
-    conn.executescript(SCHEMA)
-    conn.commit()
+    try:
+        _configure_connection(conn)
+        _set_db_path(db_path)
+        conn.executescript(SCHEMA)
+        conn.commit()
+    except Exception:
+        conn.close()
+        raise
     return conn
 
 
@@ -76,7 +80,11 @@ def get_db() -> sqlite3.Connection:
         raise RuntimeError("Database not initialised — call init_db first")
 
     if _owning_thread is not None and threading.get_ident() == _owning_thread:
-        assert _owning_conn is not None
+        if _owning_conn is None:
+            raise RuntimeError(
+                "set_connection was called with a thread id but no connection — "
+                "this is a bug in bootstrap."
+            )
         return _owning_conn
 
     conn: sqlite3.Connection | None = getattr(_thread_local, "conn", None)
@@ -210,7 +218,7 @@ def _is_job_running(conn: sqlite3.Connection, table: str) -> bool:
     _check_job_table(table)
     cutoff = (now_utc() - timedelta(seconds=_JOB_HEARTBEAT_STALE_SECONDS)).isoformat()
     row = conn.execute(
-        f"SELECT id FROM {table} WHERE finished_at IS NULL   AND heartbeat_at > ? LIMIT 1",
+        f"SELECT id FROM {table} WHERE finished_at IS NULL AND heartbeat_at > ? LIMIT 1",
         (cutoff,),
     ).fetchone()
     return row is not None
@@ -221,6 +229,11 @@ def _start_job_run(conn: sqlite3.Connection, table: str) -> int | None:
 
     Stamps ``owner_id`` and ``heartbeat_at`` so subsequent
     :func:`heartbeat_job_run` calls keep the row visible as live.
+
+    Precondition: *conn* must not already have an open transaction.
+    This function issues ``BEGIN IMMEDIATE`` directly; calling it inside
+    an existing transaction raises ``sqlite3.OperationalError`` and leaves
+    the outer transaction in an undefined state.
     """
     _check_job_table(table)
     # ``BEGIN IMMEDIATE`` obtains a reserved write lock upfront, preventing
@@ -293,7 +306,10 @@ def is_scan_running(conn: sqlite3.Connection) -> bool:
 
 
 def start_scan_run(conn: sqlite3.Connection) -> int | None:
-    """Begin a scan run. Returns the run id or None if one is already active."""
+    """Begin a scan run. Returns the run id or None if one is already active.
+
+    Must not be called inside an existing transaction — see :func:`_start_job_run`.
+    """
     return _start_job_run(conn, "scan_runs")
 
 
@@ -318,7 +334,10 @@ def is_refresh_running(conn: sqlite3.Connection) -> bool:
 
 
 def start_refresh_run(conn: sqlite3.Connection) -> int | None:
-    """Begin a refresh run. Returns the run id or None if one is already active."""
+    """Begin a refresh run. Returns the run id or None if one is already active.
+
+    Must not be called inside an existing transaction — see :func:`_start_job_run`.
+    """
     return _start_job_run(conn, "refresh_runs")
 
 

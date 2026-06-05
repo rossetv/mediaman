@@ -48,7 +48,11 @@ def resolve_keep_decision(duration: str, *, days: int | None, now: datetime) -> 
     """
     if duration == "forever":
         return KeepDecision(ACTION_PROTECTED_FOREVER, None, None)
-    assert days is not None, "non-forever durations must have a day count"
+    if days is None:
+        raise ValueError(
+            f"resolve_keep_decision: duration={duration!r} is not 'forever' "
+            "but days is None — caller must supply the day count"
+        )
     execute_at = (now + timedelta(days=days)).isoformat()
     return KeepDecision(ACTION_SNOOZED, execute_at, days)
 
@@ -57,8 +61,7 @@ def resolve_keep_decision(duration: str, *, days: int | None, now: datetime) -> 
 class VerifiedKeepAction:
     """A ``scheduled_actions`` row joined with its parent ``media_items`` row.
 
-    Returned by :func:`~mediaman.services.scheduled_actions.lookup_verified_action` and
-    :func:`~mediaman.services.scheduled_actions.find_active_keep_action_by_id_and_token`
+    Returned by :func:`~mediaman.services.scheduled_actions.lookup_verified_action`
     so the keep routes consume typed attributes rather than raw
     ``sqlite3.Row`` string keys (per the repository-returns-dataclasses
     standard).  The field order mirrors the shared SELECT column list: all

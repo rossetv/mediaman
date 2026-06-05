@@ -242,6 +242,74 @@ class TestShutdownScheduling:
         assert elapsed < 5.0
 
 
+class TestH01ReadyzFailClosed:
+    """H-01: /readyz canary default must be fail-closed (False, not True)."""
+
+    def _make_readyz_app(self):
+        """Build a minimal app with the /readyz probe registered."""
+        from fastapi import FastAPI
+
+        from mediaman.app_factory import _register_probes
+
+        app = FastAPI()
+        _register_probes(app)
+        return app
+
+    def test_readyz_reports_crypto_down_when_canary_unset(self):
+        """When canary_ok is not set on app.state, /readyz must report crypto as down."""
+        from fastapi.testclient import TestClient
+
+        app = self._make_readyz_app()
+        # Do NOT set app.state.canary_ok — default must be fail-closed
+        app.state.scheduler_healthy = True
+
+        client = TestClient(app, raise_server_exceptions=True)
+        resp = client.get("/readyz")
+
+        assert resp.status_code == 503
+        body = resp.json()
+        assert body["crypto"] == "down", "/readyz must report crypto=down when canary_ok is not set"
+
+    def test_readyz_reports_ready_when_both_flags_set(self):
+        """When both scheduler_healthy and canary_ok are True, /readyz returns 200."""
+        from fastapi.testclient import TestClient
+
+        app = self._make_readyz_app()
+        app.state.scheduler_healthy = True
+        app.state.canary_ok = True
+
+        client = TestClient(app, raise_server_exceptions=True)
+        resp = client.get("/readyz")
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ready"
+
+    def test_bootstrap_scheduling_refuses_when_canary_unset(self, db_path):
+        """When canary_ok is not on app.state, bootstrap_scheduling must refuse (fail-closed)."""
+        from mediaman.db import init_db
+
+        class _State:
+            pass
+
+        class _App:
+            state = _State()
+
+        class _Config:
+            secret_key = "0123456789abcdef" * 4
+
+        app = _App()
+        app.state.db = init_db(str(db_path))
+        # Deliberately do NOT set app.state.canary_ok — default must refuse
+
+        from mediaman.bootstrap.scan_jobs import bootstrap_scheduling
+
+        result = bootstrap_scheduling(app, _Config())
+        assert result is False, (
+            "bootstrap_scheduling must refuse when canary_ok is not set (fail-closed)"
+        )
+
+
 class TestBootstrapCryptoFailClosed:
     """Finding 14: canary state must default to False, not True."""
 

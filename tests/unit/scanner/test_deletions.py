@@ -1,7 +1,7 @@
 """Tests for mediaman.scanner.deletions.
 
 Covers: DeletionExecutor.execute (dry_run, no allowed roots, actual delete
-path, stuck-state recovery) and _recover_stuck_deletions.
+path, stuck-state recovery) and recover_stuck_deletions.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from mediaman.db import init_db
-from mediaman.scanner.deletions import DeletionExecutor, _recover_stuck_deletions
+from mediaman.scanner.deletions import DeletionExecutor, recover_stuck_deletions
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 
@@ -201,7 +201,7 @@ class TestSuccessfulDeletion:
 
 
 # ---------------------------------------------------------------------------
-# _recover_stuck_deletions
+# recover_stuck_deletions
 # ---------------------------------------------------------------------------
 
 
@@ -228,7 +228,7 @@ class TestRecoverStuckDeletions:
             delete_status="deleting",
         )
 
-        _recover_stuck_deletions(conn)
+        recover_stuck_deletions(conn)
 
         row = conn.execute(
             "SELECT delete_status FROM scheduled_actions WHERE media_item_id='m2'"
@@ -250,14 +250,14 @@ class TestRecoverStuckDeletions:
             delete_status="deleting",
         )
 
-        _recover_stuck_deletions(conn)
+        recover_stuck_deletions(conn)
 
         row = conn.execute("SELECT id FROM scheduled_actions WHERE media_item_id='m3'").fetchone()
         assert row is None  # Row removed — cleanup complete.
 
     def test_no_stuck_rows_is_noop(self, conn):
         # Must not raise when there are no deleting rows.
-        _recover_stuck_deletions(conn)
+        recover_stuck_deletions(conn)
 
 
 # ---------------------------------------------------------------------------
