@@ -16,7 +16,7 @@ constant plus one ``generate_*`` / ``validate_*`` pair.
 # Splitting TypedDicts to _token_types.py and HMAC primitives to
 # _token_hmac.py would scatter the type contract from the signing
 # implementation without reducing complexity; every caller would still
-# import from both. The file sits at 429 lines — within the 500-line
+# import from both. The file sits at ~470 lines — within the 500-line
 # ceiling — so a forced split is not justified.
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import secrets
 import threading
 import time
@@ -173,13 +174,27 @@ _SUBKEY_CACHE_MAX_ENTRIES = 64
 # N_PURPOSES (5) × N_KEY_ROTATIONS — well below 64 in practice, so the
 # clear-all eviction path is never triggered in production; a comment rather
 # than lru_cache suffices here (§13.2).
-_subkey_cache: dict[tuple[str, bytes], bytes] = {}
+# The cache key is a SHA-256 digest of the master secret, NOT the raw
+# plaintext key. Pinning the plaintext ``MEDIAMAN_SECRET_KEY`` as a
+# live dict key for the whole process lifetime would needlessly widen
+# the blast radius of a heap dump / core file / debugger inspection
+# (§7.4 hygiene). The digest is non-reversible and still uniquely
+# identifies the key for cache-lookup purposes.
+_subkey_cache: dict[tuple[bytes, bytes], bytes] = {}
 _subkey_cache_lock = threading.Lock()
 
 
 def _derive_token_subkey(secret_key: str, purpose: bytes) -> bytes:
-    """Derive a per-purpose HMAC sub-key from the master secret."""
-    cache_key = (secret_key, purpose)
+    """Derive a per-purpose HMAC sub-key from the master secret.
+
+    The cache is keyed on ``sha256(secret_key)`` rather than the raw
+    plaintext secret so the master key is never held as a long-lived
+    dict key (§7.4). The cache assumes a process-lifetime-constant
+    secret key — an in-process key rotation would leave stale (but
+    bounded, ≤ :data:`_SUBKEY_CACHE_MAX_ENTRIES`) entries; rotation is
+    a process restart in this single-worker design (§1.12).
+    """
+    cache_key = (hashlib.sha256(secret_key.encode()).digest(), purpose)
     with _subkey_cache_lock:
         if cache_key in _subkey_cache:
             return _subkey_cache[cache_key]
@@ -242,7 +257,18 @@ def _validate_signed(token: str, secret_key: str, purpose: bytes) -> TokenPayloa
         # bool is a subclass of int — exclude it explicitly so
         # ``"exp": True`` (which would coerce to 1, far in the past)
         # cannot slide through. Same for ``"exp": False``.
-        if isinstance(exp, bool) or not isinstance(exp, (int, float)) or exp < time.time():
+        #
+        # ``math.isfinite`` rejects ``Infinity`` / ``NaN`` — ``json.loads``
+        # parses those by default (a Python extension to strict JSON), and
+        # ``float("inf") < time.time()`` is ``False``, which would make a
+        # token with ``"exp": Infinity`` (or a huge float like ``1e308``)
+        # effectively immortal and defeat §10.2's short-lived guarantee.
+        if (
+            isinstance(exp, bool)
+            or not isinstance(exp, (int, float))
+            or not math.isfinite(exp)
+            or exp < time.time()
+        ):
             return None
         return cast(TokenPayload, payload)
     except (
@@ -252,10 +278,13 @@ def _validate_signed(token: str, secret_key: str, purpose: bytes) -> TokenPayloa
         json.JSONDecodeError,
         KeyError,
     ):
+        # Only the signature half is safe to log. For a dotless token the
+        # leading bytes are the start of the base64 *payload* (potentially
+        # the start of an email address), so log a fixed marker instead.
         logger.debug(
             "crypto.token_invalid purpose=%s sig_prefix=%s",
             purpose.decode(errors="replace"),
-            (token.split(".", 1)[-1][:8] if "." in token else token[:8]),
+            (token.split(".", 1)[1][:8] if "." in token else "<no-dot>"),
         )
         return None
 

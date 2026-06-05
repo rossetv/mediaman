@@ -36,8 +36,11 @@ def validate_email_address(address: str) -> None:
     forms (display-name syntax, double-``@``) are rejected here; they
     should never appear in a single-address admin-profile field anyway.
     """
-    if len(address) > _MAX_ADDRESS_LEN:
-        raise ValueError(f"Invalid email address: exceeds {_MAX_ADDRESS_LEN} characters")
+    # RFC 5321's 320-octet cap is measured in octets, not Unicode code
+    # points; encode first so a multibyte (IDN) local part is measured
+    # correctly rather than under-counted by ``len``.
+    if len(address.encode("utf-8")) > _MAX_ADDRESS_LEN:
+        raise ValueError(f"Invalid email address: exceeds {_MAX_ADDRESS_LEN} octets")
     if any(c in address for c in _HEADER_INJECT_CHARS):
         raise ValueError(f"Address contains illegal characters: {address!r}")
     if any(c.isspace() for c in address):

@@ -10,6 +10,7 @@ from mediaman.core.format import (
     format_bytes,
     format_day_month,
     parse_iso_utc,
+    relative_day_label,
     title_from_audit_detail,
 )
 
@@ -175,3 +176,77 @@ class TestDaysAgo:
     def test_multiple_days(self):
         past = (datetime.now(UTC) - timedelta(days=10)).isoformat()
         assert days_ago(past) == "10 days ago"
+
+
+class TestRelativeDayLabel:
+    """M5: behaviour must be unchanged after removing the control-flow assert.
+
+    Covers every branch: same-day, tomorrow, future, past-with-producer,
+    and past-without-producer (collapses to ``today``).
+    """
+
+    _NOW = datetime(2026, 6, 5, 12, 0, tzinfo=UTC)
+
+    def _future(self, days: int) -> str:
+        return f"in {days} days"
+
+    def _past(self, days: int) -> str:
+        return f"{days} days ago"
+
+    def test_same_day_returns_today(self):
+        target = self._NOW + timedelta(hours=3)
+        assert (
+            relative_day_label(target, now=self._NOW, future=self._future, past=self._past)
+            == "today"
+        )
+
+    def test_tomorrow(self):
+        target = self._NOW + timedelta(days=1)
+        assert (
+            relative_day_label(target, now=self._NOW, future=self._future, past=self._past)
+            == "tomorrow"
+        )
+
+    def test_future_days(self):
+        target = self._NOW + timedelta(days=5)
+        assert (
+            relative_day_label(target, now=self._NOW, future=self._future, past=self._past)
+            == "in 5 days"
+        )
+
+    def test_past_with_producer(self):
+        target = self._NOW - timedelta(days=3)
+        assert (
+            relative_day_label(target, now=self._NOW, future=self._future, past=self._past)
+            == "3 days ago"
+        )
+
+    def test_past_without_producer_collapses_to_today(self):
+        target = self._NOW - timedelta(days=3)
+        assert relative_day_label(target, now=self._NOW, future=self._future, past=None) == "today"
+
+    def test_custom_today_tomorrow_labels(self):
+        target = self._NOW
+        assert (
+            relative_day_label(
+                target,
+                now=self._NOW,
+                today="Expires today",
+                tomorrow="Expires tomorrow",
+                future=self._future,
+            )
+            == "Expires today"
+        )
+
+
+class TestTitleFromAuditDetailNoMatch:
+    """L6: docstring now states a non-empty no-match echoes the (capped)
+    input rather than returning ``"Unknown"`` — lock that behaviour.
+    """
+
+    def test_empty_returns_unknown(self):
+        assert title_from_audit_detail("") == "Unknown"
+        assert title_from_audit_detail(None) == "Unknown"
+
+    def test_non_matching_non_empty_echoes_input(self):
+        assert title_from_audit_detail("Snoozed something") == "Snoozed something"

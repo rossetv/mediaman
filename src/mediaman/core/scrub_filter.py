@@ -115,7 +115,13 @@ class ScrubFilter(logging.Filter):
     # ------------------------------------------------------------------
 
     def _scrub(self, text: str) -> str:
-        """Return *text* with every secret replaced by the replacement string."""
+        """Return *text* with every secret replaced by the replacement string.
+
+        Cost is O(secrets × len(text)) per record. The registered-secret
+        set is expected to be tiny (a handful: the secret key, Plex/arr
+        tokens, SMTP credentials) and is deduplicated on registration, so
+        the per-record scan stays cheap; there is no need for a cap here.
+        """
         with self._lock:
             secrets_snapshot = list(self._secrets)
         for secret in secrets_snapshot:

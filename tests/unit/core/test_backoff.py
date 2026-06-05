@@ -138,3 +138,38 @@ class TestConstructorValidation:
         # 0.99 is a legitimate (if extreme) jitter value.
         b = ExponentialBackoff(60.0, 3600.0, jitter=0.99)
         assert b.delay(1, seed=b"x") > 0
+
+
+class TestDelayFloatValidation:
+    """L4: NaN/inf/negative delay floats must be rejected at construction so
+    they cannot poison the scheduler's ``min()`` sleep math later.
+    """
+
+    def test_nan_base_raises(self):
+        with pytest.raises(ValueError, match="base_seconds must be finite"):
+            ExponentialBackoff(float("nan"), 3600.0)
+
+    def test_inf_base_raises(self):
+        with pytest.raises(ValueError, match="base_seconds must be finite"):
+            ExponentialBackoff(float("inf"), 3600.0)
+
+    def test_negative_base_raises(self):
+        with pytest.raises(ValueError, match="base_seconds must be finite"):
+            ExponentialBackoff(-1.0, 3600.0)
+
+    def test_inf_max_raises(self):
+        with pytest.raises(ValueError, match="max_seconds must be finite"):
+            ExponentialBackoff(60.0, float("inf"))
+
+    def test_nan_max_raises(self):
+        with pytest.raises(ValueError, match="max_seconds must be finite"):
+            ExponentialBackoff(60.0, float("nan"))
+
+    def test_max_below_base_raises(self):
+        with pytest.raises(ValueError, match="must be >= base_seconds"):
+            ExponentialBackoff(3600.0, 60.0)
+
+    def test_negative_attempts_returns_base(self):
+        # The double-clamp was removed; ``max(attempts - 1, 0)`` still floors.
+        b = ExponentialBackoff(60.0, 3600.0)
+        assert b.delay(-5) == 60.0

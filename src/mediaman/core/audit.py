@@ -39,6 +39,26 @@ from mediaman.core.time import now_iso
 
 logger = logging.getLogger(__name__)
 
+#: Control characters that must never appear in an audit ``detail`` body.
+#: CR/LF would let a caller forge log-line boundaries or inject spoofed
+#: ``actor=``/``ip=`` fields a later log-grep would attribute to the
+#: system; NUL truncates C-string log consumers. Mirrors the header-
+#: injection guard in :mod:`mediaman.core.email_validation`.
+_AUDIT_INJECT_CHARS = ("\r", "\n", "\0")
+
+
+def _strip_audit_field(value: str) -> str:
+    """Remove CR/LF/NUL from a free-form audit field to prevent log injection.
+
+    The audit log is operator-facing forensic evidence (§7.5, §10.10).
+    ``actor``/``ip``/string ``detail`` values can originate from
+    semi-trusted callers; stripping line-boundary and NUL characters
+    stops a caller forging fields or splitting a record into two.
+    """
+    for char in _AUDIT_INJECT_CHARS:
+        value = value.replace(char, "")
+    return value
+
 
 def log_audit(
     conn: sqlite3.Connection,
@@ -83,12 +103,18 @@ def _format_security_body(actor: str, ip: str, detail: dict[str, object] | str |
     Prefixes ``actor=`` and ``ip=`` so a human grepping the log can find
     everything for a user without parsing JSON, and appends a
     JSON-encoded body when *detail* is a dict.
+
+    CR/LF/NUL are stripped from every free-form field — ``actor``, ``ip``,
+    and a string ``detail`` — to prevent audit-log field injection. Dict
+    details are JSON-encoded, which already escapes control characters.
     """
     if isinstance(detail, dict):
         detail_str = json.dumps(detail, separators=(",", ":"))
     else:
-        detail_str = str(detail or "")
-    prefix = f"actor={actor or '-'} ip={ip or '-'}"
+        detail_str = _strip_audit_field(str(detail or ""))
+    safe_actor = _strip_audit_field(actor or "-")
+    safe_ip = _strip_audit_field(ip or "-")
+    prefix = f"actor={safe_actor} ip={safe_ip}"
     return f"{prefix} {detail_str}" if detail_str else prefix
 
 

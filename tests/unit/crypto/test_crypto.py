@@ -845,3 +845,155 @@ class TestDownloadTokenOptionalEmail:
         payload = validate_download_token(token, _DOMAIN_KEY)
         assert payload is not None
         assert payload["email"] == "viewer@example.com"
+
+
+class TestDecryptValueRejectsMalformedBase64:
+    """H3: a malformed-base64 ciphertext must surface as the documented
+    ``CryptoInputError``, not an undocumented ``binascii.Error`` escaping
+    past callers that catch the contract.
+    """
+
+    def test_decrypt_value_rejects_malformed_base64(self, secret_key, conn):
+        # A 2-char string has invalid base64 padding (length not a
+        # multiple of 4), so the decode raises ``binascii.Error``.
+        with pytest.raises(CryptoInputError, match="not valid base64"):
+            decrypt_value("AB", secret_key, conn=conn)
+
+    def test_decrypt_value_malformed_base64_is_not_bare_value_error(self, secret_key, conn):
+        # The error must be the crypto-specific subclass; a caller catching
+        # only ``CryptoInputError`` (per the docstring) must catch it.
+        try:
+            decrypt_value("@@@bad-padding@@@", secret_key, conn=conn)
+        except CryptoInputError:
+            pass
+        else:  # pragma: no cover - the call above must raise
+            pytest.fail("expected CryptoInputError")
+
+
+class TestDecryptValueMissingSaltSource:
+    """M1: a v2-shaped ciphertext with no salt source is a config error and
+    must raise a distinct ``ValueError`` (matching ``encrypt_value``), not a
+    misleading ``InvalidTag``.
+    """
+
+    def test_decrypt_value_v2_without_salt_source_raises_value_error(self, secret_key, conn):
+        ciphertext = encrypt_value("api-key", secret_key, conn=conn)
+        # Neither conn nor salt supplied → no key material for a v2 blob.
+        with pytest.raises(ValueError, match="requires a salt source"):
+            decrypt_value(ciphertext, secret_key)
+
+    def test_decrypt_value_v2_missing_salt_is_not_invalid_tag(self, secret_key, conn):
+        ciphertext = encrypt_value("api-key", secret_key, conn=conn)
+        with pytest.raises(ValueError) as excinfo:
+            decrypt_value(ciphertext, secret_key)
+        assert not isinstance(excinfo.value, InvalidTag)
+
+
+class TestSubkeyCacheDoesNotPinPlaintextKey:
+    """H1: the per-purpose sub-key cache must be keyed on a SHA-256 digest
+    of the master secret, never the raw plaintext key, so the secret is not
+    held as a long-lived dict key.
+    """
+
+    def test_subkey_cache_key_is_not_plaintext_secret(self):
+        import hashlib
+
+        from mediaman.crypto.tokens import (
+            _TOKEN_PURPOSE_KEEP,
+            _derive_token_subkey,
+            _subkey_cache,
+            _subkey_cache_lock,
+        )
+
+        with _subkey_cache_lock:
+            _subkey_cache.clear()
+        _derive_token_subkey(_DOMAIN_KEY, _TOKEN_PURPOSE_KEEP)
+        with _subkey_cache_lock:
+            cache_keys = list(_subkey_cache)
+        # The plaintext secret must never appear as (part of) a cache key.
+        for first, _purpose in cache_keys:
+            assert first != _DOMAIN_KEY
+            assert first != _DOMAIN_KEY.encode()
+        digest = hashlib.sha256(_DOMAIN_KEY.encode()).digest()
+        assert (digest, _TOKEN_PURPOSE_KEEP) in cache_keys
+
+    def test_subkey_derivation_is_stable_across_calls(self):
+        from mediaman.crypto.tokens import _TOKEN_PURPOSE_KEEP, _derive_token_subkey
+
+        first = _derive_token_subkey(_DOMAIN_KEY, _TOKEN_PURPOSE_KEEP)
+        second = _derive_token_subkey(_DOMAIN_KEY, _TOKEN_PURPOSE_KEEP)
+        assert first == second
+
+
+class TestExpFieldRejectsNonFinite:
+    """M4: a token whose ``exp`` is ``Infinity`` / ``NaN`` / a huge float
+    must be rejected — ``json.loads`` parses those by default and they would
+    otherwise make a legitimately-issued token effectively immortal.
+    """
+
+    def test_infinity_exp_rejected(self):
+        from mediaman.crypto.tokens import _TOKEN_PURPOSE_KEEP, _encode_signed, _validate_signed
+
+        token = _encode_signed({"exp": float("inf")}, _DOMAIN_KEY, _TOKEN_PURPOSE_KEEP)
+        assert _validate_signed(token, _DOMAIN_KEY, _TOKEN_PURPOSE_KEEP) is None
+
+    def test_nan_exp_rejected(self):
+        from mediaman.crypto.tokens import _TOKEN_PURPOSE_KEEP, _encode_signed, _validate_signed
+
+        token = _encode_signed({"exp": float("nan")}, _DOMAIN_KEY, _TOKEN_PURPOSE_KEEP)
+        assert _validate_signed(token, _DOMAIN_KEY, _TOKEN_PURPOSE_KEEP) is None
+
+    def test_finite_future_exp_still_validates(self):
+        from mediaman.crypto.tokens import _TOKEN_PURPOSE_KEEP, _encode_signed, _validate_signed
+
+        token = _encode_signed({"exp": int(time.time()) + 3600}, _DOMAIN_KEY, _TOKEN_PURPOSE_KEEP)
+        assert _validate_signed(token, _DOMAIN_KEY, _TOKEN_PURPOSE_KEEP) is not None
+
+
+class TestSaltVanishedAfterFirstRunInsert:
+    """M2: if the salt row vanishes between the first-run INSERT and the
+    re-read, ``_load_or_create_salt`` must raise ``CryptoError`` rather than
+    dereferencing ``None``.
+    """
+
+    def test_missing_row_after_insert_raises_crypto_error(self, conn):
+        from mediaman.crypto import _aes_key
+        from mediaman.crypto._aes_key import CryptoError, _load_or_create_salt, _salt_cache
+
+        _salt_cache.clear()
+
+        class _EmptyCursor:
+            def fetchone(self):
+                return None
+
+        class _ConnProxy:
+            """Wrap the real connection but make the post-insert salt
+            re-read return ``None`` — simulating the row vanishing between
+            the INSERT/commit and the re-read (concurrent delete / trigger).
+            """
+
+            def __init__(self, real):
+                self._real = real
+                self._salt_reads = 0
+
+            def execute(self, sql, *args, **kwargs):
+                is_salt_read = (
+                    sql.startswith("SELECT value FROM settings WHERE key=?")
+                    and args
+                    and args[0]
+                    and args[0][0] == _aes_key._SALT_SETTING_KEY
+                )
+                if is_salt_read:
+                    self._salt_reads += 1
+                    # First read = the pre-insert probe (must return None to
+                    # reach the first-run path); second = the post-insert
+                    # re-read (the row we want to "vanish").
+                    return _EmptyCursor()
+                return self._real.execute(sql, *args, **kwargs)
+
+            def commit(self):
+                return self._real.commit()
+
+        proxy = _ConnProxy(conn)
+        with pytest.raises(CryptoError, match="vanished after first-run insert"):
+            _load_or_create_salt(proxy)  # type: ignore[arg-type]
