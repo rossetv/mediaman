@@ -28,10 +28,12 @@ Invariants
 - ``_read_capped`` never returns partial data — it raises or returns the
   complete buffered body.
 - The cap applies to *decoded* bytes as seen by Python (i.e., after any
-  transfer-encoding the transport handles).  When ``expected_content_type``
-  is set, any ``Content-Encoding`` other than ``identity`` is rejected
-  because the transport may already have decoded the body, making the raw
-  byte count unreliable.
+  transfer-encoding the transport handles).  Any ``Content-Encoding`` other
+  than ``identity`` is rejected **unconditionally** — on every read, whether
+  or not a content-type was pinned — because urllib3/requests inflates the
+  body before ``_read_capped`` ever sees it. A 1 KB gzip bomb that expands
+  1000:1 would otherwise sail past the compressed ``Content-Length`` fast-fail
+  and force the decompressor to allocate gigabytes before the byte cap fires.
 """
 
 from __future__ import annotations
@@ -66,8 +68,18 @@ def _read_capped(
     ``type/subtype`` portion so ``"application/json"`` matches both
     ``"application/json"`` and ``"application/json; charset=utf-8"``.
     A response advertising ``Content-Encoding`` other than ``identity``
-    is also rejected when a content-type is pinned — see module docstring.
+    is rejected unconditionally — see module docstring.
     """
+    # ``identity`` (or absent) is the only safe encoding. Any other value
+    # means urllib3/requests inflates the body for us before we can cap it,
+    # so a tiny compressed payload can decompress to gigabytes (a
+    # decompression-bomb DoS). This check runs on EVERY read — not only when
+    # a content-type is pinned — because the common poster/JSON fetch path
+    # passes no ``expected_content_type`` and is exactly where the bomb lands.
+    encoding = (response.headers.get("Content-Encoding", "") or "").strip().lower()
+    if encoding and encoding != "identity":
+        raise _ContentTypeMismatch(f"unexpected Content-Encoding {encoding!r}; expected identity")
+
     if expected_content_type:
         ctype_raw = response.headers.get("Content-Type", "") or ""
         # Strip parameters such as charset / boundary.
@@ -76,14 +88,6 @@ def _read_capped(
         if not ctype.startswith(expected):
             raise _ContentTypeMismatch(
                 f"unexpected Content-Type {ctype_raw!r}; expected {expected_content_type!r}"
-            )
-        # ``identity`` (or absent) is the only safe encoding when the caller
-        # has pinned a specific content-type — any other encoding means
-        # urllib3/requests will decode for us, which can defeat the byte cap.
-        encoding = (response.headers.get("Content-Encoding", "") or "").strip().lower()
-        if encoding and encoding not in ("identity", ""):
-            raise _ContentTypeMismatch(
-                f"unexpected Content-Encoding {encoding!r}; expected identity"
             )
 
     declared = response.headers.get("Content-Length")
@@ -101,7 +105,10 @@ def _read_capped(
     for chunk in response.iter_content(chunk_size=65536):
         if not chunk:
             continue
-        buf.extend(chunk)
-        if len(buf) > max_bytes:
+        # Check *before* extending so the buffer never exceeds the cap even
+        # momentarily — the previous extend-then-check left a peak of
+        # ``max_bytes + chunk_size`` (L4, soft-cap overage).
+        if len(buf) + len(chunk) > max_bytes:
             raise _SizeCapExceeded(f"response body exceeded cap of {max_bytes} bytes")
+        buf.extend(chunk)
     return bytes(buf)

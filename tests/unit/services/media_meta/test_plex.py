@@ -590,5 +590,8 @@ class TestSafePlexSession:
         )
         with pytest.raises(SafeHTTPError) as excinfo:
             _SafePlexSession().get("http://blocked.example/path?X-Plex-Token=secret-tok-123")
+        # SafeHTTPError stores ``host/path`` with the query string stripped
+        # (L1), so the token cannot leak regardless of upstream redaction.
         assert "secret-tok-123" not in excinfo.value.url
-        assert "<redacted>" in excinfo.value.url
+        assert "?" not in excinfo.value.url
+        assert excinfo.value.url == "blocked.example/path"

@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import stat as _stat
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -87,9 +88,23 @@ def get_aggregate_disk_usage(base_path: str) -> dict[str, int]:
 
 
 def get_directory_size(path: str) -> int:
-    """Return the total size in bytes of all regular files under *path*."""
+    """Return the total size in bytes of all regular files under *path*.
+
+    Walks with ``os.walk(..., followlinks=False)`` so directory symlinks are
+    never followed: a symlink cycle (``a/b -> a``) would otherwise loop until
+    the path-length limit, and a symlink to a sibling tree would double-count
+    its files. Symlinked *files* are skipped (``Path.is_file`` follows the
+    link, but a broken or out-of-tree link should not contribute its target's
+    size to this tree); only regular files are counted, via ``os.lstat`` so
+    the stat itself never follows a link.
+    """
     total = 0
-    for fp in Path(path).rglob("*"):
-        if fp.is_file():
-            total += fp.stat().st_size
+    for dirpath, _dirnames, filenames in os.walk(path, followlinks=False):
+        for name in filenames:
+            try:
+                st = os.lstat(os.path.join(dirpath, name))
+            except OSError:
+                continue
+            if _stat.S_ISREG(st.st_mode):
+                total += st.st_size
     return total

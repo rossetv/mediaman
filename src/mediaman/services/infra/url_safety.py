@@ -10,10 +10,13 @@ Two layers of defence
 ---------------------
 
 1. **Deny-list (always on).** The narrow set of destinations that have
-   no legitimate use in a self-hosted media stack — cloud metadata,
-   IPv6 wildcard/loopback, CGNAT, broadcast/multicast, exotic IPv6
-   tunnel ranges — is always refused. ``MEDIAMAN_STRICT_EGRESS`` adds
-   RFC1918 and loopback to the list.
+   no legitimate use in a self-hosted media stack — cloud metadata, the
+   IPv4/IPv6 unspecified (wildcard) address, link-local, IPv6 ULA, CGNAT,
+   broadcast/multicast, exotic IPv6 tunnel ranges — is always refused.
+   Loopback (``127.0.0.0/8``, ``::1``) and RFC1918 are **NOT** on the
+   always-on list: they are deliberately allowed by default because
+   self-hosted Sonarr/Radarr/Plex commonly run on loopback or the LAN.
+   ``MEDIAMAN_STRICT_EGRESS`` adds RFC1918 and loopback to the deny-list.
 2. **Allowlist (opt-in).** When a caller passes
    ``allowed_hosts={...}`` to :func:`is_safe_outbound_url` or
    :func:`resolve_safe_outbound_url`, only hostnames whose IDN-
@@ -163,9 +166,14 @@ def allowed_outbound_hosts(conn: sqlite3.Connection) -> frozenset[str]:
     the operator may not have configured Radarr yet, and we don't want
     to refuse Plex calls because Radarr is empty. Encrypted settings
     are read in their stored form — for URL fields mediaman stores
-    plaintext so this is fine. If a future schema encrypts URLs, the
-    caller would need to pass ``secret_key`` through; flagged for
-    review.
+    plaintext so this is fine.
+
+    Design note (not a TODO): integration *URL* settings are stored as
+    plaintext by deliberate schema choice — they are not secrets (§10.3
+    reserves encryption for credentials). If a future schema ever encrypts
+    URL fields, this function's signature must grow a ``secret_key``
+    parameter so it can decrypt before parsing; that is a schema-coupled
+    change to make at the point the schema changes, not a pending action.
 
     Fail-closed on DB error: if ``sqlite3.Error`` is raised while
     reading any integration row, the function returns the
@@ -188,7 +196,11 @@ def allowed_outbound_hosts(conn: sqlite3.Connection) -> frozenset[str]:
             return frozenset(PINNED_EXTERNAL_HOSTS)
         if row is None:
             continue
-        raw = row["value"] if hasattr(row, "keys") else row[0]
+        # The connection factory yields ``sqlite3.Row`` per §8.2 — index by
+        # column name directly. A tuple row would be a connection-config bug
+        # (§9.5); fail loud via the resulting error rather than papering over
+        # it with a ``row[0]`` fallback.
+        raw = row["value"]
         if not raw:
             continue
         host = _extract_host(str(raw))
@@ -372,8 +384,14 @@ def resolve_safe_outbound_url(
         # (malformed → ``None`` host; metadata-name hit → the attributed
         # hostname), and ``pinned_ip`` is always ``None`` on its rejects.
         return ok, normalised, None
-    # ``ok`` is True ⇒ ``normalised`` is the IDN-normalised hostname.
-    assert normalised is not None
+    # ``ok`` is True ⇒ ``normalised`` is the IDN-normalised hostname. Fail
+    # closed if that invariant is ever broken rather than ``assert`` it: an
+    # ``assert`` is stripped under ``python -O``, which would let a ``None``
+    # host flow into ``_check_literal_or_resolved`` →
+    # ``ipaddress.ip_address(None)`` → ``TypeError`` instead of a clean
+    # refusal on this security-critical path (M3 / §6.1).
+    if normalised is None:
+        return False, None, None
 
     strict = _strict_egress_enabled(strict_egress)
 
@@ -403,15 +421,17 @@ def is_safe_outbound_url(
       the authority are a well-known bypass for naive validators.
     * Cloud-provider metadata IPs and hostnames.
     * Link-local, CGNAT, broadcast, multicast, reserved, ULA, Teredo,
-      6to4 ranges, and the IPv6/IPv4 unspecified address.
+      6to4 ranges, and the IPv6/IPv4 unspecified (wildcard) address.
     * Hostnames that fail DNS resolution entirely — we cannot prove a
       non-resolving name is safe, so we refuse it.
     * Hostnames that resolve to any of the above.
 
-    By default RFC1918 (LAN) addresses and loopback are **allowed** —
-    those are the common case for self-hosted Radarr/Sonarr/Plex. Set
+    Loopback (``127.0.0.0/8``, ``::1``) and RFC1918 (LAN) addresses are
+    **allowed by default** — those are the common case for self-hosted
+    Radarr/Sonarr/Plex, which frequently bind to loopback or the local
+    network. They are refused **only** in strict-egress mode: set
     ``MEDIAMAN_STRICT_EGRESS=1`` in the environment (or pass
-    ``strict_egress=True``) to additionally refuse them.
+    ``strict_egress=True``) to additionally refuse loopback and RFC1918.
 
     When *allowed_hosts* is provided, the URL's IDN-normalised hostname
     must appear in that set or in :data:`PINNED_EXTERNAL_HOSTS`. The

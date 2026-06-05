@@ -1,10 +1,16 @@
 """Shared infrastructure — SSRF-safe HTTP client, rate-limit infrastructure, path safety, and storage.
 
 Sub-packages: ``http`` (DNS-pinning, retry, streaming, SafeHTTPClient),
-``storage`` (_safe_rmtree TOCTOU-hardened deletion), ``path_safety``
+``storage`` (TOCTOU-hardened ``delete_path`` deletion), ``path_safety``
 (allowlist parsing and containment checks), ``settings_reader``
 (settings-row fetch + decryption helpers), ``url_safety`` (outbound URL
 validation guard).
+
+The outbound URL guard honours ``MEDIAMAN_STRICT_EGRESS=1`` (env) /
+``strict_egress=True`` (per call): in the default permissive mode loopback
+and RFC1918 are allowed for self-hosted LAN services; strict mode refuses
+them. The metadata-IP / link-local / IPv6-ULA / unspecified deny-list is
+always on.
 
 Allowed dependencies: Python standard library, ``mediaman.crypto``; must NOT
 import from ``mediaman.web``, ``mediaman.scanner``, or ``mediaman.services.arr``.
@@ -35,7 +41,7 @@ from mediaman.services.infra.http import (
 from mediaman.services.infra.path_safety import (
     disk_usage_allowed_roots,
     parse_delete_roots_env,
-    resolve_safe_path,
+    resolve_safe_readonly_path,
 )
 from mediaman.services.infra.settings_reader import (
     ConfigDecryptError,
@@ -83,5 +89,5 @@ __all__ = [
     "parse_delete_roots_env",
     "path_within_delete_roots",
     "resolve_safe_outbound_url",
-    "resolve_safe_path",
+    "resolve_safe_readonly_path",
 ]

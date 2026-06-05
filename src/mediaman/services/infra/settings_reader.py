@@ -68,6 +68,16 @@ def get_setting(
       likely cause is a rotated secret key, which should not crash the
       whole app.
 
+    Return-type caveat (M9): the return type is the **JSON-decoded** type,
+    not necessarily a ``str``. A stored value that happens to be valid JSON
+    is parsed — so an all-digit credential stored as ``"12345678"`` comes
+    back as the ``int`` ``12345678``, and ``"true"`` comes back as a
+    ``bool``. Any caller that needs a string (especially a credential /
+    API-key field, which can be all-digits) must read it through
+    :func:`get_string_setting`, which coerces the result back to ``str``;
+    never call ``.strip()`` or other ``str`` methods on a bare
+    ``get_setting`` result for such a field.
+
     Raises :exc:`ConfigDecryptError` when the row is encrypted but no
     ``secret_key`` was supplied. Returning the *default* in that case
     silently hides a deployment misconfiguration: an operator that

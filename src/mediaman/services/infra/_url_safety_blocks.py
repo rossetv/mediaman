@@ -98,14 +98,17 @@ def _host_is_metadata(hostname: str) -> bool:
 def _ip_is_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address, *, strict: bool) -> bool:
     """Return True if *ip* should be refused outright.
 
-    Blocks cloud metadata IPs, the IPv6 wildcard, link-local, ULA,
-    Teredo/6to4, multicast and broadcast ranges, CGNAT and the "this
-    network" range. IPv4-mapped-IPv6 addresses (``::ffff:x.x.x.x``)
-    are unwrapped and the embedded v4 rechecked, so no attacker can
-    smuggle 127.0.0.1 through ``[::ffff:127.0.0.1]``.
+    Blocks cloud metadata IPs, the IPv4/IPv6 unspecified (wildcard)
+    address, link-local, ULA, Teredo/6to4, multicast and broadcast
+    ranges, CGNAT and the "this network" range. IPv4-mapped-IPv6
+    addresses (``::ffff:x.x.x.x``) are unwrapped and the embedded v4
+    rechecked, so no attacker can smuggle 127.0.0.1 through
+    ``[::ffff:127.0.0.1]``.
 
-    When *strict* is True the full RFC1918 set and loopback are blocked
-    too.
+    Loopback (``127.0.0.0/8``, ``::1``) and RFC1918 are NOT blocked by
+    default — they are intentionally allowed for self-hosted LAN/loopback
+    services. They live in the strict-only sets and are refused only when
+    *strict* is True, which also blocks the full RFC1918 range.
 
     All checks (metadata IPs, link-local, unspecified) are applied
     *after* the IPv4-mapped unwrap so the same address presented as
@@ -157,6 +160,15 @@ def _resolve_all(hostname: str) -> list[ipaddress.IPv4Address | ipaddress.IPv6Ad
 
     Returns an empty list on resolution failure — the caller should
     treat that as "cannot verify, refuse" rather than "looks fine".
+
+    Timeout caveat (M5 / §8.9): ``socket.getaddrinfo`` has no per-call
+    timeout and runs *before* the HTTP request is issued, so it sits
+    **outside** the SafeHTTPClient ``(connect=5, read=30)`` budget. A
+    slow or malicious resolver can block the worker thread here for the
+    OS resolver timeout (commonly 5-30s × retries) before any HTTP
+    timeout applies. There is no clean stdlib timeout for ``getaddrinfo``;
+    this is a known, documented limitation of the pre-flight SSRF
+    resolution rather than a covered failure mode.
     """
     try:
         infos = socket.getaddrinfo(hostname, None)
@@ -209,5 +221,10 @@ def _normalise_host(hostname: str) -> str | None:
         pass  # not an IP literal — fall through to IDN encoding
     try:
         return idna.encode(hostname, uts46=True, transitional=False).decode("ascii")
-    except idna.IDNAError:
+    except (idna.IDNAError, UnicodeError):
+        # ``idna.IDNAError`` subclasses ``UnicodeError`` in some idna
+        # versions and not others; malformed surrogate input can surface a
+        # bare ``UnicodeError`` from the UTS-46 pre-processing. Catch both so
+        # the function always fails closed (returns ``None``) rather than
+        # letting an unexpected ``UnicodeError`` escape the SSRF guard.
         return None

@@ -79,8 +79,17 @@ def disk_usage_allowed_roots() -> list[Path]:
     return roots
 
 
-def resolve_safe_path(raw: str, roots: list[Path]) -> Path | None:
-    """Resolve *raw* and verify it is safe to stat.
+def resolve_safe_readonly_path(raw: str, roots: list[Path]) -> Path | None:
+    """Resolve *raw* and verify it is safe to **stat** (read-only callers only).
+
+    Named ``…_readonly_path`` to make the scope explicit at every call site:
+    this helper resolves with a per-component ``is_symlink``-then-``resolve``
+    walk that carries a small, accepted TOCTOU window (see below) which is
+    tolerable only because the sole caller — the disk-usage endpoint — merely
+    *stats* the result. A **destructive** caller must NOT use this; deletion
+    paths resolve roots through the fd-based ``O_NOFOLLOW`` validation in
+    :mod:`mediaman.services.infra.storage._delete_roots` instead, which closes
+    the window this function leaves open.
 
     Returns the resolved :class:`~pathlib.Path` if it sits within one of
     *roots*, or ``None`` if:
