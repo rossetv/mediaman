@@ -457,6 +457,95 @@ def test_attach_download_states_keeps_untracked_items_without_state():
     assert arr.radarr_calls == 1
 
 
+def test_attach_clears_stale_downloaded_at_when_arr_configured_and_absent():
+    """A ``downloaded_at`` flag on an item Radarr no longer tracks is stale.
+
+    Regression: the card/modal fall back to a "Queued" badge off
+    ``downloaded_at`` whenever there's no live state, so an item downloaded
+    then deleted showed a phantom "Queued" forever. With Radarr reachable
+    and the item absent, the flag is cleared in memory.
+    """
+    radarr = MagicMock()
+    radarr.get_movies.return_value = []  # configured, but tmdb 100 not tracked
+    radarr.get_queue.return_value = []
+    arr = _FakeArr(radarr=radarr)
+
+    movie = {
+        "id": "s1",
+        "tmdb_id": 100,
+        "media_type": "movie",
+        "downloaded_at": "2026-01-01T00:00:00+00:00",
+    }
+    attach_download_states([_batch(movie)], arr)
+
+    assert "download_state" not in movie
+    assert movie["downloaded_at"] is None
+
+
+def test_attach_keeps_downloaded_at_when_arr_unconfigured():
+    """When the Arr client is not configured we can't confirm absence, so a
+    fresh optimistic ``downloaded_at`` must be left intact."""
+    arr = _FakeArr(radarr=None)  # unconfigured
+
+    movie = {
+        "id": "s1",
+        "tmdb_id": 100,
+        "media_type": "movie",
+        "downloaded_at": "2026-01-01T00:00:00+00:00",
+    }
+    attach_download_states([_batch(movie)], arr)
+
+    assert movie["downloaded_at"] == "2026-01-01T00:00:00+00:00"
+
+
+def test_attach_keeps_downloaded_at_when_item_still_tracked():
+    """An item still in Radarr keeps its flag (live state drives the badge)."""
+    radarr = MagicMock()
+    radarr.get_movies.return_value = [{"tmdbId": 100, "hasFile": False, "monitored": True}]
+    radarr.get_queue.return_value = []
+    arr = _FakeArr(radarr=radarr)
+
+    movie = {
+        "id": "s1",
+        "tmdb_id": 100,
+        "media_type": "movie",
+        "downloaded_at": "2026-01-01T00:00:00+00:00",
+    }
+    attach_download_states([_batch(movie)], arr)
+
+    assert movie["download_state"] == "queued"
+    assert movie["downloaded_at"] == "2026-01-01T00:00:00+00:00"
+
+
+def test_attach_clears_stale_downloaded_at_in_db(db_path):
+    """The stale flag is also cleared in the suggestions table via *conn*."""
+    from mediaman.db import init_db
+
+    conn = init_db(str(db_path))
+    conn.execute(
+        "INSERT INTO suggestions (id, title, media_type, category, tmdb_id, "
+        "downloaded_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (1, "Arrival", "movie", "personal", 100, "2026-01-01T00:00:00+00:00", "2026-01-01"),
+    )
+    conn.commit()
+
+    radarr = MagicMock()
+    radarr.get_movies.return_value = []  # configured but item gone
+    radarr.get_queue.return_value = []
+    arr = _FakeArr(radarr=radarr)
+
+    item = {
+        "id": 1,
+        "tmdb_id": 100,
+        "media_type": "movie",
+        "downloaded_at": "2026-01-01T00:00:00+00:00",
+    }
+    attach_download_states([_batch(item)], arr, conn)
+
+    row = conn.execute("SELECT downloaded_at FROM suggestions WHERE id = 1").fetchone()
+    assert row[0] is None
+
+
 def test_tv_unmonitored_aired_season_is_ignored():
     """An unmonitored aired season the user explicitly skipped doesn't drag the show into ``partial``."""
     series = {

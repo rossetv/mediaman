@@ -8,7 +8,11 @@ from __future__ import annotations
 
 import sqlite3
 
-from mediaman.web.repository.library_query._query import ANIME_SEASON_TYPES, TV_SEASON_TYPES
+from mediaman.web.repository.library_query._query import (
+    ALL_SEASON_TYPES,
+    ANIME_SEASON_TYPES,
+    TV_SEASON_TYPES,
+)
 
 
 def count_movies(conn: sqlite3.Connection) -> int:
@@ -50,15 +54,38 @@ def count_anime_shows(conn: sqlite3.Connection) -> int:
 
 
 def count_stale(conn: sqlite3.Connection, *, age_cutoff: str, watch_cutoff: str) -> int:
-    """Return the count of media items older than *age_cutoff* and unwatched since *watch_cutoff*."""
+    """Return the count of stale *display items* — stale movies plus stale shows.
+
+    Counts in the same unit as :func:`count_movies` + :func:`count_tv_shows`
+    + :func:`count_anime_shows` (and the library ``stale`` filter): movies
+    are counted per row, but TV/anime seasons are grouped into one entry per
+    show via ``COALESCE(show_rating_key, show_title)``.
+
+    The previous implementation counted raw ``media_items`` rows, so a single
+    stale show with ten seasons contributed ten — which made the stats-bar
+    "Stale" number exceed the total item count (a logically impossible
+    ``266 of 138``).  A show is stale when it has at least one stale season,
+    mirroring the ``stale`` filter's per-row WHERE + GROUP BY in
+    :func:`mediaman.web.repository.library_query._query._build_cte_sql`.
+    """
+    # rationale: placeholders are purely "?" * len(...) — no user value enters the SQL text
+    season_placeholders = ",".join("?" * len(ALL_SEASON_TYPES))
     row = conn.execute(
-        """
-        SELECT COUNT(*) AS n
-        FROM media_items
-        WHERE added_at < ?
-          AND (last_watched_at IS NULL OR last_watched_at < ?)
+        f"""
+        SELECT COUNT(*) AS n FROM (
+            SELECT id FROM media_items
+            WHERE media_type = 'movie'
+              AND added_at < ?
+              AND (last_watched_at IS NULL OR last_watched_at < ?)
+            UNION ALL
+            SELECT MIN(id) FROM media_items
+            WHERE media_type IN ({season_placeholders})
+              AND added_at < ?
+              AND (last_watched_at IS NULL OR last_watched_at < ?)
+            GROUP BY COALESCE(show_rating_key, show_title)
+        )
         """,
-        (age_cutoff, watch_cutoff),
+        (age_cutoff, watch_cutoff, *ALL_SEASON_TYPES, age_cutoff, watch_cutoff),
     ).fetchone()
     return int(row["n"])
 

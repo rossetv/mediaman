@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 import time
@@ -15,7 +16,7 @@ from mediaman.core.format import (
     title_from_audit_detail,
 )
 from mediaman.core.time import now_utc, parse_iso_utc
-from mediaman.services.infra import get_aggregate_disk_usage
+from mediaman.services.infra import get_aggregate_disk_usage, get_disk_usage_for_paths
 from mediaman.services.infra import get_media_path as _get_media_path
 from mediaman.web.models import ACTION_SCHEDULED_DELETION
 from mediaman.web.repository.dashboard import (
@@ -210,33 +211,71 @@ def _fetch_recently_deleted(
     return items
 
 
-def _cached_disk_usage(media_path: str) -> dict[str, int]:
-    """Return ``get_aggregate_disk_usage`` results, cached for 30s.
+def _configured_library_paths(conn: sqlite3.Connection) -> list[str]:
+    """Return the distinct media paths from the ``disk_thresholds`` setting.
 
+    ``disk_thresholds`` is a JSON dict keyed by Plex library id, each value
+    an object with a ``path`` (e.g. ``{"1": {"path": "/media/movies", ...}}``).
+    These paths are the authoritative set of mount points the libraries live
+    on — a movies drive and a TV drive may be entirely separate disks not
+    reachable from a single base directory.  Returns ``[]`` when the setting
+    is missing or malformed so the caller can fall back to the media root.
+    """
+    raw = conn.execute("SELECT value FROM settings WHERE key = 'disk_thresholds'").fetchone()
+    if not raw:
+        return []
+    try:
+        thresholds = json.loads(raw["value"])
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(thresholds, dict):
+        return []
+    paths: list[str] = []
+    for cfg in thresholds.values():
+        path = cfg.get("path") if isinstance(cfg, dict) else None
+        if isinstance(path, str) and path and path not in paths:
+            paths.append(path)
+    return paths
+
+
+def _cached_disk_usage(cache_key: str, paths: list[str] | None = None) -> dict[str, int]:
+    """Return aggregate disk usage, cached for 30s and keyed on *cache_key*.
+
+    When *paths* is given, usage is aggregated across that explicit list of
+    library mount points (each physical disk counted once); otherwise
+    *cache_key* is treated as a single base path scanned for sub-mounts.
     Misses still hit the underlying call; the cache only short-circuits
-    repeats within the TTL. Keyed on ``media_path`` so a settings
-    change to the configured path invalidates the cache automatically.
+    repeats within the TTL. A settings change to the configured paths
+    produces a new *cache_key*, invalidating the cache automatically.
     """
     now = time.monotonic()
     with _disk_usage_cache_lock:
-        entry = _disk_usage_cache.get(media_path)
+        entry = _disk_usage_cache.get(cache_key)
         if entry is not None and now - entry[0] < _DISK_USAGE_CACHE_TTL_SECONDS:
             return entry[1]
-    fresh = get_aggregate_disk_usage(media_path)
+    fresh = get_disk_usage_for_paths(paths) if paths else get_aggregate_disk_usage(cache_key)
     with _disk_usage_cache_lock:
-        _disk_usage_cache[media_path] = (now, fresh)
+        _disk_usage_cache[cache_key] = (now, fresh)
     return fresh
 
 
 def _fetch_storage_stats(conn: sqlite3.Connection) -> dict[str, object]:
     """Return storage stats dict for the dashboard template.
 
-    Disk usage is read from the configured media path; falls back to zeroes gracefully.
-    Per-type sizes come from summing file_size_bytes on media_items.
+    Disk usage is aggregated across every configured library drive (the
+    ``disk_thresholds`` paths), so a setup that spreads movies and TV across
+    separate physical disks reports the combined capacity rather than a
+    single drive's. Falls back to the media root when no paths are
+    configured, and to zeroes on any filesystem error. Per-type sizes come
+    from summing file_size_bytes on media_items.
     """
-    # Disk-level stats — aggregate across all unique mount points under the media root
+    # Disk-level stats — aggregate across every configured library drive
     try:
-        disk = _cached_disk_usage(_get_media_path())
+        lib_paths = _configured_library_paths(conn)
+        if lib_paths:
+            disk = _cached_disk_usage("|".join(sorted(lib_paths)), lib_paths)
+        else:
+            disk = _cached_disk_usage(_get_media_path())
         total = disk["total_bytes"]
         used = disk["used_bytes"]
         free = disk["free_bytes"]

@@ -60,6 +60,7 @@ from mediaman.services.infra.storage.deletion import (
 from mediaman.services.infra.storage.disk_usage import (
     get_aggregate_disk_usage,
     get_directory_size,
+    get_disk_usage_for_paths,
 )
 
 logger = logging.getLogger(__name__)
@@ -76,4 +77,5 @@ __all__ = [
     "delete_path",
     "get_aggregate_disk_usage",
     "get_directory_size",
+    "get_disk_usage_for_paths",
 ]

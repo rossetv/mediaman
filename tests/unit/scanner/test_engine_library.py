@@ -219,6 +219,113 @@ class TestPerLibraryOrphanGuard:
         assert "below_min_items" in msgs
 
 
+class TestOrphanGuardTwoScanConfirmation:
+    """A suspicious item-count drop is no longer refused forever. The first
+    such scan records the library as pending and skips; a second consecutive
+    suspicious scan confirms the drop is real and prunes. This lets a
+    legitimately shrunk library (last show deleted) reconcile, while a one-off
+    Plex glitch still gets absorbed.
+    """
+
+    def _populate_items(self, conn, lib_id, n):
+        for i in range(n):
+            insert_media_item(
+                conn,
+                id=f"item-{lib_id}-{i}",
+                title=f"t-{i}",
+                plex_library_id=lib_id,
+                plex_rating_key=f"item-{lib_id}-{i}",
+                added_at="2026-01-01",
+                file_path=f"/media/{i}",
+                file_size_bytes=1,
+            )
+
+    def _plex_movies(self, lib_id, n):
+        return [
+            {
+                "plex_rating_key": f"item-{lib_id}-{i}",
+                "title": f"t-{i}",
+                "added_at": datetime.now(UTC) - timedelta(days=5),
+                "file_path": f"/media/{i}",
+                "file_size_bytes": 1,
+                "poster_path": None,
+            }
+            for i in range(n)
+        ]
+
+    def _make_engine(self, conn, mock_plex):
+        return ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=["2"],
+            library_types={"2": "movie"},
+            secret_key="k",
+            min_age_days=999_999,
+        )
+
+    def _count_lib2(self, conn):
+        return conn.execute("SELECT COUNT(*) FROM media_items WHERE plex_library_id=2").fetchone()[
+            0
+        ]
+
+    def test_first_suspicious_scan_preserves_items(self, conn, mock_plex, caplog, freezer):
+        self._populate_items(conn, 2, 10)
+        mock_plex.get_movie_items.return_value = []  # Plex returns nothing
+
+        with (
+            patch("mediaman.scanner.engine._send_newsletter"),
+            patch("mediaman.scanner.engine._refresh_recommendations"),
+            caplog.at_level("WARNING", logger="mediaman"),
+        ):
+            self._make_engine(conn, mock_plex).run_scan()
+
+        assert self._count_lib2(conn) == 10
+        msgs = " ".join(r.getMessage() for r in caplog.records)
+        assert "below_min_items" in msgs
+        assert "awaiting a confirming second scan" in msgs
+
+    def test_second_consecutive_suspicious_scan_prunes(self, conn, mock_plex, caplog, freezer):
+        self._populate_items(conn, 2, 10)
+        mock_plex.get_movie_items.return_value = []
+
+        with (
+            patch("mediaman.scanner.engine._send_newsletter"),
+            patch("mediaman.scanner.engine._refresh_recommendations"),
+            caplog.at_level("WARNING", logger="mediaman"),
+        ):
+            self._make_engine(conn, mock_plex).run_scan()  # first: pending
+            assert self._count_lib2(conn) == 10
+            self._make_engine(conn, mock_plex).run_scan()  # second: confirm + prune
+
+        assert self._count_lib2(conn) == 0
+        msgs = " ".join(r.getMessage() for r in caplog.records)
+        assert "engine.orphan_guard.confirm" in msgs
+
+    def test_recovery_scan_resets_pending(self, conn, mock_plex, freezer):
+        """A glitch (empty) followed by a healthy scan must reset the pending
+        marker, so a later glitch starts the two-scan cycle afresh rather than
+        immediately pruning."""
+        self._populate_items(conn, 2, 10)
+
+        with (
+            patch("mediaman.scanner.engine._send_newsletter"),
+            patch("mediaman.scanner.engine._refresh_recommendations"),
+        ):
+            mock_plex.get_movie_items.return_value = []  # glitch
+            self._make_engine(conn, mock_plex).run_scan()  # first suspicious → pending
+            assert self._count_lib2(conn) == 10
+
+            mock_plex.get_movie_items.return_value = self._plex_movies(2, 10)  # recovered
+            self._make_engine(conn, mock_plex).run_scan()  # healthy → clears pending
+            assert self._count_lib2(conn) == 10
+
+            mock_plex.get_movie_items.return_value = []  # glitch again
+            self._make_engine(conn, mock_plex).run_scan()  # first-after-reset → skip
+
+        # The lone post-recovery glitch must not have pruned anything.
+        assert self._count_lib2(conn) == 10
+
+
 class TestUnknownLibraryType:
     """D05 finding 6: a library with no type mapping must be skipped
     loudly, not scanned as 'movie' by default.
