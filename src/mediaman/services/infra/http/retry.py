@@ -389,6 +389,17 @@ def dispatch_loop(
             uses ``2`` to give up when the remote is clearly degraded.
             ``None`` (default) keeps the historical behaviour of running the
             full attempt budget.
+
+            Relationship to ``attempts`` (off-by-one): the abort check only
+            runs inside :func:`_handle_retryable_status`, which is reached
+            only when ``attempt + 1 < attempts`` (more attempts remain). The
+            final attempt's 5xx goes straight to :func:`_finalise_response`
+            and raises a normal error *without* consulting the streak. So a
+            threshold ``N`` only ever fires if ``attempts > N`` — with the
+            default ``attempts=3``, ``abort_after_consecutive_5xx=2`` aborts
+            on the 2nd response (attempt index 1) before the 3rd is issued,
+            and ``=1`` aborts after the 1st. Setting the threshold ``>=
+            attempts`` makes it a no-op: the budget exhausts naturally first.
         retryable_statuses: Override :data:`_RETRYABLE_STATUSES` for callers
             with a different transient-set (mailgun adds ``500``).  ``None``
             uses the default set.
@@ -399,6 +410,19 @@ def dispatch_loop(
     Raises:
         Exception: Produced by *make_error* on non-2xx final status or transport error.
     """
+    # Fail closed on a degenerate attempt budget. ``attempts`` is always
+    # ``>= 1`` from ``_core`` (``1 + ...``), but ``dispatch_loop`` is an
+    # engine taking ``attempts`` as a free parameter — a caller-supplied 0
+    # would otherwise skip the loop and fall through to a raise of a ``None``
+    # exception. Raise a typed ``SafeHTTPError`` via ``make_error`` rather
+    # than an ``assert`` (stripped under ``python -O``) — see §6.1.
+    if attempts < 1:
+        raise make_error(
+            status_code=0,
+            body_snippet=f"invalid attempt budget: attempts={attempts}",
+            url=url,
+        )
+
     retryable = retryable_statuses or _RETRYABLE_STATUSES
     state = _LoopState()
 
@@ -435,7 +459,18 @@ def dispatch_loop(
                 url=url,
             ) from None
 
-        # Re-attach the buffered body so the caller can use .json(), .text, etc.
+        # Re-attach the buffered body so the caller can use .json(), .text,
+        # etc. after our capped streamed read consumed the socket.
+        #
+        # DELIBERATE DEPENDENCY ON ``requests`` INTERNALS: ``_content`` and
+        # ``_content_consumed`` are private attributes of
+        # ``requests.models.Response``. We set them so ``.json()``/``.text``
+        # serve the bytes we already buffered instead of trying to re-read the
+        # now-exhausted stream. ``_content_consumed`` has changed shape across
+        # ``requests`` history, so the dependency is pinned: ``requests~=2.34``
+        # in ``pyproject.toml`` (``>=2.34,<3``). If that range is widened,
+        # re-verify these two attributes still exist with this meaning. The
+        # ``test_json_after_capped_read`` regression test guards the contract.
         response._content = body
         response._content_consumed = True  # type: ignore[attr-defined]
 
@@ -463,9 +498,19 @@ def dispatch_loop(
             body_snippet=state.last_snippet,
             url=url,
         )
-    # Should be unreachable; keeps mypy happy.
-    assert state.last_exc is not None
-    raise state.last_exc
+    # Reached only if every attempt failed at the transport layer (so
+    # ``last_exc`` is set) — the entry guard above rules out a zero-attempt
+    # fall-through. Re-raise the last transport exception if present; if some
+    # future code path leaves both ``last_status`` and ``last_exc`` unset,
+    # fail closed with a typed error rather than ``assert`` (stripped under
+    # ``python -O``, which would turn this into a ``None`` raise → ``TypeError``).
+    if state.last_exc is not None:
+        raise state.last_exc
+    raise make_error(
+        status_code=0,
+        body_snippet="retry loop exhausted with no recorded result",
+        url=url,
+    )
 
 
 # Re-export for callers that import constants directly.

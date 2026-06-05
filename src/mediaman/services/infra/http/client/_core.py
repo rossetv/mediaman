@@ -72,6 +72,10 @@ class SafeHTTPClient:
         # ``python-requests/x.y.z`` gets aggressive rate-limit treatment on a
         # few upstreams (TMDB, OMDb).
         existing_ua = self._session.headers.get("User-Agent")
+        # Only override the absent default or the bare ``python-requests/x.y``
+        # UA. A caller that pre-seeded a *different* custom UA on the shared
+        # session keeps it (deliberate — we respect an explicit choice), so
+        # such a session never gets mediaman branding (M8).
         if existing_ua is None or str(existing_ua).startswith("python-requests/"):
             self._session.headers["User-Agent"] = _USER_AGENT
         self._default_timeout = default_timeout

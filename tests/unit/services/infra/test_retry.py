@@ -190,3 +190,28 @@ class TestExhaustedRetries:
             )
         assert excinfo.value.status_code == 0
         assert "transport error" in excinfo.value.body_snippet
+
+
+class TestDegenerateAttemptBudget:
+    """A zero/negative ``attempts`` must fail closed, not raise ``AssertionError``."""
+
+    def test_zero_attempts_raises_make_error_not_assertion(self):
+        """``attempts=0`` skips the loop entirely. The old code asserted
+        ``state.last_exc is not None`` and would raise a bare
+        ``AssertionError`` (stripped under ``python -O``). It must now raise
+        the typed ``make_error`` with status 0 (M2)."""
+
+        def dispatch_fn():  # pragma: no cover - never called with attempts=0
+            raise AssertionError("dispatch_fn must not run with attempts=0")
+
+        with pytest.raises(_Err) as excinfo:
+            dispatch_loop(
+                dispatch_fn=dispatch_fn,
+                read_fn=lambda resp: b"",
+                method="GET",
+                url="http://upstream.example.test/x",
+                attempts=0,
+                make_error=_Err,
+            )
+        assert excinfo.value.status_code == 0
+        assert "attempt budget" in excinfo.value.body_snippet

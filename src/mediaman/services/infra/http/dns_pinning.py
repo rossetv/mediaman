@@ -17,6 +17,21 @@ do this by replacing ``socket.getaddrinfo`` once at import time with a thin
 wrapper that consults a per-thread pin table.  Concurrent worker threads never
 see each other's pins because the table lives on a :class:`threading.local`.
 
+Process-wide blast radius (M6 / §1.12, §8.5)
+--------------------------------------------
+This monkeypatch is **process-global**: it replaces the stdlib resolver for
+the *entire interpreter*, so every third-party library that calls
+``socket.getaddrinfo`` (a logging handler resolving a syslog host, an
+APScheduler job, an unrelated HTTP client) consults the pin table too. The
+collateral is bounded because (a) pins are keyed by the *exact* host string,
+so an unrelated lookup for a different hostname is unaffected, and (b) a pin
+only exists for the duration of a :func:`pin` ``with`` block on the *same*
+thread. But any nested call within that block that resolves the *same*
+hostname will receive the pinned IP. The module-level mutable globals
+below (``_DNS_PIN_LOCAL``, ``_ORIG_GETADDRINFO``, ``_PIN_INSTALLED``) are a
+deliberate, lock-guarded process-wide hook — accepted as the price of a
+robust DNS-rebind defence, but every change here must weigh that reach.
+
 Idempotency invariant
 ---------------------
 ``_install_dns_pin_hook()`` may be called multiple times safely — it is

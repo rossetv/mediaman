@@ -13,6 +13,7 @@ import threading
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
 from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 from mediaman.services.infra.http import (
@@ -34,6 +35,22 @@ def _response(*, status=200, body=b"", headers=None):
     resp.status_code = status
     resp.headers = headers or {}
     resp.iter_content = lambda chunk_size=65536: iter([body])
+    resp.close = MagicMock()
+    resp.url = ""
+    return resp
+
+
+def _real_response(body: bytes, *, status: int = 200):
+    """Build a genuine ``requests.Response`` streaming *body* in two chunks.
+
+    Used by the H5 regression tests so ``.json()`` / ``.text`` exercise the
+    real ``requests`` ``_content`` re-attachment path rather than a mock.
+    """
+    resp = requests.Response()
+    resp.status_code = status
+    resp.headers["Content-Type"] = "application/json"
+    mid = len(body) // 2
+    resp.iter_content = lambda chunk_size=65536: iter([body[:mid], body[mid:]])
     resp.close = MagicMock()
     resp.url = ""
     return resp
@@ -362,6 +379,72 @@ class TestExpectedContentType:
             )
         assert "Content-Encoding" in excinfo.value.body_snippet
 
+    def test_encoding_rejected_without_pinned_content_type(self, monkeypatch):
+        """A non-identity Content-Encoding is refused on the DEFAULT path (H1).
+
+        The common poster/JSON fetch passes no ``expected_content_type``.
+        A malicious upstream can send a tiny gzip body that urllib3 inflates
+        to gigabytes before the byte cap fires — a decompression-bomb DoS.
+        The encoding check must run unconditionally, not only when a
+        content-type is pinned.
+        """
+        monkeypatch.setattr(
+            http_client,
+            "_dispatch",
+            lambda *a, **kw: _response(
+                status=200,
+                body=b"\x1f\x8b\x08\x00bomb",
+                headers={"Content-Encoding": "gzip"},
+            ),
+        )
+        with pytest.raises(SafeHTTPError) as excinfo:
+            # No expected_content_type — the default fetch path.
+            SafeHTTPClient().get("http://example.com/poster.jpg")
+        assert "Content-Encoding" in excinfo.value.body_snippet
+        assert "gzip" in excinfo.value.body_snippet
+
+    def test_identity_encoding_allowed_on_default_path(self, monkeypatch):
+        """``Content-Encoding: identity`` (or absent) is fine on the default path."""
+
+        def _make(*a, **kw):
+            resp = _real_response(b"hello")
+            resp.headers["Content-Encoding"] = "identity"
+            return resp
+
+        monkeypatch.setattr(http_client, "_dispatch", _make)
+        resp = SafeHTTPClient().get("http://example.com/x")
+        assert resp.content == b"hello"
+
+
+class TestBufferedBodyReattached:
+    """The capped streamed read must leave ``.json()`` / ``.text`` usable (H5).
+
+    ``retry.py`` re-attaches the buffered bytes via the ``requests`` private
+    ``_content`` / ``_content_consumed`` attributes. This is a deliberate
+    dependency on ``requests`` internals (pinned ``requests~=2.34``); the test
+    pins the contract so a ``requests`` bump that changes those attributes
+    fails loudly here.
+    """
+
+    def test_json_after_capped_read(self, monkeypatch):
+        monkeypatch.setattr(
+            http_client,
+            "_dispatch",
+            lambda *a, **kw: _real_response(b'{"a": 1, "b": [2, 3]}'),
+        )
+        resp = SafeHTTPClient().get("http://example.com/data")
+        assert resp.json() == {"a": 1, "b": [2, 3]}
+        assert resp.text == '{"a": 1, "b": [2, 3]}'
+
+    def test_text_after_capped_read_streamed_chunks(self, monkeypatch):
+        monkeypatch.setattr(
+            http_client,
+            "_dispatch",
+            lambda *a, **kw: _real_response(b"plain body across chunks"),
+        )
+        resp = SafeHTTPClient().get("http://example.com/data")
+        assert resp.text == "plain body across chunks"
+
 
 class TestSafeHTTPErrorShape:
     def test_carries_status_body_url(self, monkeypatch):
@@ -374,8 +457,32 @@ class TestSafeHTTPErrorShape:
             SafeHTTPClient().get("http://example.com/bork")
         exc = excinfo.value
         assert exc.status_code == 400
-        assert exc.url == "http://example.com/bork"
+        # ``url`` is stored query-stripped as ``host/path`` (L1) — never the
+        # full scheme URL with a query string.
+        assert exc.url == "example.com/bork"
         assert "bad" in exc.body_snippet
+
+    def test_url_strips_query_string(self, monkeypatch):
+        """A logged ``SafeHTTPError`` must never embed the query string (L1).
+
+        Outbound query strings routinely carry ``?apikey=...`` — the error's
+        ``str()`` and ``.url`` are read by ``logger.exception`` sites, so a
+        leak here lands the key in the logs (§7.4).
+        """
+        monkeypatch.setattr(
+            http_client,
+            "_dispatch",
+            lambda *a, **kw: _response(status=401, body=b"nope"),
+        )
+        with pytest.raises(SafeHTTPError) as excinfo:
+            SafeHTTPClient().get("http://example.com/api?apikey=SECRET123&x=1")
+        exc = excinfo.value
+        assert "SECRET123" not in str(exc)
+        assert "SECRET123" not in exc.url
+        assert "?" not in str(exc)
+        assert "apikey" not in str(exc)
+        # Host and path are preserved for debugging.
+        assert exc.url == "example.com/api"
 
     def test_json_error_returns_dict(self, monkeypatch):
         monkeypatch.setattr(

@@ -27,8 +27,9 @@ The former single ``storage.py`` decomposes along the seam the
 * :mod:`._delete_roots` — the path-safety exception hierarchy
   (:class:`PathSafetyError`, :class:`DeletionRefused`), :data:`_FORBIDDEN_ROOTS`,
   and the allowlist *validation* helpers.
-* :mod:`.deletion` — the destructive operations :func:`delete_path` and
-  :func:`_safe_rmtree`.
+* :mod:`.deletion` — the destructive operation :func:`delete_path` (its
+  private recursive remover ``_safe_rmtree`` is intentionally not exported;
+  ``delete_path`` is the only public way to trigger a deletion).
 * :mod:`.disk_usage` — the read-only queries :func:`get_aggregate_disk_usage`
   and :func:`get_directory_size`.
 
@@ -54,7 +55,6 @@ from mediaman.services.infra.storage._delete_roots import (
     _validate_single_root,
 )
 from mediaman.services.infra.storage.deletion import (
-    _safe_rmtree,
     delete_path,
     path_within_delete_roots,
 )
@@ -72,7 +72,6 @@ __all__ = [
     "PathSafetyError",
     "_check_symlink_via_nofollow",
     "_resolve_root_candidate",
-    "_safe_rmtree",
     "_validate_delete_roots",
     "_validate_single_root",
     "delete_path",

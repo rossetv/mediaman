@@ -242,6 +242,19 @@ class TestDeletePathSymlinkSafety:
         assert outside.exists()
         assert (outside / "important.txt").exists()
 
+    def test_refuses_broken_symlink_root(self, tmp_path):
+        """A delete root that is a *broken* symlink must still be refused (L5).
+
+        ``Path.exists()`` follows the link and reports False for a dangling
+        target, which previously skipped the ``O_NOFOLLOW`` symlink check.
+        ``os.path.lexists`` does not follow, so the symlink is still rejected.
+        """
+        link_root = tmp_path / "dangling"
+        link_root.symlink_to(tmp_path / "does-not-exist")
+
+        with pytest.raises(DeletionRefused, match="symlink"):
+            delete_path(str(link_root / "f.txt"), allowed_roots=[str(link_root)])
+
     def test_refuses_root_that_is_itself_a_symlink(self, tmp_path):
         """A delete_allowed_roots entry that is a symlink is a
         misconfiguration and must cause deletion to be refused."""
@@ -260,6 +273,41 @@ class TestDeletePathSymlinkSafety:
             delete_path(str(target), allowed_roots=[str(link_root)])
         # Target is untouched.
         assert target.exists()
+
+    def test_cross_device_symlink_entry_refused(self, tmp_path, monkeypatch):
+        """A symlink entry whose lstat reports a different device must be
+        refused, not silently unlinked (B1).
+
+        The device check now runs *before* the symlink short-circuit, so a
+        swapped-in entry that lstat reports as both a symlink AND on a foreign
+        device trips the device guard. We simulate the foreign device by
+        wrapping ``os.lstat`` to override ``st_dev`` for the planted entry.
+        """
+        import os
+        import stat as _stat
+
+        root = tmp_path / "media"
+        root.mkdir()
+        target = root / "todelete"
+        target.mkdir()
+        evil = target / "evil"
+        evil.symlink_to(tmp_path / "elsewhere")
+
+        real_lstat = os.lstat
+
+        def fake_lstat(path, *, dir_fd=None):
+            st = real_lstat(path, dir_fd=dir_fd)
+            if path == "evil" and dir_fd is not None and _stat.S_ISLNK(st.st_mode):
+                # Force a foreign device id on the planted symlink entry.
+                fields = list(st)
+                fields[2] = st.st_dev + 1  # st_dev is index 2 in stat_result
+                return os.stat_result(fields)
+            return st
+
+        monkeypatch.setattr(os, "lstat", fake_lstat)
+
+        with pytest.raises(DeletionRefused, match="different device"):
+            delete_path(str(target), allowed_roots=[str(root)])
 
     def test_allows_valid_nested_tree_inside_root(self, tmp_path):
         """Happy path: a regular nested directory tree inside the root
@@ -467,3 +515,65 @@ class TestGetDirectorySize:
         (tmp_path / "b.txt").write_bytes(b"y" * 200)
         size = get_directory_size(str(tmp_path))
         assert size == 300
+
+    def test_does_not_follow_directory_symlink_cycle(self, tmp_path):
+        """A symlink cycle must not hang or double-count (M10).
+
+        ``os.walk(followlinks=False)`` must refuse to descend through a
+        directory symlink, so ``a/loop -> a`` terminates and the loop's
+        target files are counted exactly once (here: not at all, since the
+        only regular file lives directly under the walked root).
+        """
+        root = tmp_path / "lib"
+        root.mkdir()
+        (root / "movie.mkv").write_bytes(b"x" * 500)
+        sub = root / "sub"
+        sub.mkdir()
+        # Self-referential cycle: sub/loop -> root.
+        (sub / "loop").symlink_to(root, target_is_directory=True)
+
+        # Must terminate (no infinite loop) and count movie.mkv exactly once.
+        assert get_directory_size(str(root)) == 500
+
+    def test_does_not_double_count_symlinked_sibling_tree(self, tmp_path):
+        """A directory symlink to a sibling tree is not followed, so its
+        files are not counted via the link (M10 — avoids inflation)."""
+        root = tmp_path / "lib"
+        root.mkdir()
+        (root / "here.bin").write_bytes(b"a" * 100)
+        other = tmp_path / "other"
+        other.mkdir()
+        (other / "elsewhere.bin").write_bytes(b"b" * 999)
+        (root / "shortcut").symlink_to(other, target_is_directory=True)
+
+        # Only here.bin counts; the symlinked sibling tree is skipped.
+        assert get_directory_size(str(root)) == 100
+
+
+class TestSafeRmtreeIsPrivate:
+    """``_safe_rmtree`` must not be reachable from the public package surface (B2)."""
+
+    def test_not_in_storage_barrel_all(self):
+        from mediaman.services.infra import storage
+
+        assert "_safe_rmtree" not in storage.__all__
+
+    def test_not_reexported_from_infra_top_level(self):
+        import mediaman.services.infra as infra
+
+        assert not hasattr(infra, "_safe_rmtree")
+
+    def test_symlinked_allowed_root_refused_via_delete_path(self, tmp_path):
+        """The only public entry, ``delete_path``, still refuses a symlinked
+        allowed-root (B2) — single entry point, defence intact."""
+        real_root = tmp_path / "real"
+        real_root.mkdir()
+        target = real_root / "sub"
+        target.mkdir()
+        (target / "f.txt").write_text("x")
+        link_root = tmp_path / "link"
+        link_root.symlink_to(real_root, target_is_directory=True)
+
+        with pytest.raises(DeletionRefused, match="symlink"):
+            delete_path(str(target), allowed_roots=[str(link_root)])
+        assert target.exists()

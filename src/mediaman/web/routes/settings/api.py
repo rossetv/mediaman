@@ -44,7 +44,7 @@ from mediaman.services.infra import (
     ConfigDecryptError,
     SafeHTTPError,
     disk_usage_allowed_roots,
-    resolve_safe_path,
+    resolve_safe_readonly_path,
 )
 from mediaman.services.rate_limit import get_client_ip
 from mediaman.services.rate_limit.instances import SETTINGS_TEST_LIMITER as _SETTINGS_TEST_LIMITER
@@ -434,7 +434,7 @@ def api_disk_usage(
         return respond_err("path_too_long", status=400)
 
     roots = disk_usage_allowed_roots()
-    resolved = resolve_safe_path(path, roots)
+    resolved = resolve_safe_readonly_path(path, roots)
     if resolved is None:
         return respond_err("not_found", status=404)
 

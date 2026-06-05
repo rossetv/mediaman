@@ -1,16 +1,24 @@
 """TOCTOU-hardened filesystem deletion operations.
 
 This module owns the destructive operations that consume the validated
-delete-root allowlist: the public :func:`delete_path` entry point and the
-:func:`_safe_rmtree` recursive remover. The allowlist *validation* helpers
-(forbidden-root refusal, atomic symlink check) live in :mod:`._delete_roots`.
+delete-root allowlist: the public :func:`delete_path` entry point and its
+private ``_safe_rmtree`` recursive remover (not exported from the package
+barrel — ``delete_path`` is the only public way to trigger a deletion). The
+allowlist *validation* helpers (forbidden-root refusal, atomic symlink check)
+live in :mod:`._delete_roots`.
 
 Threat model: between the caller's containment check and the actual removal
 there is a TOCTOU window. An attacker who can swap a directory for a symlink
 in that window could redirect the deletion at ``/``. :func:`_safe_rmtree`
-closes the window by re-resolving and re-checking containment at delete time,
-pinning to the root's filesystem device, and walking with fd-based
-``os.fwalk(follow_symlinks=False)`` so no swapped-in symlink is ever crossed.
+narrows the window by re-resolving and re-checking containment at delete time,
+pinning to the root's filesystem device (checked *before* the per-entry
+symlink branch so a cross-device swap is refused regardless), and walking with
+fd-based ``os.fwalk(follow_symlinks=False)`` so no swapped-in directory symlink
+is ever crossed. The per-entry ``lstat``-then-``unlink`` on a name is two
+syscalls, not one atomic operation — ``os.unlink`` never follows a final
+symlink, so the link target is safe, but this is defence-in-depth, not a
+claim of per-entry atomicity. See the ``# rationale:`` block on
+:func:`_safe_rmtree` for the precise scope of the guarantee.
 """
 
 from __future__ import annotations
@@ -110,21 +118,36 @@ def delete_path(path: str, *, allowed_roots: list[str] | None = None) -> None:
     # always suspicious regardless of where it points.
     if raw.is_symlink():
         raise DeletionRefused(f"Refusing to delete '{raw}' — target path is a symlink.")
-    _safe_rmtree(p, resolved_roots, original_allowed_roots=allowed_roots)
+    _safe_rmtree(p, resolved_roots)
 
 
 # rationale: symlink-resolution, containment check, recursive descent, and
-# deletion are interleaved so that each symlink decision is made atomically
-# with the stat that revealed it — splitting into pre-check and delete phases
-# would reintroduce the TOCTOU symlink-swap window this function was designed
-# to close.
-def _safe_rmtree(
-    path: Path,
-    allowed_roots: list[Path],
-    *,
-    original_allowed_roots: list[str] | None = None,
-) -> None:
+# deletion are interleaved so each symlink/device decision is made as close as
+# possible to the stat that revealed it, and the whole walk runs under
+# ``os.fwalk(follow_symlinks=False)`` dir file descriptors so the unlink/rmdir
+# operations are relative to an *opened* directory rather than a re-resolved
+# path. Splitting into separate pre-check and delete phases would reintroduce
+# the TOCTOU symlink-swap window this function was designed to close.
+#
+# Honest scope of the guarantee: per-entry the sequence is ``os.lstat(name,
+# dir_fd=...)`` then ``os.unlink/rmdir(name, dir_fd=...)`` — two syscalls on a
+# *name*, not one atomic operation on a held inode fd. ``os.unlink`` never
+# follows a final symlink, so the link's target is never deleted; and the
+# fwalk dir fd means a swapped-in *directory* cannot redirect the walk. The
+# residual race is narrow (a name swapped between the lstat and the unlink),
+# and the same-device check now runs before the symlink branch so a cross-
+# device swap is still refused. We deliberately do NOT claim each unlink is
+# atomic with its stat — closing that fully would require an
+# ``os.open(O_NOFOLLOW|O_PATH)`` + ``fstat`` + unlink-under-fd rewrite, which
+# is not implemented here.
+def _safe_rmtree(path: Path, allowed_roots: list[Path]) -> None:
     """Delete *path* without following symlinks or escaping *allowed_roots*.
+
+    NOT a public entry point. :func:`delete_path` is the only supported way
+    in — ``_safe_rmtree`` is deliberately absent from the package barrel's
+    ``__all__`` (B2) so a caller cannot reach it without going through
+    ``delete_path``'s full allowlist validation. The defences below are
+    re-checked here regardless, so a direct in-module call is still safe.
 
     Hardens against TOCTOU / symlink-swap attacks between the caller's
     containment check and the actual removal:
@@ -158,14 +181,20 @@ def _safe_rmtree(
             f"{[str(r) for r in allowed_roots]}"
         )
 
-    # The caller (delete_path) has already validated the allowlist and
-    # rejected any symlinked / forbidden roots — we don't repeat that
-    # work here, but we leave the parameter in place for callers that
-    # bypass delete_path (and hence need the extra defence).
-    for raw_root in original_allowed_roots or []:
-        if Path(raw_root).is_symlink():
+    # Reject any allowed root that is a symlink on disk — checked
+    # UNCONDITIONALLY (B2), re-derived from the ``allowed_roots`` this
+    # function actually walks under rather than an optional raw-roots
+    # parameter a bypassing caller might omit. The primary B2 defence is
+    # that ``_safe_rmtree`` is no longer in the package barrel's ``__all__``,
+    # so the only public path in is ``delete_path``, which already rejects
+    # symlinked raw roots via ``_validate_delete_roots``. This loop is
+    # belt-and-braces for the in-module call: if a root path is *currently*
+    # a symlink it must not be walked under, because the device pin below
+    # would otherwise follow it onto another filesystem.
+    for root in allowed_roots:
+        if os.path.islink(str(root)):
             raise DeletionRefused(
-                f"Refusing to delete: allowed root '{raw_root}' is a symlink. "
+                f"Refusing to delete: allowed root '{root}' is a symlink. "
                 "Configure delete_allowed_roots with real directories only."
             )
 
@@ -243,31 +272,37 @@ def _safe_rmtree(
 
             for name in filenames:
                 entry_stat = os.lstat(name, dir_fd=dirfd)
-                if _stat.S_ISLNK(entry_stat.st_mode):
-                    # Remove symlink entries themselves (they don't follow
-                    # the link to delete its target) — this is safe and the
-                    # only way to empty the dir.
-                    os.unlink(name, dir_fd=dirfd)
-                    continue
+                # Device check FIRST — before the symlink short-circuit — so a
+                # cross-device entry is refused whether or not it is a symlink
+                # (B1). A symlink entry swapped in for a hardlink-to-another-
+                # device file must still trip the device guard.
                 if entry_stat.st_dev != root_dev:
                     raise DeletionRefused(
                         f"Refusing to delete '{resolved}' — entry '{name}' in "
                         f"'{dirpath}' is on a different device."
                     )
+                if _stat.S_ISLNK(entry_stat.st_mode):
+                    # Remove symlink entries themselves (``os.unlink`` does not
+                    # follow the final link to its target) — this is safe and
+                    # the only way to empty the dir.
+                    os.unlink(name, dir_fd=dirfd)
+                    continue
                 os.unlink(name, dir_fd=dirfd)
 
             for name in dirnames:
                 entry_stat = os.lstat(name, dir_fd=dirfd)
-                if _stat.S_ISLNK(entry_stat.st_mode):
-                    # Symlinked subdir: remove the link entry, don't recurse
-                    # (fwalk already refuses with follow_symlinks=False).
-                    os.unlink(name, dir_fd=dirfd)
-                    continue
+                # Device check FIRST (see filenames loop above) — a cross-
+                # device subdir entry is refused even if it is a symlink (B1).
                 if entry_stat.st_dev != root_dev:
                     raise DeletionRefused(
                         f"Refusing to delete '{resolved}' — subdirectory "
                         f"'{name}' in '{dirpath}' is on a different device."
                     )
+                if _stat.S_ISLNK(entry_stat.st_mode):
+                    # Symlinked subdir: remove the link entry, don't recurse
+                    # (fwalk already refuses with follow_symlinks=False).
+                    os.unlink(name, dir_fd=dirfd)
+                    continue
                 os.rmdir(name, dir_fd=dirfd)
     finally:
         # ``close()`` on a generator runs its finally blocks (which
