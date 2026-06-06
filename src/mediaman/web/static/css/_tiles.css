@@ -206,7 +206,7 @@
   color: var(--t3);
   margin-bottom: 10px;
 }
-.rec-batch--latest .rec-batch-eyebrow { color: var(--accent); }
+.rec-batch--latest .rec-batch-eyebrow { color: var(--t2); }
 .rec-batch-title {
   font-family: var(--font-display);
   font-size: clamp(26px, 3.4vw, 36px);
@@ -256,14 +256,13 @@
 .reason {
   margin-top: 4px;
   padding: 8px 10px;
-  background: rgba(41,151,255,.08);
-  border-left: 2px solid var(--accent);
-  border-radius: 0 var(--r-xs) var(--r-xs) 0;
+  background: var(--s3);
+  border-radius: var(--r-xs);
   font-size: 11px;
   color: var(--t2);
   line-height: 1.45;
 }
-.reason b { color: var(--accent); font-weight: 600; }
+.reason b { color: var(--t1); font-weight: 600; }
 
 .inline-error {
   display: none;

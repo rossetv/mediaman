@@ -40,7 +40,6 @@
 .form-input:focus,
 .form-select:focus,
 .threshold-input:focus {
-  outline: 0;
   border-color: var(--accent);
   background: var(--s3);
 }

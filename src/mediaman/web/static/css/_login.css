@@ -81,7 +81,6 @@
   font-size: 15px;
 }
 .login-field input:focus {
-  outline: 0;
   border-color: var(--accent);
   background: var(--s3);
 }

@@ -51,7 +51,7 @@
 .storage-bar .seg--mov   { background: var(--orange); }
 .storage-bar .seg--tv    { background: var(--accent); }
 .storage-bar .seg--anime { background: var(--purple); }
-.storage-bar .seg--other { background: rgba(255,255,255,.2); }
+.storage-bar .seg--other { background: var(--t4); }
 
 .storage-legend { display: flex; flex-wrap: wrap; gap: 18px; font-size: 13px; }
 .legend { display: flex; align-items: center; gap: 8px; color: var(--t2); }
@@ -60,5 +60,5 @@
 .legend-dot--movies { background: var(--orange); }
 .legend-dot--tv     { background: var(--accent); }
 .legend-dot--anime  { background: var(--purple); }
-.legend-dot--other  { background: rgba(255,255,255,.3); }
+.legend-dot--other  { background: var(--t4); }
 .legend b { color: var(--t1); font-weight: 500; margin-left: 4px; }
