@@ -33,6 +33,7 @@ from mediaman.services.rate_limit.ip_resolver import (
 from mediaman.services.rate_limit.limiters import (
     ActionRateLimiter,
     RateLimiter,
+    reset_all_limiters,
 )
 
 __all__ = [
@@ -40,5 +41,6 @@ __all__ = [
     "RateLimiter",
     "get_client_ip",
     "peer_is_trusted",
+    "reset_all_limiters",
     "trusted_proxies",
 ]

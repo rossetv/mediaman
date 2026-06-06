@@ -4,6 +4,16 @@ Canonical home is :mod:`mediaman.services.rate_limit`.
 
 Holds :class:`RateLimiter` (IP-bucketed) and :class:`ActionRateLimiter`
 (per-actor, for authenticated admin operations).
+
+Test-support globals
+--------------------
+:data:`_LIMITER_REGISTRY` is a :class:`weakref.WeakSet` that every
+``RateLimiter`` and ``ActionRateLimiter`` instance self-registers with at
+construction time.  :func:`reset_all_limiters` calls ``.reset()`` on every
+live instance so test fixtures can guarantee a clean slate in one call,
+regardless of how many module-level limiters exist.  The registry has no
+effect on production behaviour — it does not hold a strong reference, so
+limiters are garbage-collected as normal.
 """
 
 from __future__ import annotations
@@ -12,6 +22,7 @@ import collections
 import ipaddress
 import threading
 import time
+import weakref
 
 # Cap the per-IP rate-limit dict to prevent unbounded memory growth under
 # a distributed attack. Oldest entries are evicted when the cap is hit.
@@ -21,6 +32,27 @@ import time
 # least-recently-used bucket. Move to a setting if larger deployments
 # materialise — for now this is a safety net, not a tunable.
 _MAX_BUCKETS = 10_000
+
+# ---------------------------------------------------------------------------
+# Limiter registry — test-support only, zero production overhead.
+# ---------------------------------------------------------------------------
+
+# WeakSet so the registry never keeps a limiter alive beyond its natural
+# lifetime.  Populated by RateLimiter.__init__ and ActionRateLimiter.__init__.
+_LIMITER_REGISTRY: weakref.WeakSet[RateLimiter | ActionRateLimiter] = weakref.WeakSet()
+
+
+def reset_all_limiters() -> None:
+    """Call ``.reset()`` on every live ``RateLimiter`` / ``ActionRateLimiter``.
+
+    Intended for test fixtures only — call this (e.g. via an autouse fixture
+    in ``conftest.py``) to guarantee that no rate-limit state leaks between
+    tests, regardless of which module-level limiters exist.  Safe to call at
+    any time; has no effect on production behaviour.
+    """
+    for limiter in list(_LIMITER_REGISTRY):
+        limiter.reset()
+
 
 # Length of the rolling window used by ActionRateLimiter's daily cap.
 # 24 hours, expressed in seconds.
@@ -59,6 +91,7 @@ class ActionRateLimiter:
         self._daily: dict[str, collections.deque[float]] = {}
         self._lock = threading.Lock()
         self._calls_since_prune = 0
+        _LIMITER_REGISTRY.add(self)
 
     _DAILY_PRUNE_EVERY = 512
 
@@ -154,6 +187,7 @@ class RateLimiter:
         self._attempts: collections.OrderedDict[str, list[float]] = collections.OrderedDict()
         self._lock = threading.Lock()
         self._calls_since_prune = 0
+        _LIMITER_REGISTRY.add(self)
 
     def check(self, ip: str) -> bool:
         """Return True if the request is allowed, False if rate-limited."""
