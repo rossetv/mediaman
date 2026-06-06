@@ -155,3 +155,48 @@ class TestDeadFunctionRemoved:
             from mediaman.services.scheduled_actions import (  # noqa: F401
                 find_active_keep_action_by_id_and_token,
             )
+
+
+# ---------------------------------------------------------------------------
+# is_keep_token_consumed: shared replay-check helper used by both keep routes
+# ---------------------------------------------------------------------------
+
+
+class TestIsKeepTokenConsumed:
+    """The replay-check helper backs the 409 path in both keep handlers."""
+
+    def test_returns_false_for_unseen_token_hash(self, conn):
+        from mediaman.services.scheduled_actions import is_keep_token_consumed, token_hash
+
+        assert is_keep_token_consumed(conn, token_hash("never-used")) is False
+
+    def test_returns_true_once_token_is_consumed(self, conn):
+        from datetime import UTC, datetime
+
+        from mediaman.services.scheduled_actions import (
+            is_keep_token_consumed,
+            mark_token_consumed,
+            token_hash,
+        )
+
+        token = "the-keep-token"
+        with conn:
+            assert mark_token_consumed(conn, token, datetime.now(UTC)) is True
+
+        assert is_keep_token_consumed(conn, token_hash(token)) is True
+
+    def test_takes_the_hash_not_the_raw_token(self, conn):
+        """The helper compares against stored hashes, so passing the raw
+        token must not match a consumed entry."""
+        from datetime import UTC, datetime
+
+        from mediaman.services.scheduled_actions import (
+            is_keep_token_consumed,
+            mark_token_consumed,
+        )
+
+        token = "another-keep-token"
+        with conn:
+            mark_token_consumed(conn, token, datetime.now(UTC))
+
+        assert is_keep_token_consumed(conn, token) is False

@@ -70,8 +70,16 @@ def _seasons_dedup_token(
     season 1" request. Sorting both lists makes the token order-stable
     regardless of how the client serialised them.
     """
-    mon = "*" if monitored_seasons is None else ",".join(str(s) for s in sorted(monitored_seasons))
-    srch = "*" if search_seasons is None else ",".join(str(s) for s in sorted(search_seasons))
+    mon = (
+        "*"
+        if monitored_seasons is None
+        else ",".join(str(season) for season in sorted(monitored_seasons))
+    )
+    srch = (
+        "*"
+        if search_seasons is None
+        else ",".join(str(season) for season in sorted(search_seasons))
+    )
     return f"m={mon};s={srch}"
 
 

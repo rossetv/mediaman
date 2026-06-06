@@ -76,24 +76,24 @@ def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
     rows = fetch_scheduled_deletions(conn, ACTION_SCHEDULED_DELETION)
 
     items = []
-    for r in rows:
-        media_type = r.media_type
+    for row in rows:
+        media_type = row.media_type
         badge_class, type_label = media_type_badge(media_type)
-        if media_type in ("tv", "anime") and r.season_number:
-            type_label = f"{type_label} · S{r.season_number}"
+        if media_type in ("tv", "anime") and row.season_number:
+            type_label = f"{type_label} · S{row.season_number}"
 
         items.append(
             {
-                "sa_id": r.sa_id,
-                "media_item_id": r.media_item_id,
-                "title": r.title,
-                "plex_rating_key": r.plex_rating_key,
+                "sa_id": row.sa_id,
+                "media_item_id": row.media_item_id,
+                "title": row.title,
+                "plex_rating_key": row.plex_rating_key,
                 "badge_class": badge_class,
                 "type_label": type_label,
-                "countdown": _days_until(r.execute_at),
-                "added_ago": days_ago(r.added_at),
-                "file_size": format_bytes(r.file_size_bytes),
-                "file_size_bytes": r.file_size_bytes,
+                "countdown": _days_until(row.execute_at),
+                "added_ago": days_ago(row.added_at),
+                "file_size": format_bytes(row.file_size_bytes),
+                "file_size_bytes": row.file_size_bytes,
             }
         )
     return items
@@ -170,35 +170,35 @@ def _fetch_recently_deleted(conn: sqlite3.Connection, secret_key: str) -> list[d
         if not rows:
             break
 
-        for r in rows:
-            if r.audit_id in seen_ids:
+        for row in rows:
+            if row.audit_id in seen_ids:
                 continue
-            seen_ids.add(r.audit_id)
+            seen_ids.add(row.audit_id)
 
-            title = r.title
+            title = row.title
             if not title:
-                title = title_from_audit_detail(r.detail)
+                title = title_from_audit_detail(row.detail)
             # When the deletion row carries a tmdb_id we can also consult the redownload index
             # by tmdb_id; for now we only match on title.
             if _was_redownloaded_after(
-                r.created_at,
+                row.created_at,
                 title=title,
                 by_title_lower=by_title_lower,
             ):
                 continue
 
-            rk = r.plex_rating_key or rk_from_audit_detail(r.detail)
+            rk = row.plex_rating_key or rk_from_audit_detail(row.detail)
             poster_url = f"/api/poster/{rk}" if rk else ""
             idx = len(items)
             items.append(
                 {
-                    "id": r.audit_id,
-                    "media_item_id": r.media_item_id,
+                    "id": row.audit_id,
+                    "media_item_id": row.media_item_id,
                     "title": title,
-                    "media_type": r.media_type or "",
+                    "media_type": row.media_type or "",
                     "poster_url": poster_url,
-                    "deleted_ago": days_ago(r.created_at),
-                    "reclaimed": format_bytes(r.space_reclaimed_bytes),
+                    "deleted_ago": days_ago(row.created_at),
+                    "reclaimed": format_bytes(row.space_reclaimed_bytes),
                 }
             )
             if not poster_url:
@@ -292,7 +292,7 @@ def _fetch_storage_stats(conn: sqlite3.Connection) -> dict[str, object]:
     # Per-type breakdown from DB
     type_rows = fetch_media_type_sizes(conn)
 
-    type_sizes = {r.media_type: r.total for r in type_rows}
+    type_sizes = {row.media_type: row.total for row in type_rows}
     movies_bytes = type_sizes.get("movie", 0)
     tv_bytes = (
         type_sizes.get("tv_season", 0) + type_sizes.get("tv", 0) + type_sizes.get("season", 0)

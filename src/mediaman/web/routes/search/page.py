@@ -50,7 +50,8 @@ def _normalise_shelf(raw: Iterable[dict[str, object]], limit: int) -> list[dict[
     unsupported media type).  The ``[:limit]`` slice is applied after
     filtering so the cap is on usable results, not raw API entries.
     """
-    return [s for s in (_normalise_tmdb_item(x) for x in raw) if s is not None][:limit]
+    normalised = (_normalise_tmdb_item(tmdb_item) for tmdb_item in raw)
+    return [item for item in normalised if item is not None][:limit]
 
 
 @router.get("/search", response_class=HTMLResponse)

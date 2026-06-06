@@ -11,6 +11,15 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
+from datetime import timedelta
+
+from mediaman.core.time import now_utc
+
+# The redownload index only needs the most-recent timestamp per title to
+# decide whether a recently-deleted item was re-fetched. A re-download that
+# predates the deleted item by a year is irrelevant, so bound the scan to the
+# last 12 months rather than loading the entire audit_log on every render.
+_REDOWNLOAD_WINDOW_DAYS = 365
 
 
 @dataclass(frozen=True)
@@ -103,17 +112,25 @@ def fetch_scheduled_deletions(
 
 
 def fetch_redownload_audit_rows(conn: sqlite3.Connection) -> list[RedownloadAuditRow]:
-    """Return audit_log entries for ``re_downloaded`` and ``downloaded`` actions."""
+    """Return recent audit_log entries for ``re_downloaded`` and ``downloaded`` actions.
+
+    Bounded to the last :data:`_REDOWNLOAD_WINDOW_DAYS` days so the dashboard
+    render does not load an ever-growing audit_log into memory. ``created_at``
+    is stored as ISO-8601 UTC, so the lexicographic ``>`` comparison is a
+    correct chronological cutoff.
+    """
+    cutoff = (now_utc() - timedelta(days=_REDOWNLOAD_WINDOW_DAYS)).isoformat()
     rows = conn.execute(
         "SELECT media_item_id, created_at FROM audit_log "
-        "WHERE action IN ('re_downloaded', 'downloaded')"
+        "WHERE action IN ('re_downloaded', 'downloaded') AND created_at > ?",
+        (cutoff,),
     ).fetchall()
     return [
         RedownloadAuditRow(
-            media_item_id=r["media_item_id"] or "",
-            created_at=r["created_at"],
+            media_item_id=row["media_item_id"] or "",
+            created_at=row["created_at"],
         )
-        for r in rows
+        for row in rows
     ]
 
 
