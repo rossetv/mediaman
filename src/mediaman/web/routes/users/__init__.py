@@ -7,7 +7,7 @@ sub-modules:
 - :mod:`.sessions`   — list sessions, revoke-others
 - :mod:`.passwords`  — change password
 - :mod:`.reauth`     — reauth ticket flow
-- :mod:`.rate_limits` — all module-level :class:`~mediaman.auth.rate_limit.ActionRateLimiter`
+- :mod:`.rate_limits` — all module-level :class:`~mediaman.services.rate_limit.ActionRateLimiter`
                          instances
 
 The combined ``router`` is assembled here and exported so that the existing
