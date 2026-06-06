@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 
 from ._types import ScheduledNewsletterItem
@@ -25,7 +26,11 @@ except ImportError:  # pragma: no cover
     FileSystemLoader = None  # type: ignore[assignment,misc]
     _TemplateError = Exception  # type: ignore[assignment,misc]
 
+# F-06: shared environment rebuilt only once per process lifetime (§8.5).
+# The lock prevents a data race when the scheduler and FastAPI thread-pool
+# both call send_newsletter concurrently and each see _JINJA_ENV is None.
 _JINJA_ENV: Environment | None = None
+_JINJA_ENV_LOCK = threading.Lock()
 
 
 def _get_jinja_env() -> Environment | None:
@@ -35,15 +40,21 @@ def _get_jinja_env() -> Environment | None:
     cannot be found, so the caller can fall back gracefully.
     """
     global _JINJA_ENV
+    # Fast path — no lock needed for the read once the env is built.
     if _JINJA_ENV is not None:
         return _JINJA_ENV
-    if Environment is None:  # pragma: no cover
-        return None
-    try:
-        _JINJA_ENV = Environment(loader=FileSystemLoader(str(_TEMPLATE_DIR)), autoescape=True)
-    except (FileNotFoundError, _TemplateError):  # pragma: no cover
-        logger.exception("Jinja2 environment could not be initialised")
-        return None
+    with _JINJA_ENV_LOCK:
+        # Re-check inside the lock to avoid double-init if two threads
+        # raced past the fast-path check above.
+        if _JINJA_ENV is not None:
+            return _JINJA_ENV
+        if Environment is None:  # pragma: no cover
+            return None
+        try:
+            _JINJA_ENV = Environment(loader=FileSystemLoader(str(_TEMPLATE_DIR)), autoescape=True)
+        except (FileNotFoundError, _TemplateError):  # pragma: no cover
+            logger.exception("Jinja2 environment could not be initialised")
+            return None
     return _JINJA_ENV
 
 

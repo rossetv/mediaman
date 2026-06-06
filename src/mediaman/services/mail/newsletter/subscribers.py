@@ -1,4 +1,4 @@
-"""Subscriber resolution and per-recipient delivery loop."""
+"""Subscriber resolution and per-subscriber delivery loop."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import sqlite3
 from typing import TYPE_CHECKING, cast
 from urllib.parse import quote as _url_quote
 
-import requests
+from requests.exceptions import RequestException
 
 from mediaman.core.time import now_iso
 from mediaman.crypto import generate_download_token, generate_unsubscribe_token
@@ -23,19 +23,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _load_recipients(conn: sqlite3.Connection, recipients: list[str] | None) -> list[str] | None:
-    """Return the recipient list, or ``None`` to signal "skip — no recipients".
+def _load_subscribers(conn: sqlite3.Connection, recipients: list[str] | None) -> list[str] | None:
+    """Return the subscriber list, or ``None`` to signal "skip — no subscribers".
 
-    When *recipients* is provided it is returned as-is.  Otherwise the
+    When *recipients* is provided and not ``None`` it is returned as-is (even
+    if empty — an explicit empty list means "send to nobody").  Otherwise the
     active subscribers table is queried; ``None`` is returned (not an empty
     list) when there are no active subscribers so the caller can skip
     quietly rather than sending to zero addresses.
     """
-    if recipients:
+    # F-07: use ``is not None`` so an explicit empty list is honoured and
+    # does not fall through to the full subscriber query.
+    if recipients is not None:
         return recipients
     rows = conn.execute("SELECT email FROM subscribers WHERE active=1").fetchall()
     if not rows:
-        logger.debug("Newsletter skipped — no active subscribers")
+        logger.debug("newsletter.skipped", extra={"reason": "no_active_subscribers"})
         return None
     return [row["email"] for row in rows]
 
@@ -44,21 +47,25 @@ def _record_delivery_attempt(
     conn: sqlite3.Connection,
     *,
     scheduled_action_ids: list[int],
-    recipient: str,
+    subscriber: str,
     success: bool,
     error: str | None,
 ) -> None:
-    """Persist one row per (scheduled_action, recipient) for the send.
+    """Persist one row per (scheduled_action, subscriber) for the send.
 
     The newsletter previously flagged each scheduled item as ``notified=1``
     after the first successful Mailgun call. With multiple subscribers a
     later send failure would silently drop notifications for everyone
     after the first success. We now record one row per scheduled-item ×
-    recipient pair so the orchestrating function can decide whether to
-    mark the item done only when *every* recipient has been served.
+    subscriber pair so the orchestrating function can decide whether to
+    mark the item done only when *every* subscriber has been served.
 
     Best-effort: a row that cannot be persisted is logged but does not
     break the send loop.
+
+    Note: the DB column is literally named ``recipient`` (part of a composite
+    PRIMARY KEY on ``newsletter_deliveries``); we retain that name in SQL
+    to avoid a destructive schema migration.
     """
     if not scheduled_action_ids:
         return
@@ -66,21 +73,24 @@ def _record_delivery_attempt(
     attempted_at = now_iso()
     err_text = None if success else (error or "send failed")
     try:
-        conn.executemany(
-            "INSERT OR REPLACE INTO newsletter_deliveries "
-            "(scheduled_action_id, recipient, sent_at, error, attempted_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            [
-                (action_id, recipient, sent_at, err_text, attempted_at)
-                for action_id in scheduled_action_ids
-            ],
-        )
-        conn.commit()
+        # F-08: wrap DML in ``with conn:`` so a crash between INSERT and
+        # commit does not leave partial rows without a commit.
+        with conn:
+            conn.executemany(
+                "INSERT OR REPLACE INTO newsletter_deliveries "
+                # legacy column name ``recipient`` retained — see docstring
+                "(scheduled_action_id, recipient, sent_at, error, attempted_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [
+                    (action_id, subscriber, sent_at, err_text, attempted_at)
+                    for action_id in scheduled_action_ids
+                ],
+            )
     except sqlite3.Error:
+        # F-17: variables in extra=, not interpolated into the message string
         logger.warning(
-            "newsletter delivery record failed recipient=%s actions=%d",
-            recipient,
-            len(scheduled_action_ids),
+            "newsletter.delivery_record_failed",
+            extra={"subscriber": subscriber, "action_count": len(scheduled_action_ids)},
             exc_info=True,
         )
 
@@ -141,7 +151,7 @@ def _mint_rec_tokens(
             rec_item["download_url"] = ""
 
 
-def _render_for_recipient(
+def _render_for_subscriber(
     *,
     email: str,
     deleted_items: list[DeletedNewsletterItem],
@@ -158,10 +168,10 @@ def _render_for_recipient(
     grace_days: int,
     template: _JinjaTemplate,
 ) -> str:
-    """Mint per-recipient tokens and render the newsletter HTML.
+    """Mint per-subscriber tokens and render the newsletter HTML.
 
-    Builds per-recipient shallow copies of deleted and recommendation items
-    so token URLs don't bleed between recipients, then mints unsubscribe and
+    Builds per-subscriber shallow copies of deleted and recommendation items
+    so token URLs don't bleed between subscribers, then mints unsubscribe and
     download tokens before calling ``template.render``.
 
     Returns the rendered HTML string — no side effects, no DB access.
@@ -172,19 +182,20 @@ def _render_for_recipient(
     unsub_url = (
         f"{base_url}/unsubscribe?token={_url_quote(unsub_token, safe='')}" if base_url else ""
     )
-    logger.debug("newsletter.unsub_url_minted recipient=%s", email)
+    # F-11: dotted event name, variable in extra=
+    logger.debug("newsletter.unsub_url_minted", extra={"subscriber": email})
 
-    # Build per-recipient shallow copies so token URLs don't bleed between recipients.
-    # Without this, recipient N's tokens overwrite recipient N-1's in the shared dicts.
-    recipient_deleted: list[DeletedNewsletterItem] = [
+    # Build per-subscriber shallow copies so token URLs don't bleed between subscribers.
+    # Without this, subscriber N's tokens overwrite subscriber N-1's in the shared dicts.
+    subscriber_deleted: list[DeletedNewsletterItem] = [
         cast(DeletedNewsletterItem, dict(item)) for item in deleted_items
     ]
-    recipient_this_week: list[NewsletterRecItem] = [
+    subscriber_this_week: list[NewsletterRecItem] = [
         cast(NewsletterRecItem, dict(item)) for item in this_week_items
     ]
 
-    _mint_deleted_tokens(recipient_deleted, email=email, base_url=base_url, secret_key=secret_key)
-    _mint_rec_tokens(recipient_this_week, email=email, base_url=base_url, secret_key=secret_key)
+    _mint_deleted_tokens(subscriber_deleted, email=email, base_url=base_url, secret_key=secret_key)
+    _mint_rec_tokens(subscriber_this_week, email=email, base_url=base_url, secret_key=secret_key)
 
     return template.render(
         report_date=report_date,
@@ -193,8 +204,8 @@ def _render_for_recipient(
         reclaimed_month=reclaimed_month,
         reclaimed_total=reclaimed_total,
         scheduled_items=scheduled_items,
-        deleted_items=recipient_deleted,
-        this_week_items=recipient_this_week,
+        deleted_items=subscriber_deleted,
+        this_week_items=subscriber_this_week,
         dashboard_url=base_url,
         dry_run=dry_run,
         base_url=base_url,
@@ -203,7 +214,7 @@ def _render_for_recipient(
     )
 
 
-def _send_to_recipients(
+def _send_to_subscribers(
     *,
     recipient_emails: list[str],
     scheduled_items: list[ScheduledNewsletterItem],
@@ -223,21 +234,21 @@ def _send_to_recipients(
     report_date: str,
     conn: sqlite3.Connection | None = None,
 ) -> list[str]:
-    """Render and send the newsletter to each recipient.
+    """Render and send the newsletter to each subscriber.
 
     Returns the list of email addresses to which sending succeeded.
-    Each recipient gets a unique unsubscribe URL and per-item download tokens.
+    Each subscriber gets a unique unsubscribe URL and per-item download tokens.
 
-    When *conn* is provided we also persist a per-recipient delivery
+    When *conn* is provided we also persist a per-subscriber delivery
     record for every scheduled item. The orchestrator then only flips
-    ``notified=1`` for items where every active recipient has succeeded.
+    ``notified=1`` for items where every active subscriber has succeeded.
     """
     scheduled_action_ids = [
         int(item["_action_id"]) for item in scheduled_items if item.get("_action_id") is not None
     ]
     successfully_sent: list[str] = []
     for email in recipient_emails:
-        html = _render_for_recipient(
+        html = _render_for_subscriber(
             email=email,
             deleted_items=deleted_items,
             this_week_items=this_week_items,
@@ -260,17 +271,21 @@ def _send_to_recipients(
                 _record_delivery_attempt(
                     conn,
                     scheduled_action_ids=scheduled_action_ids,
-                    recipient=email,
+                    subscriber=email,
                     success=True,
                     error=None,
                 )
-        except (SafeHTTPError, requests.RequestException, ValueError) as exc:
-            logger.exception("Newsletter send failed for %s — continuing", email)
+        except (SafeHTTPError, RequestException, ValueError) as exc:
+            # F-11: dotted event name, variable in extra=
+            logger.exception(
+                "newsletter.send_failed",
+                extra={"subscriber": email},
+            )
             if conn is not None:
                 _record_delivery_attempt(
                     conn,
                     scheduled_action_ids=scheduled_action_ids,
-                    recipient=email,
+                    subscriber=email,
                     success=False,
                     error=str(exc),
                 )

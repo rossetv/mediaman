@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 import requests
+from requests.exceptions import RequestException
 
 from mediaman.core.email_validation import validate_email_address as _validate_recipient
 from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
@@ -102,29 +103,20 @@ class MailgunClient:
                     last_error = exc
                     break
                 if exc.status_code == 404 and base != bases[-1]:
+                    # F-11: dotted event name, variable in extra=
                     logger.info(
-                        "Mailgun %s returned 404 — domain may be in alternate region, retrying",
-                        base,
+                        "mailgun.region_fallback",
+                        extra={"base": base, "reason": "404_domain_not_found"},
                     )
                     last_error = exc
                     continue
                 last_error = exc
                 break
-            except requests.RequestException as exc:
+            except RequestException as exc:
                 last_error = exc
                 continue
         if last_error is not None:
             raise last_error
-
-    def send_to_many(self, *, recipients: list[str], subject: str, html: str) -> None:
-        """Send the same message to each recipient.
-
-        Failures on individual recipients propagate immediately — callers
-        that need per-recipient fault isolation should loop over ``send``
-        and handle exceptions themselves.
-        """
-        for recipient in recipients:
-            self.send(to=recipient, subject=subject, html=html)
 
     def is_reachable(self) -> bool:
         """Return True if either region reports the domain exists."""
@@ -136,6 +128,12 @@ class MailgunClient:
                 )
                 self._base = base
                 return True
-            except (SafeHTTPError, requests.RequestException):
+            except (SafeHTTPError, RequestException):
+                # F-10: log at debug level so an operator can see what failed (§6.7)
+                logger.debug(
+                    "mailgun.reachability_check_failed",
+                    extra={"base": base},
+                    exc_info=True,
+                )
                 continue
         return False

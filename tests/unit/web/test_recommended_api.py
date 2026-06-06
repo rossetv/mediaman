@@ -82,7 +82,9 @@ class TestFinding15NewsletterSkipsMintWithoutTmdb:
     """
 
     def test_deleted_item_without_tmdb_has_empty_redownload_url(self):
-        from mediaman.services.mail.newsletter.recipients import _send_to_recipients
+        from mediaman.services.mail.newsletter.subscribers import (
+            _send_to_subscribers as _send_to_recipients,
+        )
 
         captured: dict = {}
 

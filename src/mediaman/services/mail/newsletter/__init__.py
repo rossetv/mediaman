@@ -7,11 +7,11 @@ end of every scan and on-demand from the admin UI.
 This package is a thin aggregator. The heavy lifting is split into focused
 submodules:
 
-* :mod:`.render`     — Jinja2 env, subject-line formatting.
-* :mod:`.schedule`   — scheduled-deletion cards + ``notified`` flag bookkeeping.
-* :mod:`.summary`    — disk-usage stats, deleted-items cards, recommendation batch load.
-* :mod:`.enrich`     — per-card Arr download-state annotation.
-* :mod:`.recipients` — subscriber resolution, per-recipient render/send loop.
+* :mod:`.render`      — Jinja2 env, subject-line formatting.
+* :mod:`.schedule`    — scheduled-deletion cards + ``notified`` flag bookkeeping.
+* :mod:`.summary`     — disk-usage stats, deleted-items cards, recommendation batch load.
+* :mod:`.enrich`      — per-card Arr download-state annotation.
+* :mod:`.subscribers` — subscriber resolution, per-subscriber render/send loop.
 
 Callers keep importing ``send_newsletter`` and ``NewsletterConfigError``
 from :mod:`mediaman.services.newsletter`.
@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from mediaman.core.format import format_day_month as _format_day_month
@@ -29,9 +30,9 @@ from mediaman.core.time import now_utc
 
 from ._types import DeletedNewsletterItem, NewsletterRecItem, ScheduledNewsletterItem
 from .enrich import _annotate_rec_download_states
-from .recipients import _load_recipients, _send_to_recipients
 from .render import _TEMPLATE_DIR, _build_subject, _get_jinja_env
 from .schedule import _load_scheduled_items, _mark_notified
+from .subscribers import _load_subscribers, _send_to_subscribers
 from .summary import StorageSummary, _load_deleted_items, _load_recommendations, _load_storage_stats
 
 if TYPE_CHECKING:
@@ -64,6 +65,24 @@ class NewsletterConfigError(Exception):
     """
 
 
+# F-02: named dataclass replaces the 7-tuple return of _build_send_context (§5.9)
+@dataclass(frozen=True, slots=True)
+class SendContext:
+    """All content and dispatch objects needed to send one newsletter run.
+
+    Returned by :func:`_build_send_context` so callers access fields by name
+    rather than positionally unpacking a 7-tuple.
+    """
+
+    deleted_items: list[DeletedNewsletterItem]
+    this_week_items: list[NewsletterRecItem]
+    storage_summary: StorageSummary
+    template: _JinjaTemplate
+    mailgun: _MailgunClient
+    subject: str
+    report_date: str
+
+
 def _load_mailgun_settings(conn: sqlite3.Connection, secret_key: str) -> MailgunSettings:
     """Read and validate the four required Mailgun settings.
 
@@ -84,10 +103,10 @@ def _load_mailgun_settings(conn: sqlite3.Connection, secret_key: str) -> Mailgun
     # H70: reject non-HTTP(S) base_url schemes so email links can never use
     # javascript:, data:, or other dangerous schemes.
     if base_url and not base_url.lower().startswith(("http://", "https://")):
+        # F-11: dotted event name, variable in extra=
         logger.error(
-            "Newsletter aborted — base_url has a non-HTTP scheme: %r. "
-            "Only http:// and https:// are permitted.",
-            base_url,
+            "newsletter.aborted",
+            extra={"reason": "invalid_base_url_scheme", "base_url": base_url},
         )
         raise NewsletterConfigError(
             f"Newsletter cannot be sent: base_url must use http:// or https://, got: {base_url!r}"
@@ -111,13 +130,13 @@ def _load_mailgun_settings(conn: sqlite3.Connection, secret_key: str) -> Mailgun
             "mailgun_from_address",
             "base_url",
         }:
-            logger.debug("Newsletter skipped — Mailgun not configured")
+            # F-11: dotted event name
+            logger.debug("newsletter.skipped", extra={"reason": "mailgun_not_configured"})
             return MailgunSettings(domain="", api_key="", from_address="", base_url="")
+        # F-11: dotted event name, variable in extra=
         logger.error(
-            "Newsletter aborted — required setting(s) missing: %s. "
-            "Configure all of mailgun_domain, mailgun_api_key, "
-            "mailgun_from_address, and base_url before sending.",
-            ", ".join(missing),
+            "newsletter.aborted",
+            extra={"reason": "missing_settings", "missing": ", ".join(missing)},
         )
         raise NewsletterConfigError(
             f"Newsletter cannot be sent: missing required setting(s): {', '.join(missing)}"
@@ -135,25 +154,38 @@ def _build_send_context(
     secret_key: str,
     scheduled_items: list[ScheduledNewsletterItem],
     dry_run: bool,
-) -> tuple[
-    list[DeletedNewsletterItem],
-    list[NewsletterRecItem],
-    StorageSummary,
-    _JinjaTemplate,
-    _MailgunClient,
-    str,
-    str,
-]:
+    now: datetime,
+) -> SendContext:
     """Load newsletter content and construct the Mailgun client + Jinja template.
 
-    Returns ``(deleted_items, this_week_items, storage_summary, template, mailgun, subject, report_date)``.
-    Factored out of :func:`send_newsletter` to keep the orchestrator body under 60 lines.
+    Returns a :class:`SendContext` dataclass with named fields:
+    ``deleted_items``, ``this_week_items``, ``storage_summary``, ``template``,
+    ``mailgun``, ``subject``, ``report_date``.
+
+    Factored out of :func:`send_newsletter` to keep the orchestrator body under
+    60 lines.
+
+    Args:
+        conn: Open SQLite connection.
+        mg_settings: Validated Mailgun settings from :func:`_load_mailgun_settings`.
+        secret_key: Application secret for signing poster and download tokens.
+        scheduled_items: Pre-loaded scheduled-deletion cards (avoids a second query).
+        dry_run: Passed through to subject-line formatting.
+        now: Timestamp computed once by the caller so all sections share the same
+            reference time and cannot straddle midnight.
+
+    Raises:
+        jinja2.TemplateNotFound: if ``newsletter.html`` is absent from the
+            templates directory.
+        Any exception propagated from ``_load_deleted_items``,
+            ``_load_recommendations``, or ``_load_storage_stats``.
     """
     from mediaman.services.mail.mailgun import MailgunClient
 
-    now = now_utc()
     deleted_items = _load_deleted_items(conn, secret_key, mg_settings.base_url, now)
-    this_week_items = _load_recommendations(conn)
+    # F-12: pass has_recommendations through; _load_recommendations does not
+    # re-query suggestions_enabled — the outer check in send_newsletter is sufficient.
+    this_week_items = _load_recommendations(conn, check_enabled=False)
     storage_summary = _load_storage_stats(conn, now)
 
     if this_week_items:
@@ -170,10 +202,30 @@ def _build_send_context(
     subject = _build_subject(scheduled_items, dry_run)
     report_date = _format_day_month(now, long_month=True)
 
-    return deleted_items, this_week_items, storage_summary, template, mailgun, subject, report_date
+    return SendContext(
+        deleted_items=deleted_items,
+        this_week_items=this_week_items,
+        storage_summary=storage_summary,
+        template=template,
+        mailgun=mailgun,
+        subject=subject,
+        report_date=report_date,
+    )
 
 
-def send_newsletter(  # rationale: orchestrator body; the 14-kwarg dispatch to _send_to_recipients cannot be collapsed without a breaking API change
+def _has_content_to_report(
+    scheduled_items: list[ScheduledNewsletterItem],
+    has_recommendations: bool,
+) -> bool:
+    """Return True when the newsletter has at least one section worth sending.
+
+    F-05: extracted predicate (§4.2) for the inline boolean guard in
+    :func:`send_newsletter`.
+    """
+    return bool(scheduled_items) or has_recommendations
+
+
+def send_newsletter(  # rationale: extracted from send_newsletter to keep the orchestrator under the 60-line ceiling; a single context dataclass (see SendContext) would allow re-merging
     conn: sqlite3.Connection,
     secret_key: str,
     dry_run: bool = False,
@@ -210,9 +262,13 @@ def send_newsletter(  # rationale: orchestrator body; the 14-kwarg dispatch to _
         return
     base_url = mg_settings.base_url
 
-    recipient_emails = _load_recipients(conn, recipients)
-    if recipient_emails is None:
+    subscriber_emails = _load_subscribers(conn, recipients)
+    if subscriber_emails is None:
         return
+
+    # F-13: compute now once so all sections share the same reference time
+    # and cannot straddle midnight.
+    now = now_utc()
 
     # Cheap settings/COUNT checks first — invert the previous order so a
     # tick with no scheduled items and no suggestions does not pay for
@@ -229,57 +285,60 @@ def send_newsletter(  # rationale: orchestrator body; the 14-kwarg dispatch to _
     else:
         has_recommendations = False
 
-    scheduled_items = _load_scheduled_items(conn, secret_key, base_url, now_utc(), mark_notified)
-    if not scheduled_items and not has_recommendations:
-        logger.debug("Newsletter skipped — nothing to report")
+    scheduled_items = _load_scheduled_items(conn, secret_key, base_url, now, mark_notified)
+    if not _has_content_to_report(scheduled_items, has_recommendations):
+        # F-11: dotted event name
+        logger.debug("newsletter.skipped", extra={"reason": "no_content"})
         return
 
-    deleted_items, this_week_items, storage_summary, template, mailgun, subject, report_date = (
-        _build_send_context(
-            conn,
-            mg_settings=mg_settings,
-            secret_key=secret_key,
-            scheduled_items=scheduled_items,
-            dry_run=dry_run,
-        )
+    ctx = _build_send_context(
+        conn,
+        mg_settings=mg_settings,
+        secret_key=secret_key,
+        scheduled_items=scheduled_items,
+        dry_run=dry_run,
+        now=now,
     )
 
-    successfully_sent = _send_to_recipients(
-        recipient_emails=recipient_emails,
+    successfully_sent = _send_to_subscribers(
+        recipient_emails=subscriber_emails,
         scheduled_items=scheduled_items,
-        deleted_items=deleted_items,
-        this_week_items=this_week_items,
-        storage=storage_summary.stats,
-        reclaimed_week=storage_summary.reclaimed_week,
-        reclaimed_month=storage_summary.reclaimed_month,
-        reclaimed_total=storage_summary.reclaimed_total,
-        subject=subject,
+        deleted_items=ctx.deleted_items,
+        this_week_items=ctx.this_week_items,
+        storage=ctx.storage_summary.stats,
+        reclaimed_week=ctx.storage_summary.reclaimed_week,
+        reclaimed_month=ctx.storage_summary.reclaimed_month,
+        reclaimed_total=ctx.storage_summary.reclaimed_total,
+        subject=ctx.subject,
         base_url=base_url,
         secret_key=secret_key,
         dry_run=dry_run,
         grace_days=grace_days,
-        template=template,
-        mailgun=mailgun,
-        report_date=report_date,
+        template=ctx.template,
+        mailgun=ctx.mailgun,
+        report_date=ctx.report_date,
         conn=conn if mark_notified else None,
     )
 
     if mark_notified and successfully_sent:
-        # Only flip ``notified=1`` for items where every active recipient was
+        # Only flip ``notified=1`` for items where every active subscriber was
         # successfully delivered — a partial failure must leave the row at
         # ``notified=0`` for re-attempt on the next tick.
         _mark_notified(
             conn,
             scheduled_items,
-            active_recipients=recipient_emails,
+            active_recipients=subscriber_emails,
         )
 
+    # F-11: dotted event name, variables in extra=
     logger.info(
-        "Newsletter sent to %d/%d subscriber(s) — %d scheduled, %d deleted",
-        len(successfully_sent),
-        len(recipient_emails),
-        len(scheduled_items),
-        len(deleted_items),
+        "newsletter.sent",
+        extra={
+            "sent": len(successfully_sent),
+            "total": len(subscriber_emails),
+            "scheduled": len(scheduled_items),
+            "deleted": len(ctx.deleted_items),
+        },
     )
 
 
