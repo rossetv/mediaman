@@ -76,6 +76,7 @@ import sqlite3
 from urllib.parse import urlparse
 
 from mediaman.services.infra._url_safety_blocks import (
+    _ALLOWED_DOCKER_HOSTNAMES,
     _ALLOWED_SCHEMES,
     _host_is_metadata,
     _ip_is_blocked,
@@ -407,6 +408,27 @@ def resolve_safe_outbound_url(
     # ``radarr.local``) cannot smuggle past an ASCII allowlist entry.
     if allowed_hosts is not None and not _host_in_allowlist(normalised, allowed_hosts):
         return False, normalised, None
+
+    # Docker bridge hostnames are, by definition, the operator's own host —
+    # the legitimate target for a self-hosted integration (NZBGet, Sonarr,
+    # …) running on the host — whatever address the runtime maps them to.
+    # Inside some Docker runtimes ``host.docker.internal`` resolves to a
+    # host-bridge address that falls in a normally-blocked range (e.g.
+    # ``0.0.0.0/8``), so the resolved-IP layer would refuse it. Exempt the
+    # two canonical bridge names here, with NO pinned IP, so the connection
+    # re-resolves the Docker name at request time. ``normalised`` is the
+    # IDN-normalised, lower-cased, trailing-dot-stripped host and the
+    # ``_ALLOWED_DOCKER_HOSTNAMES`` entries are stored in that same form, so
+    # the membership test matches both ``host.docker.internal`` and its
+    # trailing-dot FQDN. This is safe because:
+    #   * The allowlist gate already ran above — untrusted-data callers that
+    #     pass ``allowed_hosts`` (e.g. poster fetches) still require the host
+    #     to be explicitly allowlisted; this bypass does NOT skip it.
+    #   * These names are Docker-injected and only resolvable inside a
+    #     container to the host; they are never attacker-controllable DNS.
+    #   * Strict egress still refuses them, exactly like LAN/loopback.
+    if not strict and normalised in _ALLOWED_DOCKER_HOSTNAMES:
+        return True, normalised, None
 
     return _check_literal_or_resolved(normalised, strict=strict)
 

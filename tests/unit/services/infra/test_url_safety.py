@@ -124,10 +124,48 @@ class TestDockerBridgeHostnamesAllowed:
         fake_dns(["192.168.65.2"])
         assert is_safe_outbound_url(url)
 
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://host.docker.internal:6789",
+            "http://gateway.docker.internal:6789",
+        ],
+    )
+    def test_allows_docker_bridge_even_when_it_resolves_to_a_blocked_address(self, url, fake_dns):
+        """The exact production scenario (NZBGet at host.docker.internal:6789).
+
+        Inside the live Docker runtime ``host.docker.internal`` resolves to
+        ``0.250.250.254``, the runtime's host-bridge address, which falls in
+        ``0.0.0.0/8`` ("this network") and is on the always-on deny-list. The
+        bridge-name bypass must accept the URL anyway, since the name is the
+        operator's own host by definition and is never attacker-controllable.
+        """
+        fake_dns(["0.250.250.254"])
+        assert is_safe_outbound_url(url)
+
+    def test_docker_bridge_bypass_returns_no_pinned_ip(self, fake_dns):
+        """The bypass returns safe with no pin so the connection re-resolves
+        the Docker name at request time rather than pinning a blocked IP."""
+        fake_dns(["0.250.250.254"])
+        safe, hostname, pinned_ip = resolve_safe_outbound_url("http://host.docker.internal:6789")
+        assert safe is True
+        assert hostname == "host.docker.internal"
+        assert pinned_ip is None
+
     def test_docker_bridge_hostname_refused_under_strict_egress(self, fake_dns):
-        """Strict egress still blocks the resolved RFC1918 gateway address."""
+        """Strict egress still blocks the bridge name, exactly like LAN/loopback."""
         fake_dns(["192.168.65.2"])
         assert not is_safe_outbound_url("http://host.docker.internal:6789", strict_egress=True)
+
+    def test_docker_bridge_bypass_still_obeys_the_allowlist_gate(self, fake_dns):
+        """The bypass sits AFTER the allowlist check — a caller that passes an
+        ``allowed_hosts`` set without the bridge name must still be refused, so
+        untrusted-data paths (e.g. poster fetches) cannot reach the host."""
+        fake_dns(["0.250.250.254"])
+        assert not is_safe_outbound_url(
+            "http://host.docker.internal/",
+            allowed_hosts=frozenset({"image.tmdb.org"}),
+        )
 
     def test_metadata_google_internal_still_blocked(self):
         """Regression guard: the Docker exemption must not unblock GCP metadata."""
