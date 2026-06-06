@@ -124,11 +124,13 @@ def shape_card(data: Mapping[str, Any]) -> TmdbCard:
             year = None
 
     poster_path = data.get("poster_path")
-    poster_url = f"{_POSTER_BASE_W300}{poster_path}" if poster_path else None
+    poster_url = (
+        f"{_POSTER_BASE_W300}{poster_path}" if poster_path and poster_path.startswith("/") else None
+    )
 
     rating: float | None = None
     vote = data.get("vote_average")
-    if vote:
+    if vote is not None:
         try:
             rating = round(float(vote), 1)
         except (TypeError, ValueError):

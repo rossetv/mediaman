@@ -82,6 +82,20 @@ from mediaman.services.media_meta._plex_types import (
 logger = logging.getLogger(__name__)
 
 
+class PlexResponseTooLarge(ValueError):
+    """Raised when a Plex API response body exceeds the configured size cap.
+
+    Inherits from ``ValueError`` so existing callers that catch ``ValueError``
+    continue to work without modification. Callers that want to distinguish
+    an oversized response from other ``ValueError`` origins can catch this
+    subclass specifically.
+
+    The scanner's ``fetch.py`` catch-all is updated to include this type so
+    body-cap events on watch-history fetches do not silently propagate as
+    uncaught exceptions.
+    """
+
+
 class PlexClient:
     """Wraps plexapi to provide the specific queries mediaman needs.
 
@@ -240,14 +254,16 @@ class PlexClient:
                 max_bytes=_HISTORY_MAX_BYTES,
             )
         except SafeHTTPError as exc:
-            # Preserve the original ValueError shape for callers that
-            # treated oversize responses as a ValueError.
             if (
                 exc.status_code == 0
                 or "cap" in exc.body_snippet.lower()
                 or "too large" in exc.body_snippet.lower()
             ):
-                raise ValueError(_scrub_plex_token(exc.body_snippet)) from exc
+                # Body-cap events surface as a domain exception so callers can
+                # distinguish them from generic errors. PlexResponseTooLarge
+                # inherits from ValueError, preserving compatibility with any
+                # catcher that already uses ``except ValueError``.
+                raise PlexResponseTooLarge(_scrub_plex_token(exc.body_snippet)) from exc
             raise http_requests.HTTPError(
                 _scrub_plex_token(f"Plex history returned {exc.status_code}")
             ) from exc
@@ -315,14 +331,14 @@ class PlexClient:
                 continue
             try:
                 items = section.search(filters={"userRating>>": 0})
-            except (PlexApiException, http_requests.RequestException) as exc:
+            except (PlexApiException, http_requests.RequestException):
                 # Older Plex servers may reject the filter — fall back to
                 # the slow path so the recommendation flow still works.
                 logger.warning(
                     "plex.user_ratings.filter_unsupported section=%s — falling back to "
-                    "full enumeration: %s",
+                    "full enumeration",
                     section.title,
-                    str(exc),
+                    exc_info=True,
                 )
                 items = section.all()
             entry_type: Literal["movie", "tv"] = "movie" if section.type == "movie" else "tv"

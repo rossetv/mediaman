@@ -25,8 +25,7 @@ _PLEX_STRING_MAX_LEN = 120
 # Maximum total length (bytes) for the entire Plex data block in a prompt.
 _PLEX_BLOCK_MAX_BYTES = 8192
 
-# Control characters to strip: C0 (0x00–0x1F) except horizontal tab (0x09)
-# and space (0x20), plus C1 (0x80–0x9F).
+# Strip C0 control chars (0x00–0x1F, excluding HT 0x09), DEL (0x7F), and C1 (0x80–0x9F).
 _CTRL_CHAR_RE = re.compile(r"[\x00-\x08\x0a-\x1f\x7f\x80-\x9f]")
 
 # Printable ASCII plus common Unicode letters/numbers — used to whitelist
@@ -49,6 +48,13 @@ _LLM_REASON_MAX_LEN = 1000
 # Patterns that strongly suggest prompt injection in LLM output.
 # These are conservative checks — false positives block a recommendation, but
 # that is far preferable to persisting injected content into future prompts.
+#
+# re.DOTALL is intentionally absent: ``_validate_llm_string`` rejects any
+# string containing C0 control characters (including ``\n``) before these
+# patterns are evaluated, so newlines cannot appear inside a validated string.
+# The defence-in-depth against multi-line injection is the control-char strip,
+# not a DOTALL flag. This is documented here so future maintainers do not
+# add DOTALL thinking it is a missing hardening measure — it is not needed.
 _INJECTION_PATTERNS = re.compile(
     r"(?i)ignore\s+(?:all\s+)?(?:previous|above|prior)|"
     r"disregard\s+(?:all\s+)?(?:previous|above|prior)|"
@@ -193,8 +199,23 @@ def parse_recommendations(
         raw_reason = str(item.get("reason") or "")
         reason = _validate_llm_string(raw_reason, _LLM_REASON_MAX_LEN, "reason") or ""
 
-        year = item.get("year")
-        search_q = f"{title} {year} official trailer" if year else f"{title} official trailer"
+        # Validate year from LLM output: must be an integer (or int-coercible
+        # string) in a plausible range. Unvalidated LLM output may be a
+        # phrase like "released 2023" rather than a bare year.
+        raw_year = item.get("year")
+        validated_year: int | None = None
+        if raw_year is not None:
+            try:
+                y = int(str(raw_year))
+                if 1880 <= y <= 2100:
+                    validated_year = y
+            except (TypeError, ValueError):
+                pass
+        search_q = (
+            f"{title} {validated_year} official trailer"
+            if validated_year
+            else f"{title} official trailer"
+        )
         trailer_url = "https://www.youtube.com/results?search_query=" + urlquote(search_q)
 
         results.append(
@@ -265,6 +286,12 @@ def generate_trending(
     return parse_recommendations(items, "trending")
 
 
+# rationale: body is 49 executable lines (§3.1 ceiling is 60). The function
+# is kept as one unit because the byte-budget calculation for the Plex data
+# block is a single coherent algorithm whose safety properties (never
+# truncating mid-codepoint, never chopping the closing delimiter) can only
+# be reasoned about as a whole. Splitting it would distribute the budget
+# arithmetic across two functions, making the invariants harder to audit.
 def generate_personal(
     conn: sqlite3.Connection,
     watch_history: Sequence[Mapping[str, object]],
@@ -272,12 +299,6 @@ def generate_personal(
     previous_titles: list[str] | None = None,
     *,
     secret_key: str | None = None,
-    # rationale: body is 49 executable lines (§3.1 ceiling is 60). The function
-    # is kept as one unit because the byte-budget calculation for the Plex data
-    # block is a single coherent algorithm whose safety properties (never
-    # truncating mid-codepoint, never chopping the closing delimiter) can only
-    # be reasoned about as a whole. Splitting it would distribute the budget
-    # arithmetic across two functions, making the invariants harder to audit.
 ) -> list[RecommendationItem]:
     """Generate personalised recommendations based on watch history and user ratings.
 

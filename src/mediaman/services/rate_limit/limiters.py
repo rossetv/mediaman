@@ -1,8 +1,6 @@
 """Sliding-window rate limiters.
 
-Canonical home is :mod:`mediaman.services.rate_limit`; previously lived
-under ``mediaman.auth.rate_limit`` (moved R-refactor — the limiters are
-domain-agnostic and not specific to auth routes).
+Canonical home is :mod:`mediaman.services.rate_limit`.
 
 Holds :class:`RateLimiter` (IP-bucketed) and :class:`ActionRateLimiter`
 (per-actor, for authenticated admin operations).
@@ -168,12 +166,14 @@ class RateLimiter:
                 self._attempts.move_to_end(key)
                 self._maybe_prune(now)
                 return False
+            # Evict before inserting so ``_attempts`` never exceeds
+            # ``_MAX_BUCKETS`` — the cap is inclusive, not a soft limit.
+            if key not in self._attempts and len(self._attempts) >= _MAX_BUCKETS:
+                self._evict_oldest()
             attempts.append(now)
             self._attempts[key] = attempts
             self._attempts.move_to_end(key)
             self._maybe_prune(now)
-            if len(self._attempts) > _MAX_BUCKETS:
-                self._evict_oldest()
             return True
 
     def _maybe_prune(self, now: float) -> None:

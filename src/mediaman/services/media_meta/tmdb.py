@@ -101,11 +101,6 @@ class TmdbClient:
             default_timeout=(5.0, float(timeout)),
         )
 
-    @property
-    def headers(self) -> dict[str, str]:
-        """Return a copy of the auth headers for use with raw requests calls."""
-        return dict(self._headers)
-
     @classmethod
     def from_db(
         cls,
@@ -139,8 +134,13 @@ class TmdbClient:
             if cached is not None:
                 return cached
             client = cls(token, timeout=timeout)
-            # Evict the oldest entry when the cache is full so it cannot
-            # grow without bound if callers vary the ``timeout`` parameter.
+            # Evict the insertion-order-oldest entry when the cache is full
+            # so it cannot grow without bound if callers vary ``timeout``.
+            # This is FIFO, not true LRU — cache hits do not reorder the
+            # dict, so the entry evicted is the one inserted longest ago,
+            # not the least-recently accessed. With _CLIENT_CACHE_MAXSIZE=4
+            # and a single token in practice, this is indistinguishable
+            # from LRU; the comment is correct about the mechanism used.
             if len(_CLIENT_CACHE) >= _CLIENT_CACHE_MAXSIZE:
                 oldest_key = next(iter(_CLIENT_CACHE))
                 del _CLIENT_CACHE[oldest_key]
@@ -189,13 +189,18 @@ class TmdbClient:
         if isinstance(exc, SafeHTTPError):
             if exc.status_code in (401, 403):
                 logger.warning(
-                    "TMDB auth failure (%d) — check tmdb_read_token: %s", exc.status_code, label
+                    "tmdb.auth_failure",
+                    extra={"label": label, "status_code": exc.status_code},
                 )
                 return
             if 500 <= exc.status_code < 600:
-                logger.error("TMDB %s server error (%d): %s", label, exc.status_code, exc)
+                logger.error(
+                    "tmdb.request_failed",
+                    extra={"label": label, "status_code": exc.status_code},
+                    exc_info=True,
+                )
                 return
-        logger.debug("TMDB %s failed: %s", label, exc)
+        logger.debug("tmdb.request_failed", extra={"label": label, "exc": str(exc)})
 
     def is_reachable(self) -> bool:
         """Return True if the TMDB API is reachable and the token is valid."""

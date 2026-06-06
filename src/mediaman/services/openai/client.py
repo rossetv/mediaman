@@ -26,6 +26,12 @@ from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 # the scan path for too long on a slow or unreachable OpenAI endpoint.
 # Callers that are ``async def`` should wrap calls in ``asyncio.to_thread``
 # so this synchronous HTTP call does not stall the event loop.
+# §8.5 / §1.12 — global required: per-request instantiation would rebuild
+# the TCP/TLS connection pool on every call. Single-worker invariant:
+# mediaman runs under a single Uvicorn worker; ``SafeHTTPClient`` wraps a
+# ``requests.Session`` that is never mutated after construction (no header
+# mutation, no auth state, no cookies), so no external lock is needed
+# beyond what ``urllib3``'s internal connection pool already provides.
 _OPENAI_CLIENT = SafeHTTPClient(
     "https://api.openai.com",
     default_timeout=(5.0, 30.0),
@@ -205,7 +211,7 @@ def _handle_error(exc: Exception) -> list[dict[str, object]]:
     """
     if isinstance(exc, SafeHTTPError):
         if exc.status_code == 401:
-            logger.error("OpenAI API key rejected (401) — check settings")
+            logger.exception("OpenAI API key rejected (401) — check settings")
         else:
             logger.exception("OpenAI API returned HTTP error: %s", exc)
     elif isinstance(exc, requests.Timeout):
@@ -261,11 +267,19 @@ def call_openai(
             return []
 
         if web_search_active:
+            # Conservative security choice: reject the entire batch on any
+            # unsafe title rather than filtering per-item. A single adversarial
+            # title indicates the web-search path may have been manipulated, so
+            # the entire result set is untrusted. The per-item filtering path
+            # (used for non-web-search results via _validate_llm_string) is
+            # deliberately more lenient because it operates on model-only
+            # output without the indirect-prompt-injection surface.
             for item in items:
                 title = str(item.get("title", ""))
                 if not is_web_search_title_safe(title):
-                    logger.warning(
-                        "Rejecting web-search recommendation batch — title failed safety check: %r",
+                    logger.error(
+                        "openai.web_search.batch_rejected title=%r — "
+                        "title failed safety check; entire batch discarded",
                         title,
                     )
                     return []
