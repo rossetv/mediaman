@@ -263,6 +263,10 @@
   line-height: 1.45;
 }
 .reason b { color: var(--t1); font-weight: 600; }
+/* In the recommendation grid, pin the reason chip to the bottom of the
+   card so the callouts line up across a row regardless of how many lines
+   the description above them occupies. */
+.grid-tiles-lg .reason { margin-top: auto; }
 
 .inline-error {
   display: none;

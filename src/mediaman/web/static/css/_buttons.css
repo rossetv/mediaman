@@ -180,7 +180,7 @@
 
 .fpill.on { background: var(--t1); color: #000; }
 .fpill--movie.on { background: var(--orange); color: #1a0d00; }
-.fpill--tv.on    { background: var(--accent); color: #001424; }
+.fpill--tv.on    { background: var(--accent); color: var(--color-on-accent); }
 .fpill--anime.on { background: var(--purple); color: #1a0025; }
 .fpill--kept.on  { background: var(--success); color: #002210; }
 .fpill--stale.on { background: var(--danger); color: #2a0706; }

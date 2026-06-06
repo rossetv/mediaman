@@ -47,10 +47,9 @@
     <div class="ov-status-item" data-ov-service="{{ id }}">
       <div class="glyph gy-{{ kind }}">{{ glyph }}</div>
       <div>
-        <div class="nm">{{ name }}</div>
+        <div class="nm"><span class="conn-dot"></span>{{ name }}</div>
         <div class="st" data-ov-status>Not tested</div>
       </div>
-      <span class="conn-dot"></span>
     </div>
     {% endfor %}
   </div>

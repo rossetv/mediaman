@@ -172,7 +172,7 @@
     var quickEl = document.getElementById('modal-quick');
     _clear(quickEl);
     var typePill = document.createElement('span');
-    typePill.className = 'type-pill';
+    typePill.className = s.media_type === 'movie' ? 'type-pill type-pill--movie' : 'type-pill';
     typePill.textContent = s.media_type === 'movie' ? 'MOVIE' : 'TV';
     quickEl.appendChild(typePill);
     var metaParts = [];

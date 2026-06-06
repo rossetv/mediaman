@@ -74,7 +74,7 @@
         { pct: s.movies_pct, bg: 'var(--orange)' },
         { pct: s.tv_pct,     bg: 'var(--accent)' },
         { pct: s.anime_pct,  bg: 'var(--purple)' },
-        { pct: s.other_pct,  bg: 'rgba(255,255,255,.2)' },
+        { pct: s.other_pct,  bg: 'var(--t4)' },
       ];
       segs.forEach(function (seg) {
         if (!seg.pct || seg.pct <= 0) return;

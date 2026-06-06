@@ -91,12 +91,6 @@
   font-weight: 500;
 }
 
-/* Rating-pill colour aliases used only on this page */
-.rating-pill.r-audience  { background: rgba(255,159,10,.15); color: var(--orange); }
-.rating-pill.r-imdb-alt  { background: rgba(245,197,24,.15); color: #f5c518; }
-.rating-pill.r-rt-alt    { background: rgba(255,69,58,.15);  color: var(--danger); }
-.rating-pill.r-meta-alt  { background: rgba(48,209,88,.15);  color: var(--success); }
-
 .dl-columns {
   display: grid;
   grid-template-columns: 1fr;
@@ -112,9 +106,8 @@
 }
 .dl-reason {
   padding: 12px 14px;
-  background: rgba(41,151,255,.08);
-  border-left: 2px solid var(--accent);
-  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: var(--s3);
+  border-radius: var(--r-sm);
   font-size: 13px;
   color: var(--t2);
   line-height: 1.5;
@@ -132,20 +125,6 @@
   border-radius: var(--r-md);
   background: #000;
   display: block;
-}
-
-.dl-section-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--t3);
-  text-transform: uppercase;
-  letter-spacing: .08em;
-}
-
-.dl-cast {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
-  gap: 12px;
 }
 
 .dl-requested {

@@ -33,7 +33,7 @@
 
   {# Quick info bar #}
   <div class="dl-quick">
-    <span class="type-pill">{{ 'Movie' if item.media_type == 'movie' else 'TV' }}</span>
+    <span class="type-pill{{ ' type-pill--movie' if item.media_type == 'movie' else '' }}">{{ 'Movie' if item.media_type == 'movie' else 'TV' }}</span>
     <span class="meta-text">
       {% if item.runtime %}{{ item.runtime }} min{% endif %}
       {% if item.runtime and item.director %} &middot; {% endif %}
@@ -49,16 +49,16 @@
   {# Ratings #}
   <div class="dl-ratings">
     {% if item.rating %}
-    <span class="rating-pill r-audience">&#9733; {{ item.rating }}</span>
+    <span class="rating-pill r-tmdb">&#9733; {{ item.rating }}</span>
     {% endif %}
     {% if item.imdb_rating %}
-    <span class="rating-pill r-imdb-alt">IMDb {{ item.imdb_rating }}</span>
+    <span class="rating-pill r-imdb">IMDb {{ item.imdb_rating }}</span>
     {% endif %}
     {% if item.rt_rating %}
-    <span class="rating-pill r-rt-alt">&#127813; {{ item.rt_rating }}</span>
+    <span class="rating-pill r-rt">&#127813; {{ item.rt_rating }}</span>
     {% endif %}
     {% if item.metascore %}
-    <span class="rating-pill r-meta-alt">MC {{ item.metascore }}</span>
+    <span class="rating-pill r-meta">MC {{ item.metascore }}</span>
     {% endif %}
   </div>
 
@@ -78,7 +78,7 @@
      by confirm.py validate_youtube_id); uses restrictive sandbox + referrerpolicy. #}
   {% if item.trailer_key %}
   <div class="dl-trailer">
-    <div class="dl-section-label">Trailer</div>
+    <div class="eyebrow">Trailer</div>
     <iframe src="https://www.youtube.com/embed/{{ item.trailer_key }}?rel=0"
             sandbox="allow-scripts allow-same-origin allow-presentation"
             allow="autoplay; encrypted-media; fullscreen"
@@ -89,8 +89,8 @@
 
   {# Cast #}
   {% if item.cast_list %}
-  <div class="dl-section-label">Cast</div>
-  <div class="dl-cast">
+  <div class="eyebrow">Cast</div>
+  <div class="detail-modal-cast">
     {% for c in item.cast_list %}
     <div class="cast-item">
       <div class="cast-avatar">{{ c.name[:1] }}{{ c.name.split(' ')[-1][:1] if ' ' in c.name else '' }}</div>

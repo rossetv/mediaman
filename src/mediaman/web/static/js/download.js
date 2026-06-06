@@ -336,7 +336,11 @@
     if (toggle) {
       toggle.addEventListener('click', function() {
         var list = document.querySelector('#dl-hero-wrapper [data-v="ep-list"]');
-        if (list) list.style.display = list.style.display === 'none' ? '' : 'none';
+        if (!list) return;
+        var opening = list.style.display === 'none';
+        list.style.display = opening ? '' : 'none';
+        toggle.classList.toggle('open', opening);
+        toggle.setAttribute('aria-expanded', opening ? 'true' : 'false');
       });
     }
   })();

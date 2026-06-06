@@ -76,25 +76,25 @@
   padding: 6px 0; min-width: 0;
 }
 .setg-pg .ov-status-item .glyph {
-  width: 26px; height: 26px; border-radius: 6px;
+  width: 26px; height: 26px; border-radius: var(--r-xs);
   display: grid; place-items: center;
   font-size: 11px; font-weight: 700;
   font-family: var(--font-display);
   flex-shrink: 0;
 }
-.setg-pg .ov-status-item .nm { font-size: 13px; font-weight: 500; color: var(--t1); }
+.setg-pg .ov-status-item .nm { font-size: 13px; font-weight: 500; color: var(--t1); display: inline-flex; align-items: center; gap: 5px; }
 .setg-pg .ov-status-item .st { font-size: 11px; color: var(--t3); margin-top: 1px; }
-.setg-pg .ov-status-item .conn-dot { margin-left: auto; flex-shrink: 0; }
+.setg-pg .ov-status-item .conn-dot { flex-shrink: 0; }
 
 /* Brand glyph tints (used by ov-status + intg-card) ------------- */
-.setg-pg .gy-plex    { background: rgba(229,160,13,.14); color: #e5a00d; }
-.setg-pg .gy-sonarr  { background: rgba(62,169,237,.14); color: #3ea9ed; }
-.setg-pg .gy-radarr  { background: rgba(255,165,0,.14);  color: #ffa500; }
+.setg-pg .gy-plex    { background: var(--brand-plex-bg);    color: var(--brand-plex); }
+.setg-pg .gy-sonarr  { background: var(--brand-sonarr-bg);  color: var(--brand-sonarr); }
+.setg-pg .gy-radarr  { background: var(--brand-radarr-bg);  color: var(--brand-radarr); }
 .setg-pg .gy-nzbget  { background: var(--rgba-overlay-sm); color: var(--t2); }
-.setg-pg .gy-mailgun { background: rgba(255,87,87,.14);  color: #ff5757; }
-.setg-pg .gy-openai  { background: rgba(16,163,127,.14); color: #10a37f; }
-.setg-pg .gy-tmdb    { background: rgba(1,180,228,.14);  color: #01b4e4; }
-.setg-pg .gy-omdb    { background: rgba(245,197,24,.14); color: #f5c518; }
+.setg-pg .gy-mailgun { background: var(--brand-mailgun-bg); color: var(--brand-mailgun); }
+.setg-pg .gy-openai  { background: var(--brand-openai-bg);  color: var(--brand-openai); }
+.setg-pg .gy-tmdb    { background: var(--brand-tmdb-bg);    color: var(--brand-tmdb); }
+.setg-pg .gy-omdb    { background: var(--brand-omdb-bg);    color: var(--brand-omdb); }
 
 /* Integration config card --------------------------------------- */
 .setg-pg .intg-card {
@@ -111,7 +111,7 @@
   cursor: pointer;
 }
 .setg-pg .intg-card-hd:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--accent-cta);
   outline-offset: -2px;
 }
 .setg-pg .intg-card.is-collapsed .intg-card-hd { border-bottom: 0; }
@@ -347,7 +347,7 @@
   font-size: 10px; font-weight: 600;
   padding: 2px 8px; border-radius: var(--r-pill);
   background: var(--rgba-accent-bg); color: var(--accent);
-  letter-spacing: .04em;
+  letter-spacing: -.01em;
 }
 
 /* Inline forms (add user, change password, delete confirm) ----- */
