@@ -34,8 +34,8 @@ class TestDownloadPageGet:
     def _clear_state(self):
         """Clear in-memory state between tests."""
         _download_tokens._USED_TOKENS.clear()
-        _download_confirm._DOWNLOAD_LIMITER_GET._attempts.clear()
-        _download_submit._DOWNLOAD_LIMITER_POST._attempts.clear()
+        _download_confirm._DOWNLOAD_LIMITER_GET.reset()
+        _download_submit._DOWNLOAD_LIMITER_POST.reset()
         _download_confirm._reset_arr_cache_for_tests()
 
     def test_valid_token_renders_confirm_state(self, app_factory, conn, secret_key, templates_stub):
@@ -112,7 +112,7 @@ class TestDownloadPageGet:
         app = app_factory(download_router, conn=conn, state_extras={"templates": templates_stub})
         client = TestClient(app)
 
-        _download_confirm._DOWNLOAD_LIMITER_GET._attempts.clear()
+        _download_confirm._DOWNLOAD_LIMITER_GET.reset()
         cap = _download_confirm._DOWNLOAD_LIMITER_GET._max_attempts
 
         token = _valid_token(secret_key)
@@ -131,7 +131,7 @@ class TestDownloadPageGet:
                 r = client.get(f"/download/{token}")
             assert r.status_code == 429
         finally:
-            _download_confirm._DOWNLOAD_LIMITER_GET._attempts.clear()
+            _download_confirm._DOWNLOAD_LIMITER_GET.reset()
 
 
 class TestDownloadPagePost:
@@ -139,8 +139,8 @@ class TestDownloadPagePost:
     def _clear_state(self):
         """Clear in-memory state between tests."""
         _download_tokens._USED_TOKENS.clear()
-        _download_confirm._DOWNLOAD_LIMITER_GET._attempts.clear()
-        _download_submit._DOWNLOAD_LIMITER_POST._attempts.clear()
+        _download_confirm._DOWNLOAD_LIMITER_GET.reset()
+        _download_submit._DOWNLOAD_LIMITER_POST.reset()
         _download_confirm._reset_arr_cache_for_tests()
 
     def test_post_valid_movie_token_calls_radarr(
@@ -232,7 +232,7 @@ class TestDownloadPagePost:
         app = app_factory(download_router, conn=conn, state_extras={"templates": templates_stub})
         client = TestClient(app)
 
-        _download_submit._DOWNLOAD_LIMITER_POST._attempts.clear()
+        _download_submit._DOWNLOAD_LIMITER_POST.reset()
         cap = _download_submit._DOWNLOAD_LIMITER_POST._max_attempts
 
         mock_radarr = MagicMock()
@@ -270,7 +270,7 @@ class TestDownloadPagePost:
 
             assert r.status_code == 429
         finally:
-            _download_submit._DOWNLOAD_LIMITER_POST._attempts.clear()
+            _download_submit._DOWNLOAD_LIMITER_POST.reset()
             _download_tokens._USED_TOKENS.clear()
 
 
@@ -280,8 +280,8 @@ class TestTwoPhaseConsumption:
     @pytest.fixture(autouse=True)
     def _clear_state(self):
         _download_tokens._USED_TOKENS.clear()
-        _download_confirm._DOWNLOAD_LIMITER_GET._attempts.clear()
-        _download_submit._DOWNLOAD_LIMITER_POST._attempts.clear()
+        _download_confirm._DOWNLOAD_LIMITER_GET.reset()
+        _download_submit._DOWNLOAD_LIMITER_POST.reset()
         _download_confirm._reset_arr_cache_for_tests()
 
     def test_token_released_on_radarr_exception(
@@ -441,8 +441,8 @@ class TestPollingCapability:
     @pytest.fixture(autouse=True)
     def _clear_state(self):
         _download_tokens._USED_TOKENS.clear()
-        _download_confirm._DOWNLOAD_LIMITER_GET._attempts.clear()
-        _download_submit._DOWNLOAD_LIMITER_POST._attempts.clear()
+        _download_confirm._DOWNLOAD_LIMITER_GET.reset()
+        _download_submit._DOWNLOAD_LIMITER_POST.reset()
         _download_confirm._reset_arr_cache_for_tests()
 
     def test_successful_post_returns_poll_token(

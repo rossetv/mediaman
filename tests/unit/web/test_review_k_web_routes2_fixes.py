@@ -103,11 +103,11 @@ def _reset_rate_limiters():
     """Reset all rate limiters touched by this file before and after each test."""
     _KEEP_SHOW_LIMITER.reset()
     _KEEP_POST_LIMITER.reset()
-    _UNSUB_LIMITER._attempts.clear()
+    _UNSUB_LIMITER.reset()
     yield
     _KEEP_SHOW_LIMITER.reset()
     _KEEP_POST_LIMITER.reset()
-    _UNSUB_LIMITER._attempts.clear()
+    _UNSUB_LIMITER.reset()
 
 
 # ---------------------------------------------------------------------------
@@ -639,7 +639,7 @@ class TestDeferredBUnsubscribeWritesSecurityEvent:
         app, conn = full_app
         insert_subscriber(conn, email="unsub@example.com", active=1)
         token = generate_unsubscribe_token(email="unsub@example.com", secret_key=secret_key)
-        _UNSUB_LIMITER._attempts.clear()
+        _UNSUB_LIMITER.reset()
 
         client = TestClient(app)
         resp = client.post("/unsubscribe", data={"token": token})
@@ -659,7 +659,7 @@ class TestDeferredBUnsubscribeWritesSecurityEvent:
         app, conn = full_app
         insert_subscriber(conn, email="already@example.com", active=0)
         token = generate_unsubscribe_token(email="already@example.com", secret_key=secret_key)
-        _UNSUB_LIMITER._attempts.clear()
+        _UNSUB_LIMITER.reset()
 
         client = TestClient(app)
         client.post("/unsubscribe", data={"token": token})
@@ -675,7 +675,7 @@ class TestDeferredBUnsubscribeWritesSecurityEvent:
         app, conn = full_app
         insert_subscriber(conn, email="deactivate@example.com", active=1)
         token = generate_unsubscribe_token(email="deactivate@example.com", secret_key=secret_key)
-        _UNSUB_LIMITER._attempts.clear()
+        _UNSUB_LIMITER.reset()
 
         client = TestClient(app)
         client.post("/unsubscribe", data={"token": token})

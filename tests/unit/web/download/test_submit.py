@@ -67,7 +67,7 @@ class TestDownloadSubmitValidation:
     @pytest.fixture(autouse=True)
     def _clear_state(self):
         _clear_used_tokens()
-        _DOWNLOAD_LIMITER_POST._attempts.clear()
+        _DOWNLOAD_LIMITER_POST.reset()
 
     def test_invalid_token_returns_410(self, app_factory, conn):
         """A tampered/invalid token is rejected with 410."""
@@ -111,7 +111,7 @@ class TestDownloadSubmitMovie:
     @pytest.fixture(autouse=True)
     def _clear_state(self):
         _clear_used_tokens()
-        _DOWNLOAD_LIMITER_POST._attempts.clear()
+        _DOWNLOAD_LIMITER_POST.reset()
 
     def test_movie_token_calls_radarr_add_movie(self, app_factory, conn, secret_key):
         """A movie token results in Radarr.add_movie being called."""
@@ -274,7 +274,7 @@ class TestDownloadSubmitTV:
     @pytest.fixture(autouse=True)
     def _clear_state(self):
         _clear_used_tokens()
-        _DOWNLOAD_LIMITER_POST._attempts.clear()
+        _DOWNLOAD_LIMITER_POST.reset()
 
     def test_tv_token_calls_sonarr_add_series(self, app_factory, conn, secret_key):
         """A TV token results in Sonarr.add_series being called."""
@@ -338,7 +338,7 @@ class TestDownloadSubmitRefusesMissingTmdbId:
     @pytest.fixture(autouse=True)
     def _clear_state(self):
         _clear_used_tokens()
-        _DOWNLOAD_LIMITER_POST._attempts.clear()
+        _DOWNLOAD_LIMITER_POST.reset()
 
     def test_movie_without_tmdb_returns_422_and_does_not_call_radarr(
         self, app_factory, conn, secret_key

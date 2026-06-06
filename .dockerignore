@@ -27,3 +27,10 @@ CHANGELOG.md
 
 # CI / static-analysis configuration — not needed at runtime.
 bandit.yaml
+
+# Developer tooling and documentation — not needed at runtime.
+CODE_GUIDELINES.md
+DESIGN.md
+Makefile
+scripts/
+tests/

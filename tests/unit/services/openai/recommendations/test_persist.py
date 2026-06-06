@@ -145,11 +145,11 @@ class TestRefreshRecommendations:
         rows = conn.execute("SELECT title FROM suggestions").fetchall()
         assert any(r["title"] == "Dune" for r in rows)
 
-    def test_manual_refresh_replaces_todays_batch(self, conn):
+    def test_manual_refresh_replaces_todays_batch(self, conn, freezer):
         """manual=True should delete today's existing batch before inserting."""
         from datetime import datetime
 
-        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        today = datetime(2026, 5, 1, tzinfo=UTC).strftime("%Y-%m-%d")
         insert_suggestion(
             conn,
             title="Old Rec",

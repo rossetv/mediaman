@@ -177,7 +177,7 @@ class TestDownloadStatusAPI:
 
         # Reset the module-level limiter so earlier tests don't
         # contaminate our bucket.
-        download_mod._DOWNLOAD_STATUS_LIMITER._attempts.clear()
+        download_mod._DOWNLOAD_STATUS_LIMITER.reset()
 
         mock_client = MagicMock()
         mock_client.get_movie_by_tmdb.return_value = {
@@ -205,7 +205,7 @@ class TestDownloadStatusAPI:
             assert r.json().get("error") == "too_many_requests"
         finally:
             # Leave the limiter clean so later tests aren't poisoned.
-            download_mod._DOWNLOAD_STATUS_LIMITER._attempts.clear()
+            download_mod._DOWNLOAD_STATUS_LIMITER.reset()
 
     def test_status_timeleft_formatting(self, db_path, secret_key):
         """timeleft HH:MM:SS is formatted as human-readable eta."""

@@ -151,7 +151,7 @@ class TestCanary:
 
 
 class TestKeepTokens:
-    def test_generate_and_validate(self, secret_key):
+    def test_generate_and_validate(self, secret_key, freezer):
         token = generate_keep_token(
             media_item_id="12345",
             action_id=42,
@@ -162,16 +162,17 @@ class TestKeepTokens:
         assert payload["media_item_id"] == "12345"
         assert payload["action_id"] == 42
 
-    def test_expired_token_rejected(self, secret_key):
+    def test_expired_token_rejected(self, secret_key, freezer):
+        frozen_now = int(time.time())
         token = generate_keep_token(
             media_item_id="12345",
             action_id=42,
-            expires_at=int(time.time()) - 1,
+            expires_at=frozen_now - 1,
             secret_key=secret_key,
         )
         assert validate_keep_token(token, secret_key) is None
 
-    def test_tampered_token_rejected(self, secret_key):
+    def test_tampered_token_rejected(self, secret_key, freezer):
         token = generate_keep_token(
             media_item_id="12345",
             action_id=42,
@@ -181,7 +182,7 @@ class TestKeepTokens:
         tampered = token[:-4] + "XXXX"
         assert validate_keep_token(tampered, secret_key) is None
 
-    def test_wrong_key_rejected(self, secret_key):
+    def test_wrong_key_rejected(self, secret_key, freezer):
         token = generate_keep_token(
             media_item_id="12345",
             action_id=42,
@@ -480,7 +481,7 @@ class TestValidatePayloadCap:
         huge = "A" * 5000 + "." + "AAAA"
         assert _validate_signed(huge, key, _TOKEN_PURPOSE_KEEP) is None
 
-    def test_normal_token_still_validates(self, secret_key):
+    def test_normal_token_still_validates(self, secret_key, freezer):
         """Regression: tokens within the cap must still round-trip."""
         from mediaman.crypto import (
             generate_keep_token,
@@ -527,7 +528,7 @@ class TestExpFieldBoolRejection:
         token = _encode_signed({"exp": False}, secret_key, _TOKEN_PURPOSE_KEEP)
         assert _validate_signed(token, secret_key, _TOKEN_PURPOSE_KEEP) is None
 
-    def test_exp_genuine_int_still_accepted(self, secret_key):
+    def test_exp_genuine_int_still_accepted(self, secret_key, freezer):
         """Regression: an int ``exp`` in the future must still validate."""
         from mediaman.crypto.tokens import (
             _TOKEN_PURPOSE_KEEP,
@@ -679,9 +680,7 @@ _DOMAIN_KEY = "0123456789abcdef" * 4  # 64 hex chars, 16 unique — passes entro
 class TestTokenDomainSeparation:
     """A token signed for one purpose must NOT validate as another purpose."""
 
-    def test_keep_token_not_valid_as_download(self):
-        import time
-
+    def test_keep_token_not_valid_as_download(self, freezer):
         from mediaman.crypto import generate_keep_token, validate_download_token
 
         keep = generate_keep_token(
@@ -791,19 +790,17 @@ class TestUnsubscribeToken:
         # Token is valid but the email claim doesn't match "other@y.com".
         assert payload is None or payload.get("email", "").lower() != "other@y.com"
 
-    def test_expired_token_rejected(self, monkeypatch):
+    def test_expired_token_rejected(self, freezer):
+        from datetime import timedelta
+
         from mediaman.crypto import (
             generate_unsubscribe_token,
             validate_unsubscribe_token,
         )
-        from mediaman.crypto import tokens as _tokens_mod
 
-        fake_clock = [1_000_000.0]
-        monkeypatch.setattr(_tokens_mod.time, "time", lambda: fake_clock[0])
-
+        # ttl_days=0 means exp == int(frozen_now); tick past it so exp < time.time()
         token = generate_unsubscribe_token(email="x@y.com", secret_key=_DOMAIN_KEY, ttl_days=0)
-        # ttl_days=0 means exp=int(T)+0; advance the clock past T so exp < time.time()
-        fake_clock[0] += 1.0
+        freezer.tick(timedelta(seconds=2))
         assert validate_unsubscribe_token(token, _DOMAIN_KEY) is None
 
 
@@ -943,7 +940,7 @@ class TestExpFieldRejectsNonFinite:
         token = _encode_signed({"exp": float("nan")}, _DOMAIN_KEY, _TOKEN_PURPOSE_KEEP)
         assert _validate_signed(token, _DOMAIN_KEY, _TOKEN_PURPOSE_KEEP) is None
 
-    def test_finite_future_exp_still_validates(self):
+    def test_finite_future_exp_still_validates(self, freezer):
         from mediaman.crypto.tokens import _TOKEN_PURPOSE_KEEP, _encode_signed, _validate_signed
 
         token = _encode_signed({"exp": int(time.time()) + 3600}, _DOMAIN_KEY, _TOKEN_PURPOSE_KEEP)

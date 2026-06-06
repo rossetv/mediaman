@@ -60,7 +60,7 @@ def _reset_rate_limiters():
     try:
         from mediaman.services.rate_limit import reset_all_limiters
         from mediaman.services.rate_limit.ip_resolver import clear_cache
-    except Exception:
+    except Exception:  # rationale: import may fail in minimal test envs where the package is not fully installed; yield a no-op rather than breaking every test
         yield
         return
     reset_all_limiters()

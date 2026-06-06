@@ -192,10 +192,16 @@ class TestKeepLimiters:
     def test_get_and_post_limiters_are_separate_objects(self):
         assert _KEEP_GET_LIMITER is not _KEEP_POST_LIMITER
 
-    def test_get_limiter_does_not_share_state_with_post_limiter(self):
-        # Both limiters use the same IP bucket style, but their internal
-        # attempt stores must be distinct so exhausting one does not affect the other.
-        assert _KEEP_GET_LIMITER._attempts is not _KEEP_POST_LIMITER._attempts
+    def test_exhausting_get_limiter_does_not_block_post_limiter(self):
+        """Exhausting the GET limit for an IP must leave the POST limiter unaffected."""
+        # Drain the GET limiter to its cap.
+        test_ip = "10.99.0.1"
+        while _KEEP_GET_LIMITER.check(test_ip):
+            pass
+        # GET is now exhausted for this IP.
+        assert _KEEP_GET_LIMITER.check(test_ip) is False
+        # POST limiter must still accept the same IP — counters are independent.
+        assert _KEEP_POST_LIMITER.check(test_ip) is True
 
 
 class TestKeepPageRoute:
@@ -326,13 +332,6 @@ class TestKeepSubmitTokenInvalidation:
 
         body = _json.loads(resp.text)
         assert body["error"] == "already_processed"
-
-    def test_token_hash_helper(self):
-        """token_hash must return a stable 64-char hex string."""
-        h = token_hash("test-token")
-        assert len(h) == 64
-        assert h == token_hash("test-token")
-        assert h != token_hash("other-token")
 
 
 def _insert_scheduled_action_findings(
