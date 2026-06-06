@@ -256,6 +256,7 @@ def logout(request: Request) -> Response:
         token,
         user_agent=user_agent,
         client_ip=client_ip,
+        request_supplied=True,
     )
     secure = is_request_secure(request)
     if username is None:

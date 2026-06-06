@@ -10,7 +10,7 @@ from pathlib import Path
 from mediaman.bootstrap.data_dir import DataDirNotWritableError, assert_data_dir_writable
 from mediaman.config import Config, ConfigError, load_config
 from mediaman.db import init_db
-from mediaman.web.auth.password_hash import create_user
+from mediaman.web.auth.password_hash import UserExistsError, create_user
 from mediaman.web.auth.password_policy import password_issues
 
 
@@ -149,7 +149,7 @@ def create_user_cli() -> None:
     try:
         create_user(conn, username, password)
         print(f"Admin user '{username}' created successfully.")
-    except ValueError as e:
+    except (ValueError, UserExistsError) as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
     finally:

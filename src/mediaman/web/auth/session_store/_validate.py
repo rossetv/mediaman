@@ -122,27 +122,59 @@ def _fingerprint_mismatch(
     token_hash: str,
     user_agent: str | None,
     client_ip: str | None,
+    *,
+    request_supplied: bool,
 ) -> bool:
     """Phase 3: fingerprint check; delete the session and return True on mismatch.
 
     A read-only comparison by default; only the mismatch branch reaches
     for the writer lock to evict the bound session.
+
+    Fails closed (§1.11) against the no-request bypass: when fingerprint
+    mode is enabled AND the row carries a stored fingerprint, but the
+    validation was driven WITHOUT a request (``request_supplied=False``,
+    the ``request=None`` overload), the binding cannot be verified — so
+    the session is rejected rather than silently passed. A stolen cookie
+    replayed through a no-Request path therefore cannot bypass the
+    binding.
+
+    When a request *is* supplied, the original in-request tolerance is
+    preserved: the comparison runs only when both UA and IP are present.
+    A live request that legitimately omits a header is not penalised; the
+    bypass being closed is the API-level "no request at all" path, not a
+    real request with a missing field. Mode ``"off"`` (binding disabled)
+    and a legacy row with no stored fingerprint (nothing to bind to) both
+    validate as before.
     """
     stored_fp = row["fingerprint"]
     mode = _fingerprint_mode()
-    if mode != "off" and stored_fp and user_agent is not None and client_ip is not None:
-        current_fp = _client_fingerprint(user_agent, client_ip, mode=mode)
-        if current_fp != stored_fp:
-            logger.warning(
-                "session.fingerprint_mismatch user=%s expected=%s got=%s ip=%s mode=%s",
-                row["username"],
-                stored_fp,
-                current_fp,
-                client_ip,
-                mode,
-            )
-            _try_delete_session(conn, token_hash, reason="fingerprint_mismatch")
-            return True
+    if mode == "off" or not stored_fp:
+        return False
+
+    if not request_supplied:
+        logger.warning(
+            "session.fingerprint_unverifiable user=%s reason=no_request mode=%s",
+            row["username"],
+            mode,
+        )
+        _try_delete_session(conn, token_hash, reason="fingerprint_unverifiable")
+        return True
+
+    if user_agent is None or client_ip is None:
+        return False
+
+    current_fp = _client_fingerprint(user_agent, client_ip, mode=mode)
+    if current_fp != stored_fp:
+        logger.warning(
+            "session.fingerprint_mismatch user=%s expected=%s got=%s ip=%s mode=%s",
+            row["username"],
+            stored_fp,
+            current_fp,
+            client_ip,
+            mode,
+        )
+        _try_delete_session(conn, token_hash, reason="fingerprint_mismatch")
+        return True
     return False
 
 

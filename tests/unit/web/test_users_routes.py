@@ -83,8 +83,14 @@ class TestRevokeOthersReissueCookie:
         # The new cookie must differ from the original (old session was destroyed)
         assert new_cookie != old_token
 
-    def test_revoke_others_new_session_is_valid(self, app_factory, authed_client, conn):
+    def test_revoke_others_new_session_is_valid(
+        self, app_factory, authed_client, conn, monkeypatch
+    ):
         """The re-issued session cookie is a valid, working session."""
+        # This test asserts cookie re-issue, not fingerprint binding;
+        # mode "off" keeps the out-of-band validate_session check (no
+        # request context) from tripping the fail-closed binding path.
+        monkeypatch.setenv("MEDIAMAN_FINGERPRINT_MODE", "off")
         client, _ = _build(app_factory, authed_client, conn)
 
         resp = client.post("/api/users/sessions/revoke-others")
@@ -122,8 +128,14 @@ class TestChangePasswordCookie:
         assert new_cookie is not None
         assert new_cookie != old_token
 
-    def test_change_password_new_session_is_valid(self, app_factory, authed_client, conn):
+    def test_change_password_new_session_is_valid(
+        self, app_factory, authed_client, conn, monkeypatch
+    ):
         """The re-issued session cookie after a password change is a valid session."""
+        # Cookie-re-issue assertion, not fingerprint binding — mode "off"
+        # so the contextless validate_session check does not trip the
+        # fail-closed binding path.
+        monkeypatch.setenv("MEDIAMAN_FINGERPRINT_MODE", "off")
         client, _ = _build(app_factory, authed_client, conn)
 
         resp = client.post(
