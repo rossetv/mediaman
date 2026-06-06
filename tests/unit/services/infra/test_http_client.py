@@ -416,6 +416,30 @@ class TestExpectedContentType:
         assert resp.content == b"hello"
 
 
+class TestAcceptEncodingIdentity:
+    """The client must request identity so compliant upstreams skip
+    compression — the streaming guard rejects any non-identity
+    ``Content-Encoding``, so advertising the default ``gzip, deflate``
+    would make every such call fail (the production Plex gzip bug)."""
+
+    def test_session_requests_identity_encoding(self):
+        """A fresh client pins ``Accept-Encoding: identity`` on its session."""
+        client = SafeHTTPClient()
+        assert client._session.headers["Accept-Encoding"] == "identity"
+
+    def test_identity_overrides_requests_default_on_supplied_session(self):
+        """A caller-supplied session's default ``gzip, deflate`` is replaced.
+
+        Connection-pool reuse passes a bare ``requests.Session`` whose
+        default advertises compression; the client must overwrite it so the
+        guard never sees a gzipped reply.
+        """
+        session = requests.Session()
+        assert "gzip" in session.headers.get("Accept-Encoding", "")
+        SafeHTTPClient(session=session)
+        assert session.headers["Accept-Encoding"] == "identity"
+
+
 class TestBufferedBodyReattached:
     """The capped streamed read must leave ``.json()`` / ``.text`` usable (H5).
 

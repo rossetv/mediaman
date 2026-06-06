@@ -111,6 +111,13 @@ class _SafePlexSession(http_requests.Session):
 
     def __init__(self, *, allowed_hosts: frozenset[str] | None = None) -> None:
         super().__init__()
+        # Force uncompressed bodies. Plex gzips by default, and plexapi does
+        # NOT go through SafeHTTPClient, so without this the body cap in
+        # ``_read_capped`` would see only the compressed length: a tiny gzip
+        # bomb could decompress to gigabytes (urllib3 inflates before we read).
+        # ``identity`` is the only encoding ``_read_capped`` is allowed to
+        # accept — see its Content-Encoding guard (R6-H1).
+        self.headers["Accept-Encoding"] = "identity"
         # Per-session allowlist. The caller derives the
         # composed set once at the boundary via
         # :func:`~mediaman.services.infra.url_safety.allowed_outbound_hosts`
@@ -192,10 +199,25 @@ class _SafePlexSession(http_requests.Session):
     def _read_capped(response: http_requests.Response, max_bytes: int) -> bytes:
         """Read the response body up to *max_bytes*, raising if the cap is hit.
 
-        Mirrors ``http_client._read_capped`` but kept private to this
-        module so the Plex session has no compile-time dependency on
-        SafeHTTPClient internals.
+        Mirrors ``services.infra.http.streaming._read_capped`` but kept
+        private to this module so the Plex session has no compile-time
+        dependency on SafeHTTPClient internals and preserves the
+        ``_PlexBodyTooLarge`` contract that :meth:`request` catches.
+        Carries the same two hardenings as the shared reader: a
+        ``Content-Encoding != identity`` rejection (decompression-bomb
+        guard) and a size check that runs *before* the buffer grows.
         """
+        # Reject any non-identity Content-Encoding outright. urllib3/requests
+        # inflates the body before we ever see it, so a 1 KB gzip bomb that
+        # expands 1000:1 would slip past the compressed Content-Length
+        # fast-fail and force gigabytes of allocation before the byte cap
+        # fires (R6-H1). ``Accept-Encoding: identity`` is set in __init__ so
+        # a compliant Plex never returns one; this is defence in depth.
+        encoding = (response.headers.get("Content-Encoding", "") or "").strip().lower()
+        if encoding and encoding != "identity":
+            raise _PlexBodyTooLarge(
+                f"Plex response uses unexpected Content-Encoding {encoding!r}; expected identity"
+            )
         declared = response.headers.get("Content-Length")
         if declared is not None:
             try:
@@ -212,9 +234,12 @@ class _SafePlexSession(http_requests.Session):
         for chunk in response.iter_content(chunk_size=65536):
             if not chunk:
                 continue
-            buf.extend(chunk)
-            if len(buf) > max_bytes:
+            # Check *before* extending so the buffer never exceeds the cap,
+            # even momentarily — the previous extend-then-check left a peak
+            # of ``max_bytes + chunk_size`` (R6-M1, soft-cap overage).
+            if len(buf) + len(chunk) > max_bytes:
                 raise _PlexBodyTooLarge(f"Plex response body exceeded cap of {max_bytes} bytes")
+            buf.extend(chunk)
         return bytes(buf)
 
 

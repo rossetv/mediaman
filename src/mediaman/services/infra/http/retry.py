@@ -26,7 +26,7 @@ Invariants
   *read_fn* and does not touch the session or SSRF state directly.
 """
 
-# rationale: 466 lines, over the 300-line target (under the 500 ceiling).
+# rationale: 525 lines, over the 500-line ceiling.
 # This file is one cohesive concept — the outbound-retry engine — and does
 # not decompose along a clean seam. Every name is part of that one engine:
 # the retry constants, the ``Retry-After`` parser, the body-snippet / safe-
