@@ -18,8 +18,8 @@ the template.
 from __future__ import annotations
 
 import logging
-import sqlite3
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -33,22 +33,47 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True, slots=True)
+class SuggestionsMeta:
+    """Metadata from the ``suggestions`` table for a single TMDB entry.
+
+    Replaces raw ``sqlite3.Row`` at the module boundary (§9.5) so both
+    ``notifications.py`` and ``_notification_email.py`` are decoupled from
+    the column order and names of the ``suggestions`` table.
+
+    All numeric DB columns (``year``, ``runtime``) are pre-converted to
+    ``str`` so downstream template rendering never sees ``int`` in a
+    ``dict[str, str]`` context.
+    """
+
+    tmdb_id: int
+    year: str
+    runtime: str
+    director: str
+    description: str
+    rating: str
+    imdb_rating: str
+    rt_rating: str
+    poster_url: str
+
+
 # ---------------------------------------------------------------------------
-# Module-cached Jinja environment.
+# Module-cached Jinja template.
 #
 # ``check_download_notifications`` is called once per library sync. Building
 # a fresh ``Environment`` (filesystem walk + template compilation) every tick
-# was wasted work, so we cache one env per process and reuse it for every
+# was wasted work, so we cache one template per process and reuse it for every
 # call. The download-ready template lives adjacent to this module under
 # ``mediaman/services/downloads/templates/`` and never changes at runtime.
 #
-# rationale: _NOTIFICATION_LOCK guards lazy initialisation of the two globals
-# below.  The notification path runs inside the APScheduler thread pool; without
-# a lock two concurrent ticks can both observe ``_NOTIFICATION_ENV is None``
+# rationale: _NOTIFICATION_LOCK guards lazy initialisation of _NOTIFICATION_TEMPLATE.
+# The notification path runs inside the APScheduler thread pool; without
+# a lock two concurrent ticks can both observe ``_NOTIFICATION_TEMPLATE is None``
 # and race to construct the Jinja environment (TOCTOU).
+# Note: the Template object holds a strong reference to its Environment — a
+# separate module-level env var would be dead state, so only the template is kept.
 # ---------------------------------------------------------------------------
-_NOTIFICATION_ENV = None
-_NOTIFICATION_TEMPLATE = None
+_NOTIFICATION_TEMPLATE: Template | None = None
 _NOTIFICATION_LOCK = threading.Lock()
 
 
@@ -60,7 +85,7 @@ def get_notification_template() -> Template:
     Thread-safe: _NOTIFICATION_LOCK prevents a TOCTOU race in the
     APScheduler thread pool.
     """
-    global _NOTIFICATION_ENV, _NOTIFICATION_TEMPLATE
+    global _NOTIFICATION_TEMPLATE
     if _NOTIFICATION_TEMPLATE is not None:
         return _NOTIFICATION_TEMPLATE
     with _NOTIFICATION_LOCK:
@@ -70,15 +95,15 @@ def get_notification_template() -> Template:
         from jinja2 import Environment, FileSystemLoader
 
         template_dir = Path(__file__).parent / "templates"
-        _NOTIFICATION_ENV = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
-        _NOTIFICATION_TEMPLATE = _NOTIFICATION_ENV.get_template("download_ready.html")
+        env = Environment(loader=FileSystemLoader(str(template_dir)), autoescape=True)
+        _NOTIFICATION_TEMPLATE = env.get_template("download_ready.html")
     return _NOTIFICATION_TEMPLATE
 
 
 def gather_email_meta(
     row: ClaimedNotificationRow,
     movie: RadarrMovie | None,
-    suggestions_by_tmdb: dict[int, sqlite3.Row],
+    suggestions_by_tmdb: dict[int, SuggestionsMeta],
 ) -> dict[str, str]:
     """Assemble rich metadata dict for a notification email.
 
@@ -103,11 +128,12 @@ def gather_email_meta(
 
     # Recommendations cache lookup — pulled from the batch fetch
     # above so we don't do per-row queries.
-    rec_row = suggestions_by_tmdb.get(int(tmdb_id)) if tmdb_id else None
-    if rec_row:
+    rec = suggestions_by_tmdb.get(int(tmdb_id)) if tmdb_id else None
+    if rec:
         for k in meta:
-            if rec_row[k]:
-                meta[k] = rec_row[k]
+            val = getattr(rec, k, "")
+            if val:
+                meta[k] = val
 
     # Fall back to Radarr/Sonarr for poster if missing
     if not meta["poster_url"]:
@@ -126,7 +152,7 @@ def gather_email_meta(
 def build_email_payload(
     row: ClaimedNotificationRow,
     movie: RadarrMovie | None,
-    suggestions_by_tmdb: dict[int, sqlite3.Row],
+    suggestions_by_tmdb: dict[int, SuggestionsMeta],
     template: Template,
 ) -> tuple[str, str]:
     """Build the email subject and rendered HTML body for a ready notification.

@@ -14,9 +14,9 @@ def _seed_setting(conn, key, value):
 def _call(conn, monkeypatch, tmp_path):
     monkeypatch.setenv("MEDIAMAN_SECRET_KEY", _KEY)
     monkeypatch.setenv("MEDIAMAN_DATA_DIR", str(tmp_path))
-    from mediaman.services.downloads.download_queue import _arr_base_urls
+    from mediaman.services.downloads.download_queue.classify import arr_base_urls
 
-    return _arr_base_urls(conn, _KEY)
+    return arr_base_urls(conn, _KEY)
 
 
 class TestArrBaseUrls:

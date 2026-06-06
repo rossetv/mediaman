@@ -13,6 +13,17 @@ from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 
 logger = logging.getLogger(__name__)
 
+
+class NzbgetError(Exception):
+    """Raised when the NZBGet JSON-RPC endpoint returns an error object.
+
+    NZBGet uses ``{"error": {"code": ..., "message": ...}, "result": null}``
+    for method-not-found, authentication failures, and similar protocol
+    errors.  Without this exception those cases silently returned ``{}``
+    and callers saw an empty queue with no explanation.
+    """
+
+
 #: NZBGet status/queue JSON responses are tiny (typically < 10 KiB).
 #: Cap at 1 MiB so a misconfigured or compromised NZBGet cannot pin memory.
 _NZBGET_MAX_BYTES = 1 * 1024 * 1024
@@ -85,14 +96,24 @@ class NzbgetClient:
     # typed value; annotating _call as Any avoids cascading casts while
     # keeping get_status / get_queue fully typed.
     def _call(self, method: str) -> Any:
-        """Invoke *method* on the NZBGet JSON-RPC endpoint and return the result."""
+        """Invoke *method* on the NZBGet JSON-RPC endpoint and return the result.
+
+        Raises :exc:`NzbgetError` when the response body contains a JSON-RPC
+        ``error`` field.  NZBGet uses this for method-not-found, authentication
+        failures, and similar protocol errors — without this guard those cases
+        silently returned ``{}`` and callers had no way to tell idle-queue from
+        broken-connection.
+        """
         resp = self._http.post(
             "/jsonrpc",
             json={"method": method},
             auth=self._auth,
             max_bytes=_NZBGET_MAX_BYTES,
         )
-        return resp.json().get("result", {})
+        data = resp.json()
+        if data.get("error"):
+            raise NzbgetError(f"NZBGet JSON-RPC error for method '{method}': {data['error']}")
+        return data.get("result", {})
 
     def get_status(self) -> dict[str, object]:
         """Return the NZBGet global status dict."""
@@ -115,5 +136,5 @@ class NzbgetClient:
         try:
             self.get_status()
             return True
-        except (SafeHTTPError, requests.RequestException):
+        except (SafeHTTPError, requests.RequestException, NzbgetError):
             return False

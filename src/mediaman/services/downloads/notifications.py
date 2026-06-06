@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import requests
 
@@ -27,6 +28,7 @@ from mediaman.services.infra import SafeHTTPError
 if TYPE_CHECKING:
     from jinja2 import Template
 
+    from mediaman.services.arr._types import SonarrSeries
     from mediaman.services.arr.base import ArrClient
     from mediaman.services.arr.state import LazyArrClients
     from mediaman.services.mail.mailgun import MailgunClient
@@ -35,6 +37,7 @@ from mediaman.services.downloads._notification_backoff import (
     _clear_backoff,
     _is_backed_off,
     _record_arr_failure,
+    _record_poll_attempt,
 )
 from mediaman.services.downloads._notification_claims import (
     STRANDED_CLAIM_GRACE_SECONDS,
@@ -43,6 +46,9 @@ from mediaman.services.downloads._notification_claims import (
     _release_claim,
     _release_claims_bulk,
     reconcile_stranded_notifications,
+)
+from mediaman.services.downloads._notification_email import (
+    SuggestionsMeta,
 )
 from mediaman.services.downloads._notification_email import (
     build_email_payload as _build_email_payload,
@@ -86,17 +92,36 @@ def record_download_notification(
     )
 
 
-def _sonarr_has_files(client: ArrClient, *, tvdb_id: int | None, tmdb_id: int | None) -> bool:
+def _build_sonarr_index(client: ArrClient) -> list[SonarrSeries]:
+    """Fetch the full Sonarr series library once and return it.
+
+    Called at most once per ``check_download_notifications`` tick and the
+    result is reused by every pending row (M1 — avoids O(N × library) HTTP).
+    """
+    return client.get_series()
+
+
+def _sonarr_has_files(
+    series_index: list[SonarrSeries],
+    *,
+    tvdb_id: int | None,
+    tmdb_id: int | None,
+) -> bool:
     """Return True if the Sonarr series has at least one episode file.
 
     Matches by TVDB id first (authoritative for Sonarr), then falls back to
     TMDB id for series added via a TMDB lookup where both IDs are present.
+
+    ``series_index`` must be pre-fetched by the caller (once per scheduler
+    tick) rather than being re-fetched per row.
     """
-    for s in client.get_series():
+    for s in series_index:
         if tvdb_id and s.get("tvdbId") == tvdb_id:
-            return (s.get("statistics") or {}).get("episodeFileCount", 0) > 0
+            stats = s.get("statistics") or {}
+            return int(stats.get("episodeFileCount") or 0) > 0
         if tmdb_id and s.get("tmdbId") == tmdb_id:
-            return (s.get("statistics") or {}).get("episodeFileCount", 0) > 0
+            stats = s.get("statistics") or {}
+            return int(stats.get("episodeFileCount") or 0) > 0
     return False
 
 
@@ -105,11 +130,13 @@ def _build_mailgun_client(
     secret_key: str,
     pending: list[ClaimedNotificationRow],
 ) -> MailgunClient | None:
-    """Build a MailgunClient from settings, or None if Mailgun is not configured.
+    """Build a MailgunClient from settings, or ``None`` if Mailgun is not configured.
 
-    When Mailgun is not configured, releases all pending claims in bulk and
-    returns None so the caller can bail early.  Returns a tuple of
-    ``(mailgun_client, from_address)`` on success.
+    When Mailgun is not configured (missing domain, key, or from-address),
+    releases all pending claims in bulk and returns ``None`` so the caller
+    can bail early.  An empty ``mailgun_from_address`` is treated as
+    misconfigured — sending with an empty ``From`` header is rejected by
+    most MTAs.
     """
     from mediaman.services.infra import get_string_setting
     from mediaman.services.mail.mailgun import MailgunClient
@@ -117,7 +144,7 @@ def _build_mailgun_client(
     mailgun_domain = get_string_setting(conn, "mailgun_domain", secret_key=secret_key)
     mailgun_key = get_string_setting(conn, "mailgun_api_key", secret_key=secret_key)
     mailgun_from = get_string_setting(conn, "mailgun_from_address", secret_key=secret_key)
-    if not mailgun_domain or not mailgun_key:
+    if not mailgun_domain or not mailgun_key or not mailgun_from:
         logger.debug("Download notifications skipped — Mailgun not configured")
         # Single bulk UPDATE + single commit instead of N round-trips.
         # On a backlog of dozens of pending rows the per-row path used
@@ -156,17 +183,19 @@ def _partition_runnable(
 def _fetch_suggestions_batch(
     conn: sqlite3.Connection,
     runnable: list[ClaimedNotificationRow],
-) -> dict[int, sqlite3.Row]:
-    """Return a tmdb_id → suggestions-row mapping fetched in a single query.
+) -> dict[int, SuggestionsMeta]:
+    """Return a tmdb_id → :class:`SuggestionsMeta` mapping fetched in a single query.
 
     Skips the query entirely when no runnable row has a tmdb_id (avoids a
-    ``WHERE tmdb_id IN ()`` syntax error in SQLite).
+    ``WHERE tmdb_id IN ()`` syntax error in SQLite).  Converts raw DB rows to
+    :class:`SuggestionsMeta` at the boundary so the raw ``sqlite3.Row`` never
+    crosses into ``_notification_email.py`` (§9.5).
     """
     # Batch the suggestions lookup so an N-row tick only fires one query
     # instead of N. Skips when no row has a tmdb_id so we don't run a
     # ``WHERE tmdb_id IN ()`` (which is a syntax error in SQLite).
     tmdb_ids = sorted({r.tmdb_id for r in runnable if r.tmdb_id is not None})
-    suggestions_by_tmdb: dict[int, sqlite3.Row] = {}
+    suggestions_by_tmdb: dict[int, SuggestionsMeta] = {}
     if tmdb_ids:
         # rationale: placeholder list built from integer TMDB IDs only; no user input reaches the SQL string
         placeholders = ",".join("?" * len(tmdb_ids))
@@ -180,26 +209,48 @@ def _fetch_suggestions_batch(
             # Multiple suggestion rows may exist for the same tmdb_id
             # across batches — keep the first hit (any row contains the
             # same metadata aside from rating timing).
-            if sr["tmdb_id"] not in suggestions_by_tmdb:
-                suggestions_by_tmdb[int(sr["tmdb_id"])] = sr
+            tid = int(sr["tmdb_id"])
+            if tid not in suggestions_by_tmdb:
+                suggestions_by_tmdb[tid] = SuggestionsMeta(
+                    tmdb_id=tid,
+                    year=str(sr["year"]) if sr["year"] else "",
+                    runtime=str(sr["runtime"]) if sr["runtime"] else "",
+                    director=str(sr["director"]) if sr["director"] else "",
+                    description=str(sr["description"]) if sr["description"] else "",
+                    rating=str(sr["rating"]) if sr["rating"] else "",
+                    imdb_rating=str(sr["imdb_rating"]) if sr["imdb_rating"] else "",
+                    rt_rating=str(sr["rt_rating"]) if sr["rt_rating"] else "",
+                    poster_url=str(sr["poster_url"]) if sr["poster_url"] else "",
+                )
     return suggestions_by_tmdb
 
 
 _ARR_UNREACHABLE = object()  # sentinel returned by _check_arr_availability on outage
+_ARR_UNKNOWN_SERVICE = object()  # sentinel for an unrecognised service value
 
 
-def _check_radarr_movie(
-    arr: LazyArrClients, row_id: int, tmdb_id: int | None
-) -> tuple[bool, RadarrMovie | None, bool]:
+@dataclass(frozen=True, slots=True)
+class RadarrProbeResult:
+    """Result of probing Radarr for a single movie's file availability.
+
+    Replaces the raw ``(ready, movie, arr_unreachable)`` 3-tuple (§5.9).
+    """
+
+    ready: bool
+    movie: RadarrMovie | None
+    arr_unreachable: bool
+
+
+def _check_radarr_movie(arr: LazyArrClients, row_id: int, tmdb_id: int | None) -> RadarrProbeResult:
     """Probe Radarr for a single movie's file availability.
 
-    Returns ``(ready, movie_obj, arr_unreachable)``.  Network/HTTP
-    errors from Radarr surface as ``arr_unreachable=True`` so the
-    caller can apply backoff and release the claim.
+    Returns a :class:`RadarrProbeResult`.  Network/HTTP errors from Radarr
+    surface as ``arr_unreachable=True`` so the caller can apply backoff and
+    release the claim.
     """
     radarr_client = arr.radarr()
     if not (radarr_client and tmdb_id):
-        return False, None, False
+        return RadarrProbeResult(ready=False, movie=None, arr_unreachable=False)
     try:
         movie = radarr_client.get_movie_by_tmdb(tmdb_id)
     # rationale: transient outage / backoff — network blips, 5xx responses,
@@ -212,18 +263,27 @@ def _check_radarr_movie(
             tmdb_id,
             exc_info=True,
         )
-        return False, None, True
-    return bool(movie and movie.get("hasFile")), movie, False
+        return RadarrProbeResult(ready=False, movie=None, arr_unreachable=True)
+    return RadarrProbeResult(
+        ready=bool(movie and movie.get("hasFile")), movie=movie, arr_unreachable=False
+    )
 
 
 def _check_sonarr_series(
-    arr: LazyArrClients, row_id: int, tvdb_id: int | None, tmdb_id: int | None
+    arr: LazyArrClients,
+    row_id: int,
+    tvdb_id: int | None,
+    tmdb_id: int | None,
+    sonarr_series_index: list[SonarrSeries] | None,
 ) -> tuple[bool, bool]:
     """Probe Sonarr for a series' episode-file availability.
 
     Returns ``(ready, arr_unreachable)``.  Sonarr does not return a
     movie payload so the second element matches the Radarr helper's
     return shape via the caller's tuple unpacking.
+
+    ``sonarr_series_index`` is the pre-fetched library list (built once per
+    scheduler tick).  When ``None`` the client is not yet available.
     """
     sonarr_client = arr.sonarr()
     # Match on TVDB id first (authoritative for Sonarr); fall back
@@ -231,11 +291,16 @@ def _check_sonarr_series(
     # record happens to carry both.
     if not (sonarr_client and (tvdb_id or tmdb_id)):
         return False, False
-    try:
-        ready = _sonarr_has_files(sonarr_client, tvdb_id=tvdb_id, tmdb_id=tmdb_id)
     # rationale: transient outage / backoff — symmetric with the Radarr path;
     # network blips, 5xx responses, malformed JSON, and Sonarr-specific errors
     # become arr_unreachable=True so the caller releases the claim and applies backoff.
+    try:
+        index = (
+            sonarr_series_index
+            if sonarr_series_index is not None
+            else _build_sonarr_index(sonarr_client)
+        )
+        ready = _sonarr_has_files(index, tvdb_id=tvdb_id, tmdb_id=tmdb_id)
     except (SafeHTTPError, requests.RequestException, ArrError):
         logger.warning(
             "Sonarr lookup failed for notification id=%s",
@@ -251,17 +316,19 @@ def _check_arr_availability(
     arr: LazyArrClients,
     now_dt: datetime,
     conn: sqlite3.Connection,
-) -> tuple[bool, RadarrMovie | object | None]:
+    sonarr_series_index: list[SonarrSeries] | None = None,
+) -> tuple[bool, RadarrMovie | None | Literal[_ARR_UNREACHABLE, _ARR_UNKNOWN_SERVICE]]:  # type: ignore[valid-type]
     """Check Radarr/Sonarr for file availability.
 
-    Returns ``(ready, movie_obj)``.  On *arr unreachability, records the
-    failure, releases the claim, and returns ``(False, _ARR_UNREACHABLE)``.
-    The second element of the tuple is either:
+    Returns ``(ready, movie_obj)``.  The second element of the tuple is one of:
 
     * a :class:`~mediaman.services.arr._types.RadarrMovie` (Radarr branch)
-    * ``None`` (no Radarr match, or Sonarr branch where the per-movie
-      payload isn't needed downstream)
-    * the :data:`_ARR_UNREACHABLE` sentinel when the *arr lookup failed.
+    * ``None`` (no Radarr match, or Sonarr branch)
+    * :data:`_ARR_UNREACHABLE` — *arr lookup failed; claim released, backoff applied.
+    * :data:`_ARR_UNKNOWN_SERVICE` — service field is not "radarr"/"sonarr"; row drained.
+
+    ``sonarr_series_index`` should be pre-fetched once per tick and passed in
+    to avoid O(N × library) HTTP calls (M1).
 
     # rationale: two separate service branches (radarr/sonarr) each with
     # their own try/except — splitting further would separate the except
@@ -271,12 +338,29 @@ def _check_arr_availability(
     service = row.service
 
     if service == "radarr":
-        ready, movie, arr_unreachable = _check_radarr_movie(arr, row_id, row.tmdb_id)
+        result = _check_radarr_movie(arr, row_id, row.tmdb_id)
+        ready, movie, arr_unreachable = result.ready, result.movie, result.arr_unreachable
     elif service == "sonarr":
-        ready, arr_unreachable = _check_sonarr_series(arr, row_id, row.tvdb_id, row.tmdb_id)
+        ready, arr_unreachable = _check_sonarr_series(
+            arr, row_id, row.tvdb_id, row.tmdb_id, sonarr_series_index
+        )
         movie = None
     else:
-        ready, movie, arr_unreachable = False, None, False
+        # Unknown service value — drain the row so the scheduler doesn't spin
+        # forever on an unrecognisable service string (e.g. DB corruption or
+        # a future service type this version doesn't know about).
+        logger.warning(
+            "Download notification id=%s has unknown service=%r — marking as notified "
+            "to drain the queue rather than spinning indefinitely",
+            row_id,
+            service,
+        )
+        conn.execute(
+            "UPDATE download_notifications SET notified=1 WHERE id=?",
+            (row_id,),
+        )
+        conn.commit()
+        return False, _ARR_UNKNOWN_SERVICE
 
     if arr_unreachable:
         _record_arr_failure(row_id, now_dt)
@@ -292,49 +376,59 @@ def _process_one_notification(
     arr: LazyArrClients,
     mailgun: MailgunClient,
     template: Template,
-    suggestions_by_tmdb: dict[int, sqlite3.Row],
+    suggestions_by_tmdb: dict[int, SuggestionsMeta],
     now_dt: datetime,
+    sonarr_series_index: list[SonarrSeries] | None = None,
 ) -> None:
     """Check availability, send email, and mark one claimed notification row.
 
     Releases the claim back to ``notified=0`` on any failure so a later
-    tick can retry.  Applies backoff on *arr outages and Mailgun failures.
+    tick can retry.  Applies *arr-failure backoff on genuine reachability
+    failures; uses a short in-progress poll throttle for items still
+    downloading (keeps the two failure modes distinct — B1).
+
+    ``sonarr_series_index`` should be the pre-fetched Sonarr library list
+    (built once per tick in the orchestrator) to avoid per-row HTTP fetches.
     """
     row_id = row.id
     email = row.email
     title = row.title
-    # ``tvdb_id`` may not be present on very old DB rows created before
-    # the v11 migration, but the ``SELECT`` above always aliases the
-    # column so ``row["tvdb_id"]`` is defined — just possibly NULL.
 
     try:
-        ready, movie = _check_arr_availability(row, arr, now_dt, conn)
+        ready, movie = _check_arr_availability(
+            row, arr, now_dt, conn, sonarr_series_index=sonarr_series_index
+        )
 
         if movie is _ARR_UNREACHABLE:
             # _check_arr_availability already recorded the failure and
             # released the claim — nothing left to do for this row.
             return
 
+        if movie is _ARR_UNKNOWN_SERVICE:
+            # _check_arr_availability already drained the row.
+            return
+
         if not ready:
             # Item still downloading — release the claim so the next
-            # tick of the scheduler can re-evaluate it.  Bump the
-            # backoff so a long-running download doesn't burn a
-            # claim/release every minute either.
-            _record_arr_failure(int(row_id), now_dt)
+            # tick of the scheduler can re-evaluate it.  Use a short
+            # poll throttle (not the *arr-failure backoff) so a long
+            # download doesn't accumulate exponential delay on a healthy
+            # connection.  The backoff counter is deliberately NOT bumped
+            # here; it is reserved for genuine *arr reachability failures.
+            _record_poll_attempt(int(row_id), now_dt)
             _release_claim(conn, row_id)
             return
 
-        # The ``movie is _ARR_UNREACHABLE`` guard above eliminated the
-        # sentinel branch; cast narrows the union for mypy without
-        # touching runtime behaviour.
+        # Sentinels are exhausted above; cast narrows the union for mypy
+        # without touching runtime behaviour.
         movie_typed = cast("RadarrMovie | None", movie)
         subject, html = _build_email_payload(row, movie_typed, suggestions_by_tmdb, template)
         mailgun.send(to=email, subject=subject, html=html)
 
         conn.execute("UPDATE download_notifications SET notified=1 WHERE id=?", (row_id,))
         conn.commit()
-        # Successful send — drop any backoff state we may have built
-        # up for this row during a previous outage.
+        # Successful send — drop any backoff/poll-throttle state we may
+        # have built up for this row during a previous outage or wait.
         _clear_backoff(int(row_id))
         logger.info("Download notification sent to %s for '%s'", email, title)
 
@@ -343,9 +437,8 @@ def _process_one_notification(
         # covers Mailgun transport failures (SafeHTTPError, RequestException),
         # Radarr/Sonarr errors (ArrError), and DB write failures (sqlite3.Error).
         logger.exception("Failed to process download notification id=%s for '%s'", row_id, title)
-        # Mailgun (or another downstream) failed — apply the same
-        # backoff as for *arr outages so a Mailgun-down period
-        # doesn't burn N tries per minute either.
+        # Mailgun (or another downstream) failed — apply genuine *arr backoff
+        # so a Mailgun-down period doesn't burn N tries per minute.
         _record_arr_failure(int(row_id), now_dt)
         # Release the claim so a later scheduler tick can retry —
         # otherwise a transient Mailgun outage strands the row at
@@ -399,8 +492,31 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
 
     suggestions_by_tmdb = _fetch_suggestions_batch(conn, runnable)
 
+    # Build the Sonarr series index once per tick so _sonarr_has_files is O(1)
+    # per row instead of O(N × library) (M1).  Fetch only when at least one
+    # runnable row needs Sonarr; Radarr rows pay nothing.
+    sonarr_series_index: list[SonarrSeries] | None = None
+    if any(r.service == "sonarr" for r in runnable):
+        sonarr_client = arr.sonarr()
+        if sonarr_client:
+            try:
+                sonarr_series_index = _build_sonarr_index(sonarr_client)
+            except (SafeHTTPError, requests.RequestException, ArrError):
+                logger.warning("Failed to pre-fetch Sonarr series index", exc_info=True)
+                # sonarr_series_index stays None; _check_sonarr_series will
+                # call _build_sonarr_index per-row as a safe fallback.
+
     for row in runnable:
-        _process_one_notification(conn, row, arr, mailgun, template, suggestions_by_tmdb, now_dt)
+        _process_one_notification(
+            conn,
+            row,
+            arr,
+            mailgun,
+            template,
+            suggestions_by_tmdb,
+            now_dt,
+            sonarr_series_index=sonarr_series_index,
+        )
 
 
 __all__ = [

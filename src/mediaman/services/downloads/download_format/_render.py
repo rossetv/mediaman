@@ -97,24 +97,37 @@ def build_episode_summary(episodes: list[dict[str, object]]) -> str:
     return " · ".join(parts)
 
 
+_HERO_STATE_PRIORITY: dict[str, int] = {
+    "downloading": 0,
+    "almost_ready": 1,
+    "queued": 2,
+    "searching": 3,
+    "upcoming": 4,
+}
+
+
 def select_hero(
     items: list[dict[str, object]],
 ) -> tuple[dict[str, object] | None, list[dict[str, object]]]:
     """Pick the hero item from a list of download items.
 
-    The actively downloading item with the highest progress becomes the hero.
-    If nothing is downloading, the first item wins.
-    Returns (hero, remaining_items).
+    Priority order: ``downloading`` (highest progress first), then
+    ``almost_ready``, then ``queued``, then ``searching``.  An
+    ``almost_ready`` item is always preferred over a ``searching`` one
+    regardless of progress, because it is more actionable to show the user.
+    Returns ``(hero, remaining_items)``.
     """
     if not items:
         return None, []
     if len(items) == 1:
         return items[0], []
 
-    def sort_key(item: dict[str, object]) -> tuple[bool, int | float]:
-        is_downloading = item["state"] == "downloading"
+    def sort_key(item: dict[str, object]) -> tuple[int, int | float]:
+        state = item.get("state") or ""
+        priority = _HERO_STATE_PRIORITY.get(str(state), 5)
         progress = item["progress"]
-        return (not is_downloading, -(progress if isinstance(progress, (int, float)) else 0))
+        # Within the same priority tier, higher progress wins (negate for descending).
+        return (priority, -(progress if isinstance(progress, (int, float)) else 0))
 
     ranked = sorted(items, key=sort_key)
     return ranked[0], ranked[1:]
