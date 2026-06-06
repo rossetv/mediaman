@@ -37,9 +37,9 @@ def _fetch_watch_history(conn: sqlite3.Connection) -> list[dict[str, object]]:
     watch_history = []
     for r in rows:
         media_type = r["media_type"] or "movie"
-        if media_type in ("tv_season", "anime_season", "season"):
+        if media_type in ("tv_season", "anime_season", "season", "anime"):
             media_type = "tv"
-        elif media_type != "anime":
+        else:
             media_type = "movie"
         watch_history.append({"title": r["title"], "type": media_type})
     return watch_history

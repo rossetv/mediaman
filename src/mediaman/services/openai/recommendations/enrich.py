@@ -91,6 +91,6 @@ def enrich_recommendations(
             s["imdb_rating"] = ratings["imdb"]
         if "metascore" in ratings:
             s["metascore"] = ratings["metascore"]
-        if not s.get("rating") and "imdb" in ratings:
+        if s.get("rating") is None and "imdb" in ratings:
             with contextlib.suppress(TypeError, ValueError):
                 s["rating"] = round(float(ratings["imdb"]), 1)

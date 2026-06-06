@@ -59,9 +59,9 @@ def record_manual_refresh(conn: sqlite3.Connection, when: datetime) -> None:
         when: UTC datetime to store (typically ``datetime.now(timezone.utc)``).
     """
     iso = when.isoformat()
-    conn.execute(
-        "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?) "
-        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
-        (_LAST_REFRESH_KEY, iso, iso),
-    )
-    conn.commit()
+    with conn:
+        conn.execute(
+            "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+            (_LAST_REFRESH_KEY, iso, iso),
+        )

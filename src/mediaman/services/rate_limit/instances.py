@@ -13,9 +13,13 @@ from __future__ import annotations
 
 from mediaman.services.rate_limit.limiters import ActionRateLimiter, RateLimiter
 
-# These limiters must be module-level globals; per-request instantiation would
-# discard the sliding-window state between requests, making the limits ineffective.
-# Single-worker invariant — each is thread-safe via its internal threading.Lock.
+# §8.5 — module-level globals required: per-request instantiation would discard
+# the sliding-window state between requests, making the limits ineffective.
+# §1.12 — single-worker invariant: each limiter owns an internal threading.Lock
+# (``self._lock`` in ActionRateLimiter / RateLimiter), which serves as the
+# required §8.5 lock for this mutable module-level state. No additional
+# module-scope lock is needed because every mutation path goes through that
+# instance lock, not through module-level state changes.
 
 # Newsletter send limiter — shared by subscribers.py (/api/newsletter/send).
 # 3 sends per 5 minutes per admin, 10 per day.

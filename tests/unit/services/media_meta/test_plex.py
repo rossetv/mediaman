@@ -12,6 +12,7 @@ from mediaman.services.infra import SafeHTTPError, SSRFRefused
 from mediaman.services.media_meta import plex as plex_module
 from mediaman.services.media_meta.plex import (
     PlexClient,
+    PlexResponseTooLarge,
     _SafePlexSession,
     _scrub_plex_token,
 )
@@ -146,6 +147,37 @@ class TestPlexClient:
         client = PlexClient("http://plex:32400", "test-token")
         with pytest.raises(ValueError):
             client.get_watch_history("123")
+
+    @patch("mediaman.services.media_meta.plex.PlexServer")
+    def test_get_watch_history_body_cap_raises_plex_response_too_large(
+        self, mock_cls, fake_http, fake_response
+    ):
+        """F-15: body-cap events must raise PlexResponseTooLarge, not plain ValueError.
+
+        PlexResponseTooLarge is a subclass of ValueError so existing catchers
+        that used ``except ValueError`` continue to work unchanged.
+        """
+        mock_server = MagicMock()
+        mock_server._baseurl = "http://plex:32400"
+        mock_server._token = "test-token"
+        mock_cls.return_value = mock_server
+
+        oversized = 5 * 1024 * 1024
+        fake_http.queue(
+            "GET",
+            fake_response(
+                content=b"",
+                headers={"Content-Length": str(oversized)},
+            ),
+        )
+
+        client = PlexClient("http://plex:32400", "test-token")
+        with pytest.raises(PlexResponseTooLarge):
+            client.get_watch_history("123")
+
+    def test_plex_response_too_large_is_value_error_subclass(self):
+        """F-15: PlexResponseTooLarge must be a ValueError subclass for backwards compat."""
+        assert issubclass(PlexResponseTooLarge, ValueError)
 
     @patch("mediaman.services.media_meta.plex.PlexServer")
     def test_get_watch_history_raises_for_http_error(self, mock_cls, fake_http, fake_response):

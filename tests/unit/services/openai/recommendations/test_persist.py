@@ -301,6 +301,50 @@ class TestRefreshRecommendations:
             "Partial INSERT state was committed — rollback did not occur"
         )
 
+    def test_anime_media_type_normalised_to_tv(self, conn):
+        """F-07: media_type 'anime' in watch history must be normalised to 'tv'.
+
+        The old elif guard preserved 'anime' as-is; the fixed code maps it to
+        'tv' so the prompt only ever sees 'movie' or 'tv'.
+        """
+        insert_media_item(
+            conn,
+            id="id-anime",
+            title="Fullmetal Alchemist",
+            media_type="anime",
+            plex_rating_key="rk-anime",
+            added_at="2026-01-01T00:00:00",
+            file_path="/path/anime.mkv",
+            file_size_bytes=500_000_000,
+            last_watched_at="2026-01-01T00:00:00",
+        )
+
+        captured_history: dict[str, object] = {}
+
+        def fake_generate_personal(
+            conn, watch_history, user_ratings, previous_titles, *, secret_key=""
+        ):
+            captured_history["value"] = watch_history
+            return []
+
+        with (
+            patch(
+                "mediaman.services.openai.recommendations.persist.generate_trending",
+                return_value=[],
+            ),
+            patch(
+                "mediaman.services.openai.recommendations.persist.generate_personal",
+                side_effect=fake_generate_personal,
+            ),
+            patch("mediaman.services.openai.recommendations.persist.enrich_recommendations"),
+        ):
+            refresh_recommendations(conn, plex_client=_plex_client(), secret_key="x" * 64)
+
+        history = captured_history.get("value", [])
+        fma = next((h for h in history if h["title"] == "Fullmetal Alchemist"), None)
+        assert fma is not None, "anime item missing from watch history"
+        assert fma["type"] == "tv", f"expected 'tv', got {fma['type']!r}"
+
     def test_watch_history_from_db_used(self, conn):
         """Media items in the DB are picked up and passed as watch history."""
         insert_media_item(

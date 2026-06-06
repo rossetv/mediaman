@@ -162,3 +162,43 @@ class TestEnrichRecommendations:
             enrich_recommendations([rec], conn, _SECRET_KEY)
 
         assert "2021" in rec["trailer_url"]
+
+    def test_zero_tmdb_rating_not_overwritten_by_imdb_fallback(self, conn):
+        """F-01: a TMDB rating of 0.0 must not be replaced by the IMDb fallback.
+
+        ``not 0.0`` is True in Python; the old guard ``if not s.get("rating")``
+        would fire and overwrite a valid zero-score with the IMDb value.
+        The correct guard is ``if s.get("rating") is None``.
+        """
+        card = _shape_card()
+        card["rating"] = 0.0  # TMDB has a valid zero score
+        cls, _inst = _mock_tmdb(search_return={"id": 1, "title": "X"}, card_return=card)
+        with (
+            patch("mediaman.services.media_meta.tmdb.TmdbClient", cls),
+            patch(
+                "mediaman.services.media_meta.omdb.fetch_ratings",
+                return_value={"imdb": "7.5"},
+            ),
+        ):
+            rec = _rec()
+            enrich_recommendations([rec], conn, _SECRET_KEY)
+
+        # Rating must remain 0.0, not be replaced by the IMDb fallback 7.5.
+        assert rec["rating"] == 0.0
+
+    def test_none_tmdb_rating_uses_imdb_fallback(self, conn):
+        """F-01: when TMDB has no rating (None), the IMDb fallback must fire."""
+        card = _shape_card()
+        card["rating"] = None
+        cls, _inst = _mock_tmdb(search_return={"id": 1, "title": "X"}, card_return=card)
+        with (
+            patch("mediaman.services.media_meta.tmdb.TmdbClient", cls),
+            patch(
+                "mediaman.services.media_meta.omdb.fetch_ratings",
+                return_value={"imdb": "6.2"},
+            ),
+        ):
+            rec = _rec()
+            enrich_recommendations([rec], conn, _SECRET_KEY)
+
+        assert rec["rating"] == 6.2

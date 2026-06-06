@@ -23,6 +23,8 @@ from mediaman.services.media_meta._plex_types import (
 if TYPE_CHECKING:
     from mediaman.services.media_meta.plex import PlexClient
 
+from mediaman.services.media_meta.plex import PlexResponseTooLarge
+
 logger = logging.getLogger(__name__)
 
 
@@ -90,7 +92,7 @@ class PlexFetcher:
                 )
                 try:
                     watch_history = self._plex.get_season_watch_history(season["plex_rating_key"])
-                except (PlexApiException, requests.RequestException):
+                except (PlexApiException, requests.RequestException, PlexResponseTooLarge):
                     logger.warning(
                         "Failed to fetch watch history for season %s — "
                         "skipping season this scan to avoid misclassifying "
@@ -112,7 +114,7 @@ class PlexFetcher:
             for item in items:
                 try:
                     watch_history = self._plex.get_watch_history(item["plex_rating_key"])
-                except (PlexApiException, requests.RequestException):
+                except (PlexApiException, requests.RequestException, PlexResponseTooLarge):
                     logger.warning(
                         "Failed to fetch watch history for item %s — "
                         "skipping item this scan to avoid misclassifying "

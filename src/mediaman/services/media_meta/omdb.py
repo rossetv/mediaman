@@ -39,7 +39,12 @@ OMDB_API_BASE_URL = "https://www.omdbapi.com"
 # calls.  Rebuilt on process restart; the OMDb API key is passed as a
 # per-request query parameter (not stored in the session), so rotating the
 # key takes effect immediately without needing to rebuild the session.
-# Effectively read-only after construction — no lock required.
+# §8.5 / §1.12 — global required: per-request instantiation would rebuild
+# the TCP/TLS connection pool on every call, negating keep-alive benefits.
+# Single-worker invariant: mediaman runs under a single Uvicorn worker;
+# ``requests.Session`` is not written after construction (no cookie mutation,
+# no header mutation, no auth adapter attachment), so no external lock is
+# needed beyond what ``urllib3``'s internal pool already provides.
 _OMDB_SESSION = requests.Session()
 # pinned host (``www.omdbapi.com`` ∈ PINNED_EXTERNAL_HOSTS); deny-list validation only.
 _OMDB_CLIENT = SafeHTTPClient(OMDB_API_BASE_URL, session=_OMDB_SESSION)

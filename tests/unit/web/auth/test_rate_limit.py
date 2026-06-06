@@ -134,6 +134,26 @@ class TestRateLimiterEviction:
         assert "10.0.3.0/24" in limiter._attempts
         assert "10.0.4.0/24" in limiter._attempts
 
+    def test_bucket_count_never_exceeds_max(self, monkeypatch):
+        """F-16: the bucket dict must never hold more entries than _MAX_BUCKETS.
+
+        The old code evicted AFTER inserting, so len could reach _MAX_BUCKETS+1
+        transiently. The fixed code evicts BEFORE inserting a new key.
+        """
+        from mediaman.services.rate_limit import limiters as limiters_module
+
+        cap = 3
+        monkeypatch.setattr(limiters_module, "_MAX_BUCKETS", cap)
+        limiter = RateLimiter(max_attempts=10, window_seconds=60)
+
+        for i in range(cap + 5):
+            limiter.check(f"10.{i}.0.1")
+            with limiter._lock:
+                assert len(limiter._attempts) <= cap, (
+                    f"bucket count {len(limiter._attempts)} exceeded cap {cap} "
+                    f"after inserting bucket {i}"
+                )
+
 
 class TestActionRateLimiterSlidingDay:
     """The 24h cap must be a true sliding window — no midnight cliff bypass."""
