@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import requests
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
@@ -88,7 +89,7 @@ def _try_radarr_delete(
     try:
         client.delete_movie(radarr_id)
         logger.info("Deleted '%s' via Radarr (id %s, with files + exclusion)", title, radarr_id)
-    except (SafeHTTPError, ArrError, ValueError) as exc:
+    except (SafeHTTPError, requests.RequestException, ArrError, ValueError) as exc:
         if _is_already_gone(exc):
             logger.info(
                 "Radarr reports id %s already gone for '%s' — idempotent delete",
@@ -135,7 +136,7 @@ def _try_sonarr_delete(
                 "No files remain for '%s' — deleted series from Sonarr with exclusion",
                 title,
             )
-    except (SafeHTTPError, ArrError, ValueError) as exc:
+    except (SafeHTTPError, requests.RequestException, ArrError, ValueError) as exc:
         if _is_already_gone(exc):
             logger.info(
                 "Sonarr reports id %s already gone for '%s' — idempotent delete",

@@ -365,7 +365,7 @@ def unsubscribe_confirm(
     if is_active:
         with conn:
             deactivate_subscriber(conn, sub_id)
-            security_event(
+            security_event_or_raise(
                 conn,
                 event="subscriber.opted_out",
                 actor=email_from_token,

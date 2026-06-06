@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -161,3 +161,69 @@ class TestUnsubscribeRoute:
         ).fetchone()
         assert real_row["active"] == 0, "real@example.com should be unsubscribed"
         assert attacker_row["active"] == 1, "attacker@example.com must NOT be unsubscribed"
+
+
+class TestUnsubscribeAuditAtomicity:
+    """§7.5 — deactivation and its audit row must land atomically.
+
+    security_event_or_raise is used so a failed audit write rolls back the
+    deactivation.  These tests verify:
+    1. The success path: the audit row is written for every unsubscribe.
+    2. The failure path: an audit-write failure rolls back the deactivation
+       (subscriber remains active) and the route still returns 200 with the
+       uniform confirmation message.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_limiter(self):
+        _setup_limiter()
+
+    def test_successful_unsubscribe_writes_audit_row(self, client, app, secret_key):
+        """A clean unsubscribe persists both the deactivation and the audit row."""
+        conn = app.state.db
+        _insert_subscriber(conn, "audit@example.com")
+        token = generate_unsubscribe_token(email="audit@example.com", secret_key=secret_key)
+
+        resp = client.post("/unsubscribe", data={"token": token})
+        assert resp.status_code == 200
+
+        row = conn.execute(
+            "SELECT active FROM subscribers WHERE email = 'audit@example.com'"
+        ).fetchone()
+        assert row["active"] == 0, "subscriber must be deactivated"
+
+        audit_row = conn.execute(
+            "SELECT detail FROM audit_log WHERE action = 'sec:subscriber.opted_out'"
+        ).fetchone()
+        assert audit_row is not None, "audit row must be written on successful unsubscribe"
+
+    def test_audit_write_failure_rolls_back_deactivation(self, app, secret_key):
+        """If the audit INSERT fails the deactivation is rolled back — §7.5 atomicity.
+
+        Patches _insert_security_event to raise sqlite3.OperationalError so that
+        security_event_or_raise propagates the exception, which aborts the
+        ``with conn:`` transaction and leaves the subscriber active.
+
+        The uncaught exception causes FastAPI to return a 500; we use
+        raise_server_exceptions=False so the test can inspect the DB state.
+        """
+        import sqlite3 as _sqlite3
+
+        conn = app.state.db
+        _insert_subscriber(conn, "rollback@example.com")
+        token = generate_unsubscribe_token(email="rollback@example.com", secret_key=secret_key)
+
+        fault_client = TestClient(app, raise_server_exceptions=False)
+        with patch(
+            "mediaman.core.audit._insert_security_event",
+            side_effect=_sqlite3.OperationalError("disk full"),
+        ):
+            fault_client.post("/unsubscribe", data={"token": token})
+
+        row = conn.execute(
+            "SELECT active FROM subscribers WHERE email = 'rollback@example.com'"
+        ).fetchone()
+        assert row["active"] == 1, (
+            "subscriber must remain active when the audit write fails — "
+            "deactivation must be rolled back atomically"
+        )

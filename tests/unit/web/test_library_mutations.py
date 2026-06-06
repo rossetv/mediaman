@@ -248,6 +248,87 @@ class TestMediaDeleteTransactional:
         assert row is None
 
 
+class TestMediaDeleteBareRequestsException:
+    """Bare requests.RequestException from the Arr client must be caught gracefully.
+
+    SafeHTTPClient wraps retryable transport errors into SafeHTTPError, but a
+    non-retryable requests.RequestException (e.g. requests.ConnectionError raised
+    directly by the client) can still propagate bare out of ArrClient._get/_post.
+    The delete route must catch it, call _fail_delete_intent (so the intent is not
+    left stranded without an error record), and return 502 — NOT an unhandled 500.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_limiters(self):
+        _DELETE_LIMITER.reset()
+
+    def test_bare_connection_error_returns_502_and_records_error_on_intent(
+        self, app_factory, authed_client, conn
+    ):
+        """requests.ConnectionError from Radarr → 502, row preserved, intent has last_error."""
+        import requests as _requests
+
+        _insert_movie(conn, radarr_id=101)
+        app = _app(app_factory, conn)
+        client = authed_client(app, conn)
+
+        mock_radarr = MagicMock()
+        mock_radarr.delete_movie.side_effect = _requests.ConnectionError("connection refused")
+
+        with patch(
+            "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
+        ):
+            resp = client.post("/api/media/m1/delete")
+
+        assert resp.status_code == 502
+        assert resp.json()["ok"] is False
+
+        # DB row must be preserved — delete was not confirmed
+        row = conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone()
+        assert row is not None
+
+        # Intent must have been recorded and have last_error set (not silently stranded)
+        intents = conn.execute(
+            "SELECT last_error FROM delete_intents WHERE media_item_id = 'm1'"
+        ).fetchall()
+        assert intents, "no delete intent was recorded"
+        assert any(r["last_error"] for r in intents), (
+            "_fail_delete_intent was not called — intent stranded without error record"
+        )
+
+    def test_bare_connection_error_sonarr_returns_502_and_records_error_on_intent(
+        self, app_factory, authed_client, conn
+    ):
+        """requests.ConnectionError from Sonarr → 502, row preserved, intent has last_error."""
+        import requests as _requests
+
+        _insert_tv_season(conn, sonarr_id=202, season=1)
+        app = _app(app_factory, conn)
+        client = authed_client(app, conn)
+
+        mock_sonarr = MagicMock()
+        mock_sonarr.delete_episode_files.side_effect = _requests.ConnectionError("refused")
+
+        with patch(
+            "mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr
+        ):
+            resp = client.post("/api/media/s1/delete")
+
+        assert resp.status_code == 502
+        assert resp.json()["ok"] is False
+
+        row = conn.execute("SELECT id FROM media_items WHERE id='s1'").fetchone()
+        assert row is not None
+
+        intents = conn.execute(
+            "SELECT last_error FROM delete_intents WHERE media_item_id = 's1'"
+        ).fetchall()
+        assert intents, "no delete intent was recorded"
+        assert any(r["last_error"] for r in intents), (
+            "_fail_delete_intent was not called — intent stranded without error record"
+        )
+
+
 class TestMediaKeep:
     def test_keep_requires_auth(self, app_factory, conn):
         """Keep endpoint returns 401 without a session cookie."""
@@ -695,3 +776,81 @@ class TestRedownloadTitleCap:
         assert len(term_used) <= 256, (
             f"Lookup term length {len(term_used)} exceeds the 256-char cap"
         )
+
+
+class TestRedownloadBareRequestsException:
+    """Bare requests.RequestException during redownload must not cause a 500.
+
+    A requests.ConnectionError propagating bare out of lookup_by_term (before
+    SafeHTTPClient has a chance to wrap it) must be caught:
+    - In the Radarr branch: fall through to Sonarr gracefully (return None).
+    - In the Sonarr branch: return the "check service connectivity" failure
+      response, not an unhandled exception.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_limiters(self):
+        _DELETE_LIMITER.reset()
+        _KEEP_LIMITER.reset()
+
+    def test_radarr_bare_connection_error_falls_through_to_sonarr(
+        self, app_factory, authed_client, conn
+    ):
+        """A bare requests.ConnectionError from Radarr lookup falls through to Sonarr."""
+        import requests as _requests
+
+        app = _app(app_factory, conn)
+        client = authed_client(app, conn)
+
+        mock_radarr = MagicMock()
+        mock_radarr.lookup_by_term.side_effect = _requests.ConnectionError("timed out")
+
+        mock_sonarr = MagicMock()
+        mock_sonarr.lookup_by_term.return_value = [
+            {"tvdbId": 999, "tmdbId": None, "title": "Shogun", "year": 2024}
+        ]
+        mock_sonarr.add_series.return_value = None
+
+        with (
+            patch("mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr),
+            patch("mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr),
+        ):
+            resp = client.post(
+                "/api/media/redownload",
+                json={"title": "Shogun", "tvdb_id": 999},
+            )
+
+        # Must not be 500; Sonarr fallback succeeded
+        assert resp.status_code == 200
+        assert resp.json()["ok"] is True
+        mock_sonarr.add_series.assert_called_once()
+
+    def test_sonarr_bare_connection_error_returns_failure_response(
+        self, app_factory, authed_client, conn
+    ):
+        """A bare requests.ConnectionError from Sonarr lookup returns a graceful failure."""
+        import requests as _requests
+
+        app = _app(app_factory, conn)
+        client = authed_client(app, conn)
+
+        mock_radarr = MagicMock()
+        mock_radarr.lookup_by_term.return_value = []  # Radarr finds nothing
+
+        mock_sonarr = MagicMock()
+        mock_sonarr.lookup_by_term.side_effect = _requests.ConnectionError("refused")
+
+        with (
+            patch("mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr),
+            patch("mediaman.web.routes.library_api.build_sonarr_from_db", return_value=mock_sonarr),
+        ):
+            resp = client.post(
+                "/api/media/redownload",
+                json={"title": "Shogun", "tvdb_id": 999},
+            )
+
+        # Must not be 500; graceful failure message expected
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is False
+        assert "connectivity" in body["error"].lower()
