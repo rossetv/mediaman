@@ -52,6 +52,22 @@ _METADATA_IPS = frozenset(
 #: refused. ``.internal`` leaks intent and covers GCP-style metadata.
 _BLOCKED_HOST_SUFFIXES = (".internal",)
 
+#: Canonical Docker container→host bridge hostnames. Docker Desktop and
+#: ``--add-host=host-gateway`` publish these names so a container can
+#: reach a service bound on the host (or the host's LAN). They are the
+#: standard, legitimate way a self-hosted mediaman in Docker reaches a
+#: Sonarr/Radarr/NZBGet on ``host.docker.internal:<port>``, so they are
+#: exempt from the ``.internal`` suffix block. The exemption is for the
+#: *hostname* rule only — the resolved address (the Docker gateway, an
+#: RFC1918 host) still goes through :func:`_ip_is_blocked`, so strict
+#: egress refuses it like any other LAN host.
+_ALLOWED_DOCKER_HOSTNAMES = frozenset(
+    {
+        "host.docker.internal",
+        "gateway.docker.internal",
+    }
+)
+
 #: IPv4 networks that have no legitimate outbound use. CGNAT (100.64/10)
 #: is the key addition over the old list — it is routable on a few ISPs
 #: but an attacker could still use it to reach a colocated admin panel.
@@ -104,6 +120,11 @@ def _host_is_metadata(hostname: str) -> bool:
     h = hostname.lower().rstrip(".")
     if h in _METADATA_HOSTNAMES:
         return True
+    # The Docker bridge hostnames legitimately end in ``.internal`` but are
+    # the canonical container→host path — exempt them from the suffix rule
+    # only. Their resolved IP is still checked by ``_ip_is_blocked``.
+    if h in _ALLOWED_DOCKER_HOSTNAMES:
+        return False
     return any(h.endswith(suffix) for suffix in _BLOCKED_HOST_SUFFIXES)
 
 
