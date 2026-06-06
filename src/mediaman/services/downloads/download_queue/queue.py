@@ -17,13 +17,9 @@ from __future__ import annotations
 import logging
 import sqlite3
 from collections.abc import Callable
-from typing import cast
 
 from mediaman.services.arr.fetcher._base import ArrCard
 from mediaman.services.downloads.download_format._types import DownloadItem
-from mediaman.services.downloads.download_queue.classify import (
-    arr_base_urls as _arr_base_urls,
-)
 from mediaman.services.downloads.download_queue.classify import (
     build_arr_link as _build_arr_link,
 )
@@ -43,11 +39,6 @@ from mediaman.services.downloads.download_queue.items import (
 logger = logging.getLogger(__name__)
 
 
-def get_arr_base_urls(conn: sqlite3.Connection, secret_key: str) -> dict[str, str]:
-    """Return the Radarr/Sonarr base URLs used for deep-link building."""
-    return _arr_base_urls(conn, secret_key)
-
-
 def _build_unmatched_arr_item_bound(
     arr: ArrCard,
     arr_base_urls_map: dict[str, str],
@@ -57,7 +48,7 @@ def _build_unmatched_arr_item_bound(
         arr,
         arr_base_urls_map,
         _build_search_hint,
-        cast(type, _build_arr_link),
+        _build_arr_link,
     )
 
 

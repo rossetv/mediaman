@@ -41,7 +41,7 @@ from mediaman.services.arr.completion import (
 from mediaman.services.arr.fetcher import fetch_arr_queue
 from mediaman.services.arr.search_trigger import maybe_trigger_search
 from mediaman.services.downloads.download_queue.classify import (
-    arr_base_urls as _arr_base_urls,  # noqa: F401 — retained for test-patching; private, not in __all__
+    arr_base_urls as _arr_base_urls,
 )
 from mediaman.services.downloads.download_queue.items import (
     DownloadsResponse,
@@ -55,11 +55,9 @@ from mediaman.services.downloads.download_queue.queue import (
     build_arr_items as _build_arr_items,
 )
 from mediaman.services.downloads.download_queue.queue import (
-    get_arr_base_urls as _get_arr_base_urls,
-)
-from mediaman.services.downloads.download_queue.queue import (
     parse_nzb_queue as _parse_nzb_queue,
 )
+from mediaman.services.downloads.nzbget import NzbgetError
 from mediaman.services.infra import SafeHTTPError
 
 logger = logging.getLogger(__name__)
@@ -81,20 +79,24 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # rationale: in-process snapshot of the previous NZBGet queue for completion
 # detection; process restart resets it (reconcile-on-startup handles gaps);
-# single-worker invariant.
+# single-worker invariant.  _previous_initialised distinguishes "never polled"
+# (startup — skip diff so a restart doesn't re-report every visible item as
+# completed) from "polled at least once" (normal operation — diff is valid).
+# Both fields are guarded by _state_lock below.
 _previous_queue: dict[str, dict[str, object]] = {}
 _previous_initialised: bool = False
+
+
+# Lock guarding _previous_queue/_previous_initialised.
+_state_lock = threading.Lock()
 
 
 def _reset_previous_queue() -> None:
     """Reset the in-memory queue snapshot. Used by tests."""
     global _previous_queue, _previous_initialised
-    _previous_queue = {}
-    _previous_initialised = False
-
-
-# Lock guarding _previous_queue/_previous_initialised.
-_state_lock = threading.Lock()
+    with _state_lock:
+        _previous_queue = {}
+        _previous_initialised = False
 
 
 # ---------------------------------------------------------------------------
@@ -281,7 +283,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
 
     # 1. Fetch *arr queue
     arr_items = fetch_arr_queue(conn, secret_key)
-    arr_base_urls_map = _get_arr_base_urls(conn, secret_key)
+    arr_base_urls_map = _arr_base_urls(conn, secret_key)
 
     # 2. Fetch NZBGet queue + status
     nzb_client = build_nzbget_from_db(conn, secret_key)
@@ -292,7 +294,7 @@ def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> Downl
         try:
             nzb_status = nzb_client.get_status()
             nzb_queue = nzb_client.get_queue()
-        except (SafeHTTPError, requests.RequestException):
+        except (SafeHTTPError, requests.RequestException, NzbgetError):
             logger.warning("Failed to fetch NZBGet queue/status", exc_info=True)
 
     raw_download_rate = nzb_status.get("DownloadRate", 0)

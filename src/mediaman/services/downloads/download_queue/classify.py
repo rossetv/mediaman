@@ -12,9 +12,13 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from typing import TYPE_CHECKING
 
 from mediaman.services.downloads.download_format import format_relative_time
 from mediaman.services.infra import ConfigDecryptError
+
+if TYPE_CHECKING:
+    from mediaman.services.arr.fetcher._base import ArrCard
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +126,7 @@ def arr_base_urls(conn: sqlite3.Connection, secret_key: str) -> dict[str, str]:
         return {"radarr": "", "sonarr": ""}
 
 
-def build_arr_link(arr: dict[str, object], base_urls: dict[str, str]) -> str:
+def build_arr_link(arr: ArrCard | dict[str, object], base_urls: dict[str, str]) -> str:
     """Build a deep-link URL into Radarr/Sonarr for a stalled item.
 
     Returns ``""`` when the base URL isn't configured or the item has no

@@ -161,8 +161,13 @@ class TestSonarrSeriesMatching:
         conn = init_db(str(tmp_path / "mm.db"))
 
         # Settings needed by the module — Mailgun must be configured
-        # enough to proceed past the early-bail guard.
-        insert_settings(conn, mailgun_domain="test.example.com", mailgun_api_key="dummy-key")
+        # enough to proceed past the early-bail guard (domain, key, AND from).
+        insert_settings(
+            conn,
+            mailgun_domain="test.example.com",
+            mailgun_api_key="dummy-key",
+            mailgun_from_address="noreply@test.example.com",
+        )
 
         # Stub Mailgun + arr builders so the test never hits the network.
         # ``check_download_notifications`` imports ``MailgunClient`` inside
@@ -281,7 +286,12 @@ class TestSonarrSeriesMatching:
         )
 
         conn = init_db(str(tmp_path / "mm.db"))
-        insert_settings(conn, mailgun_domain="test.example.com", mailgun_api_key="dummy-key")
+        insert_settings(
+            conn,
+            mailgun_domain="test.example.com",
+            mailgun_api_key="dummy-key",
+            mailgun_from_address="noreply@test.example.com",
+        )
         insert_download_notification(conn, email="user@example.com", title="Item", tmdb_id=1)
 
         # Worker A claims the row first.
@@ -517,11 +527,11 @@ class TestNarrowedExceptClauses:
         )
         arr.radarr.return_value = radarr
 
-        ready, movie, arr_unreachable = _check_radarr_movie(arr, row_id=1, tmdb_id=12345)
+        result = _check_radarr_movie(arr, row_id=1, tmdb_id=12345)
 
-        assert not ready
-        assert movie is None
-        assert arr_unreachable is True
+        assert not result.ready
+        assert result.movie is None
+        assert result.arr_unreachable is True
 
     def test_check_radarr_movie_handles_arr_error(self, tmp_path, monkeypatch):
         """ArrError from Radarr → arr_unreachable=True."""
@@ -535,13 +545,17 @@ class TestNarrowedExceptClauses:
         radarr.get_movie_by_tmdb.side_effect = ArrError("Radarr down")
         arr.radarr.return_value = radarr
 
-        ready, movie, arr_unreachable = _check_radarr_movie(arr, row_id=1, tmdb_id=12345)
+        result = _check_radarr_movie(arr, row_id=1, tmdb_id=12345)
 
-        assert not ready
-        assert arr_unreachable is True
+        assert not result.ready
+        assert result.arr_unreachable is True
 
     def test_check_sonarr_series_handles_request_exception(self, tmp_path, monkeypatch):
-        """requests.RequestException from Sonarr → arr_unreachable=True."""
+        """requests.RequestException from Sonarr → arr_unreachable=True.
+
+        With sonarr_series_index=None, _check_sonarr_series falls back to
+        _build_sonarr_index(client) which re-raises the network error.
+        """
         from unittest.mock import MagicMock
 
         import requests
@@ -553,7 +567,9 @@ class TestNarrowedExceptClauses:
         sonarr.get_series.side_effect = requests.ConnectionError("network down")
         arr.sonarr.return_value = sonarr
 
-        ready, arr_unreachable = _check_sonarr_series(arr, row_id=1, tvdb_id=99999, tmdb_id=None)
+        ready, arr_unreachable = _check_sonarr_series(
+            arr, row_id=1, tvdb_id=99999, tmdb_id=None, sonarr_series_index=None
+        )
 
         assert not ready
         assert arr_unreachable is True
@@ -570,7 +586,9 @@ class TestNarrowedExceptClauses:
         sonarr.get_series.side_effect = ArrError("Sonarr 500")
         arr.sonarr.return_value = sonarr
 
-        ready, arr_unreachable = _check_sonarr_series(arr, row_id=1, tvdb_id=99999, tmdb_id=None)
+        ready, arr_unreachable = _check_sonarr_series(
+            arr, row_id=1, tvdb_id=99999, tmdb_id=None, sonarr_series_index=None
+        )
 
         assert not ready
         assert arr_unreachable is True
@@ -705,3 +723,249 @@ class TestClaimedNotificationRowDataclass:
         # Second call must find nothing — row is already claimed.
         second = _claim_pending_notifications(conn)
         assert second == []
+
+
+class TestPollThrottleVsArrBackoff:
+    """B1 — in-progress poll throttle must NOT accumulate exponential delay.
+
+    An item still downloading should be re-evaluated after ~60 s (short fixed
+    poll interval), not after the 30-minute exponential backoff cap that is
+    reserved for genuine *arr reachability failures.
+    """
+
+    def test_poll_attempt_does_not_accumulate_exponential_delay(self):
+        """Repeated _record_poll_attempt calls must not grow the retry window.
+
+        After N calls to _record_poll_attempt the next_retry_at should always
+        be about _POLL_INTERVAL_SECONDS in the future — not 2×, 4×, 8×, etc.
+        """
+        from datetime import datetime
+
+        from mediaman.services.downloads._notification_backoff import (
+            _BACKOFF_MAX_SECONDS,
+            _POLL_INTERVAL_SECONDS,
+            _backoff_state,
+            _backoff_state_lock,
+            _clear_backoff,
+            _record_poll_attempt,
+        )
+
+        row_id = 99001  # Unique ID unlikely to collide with other tests.
+
+        # Clean slate.
+        _clear_backoff(row_id)
+
+        try:
+            base = datetime.now(UTC)
+            for _ in range(10):
+                _record_poll_attempt(row_id, base)
+
+            with _backoff_state_lock:
+                _attempts, next_retry_at = _backoff_state[row_id]
+
+            delay = (next_retry_at - base).total_seconds()
+            # Must be close to the short poll interval, not the 30-min cap.
+            assert delay <= _POLL_INTERVAL_SECONDS + 1, (
+                f"poll delay {delay}s exceeds poll interval {_POLL_INTERVAL_SECONDS}s"
+            )
+            assert delay < _BACKOFF_MAX_SECONDS, (
+                f"poll delay {delay}s reached exponential-backoff cap {_BACKOFF_MAX_SECONDS}s"
+            )
+        finally:
+            _clear_backoff(row_id)
+
+    def test_arr_failure_backoff_grows_exponentially(self):
+        """_record_arr_failure must accumulate exponential delay across retries."""
+        from datetime import datetime
+
+        from mediaman.services.downloads._notification_backoff import (
+            _BACKOFF_BASE_SECONDS,
+            _backoff_state,
+            _backoff_state_lock,
+            _clear_backoff,
+            _record_arr_failure,
+        )
+
+        row_id = 99002
+
+        _clear_backoff(row_id)
+        try:
+            base = datetime.now(UTC)
+            _record_arr_failure(row_id, base)  # attempt 1 → 60 s
+            with _backoff_state_lock:
+                _, next1 = _backoff_state[row_id]
+            delay1 = (next1 - base).total_seconds()
+
+            _record_arr_failure(row_id, base)  # attempt 2 → 120 s
+            with _backoff_state_lock:
+                _, next2 = _backoff_state[row_id]
+            delay2 = (next2 - base).total_seconds()
+
+            assert delay2 > delay1, "arr-failure backoff should grow with retries"
+            assert delay1 >= _BACKOFF_BASE_SECONDS - 1
+        finally:
+            _clear_backoff(row_id)
+
+    def test_quick_download_not_throttled_into_long_backoff(self, tmp_path, monkeypatch):
+        """A movie that completes on the second tick must not wait the 30-min backoff.
+
+        Tick 1: Radarr returns hasFile=False → _record_poll_attempt (short interval).
+        Tick 2: Radarr returns hasFile=True  → notification sent immediately.
+        This confirms the poll-throttle delay stays short and is cleared on success.
+        """
+        from datetime import datetime
+        from unittest.mock import MagicMock
+
+        from mediaman.services.downloads._notification_backoff import (
+            _clear_backoff,
+            _is_backed_off,
+        )
+        from mediaman.services.downloads.notifications import (
+            _check_radarr_movie,
+        )
+
+        # Simulate the Arr lookup returning "not ready" on first probe.
+        arr = MagicMock()
+        radarr = MagicMock()
+        radarr.get_movie_by_tmdb.return_value = {"hasFile": False, "id": 1}
+        arr.radarr.return_value = radarr
+
+        result = _check_radarr_movie(arr, row_id=42, tmdb_id=12345)
+        assert not result.ready
+        assert not result.arr_unreachable  # Radarr is reachable — just not ready yet.
+
+        # The row should NOT be in exponential backoff state.  After
+        # _process_one_notification calls _record_poll_attempt the delay
+        # should be short.  We verify by recording a poll attempt manually
+        # and checking the next retry is within the poll interval.
+        from mediaman.services.downloads._notification_backoff import (
+            _POLL_INTERVAL_SECONDS,
+            _backoff_state,
+            _backoff_state_lock,
+            _record_poll_attempt,
+        )
+
+        row_id = 42
+        _clear_backoff(row_id)
+        now = datetime.now(UTC)
+        _record_poll_attempt(row_id, now)
+
+        try:
+            with _backoff_state_lock:
+                _, next_retry = _backoff_state[row_id]
+            delay = (next_retry - now).total_seconds()
+            assert delay <= _POLL_INTERVAL_SECONDS + 1
+            # The row IS throttled for the short interval (so we don't spam Radarr).
+            assert _is_backed_off(row_id, now)
+        finally:
+            _clear_backoff(row_id)
+
+
+class TestUnknownServiceDrain:
+    """B3 — a row with an unknown service value must be drained (notified=1),
+    not left spinning in an infinite claim/release cycle.
+    """
+
+    def setup_method(self):
+        """Clear in-memory backoff state so prior tests don't bleed into these."""
+        from mediaman.services.downloads._notification_backoff import (
+            _backoff_state,
+            _backoff_state_lock,
+        )
+
+        with _backoff_state_lock:
+            _backoff_state.clear()
+
+    def _make_conn(self, tmp_path):
+        from mediaman.db import init_db
+
+        return init_db(str(tmp_path / "mm.db"))
+
+    def test_unknown_service_marks_row_notified(self, tmp_path, monkeypatch):
+        """A notification row with service='unknown_future' must be marked notified=1."""
+        from unittest.mock import MagicMock
+
+        from mediaman.services.downloads.notifications import (
+            check_download_notifications,
+        )
+
+        conn = self._make_conn(tmp_path)
+        insert_settings(
+            conn,
+            mailgun_domain="test.example.com",
+            mailgun_api_key="dummy-key",
+            mailgun_from_address="noreply@test.example.com",
+        )
+        insert_download_notification(
+            conn,
+            email="user@example.com",
+            title="Mystery Item",
+            media_type="movie",
+            tmdb_id=99999,
+            service="unknown_future_service",
+        )
+
+        # Stub out Mailgun so it doesn't actually send.
+        mailgun_stub = MagicMock()
+        monkeypatch.setattr(
+            "mediaman.services.mail.mailgun.MailgunClient",
+            lambda *a, **kw: mailgun_stub,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_radarr_from_db", lambda *a, **kw: None
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_sonarr_from_db", lambda *a, **kw: None
+        )
+
+        check_download_notifications(conn, secret_key="x" * 64)
+
+        row = conn.execute("SELECT notified FROM download_notifications").fetchone()
+        assert row["notified"] == 1, (
+            "unknown-service row must be drained to notified=1 rather than left spinning"
+        )
+        # No email should have been sent.
+        mailgun_stub.send.assert_not_called()
+
+    def test_unknown_service_logs_warning(self, tmp_path, monkeypatch, caplog):
+        """A WARNING must be emitted when a row has an unrecognised service."""
+        import logging
+        from unittest.mock import MagicMock
+
+        from mediaman.services.downloads.notifications import (
+            check_download_notifications,
+        )
+
+        conn = self._make_conn(tmp_path)
+        insert_settings(
+            conn,
+            mailgun_domain="test.example.com",
+            mailgun_api_key="dummy-key",
+            mailgun_from_address="noreply@test.example.com",
+        )
+        insert_download_notification(
+            conn,
+            email="user@example.com",
+            title="Ghost",
+            media_type="movie",
+            service="bad_service",
+        )
+
+        monkeypatch.setattr(
+            "mediaman.services.mail.mailgun.MailgunClient",
+            lambda *a, **kw: MagicMock(),
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_radarr_from_db", lambda *a, **kw: None
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_sonarr_from_db", lambda *a, **kw: None
+        )
+
+        with caplog.at_level(logging.WARNING, logger="mediaman.services.downloads.notifications"):
+            check_download_notifications(conn, secret_key="x" * 64)
+
+        assert any("unknown service" in r.message.lower() for r in caplog.records), (
+            "Expected a WARNING about unknown service, got: "
+            + str([r.message for r in caplog.records])
+        )

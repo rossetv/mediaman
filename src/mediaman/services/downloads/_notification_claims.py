@@ -75,13 +75,24 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[ClaimedNotifi
             "RETURNING id, email, title, media_type, tmdb_id, tvdb_id, service",
             (claim_iso,),
         ).fetchall()
+        # Build the return value before committing so the rows are safely in a
+        # local variable — a Python exception between commit and return would
+        # otherwise strand them at notified=2 (M7).
+        claimed = [_row_to_claimed(r) for r in rows]
         conn.commit()
-        return [_row_to_claimed(r) for r in rows]
+        return claimed
     except sqlite3.OperationalError:
         # Older SQLite without RETURNING — fall back to lock-then-claim.
         # ``with conn:`` commits on normal exit and rolls back on exception;
         # BEGIN IMMEDIATE here preserves write-lock semantics so a sibling
         # worker cannot pick up the same rows concurrently.
+        #
+        # NOTE (B5): this pattern is correct ONLY because db/connection.py
+        # creates connections with the DEFAULT isolation_level (legacy mode),
+        # meaning ``with conn:`` does NOT auto-BEGIN — the explicit
+        # ``BEGIN IMMEDIATE`` below is the first and only transaction start.
+        # Do NOT change connection.py to use isolation_level=None (autocommit)
+        # without updating this fallback path.
         with conn:
             conn.execute("BEGIN IMMEDIATE")
             rows = conn.execute(

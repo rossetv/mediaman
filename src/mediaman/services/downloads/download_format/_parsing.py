@@ -6,6 +6,12 @@ import re
 import unicodedata
 
 _SERIES_MARKER = re.compile(r"\bS\d{2}(?:E\d{1,3})?\b", flags=re.IGNORECASE)
+_TOKEN_PAT = re.compile(
+    r"\b(?:(?:19|20)\d{2}|2160p|1080p|720p|480p|4K|UHD|HDR|BDRip|BluRay|WEB[-]?DL|"
+    r"WEBRip|WEB|HDTV|DVDRip|BRRip|Remux|AMZN|NF|DSNP|HMAX|x264|x265|h264|h265|"
+    r"HEVC|AAC|DTS|TrueHD|Atmos|DDP|DD5|AC3|FLAC|S\d{2}E?\d{0,2})\b",
+    flags=re.IGNORECASE,
+)
 
 
 def looks_like_series_nzb(nzb_name: str) -> bool:
@@ -34,13 +40,6 @@ def parse_clean_title(nzb_name: str) -> str:
        remaining string from the *left* again, continuing until a non-empty
        prefix is found or we run out of tokens.
     """
-    _TOKEN_PAT = re.compile(
-        r"\b(?:(?:19|20)\d{2}|2160p|1080p|720p|480p|4K|UHD|HDR|BDRip|BluRay|WEB[-]?DL|"
-        r"WEBRip|WEB|HDTV|DVDRip|BRRip|Remux|AMZN|NF|DSNP|HMAX|x264|x265|h264|h265|"
-        r"HEVC|AAC|DTS|TrueHD|Atmos|DDP|DD5|AC3|FLAC|S\d{2}E?\d{0,2})\b",
-        flags=re.IGNORECASE,
-    )
-
     name = nzb_name.replace(".", " ").replace("_", " ")
 
     # Walk left-to-right: find the position of the first token match, take
