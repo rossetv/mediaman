@@ -100,6 +100,44 @@ class TestMetadataEndpointsBlocked:
         assert not is_safe_outbound_url("http://dual-answer.example.com/")
 
 
+class TestDockerBridgeHostnamesAllowed:
+    """``host.docker.internal`` / ``gateway.docker.internal`` are the
+    canonical Docker container→host bridge names and the primary way a
+    self-hosted mediaman in a container reaches its integrations. They
+    end in ``.internal`` but must be exempt from the suffix block; the
+    metadata ``.internal`` host and every other ``.internal`` host stay
+    blocked.
+    """
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://host.docker.internal:6789",
+            "http://gateway.docker.internal:6789",
+            # trailing-dot FQDN form must match the allowlist too
+            "http://host.docker.internal.:6789",
+        ],
+    )
+    def test_allows_docker_bridge_hostname_in_default_mode(self, url, fake_dns):
+        # The bridge name resolves to the Docker gateway, an RFC1918 host,
+        # which the default (non-strict) deny-list permits.
+        fake_dns(["192.168.65.2"])
+        assert is_safe_outbound_url(url)
+
+    def test_docker_bridge_hostname_refused_under_strict_egress(self, fake_dns):
+        """Strict egress still blocks the resolved RFC1918 gateway address."""
+        fake_dns(["192.168.65.2"])
+        assert not is_safe_outbound_url("http://host.docker.internal:6789", strict_egress=True)
+
+    def test_metadata_google_internal_still_blocked(self):
+        """Regression guard: the Docker exemption must not unblock GCP metadata."""
+        assert not is_safe_outbound_url("http://metadata.google.internal/computeMetadata/v1/")
+
+    def test_other_dot_internal_host_still_blocked(self):
+        """The suffix rule still applies to every non-Docker ``.internal`` host."""
+        assert not is_safe_outbound_url("http://foo.internal/")
+
+
 class TestLinkLocalAndUnspecified:
     @pytest.mark.parametrize(
         "url",
