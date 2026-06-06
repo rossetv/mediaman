@@ -78,6 +78,16 @@ class SafeHTTPClient:
         # such a session never gets mediaman branding (M8).
         if existing_ua is None or str(existing_ua).startswith("python-requests/"):
             self._session.headers["User-Agent"] = _USER_AGENT
+        # Ask compliant servers not to compress the response. The streaming
+        # guard in ``http.streaming._read_capped`` rejects any non-identity
+        # ``Content-Encoding`` unconditionally (urllib3 inflates the body
+        # before the size cap can apply, so a gzip bomb would otherwise pin
+        # memory). Without this header ``requests`` advertises its default
+        # ``gzip, deflate`` and upstreams (Plex confirmed) gzip the reply,
+        # making every such call fail the guard. Requesting identity keeps
+        # the size cap operating on wire bytes; the guard is then
+        # belt-and-braces rather than a blanket failure.
+        self._session.headers["Accept-Encoding"] = "identity"
         self._default_timeout = default_timeout
         self._default_max_bytes = default_max_bytes
         self._allowed_hosts = allowed_hosts

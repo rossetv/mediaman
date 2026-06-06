@@ -62,7 +62,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_HTTP_CLIENT_MODULE = "mediaman.services.infra.http.dns_pinning"
+_DNS_PINNING_MODULE = "mediaman.services.infra.http.dns_pinning"
 
 # ---------------------------------------------------------------------------
 # Module-level singletons
@@ -128,7 +128,7 @@ def _patched_getaddrinfo(
     # Resolve ``_ORIG_GETADDRINFO`` through ``http_client``'s module namespace
     # at call time so ``monkeypatch.setattr(http_client, "_ORIG_GETADDRINFO",
     # fake)`` in tests correctly replaces the delegate resolver.
-    _hc = sys.modules.get(_HTTP_CLIENT_MODULE)
+    _hc = sys.modules.get(_DNS_PINNING_MODULE)
     _orig = getattr(_hc, "_ORIG_GETADDRINFO", None) if _hc is not None else None
     if _orig is None:
         _orig = _ORIG_GETADDRINFO
@@ -192,7 +192,7 @@ def ensure_hook_installed() -> None:
         # current.  The shim imports ``_ORIG_GETADDRINFO`` as a static
         # binding; without this update, ``_patched_getaddrinfo``'s
         # sys.modules lookup would return the stale original resolver.
-        _hc = sys.modules.get(_HTTP_CLIENT_MODULE)
+        _hc = sys.modules.get(_DNS_PINNING_MODULE)
         if _hc is not None:
             _hc._ORIG_GETADDRINFO = replacement  # type: ignore[attr-defined]
 
