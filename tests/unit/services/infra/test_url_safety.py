@@ -331,6 +331,48 @@ class TestResolveSafeOutboundUrl:
         assert ip is None
 
 
+class TestResolverTimeout:
+    """M6 — a slow authoritative resolver must not stall the worker.
+
+    ``_resolve_all`` runs ``getaddrinfo`` on a bounded worker; a lookup
+    that exceeds the budget is treated as a resolution failure (refuse
+    fast) rather than blocking the single process for the OS timeout.
+    """
+
+    def test_slow_resolver_refuses_promptly(self, monkeypatch):
+        import threading
+        import time
+
+        from mediaman.services.infra import _url_safety_blocks
+
+        # Shrink the budget so the test is fast; the lookup sleeps well past it.
+        monkeypatch.setattr(_url_safety_blocks, "_RESOLVE_TIMEOUT_SECONDS", 0.2)
+
+        def slow_getaddrinfo(host, port, *args, **kwargs):
+            time.sleep(5.0)
+            return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", 0))]
+
+        monkeypatch.setattr(socket, "getaddrinfo", slow_getaddrinfo)
+
+        started = time.monotonic()
+        safe, _hostname, ip = resolve_safe_outbound_url("http://slow-dns.example.com/")
+        elapsed = time.monotonic() - started
+
+        assert safe is False
+        assert ip is None
+        # Must return near the bound, not after the 5 s fake lookup.
+        assert elapsed < 2.0, f"resolver timeout did not bound the wait (took {elapsed:.2f}s)"
+        # Sanity: the straggler lookup thread was not joined/awaited.
+        assert any(t.name.startswith("ssrf-getaddrinfo") for t in threading.enumerate())
+
+    def test_fast_resolver_still_resolves(self, fake_dns):
+        """A host that answers within the budget resolves exactly as before."""
+        fake_dns(["93.184.216.34"])
+        safe, _hostname, ip = resolve_safe_outbound_url("http://fast-dns.example.com/")
+        assert safe is True
+        assert ip == "93.184.216.34"
+
+
 # ---------------------------------------------------------------------------
 # Allowlist (opt-in)
 # ---------------------------------------------------------------------------
@@ -367,6 +409,13 @@ class TestAllowedOutboundHosts:
         assert "api.mailgun.net" in hosts
         assert "api.eu.mailgun.net" in hosts
         assert "api.openai.com" in hosts
+
+    def test_amazon_poster_cdns_are_pinned(self, settings_db):
+        """Radarr/Sonarr serve some posters from Amazon image hosts, so
+        both must be in the composed allowlist (R2b-H1 regression)."""
+        hosts = allowed_outbound_hosts(settings_db)
+        assert "m.media-amazon.com" in hosts
+        assert "images.amazon.com" in hosts
 
     def test_configured_integration_urls_added_by_hostname(self, settings_db):
         insert_settings(settings_db, plex_url="http://plex.lan:32400/", updated_at="")
@@ -420,6 +469,23 @@ class TestIsSafeOutboundUrlAllowlist:
             "https://api.themoviedb.org/3/movie/123",
             allowed_hosts=frozenset(),
         )
+
+    def test_amazon_poster_host_accepted_private_ip_host_refused(self, fake_dns):
+        """R2b-H1 §10.11: an Amazon poster CDN passes the allowlist+resolve
+        path, while a private-IP-resolving off-allowlist host is refused."""
+        fake_dns(["93.184.216.34"])  # clean public IP for the Amazon host
+        assert resolve_safe_outbound_url(
+            "https://m.media-amazon.com/images/M/poster.jpg",
+            allowed_hosts=frozenset(),
+        )[0]
+        # Negative: a host that is NOT pinned/allowlisted and resolves to a
+        # private address is refused even with strict egress off.
+        fake_dns(["192.168.1.50"])
+        assert not resolve_safe_outbound_url(
+            "https://internal.example.com/poster.jpg",
+            allowed_hosts=frozenset(),
+            strict_egress=True,
+        )[0]
 
     def test_allowlist_does_not_override_deny_list(self, fake_dns):
         """An allowlisted host that resolves to a metadata IP must still

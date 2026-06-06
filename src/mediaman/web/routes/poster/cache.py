@@ -199,13 +199,13 @@ def write_poster_cache(
     the temp must be removed explicitly — leaving it would orphan disk
     space until the next sweep.
     """
-    tmp_name: str | None = None
+    temp_path: str | None = None
     try:
-        with tempfile.NamedTemporaryFile(dir=cache_dir, delete=False, suffix=".tmp") as tmp:
-            tmp.write(content)
-            tmp_name = tmp.name
-        os.replace(tmp_name, cached_path)
-        tmp_name = None  # Success — replace consumed the temp.
+        with tempfile.NamedTemporaryFile(dir=cache_dir, delete=False, suffix=".tmp") as temp_file:
+            temp_file.write(content)
+            temp_path = temp_file.name
+        os.replace(temp_path, cached_path)
+        temp_path = None  # Success — replace consumed the temp.
         # Persist the served mime so subsequent cache hits return the
         # same Content-Type rather than always claiming image/jpeg.
         write_sidecar_mime(cached_path, content_type)
@@ -214,9 +214,9 @@ def write_poster_cache(
         maybe_sweep_cache(cache_dir)
     except OSError:
         logger.warning("Poster cache write failed for %s", rating_key, exc_info=True)
-        if tmp_name:
+        if temp_path:
             with contextlib.suppress(OSError):
-                os.remove(tmp_name)
+                os.remove(temp_path)
 
 
 # Only these mime types are ever served back to the client.  Everything
@@ -284,16 +284,16 @@ def write_sidecar_mime(cache_path: Path, mime: str) -> None:
     """
     sidecar = cache_path.with_suffix(cache_path.suffix + ".mime")
     safe = mime if mime in ALLOWED_IMAGE_MIMES else "image/jpeg"
-    tmp_name: str | None = None
+    temp_path: str | None = None
     try:
         with tempfile.NamedTemporaryFile(
             dir=cache_path.parent, delete=False, suffix=".mime.tmp"
-        ) as tmp:
-            tmp.write(safe.encode("ascii"))
-            tmp_name = tmp.name
-        os.replace(tmp_name, sidecar)
+        ) as temp_file:
+            temp_file.write(safe.encode("ascii"))
+            temp_path = temp_file.name
+        os.replace(temp_path, sidecar)
     except OSError:
         logger.debug("Sidecar mime write failed for %s", cache_path, exc_info=True)
-        if tmp_name:
+        if temp_path:
             with contextlib.suppress(OSError):
-                os.remove(tmp_name)
+                os.remove(temp_path)

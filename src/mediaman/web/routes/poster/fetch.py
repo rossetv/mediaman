@@ -94,17 +94,15 @@ def _make_poster_client(conn: sqlite3.Connection) -> SafeHTTPClient:
     )
 
 
-# SSRF allow-list for Radarr/Sonarr remote poster fetches.
-#
-# Exact hostname → permitted ports. Subdomain wildcards are intentionally
-# absent: a DNS-rebind attack on e.g. ``evil.image.tmdb.org`` would pass a
-# suffix check but fails an exact-match check. Only HTTPS (443) is
-# permitted; port 80 or any non-standard port is refused.
-_POSTER_ALLOWED_HOSTS: dict[str, tuple[int, ...]] = {
-    "image.tmdb.org": (443,),
-    "m.media-amazon.com": (443,),
-    "images.amazon.com": (443,),
-}
+# Only HTTPS poster URLs on the default port are accepted. The set of
+# *which* hosts may be reached is owned entirely by the SafeHTTPClient
+# allowlist (``allowed_outbound_hosts`` composed from
+# ``PINNED_EXTERNAL_HOSTS`` — see CODE_GUIDELINES §8.1/§10.6, which is the
+# single canonical list of poster-CDN hosts: image.tmdb.org,
+# m.media-amazon.com, images.amazon.com). This module no longer keeps a
+# second host table; a duplicate allowlist drifting out of sync with the
+# pinned set was exactly the R2b-H1 defect.
+_POSTER_ALLOWED_PORT = 443
 
 
 def is_valid_rating_key(rating_key: str) -> bool:
@@ -135,16 +133,25 @@ def safe_mime(remote_type: str | None) -> str:
     return "image/jpeg"
 
 
-def is_allowed_poster_host(url: str) -> bool:
-    """Return ``True`` only for HTTPS URLs pointing at a trusted image CDN.
+def is_allowed_poster_host(url: str, *, allowed_hosts: frozenset[str]) -> bool:
+    """Return ``True`` only for HTTPS poster URLs on an allowlisted host.
 
-    Performs exact hostname matching against ``_POSTER_ALLOWED_HOSTS`` —
-    no subdomain wildcards — so a DNS-rebind via ``evil.image.tmdb.org``
-    cannot bypass the check.  Additionally enforces that the port is in
-    the permitted set (443 only) and delegates a full DNS-resolution +
-    public-IP check to :func:`is_safe_outbound_url` with strict egress
-    enabled, catching rebind attacks that return a private IP at
-    request time.
+    This is the scheme/port guard for the Radarr/Sonarr poster fetch. It
+    enforces three things that the transport client does not express on
+    its own:
+
+    * HTTPS only — a poster served over plain ``http`` is refused.
+    * Port 443 only — a non-standard port on an otherwise-trusted host is
+      refused (``parsed.port`` is ``None`` for the implicit HTTPS port).
+    * A full DNS-resolution + public-IP check via
+      :func:`is_safe_outbound_url` with strict egress, catching a rebind
+      attack that returns a private/loopback IP at request time.
+
+    Host policy itself is **not** decided here: *allowed_hosts* is the
+    SafeHTTPClient allowlist (``allowed_outbound_hosts``), which already
+    merges :data:`PINNED_EXTERNAL_HOSTS` — the single canonical poster-CDN
+    list. Passing it through keeps one source of truth and lets a refused
+    host fail before the transport call rather than only at it.
     """
     try:
         parsed = urlparse(url)
@@ -155,18 +162,14 @@ def is_allowed_poster_host(url: str) -> bool:
     host = (parsed.hostname or "").lower()
     if not host:
         return False
-    # Exact hostname match — no wildcards.
-    if host not in _POSTER_ALLOWED_HOSTS:
+    # Port must be the implicit/explicit HTTPS default; ``parsed.port`` is
+    # None when the URL omits the port.
+    port = parsed.port if parsed.port is not None else _POSTER_ALLOWED_PORT
+    if port != _POSTER_ALLOWED_PORT:
         return False
-    # Port must be in the permitted set. ``parsed.port`` is None when the
-    # URL omits the port, which for HTTPS means 443 implicitly.
-    port = parsed.port if parsed.port is not None else 443
-    if port not in _POSTER_ALLOWED_HOSTS[host]:
-        return False
-    # Resolve DNS and confirm every returned IP is public. This catches
-    # rebind attacks where the initial check passes but the resolver
-    # subsequently returns a private address.
-    return bool(is_safe_outbound_url(url, strict_egress=True))
+    # Delegate host policy to the canonical allowlist (pinned CDNs +
+    # configured integrations) instead of a bespoke second table.
+    return bool(is_safe_outbound_url(url, strict_egress=True, allowed_hosts=allowed_hosts))
 
 
 def sanitise_plex_url(raw: str | None) -> str | None:
@@ -240,8 +243,8 @@ def fetch_plex_poster(
     client = http_client if http_client is not None else _POSTER_HTTP
     thumb_url = f"{plex_base}/library/metadata/{rating_key}/thumb"
     try:
-        resp = client.get(thumb_url, headers={"X-Plex-Token": plex_token})
-        return resp.content, safe_mime(resp.headers.get("Content-Type"))
+        response = client.get(thumb_url, headers={"X-Plex-Token": plex_token})
+        return response.content, safe_mime(response.headers.get("Content-Type"))
     except SafeHTTPError as exc:
         logger.warning(
             "Plex poster fetch failed for rating_key=%s (%s)",
@@ -298,24 +301,29 @@ def _resolve_arr_poster_url(
 
 
 def _fetch_allowed_poster_bytes(
-    poster_url: str, *, http_client: SafeHTTPClient | None = None
+    poster_url: str,
+    *,
+    allowed_hosts: frozenset[str],
+    http_client: SafeHTTPClient | None = None,
 ) -> tuple[bytes | None, str | None]:
-    """Fetch poster bytes from *poster_url* after host-allow-list check.
+    """Fetch poster bytes from *poster_url* after the scheme/host guard.
 
     Returns ``(content_bytes, content_type)`` or ``(None, None)`` when
-    the host is disallowed or the fetch fails.
+    the host is disallowed or the fetch fails. *allowed_hosts* is the
+    canonical SafeHTTPClient allowlist, forwarded to
+    :func:`is_allowed_poster_host` for host policy.
 
     *http_client* defaults to :data:`_POSTER_HTTP`; callers that need the
     SSRF allowlist enforced pass a client built via
     :func:`_make_poster_client`.
     """
-    if not is_allowed_poster_host(poster_url):
+    if not is_allowed_poster_host(poster_url, allowed_hosts=allowed_hosts):
         logger.warning("Refusing Radarr/Sonarr poster fetch for disallowed host: %s", poster_url)
         return None, None
     client = http_client if http_client is not None else _POSTER_HTTP
     try:
-        resp = client.get(poster_url)
-        return resp.content, safe_mime(resp.headers.get("Content-Type"))
+        response = client.get(poster_url)
+        return response.content, safe_mime(response.headers.get("Content-Type"))
     except SafeHTTPError as exc:
         logger.warning("Arr poster fetch refused/failed: %s (%s)", poster_url, exc.status_code)
     except requests.RequestException:
@@ -353,7 +361,11 @@ def fetch_arr_poster(
     poster_url, _title = _resolve_arr_poster_url(conn, row, config)
     if not poster_url:
         return None, None
-    return _fetch_allowed_poster_bytes(poster_url, http_client=http_client)
+    return _fetch_allowed_poster_bytes(
+        poster_url,
+        allowed_hosts=allowed_outbound_hosts(conn),
+        http_client=http_client,
+    )
 
 
 def resolve_poster_content(

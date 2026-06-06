@@ -137,6 +137,11 @@ class TestAllowedPosterHost:
     unit tests separately.
     """
 
+    # The canonical pinned poster-CDN hosts, mirrored from
+    # ``PINNED_EXTERNAL_HOSTS`` — the allow path passes these as the
+    # SafeHTTPClient allowlist so host policy comes from one source.
+    _ALLOWED = frozenset({"image.tmdb.org", "m.media-amazon.com", "images.amazon.com"})
+
     def _allow(self, url: str) -> bool:
         """Run ``_is_allowed_poster_host`` with DNS check stubbed to True."""
         from unittest.mock import patch
@@ -144,13 +149,13 @@ class TestAllowedPosterHost:
         from mediaman.web.routes.poster import _is_allowed_poster_host
 
         with patch("mediaman.web.routes.poster.fetch.is_safe_outbound_url", return_value=True):
-            return _is_allowed_poster_host(url)
+            return _is_allowed_poster_host(url, allowed_hosts=self._ALLOWED)
 
     def _deny(self, url: str) -> bool:
         """Run ``_is_allowed_poster_host`` without stubbing (rejects before DNS)."""
         from mediaman.web.routes.poster import _is_allowed_poster_host
 
-        return _is_allowed_poster_host(url)
+        return _is_allowed_poster_host(url, allowed_hosts=self._ALLOWED)
 
     def test_accepts_image_tmdb_org(self):
         assert self._allow("https://image.tmdb.org/t/p/w500/x.jpg")
@@ -200,7 +205,9 @@ class TestAllowedPosterHost:
         from mediaman.web.routes.poster import _is_allowed_poster_host
 
         with patch("mediaman.web.routes.poster.fetch.is_safe_outbound_url", return_value=False):
-            assert not _is_allowed_poster_host("https://image.tmdb.org/t/p/w500/x.jpg")
+            assert not _is_allowed_poster_host(
+                "https://image.tmdb.org/t/p/w500/x.jpg", allowed_hosts=self._ALLOWED
+            )
 
 
 class TestPosterEndpointAuth:

@@ -52,7 +52,7 @@ The deny-list constants and stateless predicates live in
 public API and the allowlist composition.
 """
 
-# rationale: 410 lines, over the 300-line target (under the 500 ceiling).
+# rationale: 451 lines, over the 300-line target (under the 500 ceiling).
 # This file is one cohesive security concept — "the single place in the
 # codebase that performs SSRF safety analysis" — and the genuinely separable
 # part (the stateless deny-list constants and predicates) has *already* been
@@ -107,6 +107,11 @@ PINNED_EXTERNAL_HOSTS: frozenset[str] = frozenset(
         # TMDB metadata and posters.
         "api.themoviedb.org",
         "image.tmdb.org",
+        # Poster CDNs: Radarr/Sonarr serve some artwork from Amazon's
+        # image hosts (TMDB cover URLs and IMDb-sourced posters), so the
+        # poster-fetch path must be able to reach them.
+        "m.media-amazon.com",
+        "images.amazon.com",
         # OMDb fallback metadata.
         "www.omdbapi.com",
         # Mailgun — US default and EU region (operator picks one via
