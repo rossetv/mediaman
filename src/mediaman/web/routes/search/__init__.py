@@ -22,7 +22,7 @@ from fastapi import APIRouter
 from ._enrichment import (
     _QUERY_LIMITER,
     _discover_cache,
-    _enrich_ratings,
+    _stamp_omdb_ratings,
 )
 from .detail import _fetch_sonarr_series_detail
 from .detail import router as _detail_router
@@ -46,7 +46,7 @@ __all__ = [
     "_QUERY_LIMITER",
     "_discover_cache",
     "_download_dedup",
-    "_enrich_ratings",
     "_fetch_sonarr_series_detail",
+    "_stamp_omdb_ratings",
     "router",
 ]

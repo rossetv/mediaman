@@ -43,6 +43,7 @@ from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.web.auth.middleware import get_optional_admin
 from mediaman.web.responses import respond_err
+from mediaman.web.routes.download._cache_keys import _key_fingerprint
 
 from ._radarr import _radarr_fallback_item, _radarr_queue_item, _radarr_ready_item
 
@@ -79,17 +80,17 @@ _DOWNLOAD_STATUS_LIMITER = RateLimiter(max_attempts=120, window_seconds=60)
 # ---------------------------------------------------------------------------
 
 _STATUS_CACHE_TTL_SECONDS = 2.5
+# rationale: bounded to prevent unbounded growth — with many unique
+# (service, tmdb_id) pairs under sustained load the dict would otherwise
+# grow without limit; max 200 entries with clear-on-overflow is the §13.2
+# safety net (TTL alone only evicts on hit, not proactively).
+_STATUS_CACHE_MAX_ENTRIES = 200
 _STATUS_CACHE_LOCK = threading.Lock()
-
+# Per-process per-(service, tmdb_id) status cache; must be in-process state
+# so the short TTL reduces outbound amplification for unauthenticated polls
+# across requests handled by the same worker (§8.5).
 # (service, tmdb_id, secret_key_fingerprint) -> (timestamp, status_dict)
 _STATUS_CACHE: dict[tuple[str, int, str], tuple[float, DownloadItem]] = {}
-
-
-def _key_fingerprint(secret_key: str) -> str:
-    """Short fingerprint of *secret_key* for use as a cache key."""
-    import hashlib
-
-    return hashlib.sha256(secret_key.encode()).hexdigest()[:16]
 
 
 def _reset_status_cache_for_tests() -> None:
@@ -169,6 +170,14 @@ def _cached_status(
     else:
         result = _sonarr_status(conn, secret_key, tmdb_id)
     with _STATUS_CACHE_LOCK:
+        if len(_STATUS_CACHE) >= _STATUS_CACHE_MAX_ENTRIES:
+            # Evict expired entries first; if still full, clear wholesale.
+            cutoff = now - _STATUS_CACHE_TTL_SECONDS
+            stale = [k for k, (ts, _) in _STATUS_CACHE.items() if ts < cutoff]
+            for k in stale:
+                del _STATUS_CACHE[k]
+            if len(_STATUS_CACHE) >= _STATUS_CACHE_MAX_ENTRIES:
+                _STATUS_CACHE.clear()
         _STATUS_CACHE[key] = (now, result)
     return result
 

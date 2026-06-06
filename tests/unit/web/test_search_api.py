@@ -416,7 +416,7 @@ class TestFetchDiscoverShelf:
 
 class TestEnrichRatingsHelpers:
     """Behaviour-parity coverage for the helpers lifted out of
-    ``_enrich_ratings``: the cache hit/miss partition, the per-group OMDb
+    ``_stamp_omdb_ratings``: the cache hit/miss partition, the per-group OMDb
     fetch, and the budgeted ``as_completed`` drain. These exercise the
     subtle bits the original inline closure carried — the TTL cutoff, the
     "a bad fetch must not abort the fan-out" degradation, and the

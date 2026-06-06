@@ -275,9 +275,9 @@ def _resolve_arr_poster_url(
         if not radarr_client:
             return None, title
         try:
-            for movie in radarr_client.get_movies():
-                if movie.get("id") == radarr_id:
-                    return extract_poster_url(movie.get("images")), title
+            # Single-item lookup — O(1) vs. O(N) full-library scan (H3).
+            movie = radarr_client.get_movie_by_id(radarr_id)
+            return extract_poster_url(movie.get("images")), title
         except (requests.RequestException, SafeHTTPError, ArrError):
             logger.warning("Failed to fetch Radarr poster for id=%s", radarr_id, exc_info=True)
         return None, title
@@ -289,9 +289,9 @@ def _resolve_arr_poster_url(
     if not sonarr_client:
         return None, title
     try:
-        for series in sonarr_client.get_series():
-            if series.get("id") == sonarr_id:
-                return extract_poster_url(series.get("images")), title
+        # Single-item lookup — O(1) vs. O(N) full-library scan (H3).
+        series = sonarr_client.get_series_by_id(sonarr_id)
+        return extract_poster_url(series.get("images")), title
     except (requests.RequestException, SafeHTTPError, ArrError):
         logger.warning("Failed to fetch Sonarr poster for id=%s", sonarr_id, exc_info=True)
     return None, title

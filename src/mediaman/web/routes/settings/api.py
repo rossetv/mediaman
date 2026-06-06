@@ -30,7 +30,7 @@ import shutil
 import sqlite3
 from collections.abc import Callable
 
-import requests
+import requests as _requests
 from fastapi import APIRouter, Cookie, Depends, Request
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
@@ -381,14 +381,20 @@ def api_test_service(
     tester, short_circuit = _resolve_tester_dispatch(service, admin)
     if short_circuit is not None:
         return short_circuit
-    assert tester is not None  # _resolve_tester_dispatch guarantees one or the other
+    if tester is None:  # _resolve_tester_dispatch guarantees one or the other
+        raise RuntimeError(
+            f"tester is None for service={service!r} after dispatch — invariant violated"
+        )
 
     conn = get_db()
     config = request.app.state.config
     settings, decrypt_err = _load_tester_settings(service, conn, config.secret_key)
     if decrypt_err is not None:
         return decrypt_err
-    assert settings is not None  # _load_tester_settings guarantees one or the other
+    if settings is None:  # _load_tester_settings guarantees one or the other
+        raise RuntimeError(
+            f"settings is None for service={service!r} after decrypt — invariant violated"
+        )
 
     response = _run_tester_with_timeout(service, tester, settings)
     return _cache_tester_response(service, response)
@@ -412,7 +418,12 @@ def api_plex_libraries(request: Request, admin: str = Depends(get_current_admin)
         return JSONResponse({"libraries": libraries})
     except (
         SafeHTTPError,
-        requests.RequestException,
+        # rationale: PlexClient uses plexapi which maintains its own requests
+        # session; ``get_libraries`` calls ``server.library.sections()``
+        # which does not route through SafeHTTPClient, so bare
+        # RequestException can escape (confirmed in plex.py:334,368).
+        # Removing this catch would surface transport errors as 500s.
+        _requests.RequestException,
         ArrError,
         ConfigDecryptError,
         ValueError,
@@ -427,7 +438,7 @@ def api_plex_libraries(request: Request, admin: str = Depends(get_current_admin)
 def api_disk_usage(
     request: Request, path: str = "", admin: str = Depends(get_current_admin)
 ) -> JSONResponse:
-    """Return disk usage stats for a whitelisted filesystem path."""
+    """Return disk usage stats for an allowlisted filesystem path."""
     if not path:
         return respond_err("path_required", status=400, message="path parameter is required")
     if len(path) > 4096:

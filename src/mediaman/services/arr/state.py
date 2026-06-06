@@ -252,6 +252,78 @@ def build_sonarr_cache(client: ArrClient | None) -> SonarrCaches:
     return {"sonarr_series": series, "sonarr_queue_tmdb_ids": queue_ids}
 
 
+def annotate_download_states(
+    results: list[dict[str, object]],
+    conn: sqlite3.Connection,
+    secret_key: str,
+) -> None:
+    """Stamp ``download_state`` onto each result dict in *results*, in place.
+
+    Builds the Radarr and Sonarr caches from DB settings, then walks
+    *results* and calls :func:`compute_download_state` for each item that
+    has a ``tmdb_id`` and ``media_type``.  Failures to build either cache
+    are logged and treated as empty (the item receives ``download_state=None``).
+
+    This is a service function — route handlers call it instead of
+    inlining the cache-build + iteration loop (§2.7).
+
+    Args:
+        results: List of normalised TMDB result dicts to annotate in place.
+        conn:  Open SQLite connection.
+        secret_key: Application secret for decrypting Arr settings.
+    """
+    import requests as _requests
+
+    from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
+    from mediaman.services.infra import SafeHTTPError
+
+    try:
+        radarr_cache = build_radarr_cache(build_radarr_from_db(conn, secret_key))
+    except (_requests.RequestException, SafeHTTPError, sqlite3.Error):
+        logger.warning(
+            "Radarr cache build failed; search results will not reflect Radarr state",
+            exc_info=True,
+        )
+        radarr_cache = build_radarr_cache(None)
+
+    try:
+        sonarr_cache = build_sonarr_cache(build_sonarr_from_db(conn, secret_key))
+    except (_requests.RequestException, SafeHTTPError, sqlite3.Error):
+        logger.warning(
+            "Sonarr cache build failed; search results will not reflect Sonarr state",
+            exc_info=True,
+        )
+        sonarr_cache = build_sonarr_cache(None)
+
+    caches: ArrCaches = {**radarr_cache, **sonarr_cache}
+    for r in results:
+        tmdb_id = r.get("tmdb_id")
+        if tmdb_id and isinstance(tmdb_id, int):
+            media_type = r["media_type"]
+            r["download_state"] = compute_download_state(str(media_type), tmdb_id, caches)
+
+
+def is_series_already_tracked(sonarr_client: ArrClient, tvdb_id: int) -> bool:
+    """Return True if Sonarr already tracks the series with *tvdb_id*.
+
+    Iterates the full series list returned by Sonarr and checks for a
+    matching ``tvdbId``.  This is a service-layer function so route handlers
+    are not responsible for iterating external-service payloads (§2.7).
+
+    Args:
+        sonarr_client: A configured Sonarr :class:`ArrClient`.
+        tvdb_id: The TVDB ID to look up.
+
+    Raises:
+        SafeHTTPError: On a non-2xx response from Sonarr.
+        requests.RequestException: On transport failures.
+
+    Returns:
+        ``True`` when the series is already tracked; ``False`` otherwise.
+    """
+    return any(s.get("tvdbId") == tvdb_id for s in sonarr_client.get_series())
+
+
 # ---------------------------------------------------------------------------
 # LazyArrClients — request-scoped Radarr/Sonarr client pair
 # ---------------------------------------------------------------------------

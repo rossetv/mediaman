@@ -43,9 +43,13 @@ _DOWNLOAD_LIMITER_POST = RateLimiter(max_attempts=10, window_seconds=60)
 
 
 class DownloadPayload(TypedDict):
-    """Validated parameters for a single Radarr/Sonarr download submission."""
+    """Validated parameters for a single Radarr/Sonarr download submission.
 
-    conn: sqlite3.Connection
+    Execution context (``conn``) is passed separately as an explicit
+    function parameter rather than stored here — TypedDicts model
+    serialisable data shapes, not runtime execution contexts (§5.3/§5.5).
+    """
+
     token: str
     title: str
     tmdb_id: int | None
@@ -109,13 +113,17 @@ def _record_and_respond(
     )
 
 
-def _submit_to_radarr(payload: DownloadPayload) -> JSONResponse:
+def _submit_to_radarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSONResponse:
     """Add a movie to Radarr and return the poll-token response.
 
     Returns a JSONResponse directly.  Raises :exc:`SafeHTTPError` on Arr-level
     failures so the caller's except clause can handle 409/422 uniformly.
+
+    Args:
+        payload: Validated download parameters.
+        conn:    Open SQLite connection; passed explicitly rather than carried
+                 inside the TypedDict so ``DownloadPayload`` stays serialisable (M9).
     """
-    conn = payload["conn"]
     token = payload["token"]
     title = payload["title"]
     tmdb_id = payload["tmdb_id"]
@@ -162,13 +170,17 @@ def _submit_to_radarr(payload: DownloadPayload) -> JSONResponse:
     )
 
 
-def _submit_to_sonarr(payload: DownloadPayload) -> JSONResponse:
+def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSONResponse:
     """Add a series to Sonarr and return the poll-token response.
 
     Returns a JSONResponse directly.  Raises :exc:`SafeHTTPError` on Arr-level
     failures so the caller's except clause can handle 409/422 uniformly.
+
+    Args:
+        payload: Validated download parameters.
+        conn:    Open SQLite connection; passed explicitly rather than carried
+                 inside the TypedDict so ``DownloadPayload`` stays serialisable (M9).
     """
-    conn = payload["conn"]
     token = payload["token"]
     title = payload["title"]
     tmdb_id = payload["tmdb_id"]
@@ -281,11 +293,13 @@ def _claim_token(token: str, exp_value: float) -> JSONResponse | None:
 
 
 def _build_dl_payload(
-    conn: sqlite3.Connection, token: str, payload: DownloadTokenPayload, secret_key: str
+    token: str, payload: DownloadTokenPayload, secret_key: str
 ) -> tuple[DownloadPayload, str, bool]:
     """Extract fields from the token payload and build a DownloadPayload.
 
-    Returns (dl_payload, media_type, is_redownload).
+    Returns (dl_payload, media_type, is_redownload).  The DB connection is
+    not included — it is passed as an explicit parameter to the submit helpers
+    so ``DownloadPayload`` remains a purely-data TypedDict (M9).
     """
     title = payload.get("title", "")
     media_type = payload.get("mt", "")
@@ -301,7 +315,6 @@ def _build_dl_payload(
         f"Re-downloaded{by_clause}" if is_redownload else f"Downloaded '{title}'{by_clause}"
     )
     dl_payload: DownloadPayload = {
-        "conn": conn,
         "token": token,
         "title": title,
         "tmdb_id": tmdb_id,
@@ -394,7 +407,8 @@ def download_submit(request: Request, token: str) -> JSONResponse:
     if pre_err is not None:
         return pre_err
 
-    assert payload is not None
+    if payload is None:  # _validate_token_request guarantees one or the other
+        raise RuntimeError("payload is None after validate_token_request — invariant violated")
     exp_value = payload.get("exp", 0)
     # Phase 1 of the 2-phase reservation: claim the token in the DB
     # *before* doing any Arr work.
@@ -402,17 +416,15 @@ def download_submit(request: Request, token: str) -> JSONResponse:
     if claim_err is not None:
         return claim_err
 
-    dl_payload, media_type, is_redownload = _build_dl_payload(
-        conn, token, payload, config.secret_key
-    )
+    dl_payload, media_type, is_redownload = _build_dl_payload(token, payload, config.secret_key)
     title = dl_payload["title"]
     tmdb_id = dl_payload["tmdb_id"]
 
     try:
         if media_type == "movie":
-            result = _submit_to_radarr(dl_payload)
+            result = _submit_to_radarr(dl_payload, conn)
         else:
-            result = _submit_to_sonarr(dl_payload)
+            result = _submit_to_sonarr(dl_payload, conn)
         # Phase 2 (success): the Arr submission completed — leave the
         # reservation row in place so the token cannot be replayed.
         return result

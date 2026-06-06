@@ -31,12 +31,8 @@ from fastapi import Request
 from mediaman.core.time import now_iso as _now_iso
 from mediaman.core.time import now_utc
 from mediaman.db import get_db
-from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
 from mediaman.services.arr.state import (
-    ArrCaches,
-    build_radarr_cache,
-    build_sonarr_cache,
-    compute_download_state,
+    annotate_download_states,
 )
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.media_meta.omdb import fetch_ratings, get_omdb_key
@@ -54,6 +50,8 @@ _DISCOVER_TMDB_TTL_SECONDS = 3600
 _MAX_QUERY_LEN = 100
 _DISCOVER_CACHE_MAX_ENTRIES = 32
 
+# Per-process TMDB discover shelf cache; must be process-global to serve
+# cache hits across requests in the same worker without a DB round-trip (§8.5).
 _discover_cache: dict[str, tuple[float, list[dict[str, object]]]] = {}
 _discover_cache_lock = threading.Lock()
 
@@ -154,31 +152,10 @@ def _normalise_tmdb_item(item: dict[str, object]) -> dict[str, object] | None:
 
 
 def _annotate_states(results: list[dict[str, object]], request: Request) -> None:
+    """Delegate Arr-cache-build and download-state annotation to the service layer (§2.7)."""
     conn = get_db()
     secret_key = request.app.state.config.secret_key
-
-    try:
-        radarr_cache = build_radarr_cache(build_radarr_from_db(conn, secret_key))
-    except (_requests.RequestException, SafeHTTPError, sqlite3.Error):
-        logger.warning(
-            "Radarr cache build failed; Search results won't reflect Radarr state", exc_info=True
-        )
-        radarr_cache = build_radarr_cache(None)
-
-    try:
-        sonarr_cache = build_sonarr_cache(build_sonarr_from_db(conn, secret_key))
-    except (_requests.RequestException, SafeHTTPError, sqlite3.Error):
-        logger.warning(
-            "Sonarr cache build failed; Search results won't reflect Sonarr state", exc_info=True
-        )
-        sonarr_cache = build_sonarr_cache(None)
-
-    caches: ArrCaches = {**radarr_cache, **sonarr_cache}
-    for r in results:
-        tmdb_id = r.get("tmdb_id")
-        if tmdb_id and isinstance(tmdb_id, int):
-            media_type = r["media_type"]
-            r["download_state"] = compute_download_state(str(media_type), tmdb_id, caches)
+    annotate_download_states(results, conn, secret_key)
 
 
 # Wall-clock budget for the parallel ratings-enrichment fan-out. The previous
@@ -285,7 +262,7 @@ def _drain_futures(
     return pending_writes
 
 
-def _enrich_ratings(results: list[dict[str, object]], request: Request) -> None:
+def _stamp_omdb_ratings(results: list[dict[str, object]], request: Request) -> None:
     conn = get_db()
     secret_key = request.app.state.config.secret_key
     cutoff = (now_utc() - timedelta(days=_RATINGS_TTL_DAYS)).isoformat()

@@ -31,9 +31,9 @@ from ._enrichment import (
     _MAX_QUERY_LEN,
     _QUERY_LIMITER,
     _annotate_states,
-    _enrich_ratings,
     _fetch_discover_shelf,
     _normalise_tmdb_item,
+    _stamp_omdb_ratings,
 )
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)
     raw = page1 + page2
     shaped = [s for s in (_normalise_tmdb_item(x) for x in raw) if s is not None][:40]
     _annotate_states(shaped, request)
-    _enrich_ratings(shaped, request)
+    _stamp_omdb_ratings(shaped, request)
     return JSONResponse({"results": shaped})
 
 
@@ -150,7 +150,7 @@ def api_discover(request: Request, admin: str = Depends(get_current_admin)) -> J
 
     combined = trending + popular_movies + popular_tv
     _annotate_states(combined, request)
-    _enrich_ratings(combined, request)
+    _stamp_omdb_ratings(combined, request)
 
     return JSONResponse(
         {

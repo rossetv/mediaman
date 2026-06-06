@@ -93,7 +93,7 @@ class TestFetchRatingsWithOmdbKey:
 
 
 class TestEnrichRatingsThreadSafety:
-    """Smoke test: _enrich_ratings does not raise sqlite3.ProgrammingError.
+    """Smoke test: _stamp_omdb_ratings does not raise sqlite3.ProgrammingError.
 
     The full executor path is hard to test without real threads; this verifies
     that the omdb_key is resolved before workers are dispatched by checking that

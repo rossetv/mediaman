@@ -284,7 +284,7 @@ class SettingsUpdate(BaseModel):
             import zoneinfo
 
             zoneinfo.ZoneInfo(v)
-        except (KeyError, Exception) as exc:
+        except (KeyError, Exception) as exc:  # KeyError: unknown zone; Exception: zoneinfo errors
             raise ValueError(f"scan_timezone {v!r} is not a valid IANA timezone") from exc
         return v
 
