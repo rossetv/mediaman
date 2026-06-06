@@ -152,6 +152,7 @@ def validate_session(
     *,
     user_agent: str | None = None,
     client_ip: str | None = None,
+    request_supplied: bool | None = None,
 ) -> str | None:
     """Return the username for a valid, non-expired session token.
 
@@ -162,6 +163,17 @@ def validate_session(
     expired-row sweep).  This means a quiet stream of authenticated
     requests no longer blocks one another or competes with the
     scheduler for the WAL writer slot.
+
+    ``request_supplied`` is the fingerprint-binding fail-closed signal
+    (§1.11). When ``None`` (the default) it is inferred: a caller that
+    passes either ``user_agent`` or ``client_ip`` is treated as having a
+    request, and a caller that passes neither is treated as the
+    no-request overload — so a fingerprint-bound session can never be
+    validated through the contextless path without the binding being
+    enforced. Callers driven by a live request that may legitimately lack
+    both fields (a request with no UA *and* no resolvable IP) should pass
+    ``request_supplied=True`` explicitly. See
+    :func:`._validate._fingerprint_mismatch`.
     """
     if not token or not _SESSION_TOKEN_RE.fullmatch(token):
         return None
@@ -193,7 +205,19 @@ def validate_session(
 
     if _idle_expired(conn, row, last_dt, token_hash, now_dt):
         return None
-    if _fingerprint_mismatch(conn, row, token_hash, user_agent, client_ip):
+    # Infer the request signal when the caller did not pin it: passing any
+    # client context implies a request was the source. Passing neither is
+    # the contextless overload, which must fail closed for a bound session.
+    if request_supplied is None:
+        request_supplied = user_agent is not None or client_ip is not None
+    if _fingerprint_mismatch(
+        conn,
+        row,
+        token_hash,
+        user_agent,
+        client_ip,
+        request_supplied=request_supplied,
+    ):
         return None
 
     _maybe_refresh_last_used(conn, row, last_dt, token_hash, now_dt, now_iso)

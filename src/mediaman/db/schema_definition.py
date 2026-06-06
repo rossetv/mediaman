@@ -250,6 +250,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
 CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log(actor) WHERE actor IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_admin_sessions_expires ON admin_sessions(expires_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_sessions_token_hash ON admin_sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_username ON admin_sessions(username);
 CREATE INDEX IF NOT EXISTS idx_media_items_plex_library_id ON media_items(plex_library_id);
 CREATE INDEX IF NOT EXISTS idx_media_items_media_type ON media_items(media_type);
 CREATE INDEX IF NOT EXISTS idx_media_items_show_rating_key ON media_items(show_rating_key);

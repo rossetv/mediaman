@@ -103,6 +103,42 @@ class TestCreateUserCli:
             cli_mod.create_user_cli()
         assert excinfo.value.code == 2
 
+    def test_duplicate_username_exits_cleanly_without_traceback(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        """Creating an existing user must exit(1) with a clean message.
+
+        ``create_user`` raises ``UserExistsError`` (an ``Exception``
+        subclass, not ``ValueError``) on a duplicate, so the CLI must
+        catch it explicitly — otherwise the operator gets a raw
+        traceback instead of "Error: User 'x' already exists".
+        """
+        from mediaman.web.auth.password_hash import UserExistsError
+
+        _enable_config(monkeypatch, tmp_path)
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "mediaman-create-user",
+                "--username",
+                "alice",
+                "--password",
+                "Correct-Horse-Battery-9!",
+            ],
+        )
+
+        def fake_create_user(conn, username, password):
+            raise UserExistsError(f"User '{username}' already exists")
+
+        monkeypatch.setattr(cli_mod, "create_user", fake_create_user)
+
+        with pytest.raises(SystemExit) as excinfo:
+            cli_mod.create_user_cli()
+        assert excinfo.value.code == 1
+        err = capsys.readouterr().err
+        assert "already exists" in err
+
     def test_config_error_exits_cleanly(self, monkeypatch, tmp_path, capsys):
         """A missing MEDIAMAN_SECRET_KEY prints an actionable error — finding 21."""
         # Deliberately do NOT call _enable_config — load_config() will raise.

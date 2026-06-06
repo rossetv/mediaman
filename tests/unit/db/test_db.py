@@ -777,3 +777,89 @@ class TestFactories:
         assert action["notified"] is False
         # execute_at must be after scheduled_at.
         assert action["execute_at"] > action["scheduled_at"]
+
+
+class TestAdminSessionsHotPathIndexes:
+    """The session hot path keys on ``token_hash`` and ``username``.
+
+    ``validate_session`` selects by ``token_hash`` on every authenticated
+    request; logout-all, password-change, and delete-user filter by
+    ``username``. Both columns are non-PK, so without an index SQLite
+    full-scans ``admin_sessions`` per request. These tests pin the two
+    indexes that close that scan.
+    """
+
+    def test_token_hash_unique_index_present_on_fresh_db(self, db_path):
+        conn = init_db(str(db_path))
+        rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name=?",
+            ("idx_admin_sessions_token_hash",),
+        ).fetchall()
+        assert len(rows) == 1
+        conn.close()
+
+    def test_username_index_present_on_fresh_db(self, db_path):
+        conn = init_db(str(db_path))
+        rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name=?",
+            ("idx_admin_sessions_username",),
+        ).fetchall()
+        assert len(rows) == 1
+        conn.close()
+
+    def test_token_hash_index_is_unique(self, db_path):
+        conn = init_db(str(db_path))
+        index_list = conn.execute("PRAGMA index_list(admin_sessions)").fetchall()
+        by_name = {row["name"]: row for row in index_list}
+        assert by_name["idx_admin_sessions_token_hash"]["unique"] == 1
+        conn.close()
+
+    def test_multiple_null_token_hash_rows_do_not_break_unique_index(self, db_path):
+        """SQLite treats NULLs as distinct in a UNIQUE index.
+
+        Legacy rows may carry a NULL ``token_hash``; two such rows must
+        coexist rather than colliding on the UNIQUE index, otherwise the
+        idempotent re-apply on startup would fail on an existing DB.
+        """
+        conn = init_db(str(db_path))
+        conn.execute(
+            "INSERT INTO admin_users (username, password_hash, created_at) "
+            "VALUES ('alice', 'h', '2026-01-01T00:00:00+00:00')"
+        )
+        for token in ("tok-a", "tok-b"):
+            conn.execute(
+                "INSERT INTO admin_sessions "
+                "(token, username, created_at, expires_at, token_hash) "
+                "VALUES (?, 'alice', '2026-01-01T00:00:00+00:00', "
+                "'2026-01-02T00:00:00+00:00', NULL)",
+                (token,),
+            )
+        conn.commit()
+        count = conn.execute(
+            "SELECT COUNT(*) FROM admin_sessions WHERE token_hash IS NULL"
+        ).fetchone()[0]
+        assert count == 2
+        conn.close()
+
+    def test_real_token_hash_collision_is_rejected(self, db_path):
+        """A duplicate non-NULL ``token_hash`` must be refused by the index."""
+        conn = init_db(str(db_path))
+        conn.execute(
+            "INSERT INTO admin_users (username, password_hash, created_at) "
+            "VALUES ('alice', 'h', '2026-01-01T00:00:00+00:00')"
+        )
+        conn.execute(
+            "INSERT INTO admin_sessions "
+            "(token, username, created_at, expires_at, token_hash) "
+            "VALUES ('tok-a', 'alice', '2026-01-01T00:00:00+00:00', "
+            "'2026-01-02T00:00:00+00:00', 'sharedhash')"
+        )
+        conn.commit()
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "INSERT INTO admin_sessions "
+                "(token, username, created_at, expires_at, token_hash) "
+                "VALUES ('tok-b', 'alice', '2026-01-01T00:00:00+00:00', "
+                "'2026-01-02T00:00:00+00:00', 'sharedhash')"
+            )
+        conn.close()

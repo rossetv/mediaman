@@ -431,9 +431,8 @@ def admin_unlock_with_audit(
 
     Wraps :func:`admin_unlock` and :func:`security_event_or_raise` in a
     single ``BEGIN IMMEDIATE`` block so the unlock and the audit row
-    land together — if the audit insert fails, the unlock rolls back
-    so the unlock and the audit row land together — if the audit insert
-    fails, the unlock rolls back. Returns the value of
+    land together — if the audit insert fails, the unlock rolls back.
+    Returns the value of
     :func:`admin_unlock` so the caller knows whether there was a lock
     to clear.
     """

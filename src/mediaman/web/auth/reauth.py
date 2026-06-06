@@ -343,7 +343,7 @@ def revoke_reauth_by_hash_in_tx(conn: sqlite3.Connection, token_hash: str) -> No
     expected to have already opened a ``BEGIN IMMEDIATE`` and will
     issue the COMMIT itself.  Lets the session-store delete the
     session row and revoke the matching reauth ticket inside a single
-    atomic transaction so a failure on either side rolls both back
+    atomic transaction so a failure on either side rolls both back.
     Without this single-transaction approach the session could be
     deleted but the ticket left alive if the reauth side failed,
     leaving a replayable ticket for a session that no longer exists.

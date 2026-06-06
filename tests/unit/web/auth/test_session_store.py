@@ -51,8 +51,10 @@ class TestValidateSessionReadOnlyByDefault:
         """
         token = create_session(conn, "alice", user_agent="ua", client_ip="1.2.3.4")
         # First call: refresh window has just passed creation, so a
-        # write happens to stamp last_used_at.
-        assert validate_session(conn, token) == "alice"
+        # write happens to stamp last_used_at. Pass the matching client
+        # context so the fingerprint-bound session validates (the binding
+        # fails closed without it).
+        assert validate_session(conn, token, user_agent="ua", client_ip="1.2.3.4") == "alice"
         first_last_used = conn.execute(
             "SELECT last_used_at FROM admin_sessions WHERE token_hash = ?",
             (_hash_token(token),),
@@ -60,7 +62,7 @@ class TestValidateSessionReadOnlyByDefault:
 
         # Second call in immediate succession: the throttle blocks the
         # refresh, so last_used_at must not change.
-        assert validate_session(conn, token) == "alice"
+        assert validate_session(conn, token, user_agent="ua", client_ip="1.2.3.4") == "alice"
         second_last_used = conn.execute(
             "SELECT last_used_at FROM admin_sessions WHERE token_hash = ?",
             (_hash_token(token),),
@@ -226,6 +228,56 @@ class TestValidateSession:
         conn.execute("UPDATE admin_sessions SET last_used_at = ?", (past,))
         conn.commit()
         assert validate_session(conn, token) is None
+
+
+class TestFingerprintFailsClosedWithoutRequest:
+    """A fingerprint-bound session validated with no request must be rejected.
+
+    The binding is a security control. Validating through the
+    ``request=None`` overload (signalled to ``validate_session`` by the
+    default ``request_supplied=False``) cannot verify the binding, so a
+    bound session is rejected rather than silently passed — closing the
+    fail-open path where a stolen cookie replayed without a request would
+    bypass the binding (§1.11).
+    """
+
+    def test_bound_session_rejected_when_no_request_supplied(self, conn, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_FINGERPRINT_MODE", "strict")
+        token = create_session(conn, "alice", user_agent="UA-1", client_ip="1.1.1.1")
+        # request_supplied defaults to False — the binding cannot be verified.
+        assert validate_session(conn, token) is None
+        # The bound session is evicted; even a correct later replay fails.
+        assert (
+            validate_session(
+                conn, token, user_agent="UA-1", client_ip="1.1.1.1", request_supplied=True
+            )
+            is None
+        )
+
+    def test_fingerprint_mode_off_still_validates_without_request(self, conn, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_FINGERPRINT_MODE", "off")
+        token = create_session(conn, "alice", user_agent="UA-1", client_ip="1.1.1.1")
+        # Mode off means no binding is stored or checked — must validate.
+        assert validate_session(conn, token) == "alice"
+
+    def test_legacy_unbound_session_validates_without_request(self, conn, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_FINGERPRINT_MODE", "strict")
+        # A row with no stored fingerprint (legacy / created without context):
+        # nothing to bind to, so a no-request validate must still succeed.
+        token = create_session(conn, "alice")
+        row = conn.execute("SELECT fingerprint FROM admin_sessions").fetchone()
+        assert not row["fingerprint"]
+        assert validate_session(conn, token) == "alice"
+
+    def test_bound_session_validates_with_request_and_matching_fingerprint(self, conn, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_FINGERPRINT_MODE", "strict")
+        token = create_session(conn, "alice", user_agent="UA-1", client_ip="1.1.1.1")
+        assert (
+            validate_session(
+                conn, token, user_agent="UA-1", client_ip="1.1.1.1", request_supplied=True
+            )
+            == "alice"
+        )
 
 
 # ---------------------------------------------------------------------------

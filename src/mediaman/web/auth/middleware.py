@@ -94,6 +94,7 @@ def resolve_cached_session(
         token,
         user_agent=user_agent,
         client_ip=client_ip,
+        request_supplied=request is not None,
     )
     if request is not None:
         setattr(request.state, _SESSION_CACHE_ATTR, (token, username))
@@ -142,8 +143,11 @@ def get_optional_admin_from_token(
     """Non-FastAPI entrypoint for "validate a session, nullable".
 
     Used where the token is already pulled out of cookies manually
-    (e.g. keep-page admin gating). Fingerprint binding is best-effort:
-    if no request is supplied we skip the UA/IP check.
+    (e.g. keep-page admin gating). Fingerprint binding fails closed: if a
+    fingerprint-bound session is validated without a request (no UA/IP),
+    the binding cannot be verified and the session is rejected rather than
+    silently passed. Supply ``request`` for any caller that must validate
+    a fingerprinted session.
     """
     if not session_token:
         return None
