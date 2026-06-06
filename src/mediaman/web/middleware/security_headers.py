@@ -197,8 +197,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             response.headers.setdefault(name, value)
         response.headers.setdefault("Content-Security-Policy", _build_csp(nonce))
         # Hide server banner (FastAPI/uvicorn leaks nothing sensitive,
-        # but there's no reason to advertise).
-        response.headers["Server"] = "mediaman"
+        # but there's no reason to advertise). ``setdefault`` for
+        # consistency with every other header here (L2) — a handler that
+        # deliberately set its own ``Server`` value is left untouched.
+        response.headers.setdefault("Server", "mediaman")
         # Cache-Control: no-store, private on every authenticated /api
         # response so a misconfigured reverse proxy / CDN cannot serve
         # one user's data to another. Static

@@ -72,9 +72,8 @@ class ForcePasswordChangeMiddleware(BaseHTTPMiddleware):
         # to keep this middleware testable in isolation.
         try:
             from mediaman.db import get_db
-            from mediaman.services.rate_limit import get_client_ip
+            from mediaman.web.auth.middleware import resolve_cached_session
             from mediaman.web.auth.password_hash import user_must_change_password
-            from mediaman.web.auth.session_store import validate_session
         except ImportError:
             # If the DB / auth submodules cannot even be imported the whole
             # app is in a broken state — the middleware cannot meaningfully
@@ -87,14 +86,15 @@ class ForcePasswordChangeMiddleware(BaseHTTPMiddleware):
         except RuntimeError:
             return await call_next(request)
 
-        user_agent = request.headers.get("user-agent", "")
-        client_ip = get_client_ip(request)
-        username = validate_session(
-            conn,
-            token,
-            user_agent=user_agent,
-            client_ip=client_ip,
-        )
+        # Resolve the session ONCE and cache it on ``request.state`` so the
+        # downstream route dependency (``get_current_admin`` /
+        # ``resolve_page_session``) reuses this result instead of running a
+        # second full ``validate_session`` — two SELECTs, two potential
+        # ``last_used_at`` writes, two fingerprint computations per
+        # authenticated request (H6). The UA-empty handling is unified with
+        # the dependencies (``or None``) so BOTH passes feed identical
+        # fingerprint inputs and cannot disagree (one evicting, one not).
+        username = resolve_cached_session(request, conn, token)
         if username is None:
             return await call_next(request)
 

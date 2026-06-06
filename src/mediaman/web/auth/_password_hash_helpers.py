@@ -38,9 +38,16 @@ _LOG_FIELD_RE = _re.compile(r"[^A-Za-z0-9._@\-]")
 
 
 def _sanitise_log_field(value: str, limit: int = 64) -> str:
-    """Strip non-safe characters from *value* and truncate to *limit*."""
-    truncated = len(value) > limit
-    sanitised = _LOG_FIELD_RE.sub("", value)[:limit]
+    """Strip non-safe characters from *value* and truncate to *limit*.
+
+    The truncation marker is decided on the POST-sanitise length (L7): an
+    all-symbol input that sanitises to empty must not get a misleading
+    ``"..."`` suffix, and the ``"..."`` only appears when genuine
+    characters were dropped by the length cap.
+    """
+    cleaned = _LOG_FIELD_RE.sub("", value)
+    truncated = len(cleaned) > limit
+    sanitised = cleaned[:limit]
     return sanitised + "..." if truncated else sanitised
 
 
@@ -114,9 +121,22 @@ _DUMMY_HASH_LOCK = threading.Lock()
 
 
 def _get_dummy_hash() -> bytes:
-    """Lazily compute the bcrypt dummy hash the first time it's needed."""
+    """Lazily compute the bcrypt dummy hash the first time it's needed.
+
+    The ~150 ms bcrypt computation runs OUTSIDE the lock (L6, §8.7 — locks
+    stay narrow): a fast double-checked read returns the cached value
+    when present, otherwise the hash is computed lock-free and the lock is
+    held only to publish the result. Two cold-start callers may each
+    compute a (different but equivalent) dummy hash; the first to take the
+    lock wins and the loser's value is discarded — harmless, since any
+    valid bcrypt hash of the dummy serves the constant-time purpose.
+    """
     global _DUMMY_HASH
+    cached = _DUMMY_HASH
+    if cached is not None:
+        return cached
+    computed = bcrypt.hashpw(b"dummy", bcrypt.gensalt(rounds=BCRYPT_ROUNDS))
     with _DUMMY_HASH_LOCK:
         if _DUMMY_HASH is None:
-            _DUMMY_HASH = bcrypt.hashpw(b"dummy", bcrypt.gensalt(rounds=BCRYPT_ROUNDS))
+            _DUMMY_HASH = computed
         return _DUMMY_HASH

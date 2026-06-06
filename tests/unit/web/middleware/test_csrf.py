@@ -657,3 +657,128 @@ class TestCsrfExemptPrefix:
             c.post("/unsubscribe/confirm", headers={"Origin": "http://testserver"}).status_code
             == 200
         )
+
+
+# ---------------------------------------------------------------------------
+# H4 — empty/unresolvable host fails closed for cookie-authenticated requests
+# ---------------------------------------------------------------------------
+
+
+class TestEmptyExpectedHostFailsClosed:
+    """H4: if the request's own host cannot be resolved (empty netloc) or
+    the Origin/Referer is malformed, two empty strings must NOT compare
+    equal as a "match". A cookie-authenticated state-changing request in
+    that situation is rejected, never waved through.
+    """
+
+    def test_malformed_origin_with_cookie_is_rejected(self):
+        """A malformed Origin header normalises to an empty host; with a
+        session cookie present this must 403, not slip past on ``"" == ""``.
+        """
+        client = TestClient(_make_app(), base_url="http://testserver")
+        client.cookies.set("session_token", "tok")
+        resp = client.post("/api/thing", headers={"Origin": "http://[::bad"})
+        assert resp.status_code == 403
+
+    def test_empty_expected_host_with_cookie_rejected(self, monkeypatch):
+        """When ``_normalise_origin`` resolves the request host to empty,
+        a cookie-authenticated mutating request is rejected outright."""
+        import mediaman.web.middleware.csrf as csrf_mod
+
+        # Force the expected-host resolution to empty regardless of input.
+        monkeypatch.setattr(csrf_mod, "_normalise_origin", lambda *a, **k: ("", ""))
+        client = TestClient(_make_app(), base_url="http://testserver")
+        client.cookies.set("session_token", "tok")
+        resp = client.post("/api/thing", headers={"Origin": "http://testserver"})
+        assert resp.status_code == 403
+
+    def test_empty_expected_host_without_cookie_passes(self, monkeypatch):
+        """No session cookie → no CSRF exposure even if the host is
+        unresolvable; the request is a non-browser API client."""
+        import mediaman.web.middleware.csrf as csrf_mod
+
+        monkeypatch.setattr(csrf_mod, "_normalise_origin", lambda *a, **k: ("", ""))
+        client = TestClient(_make_app(), base_url="http://testserver")
+        resp = client.post("/api/thing", headers={"Origin": "http://testserver"})
+        assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# H5 — scheme tightening on HTTPS requests with a session cookie
+# ---------------------------------------------------------------------------
+
+
+class TestSchemeTighteningOnHttps:
+    """H5: when a session cookie is present AND the request resolves as
+    HTTPS, the Origin/Referer scheme must also be HTTPS — closing the
+    same-host scheme-downgrade hole — WITHOUT breaking the documented
+    reverse-proxy http case (request resolves as http → host-only).
+    """
+
+    def test_http_origin_on_https_request_with_cookie_rejected(self):
+        """Same host but http:// Origin against an https request carrying a
+        session cookie is rejected (scheme downgrade)."""
+        client = TestClient(_make_app(), base_url="https://testserver")
+        client.cookies.set("session_token", "tok")
+        resp = client.post("/api/thing", headers={"Origin": "http://testserver"})
+        assert resp.status_code == 403
+
+    def test_https_origin_on_https_request_with_cookie_allowed(self):
+        """Matching https:// Origin on an https request passes."""
+        client = TestClient(_make_app(), base_url="https://testserver")
+        client.cookies.set("session_token", "tok")
+        resp = client.post("/api/thing", headers={"Origin": "https://testserver"})
+        assert resp.status_code == 200
+
+    def test_http_origin_on_http_request_still_allowed_proxy_case(self):
+        """The documented reverse-proxy case: request resolves as http
+        (uvicorn behind a TLS-terminating proxy that didn't rewrite the
+        scheme) — the check stays host-only so an https Origin still
+        matches and the deployment is not broken."""
+        client = TestClient(_make_app(), base_url="http://testserver")
+        client.cookies.set("session_token", "tok")
+        # Browser is actually on https and sends https Origin; request
+        # resolves as http. Host matches → allowed (host-only).
+        resp = client.post("/api/thing", headers={"Origin": "https://testserver"})
+        assert resp.status_code == 200
+
+    def test_http_origin_on_https_request_without_cookie_allowed(self):
+        """No session cookie → no cookie-riding CSRF exposure, so the
+        scheme tightening does not apply (host-only)."""
+        client = TestClient(_make_app(), base_url="https://testserver")
+        resp = client.post("/api/thing", headers={"Origin": "http://testserver"})
+        assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# M10 — exempt-route matcher is anchored (function-level pin, §10.11)
+# ---------------------------------------------------------------------------
+
+
+class TestExemptMatcherIsAnchored:
+    """M10: pin the ``_csrf_route_is_exempt`` matcher directly so the
+    ``^.../[^/]+$`` anchoring (single-segment only, no nested paths) is
+    guaranteed independently of the middleware wiring.
+    """
+
+    def test_single_segment_token_is_exempt(self):
+        from mediaman.web.middleware.csrf import _csrf_route_is_exempt
+
+        assert _csrf_route_is_exempt("POST", "/download/abc123") is True
+        assert _csrf_route_is_exempt("POST", "/keep/abc123") is True
+        assert _csrf_route_is_exempt("POST", "/unsubscribe") is True
+
+    def test_nested_path_is_not_exempt(self):
+        from mediaman.web.middleware.csrf import _csrf_route_is_exempt
+
+        assert _csrf_route_is_exempt("POST", "/download/a/b") is False
+        assert _csrf_route_is_exempt("POST", "/keep/a/b") is False
+        assert _csrf_route_is_exempt("POST", "/keep/abc/forever") is False
+        assert _csrf_route_is_exempt("POST", "/unsubscribe/all") is False
+
+    def test_wrong_method_is_not_exempt(self):
+        from mediaman.web.middleware.csrf import _csrf_route_is_exempt
+
+        # The allowlist is (method, pattern) — a DELETE on an exempt path
+        # is NOT exempt.
+        assert _csrf_route_is_exempt("DELETE", "/download/abc123") is False

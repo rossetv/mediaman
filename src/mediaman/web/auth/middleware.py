@@ -1,8 +1,8 @@
 """FastAPI authentication dependency functions.
 
-Relocated from ``mediaman.auth.middleware`` to ``mediaman.web.auth.middleware``
-during the Ring-2 restructure.  Back-compat re-exports remain in
-:mod:`mediaman.auth.middleware` so existing imports continue to work.
+This module lives at ``mediaman.web.auth.middleware``. The old
+``mediaman.auth.middleware`` path was removed in the Ring-2 restructure —
+there is no back-compat shim, so import the dependencies from here.
 
 Exports four FastAPI/callable dependency functions that all callers should
 prefer over raw ``validate_session`` calls — they guarantee fingerprint
@@ -50,6 +50,55 @@ from mediaman.web.auth.session_store import validate_session
 # Alias for the resolve_page_session return union, used for type annotations at call sites.
 PageSession = tuple[str, sqlite3.Connection] | RedirectResponse
 
+#: Attribute name under which the resolved-session cache is stashed on
+#: ``request.state``. Stored as a ``(token, username | None)`` tuple so a
+#: stale entry for a different token is never reused.
+_SESSION_CACHE_ATTR = "_mm_resolved_session"
+
+
+def resolve_cached_session(
+    request: Request | None,
+    conn: sqlite3.Connection,
+    token: str,
+) -> str | None:
+    """Validate *token* once per request, caching the result on ``request.state``.
+
+    A cookie-bearing request is validated by the
+    ``ForcePasswordChangeMiddleware`` AND again by the route dependency.
+    Without this cache that is two full ``validate_session`` passes — two
+    SELECTs, two potential ``last_used_at`` writes, two fingerprint
+    computations — and, worse, a fingerprint-eviction race if the two
+    call sites feed different inputs (H6).
+
+    The cache key is the raw token: if the same request somehow carries a
+    different token at the second call site the cache is bypassed and a
+    fresh validation runs. The UA/IP fingerprint inputs are derived here,
+    once, with the unified ``or None`` empty-handling so every caller sees
+    identical inputs.
+    """
+    if request is not None:
+        cached = getattr(request.state, _SESSION_CACHE_ATTR, None)
+        if cached is not None and cached[0] == token:
+            username: str | None = cached[1]
+            return username
+
+    if request is not None:
+        user_agent = request.headers.get("user-agent") or None
+        client_ip = get_client_ip(request) or None
+    else:
+        user_agent = None
+        client_ip = None
+
+    username = validate_session(
+        conn,
+        token,
+        user_agent=user_agent,
+        client_ip=client_ip,
+    )
+    if request is not None:
+        setattr(request.state, _SESSION_CACHE_ATTR, (token, username))
+    return username
+
 
 def get_current_admin(
     request: Request,
@@ -57,25 +106,16 @@ def get_current_admin(
 ) -> str:
     """FastAPI dependency — returns username or raises 401.
 
-    Passes the current request's ``User-Agent`` and client IP into
-    ``validate_session`` so session fingerprint binding is enforced on
-    every request. Uniform ``Not authenticated`` error (no separate
-    "Session expired" leak).
+    Reuses the request-scoped session cache (populated by the
+    force-password-change middleware) so a cookie-bearing request is
+    validated only ONCE; on a cache miss it validates with the same
+    unified ``or None`` UA/IP fingerprint inputs. Uniform
+    ``Not authenticated`` error (no separate "Session expired" leak).
     """
     if not session_token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     conn = get_db()
-    # ``or None`` ensures an empty header is treated as missing. Previously
-    # we passed ``""`` through, which tripped the fingerprint check's
-    # ``is not None`` guard against a blank UA.
-    user_agent = request.headers.get("user-agent") or None
-    client_ip = get_client_ip(request) or None
-    username = validate_session(
-        conn,
-        session_token,
-        user_agent=user_agent,
-        client_ip=client_ip,
-    )
+    username = resolve_cached_session(request, conn, session_token)
     if username is None:
         raise HTTPException(status_code=401, detail="Not authenticated")
     return username
@@ -108,18 +148,7 @@ def get_optional_admin_from_token(
     if not session_token:
         return None
     conn = get_db()
-    if request is not None:
-        user_agent = request.headers.get("user-agent") or None
-        client_ip = get_client_ip(request) or None
-    else:
-        user_agent = None
-        client_ip = None
-    return validate_session(
-        conn,
-        session_token,
-        user_agent=user_agent,
-        client_ip=client_ip,
-    )
+    return resolve_cached_session(request, conn, session_token)
 
 
 def resolve_page_session(
@@ -135,14 +164,7 @@ def resolve_page_session(
     if not token:
         return RedirectResponse("/login", status_code=302)
     conn = get_db()
-    user_agent = request.headers.get("user-agent") or None
-    client_ip = get_client_ip(request) or None
-    username = validate_session(
-        conn,
-        token,
-        user_agent=user_agent,
-        client_ip=client_ip,
-    )
+    username = resolve_cached_session(request, conn, token)
     if username is None:
         return RedirectResponse("/login", status_code=302)
     return username, conn

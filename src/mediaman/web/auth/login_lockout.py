@@ -1,8 +1,8 @@
 # rationale: one cohesive security state machine — every function is part of
 # a single lockout protocol (table bootstrap, counter UPSERT, decay, escalation,
 # admin unlock + audit).  Splitting by layer (DDL / DML / public API) would
-# fragment the protocol without adding a navigable concept boundary; the 416
-# lines are under the 500-line ceiling and the file owns exactly one concept.
+# fragment the protocol without adding a navigable concept boundary; the file
+# is comfortably under the 500-line ceiling and owns exactly one concept.
 """Persistent per-username login lockout.
 
 The existing rate limiter in :mod:`mediaman.web.auth.rate_limit` is per-IP
@@ -57,8 +57,9 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import cast
 
-from mediaman.core.time import now_utc
+from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.core.time import parse_iso_utc as _parse_iso
+from mediaman.web.auth._password_hash_helpers import _sanitise_log_field
 
 logger = logging.getLogger(__name__)
 
@@ -92,12 +93,27 @@ def _iso(dt: datetime) -> str:
     return dt.isoformat()
 
 
-def _ensure_table(conn: sqlite3.Connection) -> None:
-    """Create the login_failures table if it isn't there yet.
+#: Per-connection guard so the ``CREATE TABLE IF NOT EXISTS`` backstop
+#: runs at most ONCE per distinct connection object instead of on every
+#: auth operation (M6). Production schema is created by ``init_db``
+#: (§9.1/§9.11); this DDL is only a backstop for tests / legacy DBs that
+#: spin up a bare connection without running migrations. ``id(conn)`` is
+#: stable for the lifetime of the connection and the set is bounded by
+#: the small number of live connections, so this never leaks meaningfully.
+_ENSURED_TABLE_CONN_IDS: set[int] = set()
 
-    The v12 migration in :mod:`mediaman.db` creates this, but tests and
-    legacy DBs may skip the migration — keep the check cheap and local.
+
+def _ensure_table(conn: sqlite3.Connection) -> None:
+    """Create the login_failures table if it isn't there yet (once per conn).
+
+    The migration in :mod:`mediaman.db` creates this in production, but
+    tests and legacy DBs may skip the migration — so keep a cheap local
+    backstop. To avoid re-issuing a write-locking ``CREATE TABLE`` DDL on
+    every authenticated request (M6), the DDL runs at most once per
+    distinct connection.
     """
+    if id(conn) in _ENSURED_TABLE_CONN_IDS:
+        return
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS login_failures (
@@ -108,6 +124,7 @@ def _ensure_table(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    _ENSURED_TABLE_CONN_IDS.add(id(conn))
 
 
 def is_locked_out(conn: sqlite3.Connection, username: str) -> bool:
@@ -116,12 +133,18 @@ def is_locked_out(conn: sqlite3.Connection, username: str) -> bool:
     Does not mutate state. Intended to be called before the password
     check so a locked account short-circuits bcrypt entirely.
 
-    ``username`` is normalised to lowercase before the lookup so that
-    ``Admin`` and ``admin`` share the same failure counter.
+    The *username* is used verbatim as the lockout key — NOT lowercased.
+    ``admin_users.username`` is a case-sensitive column (no ``NOCASE``
+    collation), so the credential lookup in ``_verify_credentials_against_db``
+    matches case-sensitively. Lowercasing the lockout key here would
+    desynchronise the two: ``Admin`` and ``admin`` would share one
+    counter but be two distinct rows, enabling a cross-case lockout-DoS
+    (lock ``Admin`` to lock out the real ``admin``) and a success-path
+    counter mismatch. Keep the lockout key identical to the authentication
+    boundary's identity.
     """
     if not username:
         return False
-    username = username.lower()
     _ensure_table(conn)
     row = conn.execute(
         "SELECT locked_until FROM login_failures WHERE username = ?",
@@ -129,9 +152,23 @@ def is_locked_out(conn: sqlite3.Connection, username: str) -> bool:
     ).fetchone()
     if row is None:
         return False
-    locked_until = _parse_iso(row["locked_until"])
-    if locked_until is None:
+    raw_locked_until = row["locked_until"]
+    # A NULL/empty ``locked_until`` is the legitimate "counted failures
+    # but no active lock" state — not locked.
+    if not raw_locked_until:
         return False
+    # Strict parse + fail-closed (M4): a NON-EMPTY but unparseable
+    # ``locked_until`` is treated as STILL LOCKED, consistent with the
+    # session-store B1 fix. An attacker who could corrupt the stored value
+    # must not be able to escape the lock by garbling it.
+    locked_until = parse_iso_strict_utc(raw_locked_until)
+    if locked_until is None:
+        logger.warning(
+            "auth.lockout_corrupt_locked_until user=%s locked_until=%r reason=fail_closed",
+            _sanitise_log_field(username),
+            raw_locked_until,
+        )
+        return True
     return not locked_until <= _now()
 
 
@@ -272,7 +309,7 @@ def _apply_lockout(
             )
             logger.warning(
                 "auth.account_locked user=%s count=%d minutes=%d",
-                username,
+                _sanitise_log_field(username),
                 count,
                 minutes,
             )
@@ -280,7 +317,7 @@ def _apply_lockout(
             logger.info(
                 "auth.lock_window_unchanged user=%s count=%d minutes=%d "
                 "reason=already_locked_no_escalation",
-                username,
+                _sanitise_log_field(username),
                 count,
                 minutes,
             )
@@ -325,12 +362,12 @@ def record_failure(conn: sqlite3.Connection, username: str) -> int | None:
     still not exposed to the HTTP client — the caller translates the
     duration into a generic retry window).
 
-    ``username`` is normalised to lowercase before writing so that
-    ``Admin`` and ``admin`` share the same failure counter.
+    The *username* is used verbatim as the lockout key — NOT lowercased —
+    so the counter aligns with the case-sensitive ``admin_users.username``
+    lookup at the authentication boundary (see :func:`is_locked_out`).
     """
     if not username:
         return None
-    username = username.lower()
     _ensure_table(conn)
     now = _now()
     now_iso = _iso(now)
@@ -348,12 +385,11 @@ def record_failure(conn: sqlite3.Connection, username: str) -> int | None:
 def record_success(conn: sqlite3.Connection, username: str) -> None:
     """Clear the failure counter after a successful login.
 
-    ``username`` is normalised to lowercase to match the form written by
-    :func:`record_failure`.
+    The *username* is used verbatim — matching the key written by
+    :func:`record_failure` and looked up by :func:`is_locked_out`.
     """
     if not username:
         return
-    username = username.lower()
     _ensure_table(conn)
     conn.execute(
         "DELETE FROM login_failures WHERE username = ?",
@@ -375,7 +411,6 @@ def admin_unlock(conn: sqlite3.Connection, username: str) -> bool:
     """
     if not username:
         return False
-    username = username.lower()
     _ensure_table(conn)
     cur = conn.execute(
         "DELETE FROM login_failures WHERE username = ?",

@@ -102,6 +102,15 @@ def _cleanup_expired_with_commit(conn: sqlite3.Connection, now_iso: str) -> None
     The matching reauth tickets are also swept so the table cannot grow
     indefinitely with rows whose owning session is gone. The reauth sweep
     is best-effort — a failure here never aborts the session sweep.
+
+    M2: the ``expires_at < ?`` comparison is a LEXICOGRAPHIC string
+    compare, which only equals a chronological compare because every
+    stored ``expires_at`` uses the identical canonical format
+    ``now_utc().isoformat()`` → ``+00:00`` (no ``Z`` suffix, fixed offset
+    spelling, fixed fractional precision). ``create_session`` is the sole
+    writer and always uses that format, so the ordering is sound. A row
+    written with a different offset spelling (e.g. ``Z``) could mis-sort;
+    keep all writers on the canonical format.
     """
     _exec_with_commit(
         conn,

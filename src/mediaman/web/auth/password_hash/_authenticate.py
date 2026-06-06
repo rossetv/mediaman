@@ -36,10 +36,16 @@ def _short_circuit_authenticate(
     (empty username, or locked account). Returns ``None`` when the
     caller must continue with the bcrypt verification path.
 
-    The locked branch still bumps :func:`record_failure` so the
-    escalation thresholds (5 → 10 → 15 failures → 15 min / 1 h / 24 h)
-    remain reachable while the lock window is active — see C6 in
-    ``test_login_lockout.py``.
+    The locked branch ALWAYS bumps :func:`record_failure` — regardless
+    of *record_failures* — so the escalation thresholds
+    (5 → 10 → 15 failures → 15 min / 1 h / 24 h) remain reachable on
+    every authentication path, including callers that pass
+    ``record_failures=False`` (``verify_reauth_password``,
+    ``_authorise_password_change``). See C6 in ``test_login_lockout.py``.
+    The *record_failures* flag governs only the bcrypt-verify path's
+    decision to count a wrong-password attempt; once an account is
+    already locked, counting the continued hammering is what keeps the
+    anti-DoS band-promotion design reachable, so it must not be skipped.
     """
     from mediaman.web.auth.login_lockout import is_locked_out, record_failure
 
@@ -53,10 +59,11 @@ def _short_circuit_authenticate(
     # Check lockout first. A locked account already has a "no" answer
     # without re-running bcrypt — skip the dummy round and save the
     # CPU. record_failure keeps acquiring the writer lock, which is
-    # the price of the escalation property.
+    # the price of the escalation property — and it runs unconditionally
+    # here so escalation bands stay reachable on the ``record_failures=False``
+    # paths too (H2).
     if is_locked_out(conn, username):
-        if record_failures:
-            record_failure(conn, username)
+        record_failure(conn, username)
         logger.warning("auth.account_locked user=%s reason=lockout_active", username)
         return False
 

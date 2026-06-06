@@ -282,3 +282,91 @@ class TestVerifyReauthPassword:
             (f"{REAUTH_LOCKOUT_PREFIX}alice",),
         ).fetchone()
         assert ns_row is None
+
+
+class TestMaxAgeClamp:
+    def test_negative_max_age_is_clamped_to_zero(self, conn, freezer):
+        """M7: a negative ``max_age_seconds`` is clamped to 0 (strictest),
+        NOT treated as an unbounded/garbage window.
+
+        With the clock frozen the ticket's age is exactly 0, so a window
+        clamped to 0 still accepts it — proving the clamp lands at 0 rather
+        than rejecting outright or wrapping to a huge value.
+        """
+        token = "a" * 64
+        grant_recent_reauth(conn, token, "alice")
+        # Same frozen instant → age 0 → accepted at the clamped-to-0 window.
+        assert has_recent_reauth(conn, token, "alice", max_age_seconds=-9999) is True
+
+    def test_negative_max_age_rejects_an_aged_ticket(self, conn, freezer):
+        """A negative window clamped to 0 rejects any ticket with non-zero
+        age."""
+        token = "b" * 64
+        grant_recent_reauth(conn, token, "alice")
+        freezer.tick(timedelta(seconds=1))
+        assert has_recent_reauth(conn, token, "alice", max_age_seconds=-1) is False
+
+
+class TestUsernameReuseCannotInheritTicket:
+    """H3: a reauth ticket is bound to ``session_token_hash`` + the
+    (reusable) username string, not an immutable user id. The guarantee
+    that a *reused* username cannot inherit a prior user's ticket rests on
+    every user-deletion / session-purge path revoking the tickets by
+    username. These tests pin that revoke-on-delete contract.
+    """
+
+    def test_delete_user_revokes_reauth_tickets(self, conn):
+        """``delete_user`` must revoke the deleted user's reauth tickets so
+        a later same-name user cannot redeem a stale ticket."""
+        from mediaman.web.auth.password_hash import delete_user
+
+        # alice already exists (fixture); add a second admin so the
+        # last-admin guard does not block deleting alice.
+        create_user(conn, "carol", "carol-pass-1234", enforce_policy=False)
+        token = "c" * 64
+        grant_recent_reauth(conn, token, "alice")
+        assert has_recent_reauth(conn, token, "alice") is True
+
+        alice_id = conn.execute(
+            "SELECT id FROM admin_users WHERE username = ?", ("alice",)
+        ).fetchone()["id"]
+        assert delete_user(conn, alice_id, "carol") is True
+
+        # The ticket row is gone — a recreated "alice" cannot inherit it.
+        assert has_recent_reauth(conn, token, "alice") is False
+        leftover = conn.execute(
+            "SELECT COUNT(*) AS n FROM reauth_tickets WHERE username = ?",
+            ("alice",),
+        ).fetchone()["n"]
+        assert leftover == 0
+
+    def test_recreated_username_does_not_inherit_prior_ticket(self, conn):
+        """End-to-end: grant → delete alice → recreate alice → the old
+        ticket must NOT validate for the new user."""
+        from mediaman.web.auth.password_hash import delete_user
+
+        create_user(conn, "carol", "carol-pass-1234", enforce_policy=False)
+        token = "d" * 64
+        grant_recent_reauth(conn, token, "alice")
+
+        alice_id = conn.execute(
+            "SELECT id FROM admin_users WHERE username = ?", ("alice",)
+        ).fetchone()["id"]
+        assert delete_user(conn, alice_id, "carol") is True
+
+        # Recreate a brand-new "alice".
+        create_user(conn, "alice", "fresh-pass-5678", enforce_policy=False)
+        # The stale ticket must not carry over to the new identity.
+        assert has_recent_reauth(conn, token, "alice") is False
+
+    def test_destroy_all_sessions_for_revokes_reauth_tickets(self, conn):
+        """``destroy_all_sessions_for`` (forced password change / admin
+        purge) must also revoke the username's reauth tickets."""
+        from mediaman.web.auth.session_store import destroy_all_sessions_for
+
+        token = "e" * 64
+        grant_recent_reauth(conn, token, "alice")
+        assert has_recent_reauth(conn, token, "alice") is True
+
+        destroy_all_sessions_for(conn, "alice")
+        assert has_recent_reauth(conn, token, "alice") is False

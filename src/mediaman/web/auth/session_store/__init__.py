@@ -43,8 +43,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import TypedDict, cast
 
-from mediaman.core.time import now_utc
-from mediaman.core.time import parse_iso_utc as _parse_iso_aware
+from mediaman.core.time import now_utc, parse_iso_strict_utc
 from mediaman.crypto import generate_session_token
 from mediaman.web.auth._session_fingerprint import (
     _client_fingerprint,
@@ -59,12 +58,17 @@ from mediaman.web.auth.session_store._validate import (
     _maybe_sweep_expired,
     _parse_last_used,
 )
+from mediaman.web.auth.session_store._writes import _try_delete_session
 
-# ``_parse_iso_aware`` is now an alias for the canonical
-# :func:`mediaman.core.format.parse_iso_utc`. The forensic
-# ``_parse_last_used`` (in :mod:`._validate`) stays bespoke because it
-# must log a warning when a stored timestamp is corrupt — a side effect
-# the generic parser deliberately does not perform.
+# The hard-expiry parse uses the STRICT parser
+# (:func:`mediaman.core.time.parse_iso_strict_utc`), matching the idle
+# path (``_parse_last_used``). All session timestamps are written by this
+# package via ``now.isoformat()`` (canonical ``+00:00``), so the lenient
+# foreign-timestamp parser is wrong here — and treating an unparseable
+# expiry as "no expiry" would fail OPEN (an immortal session). The
+# forensic ``_parse_last_used`` (in :mod:`._validate`) stays bespoke
+# because it must log a warning when a stored timestamp is corrupt — a
+# side effect the generic parser deliberately does not perform.
 
 # Re-export so that ``session.py`` and tests can import these from the
 # canonical ``session_store`` module path, and monkeypatches on
@@ -114,6 +118,13 @@ def create_session(
         mode,
         bool(fingerprint),
     )
+    # M3: the raw token is NEVER persisted (§10.2). The ``token`` PK column
+    # stores the SHA-256 ``token_hash`` — the column is named ``token`` for
+    # legacy-schema reasons (see the schema TODO) and ``token_hash`` is a
+    # redundant duplicate kept only until the legacy PK can be renamed. Both
+    # columns therefore receive the SAME hash value here; any future code
+    # reading ``admin_sessions.token`` gets the hash, not the raw token.
+    # Schema change is destructive and deferred — this is documentation only.
     conn.execute(
         "INSERT INTO admin_sessions "
         "(token, token_hash, username, created_at, expires_at, last_used_at, "
@@ -162,8 +173,20 @@ def validate_session(
     row = _fetch_session_row(conn, token_hash)
     if row is None:
         return None
-    expires_dt = _parse_iso_aware(row["expires_at"])
-    if expires_dt is not None and expires_dt < now_dt:
+    # Hard-expiry check fails CLOSED: an unparseable/empty ``expires_at``
+    # is treated as expired (corrupt row, half-written value, schema
+    # drift) rather than as "never expires". This mirrors the idle path's
+    # corrupt-timestamp handling — an immortal session is the single worst
+    # outcome for the most important session control.
+    expires_dt = parse_iso_strict_utc(row["expires_at"])
+    if expires_dt is None or expires_dt < now_dt:
+        if expires_dt is None:
+            logger.info(
+                "session.hard_expiry_unparseable user=%s expires_at=%r",
+                row["username"],
+                row["expires_at"],
+            )
+        _try_delete_session(conn, token_hash, reason="corrupt_expiry")
         return None
 
     last_dt: datetime | None = _parse_last_used(row["last_used_at"], row["username"])
@@ -193,14 +216,19 @@ def destroy_session(
     replayable for the rest of the ticket's TTL after the legitimate
     user has logged out.
 
-    The username lookup, session delete, and reauth-ticket delete are
-    wrapped in a single ``BEGIN IMMEDIATE`` transaction so a failure
-    on the reauth side rolls the session delete back too — there is
-    no longer a window where the session is gone but the ticket
-    survives.
+    The username lookup, session delete, reauth-ticket delete AND the
+    ``session.destroy`` audit row are wrapped in a single
+    ``BEGIN IMMEDIATE`` transaction. Session revocation is a REQUIRED
+    audit event (§7.5), so the audit insert is now fail-closed via
+    ``security_event_or_raise``: if it fails, the whole transaction rolls
+    back and the session delete is undone rather than leaving an
+    audit-free logout. The caller sees the ``sqlite3.Error`` and can
+    surface a generic failure, but the session is NOT silently dropped
+    without a trail.
     """
     # Local import to avoid the session_store -> reauth -> session
     # cycle at module load.
+    from mediaman.core.audit import security_event_or_raise
     from mediaman.web.auth.reauth import revoke_reauth_by_hash_in_tx
 
     token_hash = _hash_token(token)
@@ -219,25 +247,11 @@ def destroy_session(
             (token_hash,),
         )
         revoke_reauth_by_hash_in_tx(conn, token_hash)
+        # Audit-in-transaction (fail-closed): a logout whose audit row is
+        # lost is an audit-coverage gap for a security-relevant event.
+        security_event_or_raise(conn, event="session.destroy", actor=username, ip=ip)
 
     logger.info("session.destroyed user=%s ip=%s", username or "-", ip or "-")
-    # rationale: ``security_event`` swallows all exceptions internally and never
-    # propagates a DB error to this call site — it is a best-effort audit helper
-    # by design.  This ``except sqlite3.Error`` guard therefore protects the
-    # dynamic-import / call-dispatch path only (e.g. a module-load error before
-    # the function body executes).  Any such failure is logged visibly at ERROR
-    # so an operator can see the audit-coverage gap in production.  The session
-    # row is already deleted at this point, so re-raising would 500 a logout
-    # that has in fact succeeded — catching and logging is the correct behaviour.
-    # NOTE for the orchestrator: the rest of web/auth uses the transactional
-    # ``security_event_or_raise`` inside ``with conn:``; making logout
-    # fail-closed on audit is a larger, separately-scoped change.
-    try:
-        from mediaman.core.audit import security_event
-
-        security_event(conn, event="session.destroy", actor=username, ip=ip)
-    except sqlite3.Error:
-        logger.exception("session.destroy audit logging failed")
 
 
 def destroy_all_sessions_for(conn: sqlite3.Connection, username: str) -> int:

@@ -88,12 +88,21 @@ def _now() -> datetime:
     return now_utc()
 
 
-def _ensure_table(conn: sqlite3.Connection) -> None:
-    """Create the reauth_tickets table if it isn't there.
+#: Per-connection guard: the ``CREATE TABLE IF NOT EXISTS`` backstop runs
+#: at most ONCE per distinct connection (M6) instead of on every reauth
+#: grant/check/revoke. Production schema is created by ``init_db``
+#: (§9.1/§9.11); this DDL only backstops tests / legacy bare connections.
+_ENSURED_TABLE_CONN_IDS: set[int] = set()
 
-    The migration block in :mod:`mediaman.db.schema` creates it, but tests
-    spinning up a fresh connection may skip migrations on legacy paths —
-    keep the check cheap and idempotent.
+
+def _ensure_table(conn: sqlite3.Connection) -> None:
+    """Create the reauth_tickets table if it isn't there (once per conn).
+
+    The migration block in :mod:`mediaman.db.schema` creates it in
+    production, but tests spinning up a fresh connection may skip
+    migrations on legacy paths — so keep a cheap idempotent backstop. To
+    avoid re-issuing a write-locking ``CREATE TABLE`` on every reauth
+    operation (M6), the DDL runs at most once per distinct connection.
 
     The table does NOT carry a SQL foreign key to ``admin_sessions``
     because ``admin_sessions`` is keyed on the raw token while this table
@@ -106,6 +115,8 @@ def _ensure_table(conn: sqlite3.Connection) -> None:
     we missed; the SHA-256 primary key makes accidental reuse by a
     future session that happens to hash-collide vanishingly unlikely.
     """
+    if id(conn) in _ENSURED_TABLE_CONN_IDS:
+        return
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS reauth_tickets (
@@ -116,6 +127,7 @@ def _ensure_table(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    _ENSURED_TABLE_CONN_IDS.add(id(conn))
 
 
 def verify_reauth_password(
@@ -257,6 +269,13 @@ def has_recent_reauth(
         return False
     if max_age_seconds is None:
         max_age_seconds = reauth_window_seconds()
+    # Clamp a negative per-call window to 0 (M7) — the strictest possible.
+    # A negative value is meaningless as an "age" and would otherwise make
+    # ``now - granted > timedelta(seconds=max_age_seconds)`` reject every
+    # ticket; clamping to 0 makes the intent ("require a brand-new ticket")
+    # explicit. The stored ``expires_at`` check independently caps any
+    # absurdly LARGE value, so no upper clamp is needed here.
+    max_age_seconds = max(0, max_age_seconds)
     _ensure_table(conn)
     token_hash = _hash_token(session_token)
     row = conn.execute(
