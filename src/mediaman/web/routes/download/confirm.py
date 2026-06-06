@@ -36,6 +36,7 @@ from mediaman.web.repository.download import (
     SuggestionEnrichment,
     fetch_suggestion_enrichment,
 )
+from mediaman.web.routes.download._cache_keys import _key_fingerprint
 
 # YouTube video IDs are exactly 11 URL-safe base64 characters.
 _YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
@@ -66,58 +67,76 @@ _DOWNLOAD_LIMITER_GET = RateLimiter(max_attempts=30, window_seconds=60)
 # ---------------------------------------------------------------------------
 
 _ARR_CACHE_TTL_SECONDS = 30.0
+# rationale: bounded to 20 entries (2 services × up to 10 deployment variants)
+# to prevent unbounded growth — while the keyspace is practically two entries
+# (radarr + sonarr for one deployment's secret key), multi-tenant and test
+# scenarios can accumulate keys; a hard cap is the §13.2 safety net.
+_ARR_CACHE_MAX_ENTRIES = 20
 _ARR_CACHE_LOCK = threading.Lock()
-# (service_name, secret_key_fingerprint) -> (timestamp, cache_payload).
-# The payload is either a RadarrCaches or SonarrCaches TypedDict; the
-# caller knows which one to expect from the service tag in the key.
-_ARR_CACHE: dict[tuple[str, str], tuple[float, RadarrCaches | SonarrCaches]] = {}
-
-
-def _key_fingerprint(secret_key: str) -> str:
-    """Short fingerprint of *secret_key* for use as a cache key.
-
-    The full key never appears in the cache; only its first 8 bytes of a
-    hash. Different deployments with different secrets do not collide.
-    """
-    import hashlib
-
-    return hashlib.sha256(secret_key.encode()).hexdigest()[:16]
+# Per-process Arr-state TTL cache; must be in-process state to survive
+# across requests in the same worker without an extra DB or network round-trip.
+# Two independently-typed dicts so each getter returns a precise subtype
+# without a cast or type suppression (§5.5).
+_RADARR_CACHE: dict[str, tuple[float, RadarrCaches]] = {}
+_SONARR_CACHE: dict[str, tuple[float, SonarrCaches]] = {}
 
 
 def _get_radarr_cache_cached(conn: sqlite3.Connection, secret_key: str) -> RadarrCaches:
-    """Return the Radarr cache dict, using a process-wide TTL cache."""
-    key = ("radarr", _key_fingerprint(secret_key))
+    """Return the Radarr cache dict, using a process-wide TTL cache.
+
+    Uses the double-check pattern: re-check under the write lock before
+    fetching so two concurrent threads on a cache miss both see the
+    freshly-populated entry rather than each issuing a redundant outbound
+    call (§8.7).
+    """
+    fp = _key_fingerprint(secret_key)
     now = time.monotonic()
     with _ARR_CACHE_LOCK:
-        hit = _ARR_CACHE.get(key)
+        hit = _RADARR_CACHE.get(fp)
         if hit and now - hit[0] < _ARR_CACHE_TTL_SECONDS:
-            return hit[1]  # type: ignore[return-value]
+            return hit[1]
     radarr_client = build_radarr_from_db(conn, secret_key)
     cache = build_radarr_cache(radarr_client)
     with _ARR_CACHE_LOCK:
-        _ARR_CACHE[key] = (now, cache)
+        # Double-check: another thread may have populated the cache while
+        # we were fetching.  Only write if the slot is still stale.
+        hit = _RADARR_CACHE.get(fp)
+        if not hit or now - hit[0] >= _ARR_CACHE_TTL_SECONDS:
+            if len(_RADARR_CACHE) >= _ARR_CACHE_MAX_ENTRIES:
+                _RADARR_CACHE.clear()
+            _RADARR_CACHE[fp] = (now, cache)
     return cache
 
 
 def _get_sonarr_cache_cached(conn: sqlite3.Connection, secret_key: str) -> SonarrCaches:
-    """Return the Sonarr cache dict, using a process-wide TTL cache."""
-    key = ("sonarr", _key_fingerprint(secret_key))
+    """Return the Sonarr cache dict, using a process-wide TTL cache.
+
+    Uses the double-check pattern (§8.7) — see :func:`_get_radarr_cache_cached`.
+    """
+    fp = _key_fingerprint(secret_key)
     now = time.monotonic()
     with _ARR_CACHE_LOCK:
-        hit = _ARR_CACHE.get(key)
+        hit = _SONARR_CACHE.get(fp)
         if hit and now - hit[0] < _ARR_CACHE_TTL_SECONDS:
-            return hit[1]  # type: ignore[return-value]
+            return hit[1]
     sonarr_client = build_sonarr_from_db(conn, secret_key)
     cache = build_sonarr_cache(sonarr_client)
     with _ARR_CACHE_LOCK:
-        _ARR_CACHE[key] = (now, cache)
+        # Double-check: another thread may have populated the cache while
+        # we were fetching.  Only write if the slot is still stale.
+        hit = _SONARR_CACHE.get(fp)
+        if not hit or now - hit[0] >= _ARR_CACHE_TTL_SECONDS:
+            if len(_SONARR_CACHE) >= _ARR_CACHE_MAX_ENTRIES:
+                _SONARR_CACHE.clear()
+            _SONARR_CACHE[fp] = (now, cache)
     return cache
 
 
 def _reset_arr_cache_for_tests() -> None:
     """Clear the Arr-state cache. Test helper; never call in production."""
     with _ARR_CACHE_LOCK:
-        _ARR_CACHE.clear()
+        _RADARR_CACHE.clear()
+        _SONARR_CACHE.clear()
 
 
 def validate_youtube_id(s: str | None) -> str | None:
@@ -186,7 +205,10 @@ def _build_item_from_suggestion(
             "genres": enrichment.genres,
             "cast_json": enrichment.cast_json,
             "director": enrichment.director,
-            "trailer_key": validate_youtube_id(enrichment.trailer_key),
+            # Sanitisation is applied by _enrich_item_fields (always called
+            # after item construction), so the raw value is stored here and
+            # validated exactly once — not twice (M1).
+            "trailer_key": enrichment.trailer_key,
             "imdb_rating": enrichment.imdb_rating,
             "metascore": enrichment.metascore,
         }

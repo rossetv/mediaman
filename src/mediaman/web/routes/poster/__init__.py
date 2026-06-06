@@ -66,38 +66,29 @@ from mediaman.web.routes.poster.cache import (
 from mediaman.web.routes.poster.cache import (
     write_poster_cache as _write_poster_cache,
 )
+
+# These names are imported for test patching purposes only — tests that
+# need to mock poster-fetch internals patch them via the absolute path
+# ``mediaman.web.routes.poster.<name>``.  They are not re-exported in
+# ``__all__`` (private names must not be in a public surface) but must
+# be importable from this module for the test suite to patch them.
+from mediaman.web.routes.poster.fetch import _POSTER_HTTP  # noqa: F401
+from mediaman.web.routes.poster.fetch import fetch_arr_poster as _fetch_arr_poster  # noqa: F401
 from mediaman.web.routes.poster.fetch import (
-    _POSTER_HTTP,
-)
-from mediaman.web.routes.poster.fetch import (
-    fetch_arr_poster as _fetch_arr_poster,
-)
-from mediaman.web.routes.poster.fetch import (
-    is_allowed_poster_host as _is_allowed_poster_host,
+    is_allowed_poster_host as _is_allowed_poster_host,  # noqa: F401
 )
 from mediaman.web.routes.poster.fetch import (
     is_valid_rating_key as _validate_rating_key,
 )
-from mediaman.web.routes.poster.fetch import (
-    load_plex_credentials as _load_plex_credentials,
-)
-from mediaman.web.routes.poster.fetch import (
-    resolve_poster_content as _resolve_poster_content,
-)
-from mediaman.web.routes.poster.fetch import (
-    safe_mime as _safe_mime,
-)
+from mediaman.web.routes.poster.fetch import load_plex_credentials as _load_plex_credentials
+from mediaman.web.routes.poster.fetch import resolve_poster_content as _resolve_poster_content
+from mediaman.web.routes.poster.fetch import safe_mime as _safe_mime  # noqa: F401
 
 __all__ = [
-    "_CACHE_MAX_AGE_SECONDS",
-    "_POSTER_HTTP",
-    "_POSTER_PUBLIC_LIMITER",
-    "_fetch_arr_poster",
-    "_is_allowed_poster_host",
-    "_read_sidecar_mime",
-    "_safe_mime",
-    "_validate_rating_key",
-    "_write_poster_cache",
+    # Public names this barrel re-exports for callers (§3.5).
+    # The private names formerly listed here (_POSTER_HTTP, _fetch_arr_poster,
+    # etc.) are patched by tests via their absolute module paths, not via this
+    # barrel, so they do not belong in __all__ (L6).
     "proxy_poster",
     "router",
     "sign_poster_url",

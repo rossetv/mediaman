@@ -19,14 +19,17 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from mediaman.core.audit import log_audit
 from mediaman.db import get_db
 from mediaman.services.arr import ArrError
 from mediaman.services.arr.base import ArrClient
 from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
+from mediaman.services.arr.state import is_series_already_tracked
 from mediaman.services.downloads.notifications import record_download_notification as _record_dn
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.rate_limit import ActionRateLimiter, RateLimiter, get_client_ip
 from mediaman.web.auth.middleware import get_current_admin
+from mediaman.web.auth.password_hash import get_user_email as _get_user_email
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +47,9 @@ _DOWNLOAD_ADMIN_LIMITER = ActionRateLimiter(
 # Per-IP limiter: 30 downloads per minute (covers unauthenticated / shared sessions).
 _DOWNLOAD_IP_LIMITER = RateLimiter(max_attempts=30, window_seconds=60)
 
+# Per-process dedup window; must be in-process state to survive across requests
+# in the same worker — a request-scoped or dependency-injected object would
+# reset on every call and never suppress double-clicks (§8.5).
 # Duplicate-request suppression: block identical (username, tmdb_id, media_type, seasons)
 # submissions within a short window to prevent accidental double-clicks from adding
 # duplicates. The season set is included in the dedup key so a TV submission for
@@ -116,16 +122,14 @@ class _DownloadRequest(BaseModel):
 def _resolve_admin_email(conn: sqlite3.Connection, admin: str) -> str | None:
     """Return the notification email for *admin*, or ``None`` if unset.
 
-    Looks up ``admin_users.email`` via the auth repository. When the
-    admin has no email set the caller skips inserting a
+    Looks up ``admin_users.email`` via the auth package's public helper.
+    When the admin has no email set the caller skips inserting a
     ``download_notifications`` row entirely — the scheduler can only
     deliver to a real address, and storing a placeholder (such as the
     bare username) used to send the row into a forever-retry loop in
     the Mailgun client.
     """
-    from mediaman.web.auth.password_hash import get_user_email
-
-    return get_user_email(conn, admin)
+    return _get_user_email(conn, admin)
 
 
 router = APIRouter()
@@ -172,6 +176,7 @@ def _submit_movie(
     secret_key: str,
     body: _DownloadRequest,
     notify_email: str | None,
+    actor: str,
 ) -> JSONResponse:
     """Add a movie to Radarr and record the download notification."""
     radarr = build_radarr_from_db(conn, secret_key)
@@ -231,6 +236,7 @@ def _submit_movie(
             "search.download_notification_skipped reason=no_admin_email media=movie tmdb=%s",
             body.tmdb_id,
         )
+    log_audit(conn, body.title, "downloaded", f"Added '{body.title}' to Radarr", actor=actor)
     conn.commit()
     return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Radarr"})
 
@@ -261,6 +267,7 @@ def _submit_tv(
     secret_key: str,
     body: _DownloadRequest,
     notify_email: str | None,
+    actor: str,
 ) -> JSONResponse:
     """Add a series to Sonarr and record the download notification."""
     sonarr = build_sonarr_from_db(conn, secret_key)
@@ -271,13 +278,22 @@ def _submit_tv(
         return err
     assert tvdb_id is not None
     try:
-        existing = sonarr.get_series()
+        already_tracked = is_series_already_tracked(sonarr, tvdb_id)
     except (SafeHTTPError, _requests.RequestException):
+        # Cannot verify duplicate status — returning 503 is safer than
+        # proceeding blindly and potentially creating a duplicate in Sonarr (H7).
         logger.warning(
-            "Sonarr get_series failed during duplicate check — skipping check", exc_info=True
+            "Sonarr get_series failed during duplicate check — refusing to proceed",
+            exc_info=True,
         )
-        existing = []
-    if any(s.get("tvdbId") == tvdb_id for s in existing):
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": "Cannot verify series status — Sonarr unreachable, please retry",
+            },
+            status_code=503,
+        )
+    if already_tracked:
         return JSONResponse(
             {
                 "ok": False,
@@ -315,6 +331,7 @@ def _submit_tv(
             "search.download_notification_skipped reason=no_admin_email media=tv tmdb=%s",
             body.tmdb_id,
         )
+    log_audit(conn, body.title, "downloaded", f"Added '{body.title}' to Sonarr", actor=actor)
     conn.commit()
     return JSONResponse({"ok": True, "message": f"Added '{body.title}' to Sonarr"})
 
@@ -339,5 +356,5 @@ def api_download(
     notify_email = _resolve_admin_email(conn, admin)
 
     if body.media_type == "movie":
-        return _submit_movie(conn, secret_key, body, notify_email)
-    return _submit_tv(conn, secret_key, body, notify_email)
+        return _submit_movie(conn, secret_key, body, notify_email, admin)
+    return _submit_tv(conn, secret_key, body, notify_email, admin)

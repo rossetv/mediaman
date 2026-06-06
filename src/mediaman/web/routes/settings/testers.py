@@ -22,6 +22,7 @@ import time
 from collections.abc import Callable
 from typing import Protocol
 
+import requests as _requests
 from fastapi.responses import JSONResponse
 
 from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
@@ -29,7 +30,7 @@ from mediaman.web.models import _API_KEY_RE
 
 
 class _ConnectionTestable(Protocol):
-    """Any client exposing a no-argument ``test_connection()`` health probe."""
+    """Any client exposing a no-argument ``is_reachable()`` health probe."""
 
     def is_reachable(self) -> bool: ...
 
@@ -56,6 +57,8 @@ TESTER_TIMEOUT_SECONDS = 15.0
 #: connectivity changes for long.
 TEST_CACHE_TTL_SECONDS = 120.0
 
+# Per-process tester result cache; shared across requests in the same worker
+# to avoid repeat connection-test calls on settings page reloads (§8.5).
 #: In-memory cache of the most recent tester payload per service.
 #: Shared across admins because the underlying settings are global.
 #: Invalidated on any settings write that touches the service's keys.
@@ -169,15 +172,34 @@ def _test_connection_service(
 
 @_register("plex")
 def test_plex(settings: dict[str, object]) -> JSONResponse:
-    """Test connectivity to Plex using the configured URL and token."""
+    """Test connectivity to Plex using the configured URL and token.
+
+    Returns a structured JSONResponse matching the other testers, with
+    specific error codes for auth failures and transport errors.
+    PlexClient uses plexapi internally which can raise bare
+    ``requests.RequestException`` in addition to ``SafeHTTPError`` from
+    the ``SafeHTTPClient`` wrapper — both are caught here (H4).
+    """
     from mediaman.services.media_meta.plex import PlexClient
 
     url = str(settings.get("plex_url") or "")
     token = str(settings.get("plex_token") or "")
     if not url or not token:
         return JSONResponse({"ok": False, "error": "Plex URL and token are required"})
-    PlexClient(url, token).get_libraries()
-    return JSONResponse({"ok": True})
+    try:
+        PlexClient(url, token).get_libraries()
+        return JSONResponse({"ok": True})
+    except SafeHTTPError as exc:
+        return _safe_http_error_to_response(exc)
+    except _requests.RequestException as exc:
+        # rationale: PlexClient uses plexapi which issues its own requests
+        # session (not always routed through SafeHTTPClient), so bare
+        # RequestException can escape the SafeHTTPError wrapper.
+        # Use isinstance rather than string-matching: requests.Timeout messages
+        # say "timed out" not "timeout", so the string check silently mis-maps
+        # Timeout → connection_refused (H4).
+        kind = "timeout" if isinstance(exc, _requests.Timeout) else "connection_refused"
+        return JSONResponse({"ok": False, "error": kind})
 
 
 @_register("sonarr")

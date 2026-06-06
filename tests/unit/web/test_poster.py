@@ -363,25 +363,17 @@ class TestArrPosterByStoredId:
         os.environ["MEDIAMAN_SECRET_KEY"] = self._KEY
         os.environ["MEDIAMAN_DATA_DIR"] = str(tmp_path)
 
-        # Radarr returns two movies sharing the title — the matcher must
-        # pick the one with id 2020, not the other.
+        # Radarr is called via get_movie_by_id(radarr_id) — the single-item
+        # lookup added in H3 — so mock that method directly.  The correct
+        # poster URL must come from the record with id 2020.
         mock_radarr = MagicMock()
-        mock_radarr.get_movies.return_value = [
-            {
-                "id": 2010,
-                "title": "Inception",
-                "images": [
-                    {"coverType": "poster", "remoteUrl": "https://image.tmdb.org/WRONG.jpg"}
-                ],
-            },
-            {
-                "id": 2020,
-                "title": "Inception",
-                "images": [
-                    {"coverType": "poster", "remoteUrl": "https://image.tmdb.org/RIGHT.jpg"}
-                ],
-            },
-        ]
+        mock_radarr.get_movie_by_id.return_value = {
+            "id": 2020,
+            "title": "Inception",
+            "images": [
+                {"coverType": "poster", "remoteUrl": "https://image.tmdb.org/t/p/w342/RIGHT.jpg"}
+            ],
+        }
         from mediaman.config import load_config
 
         config = load_config()

@@ -107,15 +107,16 @@ def _sweep_oldest(entries: list[tuple[float, int, Path]], total: int) -> None:
         try:
             path.unlink()
             total -= size
-            # If we removed an image, also unlink its sidecar.
-            if path.suffix == ".jpg":
-                sidecar = path.with_suffix(path.suffix + ".mime")
-                try:
-                    sidecar.unlink()
-                except FileNotFoundError:
-                    pass  # sidecar already gone — nothing to sweep
-                except OSError:
-                    logger.debug("Failed to unlink sidecar for %s", path, exc_info=True)
+            # Unlink the sidecar unconditionally — the pattern
+            # ``<name>.<ext>.mime`` applies to any extension so future
+            # WebP / PNG entries are covered without an extension guard (L5).
+            sidecar = path.with_suffix(path.suffix + ".mime")
+            try:
+                sidecar.unlink()
+            except FileNotFoundError:
+                pass  # sidecar already gone — nothing to sweep
+            except OSError:
+                logger.debug("Failed to unlink sidecar for %s", path, exc_info=True)
         except FileNotFoundError:
             continue
         except OSError:
@@ -145,12 +146,17 @@ def maybe_sweep_cache(cache_dir: Path) -> None:
     sweeping, we skip and return.  The throttled counter means the
     expensive walk only runs once per ``_CACHE_GC_RECHECK_EVERY`` writes.
     """
-    global _cache_gc_counter
     if not _bump_gc_counter():
         return
     if not _cache_gc_lock.acquire(blocking=False):
         return
-    _cache_gc_counter = 0
+    # Reset the counter under its own lock so concurrent increments from
+    # other threads (which only acquire _cache_gc_counter_lock) cannot tear
+    # the reset.  The GC lock is already held here, preventing a second
+    # concurrent sweep from racing the counter reset (B3).
+    with _cache_gc_counter_lock:
+        global _cache_gc_counter
+        _cache_gc_counter = 0
     try:
         entries: list[tuple[float, int, Path]] = []
         total = 0
