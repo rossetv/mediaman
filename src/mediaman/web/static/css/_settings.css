@@ -6,33 +6,8 @@
    ============================================================= */
 
 /* =============================================================
-   16. SETTINGS LAYOUT (setg-* primitives + legacy bridges)
+   16. SETTINGS LAYOUT (setg-* primitives)
    ============================================================= */
-.setg {
-  display: grid;
-  grid-template-columns: 240px 1fr;
-  gap: 40px;
-  align-items: start;
-}
-@media (max-width: 840px) { .setg { grid-template-columns: 1fr; } }
-
-.setg-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  position: sticky;
-  top: calc(var(--nav-h) + 20px);
-}
-.setg-nav button {
-  text-align: left;
-  padding: 9px 14px;
-  border-radius: var(--r-sm);
-  font-size: 14px;
-  color: var(--t2);
-  transition: background .15s, color .15s;
-}
-.setg-nav button:hover { color: var(--t1); background: var(--s2); }
-.setg-nav button.on { color: var(--t1); background: var(--s2); font-weight: 500; }
 
 /* Canonical card primitive for settings panels.
    Legacy alias `.settings-card` removed: zero template hits confirmed via
@@ -69,15 +44,6 @@
 }
 .settings-subrow-label { display: flex; flex-direction: column; gap: 2px; }
 
-.setg-hd {
-  padding: 20px;
-  border-bottom: 1px solid var(--hair);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.setg-hd h3 { font-size: 18px; font-weight: 600; letter-spacing: -.02em; }
-
 /* Settings inline buttons */
 .btn-test {
   display: inline-flex;
@@ -94,13 +60,6 @@
   transition: background .15s;
 }
 .btn-test:hover { background: var(--s4); }
-
-.settings-save-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 10px;
-  padding-bottom: 2px;
-}
 
 .newsletter-send-block {
   border-top: 1px solid var(--hair);

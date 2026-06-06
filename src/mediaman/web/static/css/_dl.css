@@ -68,8 +68,7 @@
   margin-bottom: 8px;
 }
 .dl-hero-ep-summary { color: var(--t3); font-size: 13px; margin-bottom: 12px; }
-.dl-hero-status,
-.dl-hero-sub { margin-bottom: 16px; }
+.dl-hero-status { margin-bottom: 16px; }
 
 .dl-state-pill {
   display: inline-flex;
@@ -341,6 +340,7 @@
   place-items: center;
   border-radius: 50%;
   background: rgba(48,209,88,.85);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   color: #fff;
   font-size: 13px;

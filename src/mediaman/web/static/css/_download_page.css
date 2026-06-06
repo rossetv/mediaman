@@ -16,6 +16,7 @@
   text-align: center;
   border-bottom: 1px solid var(--hair);
   background: rgba(0,0,0,.7);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
   backdrop-filter: saturate(180%) blur(24px);
   position: sticky;
   top: 0;
@@ -238,8 +239,8 @@
 }
 .dl-expired-icon { font-size: 40px; color: rgba(255,255,255,0.3); }
 .dl-result-icon { font-size: 44px; margin-bottom: 8px; }
-.dl-result-icon--success { color: #30d158; }
-.dl-result-icon--error { color: #ff453a; }
+.dl-result-icon--success { color: var(--success); }
+.dl-result-icon--error   { color: var(--danger); }
 .dl-expired-title { font-size: 22px; font-weight: 600; letter-spacing: -.025em; }
 .dl-expired-sub   { color: var(--t3); font-size: 14px; }
 .dl-expired-back  { margin-top: 6px; }

@@ -71,14 +71,12 @@ img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
 /* =============================================================
    12. STAT CARDS (library)
    ============================================================= */
-.stats,
 .lib-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
   margin-bottom: 28px;
 }
-.stat,
 .lib-stat {
   background: var(--s1);
   border: 1px solid var(--hair);
@@ -92,12 +90,9 @@ img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
   text-decoration: none;
   color: inherit;
 }
-.stat:hover,
 .lib-stat:hover { background: var(--s2); border-color: var(--hair-strong); }
-.stat.on,
 .lib-stat-active { background: var(--s2); border-color: var(--accent); }
 
-.stat-num,
 .lib-stat-value {
   font-family: var(--font-display);
   font-size: 30px;
@@ -105,9 +100,7 @@ img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
   letter-spacing: -.03em;
   line-height: 1;
 }
-.stat-lbl,
 .lib-stat-label { font-size: 12px; color: var(--t3); letter-spacing: -.005em; }
-.stat--stale .stat-num,
 .lib-stat-value--stale { color: var(--danger); }
 
 /* =============================================================
