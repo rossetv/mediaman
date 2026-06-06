@@ -15,6 +15,7 @@ import logging
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
+import requests
 from fastapi.responses import JSONResponse
 
 if TYPE_CHECKING:
@@ -138,6 +139,6 @@ def _try_sonarr_redownload(
             return JSONResponse({"ok": False, "error": f"'{title}' already exists in Sonarr"})
         logger.exception("Re-download via Sonarr failed for '%s': HTTP %s", title, exc.status_code)
         return _sonarr_fallback_fail_response()
-    except (ArrError, ValueError):
+    except (requests.RequestException, ArrError, ValueError):
         logger.exception("Re-download via Sonarr failed for '%s'", title)
         return _sonarr_fallback_fail_response()

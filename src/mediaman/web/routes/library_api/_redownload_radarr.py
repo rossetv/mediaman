@@ -15,6 +15,7 @@ import logging
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
+import requests
 from fastapi.responses import JSONResponse
 
 if TYPE_CHECKING:
@@ -114,11 +115,12 @@ def _try_radarr_redownload(
             return JSONResponse({"ok": False, "error": f"'{title}' already exists in Radarr"})
         # Fall through to try Sonarr
         return None
-    except (ArrError, ValueError) as exc:
+    except (requests.RequestException, ArrError, ValueError) as exc:
         # Match the Sonarr branch so a Radarr misconfiguration
         # (``ArrConfigError`` from missing root folder / quality profile,
         # ``ArrUpstreamError`` from a bad lookup response, ``ValueError``
-        # from an invalid tmdb/tvdb id) doesn't abort the whole handler
+        # from an invalid tmdb/tvdb id) or a bare transport error
+        # (``requests.RequestException``) doesn't abort the whole handler
         # before the Sonarr fallback gets a chance to run.
         logger.warning("Radarr redownload failed for '%s': %s", title, exc, exc_info=True)
         return None
