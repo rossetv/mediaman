@@ -32,6 +32,12 @@
   var consecutiveFailures   = 0;
   var polling               = false; /* true while a fetch is in flight */
 
+  /* Tracks whether the visibilitychange listener has been attached.
+     Declared here (at the top of the IIFE with all other module-level vars)
+     rather than after first use — hoisting made it work before, but
+     explicit declaration order is clearer. */
+  var _visibilityWired      = false;
+
   /* Captured refs to progress DOM nodes (set when the progress UI is built). */
   var _fillDiv    = null;
   var _labelSpan  = null;
@@ -207,9 +213,6 @@
 
     _scheduleNext(POLL_MS);
   }
-
-  /* Tracks whether the visibilitychange listener has been attached. */
-  var _visibilityWired = false;
 
   MM.recommended.poll = {
     startModalPolling: startModalPolling,

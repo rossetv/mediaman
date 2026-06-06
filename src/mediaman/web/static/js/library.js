@@ -190,24 +190,24 @@
       /* Finding 35: check each request; report failed season IDs. */
       var durMap = { '7 days': '7d', '30 days': '30d', '90 days': '90d', 'forever': 'forever' };
       var dur = durMap[_keepDialogState.duration] || '30d';
+      /* Sequential loop — accumulates failures, continues after each one. */
+      var keepChain = Promise.resolve();
       var failed = [];
-      /* Run sequentially so we can short-circuit on first failure for user clarity. */
-      (function runNext(i) {
-        if (i >= selectedIds.length) {
-          if (failed.length) {
-            window.UIFeedback.error('Keep failed for ' + failed.length + ' season(s): ' + failed.join(', '));
-            btn.disabled = false;
-            btn.textContent = 'Keep';
-          } else {
-            window.location.reload();
-          }
-          return;
+      selectedIds.forEach(function (sid) {
+        keepChain = keepChain.then(function () {
+          return MM.api.postForm('/api/media/' + encodeURIComponent(sid) + '/keep', { duration: dur })
+            .catch(function () { failed.push(sid); });
+        });
+      });
+      keepChain.then(function () {
+        if (failed.length) {
+          window.UIFeedback.error('Keep failed for ' + failed.length + ' season(s): ' + failed.join(', '));
+          btn.disabled = false;
+          btn.textContent = 'Keep';
+        } else {
+          window.location.reload();
         }
-        var sid = selectedIds[i];
-        MM.api.postForm('/api/media/' + encodeURIComponent(sid) + '/keep', { duration: dur })
-          .then(function () { runNext(i + 1); })
-          .catch(function () { failed.push(sid); runNext(i + 1); });
-      })(0);
+      });
     }
   }
 
@@ -226,27 +226,28 @@
         seasonIds.push(cb.dataset.seasonId);
       });
 
-      var failed = [];
       var allRequests = [];
       if (rk) allRequests.push({ url: '/api/show/' + encodeURIComponent(rk) + '/remove', id: rk });
       seasonIds.forEach(function (sid) {
         allRequests.push({ url: '/api/media/' + encodeURIComponent(sid) + '/unprotect', id: sid });
       });
 
-      (function runNext(i) {
-        if (i >= allRequests.length) {
-          if (failed.length) {
-            window.UIFeedback.error('Remove failed for: ' + failed.join(', '));
-          } else {
-            window.location.reload();
-          }
-          return;
+      /* Sequential loop — accumulates failures, continues after each one. */
+      var removeChain = Promise.resolve();
+      var failed = [];
+      allRequests.forEach(function (req) {
+        removeChain = removeChain.then(function () {
+          return MM.api.post(req.url)
+            .catch(function () { failed.push(req.id); });
+        });
+      });
+      removeChain.then(function () {
+        if (failed.length) {
+          window.UIFeedback.error('Remove failed for: ' + failed.join(', '));
+        } else {
+          window.location.reload();
         }
-        var req = allRequests[i];
-        MM.api.post(req.url)
-          .then(function () { runNext(i + 1); })
-          .catch(function () { failed.push(req.id); runNext(i + 1); });
-      })(0);
+      });
     });
   }
 

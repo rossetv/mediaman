@@ -33,6 +33,13 @@
    boolean that also sets `aria-disabled="true"` for AT users.
    Note: `attrs` (raw HTML string) and `sub` (raw HTML) have been removed to
    prevent XSS — use explicit parameters or `data_attrs` dict instead.
+
+   SECURITY (R8-L6): `{{ label }}` is NOT marked |safe and is therefore
+   auto-escaped by Jinja's autoescape (enabled for .html via
+   jinja2.select_autoescape() in app_factory.py).  Do NOT add |safe to
+   label — that would allow XSS if a caller passes user-supplied text.
+   The `icon` parameter uses |safe intentionally; callers must pass only
+   trusted literal strings (FA markup, inline SVG from server constants).
 #}
 {% macro btn(label, variant="secondary", size="", tag="button", href="", extra_class="", data_attrs=none, icon="", id="", aria_label="", title="", disabled=false, target="", rel="") -%}
   {%- set classes = ["btn", "btn--" ~ variant] -%}
@@ -271,7 +278,14 @@
 
 {# Settings card — wraps a card body with optional header (title + sub +
    header_actions slot). `pad` adds inner padding to the body. Use via
-   {% call c.setg_card(...) %} … {% endcall %}. #}
+   {% call c.setg_card(...) %} … {% endcall %}.
+
+   SECURITY: `header_actions` and `sub` are piped through |safe and rendered
+   verbatim as HTML.  Both slots MUST be server-controlled literals (static
+   strings, trusted HTML fragments).  Never pass user-supplied content
+   (admin names, free-text fields, URL parameters) into these slots without
+   first escaping via ``{{ value | e }}``; doing so would be a stored XSS.
+   See the top-of-file SECURITY comment for the full policy. #}
 {% macro setg_card(title="", sub="", header_actions="", pad=false) -%}
 <div class="setg-card">
   {% if title or sub or header_actions %}

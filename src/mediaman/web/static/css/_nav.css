@@ -4,7 +4,7 @@
 .nav-glass {
   position: sticky;
   top: 0;
-  z-index: 50;
+  z-index: var(--z-nav);
   height: var(--nav-h);
   display: flex;
   align-items: center;
@@ -73,7 +73,7 @@
   display: none;
   position: sticky;
   top: 0;
-  z-index: 50;
+  z-index: var(--z-nav);
   height: 48px;
   align-items: center;
   gap: 14px;
@@ -97,7 +97,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 50;
+  z-index: var(--z-nav);
   height: calc(64px + env(safe-area-inset-bottom, 0px));
   padding-bottom: env(safe-area-inset-bottom, 0px);
   background: rgba(0,0,0,0.8);
@@ -128,12 +128,14 @@
 .nav-tab:hover,
 .nav-tab.on { color: var(--accent); }
 
-/* ---- Overflow sheet (More) ---- */
+/* ---- Overflow sheet (More) — one step above nav surfaces; sits above
+   dropdowns (--z-dropdown: 50) and the nav bar (--z-nav: 60) so the
+   overlay covers the bottom tab bar when the sheet slides up. ---- */
 .nav-more-sheet {
   display: none;
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: calc(var(--z-nav) + 1);
   background: rgba(0,0,0,.55);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
