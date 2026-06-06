@@ -390,3 +390,102 @@ class TestPlexCraftedRootPath:
 
         assert result["deleted"] == 0
         assert (outside / "important.txt").exists()
+
+
+# ---------------------------------------------------------------------------
+# empty file_path parking (R7-M1)
+# ---------------------------------------------------------------------------
+
+
+class TestEmptyFilePathParking:
+    def test_empty_path_is_parked_with_audit_and_does_not_livelock(
+        self, conn, tmp_path, monkeypatch
+    ):
+        """A pending deletion whose ``file_path`` is empty must not cycle
+        forever between 'deleting' and 'pending' (R7-M1).
+
+        ``delete_path("")`` always refuses and recovery always resets it to
+        pending, so without intervention the row livelocks invisibly. The
+        executor must park it: drop the scheduled action and write a
+        permanent-failure audit the operator can see.
+        """
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(tmp_path))
+        _insert_media(conn, media_id="empty1", file_path="")
+        _insert_pending_deletion(conn, media_id="empty1")
+
+        result = DeletionExecutor(conn=conn, dry_run=False).execute()
+
+        assert result["deleted"] == 0
+        # Action parked — no scheduled_actions row remains to cycle.
+        remaining = conn.execute(
+            "SELECT id FROM scheduled_actions WHERE media_item_id='empty1'"
+        ).fetchone()
+        assert remaining is None
+        # Operator-visible permanent-failure audit written.
+        audit = conn.execute("SELECT action FROM audit_log WHERE media_item_id='empty1'").fetchone()
+        assert audit is not None
+        assert audit["action"] == "delete_failed_permanent"
+
+    def test_whitespace_only_path_is_parked(self, conn, tmp_path, monkeypatch):
+        """A path that is only whitespace is as undeletable as an empty one
+        (``delete_path`` refuses it) and must be parked, not cycled.
+        """
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(tmp_path))
+        _insert_media(conn, media_id="ws1", file_path="   ")
+        _insert_pending_deletion(conn, media_id="ws1")
+
+        DeletionExecutor(conn=conn, dry_run=False).execute()
+
+        remaining = conn.execute(
+            "SELECT id FROM scheduled_actions WHERE media_item_id='ws1'"
+        ).fetchone()
+        assert remaining is None
+        audit = conn.execute("SELECT action FROM audit_log WHERE media_item_id='ws1'").fetchone()
+        assert audit is not None
+        assert audit["action"] == "delete_failed_permanent"
+
+
+# ---------------------------------------------------------------------------
+# dry-run never mutates state via recovery (R7-L1)
+# ---------------------------------------------------------------------------
+
+
+class TestDryRunDoesNotRecover:
+    def test_dry_run_does_not_mutate_stuck_deletions(self, conn, tmp_path, monkeypatch):
+        """A dry-run preview must mutate nothing — including not running
+        stuck-deletion recovery, which commits real state changes and audit
+        rows (R7-L1).
+
+        A row left in the 'deleting' state must be untouched after a dry-run
+        execute; only a live pass may reconcile it.
+        """
+        root = tmp_path / "library"
+        root.mkdir()
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        # File absent but within roots — a LIVE recovery would complete the
+        # cleanup (drop the row + write a 'deleted' audit). Dry-run must not.
+        missing = str(root / "gone.mkv")
+        _insert_media(conn, media_id="stuck1", file_path=missing)
+        insert_scheduled_action(
+            conn,
+            media_item_id="stuck1",
+            action="scheduled_deletion",
+            token="tok-stuck1",
+            execute_at="2020-01-01",
+            token_used=False,
+            delete_status="deleting",
+        )
+
+        DeletionExecutor(conn=conn, dry_run=True, cleanup_snoozes=False).execute()
+
+        # Row untouched — still 'deleting', not reconciled.
+        row = conn.execute(
+            "SELECT delete_status FROM scheduled_actions WHERE media_item_id='stuck1'"
+        ).fetchone()
+        assert row is not None
+        assert row["delete_status"] == "deleting"
+        # No 'deleted' audit fabricated by a recovery that should not have run.
+        audit = conn.execute(
+            "SELECT action FROM audit_log WHERE media_item_id='stuck1' AND action='deleted'"
+        ).fetchone()
+        assert audit is None

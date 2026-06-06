@@ -1,7 +1,8 @@
 """Tests for mediaman.scanner.fetch.
 
 Covers PlexFetcher.fetch_library_items for both movie and show libraries,
-including watch-history error tolerance.
+including watch-history error tolerance and the skipped-key set that
+protects history-fetch failures from orphan pruning (R7-H1).
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from unittest.mock import MagicMock
 
 import requests
 
-from mediaman.scanner.fetch import PlexFetcher
+from mediaman.scanner.fetch import FetchedLibrary, PlexFetcher
 
 
 def _make_movie(rk="101", title="Test Film"):
@@ -39,29 +40,33 @@ class TestFetchMovieLibrary:
     def test_returns_one_record_per_movie(self):
         plex = _make_plex(movies=[_make_movie("1"), _make_movie("2")])
         fetcher = PlexFetcher(plex_client=plex, library_types={"10": "movie"})
-        results = fetcher.fetch_library_items("10")
-        assert len(results) == 2
+        fetched = fetcher.fetch_library_items("10")
+        assert isinstance(fetched, FetchedLibrary)
+        assert len(fetched.items) == 2
+        assert fetched.skipped_keys == frozenset()
 
     def test_media_type_is_movie(self):
         plex = _make_plex(movies=[_make_movie()])
         fetcher = PlexFetcher(plex_client=plex, library_types={"10": "movie"})
-        results = fetcher.fetch_library_items("10")
-        assert results[0].media_type == "movie"
+        fetched = fetcher.fetch_library_items("10")
+        assert fetched.items[0].media_type == "movie"
 
     def test_watch_history_attached(self):
         history = [{"viewed_at": "2024-06-01T00:00:00Z"}]
         plex = _make_plex(movies=[_make_movie()], watch_history=history)
         fetcher = PlexFetcher(plex_client=plex, library_types={"10": "movie"})
-        results = fetcher.fetch_library_items("10")
-        assert results[0].watch_history == history
+        fetched = fetcher.fetch_library_items("10")
+        assert fetched.items[0].watch_history == history
 
-    def test_watch_history_error_excludes_item(self):
+    def test_watch_history_error_excludes_item_and_records_skip(self):
         """A failed watch-history fetch must NOT yield an empty history —
         that would let a transient Plex 500 reclassify the item as
         'never watched' and queue it for deletion (D05 finding 13).
 
-        The fetcher should fail closed: the item is excluded from this
-        scan and a future scan retries once Plex is healthy again.
+        The fetcher fails closed: the item is excluded from ``items`` AND
+        its key is recorded in ``skipped_keys`` so the engine can protect
+        it from orphan pruning (R7-H1). A future scan retries once Plex is
+        healthy again.
         """
         plex = _make_plex(movies=[_make_movie("1"), _make_movie("2")])
         # Fail on the first item; second item should still come through.
@@ -70,21 +75,25 @@ class TestFetchMovieLibrary:
             [],  # second call succeeds
         ]
         fetcher = PlexFetcher(plex_client=plex, library_types={"10": "movie"})
-        results = fetcher.fetch_library_items("10")
-        # Only the successful item is returned; the failed one is dropped.
-        assert len(results) == 1
-        assert results[0].item["plex_rating_key"] == "2"
+        fetched = fetcher.fetch_library_items("10")
+        # Only the successful item is returned; the failed one is dropped
+        # from items but recorded as skipped (still present in Plex).
+        assert len(fetched.items) == 1
+        assert fetched.items[0].item["plex_rating_key"] == "2"
+        assert fetched.skipped_keys == frozenset({"1"})
 
-    def test_empty_library_returns_empty_list(self):
+    def test_empty_library_returns_empty_result(self):
         plex = _make_plex(movies=[])
         fetcher = PlexFetcher(plex_client=plex, library_types={"10": "movie"})
-        assert fetcher.fetch_library_items("10") == []
+        fetched = fetcher.fetch_library_items("10")
+        assert fetched.items == []
+        assert fetched.skipped_keys == frozenset()
 
     def test_unknown_library_defaults_to_movie(self):
         plex = _make_plex(movies=[_make_movie()])
         fetcher = PlexFetcher(plex_client=plex, library_types={})
-        results = fetcher.fetch_library_items("99")
-        assert results[0].media_type == "movie"
+        fetched = fetcher.fetch_library_items("99")
+        assert fetched.items[0].media_type == "movie"
 
 
 # ---------------------------------------------------------------------------
@@ -97,20 +106,20 @@ class TestFetchShowLibrary:
         seasons = [_make_season("201"), _make_season("202")]
         plex = _make_plex(seasons=seasons)
         fetcher = PlexFetcher(plex_client=plex, library_types={"20": "show"})
-        results = fetcher.fetch_library_items("20")
-        assert len(results) == 2
+        fetched = fetcher.fetch_library_items("20")
+        assert len(fetched.items) == 2
 
     def test_media_type_is_tv_season_by_default(self):
         plex = _make_plex(seasons=[_make_season()])
         fetcher = PlexFetcher(plex_client=plex, library_types={"20": "show"})
-        results = fetcher.fetch_library_items("20")
-        assert results[0].media_type == "tv_season"
+        fetched = fetcher.fetch_library_items("20")
+        assert fetched.items[0].media_type == "tv_season"
 
     def test_anime_flag_on_season_overrides_media_type(self):
         plex = _make_plex(seasons=[_make_season(is_anime=True)])
         fetcher = PlexFetcher(plex_client=plex, library_types={"20": "show"})
-        results = fetcher.fetch_library_items("20")
-        assert results[0].media_type == "anime_season"
+        fetched = fetcher.fetch_library_items("20")
+        assert fetched.items[0].media_type == "anime_season"
 
     def test_anime_library_title_sets_default_anime(self):
         # Library title contains "anime" — seasons without is_anime set explicitly
@@ -122,17 +131,16 @@ class TestFetchShowLibrary:
             library_types={"20": "show"},
             library_titles={"20": "anime collection"},  # lowercase; "anime" in title
         )
-        results = fetcher.fetch_library_items("20")
-        assert results[0].media_type == "anime_season"
+        fetched = fetcher.fetch_library_items("20")
+        assert fetched.items[0].media_type == "anime_season"
 
-    def test_season_watch_history_error_excludes_season(self):
+    def test_season_watch_history_error_excludes_season_and_records_skip(self):
         """Same fail-closed contract as the movie path (D05 finding 13).
 
-        A transient Plex 500 on a season's watch-history fetch must
-        NOT reclassify the season as never-watched (which combined
-        with ``check_inactivity`` returning True for empty histories
-        would queue the season for deletion). Drop the season from
-        this scan instead.
+        A transient Plex 500 on a season's watch-history fetch must NOT
+        reclassify the season as never-watched. The season is dropped from
+        ``items`` and recorded in ``skipped_keys`` so orphan removal cannot
+        prune it on a scan that merely failed to fetch its history (R7-H1).
         """
         plex = _make_plex(seasons=[_make_season("201"), _make_season("202")])
         plex.get_season_watch_history.side_effect = [
@@ -140,12 +148,13 @@ class TestFetchShowLibrary:
             [],  # second call succeeds
         ]
         fetcher = PlexFetcher(plex_client=plex, library_types={"20": "show"})
-        results = fetcher.fetch_library_items("20")
-        assert len(results) == 1
-        assert results[0].item["plex_rating_key"] == "202"
+        fetched = fetcher.fetch_library_items("20")
+        assert len(fetched.items) == 1
+        assert fetched.items[0].item["plex_rating_key"] == "202"
+        assert fetched.skipped_keys == frozenset({"201"})
 
     def test_library_id_passed_through(self):
         plex = _make_plex(seasons=[_make_season()])
         fetcher = PlexFetcher(plex_client=plex, library_types={"20": "show"})
-        results = fetcher.fetch_library_items("20")
-        assert results[0].library_id == "20"
+        fetched = fetcher.fetch_library_items("20")
+        assert fetched.items[0].library_id == "20"
