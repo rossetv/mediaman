@@ -208,6 +208,11 @@ main:focus { outline: none; }
 }
 .conn-dot.off  { background: var(--t4); box-shadow: none; }
 .conn-dot.warn { background: var(--warning); box-shadow: 0 0 10px rgba(255,214,10,.6); }
+/* ok/err modifier classes — JS sets these instead of writing inline boxShadow.
+   The default (no modifier) dot already uses --success; .ok is explicit for
+   the setConnStatus path so it can remove .err without an inline style reset. */
+.conn-dot.ok   { background: var(--success); box-shadow: 0 0 8px rgba(48,209,88,.6); }
+.conn-dot.err  { background: var(--danger);  box-shadow: 0 0 8px rgba(255,69,58,.6); }
 
 /* =============================================================
    18. EMPTY STATE

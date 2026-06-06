@@ -82,8 +82,18 @@
       return modalEl.style.display && modalEl.style.display !== 'none';
     }
 
+    /* _escHandler is declared before close() so the close() teardown can
+       reference it.  It is set below if ModalA11y is absent. */
+    var _escHandler = null;
+
     function close() {
       if (!modalEl) return;
+      /* Remove the fallback ESC listener on teardown to prevent listener
+         accumulation across multiple open/close cycles (R8-L3). */
+      if (_escHandler) {
+        document.removeEventListener('keydown', _escHandler);
+        _escHandler = null;
+      }
       _hide();
       modalEl.setAttribute('aria-hidden', 'true');
       if (manageBodyOverflow) document.body.style.overflow = '';
@@ -117,15 +127,19 @@
      * Only act on ESC when this specific modal is currently visible —
      * avoids closing a hidden modal (wasteful) and avoids two
      * setupDetail-managed modals on the same page from each handling
-     * every ESC press. */
+     * every ESC press.
+     *
+     * The handler is stored in _escHandler (declared above close()) so
+     * close() can removeEventListener on teardown and avoid a leak. */
     if (!useModalA11y || !global.ModalA11y) {
-      document.addEventListener('keydown', function (e) {
+      _escHandler = function (e) {
         if (e.key !== 'Escape') return;
         if (!modalEl) return;
         if (!_isVisible()) return;
         if (modalEl.getAttribute('aria-hidden') === 'true') return;
         close();
-      });
+      };
+      document.addEventListener('keydown', _escHandler);
     }
 
     /* ── Register with ModalA11y so it owns the ESC / focus-trap ── */

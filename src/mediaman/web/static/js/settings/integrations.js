@@ -36,14 +36,12 @@
       document.querySelectorAll('[data-ov-service="' + service + '"]').forEach(function (el) {
         var dot = el.querySelector('.conn-dot');
         if (dot) {
-          dot.style.background =
-            tone === 'ok'   ? 'var(--success)' :
-            tone === 'warn' ? 'var(--warning)' :
-            tone === 'err'  ? 'var(--danger)'  : 'var(--t4)';
-          dot.style.boxShadow =
-            tone === 'ok'   ? '0 0 8px rgba(48,209,88,.6)' :
-            tone === 'warn' ? '0 0 8px rgba(255,214,10,.6)' :
-            tone === 'err'  ? '0 0 8px rgba(255,69,58,.6)'  : 'none';
+          /* Toggle CSS modifier classes instead of writing inline styles.
+             Classes .ok/.err/.warn are defined in _base.css; .off is already there. */
+          dot.classList.remove('ok', 'err', 'warn', 'off');
+          if (tone === 'ok' || tone === 'err' || tone === 'warn' || tone === 'off') {
+            dot.classList.add(tone);
+          }
         }
         var stEl = el.querySelector('[data-ov-status]');
         if (stEl) stEl.textContent = label;
@@ -109,26 +107,29 @@
       }
 
       function autoTest() {
-        AUTO_CHECKS.forEach(function (c) {
+        /* Stagger requests by 200 ms per service to avoid blowing the per-admin
+           rate-limit burst cap when all 8 checks fire simultaneously on page load. */
+        AUTO_CHECKS.forEach(function (c, idx) {
           var configured = c.fields.every(fieldHasValue);
           if (!configured) { self.setConnStatus(c.service, 'off', 'Not configured'); return; }
           self.setConnStatus(c.service, 'untested', 'Testing…');
-          MM.api.post('/api/settings/test/' + encodeURIComponent(c.service))
-            .then(function (data) {
-              self.setConnStatus(c.service, data.ok ? 'ok' : 'err', data.ok ? 'Connected' : (data.error || 'Error'));
-            })
-            .catch(function (err) {
-              // err is an APIError with .status, .message, .error. 429 is the
-              // common case here (the 8-service auto-test trivially blows the
-              // per-admin burst cap on quick reloads); show that distinctly so
-              // the user sees the actual reason instead of a generic failure.
-              var label;
-              if (err && err.status === 429)         label = 'Rate limited';
-              else if (err && err.message)           label = err.message;
-              else if (err && err.error)             label = err.error;
-              else                                   label = 'Connection failed';
-              self.setConnStatus(c.service, 'err', label);
-            });
+          setTimeout(function () {
+            MM.api.post('/api/settings/test/' + encodeURIComponent(c.service))
+              .then(function (data) {
+                self.setConnStatus(c.service, data.ok ? 'ok' : 'err', data.ok ? 'Connected' : (data.error || 'Error'));
+              })
+              .catch(function (err) {
+                // err is an APIError with .status, .message, .error. 429 is the
+                // common case here; staggering above reduces occurrences, but
+                // show it distinctly if it still fires.
+                var label;
+                if (err && err.status === 429)         label = 'Rate limited';
+                else if (err && err.message)           label = err.message;
+                else if (err && err.error)             label = err.error;
+                else                                   label = 'Connection failed';
+                self.setConnStatus(c.service, 'err', label);
+              });
+          }, idx * 200);
         });
       }
       autoTest();

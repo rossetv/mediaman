@@ -223,6 +223,12 @@
 .btn-download.queued { background: rgba(255,214,10,.14); color: var(--warning); }
 .btn-download.adding { background: rgba(41,151,255,.18); color: var(--accent); }
 
+/* State modifier classes — toggled from JS instead of inline style.background/color.
+   is-added: success flash after a download request completes.
+   is-failed: error flash when the request fails (reverts after timeout). */
+.btn-download.is-added  { background: var(--rgba-success-bg); color: var(--success); }
+.btn-download.is-failed { background: var(--rgba-danger-bg);  color: var(--danger);  }
+
 .btn-share {
   display: inline-flex;
   align-items: center;

@@ -111,6 +111,12 @@
   }
 
   // ===== Detail content rendering =====
+  /* SECURITY (R8-M2): hero, quick, ratings, and cast blocks use innerHTML
+     with template literals. This is intentional — the DOM-construction path
+     would not materially reduce risk because the same data is flowing through.
+     EVERY server-supplied value MUST go through escapeHtml() or escapeAttr()
+     before interpolation. If you add a new field here, escape it — no
+     exceptions. Do NOT pass d.* values bare into innerHTML. */
   function renderDetail(d) {
     if (d.backdrop_url || d.poster_url) {
       const img = d.backdrop_url || d.poster_url;
@@ -332,9 +338,8 @@
     btn.textContent = "Adding…";
     try {
       await MM.api.post("/api/search/download", payload);
-      btn.textContent      = "Added ✓";
-      btn.style.background = "rgba(48,209,88,0.2)";
-      btn.style.color      = "#30d158";
+      btn.textContent = "Added ✓";
+      btn.classList.add("is-added");
       setTimeout(function() {
         closeModal();
         if (_refreshCurrentView) _refreshCurrentView();
@@ -345,8 +350,7 @@
       } else {
         btn.textContent = "Network error";
       }
-      btn.style.background = "rgba(255,69,58,0.2)";
-      btn.style.color      = "#ff453a";
+      btn.classList.add("is-failed");
     }
   }
 

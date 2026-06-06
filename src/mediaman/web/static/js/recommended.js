@@ -86,17 +86,13 @@
       })
       .catch(function (err) {
         btn.textContent = err.error && err.error.length < 40 ? err.error : 'Failed';
-        btn.className = 'btn-download';
-        btn.style.background = 'rgba(255,69,58,0.12)';
-        btn.style.color = 'var(--danger)';
+        btn.classList.add('is-failed');
         // Re-wire the button after the failure flash. Remove then re-add the
         // listener to avoid stacking multiple handlers if the request fails
         // repeatedly. Using a named handler reference also prevents the
         // stale-closure issue from the previous .onclick = ... pattern.
         setTimeout(function () {
           btn.textContent = 'Download';
-          btn.style.background = '';
-          btn.style.color = '';
           btn.className = 'btn-download';
           // _paintActions will have rebuilt the button if the modal was closed
           // and reopened; only re-wire if the button is still attached.

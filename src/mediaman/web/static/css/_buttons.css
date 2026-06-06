@@ -81,15 +81,9 @@
 .keep-trigger--kept { background: var(--rgba-success-bg); color: var(--success); }
 .keep-trigger--kept:hover { background: rgba(48,209,88,.22); }
 
-/* Legacy aliases still emitted by JS (ui-feedback confirm dialog). */
-.btn-keep           { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 5px 12px; font-size: 12px; font-weight: 500; border-radius: var(--r-pill); background: var(--rgba-accent-bg); color: var(--accent); transition: background .15s; white-space: nowrap; letter-spacing: -.01em; }
-.btn-keep:hover     { background: rgba(41,151,255,.24); }
-
-.btn-danger         { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; font-size: 12px; font-weight: 500; border-radius: var(--r-pill); background: var(--rgba-danger-bg); color: var(--danger); white-space: nowrap; transition: background .15s; }
-.btn-danger:hover   { background: rgba(255,69,58,.2); }
-
-.btn-ghost          { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; font-size: 13px; font-weight: 500; border-radius: var(--r-pill); background: transparent; color: var(--t1); border: 1px solid var(--hair-strong); transition: background .15s, border-color .15s; white-space: nowrap; }
-.btn-ghost:hover    { border-color: rgba(255,255,255,.3); background: rgba(255,255,255,.04); }
+/* Legacy aliases .btn-keep, .btn-danger, .btn-ghost removed (R8-H4).
+   ui-feedback.js now emits `.btn.btn--accent-soft` / `.btn.btn--danger`
+   / `.btn.btn--ghost` — use those instead. */
 
 /* Small icon helper used in caret / kebab buttons */
 .svg-icon-xs {
@@ -109,7 +103,7 @@
 .btn-sm-caret:hover { background: rgba(41,151,255,.2); }
 
 /* Snooze / scan animation states */
-.scan-running { background: var(--rgba-accent-bg) !important; color: var(--accent) !important; }
+.btn.scan-running { background: var(--rgba-accent-bg); color: var(--accent); }
 .scan-status { font-size: 12px; color: var(--t3); margin-left: 8px; }
 .scan-status--success { color: var(--success); }
 .scan-dots { display: inline-flex; gap: 3px; }

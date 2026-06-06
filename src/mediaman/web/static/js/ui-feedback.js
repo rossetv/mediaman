@@ -75,9 +75,9 @@
       var p = el('p', { class: 'ui-confirm-body' });
       if (opts.body) p.textContent = opts.body;
       var actions = el('div', { class: 'ui-confirm-actions' });
-      var cancelBtn = el('button', { type: 'button', class: 'btn btn-ghost',
+      var cancelBtn = el('button', { type: 'button', class: 'btn btn--ghost',
                                      text: opts.cancelLabel || 'Cancel' });
-      var confirmClass = 'btn ' + (opts.confirmVariant === 'danger' ? 'btn-danger' : 'btn-keep');
+      var confirmClass = 'btn ' + (opts.confirmVariant === 'danger' ? 'btn--danger' : 'btn--accent-soft');
       var confirmBtn = el('button', { type: 'button', class: confirmClass,
                                       text: opts.confirmLabel || 'Confirm' });
       actions.appendChild(cancelBtn);
