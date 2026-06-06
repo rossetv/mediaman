@@ -110,10 +110,12 @@ class TestDeleteIntentPersistence:
         app = _app(app_factory, conn)
         client = authed_client(app, conn)
 
-        import requests as _requests
+        from mediaman.services.infra import SafeHTTPError
 
         mock_radarr = MagicMock()
-        mock_radarr.delete_movie.side_effect = _requests.ConnectionError("Radarr down")
+        mock_radarr.delete_movie.side_effect = SafeHTTPError(
+            status_code=0, body_snippet="transport error: ConnectionError", url="http://radarr/"
+        )
 
         with patch(
             "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
@@ -138,7 +140,7 @@ class TestReconcilePendingDeleteIntents:
         """If the media row is already gone the intent is just completed."""
         # Insert an intent without a corresponding media_items row.
         intent_id = _record_delete_intent(conn, "ghost-m1", "radarr", 99)
-        resolved = reconcile_pending_delete_intents()
+        resolved = reconcile_pending_delete_intents(conn)
         assert resolved >= 1
         row = conn.execute(
             "SELECT completed_at FROM delete_intents WHERE id = ?", (intent_id,)
@@ -150,7 +152,7 @@ class TestReconcilePendingDeleteIntents:
         _insert_movie(conn, "m2", radarr_id=None)
         _record_delete_intent(conn, "m2", "radarr", "none")
 
-        resolved = reconcile_pending_delete_intents()
+        resolved = reconcile_pending_delete_intents(conn)
         assert resolved >= 1
 
         # Media row must be gone.
@@ -161,8 +163,8 @@ class TestReconcilePendingDeleteIntents:
         """Running reconcile twice is safe; second run resolves nothing new."""
         _record_delete_intent(conn, "gone-m3", "radarr", 42)
 
-        first = reconcile_pending_delete_intents()
-        second = reconcile_pending_delete_intents()
+        first = reconcile_pending_delete_intents(conn)
+        second = reconcile_pending_delete_intents(conn)
 
         # Second run should find nothing to do.
         assert second == 0

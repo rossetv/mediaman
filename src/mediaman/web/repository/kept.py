@@ -7,10 +7,13 @@ live in mediaman.scanner.repository.scheduled_actions.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import cast
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -48,6 +51,39 @@ class ShowKeptRow:
 
     action: str
     execute_at: str | None
+
+
+# ---------------------------------------------------------------------------
+# Validation helpers
+# ---------------------------------------------------------------------------
+
+
+def resolve_show_rating_key(
+    conn: sqlite3.Connection, supplied_key: str
+) -> tuple[str | None, str | None]:
+    """Return ``(resolved_key, error)`` for a keep-show request.
+
+    IDOR risk closed by this helper: the previous implementation fell back
+    to matching seasons by show_title whenever the supplied rating key was
+    missing on the stored rows.  Two distinct shows sharing a title (a
+    common case — remakes, international versions) collided in that branch
+    so user A keeping *Kingdom* would also match user B's *Kingdom* rows.
+
+    Resolution rules:
+      (a) supplied_key is present and at least one media_items row carries
+          that exact show_rating_key — use the supplied key.
+      (b) anything else — return ``(None, error_message)`` so the caller
+          can 409.
+
+    ``supplied_key`` is the raw path parameter.  Callers pass it through
+    unchanged — never synthesised from show_title.
+    """
+    key = (supplied_key or "").strip()
+    if key:
+        if show_rating_key_exists(conn, key):
+            return key, None
+        return None, "Unknown show_rating_key"
+    return None, "show_rating_key required"
 
 
 # ---------------------------------------------------------------------------

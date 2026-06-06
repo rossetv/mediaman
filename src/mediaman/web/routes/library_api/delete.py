@@ -11,11 +11,13 @@ historic test patch / import targets keep working.
 from __future__ import annotations
 
 import logging
-import sqlite3
+from typing import TYPE_CHECKING
 
-import requests
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
+
+if TYPE_CHECKING:
+    import sqlite3
 
 from mediaman.db import get_db
 from mediaman.services.arr.base import ArrClient, ArrError
@@ -50,10 +52,18 @@ _DELETE_LIMITER = ActionRateLimiter(
 
 
 def _is_already_gone(exc: Exception) -> bool:
-    """Return True when an Arr exception carries a 404 — already-deleted upstream."""
+    """Return True when an Arr exception carries a 404 — already-deleted upstream.
+
+    Checks both :class:`SafeHTTPError` (``exc.status_code``) and any
+    exception carrying a ``response.status_code`` attribute so that the
+    same function works regardless of which exception type the caller passes.
+    """
+    # SafeHTTPError exposes the status code directly
+    if getattr(exc, "status_code", None) == 404:
+        return True
+    # Fallback for exceptions that carry a response object (e.g. requests.HTTPError)
     resp = getattr(exc, "response", None)
-    status = getattr(resp, "status_code", None) if resp is not None else None
-    return status == 404
+    return getattr(resp, "status_code", None) == 404
 
 
 def _try_radarr_delete(
@@ -78,7 +88,7 @@ def _try_radarr_delete(
     try:
         client.delete_movie(radarr_id)
         logger.info("Deleted '%s' via Radarr (id %s, with files + exclusion)", title, radarr_id)
-    except (SafeHTTPError, requests.RequestException, ArrError, ValueError) as exc:
+    except (SafeHTTPError, ArrError, ValueError) as exc:
         if _is_already_gone(exc):
             logger.info(
                 "Radarr reports id %s already gone for '%s' — idempotent delete",
@@ -125,7 +135,7 @@ def _try_sonarr_delete(
                 "No files remain for '%s' — deleted series from Sonarr with exclusion",
                 title,
             )
-    except (SafeHTTPError, requests.RequestException, ArrError, ValueError) as exc:
+    except (SafeHTTPError, ArrError, ValueError) as exc:
         if _is_already_gone(exc):
             logger.info(
                 "Sonarr reports id %s already gone for '%s' — idempotent delete",
@@ -198,7 +208,7 @@ def _finalise_delete(
     )
     if intent_id is not None:
         _complete_delete_intent(conn, intent_id)
-    logger.info("Deleted %s (%s) — %s by %s", media_id, title, snapshot.file_path, username)
+    logger.info("Deleted %s (%s) by %s", media_id, title, username)
 
 
 @router.post("/api/media/{media_id}/delete")

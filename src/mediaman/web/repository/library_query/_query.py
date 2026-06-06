@@ -115,6 +115,10 @@ def _build_cte_sql(where_sql: str, sort: str) -> tuple[str, str]:
     }
     order = _CTE_SORT.get(sort, _CTE_SORT["added_desc"])
 
+    # rationale: where_sql contains only ?-placeholder fragments and constant
+    # identifiers — no user values enter the SQL text; values go in `params`.
+    # ``order`` is resolved from ``_CTE_SORT`` via .get() with a hardcoded
+    # default — no user value enters the SQL text (§9.6 sanctioned pattern).
     cte_sql = f"""
     WITH filtered AS (
         SELECT * FROM media_items {where_sql}

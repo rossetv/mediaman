@@ -20,22 +20,63 @@ class SuggestionRow:
     tmdb_id: int | None
 
 
+@dataclass(frozen=True, slots=True)
+class SuggestionDetail:
+    """Full projection of a suggestions row used by the download trigger routes.
+
+    Covers the fields consumed by ``_add_rec_to_radarr``, ``_add_rec_to_sonarr``,
+    and the outer ``api_download_recommendation`` handler.
+    """
+
+    id: int
+    title: str
+    media_type: str
+    tmdb_id: int | None
+    year: int | None
+    description: str | None
+    reason: str | None
+    poster_url: str | None
+    rating: float | None
+    rt_rating: int | None
+    batch_id: int | None
+    downloaded_at: str | None
+    created_at: str
+
+
 # ---------------------------------------------------------------------------
 # Reads
 # ---------------------------------------------------------------------------
 
 
-def fetch_suggestion_by_id(conn: sqlite3.Connection, suggestion_id: int) -> sqlite3.Row | None:
-    """Return the full suggestions row for *suggestion_id*, or None.
+def fetch_suggestion_by_id(conn: sqlite3.Connection, suggestion_id: int) -> SuggestionDetail | None:
+    """Return a typed projection of a suggestions row for *suggestion_id*, or None.
 
-    Returns the raw sqlite3.Row so callers that need all columns (e.g. the
-    download route which passes the row into Arr helpers) get the full set
-    without a wide dataclass definition here.
+    Returns a :class:`SuggestionDetail` dataclass covering the fields used by
+    the download-trigger route (§9.5: repository returns dataclasses, not raw rows).
     """
-    row: sqlite3.Row | None = conn.execute(
-        "SELECT * FROM suggestions WHERE id = ?", (suggestion_id,)
+    row = conn.execute(
+        "SELECT id, title, media_type, tmdb_id, year, description, reason, poster_url, "
+        "rating, rt_rating, batch_id, downloaded_at, created_at "
+        "FROM suggestions WHERE id = ?",
+        (suggestion_id,),
     ).fetchone()
-    return row
+    if row is None:
+        return None
+    return SuggestionDetail(
+        id=row["id"],
+        title=row["title"],
+        media_type=row["media_type"],
+        tmdb_id=row["tmdb_id"],
+        year=row["year"],
+        description=row["description"],
+        reason=row["reason"],
+        poster_url=row["poster_url"],
+        rating=row["rating"],
+        rt_rating=row["rt_rating"],
+        batch_id=row["batch_id"],
+        downloaded_at=row["downloaded_at"],
+        created_at=row["created_at"],
+    )
 
 
 def fetch_suggestion_header(conn: sqlite3.Connection, suggestion_id: int) -> SuggestionRow | None:

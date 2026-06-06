@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import threading
 import time
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import sqlite3
 
 from mediaman.core.format import (
     days_ago,
@@ -16,7 +19,11 @@ from mediaman.core.format import (
     title_from_audit_detail,
 )
 from mediaman.core.time import now_utc, parse_iso_utc
-from mediaman.services.infra import get_aggregate_disk_usage, get_disk_usage_for_paths
+from mediaman.services.infra import (
+    get_aggregate_disk_usage,
+    get_disk_usage_for_paths,
+    get_string_setting,
+)
 from mediaman.services.infra import get_media_path as _get_media_path
 from mediaman.web.models import ACTION_SCHEDULED_DELETION
 from mediaman.web.repository.dashboard import (
@@ -139,9 +146,7 @@ def _was_redownloaded_after(
     return bool(last_redownload and last_redownload > deletion_created_at)
 
 
-def _fetch_recently_deleted(
-    conn: sqlite3.Connection, secret_key: str = ""
-) -> list[dict[str, object]]:
+def _fetch_recently_deleted(conn: sqlite3.Connection, secret_key: str) -> list[dict[str, object]]:
     """Return up to 10 recent ``deleted`` audit_log entries.
 
     Skips deletions that have a more-recent re-download. The earlier
@@ -221,11 +226,11 @@ def _configured_library_paths(conn: sqlite3.Connection) -> list[str]:
     reachable from a single base directory.  Returns ``[]`` when the setting
     is missing or malformed so the caller can fall back to the media root.
     """
-    raw = conn.execute("SELECT value FROM settings WHERE key = 'disk_thresholds'").fetchone()
-    if not raw:
+    raw_value = get_string_setting(conn, "disk_thresholds")
+    if not raw_value:
         return []
     try:
-        thresholds = json.loads(raw["value"])
+        thresholds = json.loads(raw_value)
     except (json.JSONDecodeError, TypeError):
         return []
     if not isinstance(thresholds, dict):
@@ -255,7 +260,9 @@ def _cached_disk_usage(cache_key: str, paths: list[str] | None = None) -> dict[s
             return entry[1]
     fresh = get_disk_usage_for_paths(paths) if paths else get_aggregate_disk_usage(cache_key)
     with _disk_usage_cache_lock:
-        _disk_usage_cache[cache_key] = (now, fresh)
+        # setdefault: the first writer wins; a concurrent miss that also computed
+        # a fresh value does not clobber an entry that arrived just before us.
+        _disk_usage_cache.setdefault(cache_key, (now, fresh))
     return fresh
 
 

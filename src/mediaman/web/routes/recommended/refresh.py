@@ -55,32 +55,32 @@ _HEARTBEAT_INTERVAL_SECONDS = 60
 # observed torn against each other.
 _refresh_result: dict[str, object] | None = None
 _refresh_thread: threading.Thread | None = None
-_refresh_result_lock = threading.Lock()
+_refresh_state_lock = threading.Lock()
 
 
 def _set_refresh_result(value: dict[str, object] | None) -> None:
     """Atomically replace the shared refresh result."""
     global _refresh_result
-    with _refresh_result_lock:
+    with _refresh_state_lock:
         _refresh_result = value
 
 
 def _get_refresh_result() -> dict[str, object] | None:
     """Atomically read the shared refresh result."""
-    with _refresh_result_lock:
+    with _refresh_state_lock:
         return _refresh_result
 
 
 def _set_refresh_thread(thread: threading.Thread | None) -> None:
     """Atomically replace the shared worker-thread reference."""
     global _refresh_thread
-    with _refresh_result_lock:
+    with _refresh_state_lock:
         _refresh_thread = thread
 
 
 def _refresh_thread_alive() -> bool:
     """Return True if a worker thread is alive in this process."""
-    with _refresh_result_lock:
+    with _refresh_state_lock:
         return _refresh_thread is not None and _refresh_thread.is_alive()
 
 
@@ -110,6 +110,7 @@ def _heartbeat_lease(db_path: str, run_id: int, stop_event: threading.Event) -> 
         hb_conn.close()
 
 
+# rationale: single cohesive background-worker lifecycle; split would produce disconnected partial states.
 def _run_refresh(db_path: str, secret_key: str, run_id: int, stop_event: threading.Event) -> None:
     """Execute the recommendation refresh in a background thread.
 

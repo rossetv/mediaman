@@ -37,18 +37,14 @@ from mediaman.web.repository.kept import (
     fetch_show_kept_status,
     fetch_show_title,
 )
+from mediaman.web.repository.kept import (
+    resolve_show_rating_key as _resolve_show_rating_key,  # noqa: F401 — backwards-compat re-export for tests
+)
+from mediaman.web.repository.library_query import ANIME_SEASON_TYPES, TV_SEASON_TYPES
 from mediaman.web.responses import respond_err, respond_ok
-from mediaman.web.routes.kept_show import _resolve_show_rating_key as _resolve_show_rating_key
 from mediaman.web.routes.kept_show import router as _kept_show_router
 
-# Canonical list of TV / anime season media_type values, shared with the
-# library type filter. Keeping the list co-located with
-# mediaman.web.repository.library_query would create a circular import;
-# instead we redeclare the same tuple here and rely on the unit test to
-# detect drift.
-_TV_SEASON_TYPES: tuple[str, ...] = ("tv_season", "tv", "season")
-_ANIME_SEASON_TYPES: tuple[str, ...] = ("anime_season", "anime")
-_ALL_SEASON_TYPES: tuple[str, ...] = _TV_SEASON_TYPES + _ANIME_SEASON_TYPES
+_ALL_SEASON_TYPES: tuple[str, ...] = TV_SEASON_TYPES + ANIME_SEASON_TYPES
 
 
 _UNPROTECT_LIMITER = ActionRateLimiter(

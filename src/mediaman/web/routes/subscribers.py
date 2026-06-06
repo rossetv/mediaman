@@ -363,8 +363,15 @@ def unsubscribe_confirm(
 
     sub_id, is_active = sub_status
     if is_active:
-        deactivate_subscriber(conn, sub_id)
-        conn.commit()
+        with conn:
+            deactivate_subscriber(conn, sub_id)
+            security_event(
+                conn,
+                event="subscriber.opted_out",
+                actor=email_from_token,
+                ip=get_client_ip(request),
+                detail={"id": sub_id},
+            )
         logger.info("Unsubscribed via link: %s", email_from_token)
 
     return _render_result(
