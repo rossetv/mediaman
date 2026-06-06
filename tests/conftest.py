@@ -44,6 +44,33 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
+def _reset_rate_limiters():
+    """Reset every live RateLimiter / ActionRateLimiter before each test.
+
+    Module-level limiters (e.g. ``_KEEP_GET_LIMITER``) persist for the
+    lifetime of the worker process.  Under ``pytest -n auto`` the order in
+    which tests run within a worker is non-deterministic, so accumulated
+    attempts from earlier tests can push a limiter over its cap and cause
+    the next test to receive 429 instead of the expected status.
+
+    ``reset_all_limiters()`` drains every registered instance's bucket in
+    one call — no need to enumerate individual route modules.  The IP-
+    resolver LRU caches are cleared too for good measure.
+    """
+    try:
+        from mediaman.services.rate_limit import reset_all_limiters
+        from mediaman.services.rate_limit.ip_resolver import clear_cache
+    except Exception:
+        yield
+        return
+    reset_all_limiters()
+    clear_cache()
+    yield
+    reset_all_limiters()
+    clear_cache()
+
+
+@pytest.fixture(autouse=True)
 def _fake_dns_ok(monkeypatch):
     """Make every hostname resolve to a benign public IP by default.
 

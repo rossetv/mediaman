@@ -106,8 +106,8 @@ def test_fluid_type_uses_clamp():
     # Each primitive must use clamp() for its font-size — catches silent
     # reverts to fixed px.
     fluid_selectors = (
-        ".ph h1,",  # page headline
-        ".sec-hd h2,",  # section heading
+        ".ph h1 {",  # page headline — standalone rule, no trailing comma
+        ".sec-hd h2 {",  # section heading — standalone rule, no trailing comma
         ".dl-hero-title",  # downloads cinematic hero
     )
     for sel in fluid_selectors:
