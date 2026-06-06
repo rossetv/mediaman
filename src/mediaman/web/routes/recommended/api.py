@@ -170,7 +170,7 @@ def _add_rec_to_radarr(
         return JSONResponse({"ok": False, "error": "No TMDB ID -- cannot add to Radarr"})
     safe_title = _sanitise_title(row.title)
     client.add_movie(tmdb_id, safe_title)
-    logger.info("Added movie '%s' (tmdb:%d) to Radarr", safe_title, tmdb_id)
+    logger.info("Added movie '%s' (tmdb:%s) to Radarr", safe_title, tmdb_id)
     with conn:
         mark_downloaded(conn, recommendation_id, now_iso())
         if notify_email:
@@ -217,9 +217,19 @@ def _add_rec_to_sonarr(
     )
     if matched is None:
         return JSONResponse({"ok": False, "error": "No matching TMDB entry in Sonarr lookup"})
-    tvdb_id = matched.get("tvdbId")
-    if not tvdb_id:
+    raw_tvdb_id = matched.get("tvdbId")
+    if not raw_tvdb_id:
         return JSONResponse({"ok": False, "error": "No TVDB ID found for this show"})
+    # Sonarr's lookup body is an untyped dict; ``tvdbId`` may arrive as a
+    # string. Coerce before it reaches ``add_series`` (and the %d-free log
+    # below) so a non-int value cannot 500 the handler. Mirror the sibling
+    # ``_sonarr_add_and_record`` coercion.
+    try:
+        tvdb_id = int(str(raw_tvdb_id))
+    except ValueError:
+        return JSONResponse({"ok": False, "error": "Invalid TVDB ID for this show"})
+    if tvdb_id <= 0:
+        return JSONResponse({"ok": False, "error": "Invalid TVDB ID for this show"})
     client.add_series(tvdb_id, safe_title)
     logger.info("Added series '%s' (tvdb:%d) to Sonarr", safe_title, tvdb_id)
     with conn:

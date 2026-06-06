@@ -19,7 +19,10 @@ between FastAPI and that service.
 
 from __future__ import annotations
 
+import sqlite3
+from collections.abc import Callable
 from dataclasses import asdict
+from datetime import datetime
 from typing import cast
 
 from fastapi import APIRouter, Depends, Form, Request
@@ -32,9 +35,11 @@ from mediaman.core.time import now_utc
 from mediaman.db import get_db
 from mediaman.services.rate_limit import RateLimiter, get_client_ip
 from mediaman.services.scheduled_actions import (
+    VerifiedKeepAction,
     apply_keep_forever,
     apply_keep_snooze,
     format_added_display,
+    is_keep_token_consumed,
     is_pending_unexpired,
     lookup_verified_action,
     mark_token_consumed,
@@ -58,6 +63,48 @@ _KEEP_POST_LIMITER = RateLimiter(max_attempts=10, window_seconds=60)
 __all__ = [
     "router",
 ]
+
+
+def _consume_keep_token_and_apply(
+    conn: sqlite3.Connection,
+    *,
+    token: str,
+    verified: VerifiedKeepAction,
+    now: datetime,
+    apply: Callable[[], int],
+    audit_detail: str,
+) -> JSONResponse | None:
+    """Run the shared, security-sensitive consume-then-apply keep sequence.
+
+    Both the public snooze and the admin "forever" routes consume the keep
+    token, run their guarded UPDATE, and write one audit row inside a single
+    transaction so either all three land or none do (§9.7, H-01). The only
+    thing that differs is the guarded UPDATE itself and the audit detail, so
+    those are injected via *apply* and *audit_detail* while this helper owns
+    the token-consume flow once.
+
+    Returns a 409 ``Response`` when the token was already consumed (concurrent
+    replay) or the guarded UPDATE matched no row (the action advanced between
+    the pre-flight check and the write); returns ``None`` on success so the
+    caller can build its own success response.
+    """
+    consumed = False
+    applied_rowcount = 0
+    with conn:
+        consumed = mark_token_consumed(conn, token, now)
+        if consumed:
+            applied_rowcount = apply()
+            if applied_rowcount > 0:
+                log_audit(conn, verified.media_item_id, "snoozed", audit_detail)
+
+    if not consumed:
+        # Token hash was already in keep_tokens_used — concurrent replay.
+        return respond_err("already_processed", status=409)
+    if applied_rowcount == 0:
+        # The scheduled_actions row was already token_used=1, delete_status
+        # has advanced, or the deadline passed between our check and here.
+        return respond_err("already_processed", status=409)
+    return None
 
 
 @router.get("/keep/{token}", response_class=HTMLResponse)
@@ -184,11 +231,7 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
     # Pre-flight replay check: if the token hash is already in keep_tokens_used,
     # reject immediately with 409 so a sequential replay (after the scheduled_action
     # row's action has been updated) still gets the correct status code (H-01).
-    th = token_hash(token)
-    already_used = conn.execute(
-        "SELECT 1 FROM keep_tokens_used WHERE token_hash = ? LIMIT 1", (th,)
-    ).fetchone()
-    if already_used:
+    if is_keep_token_consumed(conn, token_hash(token)):
         return respond_err("already_processed", status=409)
 
     # Pre-flight: confirm the action is pending and the deadline has not
@@ -201,30 +244,22 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
     # mapping is guaranteed to yield an int.
     days = cast(int, VALID_KEEP_DURATIONS[duration])
 
-    # All three writes (token-consume, snooze update, audit) share one
-    # transaction so either all land or none do (§9.7, H-01).
-    consumed = False
-    snooze_rowcount = 0
-    with conn:
-        consumed = mark_token_consumed(conn, token, now)
-        if consumed:
-            snooze_rowcount = apply_keep_snooze(
-                conn,
-                action_id=verified.id,
-                duration=duration,
-                days=days,
-                now=now,
-            )
-            if snooze_rowcount > 0:
-                log_audit(conn, verified.media_item_id, "snoozed", f"Kept for {duration}")
-
-    if not consumed:
-        # Token hash was already in keep_tokens_used — concurrent replay.
-        return respond_err("already_processed", status=409)
-    if snooze_rowcount == 0:
-        # The scheduled_actions row was already token_used=1, delete_status
-        # has advanced, or the deadline passed between our check and here.
-        return respond_err("already_processed", status=409)
+    failure = _consume_keep_token_and_apply(
+        conn,
+        token=token,
+        verified=verified,
+        now=now,
+        apply=lambda: apply_keep_snooze(
+            conn,
+            action_id=verified.id,
+            duration=duration,
+            days=days,
+            now=now,
+        ),
+        audit_detail=f"Kept for {duration}",
+    )
+    if failure is not None:
+        return failure
 
     return RedirectResponse(f"/keep/{token}", status_code=302)
 
@@ -263,30 +298,22 @@ def keep_forever(
 
     # Pre-flight replay check: if the token hash is already in keep_tokens_used,
     # reject immediately with 409 before the is_pending_unexpired check (H-01).
-    th = token_hash(token)
-    already_used = conn.execute(
-        "SELECT 1 FROM keep_tokens_used WHERE token_hash = ? LIMIT 1", (th,)
-    ).fetchone()
-    if already_used:
+    if is_keep_token_consumed(conn, token_hash(token)):
         return respond_err("already_processed", status=409)
 
     # Pre-flight expiry check before entering the write transaction (H-01).
     if not is_pending_unexpired(verified, now):
         return respond_err("invalid_or_expired", status=400)
 
-    # All three writes share one transaction so either all land or none do (§9.7, H-01).
-    consumed = False
-    forever_rowcount = 0
-    with conn:
-        consumed = mark_token_consumed(conn, token, now)
-        if consumed:
-            forever_rowcount = apply_keep_forever(conn, action_id=verified.id, now=now)
-            if forever_rowcount > 0:
-                log_audit(conn, verified.media_item_id, "snoozed", "Kept forever (admin)")
-
-    if not consumed:
-        return respond_err("already_processed", status=409)
-    if forever_rowcount == 0:
-        return respond_err("already_processed", status=409)
+    failure = _consume_keep_token_and_apply(
+        conn,
+        token=token,
+        verified=verified,
+        now=now,
+        apply=lambda: apply_keep_forever(conn, action_id=verified.id, now=now),
+        audit_detail="Kept forever (admin)",
+    )
+    if failure is not None:
+        return failure
 
     return respond_ok({"state": "protected_forever"})

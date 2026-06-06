@@ -122,3 +122,20 @@ def mark_token_consumed(conn: sqlite3.Connection, token: str, now: datetime) -> 
         (token_hash(token), now.isoformat()),
     )
     return cursor.rowcount > 0
+
+
+def is_keep_token_consumed(conn: sqlite3.Connection, token_hash: str) -> bool:
+    """Return ``True`` if *token_hash* is already recorded in ``keep_tokens_used``.
+
+    This is the pre-flight replay check the keep routes run before entering
+    the write transaction, so a sequential replay (after the
+    ``scheduled_actions`` row has advanced) still maps to a 409 rather than a
+    misleading "invalid_or_expired". The argument is the already-hashed token,
+    not the raw token, so the plaintext never reaches this layer.
+    """
+    return (
+        conn.execute(
+            "SELECT 1 FROM keep_tokens_used WHERE token_hash = ? LIMIT 1", (token_hash,)
+        ).fetchone()
+        is not None
+    )

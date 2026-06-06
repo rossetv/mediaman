@@ -23,7 +23,7 @@ from mediaman.db import (
 )
 from mediaman.scanner.repository.scheduled_actions import clear_pending_deletions
 from mediaman.services.infra import ConfigDecryptError, SafeHTTPError
-from mediaman.services.rate_limit import get_client_ip
+from mediaman.services.rate_limit import ActionRateLimiter, get_client_ip
 from mediaman.services.rate_limit.instances import (
     SCAN_TRIGGER_LIMITER as _SCAN_TRIGGER_LIMITER,
 )
@@ -32,6 +32,14 @@ from mediaman.web.middleware.rate_limit import rate_limit
 from mediaman.web.responses import respond_err, respond_ok
 
 logger = logging.getLogger(__name__)
+
+# Each admin-initiated scan-adjacent action gets its own per-actor bucket so the
+# three unrelated operations cannot starve one another. Sharing a single bucket
+# would let a burst of /api/scan/trigger calls exhaust the budget that the
+# docstrings promise independently to clear-scheduled and library/sync. Same
+# limits per action: 3 per minute, 20 per day per actor.
+_CLEAR_SCHEDULED_LIMITER = ActionRateLimiter(max_in_window=3, window_seconds=60, max_per_day=20)
+_LIBRARY_SYNC_LIMITER = ActionRateLimiter(max_in_window=3, window_seconds=60, max_per_day=20)
 
 router = APIRouter()
 
@@ -114,7 +122,7 @@ def trigger_scan(
             heartbeat_thread.join(timeout=5)
             thread_conn.close()
 
-    thread = threading.Thread(target=run, daemon=True)
+    thread = threading.Thread(target=run, name="manual-scan-worker", daemon=True)
     thread.start()
     return {"status": "started"}
 
@@ -140,7 +148,7 @@ def clear_scheduled(
     Rate-limited per-admin (3/min, 20/day) so a leaked session cookie
     cannot be used to repeatedly nuke the scheduled queue.
     """
-    if not _SCAN_TRIGGER_LIMITER.check(admin):
+    if not _CLEAR_SCHEDULED_LIMITER.check(admin):
         logger.warning("scan.clear_throttled user=%s", admin)
         return respond_err(
             "too_many_requests", status=429, message="Too many scan triggers — slow down"
@@ -163,7 +171,7 @@ def api_library_sync(request: Request, admin: str = Depends(get_current_admin)) 
     """
     from mediaman.scanner.runner import run_library_sync
 
-    if not _SCAN_TRIGGER_LIMITER.check(admin):
+    if not _LIBRARY_SYNC_LIMITER.check(admin):
         logger.warning("library.sync_throttled user=%s", admin)
         return respond_err(
             "too_many_requests", status=429, message="Too many sync triggers — slow down"

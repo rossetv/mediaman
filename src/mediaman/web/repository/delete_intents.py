@@ -33,32 +33,32 @@ def _record_delete_intent(
     :func:`reconcile_pending_delete_intents`.
     """
     now = now_utc().isoformat()
-    cur = conn.execute(
-        "INSERT INTO delete_intents "
-        "(media_item_id, target_kind, target_id, started_at) "
-        "VALUES (?, ?, ?, ?)",
-        (media_item_id, target_kind, str(target_id), now),
-    )
-    conn.commit()
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO delete_intents "
+            "(media_item_id, target_kind, target_id, started_at) "
+            "VALUES (?, ?, ?, ?)",
+            (media_item_id, target_kind, str(target_id), now),
+        )
     return cur.lastrowid  # type: ignore[return-value]
 
 
 def _complete_delete_intent(conn: sqlite3.Connection, intent_id: int) -> None:
     """Mark a delete intent as successfully completed."""
-    conn.execute(
-        "UPDATE delete_intents SET completed_at = ? WHERE id = ?",
-        (now_utc().isoformat(), intent_id),
-    )
-    conn.commit()
+    with conn:
+        conn.execute(
+            "UPDATE delete_intents SET completed_at = ? WHERE id = ?",
+            (now_utc().isoformat(), intent_id),
+        )
 
 
 def _fail_delete_intent(conn: sqlite3.Connection, intent_id: int, error: str) -> None:
     """Record the last error on a delete intent (intent remains pending)."""
-    conn.execute(
-        "UPDATE delete_intents SET last_error = ? WHERE id = ?",
-        (str(error)[:2000], intent_id),
-    )
-    conn.commit()
+    with conn:
+        conn.execute(
+            "UPDATE delete_intents SET last_error = ? WHERE id = ?",
+            (str(error)[:2000], intent_id),
+        )
 
 
 def _reconcile_one_intent(conn: sqlite3.Connection, intent_id: int, media_item_id: str) -> bool:

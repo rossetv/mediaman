@@ -44,13 +44,13 @@ router = APIRouter()
 
 def _pick_trailer(videos: list[dict[str, object]]) -> str | None:
     fallback: str | None = None
-    for v in videos:
-        if v.get("site") != "YouTube":
+    for video in videos:
+        if video.get("site") != "YouTube":
             continue
-        raw_key = v.get("key")
+        raw_key = video.get("key")
         if not raw_key or not isinstance(raw_key, str):
             continue
-        if v.get("type") == "Trailer":
+        if video.get("type") == "Trailer":
             return raw_key
         if fallback is None:
             fallback = raw_key
@@ -74,14 +74,14 @@ def _fetch_sonarr_series_detail(
     if not tvdb_id:
         return {"tracked": False, "seasons_in_library": set()}
     all_series = list(sonarr_cache.get("sonarr_series", {}).values())
-    added = next((s for s in all_series if s.get("tvdbId") == tvdb_id), None)
+    added = next((series for series in all_series if series.get("tvdbId") == tvdb_id), None)
     if not added:
         return {"tracked": False, "seasons_in_library": set()}
     in_library: set[int] = {
         season_num
-        for s in added.get("seasons", [])
-        if (s.get("statistics") or {}).get("episodeFileCount", 0) > 0
-        and (season_num := s.get("seasonNumber")) is not None
+        for season in added.get("seasons", [])
+        if (season.get("statistics") or {}).get("episodeFileCount", 0) > 0
+        and (season_num := season.get("seasonNumber")) is not None
     }
     return {"tracked": True, "seasons_in_library": in_library}
 
@@ -93,9 +93,9 @@ def _extract_credits(
         runtime = data.get("runtime")
         director: str | None = next(
             (
-                c.get("name")
-                for c in (data.get("credits") or {}).get("crew", [])
-                if c.get("job") == "Director"
+                crew_member.get("name")
+                for crew_member in (data.get("credits") or {}).get("crew", [])
+                if crew_member.get("job") == "Director"
             ),
             None,
         )
@@ -108,11 +108,15 @@ def _extract_credits(
     cast_raw = (data.get("credits") or {}).get("cast") or []
     cast = [
         {
-            "name": c.get("name"),
-            "character": c.get("character"),
-            "profile_url": f"{_PROFILE_BASE}{c['profile_path']}" if c.get("profile_path") else None,
+            "name": cast_member.get("name"),
+            "character": cast_member.get("character"),
+            "profile_url": (
+                f"{_PROFILE_BASE}{cast_member['profile_path']}"
+                if cast_member.get("profile_path")
+                else None
+            ),
         }
-        for c in cast_raw[:6]
+        for cast_member in cast_raw[:6]
     ]
     return runtime, director, cast
 
@@ -201,16 +205,16 @@ def _build_seasons_block(
     seasons_in_lib = sonarr_info["seasons_in_library"]
     seasons = [
         {
-            "season_number": s["season_number"],
-            "name": s.get("name") or f"Season {s['season_number']}",
-            "episode_count": s.get("episode_count", 0),
-            "year": int(s["air_date"][:4])
-            if s.get("air_date") and s["air_date"][:4].isdigit()
+            "season_number": season["season_number"],
+            "name": season.get("name") or f"Season {season['season_number']}",
+            "episode_count": season.get("episode_count", 0),
+            "year": int(season["air_date"][:4])
+            if season.get("air_date") and season["air_date"][:4].isdigit()
             else None,
-            "in_library": s["season_number"] in seasons_in_lib,
+            "in_library": season["season_number"] in seasons_in_lib,
         }
-        for s in data.get("seasons", [])
-        if s.get("season_number", 0) > 0
+        for season in data.get("seasons", [])
+        if season.get("season_number", 0) > 0
     ]
     return sonarr_info["tracked"], seasons
 

@@ -14,14 +14,20 @@ from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 @pytest.fixture(autouse=True)
 def _reset_scan_trigger_limiter():
-    """Reset the per-admin scan-trigger limiter so suite ordering does
+    """Reset the per-admin scan-adjacent limiters so suite ordering does
     not cause the second / third test in a class to hit the daily cap.
+
+    Each admin action now owns a dedicated bucket, so all three must be
+    reset between tests.
     """
     from mediaman.services.rate_limit.instances import SCAN_TRIGGER_LIMITER
+    from mediaman.web.routes.scan import _CLEAR_SCHEDULED_LIMITER, _LIBRARY_SYNC_LIMITER
 
-    SCAN_TRIGGER_LIMITER.reset()
+    for limiter in (SCAN_TRIGGER_LIMITER, _CLEAR_SCHEDULED_LIMITER, _LIBRARY_SYNC_LIMITER):
+        limiter.reset()
     yield
-    SCAN_TRIGGER_LIMITER.reset()
+    for limiter in (SCAN_TRIGGER_LIMITER, _CLEAR_SCHEDULED_LIMITER, _LIBRARY_SYNC_LIMITER):
+        limiter.reset()
 
 
 def _app(app_factory, conn, db_path):
@@ -275,6 +281,26 @@ class TestScanTriggerRateLimit:
             assert resp.status_code == 200
         resp = client.post("/api/scan/trigger")
         assert resp.status_code == 429
+
+    def test_exhausting_trigger_does_not_starve_clear_or_sync(
+        self, app_factory, authed_client, conn, db_path
+    ):
+        """The three admin actions own independent per-actor buckets, so
+        exhausting the scan-trigger limit must not block the unrelated
+        clear-scheduled or library-sync actions."""
+        app = _app(app_factory, conn, db_path)
+        client = authed_client(app, conn)
+
+        # Burn the whole scan-trigger budget for this admin.
+        for _ in range(3):
+            with patch("mediaman.scanner.runner.run_scan_from_db"):
+                client.post("/api/scan/trigger")
+        assert client.post("/api/scan/trigger").status_code == 429
+
+        # The two siblings must still be reachable (not 429).
+        assert client.post("/api/scan/clear-scheduled").status_code != 429
+        with patch("mediaman.scanner.runner.run_library_sync", return_value={"synced": 0}):
+            assert client.post("/api/library/sync").status_code != 429
 
 
 class TestScanTriggerAuditLog:

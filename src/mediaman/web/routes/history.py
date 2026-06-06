@@ -183,7 +183,7 @@ def api_history(
     action: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=_PER_PAGE_DEFAULT, ge=1, le=_PER_PAGE_MAX),
-    username: str = Depends(get_current_admin),
+    _admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
     """Return paginated audit log as JSON."""
     if action and action not in ACTION_TYPES:
@@ -208,7 +208,7 @@ def api_history(
 def api_security_events(
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=_PER_PAGE_DEFAULT, ge=1, le=_PER_PAGE_MAX),
-    username: str = Depends(get_current_admin),
+    _admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
     """Return paginated sec:* audit rows."""
     conn = get_db()

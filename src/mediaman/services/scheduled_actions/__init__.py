@@ -25,6 +25,7 @@ from mediaman.services.scheduled_actions._display import (
     format_expiry,
 )
 from mediaman.services.scheduled_actions._lookup import (
+    is_keep_token_consumed,
     lookup_verified_action,
     mark_token_consumed,
     token_hash,
@@ -48,6 +49,7 @@ __all__ = [
     "apply_keep_snooze",
     "format_added_display",
     "format_expiry",
+    "is_keep_token_consumed",
     "is_pending_unexpired",
     "lookup_verified_action",
     "mark_token_consumed",

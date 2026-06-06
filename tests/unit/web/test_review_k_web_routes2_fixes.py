@@ -480,6 +480,73 @@ class TestH07SonarrTmdbIdFiltering:
         assert data["ok"] is True
         mock_client.add_series.assert_called_once_with(77777, "Correct Show")
 
+    def _tv_suggestion(self, tmdb_id: int) -> object:
+        from mediaman.core.time import now_iso
+        from mediaman.services.openai.recommendations.repository import SuggestionDetail
+
+        return SuggestionDetail(
+            id=1,
+            title="Coerce Show",
+            media_type="tv",
+            tmdb_id=tmdb_id,
+            year=2022,
+            description=None,
+            reason=None,
+            poster_url=None,
+            rating=None,
+            rt_rating=None,
+            batch_id=None,
+            downloaded_at=None,
+            created_at=now_iso(),
+        )
+
+    def test_string_tvdb_id_is_coerced_to_int_for_add_series(self, conn):
+        """Sonarr may return ``tvdbId`` as a string; it must be coerced to
+        an int before reaching ``add_series`` so the int-only call and the
+        %d log line cannot blow up."""
+        from mediaman.web.routes.recommended.api import _add_rec_to_sonarr
+
+        mock_client = MagicMock()
+        mock_client.lookup_by_tmdb_id.return_value = [{"tmdbId": 99999, "tvdbId": "77777"}]
+
+        with patch(
+            "mediaman.web.routes.recommended.api.build_sonarr_from_db",
+            return_value=mock_client,
+        ):
+            resp = _add_rec_to_sonarr(
+                conn,
+                notify_email=None,
+                row=self._tv_suggestion(99999),
+                recommendation_id=1,
+                secret_key=_SECRET,
+            )
+
+        assert json.loads(resp.body)["ok"] is True
+        mock_client.add_series.assert_called_once_with(77777, "Coerce Show")
+
+    def test_non_integer_tvdb_id_is_rejected_without_500(self, conn):
+        """A non-integer ``tvdbId`` must yield a clean ``ok: False`` response,
+        not a 500 from ``int()`` / ``%d`` formatting."""
+        from mediaman.web.routes.recommended.api import _add_rec_to_sonarr
+
+        mock_client = MagicMock()
+        mock_client.lookup_by_tmdb_id.return_value = [{"tmdbId": 99999, "tvdbId": "not-a-number"}]
+
+        with patch(
+            "mediaman.web.routes.recommended.api.build_sonarr_from_db",
+            return_value=mock_client,
+        ):
+            resp = _add_rec_to_sonarr(
+                conn,
+                notify_email=None,
+                row=self._tv_suggestion(99999),
+                recommendation_id=1,
+                secret_key=_SECRET,
+            )
+
+        assert json.loads(resp.body)["ok"] is False
+        mock_client.add_series.assert_not_called()
+
 
 # ===========================================================================
 # DEFERRED-A: fetch_suggestion_by_id returns a SuggestionDetail dataclass

@@ -189,3 +189,44 @@ class TestFinding34DashboardRedownload:
         assert "media_type" in item
         assert item["media_type"] == "movie"
         assert "media_item_id" in item
+
+
+class TestFetchRedownloadAuditRowsBounded:
+    """fetch_redownload_audit_rows must bound its scan to a recent window so
+    the dashboard render does not load an ever-growing audit_log into memory."""
+
+    def test_recent_redownload_is_returned(self, conn):
+        from mediaman.web.repository.dashboard import fetch_redownload_audit_rows
+
+        insert_audit_log(
+            conn,
+            media_item_id="recent",
+            action="re_downloaded",
+            created_at=datetime.now(UTC) - timedelta(days=30),
+        )
+
+        rows = fetch_redownload_audit_rows(conn)
+        assert {row.media_item_id for row in rows} == {"recent"}
+
+    def test_redownload_older_than_window_is_excluded(self, conn):
+        from mediaman.web.repository.dashboard import (
+            _REDOWNLOAD_WINDOW_DAYS,
+            fetch_redownload_audit_rows,
+        )
+
+        insert_audit_log(
+            conn,
+            media_item_id="ancient",
+            action="re_downloaded",
+            created_at=datetime.now(UTC) - timedelta(days=_REDOWNLOAD_WINDOW_DAYS + 5),
+        )
+        insert_audit_log(
+            conn,
+            media_item_id="fresh",
+            action="downloaded",
+            created_at=datetime.now(UTC) - timedelta(days=1),
+        )
+
+        media_ids = {row.media_item_id for row in fetch_redownload_audit_rows(conn)}
+        assert "fresh" in media_ids
+        assert "ancient" not in media_ids

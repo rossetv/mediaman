@@ -216,13 +216,10 @@ def api_send_newsletter(
 
     raw_recipients = body.recipients
 
-    if not isinstance(raw_recipients, list) or not raw_recipients:
+    if not raw_recipients:
         return respond_err("no_recipients", status=400, message="No recipients selected")
 
     config = request.app.state.config
-
-    if not any(isinstance(r, str) for r in raw_recipients):
-        return respond_err("no_valid_recipients", status=400, message="No valid recipients")
 
     recipients, rejected = _resolve_newsletter_recipients(conn, raw_recipients)
 

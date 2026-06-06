@@ -84,8 +84,8 @@ def _fetch_discover_shelf(
             return entry[1]
     raw = fetch_fn(page)
     if inject_media_type:
-        for x in raw:
-            x["media_type"] = inject_media_type
+        for tmdb_item in raw:
+            tmdb_item["media_type"] = inject_media_type
     with _discover_cache_lock:
         # rationale: bounded to prevent unbounded growth on malformed inputs;
         # small clear-on-overflow is fine because TTL means stale entries
@@ -196,7 +196,9 @@ def _partition_cached(
     """
     misses: list[_RatingsKeyGroup] = []
     for key, group in by_key.items():
-        cached = next((r for r in rows if r.tmdb_id == key[0] and r.media_type == key[1]), None)
+        cached = next(
+            (row for row in rows if row.tmdb_id == key[0] and row.media_type == key[1]), None
+        )
         if cached and cached.fetched_at >= cutoff:
             _apply_ratings(group, rt=cached.rt_rating, imdb=cached.imdb_rating)
         else:
@@ -268,11 +270,11 @@ def _stamp_omdb_ratings(results: list[dict[str, object]], request: Request) -> N
     cutoff = (now_utc() - timedelta(days=_RATINGS_TTL_DAYS)).isoformat()
 
     by_key: dict[tuple[int, str], list[dict[str, object]]] = {}
-    for r in results:
-        tmdb_id = r.get("tmdb_id")
+    for search_result in results:
+        tmdb_id = search_result.get("tmdb_id")
         if tmdb_id and isinstance(tmdb_id, int):
-            media_type = r["media_type"]
-            by_key.setdefault((tmdb_id, str(media_type)), []).append(r)
+            media_type = search_result["media_type"]
+            by_key.setdefault((tmdb_id, str(media_type)), []).append(search_result)
 
     if not by_key:
         return
@@ -295,4 +297,6 @@ def _stamp_omdb_ratings(results: list[dict[str, object]], request: Request) -> N
         try:
             upsert_ratings_cache(conn, pending_writes)
         except sqlite3.Error:
-            logger.debug("ratings_cache batch write failed", exc_info=True)
+            # A persistent write fault means every search permanently re-fans
+            # out to OMDb with nothing cached — surface it loudly, not at DEBUG.
+            logger.warning("ratings_cache batch write failed", exc_info=True)
