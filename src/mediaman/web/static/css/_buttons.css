@@ -153,6 +153,7 @@
   letter-spacing: .03em;
   background: rgba(255,69,58,.92);
   color: #fff;
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
 }
 .countdown::before {

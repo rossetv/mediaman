@@ -11,8 +11,8 @@
   gap: 28px;
   padding: 0 var(--pad);
   background: rgba(0,0,0,0.8);
-  backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--hair);
 }
 .brand,
@@ -79,8 +79,8 @@
   gap: 14px;
   padding: 0 var(--pad);
   background: rgba(0,0,0,0.8);
-  backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 1px solid var(--hair);
 }
 .nav-topbar-title {
@@ -100,9 +100,9 @@
   z-index: 50;
   height: calc(64px + env(safe-area-inset-bottom, 0px));
   padding-bottom: env(safe-area-inset-bottom, 0px);
-  background: rgba(0,0,0,.85);
-  backdrop-filter: saturate(180%) blur(24px);
-  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  background: rgba(0,0,0,0.8);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
   border-top: 1px solid var(--hair);
   align-items: stretch;
   justify-content: space-around;
@@ -135,6 +135,7 @@
   inset: 0;
   z-index: 60;
   background: rgba(0,0,0,.55);
+  -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   align-items: flex-end;
   justify-content: center;

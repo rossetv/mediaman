@@ -13,8 +13,9 @@
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: var(--z-modal-backdrop);
   background: rgba(0,0,0,.7);
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   display: flex;
   align-items: flex-start;
@@ -45,6 +46,7 @@
   color: #fff;
   font-size: 12px;
   font-weight: 500;
+  -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   transition: background .15s;
 }
@@ -341,8 +343,9 @@
 .keep-dialog-overlay {
   position: fixed;
   inset: 0;
-  z-index: 110;
+  z-index: var(--z-modal);
   background: rgba(0,0,0,.6);
+  -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   display: none;
   align-items: center;

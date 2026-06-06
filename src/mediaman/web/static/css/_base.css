@@ -126,57 +126,44 @@ main:focus { outline: none; }
 .section { margin-top: var(--section); }
 
 /* Page header */
-.ph,
-.page-header { padding: 48px 0 28px; }
+.ph { padding: 48px 0 28px; }
 
-.ph h1,
-.page-header h1 {
+.ph h1 {
   font-size: clamp(36px, 5.6vw, 56px);
   font-weight: 600;
   letter-spacing: -.035em;
   line-height: 1.04;
 }
-.ph p,
-.page-header p {
+.ph p {
   color: var(--t2);
   margin-top: 10px;
   font-size: 17px;
   letter-spacing: -.02em;
 }
-.ph-row,
-.page-header-actions {
+.ph-row {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
   gap: 24px;
   flex-wrap: wrap;
 }
-/* `.page-header-actions` sits *after* an h1 + p in the older
-   `.page-header` block, so it still needs the gap. `.ph-row` wraps the
-   whole header on the new pages — leading margin would shift the
-   heading down compared to pages without a row. */
-.page-header-actions { margin-top: 16px; align-items: center; }
 
 /* Section header */
-.sec-hd,
-.section-header {
+.sec-hd {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 18px;
 }
-.section-header--wrap { flex-wrap: wrap; align-items: center; }
 
-.sec-hd h2,
-.section-title {
+.sec-hd h2 {
   font-size: clamp(22px, 2.6vw, 30px);
   font-weight: 600;
   letter-spacing: -.025em;
   font-family: var(--font-display);
 }
-.sec-hd .sub,
-.section-subtitle {
+.sec-hd .sub {
   color: var(--t3);
   font-size: 13px;
   letter-spacing: -.01em;
@@ -204,8 +191,7 @@ main:focus { outline: none; }
 /* =============================================================
    15. CONNECTION STATUS DOT
    ============================================================= */
-.conn,
-.conn-status {
+.conn {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -220,44 +206,37 @@ main:focus { outline: none; }
   flex-shrink: 0;
   display: inline-block;
 }
-.conn-dot.off,
-.conn-status.conn-unknown .conn-dot { background: var(--t4); box-shadow: none; }
-.conn-dot.warn,
-.conn-status.conn-warn .conn-dot { background: var(--warning); box-shadow: 0 0 10px rgba(255,214,10,.6); }
-.conn-status.conn-error .conn-dot { background: var(--danger); box-shadow: 0 0 10px rgba(255,69,58,.6); }
-.conn-status.conn-ok .conn-dot { background: var(--success); box-shadow: 0 0 10px rgba(48,209,88,.6); }
+.conn-dot.off  { background: var(--t4); box-shadow: none; }
+.conn-dot.warn { background: var(--warning); box-shadow: 0 0 10px rgba(255,214,10,.6); }
 
 /* =============================================================
    18. EMPTY STATE
    ============================================================= */
-.empty,
-.empty-state {
+.empty {
   padding: 60px 20px;
   text-align: center;
   background: var(--s1);
   border: 1px dashed var(--hair);
   border-radius: var(--r-lg);
 }
+/* Larger padding variant — applied via extra_class on the .empty macro. */
 .empty-state--lg { padding: 100px 20px; }
-.empty-ico,
-.empty-state__icon {
+.empty-ico {
   margin: 0 auto 16px;
   color: var(--t3);
   display: grid;
   place-items: center;
   font-size: 28px;
 }
-.empty h3,
-.empty-state__headline {
+.empty h3 {
   font-size: 18px;
   font-weight: 500;
   margin-bottom: 6px;
 }
-.empty p,
-.empty-state__sub {
+.empty p {
   color: var(--t3);
   font-size: 14px;
   line-height: 1.5;
 }
-.empty-state__sub a, .empty p a { color: var(--accent); }
+.empty p a { color: var(--accent); }
 .icon-tertiary { color: var(--t3); }

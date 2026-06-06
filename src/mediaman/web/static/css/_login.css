@@ -8,8 +8,7 @@
 /* =============================================================
    24. LOGIN, FORCE PASSWORD CHANGE
    ============================================================= */
-.login-page,
-.login-wrap {
+.login-page {
   min-height: 100vh;
   display: grid;
   place-items: center;
@@ -17,8 +16,7 @@
   position: relative;
   overflow: hidden;
 }
-.login-page::before,
-.login-wrap::before {
+.login-page::before {
   content: "";
   position: absolute;
   inset: -100px;
@@ -37,8 +35,8 @@
   width: 100%;
   max-width: 420px;
   background: rgba(29,29,31,.7);
-  backdrop-filter: saturate(180%) blur(40px);
   -webkit-backdrop-filter: saturate(180%) blur(40px);
+  backdrop-filter: saturate(180%) blur(40px);
   border: 1px solid var(--hair-strong);
   border-radius: var(--r-lg);
   padding: 44px 36px;
@@ -53,8 +51,7 @@
 }
 .login-brand a { text-decoration: none; color: inherit; }
 .login-brand b, .login-brand span { color: var(--accent); }
-.login-sub,
-.login-subtitle { color: var(--t3); font-size: 14px; margin-bottom: 28px; }
+.login-sub { color: var(--t3); font-size: 14px; margin-bottom: 28px; }
 .login-title {
   font-size: 22px;
   font-weight: 600;
@@ -145,7 +142,7 @@
 
 .fpc-meter {
   height: 4px;
-  background: var(--rgba-overlay-sm);
+  background: var(--s3);
   border-radius: var(--r-pill);
   overflow: hidden;
   margin-top: 6px;
