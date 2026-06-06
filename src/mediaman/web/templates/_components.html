@@ -80,9 +80,11 @@
   {%- if on %}{% set _ = classes.append("on") %}{% endif -%}
   {%- if tag == "a" -%}
     <a class="{{ classes | join(' ') }}" href="{{ href }}"
+       {%- if on %} aria-current="page"{% endif -%}
        {%- if data_attrs %}{% for k, v in data_attrs.items() %} data-{{ k | e }}="{{ v | e }}"{% endfor %}{% endif %}>{{ label }}</a>
   {%- else -%}
     <button type="button" class="{{ classes | join(' ') }}"
+            {%- if on %} aria-current="true"{% endif -%}
             {%- if data_attrs %}{% for k, v in data_attrs.items() %} data-{{ k | e }}="{{ v | e }}"{% endfor %}{% endif %}>{{ label }}</button>
   {%- endif -%}
 {%- endmacro %}

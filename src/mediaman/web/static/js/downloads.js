@@ -142,7 +142,8 @@
   document.addEventListener('click', function (e) {
     var toggle = e.target.closest('[data-v="ep-toggle"]');
     if (!toggle) return;
-    toggle.classList.toggle('open');
+    var isOpen = toggle.classList.toggle('open');
+    toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
     var list = toggle.nextElementSibling;
     if (list && list.getAttribute('data-v') === 'ep-list') {
       list.style.display = list.style.display === 'none' ? '' : 'none';

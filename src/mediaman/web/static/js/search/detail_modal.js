@@ -138,7 +138,7 @@
     const genres  = (d.genres || []).join(" · ");
     const runtime = d.runtime ? d.runtime + " min" : "";
     const quickBits = [
-      '<span class="type-pill">' + (d.media_type === "movie" ? "Movie" : "TV Series") + '</span>',
+      '<span class="type-pill' + (d.media_type === "movie" ? " type-pill--movie" : "") + '">' + (d.media_type === "movie" ? "Movie" : "TV Series") + '</span>',
       genres  ? '<span class="meta-text">' + escapeHtml(genres) + '</span>' : "",
       runtime ? '<span class="meta-dot">·</span><span class="meta-text">' + escapeHtml(runtime) + '</span>' : "",
       d.director ? '<span class="meta-dot">·</span><span class="meta-text">' + escapeHtml(d.director) + '</span>' : "",

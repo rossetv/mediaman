@@ -33,15 +33,7 @@
   overflow: hidden;
 }
 .keep-page::before {
-  content: "";
-  position: absolute;
-  inset: -100px;
-  z-index: 0;
-  opacity: .25;
-  background:
-    radial-gradient(ellipse at 50% 20%, rgba(41,151,255,.3), transparent 60%);
-  filter: blur(80px);
-  pointer-events: none;
+  content: none; /* D34: DESIGN.md §7 forbids gradients on UI chrome; decorative radial-gradient removed */
 }
 .keep-nav {
   position: relative;

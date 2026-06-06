@@ -110,7 +110,7 @@
   transition: background .15s, color .15s;
 }
 .setg-pg .setg-rail-item:hover { color: var(--t1); background: rgba(255,255,255,.04); }
-.setg-pg .setg-rail-item.on    { color: var(--t1); background: var(--s2); }
+.setg-pg .setg-rail-item.on    { color: var(--t1); background: var(--s3); }
 .setg-pg .setg-rail-item > .fa-solid {
   font-size: 14px;
   flex-shrink: 0; opacity: .75;
@@ -359,7 +359,7 @@
    row hidden underneath; a centred modal removes the ambiguity. ------ */
 .reauth-sheet { max-width: 460px; padding: 28px 28px 24px; }
 .reauth-sheet .reauth-title {
-  font-family: var(--font-display), system-ui, sans-serif;
+  font-family: var(--font-display);
   font-size: 22px; font-weight: 600; line-height: 1.19;
   letter-spacing: -.011em; color: var(--t1);
   margin: 0 0 8px;

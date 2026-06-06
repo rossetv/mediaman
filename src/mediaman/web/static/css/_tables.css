@@ -189,7 +189,7 @@ img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
   transition: background .15s, color .15s;
 }
 .page-btn:hover { background: var(--s2); color: var(--t1); }
-.page-btn.active { background: var(--accent); color: #001424; border-color: var(--accent); }
+.page-btn.active { background: var(--accent); color: var(--color-on-accent); border-color: var(--accent); }
 .page-btn.disabled { opacity: .4; pointer-events: none; }
 .page-btn--ellipsis { background: transparent; border: 0; }
 .page-info { margin-left: 8px; color: var(--t3); font-size: 12px; }

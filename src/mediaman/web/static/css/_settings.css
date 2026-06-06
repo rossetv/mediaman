@@ -98,11 +98,11 @@
   transition: background .15s, color .15s;
 }
 .library-pills .lib-pill:hover { color: var(--t1); }
-.library-pills .lib-pill.on { background: var(--accent); color: #001424; }
+.library-pills .lib-pill.on { background: var(--accent); color: var(--color-on-accent); }
 
 /* =============================================================
    27. SETTINGS — JS-emitted bits (library pills' selected state).
    ============================================================= */
 
 /* Library pill — JS toggles .selected; alias to .on for visual parity. */
-.library-pills .lib-pill.selected { background: var(--accent); color: #001424; }
+.library-pills .lib-pill.selected { background: var(--accent); color: var(--color-on-accent); }

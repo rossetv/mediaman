@@ -71,10 +71,12 @@
 
   function renderEmpty(message) {
     shelves.replaceChildren();
-    const msg = document.createElement("div");
-    msg.className = "search-empty";
-    msg.textContent = message;
-    shelves.appendChild(msg);
+    const wrap = document.createElement("div");
+    wrap.className = "empty";
+    const heading = document.createElement("h3");
+    heading.textContent = message;
+    wrap.appendChild(heading);
+    shelves.appendChild(wrap);
   }
 
   function renderDiscover(data, openDetail) {

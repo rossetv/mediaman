@@ -56,7 +56,8 @@
   /* Spacing & nav */
   --pad:     clamp(20px,4vw,40px);
   --section: clamp(36px,6vw,72px);
-  --nav-h:   48px;
+  /* nav-glass height (DESIGN.md §4). The compact .nav-topbar hardcodes 48px. */
+  --nav-h:   52px;
 
   /* Z-index scale — single source of truth for app-wide stacking.
      Local stacking contexts inside positioned ancestors stay numeric. */
@@ -103,5 +104,23 @@
 
   /* Row gap shared by .setg-row, .settings-subrow, and .form-row. */
   --gap-row: 20px;
+
+  /* Ink colour for text/glyphs sitting on a saturated fill (accent .on
+     filter pills, badges on the accent colour). Was the #001424 literal
+     scattered across buttons/tables/settings. */
+  --color-on-accent: #001424;
+
+  /* Third-party service brand identity — used only by the settings
+     integration glyphs (.gy-*). Exempt from the single-accent rule
+     (DESIGN.md §2) because they are brand/content identity, not UI chrome.
+     Tokenised so a brand refresh is a one-line edit and the values are
+     greppable. */
+  --brand-plex:      #e5a00d;  --brand-plex-bg:    rgba(229,160,13,.14);
+  --brand-sonarr:    #3ea9ed;  --brand-sonarr-bg:  rgba(62,169,237,.14);
+  --brand-radarr:    #ffa500;  --brand-radarr-bg:  rgba(255,165,0,.14);
+  --brand-mailgun:   #ff5757;  --brand-mailgun-bg: rgba(255,87,87,.14);
+  --brand-openai:    #10a37f;  --brand-openai-bg:  rgba(16,163,127,.14);
+  --brand-tmdb:      #01b4e4;  --brand-tmdb-bg:    rgba(1,180,228,.14);
+  --brand-omdb:      #f5c518;  --brand-omdb-bg:    rgba(245,197,24,.14);
 }
 

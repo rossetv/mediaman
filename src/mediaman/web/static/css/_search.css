@@ -59,10 +59,3 @@
 }
 .search-wrap.loading .search-spinner { display: block; }
 @keyframes spin { to { transform: rotate(360deg); } }
-
-.search-empty {
-  padding: 80px 20px;
-  text-align: center;
-  color: var(--t3);
-  font-size: 14px;
-}
