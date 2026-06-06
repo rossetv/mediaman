@@ -10,7 +10,6 @@ other mediaman modules.  :func:`parse_iso_utc` is imported from
 
 from __future__ import annotations
 
-import json
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -169,31 +168,6 @@ def format_day_month(dt: datetime, *, long_month: bool = False) -> str:
     """
     table = _ENGLISH_MONTH_FULL if long_month else _ENGLISH_MONTH_ABBR
     return f"{dt.day} {table[dt.month - 1]} {dt.year}"
-
-
-def safe_json_list(value: object) -> list[object]:
-    """Parse *value* as JSON and return a list, or ``[]`` on any failure.
-
-    Handles the repeated pattern of ``json.loads(genres_or_cast or "[]")``
-    with a try/except that was copy-pasted across six call sites.
-
-    Args:
-        value: A JSON string, an already-parsed list, or any falsy value.
-
-    Returns:
-        The parsed list, or ``[]`` when *value* is falsy or invalid JSON.
-    """
-    if not value:
-        return []
-    if isinstance(value, list):
-        return value
-    if not isinstance(value, (str, bytes, bytearray)):
-        return []
-    try:
-        parsed = json.loads(value)
-        return parsed if isinstance(parsed, list) else []
-    except (json.JSONDecodeError, TypeError):
-        return []
 
 
 def normalise_media_type(raw: str | None) -> str:

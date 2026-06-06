@@ -180,7 +180,6 @@ def _evaluate_scan_item(
     if seen_keys is not None:
         seen_keys.add(media_id)
     _phase_upsert_item(conn, f, engine._arr_cache, media_type_fn(f))
-    repository.update_last_watched(conn, media_id, f.watch_history)
 
     if media_id in guards.protected:
         return media_id, ScanDecision.SKIP_GUARD
