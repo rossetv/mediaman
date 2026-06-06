@@ -239,6 +239,11 @@ def scan_movie_library(
     # Phase 1: pull items + watch histories from Plex (no DB writes,
     # no lock). See :meth:`ScanEngine.sync_library` for rationale.
     fetched = engine._fetcher.fetch_library_items(library_id)
+    # An item whose watch history could not be fetched is still present in
+    # Plex — record its key as seen so orphan removal never prunes it on a
+    # scan that merely failed to fetch its history (R7-H1).
+    if seen_keys is not None:
+        seen_keys.update(fetched.skipped_keys)
 
     def _evaluate(
         f: PlexItemFetch,
@@ -254,7 +259,7 @@ def scan_movie_library(
 
     scan_items(
         engine,
-        fetched,
+        fetched.items,
         media_type_fn=lambda f: "movie",
         evaluate_fn=_evaluate,
         item_label="Movie",
@@ -277,6 +282,11 @@ def scan_tv_library(
     # Phase 1: network fetch (see :meth:`ScanEngine.sync_library`).
     fetched = engine._fetcher.fetch_library_items(library_id)
     conn = engine._conn
+    # A season whose watch history could not be fetched is still present in
+    # Plex — record its key as seen so orphan removal never prunes it on a
+    # scan that merely failed to fetch its history (R7-H1).
+    if seen_keys is not None:
+        seen_keys.update(fetched.skipped_keys)
 
     # §13.3-style batching for the show-kept guard. The previous code called
     # repository.is_show_kept() once per season, issuing one ``kept_shows``
@@ -291,7 +301,9 @@ def scan_tv_library(
     now = now_iso()
     repository.cleanup_expired_show_snoozes(conn, now)
     show_keys = [
-        key for key in {f.item.get("show_rating_key") for f in fetched} if isinstance(key, str)
+        key
+        for key in {f.item.get("show_rating_key") for f in fetched.items}
+        if isinstance(key, str)
     ]
     kept_show_keys = repository.fetch_kept_show_keys(conn, show_keys, now)
 
@@ -313,7 +325,7 @@ def scan_tv_library(
 
     scan_items(
         engine,
-        fetched,
+        fetched.items,
         media_type_fn=lambda f: f.media_type,
         evaluate_fn=_evaluate,
         item_label="TV",

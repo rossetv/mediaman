@@ -299,11 +299,35 @@ class PlexClient:
 
         Fetches each episode's rating key, then queries the raw Plex history
         API for each. This is more reliable than plexapi's .history() method.
+
+        Each per-episode :meth:`get_watch_history` call is wrapped so an
+        oversized or erroring episode (the exact case that the inner
+        ``skip_malformed`` guard one level down cannot reach, since it
+        aborts the whole fetch) cannot crash the loop with an uncaught
+        exception. Behaviour stays deliberately conservative: if ANY
+        episode's history cannot be fetched, the WHOLE season is aborted
+        by re-raising, so the scanner's ``fetch.py`` records the season as
+        *skipped* and protects it from orphan removal rather than building
+        a partial history that could read as "fully watched" or "never
+        watched". A partial season history is never returned.
         """
         season = self.server.fetchItem(int(season_rating_key))  # type: ignore[no-untyped-call]  # rationale: plexapi has no stubs
-        entries = []
+        entries: list[PlexWatchEntry] = []
         for ep in season.episodes():
-            ep_history = self.get_watch_history(str(ep.ratingKey))
+            try:
+                ep_history = self.get_watch_history(str(ep.ratingKey))
+            except (PlexResponseTooLarge, http_requests.RequestException, PlexApiException):
+                # One bad episode must not crash the aggregation loop, but a
+                # partial season history is unsafe — abort the whole season so
+                # fetch.py marks it skipped (conservative; never misclassify).
+                logger.debug(
+                    "plex.season_history.episode_fetch_failed season=%s episode=%s — "
+                    "aborting season aggregation to avoid a partial history",
+                    season_rating_key,
+                    getattr(ep, "ratingKey", "?"),
+                    exc_info=True,
+                )
+                raise
             for h in ep_history:
                 h["episode_title"] = ep.title
                 entries.append(h)

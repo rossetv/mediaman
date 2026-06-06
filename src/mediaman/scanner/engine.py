@@ -50,7 +50,7 @@ from mediaman.scanner.deletions import (
     DeletionExecutor,
     DeletionResult,
 )
-from mediaman.scanner.fetch import PlexFetcher, PlexItemFetch
+from mediaman.scanner.fetch import FetchedLibrary, PlexFetcher
 from mediaman.scanner.phases.delete import remove_orphans
 from mediaman.scanner.phases.upsert import upsert_item as _phase_upsert_item
 from mediaman.services.infra import get_bool_setting as _get_bool_setting
@@ -188,17 +188,17 @@ class ScanEngine:
         )
         return summary
 
-    def _sync_phase_fetch(self, summary: dict[str, int]) -> dict[str, list[PlexItemFetch]]:
+    def _sync_phase_fetch(self, summary: dict[str, int]) -> dict[str, FetchedLibrary]:
         """Pull every library's items + watch history from Plex into memory.
 
-        Returns a ``lib_id -> [PlexItemFetch]`` mapping. No DB writes
+        Returns a ``lib_id -> FetchedLibrary`` mapping. No DB writes
         happen here. Fetch failures are logged per-library and
         accumulate into ``summary["errors"]`` so a single bad library
         cannot abort the whole sync. The mapping only contains
         successfully-fetched libraries so the write phase will not
         observe a partial fetch.
         """
-        per_lib_fetches: dict[str, list[PlexItemFetch]] = {}
+        per_lib_fetches: dict[str, FetchedLibrary] = {}
         for lib_id in self._library_ids:
             try:
                 per_lib_fetches[lib_id] = self._fetcher.fetch_library_items(lib_id)
@@ -210,7 +210,7 @@ class ScanEngine:
 
     def _sync_phase_write(
         self,
-        per_lib_fetches: dict[str, list[PlexItemFetch]],
+        per_lib_fetches: dict[str, FetchedLibrary],
         summary: dict[str, int],
     ) -> None:
         """Apply per-library UPSERTs + orphan cleanup, one transaction each.
@@ -222,9 +222,13 @@ class ScanEngine:
         corrupted server) skips orphan removal for that library rather
         than crashing the whole sync.
         """
-        for lib_id, fetches in per_lib_fetches.items():
-            seen_lib_keys: set[str] = {f.item["plex_rating_key"] for f in fetches}
-            for f in fetches:
+        for lib_id, fetched in per_lib_fetches.items():
+            # Union the history-fetch skips into the seen set: those items
+            # are still present in Plex, just not fetched this pass, so they
+            # must never be pruned as orphans (R7-H1).
+            seen_lib_keys: set[str] = {f.item["plex_rating_key"] for f in fetched.items}
+            seen_lib_keys.update(fetched.skipped_keys)
+            for f in fetched.items:
                 _phase_upsert_item(self._conn, f, self._arr_cache, f.media_type)
                 summary["synced"] += 1
             try:

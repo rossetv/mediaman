@@ -35,6 +35,8 @@ from mediaman.services.infra import (
 )
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from mediaman.services.arr.base import ArrClient
 
 logger = logging.getLogger(__name__)
@@ -50,7 +52,8 @@ class DeletionResult(TypedDict):
 def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
     """Reconcile ``scheduled_actions`` rows left in the ``deleting`` state.
 
-    Called at the start of :meth:`DeletionExecutor.execute` and by the
+    Called at the start of a *live* :meth:`DeletionExecutor.execute` pass
+    (never under dry-run — a preview mutates nothing, R7-L1) and by the
     scheduler on startup. For each row marked ``deleting`` we check
     whether the on-disk file is still present:
 
@@ -311,9 +314,6 @@ class DeletionExecutor:
         self._sonarr = sonarr_client
         self._radarr = radarr_client
 
-    # rationale: orchestrator — body is sequential phase calls plus
-    # the deletion loop; the loop counter state (deleted_count,
-    # reclaimed_bytes) spans all phases and ties them together.
     def execute(self) -> DeletionResult:
         """Run the deletion pass.
 
@@ -323,73 +323,105 @@ class DeletionExecutor:
         a real dry-run preview never mutates ``scheduled_actions``.
 
         Pipeline:
-        1. Load allowlist + recover stuck rows.
-        2. For each pending row in dry-run mode, write audit and skip.
-        3. For each live row: mark 'deleting', delete file on disk.
-        4. On success: commit deletion audit + drop action row.
-        5. Best-effort *arr unmonitor (outside any transaction).
+        1. Recover stuck rows (skipped in dry-run — preview mutates nothing).
+        2. Dry-run: write a ``dry_run_skip`` audit per pending row and stop.
+        3. Live: load allowlist (fail closed if unset), then for each row
+           mark 'deleting', delete file on disk, commit audit + unmonitor.
+        4. Clean up expired snoozes unless dry-run.
         """
         now = now_utc()
+        rows = self._recover_then_fetch_pending(now)
+        if self._dry_run:
+            # Preview: record what *would* be deleted, mutate no state.
+            for row in rows:
+                log_audit(
+                    self._conn, row.media_item_id, "dry_run_skip", f"Would delete: {row.title}"
+                )
+            self._conn.commit()
+            return {"deleted": 0, "reclaimed_bytes": 0}
+        return self._execute_live(rows, now)
+
+    def _recover_then_fetch_pending(self, now: datetime) -> list[DeletionRow]:
+        """Recover stuck rows (live only) and return the pending-deletion set.
+
+        Recovery commits real state changes, so a dry-run preview must NOT
+        run it (R7-L1): the periodic 30-min library sync is a dry-run and
+        genuine crash recovery already runs at boot via the scheduler and at
+        the start of every live deletion pass below. Guarding here keeps the
+        documented "dry-run mutates nothing" contract honest.
+        """
+        if not self._dry_run:
+            recover_stuck_deletions(self._conn)
+        return repository.fetch_pending_deletions(self._conn, now.isoformat())
+
+    def _execute_live(self, rows: list[DeletionRow], now: datetime) -> DeletionResult:
+        """Delete each eligible row from disk, fail-closed on an empty allowlist."""
         deleted_count = 0
         reclaimed_bytes = 0
-
         allowed_roots = repository.read_delete_allowed_roots_setting(self._conn)
-
-        # Recover any rows left in the 'deleting' state by a previous
-        # crash between the on-disk rm and the DB cleanup commit.
-        recover_stuck_deletions(self._conn)
-
-        rows = repository.fetch_pending_deletions(self._conn, now.isoformat())
-
-        for row in rows:
-            if self._dry_run:
-                log_audit(
-                    self._conn,
-                    row.media_item_id,
-                    "dry_run_skip",
-                    f"Would delete: {row.title}",
-                )
-                continue
-
-            # Remove files from disk.
-            if not allowed_roots:
+        # Fail closed once, before the loop: deletion must refuse when
+        # MEDIAMAN_DELETE_ROOTS is unset (§1.11). Lifted out of the per-row
+        # loop so the refusal is logged a single time, not once per pending
+        # row (R7-L3). Snooze cleanup below still runs so expired snoozes
+        # re-enter the pipeline once roots are configured.
+        if not allowed_roots:
+            if rows:
                 logger.error(
-                    "Skipping deletion of '%s': delete_allowed_roots not "
-                    "configured. Set the setting or `MEDIAMAN_DELETE_ROOTS` "
-                    "env var.",
-                    row.file_path,
+                    "Skipping %d pending deletion(s): delete_allowed_roots not "
+                    "configured. Set the setting or `MEDIAMAN_DELETE_ROOTS` env var.",
+                    len(rows),
                 )
-                continue
-
-            # Two-phase delete: mark the row 'deleting' and commit BEFORE
-            # removing the file. If we crash between this commit and the
-            # rm, the next run's recover_stuck_deletions() can inspect
-            # the row and decide whether the file is still there (reset
-            # to pending) or already gone (mark deleted).
-            logger.info(
-                "engine.delete.intent id=%s media_id=%s path=%r",
-                row.id,
-                row.media_item_id,
-                row.file_path,
-            )
-            repository.mark_delete_status(self._conn, row.id, "deleting")
-            self._conn.commit()
-
-            if not _delete_file_on_disk(self._conn, row, allowed_roots):
-                continue
-
-            _commit_deletion(self._conn, row)
-            _unmonitor_arr(row, radarr_client=self._radarr, sonarr_client=self._sonarr)
-
-            deleted_count += 1
-            reclaimed_bytes += row.file_size_bytes or 0
-
-        # Remove expired snoozes so items re-enter the scan pipeline.
-        # A real dry-run preview must NOT mutate scheduled_actions, so
-        # the engine passes ``cleanup_snoozes=False`` when running in
-        # dry_run mode.
+        else:
+            for row in rows:
+                if self._delete_one(row, allowed_roots):
+                    deleted_count += 1
+                    reclaimed_bytes += row.file_size_bytes or 0
         if self._cleanup_snoozes:
             repository.cleanup_expired_snoozes(self._conn, now.isoformat())
-
         self._conn.commit()
         return {"deleted": deleted_count, "reclaimed_bytes": reclaimed_bytes}
+
+    def _delete_one(self, row: DeletionRow, allowed_roots: list[str]) -> bool:
+        """Delete a single eligible row from disk; return True on success.
+
+        Parks a row with an empty/NULL ``file_path`` instead of cycling it
+        forever between 'deleting' and 'pending' (R7-M1): ``delete_path("")``
+        always refuses and recovery always resets to pending, so such a row
+        would livelock invisibly. Write a permanent-failure audit and drop
+        the action so the operator can see it and it cannot re-enter.
+        """
+        if not (row.file_path or "").strip():
+            logger.error(
+                "engine.delete.empty_path id=%s media_id=%s — scheduled deletion "
+                "has no file_path; parking the action so it cannot livelock "
+                "between 'deleting' and 'pending'.",
+                row.id,
+                row.media_item_id,
+            )
+            log_audit(
+                self._conn,
+                row.media_item_id,
+                "delete_failed_permanent",
+                f"Permanent delete error: {row.title} — empty file_path, action parked",
+            )
+            repository.delete_scheduled_action(self._conn, row.id)
+            self._conn.commit()
+            return False
+
+        # Two-phase delete: mark the row 'deleting' and commit BEFORE removing
+        # the file. If we crash between this commit and the rm, the next run's
+        # recover_stuck_deletions() can inspect the row and decide whether the
+        # file is still there (reset to pending) or already gone (mark deleted).
+        logger.info(
+            "engine.delete.intent id=%s media_id=%s path=%r",
+            row.id,
+            row.media_item_id,
+            row.file_path,
+        )
+        repository.mark_delete_status(self._conn, row.id, "deleting")
+        self._conn.commit()
+        if not _delete_file_on_disk(self._conn, row, allowed_roots):
+            return False
+        _commit_deletion(self._conn, row)
+        _unmonitor_arr(row, radarr_client=self._radarr, sonarr_client=self._sonarr)
+        return True

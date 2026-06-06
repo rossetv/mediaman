@@ -44,6 +44,26 @@ class PlexItemFetch:
     watch_history: list[PlexWatchEntry]
 
 
+@dataclass(frozen=True, slots=True)
+class FetchedLibrary:
+    """Result of a single library fetch — usable items plus skipped keys.
+
+    *items* are the fully-fetched items (item + watch history) that the
+    write phase may evaluate. *skipped_keys* are the ``plex_rating_key``
+    values that exist in Plex this scan but whose watch history could NOT
+    be fetched (a transient Plex history-fetch failure).
+
+    The distinction is load-bearing for data integrity: an item whose
+    history fetch failed is still *present* in Plex, so it must never be
+    treated as an orphan and pruned. The engine unions *skipped_keys* into
+    its ``seen_keys`` set before orphan removal so a history-fetch failure
+    is "seen, just not evaluated this scan", never "gone from Plex".
+    """
+
+    items: list[PlexItemFetch]
+    skipped_keys: frozenset[str]
+
+
 class PlexFetcher:
     """Wraps the Plex client for the scanner's two-phase fetch.
 
@@ -64,71 +84,96 @@ class PlexFetcher:
         self._library_types = library_types
         self._library_titles = library_titles or {}
 
-    def fetch_library_items(self, library_id: str) -> list[PlexItemFetch]:
+    def fetch_library_items(self, library_id: str) -> FetchedLibrary:
         """Fetch items + watch history for a library from Plex.
 
-        Pure network-read helper; touches no DB. Returns one
-        :class:`PlexItemFetch` per movie or per season.
+        Pure network-read helper; touches no DB. Returns a
+        :class:`FetchedLibrary` carrying one :class:`PlexItemFetch` per
+        successfully-fetched movie or season, plus the set of
+        ``plex_rating_key`` values that were SKIPPED because their watch
+        history could not be fetched.
 
-        **Fails closed on watch-history errors**. The
-        previous code swallowed a per-item watch-history failure and
-        substituted an empty list, which combined with
-        ``check_inactivity([], …) == True`` to mean a transient Plex
-        500 reclassified the item as "never watched" and made it
-        eligible for deletion the next run. Now the offending item is
-        excluded from the returned list and the failure is logged so
-        an operator can spot it. A retry on the next scan picks up the
-        item once Plex is healthy again.
+        **Fails closed on watch-history errors**. The previous code
+        swallowed a per-item watch-history failure and substituted an
+        empty list, which combined with ``check_inactivity([], …) ==
+        True`` to mean a transient Plex 500 reclassified the item as
+        "never watched" and made it eligible for deletion the next run.
+        The offending item is now excluded from ``items`` AND its key is
+        recorded in ``skipped_keys`` so the engine can protect it from
+        orphan pruning — a history-fetch failure means the item is still
+        in Plex, just not evaluable this scan. A retry on the next scan
+        picks up the item once Plex is healthy again.
         """
         lib_type = self._library_types.get(library_id, "movie")
         out: list[PlexItemFetch] = []
+        skipped: set[str] = set()
         if lib_type == "show":
-            seasons = self._plex.get_show_seasons(library_id)
-            lib_title = self._library_titles.get(library_id, "")
-            default_anime = "anime" in lib_title
-            for season in seasons:
-                media_type = (
-                    "anime_season" if season.get("is_anime", default_anime) else "tv_season"
-                )
-                try:
-                    watch_history = self._plex.get_season_watch_history(season["plex_rating_key"])
-                except (PlexApiException, requests.RequestException, PlexResponseTooLarge):
-                    logger.warning(
-                        "Failed to fetch watch history for season %s — "
-                        "skipping season this scan to avoid misclassifying "
-                        "as 'never watched'",
-                        season.get("plex_rating_key"),
-                        exc_info=True,
-                    )
-                    continue
-                out.append(
-                    PlexItemFetch(
-                        item=season,
-                        library_id=library_id,
-                        media_type=media_type,
-                        watch_history=watch_history,
-                    )
-                )
+            self._fetch_show_seasons(library_id, out, skipped)
         else:
-            items = self._plex.get_movie_items(library_id)
-            for item in items:
-                try:
-                    watch_history = self._plex.get_watch_history(item["plex_rating_key"])
-                except (PlexApiException, requests.RequestException, PlexResponseTooLarge):
-                    logger.warning(
-                        "Failed to fetch watch history for item %s — "
-                        "skipping item this scan to avoid misclassifying "
-                        "as 'never watched'",
-                        item.get("plex_rating_key"),
-                        exc_info=True,
-                    )
-                    continue
-                out.append(
-                    PlexItemFetch(
-                        item=item,
-                        library_id=library_id,
-                        media_type="movie",
-                        watch_history=watch_history,
-                    )
+            self._fetch_movies(library_id, out, skipped)
+        return FetchedLibrary(items=out, skipped_keys=frozenset(skipped))
+
+    def _fetch_show_seasons(
+        self,
+        library_id: str,
+        out: list[PlexItemFetch],
+        skipped: set[str],
+    ) -> None:
+        """Fetch each season's watch history; record skips on failure."""
+        seasons = self._plex.get_show_seasons(library_id)
+        lib_title = self._library_titles.get(library_id, "")
+        default_anime = "anime" in lib_title
+        for season in seasons:
+            media_type = "anime_season" if season.get("is_anime", default_anime) else "tv_season"
+            rating_key = season["plex_rating_key"]
+            try:
+                watch_history = self._plex.get_season_watch_history(rating_key)
+            except (PlexApiException, requests.RequestException, PlexResponseTooLarge):
+                logger.warning(
+                    "Failed to fetch watch history for season %s — "
+                    "excluding from evaluation this scan but protecting "
+                    "it from orphan removal (still present in Plex)",
+                    rating_key,
+                    exc_info=True,
                 )
-        return out
+                skipped.add(rating_key)
+                continue
+            out.append(
+                PlexItemFetch(
+                    item=season,
+                    library_id=library_id,
+                    media_type=media_type,
+                    watch_history=watch_history,
+                )
+            )
+
+    def _fetch_movies(
+        self,
+        library_id: str,
+        out: list[PlexItemFetch],
+        skipped: set[str],
+    ) -> None:
+        """Fetch each movie's watch history; record skips on failure."""
+        items = self._plex.get_movie_items(library_id)
+        for item in items:
+            rating_key = item["plex_rating_key"]
+            try:
+                watch_history = self._plex.get_watch_history(rating_key)
+            except (PlexApiException, requests.RequestException, PlexResponseTooLarge):
+                logger.warning(
+                    "Failed to fetch watch history for item %s — "
+                    "excluding from evaluation this scan but protecting "
+                    "it from orphan removal (still present in Plex)",
+                    rating_key,
+                    exc_info=True,
+                )
+                skipped.add(rating_key)
+                continue
+            out.append(
+                PlexItemFetch(
+                    item=item,
+                    library_id=library_id,
+                    media_type="movie",
+                    watch_history=watch_history,
+                )
+            )

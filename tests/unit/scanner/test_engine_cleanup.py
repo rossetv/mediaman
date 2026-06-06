@@ -5,10 +5,11 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
 from mediaman.db import finish_scan_run, init_db, is_scan_running, start_scan_run
 from mediaman.scanner.engine import ScanEngine
-from tests.helpers.factories import insert_media_item
+from tests.helpers.factories import insert_media_item, insert_scheduled_action
 
 
 @pytest.fixture
@@ -130,6 +131,88 @@ class TestOrphanGuard:
             scanned_libs={10},
         )
         assert removed == 0  # nothing to remove, but not blocked either
+
+
+class TestHistoryFetchFailureNeverPrunes:
+    """R7-H1: a transient watch-history fetch failure must NEVER cause an
+    item's ``media_items`` row or its pending ``scheduled_actions`` to be
+    pruned by orphan removal.
+
+    The item is still present in Plex — the scan merely failed to fetch its
+    history this run. Its rating key is unioned into ``seen_keys`` so orphan
+    removal treats it as "seen, just not evaluated", not "gone from Plex".
+    """
+
+    def _movie(self, rk):
+        return {
+            "plex_rating_key": rk,
+            "title": f"Film {rk}",
+            "added_at": "2026-01-01T00:00:00Z",
+            "file_path": f"/media/{rk}.mkv",
+        }
+
+    def test_history_fetch_failure_protects_row_and_scheduled_action(
+        self, conn, mock_plex, monkeypatch
+    ):
+        # A library Plex still fully lists: six movies are present in
+        # get_movie_items, so the orphan guard's item-count floors are not
+        # tripped — this proves the *skip protection*, not the guard, is
+        # what saves the failing item.
+        lib_id = "42"
+        movies = [self._movie(str(i)) for i in range(1, 7)]
+        mock_plex.get_movie_items.return_value = movies
+
+        # Pre-populate the DB so orphan removal has rows to consider, and
+        # give the soon-to-fail item a pending scheduled deletion that an
+        # erroneous prune would cancel (losing its keep-token + grace).
+        for movie in movies:
+            insert_media_item(
+                conn,
+                id=movie["plex_rating_key"],
+                title=movie["title"],
+                plex_library_id=int(lib_id),
+                plex_rating_key=movie["plex_rating_key"],
+                added_at=movie["added_at"],
+                file_path=movie["file_path"],
+                file_size_bytes=1,
+            )
+        insert_scheduled_action(
+            conn,
+            media_item_id="3",
+            action="scheduled_deletion",
+            token="tok-3",
+            execute_at="2099-01-01T00:00:00Z",
+            token_used=False,
+            delete_status="pending",
+        )
+        conn.commit()
+
+        # Item "3" fails its history fetch; every other item succeeds.
+        def _history(rating_key):
+            if rating_key == "3":
+                raise requests.ConnectionError("Plex history unavailable")
+            return []
+
+        mock_plex.get_watch_history.side_effect = _history
+
+        engine = ScanEngine(
+            conn=conn,
+            plex_client=mock_plex,
+            library_ids=[lib_id],
+            library_types={lib_id: "movie"},
+            secret_key="k",
+        )
+        engine.run_scan()
+
+        # The failing item's media_items row survives orphan removal.
+        row = conn.execute("SELECT id FROM media_items WHERE id='3'").fetchone()
+        assert row is not None, "history-fetch failure must not prune the media row"
+        # Its pending scheduled deletion is intact (not cancelled).
+        action = conn.execute(
+            "SELECT delete_status FROM scheduled_actions WHERE media_item_id='3'"
+        ).fetchone()
+        assert action is not None, "history-fetch failure must not cancel the scheduled deletion"
+        assert action["delete_status"] == "pending"
 
 
 class TestConcurrentScanGuard:
