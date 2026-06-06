@@ -8,13 +8,25 @@ Imported by :mod:`mediaman.services.infra.url_safety` only.
 
 from __future__ import annotations
 
+import concurrent.futures
 import ipaddress
+import logging
 import os
 import socket
 
 import idna
 
+logger = logging.getLogger(__name__)
+
 _ALLOWED_SCHEMES = frozenset({"http", "https"})
+
+#: Hard ceiling on the pre-flight ``getaddrinfo`` lookup. Kept in line
+#: with the SafeHTTPClient connect budget (~5 s): a resolver that has not
+#: answered within this window is treated as a resolution failure so a
+#: slow/malicious authoritative server cannot stall the single worker for
+#: the (much longer) OS resolver timeout. Exceeding it yields the same
+#: "cannot verify → refuse" outcome as any other lookup failure.
+_RESOLVE_TIMEOUT_SECONDS = 5.0
 
 #: Hostnames that always resolve to cloud-provider metadata services and
 #: have no legitimate use from an application. Matched case-insensitively
@@ -161,19 +173,47 @@ def _resolve_all(hostname: str) -> list[ipaddress.IPv4Address | ipaddress.IPv6Ad
     Returns an empty list on resolution failure — the caller should
     treat that as "cannot verify, refuse" rather than "looks fine".
 
-    Timeout caveat (M5 / §8.9): ``socket.getaddrinfo`` has no per-call
-    timeout and runs *before* the HTTP request is issued, so it sits
-    **outside** the SafeHTTPClient ``(connect=5, read=30)`` budget. A
-    slow or malicious resolver can block the worker thread here for the
-    OS resolver timeout (commonly 5-30s × retries) before any HTTP
-    timeout applies. There is no clean stdlib timeout for ``getaddrinfo``;
-    this is a known, documented limitation of the pre-flight SSRF
-    resolution rather than a covered failure mode.
+    Timeout (M6 / §8.9): ``socket.getaddrinfo`` has no per-call timeout
+    of its own and runs *before* the HTTP request is issued, so it would
+    otherwise sit **outside** the SafeHTTPClient ``(connect=5, read=30)``
+    budget — a slow or malicious resolver could block the single worker
+    for the OS resolver timeout (commonly 5-30 s × retries). To bound the
+    wait we run the blocking lookup on a one-shot worker thread and wait
+    at most :data:`_RESOLVE_TIMEOUT_SECONDS` for it. On timeout we return
+    the empty list, i.e. the *same* "cannot verify → refuse" outcome as a
+    ``gaierror``; this only bounds the wait and never changes the address
+    set for a host that answers in time, so no SSRF check is weakened. A
+    timed-out lookup thread may keep running in the background until the
+    OS resolver gives up, but it no longer holds up the request.
     """
+    # Not a ``with`` block on purpose: ``ThreadPoolExecutor.__exit__`` calls
+    # ``shutdown(wait=True)``, which would re-join — and therefore block on —
+    # a lookup thread that is still stuck in ``getaddrinfo`` after a timeout,
+    # defeating the bound. We shut down with ``wait=False`` explicitly so the
+    # straggler is abandoned rather than waited on.
+    executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=1, thread_name_prefix="ssrf-getaddrinfo"
+    )
     try:
-        infos = socket.getaddrinfo(hostname, None)
-    except (socket.gaierror, UnicodeError, OSError):
-        return []
+        future = executor.submit(socket.getaddrinfo, hostname, None)
+        try:
+            infos = future.result(timeout=_RESOLVE_TIMEOUT_SECONDS)
+        except concurrent.futures.TimeoutError:
+            # Treat a slow resolver as a resolution failure: refuse fast
+            # rather than stall the worker.
+            logger.warning(
+                "ssrf.getaddrinfo_timeout host=%s timeout_s=%s",
+                hostname,
+                _RESOLVE_TIMEOUT_SECONDS,
+            )
+            return []
+        except (socket.gaierror, UnicodeError, OSError):
+            return []
+    finally:
+        # ``wait=False`` so a still-running lookup never holds up the
+        # request; the daemon-ish straggler exits when the OS resolver
+        # finally gives up. ``cancel_futures`` drops anything not started.
+        executor.shutdown(wait=False, cancel_futures=True)
     addrs: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
     seen: set[str] = set()
     for info in infos:
