@@ -14,19 +14,14 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from typing import TYPE_CHECKING
 
 import requests
 
 from mediaman.services.arr import ArrError
 from mediaman.services.arr._types import RadarrMovie, SonarrSeries
+from mediaman.services.arr.completion._types import CompletedItem
 from mediaman.services.arr.state import series_has_files
 from mediaman.services.infra import SafeHTTPError
-
-if TYPE_CHECKING:
-    pass
-
-from mediaman.services.arr.completion._types import CompletedItem
 
 logger = logging.getLogger(__name__)
 

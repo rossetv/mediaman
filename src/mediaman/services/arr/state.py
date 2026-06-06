@@ -181,6 +181,52 @@ def compute_download_state(media_type: str, tmdb_id: int, caches: ArrCaches) -> 
     return _compute_series_state(series, tmdb_id, caches)
 
 
+def _build_arr_index(
+    client: ArrClient,
+    *,
+    items_getter: str,
+    queue_tmdb_key: str,
+    cache_name: str,
+) -> dict[int, RadarrMovie] | dict[int, SonarrSeries]:
+    """Fetch all library items and build a ``{tmdbId: item}`` index.
+
+    Shared implementation for :func:`build_radarr_cache` and
+    :func:`build_sonarr_cache`, which were ~90% identical (§1.9 rule of three
+    is satisfied: Radarr, Sonarr, and the ``_ArrLibraryIndex`` helper in
+    ``completion/_verification.py`` all build the same tmdbId-keyed dict).
+
+    Args:
+        client: Configured :class:`ArrClient` (never ``None`` — callers guard).
+        items_getter: Name of the method to call to fetch all items
+            (``"get_movies"`` or ``"get_series"``).
+        queue_tmdb_key: Key under each queue entry's media sub-dict that holds
+            the tmdbId (``"movie"`` for Radarr, ``"series"`` for Sonarr).
+        cache_name: Human-readable name for warning messages (``"build_radarr_cache"``
+            or ``"build_sonarr_cache"``).
+
+    Warns on duplicate ``tmdbId`` values in the library — takes the later entry,
+    matching dict-update semantics and matching the behaviour of the old per-function
+    implementations.
+    """
+    index: dict[int, RadarrMovie] | dict[int, SonarrSeries] = {}
+    for item in getattr(client, items_getter)():
+        tid = item.get("tmdbId")
+        if not tid:
+            continue
+        if tid in index:
+            logger.warning(
+                "%s: duplicate tmdbId=%s in library "
+                "(existing=%r, new=%r) — keeping the later entry; "
+                "disambiguation by tmdb_id may be unreliable for this title",
+                cache_name,
+                tid,
+                index[tid].get("title"),
+                item.get("title"),
+            )
+        index[tid] = item
+    return index
+
+
 def build_radarr_cache(client: ArrClient | None) -> RadarrCaches:
     """Build the per-request Radarr cache fragment. Returns a partial
     ``ArrCaches`` containing only the Radarr keys; combine with
@@ -196,27 +242,16 @@ def build_radarr_cache(client: ArrClient | None) -> RadarrCaches:
     """
     if client is None:
         return {"radarr_movies": {}, "radarr_queue_tmdb_ids": set()}
-    movies: dict[int, RadarrMovie] = {}
-    for m in client.get_movies():
-        tid = m.get("tmdbId")
-        if not tid:
-            continue
-        if tid in movies:
-            existing_title = movies[tid].get("title")
-            new_title = m.get("title")
-            logger.warning(
-                "build_radarr_cache: duplicate tmdbId=%s in Radarr library "
-                "(existing=%r, new=%r) — keeping the later entry; "
-                "disambiguation by tmdb_id may be unreliable for this title",
-                tid,
-                existing_title,
-                new_title,
-            )
-        movies[tid] = m
+    movies = _build_arr_index(
+        client,
+        items_getter="get_movies",
+        queue_tmdb_key="movie",
+        cache_name="build_radarr_cache",
+    )
     queue_ids: set[int] = {
         tid for q in client.get_queue() if (tid := (q.get("movie") or {}).get("tmdbId"))
     }
-    return {"radarr_movies": movies, "radarr_queue_tmdb_ids": queue_ids}
+    return {"radarr_movies": movies, "radarr_queue_tmdb_ids": queue_ids}  # type: ignore[typeddict-item]
 
 
 def build_sonarr_cache(client: ArrClient | None) -> SonarrCaches:
@@ -229,27 +264,16 @@ def build_sonarr_cache(client: ArrClient | None) -> SonarrCaches:
     """
     if client is None:
         return {"sonarr_series": {}, "sonarr_queue_tmdb_ids": set()}
-    series: dict[int, SonarrSeries] = {}
-    for s in client.get_series():
-        tid = s.get("tmdbId")
-        if not tid:
-            continue
-        if tid in series:
-            existing_title = series[tid].get("title")
-            new_title = s.get("title")
-            logger.warning(
-                "build_sonarr_cache: duplicate tmdbId=%s in Sonarr library "
-                "(existing=%r, new=%r) — keeping the later entry; "
-                "disambiguation by tmdb_id may be unreliable for this title",
-                tid,
-                existing_title,
-                new_title,
-            )
-        series[tid] = s
+    series = _build_arr_index(
+        client,
+        items_getter="get_series",
+        queue_tmdb_key="series",
+        cache_name="build_sonarr_cache",
+    )
     queue_ids: set[int] = {
         tid for q in client.get_queue() if (tid := (q.get("series") or {}).get("tmdbId"))
     }
-    return {"sonarr_series": series, "sonarr_queue_tmdb_ids": queue_ids}
+    return {"sonarr_series": series, "sonarr_queue_tmdb_ids": queue_ids}  # type: ignore[typeddict-item]
 
 
 def annotate_download_states(

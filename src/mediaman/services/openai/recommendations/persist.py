@@ -61,6 +61,8 @@ def _fetch_plex_ratings(plex_client: PlexClient | None) -> list[PlexRatedItem]:
 def _fetch_previous_titles(conn: sqlite3.Connection, now: datetime) -> list[str]:
     """Return distinct suggestion titles from the last 30 days (deduplication input)."""
     cutoff_30d = (now - timedelta(days=30)).strftime("%Y-%m-%d")
+    # batch_id is always a fixed-width "YYYY-MM-DD" string (set by `today`
+    # in refresh_recommendations), so lexical >= equals chronological >= here.
     prev_rows = conn.execute(
         "SELECT DISTINCT title FROM suggestions WHERE batch_id >= ?", (cutoff_30d,)
     ).fetchall()

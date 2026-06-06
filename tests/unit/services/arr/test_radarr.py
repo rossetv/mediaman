@@ -128,6 +128,40 @@ class TestArrClientRadarr:
         assert put_call[2]["json"]["monitored"] is True
         assert post_call is not None
 
+    def test_remonitor_movie_retries_on_failed_put(self, client, fake_http, fake_response):
+        """R4-M2: remonitor_movie must retry the PUT on transient failure."""
+        # Round 1: GET returns unmonitored, PUT fails.
+        fake_http.queue(
+            "GET", fake_response(json_data={"id": 1, "title": "Test", "monitored": False})
+        )
+        fake_http.queue("PUT", fake_response(status=503, text="service unavailable"))
+        # Round 2: fresh GET + successful PUT.
+        fake_http.queue(
+            "GET", fake_response(json_data={"id": 1, "title": "Test", "monitored": False})
+        )
+        fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("POST", fake_response(status=201, json_data={}))
+
+        client.remonitor_movie(movie_id=1, max_retries=3)
+        puts = [c for c in fake_http.calls if c[0] == "PUT"]
+        assert len(puts) == 2
+        assert puts[-1][2]["json"]["monitored"] is True
+
+    def test_remonitor_movie_skips_put_when_already_monitored(
+        self, client, fake_http, fake_response
+    ):
+        """R4-M2: remonitor_movie must skip the PUT if already monitored (noop)."""
+        fake_http.queue(
+            "GET", fake_response(json_data={"id": 1, "title": "Test", "monitored": True})
+        )
+        # Still triggers a search even when no PUT is needed.
+        fake_http.queue("POST", fake_response(status=201, json_data={}))
+        client.remonitor_movie(movie_id=1)
+        puts = [c for c in fake_http.calls if c[0] == "PUT"]
+        assert puts == [], "PUT must not be issued when movie is already monitored"
+        posts = [c for c in fake_http.calls if c[0] == "POST"]
+        assert len(posts) == 1
+
     def test_test_connection(self, client, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data={"version": "5.0"}))
         assert client.is_reachable() is True

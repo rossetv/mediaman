@@ -12,11 +12,12 @@ called frequently (once per library sync) so users get timely alerts.
 
 from __future__ import annotations
 
+import enum
 import logging
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, cast
 
 import requests
 
@@ -99,6 +100,22 @@ def _build_sonarr_index(client: ArrClient) -> list[SonarrSeries]:
     result is reused by every pending row (M1 — avoids O(N × library) HTTP).
     """
     return client.get_series()
+
+
+def _build_radarr_index(client: ArrClient) -> dict[int, RadarrMovie]:
+    """Fetch the full Radarr movie library once and return a ``{tmdbId: movie}`` index.
+
+    Called at most once per ``check_download_notifications`` tick when at least
+    one runnable row has ``service=="radarr"``. The index is reused for every
+    Radarr row in O(1) instead of the previous O(N × library) pattern where
+    ``get_movie_by_tmdb`` issued one HTTP round-trip per row.
+    """
+    index: dict[int, RadarrMovie] = {}
+    for movie in client.get_movies():
+        tid = movie.get("tmdbId")
+        if tid:
+            index[int(tid)] = movie
+    return index
 
 
 def _sonarr_has_files(
@@ -225,8 +242,20 @@ def _fetch_suggestions_batch(
     return suggestions_by_tmdb
 
 
-_ARR_UNREACHABLE = object()  # sentinel returned by _check_arr_availability on outage
-_ARR_UNKNOWN_SERVICE = object()  # sentinel for an unrecognised service value
+class _ArrProbeOutcome(enum.Enum):
+    """Sentinel outcomes returned by :func:`_check_arr_availability`.
+
+    Replaces bare ``object()`` sentinels so the union type is correct and
+    identity comparisons become enum-member comparisons (no ``# type: ignore``
+    needed on the ``Literal[...]`` annotation).
+    """
+
+    UNREACHABLE = "unreachable"  # arr lookup failed; claim released, backoff applied
+    UNKNOWN_SERVICE = "unknown_service"  # service field not "radarr"/"sonarr"; row drained
+
+
+_ARR_UNREACHABLE = _ArrProbeOutcome.UNREACHABLE
+_ARR_UNKNOWN_SERVICE = _ArrProbeOutcome.UNKNOWN_SERVICE
 
 
 @dataclass(frozen=True, slots=True)
@@ -241,16 +270,37 @@ class RadarrProbeResult:
     arr_unreachable: bool
 
 
-def _check_radarr_movie(arr: LazyArrClients, row_id: int, tmdb_id: int | None) -> RadarrProbeResult:
+def _check_radarr_movie(
+    arr: LazyArrClients,
+    row_id: int,
+    tmdb_id: int | None,
+    radarr_index: dict[int, RadarrMovie] | None = None,
+) -> RadarrProbeResult:
     """Probe Radarr for a single movie's file availability.
 
     Returns a :class:`RadarrProbeResult`.  Network/HTTP errors from Radarr
     surface as ``arr_unreachable=True`` so the caller can apply backoff and
     release the claim.
+
+    When *radarr_index* is provided (pre-built once per tick by the
+    orchestrator via :func:`_build_radarr_index`), the lookup is O(1) dict
+    access rather than a per-row HTTP round-trip.  ``None`` in the index
+    means Radarr doesn't know the movie (same semantics as the old
+    ``get_movie_by_tmdb`` returning ``None``).  When *radarr_index* is
+    absent, falls back to the previous per-row HTTP call so existing call
+    sites that don't supply the index keep working.
     """
     radarr_client = arr.radarr()
     if not (radarr_client and tmdb_id):
         return RadarrProbeResult(ready=False, movie=None, arr_unreachable=False)
+
+    if radarr_index is not None:
+        # O(1) index lookup — no HTTP round-trip.
+        movie = radarr_index.get(tmdb_id)
+        return RadarrProbeResult(
+            ready=bool(movie and movie.get("hasFile")), movie=movie, arr_unreachable=False
+        )
+
     try:
         movie = radarr_client.get_movie_by_tmdb(tmdb_id)
     # rationale: transient outage / backoff — network blips, 5xx responses,
@@ -317,18 +367,19 @@ def _check_arr_availability(
     now_dt: datetime,
     conn: sqlite3.Connection,
     sonarr_series_index: list[SonarrSeries] | None = None,
-) -> tuple[bool, RadarrMovie | None | Literal[_ARR_UNREACHABLE, _ARR_UNKNOWN_SERVICE]]:  # type: ignore[valid-type]
+    radarr_index: dict[int, RadarrMovie] | None = None,
+) -> tuple[bool, RadarrMovie | None | _ArrProbeOutcome]:
     """Check Radarr/Sonarr for file availability.
 
     Returns ``(ready, movie_obj)``.  The second element of the tuple is one of:
 
     * a :class:`~mediaman.services.arr._types.RadarrMovie` (Radarr branch)
     * ``None`` (no Radarr match, or Sonarr branch)
-    * :data:`_ARR_UNREACHABLE` — *arr lookup failed; claim released, backoff applied.
-    * :data:`_ARR_UNKNOWN_SERVICE` — service field is not "radarr"/"sonarr"; row drained.
+    * :attr:`_ArrProbeOutcome.UNREACHABLE` — arr lookup failed; claim released, backoff applied.
+    * :attr:`_ArrProbeOutcome.UNKNOWN_SERVICE` — service field is not "radarr"/"sonarr"; row drained.
 
-    ``sonarr_series_index`` should be pre-fetched once per tick and passed in
-    to avoid O(N × library) HTTP calls (M1).
+    ``sonarr_series_index`` and ``radarr_index`` should be pre-fetched once per
+    tick and passed in to avoid O(N × library) HTTP calls (M1).
 
     # rationale: two separate service branches (radarr/sonarr) each with
     # their own try/except — splitting further would separate the except
@@ -338,7 +389,7 @@ def _check_arr_availability(
     service = row.service
 
     if service == "radarr":
-        result = _check_radarr_movie(arr, row_id, row.tmdb_id)
+        result = _check_radarr_movie(arr, row_id, row.tmdb_id, radarr_index)
         ready, movie, arr_unreachable = result.ready, result.movie, result.arr_unreachable
     elif service == "sonarr":
         ready, arr_unreachable = _check_sonarr_series(
@@ -379,6 +430,7 @@ def _process_one_notification(
     suggestions_by_tmdb: dict[int, SuggestionsMeta],
     now_dt: datetime,
     sonarr_series_index: list[SonarrSeries] | None = None,
+    radarr_index: dict[int, RadarrMovie] | None = None,
 ) -> None:
     """Check availability, send email, and mark one claimed notification row.
 
@@ -387,8 +439,8 @@ def _process_one_notification(
     failures; uses a short in-progress poll throttle for items still
     downloading (keeps the two failure modes distinct — B1).
 
-    ``sonarr_series_index`` should be the pre-fetched Sonarr library list
-    (built once per tick in the orchestrator) to avoid per-row HTTP fetches.
+    ``sonarr_series_index`` and ``radarr_index`` should be pre-fetched once
+    per tick (in the orchestrator) to avoid per-row HTTP fetches.
     """
     row_id = row.id
     email = row.email
@@ -396,7 +448,12 @@ def _process_one_notification(
 
     try:
         ready, movie = _check_arr_availability(
-            row, arr, now_dt, conn, sonarr_series_index=sonarr_series_index
+            row,
+            arr,
+            now_dt,
+            conn,
+            sonarr_series_index=sonarr_series_index,
+            radarr_index=radarr_index,
         )
 
         if movie is _ARR_UNREACHABLE:
@@ -506,6 +563,19 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
                 # sonarr_series_index stays None; _check_sonarr_series will
                 # call _build_sonarr_index per-row as a safe fallback.
 
+    # Build the Radarr movie index once per tick — avoids one HTTP round-trip
+    # per Radarr row (R4-H1: N+1 fix mirrors the existing Sonarr optimisation).
+    radarr_index: dict[int, RadarrMovie] | None = None
+    if any(r.service == "radarr" for r in runnable):
+        radarr_client = arr.radarr()
+        if radarr_client:
+            try:
+                radarr_index = _build_radarr_index(radarr_client)
+            except (SafeHTTPError, requests.RequestException, ArrError):
+                logger.warning("Failed to pre-fetch Radarr movie index", exc_info=True)
+                # radarr_index stays None; _check_radarr_movie falls back to
+                # per-row get_movie_by_tmdb as a safe fallback.
+
     for row in runnable:
         _process_one_notification(
             conn,
@@ -516,6 +586,7 @@ def check_download_notifications(conn: sqlite3.Connection, secret_key: str) -> N
             suggestions_by_tmdb,
             now_dt,
             sonarr_series_index=sonarr_series_index,
+            radarr_index=radarr_index,
         )
 
 

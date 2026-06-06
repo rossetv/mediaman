@@ -166,17 +166,51 @@ class _SonarrMixin:
             max_retries=max_retries,
         )
 
-    def remonitor_season(self, series_id: int, season_number: int) -> None:
-        """Set ``monitored=True`` for *season_number* and trigger a search."""
+    def remonitor_season(self, series_id: int, season_number: int, *, max_retries: int = 3) -> None:
+        """Set ``monitored=True`` for *season_number* and trigger a search.
+
+        Uses the same retry helper as :meth:`unmonitor_season` so a transient
+        PUT failure doesn't silently strand the season in an unmonitored state.
+
+        Raises :exc:`ArrUpstreamError` when the target season number is absent
+        from the series payload — this prevents a silent no-op where the PUT
+        succeeds but the season was never remonitored, which would be followed
+        by a SeasonSearch for a season Sonarr never re-monitored.
+        """
         self._require_series("remonitor_season")  # type: ignore[attr-defined]
-        series = self.get_series_by_id(series_id)
-        seasons = series.get("seasons")
-        if not isinstance(seasons, list):
-            raise ArrUpstreamError(f"Sonarr series {series_id} has no 'seasons' list")
-        for season in seasons:
-            if season.get("seasonNumber") == season_number:
-                season["monitored"] = True
-        self._put(f"/api/v3/series/{series_id}", series)  # type: ignore[attr-defined]
+
+        def fetch_entity() -> SonarrSeries:
+            series = self.get_series_by_id(series_id)
+            seasons = series.get("seasons")
+            if not isinstance(seasons, list):
+                raise ArrUpstreamError(f"Sonarr series {series_id} has no 'seasons' list")
+            if not any(s.get("seasonNumber") == season_number for s in seasons):
+                raise ArrUpstreamError(f"Sonarr series {series_id} has no season {season_number}")
+            return series
+
+        def is_already_remonitored(entity: SonarrSeries) -> bool:
+            seasons = entity.get("seasons", [])
+            target = next((s for s in seasons if s.get("seasonNumber") == season_number), None)
+            if target is None:
+                raise ArrUpstreamError(f"Sonarr series {series_id} has no season {season_number}")
+            # "already done" for remonitor means it's already monitored.
+            return bool(target.get("monitored", False))
+
+        def apply_remonitor(entity: SonarrSeries) -> None:
+            seasons = entity.get("seasons", [])
+            target = next((s for s in seasons if s.get("seasonNumber") == season_number), None)
+            if target is not None:
+                target["monitored"] = True
+
+        self._unmonitor_with_retry(  # type: ignore[attr-defined]
+            fetch_entity=fetch_entity,
+            put_url=f"/api/v3/series/{series_id}",
+            is_already_unmonitored=is_already_remonitored,
+            apply_unmonitor=apply_remonitor,
+            log_prefix="sonarr.remonitor_season",
+            log_id=f"series_id={series_id} season={season_number}",
+            max_retries=max_retries,
+        )
         self._post(  # type: ignore[attr-defined]
             "/api/v3/command",
             {"name": "SeasonSearch", "seriesId": series_id, "seasonNumber": season_number},

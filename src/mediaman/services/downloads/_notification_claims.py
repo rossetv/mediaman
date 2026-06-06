@@ -107,7 +107,15 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[ClaimedNotifi
                     f"UPDATE download_notifications SET notified=2, claimed_at=? WHERE id IN ({placeholders})",
                     (claim_iso, *ids),
                 )
-            return [_row_to_claimed(r) for r in rows]
+            # Materialise the rows into a local list BEFORE exiting the
+            # ``with conn:`` block (which issues the commit). The RETURNING
+            # path above commits first and then returns, so the fallback must
+            # match that ordering: commit-then-return, not return-inside-with.
+            # A deferred commit failure in the ``with`` block would otherwise
+            # cause emails to be sent for rows that were never marked notified
+            # → duplicate emails on the next tick.
+            claimed = [_row_to_claimed(r) for r in rows]
+        return claimed
 
 
 def _release_claim(conn: sqlite3.Connection, row_id: int) -> None:

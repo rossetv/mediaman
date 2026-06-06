@@ -31,7 +31,7 @@ class StorageSummary:
     reclaimed_total: int
 
 
-def _build_redownload_index(conn: sqlite3.Connection) -> dict[str, str]:
+def _build_redownload_index(conn: sqlite3.Connection, week_ago: str) -> dict[str, str]:
     """Return a dict mapping ``media_item_id`` → most-recent re/download timestamp.
 
     Used to exclude items that have already been re-downloaded from the
@@ -42,10 +42,16 @@ def _build_redownload_index(conn: sqlite3.Connection) -> dict[str, str]:
     ``audit_log``), which is the same value carried by ``plex_rating_key``
     on ``media_items`` rows.  The lookup in :func:`_load_deleted_items`
     uses ``row["plex_rating_key"]`` to match consistently.
+
+    ``week_ago`` bounds the query to the same 7-day window used by the
+    deleted-items query so the scan is O(recent rows) rather than O(full
+    audit log).  An item deleted and re-downloaded outside that window would
+    not appear in the deleted-items list either, so bounding here is correct.
     """
     redownload_rows = conn.execute(
         "SELECT media_item_id, created_at FROM audit_log "
-        "WHERE action IN ('re_downloaded', 'downloaded')"
+        "WHERE action IN ('re_downloaded', 'downloaded') AND created_at >= ?",
+        (week_ago,),
     ).fetchall()
     redownload_times: dict[str, str] = {}
     for rd in redownload_rows:
@@ -133,7 +139,7 @@ def _load_deleted_items(
         (week_ago,),
     ).fetchall()
 
-    redownload_times = _build_redownload_index(conn)
+    redownload_times = _build_redownload_index(conn, week_ago)
 
     # Build the per-row card list (excluding re-downloaded items) and
     # collect the (title, media_type) pairs we need to look up.
