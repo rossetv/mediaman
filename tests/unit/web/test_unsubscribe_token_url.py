@@ -54,7 +54,9 @@ class TestUnsubscribeUrlFormat:
     def test_unsub_url_contains_token_not_email(self, secret_key):
         from unittest.mock import MagicMock as _MM
 
-        from mediaman.services.mail.newsletter.recipients import _send_to_recipients
+        from mediaman.services.mail.newsletter.subscribers import (
+            _send_to_subscribers as _send_to_recipients,
+        )
 
         captured_urls = []
 

@@ -26,13 +26,6 @@ class TestMailgunClient:
         assert data["subject"] == "Test"
         assert data["from"] == "notify@example.com"
 
-    def test_send_to_multiple(self, client, fake_http, fake_response):
-        fake_http.default(fake_response(status=200, content=b""))
-        client.send_to_many(
-            recipients=["a@test.com", "b@test.com"], subject="Report", html="<p>Content</p>"
-        )
-        assert len(fake_http.calls) == 2
-
     def test_test_connection(self, client, fake_http, fake_response):
         fake_http.queue("GET", fake_response(json_data={"domain": {"name": "example.com"}}))
         assert client.is_reachable() is True

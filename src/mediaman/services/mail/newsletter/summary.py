@@ -32,11 +32,16 @@ class StorageSummary:
 
 
 def _build_redownload_index(conn: sqlite3.Connection) -> dict[str, str]:
-    """Return a dict mapping lowercased media_item_id → most-recent re/download timestamp.
+    """Return a dict mapping ``media_item_id`` → most-recent re/download timestamp.
 
     Used to exclude items that have already been re-downloaded from the
     recently-deleted card list.  A single query replaces the per-row lookup
     that would otherwise be an N+1 anti-pattern.
+
+    F-01 fix: keyed by ``media_item_id`` (the Plex numeric id stored in
+    ``audit_log``), which is the same value carried by ``plex_rating_key``
+    on ``media_items`` rows.  The lookup in :func:`_load_deleted_items`
+    uses ``row["plex_rating_key"]`` to match consistently.
     """
     redownload_rows = conn.execute(
         "SELECT media_item_id, created_at FROM audit_log "
@@ -44,7 +49,9 @@ def _build_redownload_index(conn: sqlite3.Connection) -> dict[str, str]:
     ).fetchall()
     redownload_times: dict[str, str] = {}
     for rd in redownload_rows:
-        key = rd["media_item_id"].lower()
+        # media_item_id may be a Plex numeric string — keep as-is (no .lower())
+        # so it matches plex_rating_key exactly.
+        key = str(rd["media_item_id"])
         if key not in redownload_times or rd["created_at"] > redownload_times[key]:
             redownload_times[key] = rd["created_at"]
     return redownload_times
@@ -106,7 +113,7 @@ def _load_deleted_items(
 
     Each item carries a ``tmdb_id`` when one can be resolved from the
     ``suggestions`` table (most deleted items were originally downloaded
-    from a recommendation).  The recipient loop only mints a re-download
+    from a recommendation).  The subscriber loop only mints a re-download
     URL when ``tmdb_id`` is present, so items with no resolvable id keep
     their button hidden — the public ``/download/<token>`` submit endpoint
     cannot reliably enqueue the right film/show via title-only lookup.
@@ -117,7 +124,7 @@ def _load_deleted_items(
     """
     week_ago = (now - timedelta(days=7)).isoformat()
     deleted_rows = conn.execute(
-        "SELECT al.created_at, al.space_reclaimed_bytes, "
+        "SELECT al.created_at, al.space_reclaimed_bytes, al.media_item_id, "
         "mi.title, al.detail, mi.plex_rating_key, mi.media_type "
         "FROM audit_log al "
         "LEFT JOIN media_items mi ON al.media_item_id = mi.id "
@@ -135,7 +142,10 @@ def _load_deleted_items(
     for row in deleted_rows:
         title = row["title"] or _extract_title_from_detail(row["detail"])
 
-        last_redownload = redownload_times.get(title.lower())
+        # F-01: look up by plex_rating_key (== media_item_id in audit_log),
+        # which is the same key used when building the redownload index.
+        plex_key = row["plex_rating_key"] or str(row["media_item_id"] or "")
+        last_redownload = redownload_times.get(plex_key) if plex_key else None
         if last_redownload and last_redownload > row["created_at"]:
             continue
 
@@ -214,7 +224,8 @@ def _load_storage_stats(conn: sqlite3.Connection, now: datetime) -> StorageSumma
         used_bytes = disk["used_bytes"]
         free_bytes = disk["free_bytes"]
     except OSError:
-        logger.warning("Failed to fetch disk usage for newsletter", exc_info=True)
+        # F-11: dotted event name
+        logger.warning("newsletter.storage_stats_failed", exc_info=True)
 
     storage: StorageStats = {
         "total_bytes": total_bytes,
@@ -249,18 +260,30 @@ def _load_storage_stats(conn: sqlite3.Connection, now: datetime) -> StorageSumma
     )
 
 
-def _load_recommendations(conn: sqlite3.Connection) -> list[NewsletterRecItem]:
+def _load_recommendations(
+    conn: sqlite3.Connection,
+    *,
+    check_enabled: bool = True,
+) -> list[NewsletterRecItem]:
     """Load the most recent suggestion batch if the feature is enabled.
 
     Returns an empty list when suggestions are disabled or there are no rows.
     Builds explicit dicts with only the fields the template needs, avoiding
     leakage of internal DB columns via ``**dict(row)`` spreading.
+
+    Args:
+        conn: Open SQLite connection.
+        check_enabled: When ``False``, skip the ``suggestions_enabled`` settings
+            query — the caller has already verified the flag is set.  This avoids
+            a duplicate DB round-trip when the outer :func:`send_newsletter`
+            already checked the setting (F-12).
     """
-    rec_enabled_row = conn.execute(
-        "SELECT value FROM settings WHERE key='suggestions_enabled'"
-    ).fetchone()
-    if rec_enabled_row and rec_enabled_row["value"] == "false":
-        return []
+    if check_enabled:
+        rec_enabled_row = conn.execute(
+            "SELECT value FROM settings WHERE key='suggestions_enabled'"
+        ).fetchone()
+        if rec_enabled_row and rec_enabled_row["value"] == "false":
+            return []
 
     batch_row = conn.execute(
         "SELECT DISTINCT batch_id FROM suggestions WHERE batch_id IS NOT NULL "

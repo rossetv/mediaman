@@ -74,6 +74,10 @@ def _load_scheduled_items(
 
     When *mark_notified* is True (automated send), only unnotified rows are
     included.  When False (manual send), all pending-token rows are included.
+    Items are sorted oldest-first (largest ``added_days_ago`` at the top).
+    Items whose ``added_days_ago`` is ``None`` (corrupt timestamp) sort to
+    the end so they surface as "unknown age" rather than silently appearing
+    as "most recent".
     """
     if mark_notified:
         rows = conn.execute(
@@ -95,8 +99,15 @@ def _load_scheduled_items(
         ).fetchall()
 
     items = [_build_scheduled_card(row, now, base_url, secret_key) for row in rows]
-    # Sort oldest first (most days ago at the top)
-    items.sort(key=lambda x: x.get("added_days_ago") or 0, reverse=True)
+
+    # F-15: sort oldest-first; items with None added_days_ago (corrupt timestamp)
+    # sort to the end (key=-1) rather than mapping to 0 which would silently
+    # promote them to "most recent".
+    def _sort_key(x: ScheduledNewsletterItem) -> int:
+        v = x.get("added_days_ago")
+        return v if v is not None else -1
+
+    items.sort(key=_sort_key, reverse=True)
     return items
 
 
@@ -106,8 +117,18 @@ def _mark_notified(
     *,
     active_recipients: list[str],
 ) -> None:
-    """Mark scheduled action rows as notified=1, but only when every active
-    recipient has been delivered to.
+    """Mark scheduled action rows as notified=1 once every active subscriber
+    has been delivered to.
+
+    Only flips ``notified=1`` for action IDs where the set of successfully
+    delivered subscribers (non-NULL ``sent_at`` rows in ``newsletter_deliveries``)
+    is a superset of *active_recipients*.  Items with partial delivery remain
+    at ``notified=0`` for re-attempt on the next tick.
+
+    The filtering of *which* items to include is controlled by the caller
+    (:func:`_load_scheduled_items`) — when ``mark_notified=True`` only
+    unnotified rows are loaded, so this function never sees already-notified
+    ids.
 
     Asserts all ids are integers before building the parameterised query so a
     non-integer id (e.g. from a corrupt row) surfaces as a clear error rather
@@ -121,6 +142,8 @@ def _mark_notified(
     fully_delivered: list[int] = []
     placeholders = ",".join("?" * len(action_ids))
     # rationale: placeholder list built from validated integer IDs only; no user input reaches this interpolation
+    # Note: the ``recipient`` column name in newsletter_deliveries is the legacy
+    # DB column (part of a composite PRIMARY KEY) retained to avoid a destructive migration.
     delivery_rows = conn.execute(
         f"SELECT scheduled_action_id, recipient FROM newsletter_deliveries "
         f"WHERE scheduled_action_id IN ({placeholders}) AND sent_at IS NOT NULL",
@@ -136,8 +159,10 @@ def _mark_notified(
     if fully_delivered:
         placeholders = ",".join("?" * len(fully_delivered))
         # rationale: placeholder list built from validated integer IDs only; no user input reaches this interpolation
-        conn.execute(
-            f"UPDATE scheduled_actions SET notified=1 WHERE id IN ({placeholders})",
-            fully_delivered,
-        )
-        conn.commit()
+        # F-08: wrap DML in ``with conn:`` so a crash between UPDATE and
+        # commit does not leave the database in an inconsistent state.
+        with conn:
+            conn.execute(
+                f"UPDATE scheduled_actions SET notified=1 WHERE id IN ({placeholders})",
+                fully_delivered,
+            )
