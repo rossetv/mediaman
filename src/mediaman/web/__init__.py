@@ -51,24 +51,29 @@ def register_security_middleware(app: FastAPI) -> None:
     Exposed as a helper so the app factory can wire the middleware without
     having to import Starlette primitives directly.
     """
-    # Order matters: outermost is added last. CSRF check runs first so
-    # rejected requests never hit the handler. 405-obscure runs second
-    # so downstream security headers wrap its replacement response too.
-    # Security headers wrap everything.
-    # Order (outermost last):
-    #   ForcePasswordChange runs first so a flagged admin is funnelled
-    #     immediately;
-    #   CSRF + Obscure405 apply next;
-    #   SecurityHeaders wraps everything below;
-    #   BodySizeLimit caps the body before any of the above spend
-    #     cycles on a multi-gigabyte upload;
-    #   TrustedHost is outermost so a hostile Host header is rejected
-    #     at the door.
+    # Order matters: add_middleware is LIFO — the last call added is the
+    # outermost middleware.  Execution order (outermost → innermost):
+    #   TrustedHost: hostile Host: header rejected at the door.
+    #   SecurityHeaders: wraps everything below so even 413 / 403 error
+    #     responses from inner middlewares carry the security headers.
+    #   BodySizeLimit: caps the body before inner middlewares spend cycles
+    #     on a multi-gigabyte upload.
+    #   Obscure405: rewrites /api/* 405 → 401 before CSRF sees the response.
+    #   CSRFOrigin: rejects cross-origin mutations before handlers run.
+    #   ForcePasswordChange: funnels flagged admins to the change page.
     app.add_middleware(ForcePasswordChangeMiddleware)
     app.add_middleware(CSRFOriginMiddleware)
     app.add_middleware(Obscure405Middleware)
-    app.add_middleware(SecurityHeadersMiddleware)
+    # BodySizeLimit must be added BEFORE SecurityHeaders so that
+    # SecurityHeaders (BaseHTTPMiddleware) is outermost of the two.
+    # Starlette's add_middleware is LIFO — last added is outermost.
+    # With this ordering the execution chain is:
+    #   TrustedHost → SecurityHeaders → BodySizeLimit → Obscure405 → CSRF → ForcePasswordChange
+    # SecurityHeaders wraps BodySizeLimit via call_next, so 413 responses
+    # (emitted directly by BodySizeLimit's raw ASGI send) are captured by
+    # BaseHTTPMiddleware and have the security headers added before egress.
     app.add_middleware(BodySizeLimitMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)
 
     raw_allowed_hosts = os.environ.get("MEDIAMAN_ALLOWED_HOSTS", "")
     allowed_hosts = _parse_allowed_hosts(raw_allowed_hosts)

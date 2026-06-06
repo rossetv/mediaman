@@ -562,12 +562,21 @@ class TestFinding11CSRFNoOriginWithCookie:
 
 class TestCsrfPortNormalisation:
     def test_explicit_default_port_accepted(self):
-        from mediaman.web.middleware.csrf import _normalise_host
+        from mediaman.web.middleware.csrf import _normalise_origin
 
-        assert _normalise_host("mediaman.example.com") == "mediaman.example.com"
-        assert _normalise_host("mediaman.example.com:443") == "mediaman.example.com"
-        assert _normalise_host("mediaman.example.com:80") == "mediaman.example.com"
-        assert _normalise_host("mediaman.example.com:8282") == "mediaman.example.com:8282"
+        assert _normalise_origin("mediaman.example.com")[1] == "mediaman.example.com"
+        assert (
+            _normalise_origin("mediaman.example.com:443", default_scheme="https")[1]
+            == "mediaman.example.com"
+        )
+        assert (
+            _normalise_origin("mediaman.example.com:80", default_scheme="http")[1]
+            == "mediaman.example.com"
+        )
+        assert (
+            _normalise_origin("mediaman.example.com:8282", default_scheme="https")[1]
+            == "mediaman.example.com:8282"
+        )
 
     def test_csrf_accepts_origin_with_default_port(self):
         from mediaman.web import register_security_middleware

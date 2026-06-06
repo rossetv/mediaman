@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from pydantic import BaseModel, ConfigDict, Field
+
+from ._common import _MAX_PASSWORD_LEN, _MAX_USERNAME_LEN
 
 
 class CreateUserBody(BaseModel):
     """Body shape for ``POST /api/users``."""
 
-    username: str = ""
-    password: str = ""
+    username: Annotated[str, Field(min_length=1, max_length=_MAX_USERNAME_LEN)]
+    password: Annotated[str, Field(min_length=1, max_length=_MAX_PASSWORD_LEN)]
 
 
 class UpdateEmailBody(BaseModel):
@@ -32,11 +36,11 @@ class UpdateEmailBody(BaseModel):
 class ChangePasswordBody(BaseModel):
     """Body shape for ``POST /api/users/change-password``."""
 
-    old_password: str = ""
-    new_password: str = ""
+    old_password: Annotated[str, Field(min_length=1, max_length=_MAX_PASSWORD_LEN)]
+    new_password: Annotated[str, Field(min_length=1, max_length=_MAX_PASSWORD_LEN)]
 
 
 class ReauthBody(BaseModel):
     """Body shape for ``POST /api/auth/reauth``."""
 
-    password: str = ""
+    password: Annotated[str, Field(min_length=1, max_length=_MAX_PASSWORD_LEN)]
