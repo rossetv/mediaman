@@ -89,7 +89,7 @@ class TestDownloadPageConfirm:
         each test body free of infrastructure mocks.
         """
         _reset_arr_cache_for_tests()
-        _DOWNLOAD_LIMITER_GET._attempts.clear()
+        _DOWNLOAD_LIMITER_GET.reset()
         with (
             patch(f"{_CONFIRM_MODULE}._get_radarr_cache_cached", return_value={}),
             patch(f"{_CONFIRM_MODULE}._get_sonarr_cache_cached", return_value={}),

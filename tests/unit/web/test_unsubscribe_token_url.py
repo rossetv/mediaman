@@ -45,7 +45,7 @@ def _insert_subscriber(conn, email: str) -> None:
 
 
 def _setup_limiter():
-    _UNSUB_LIMITER._attempts.clear()
+    _UNSUB_LIMITER.reset()
 
 
 class TestUnsubscribeUrlFormat:

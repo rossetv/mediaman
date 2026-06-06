@@ -23,7 +23,8 @@ def reset_scheduler():
 
 
 @patch("apscheduler.schedulers.background.BackgroundScheduler")
-def test_start_scheduler_starts_and_returns(mock_cls):
+def test_scheduler_is_running_after_start(mock_cls):
+    """start_scheduler must start the scheduler and return the running instance."""
     mock_instance = MagicMock()
     mock_cls.return_value = mock_instance
 
@@ -101,7 +102,8 @@ def test_stop_scheduler_noop_when_not_started():
 
 
 @patch("apscheduler.schedulers.background.BackgroundScheduler")
-def test_start_scheduler_sets_module_level_ref(mock_cls):
+def test_module_level_scheduler_ref_is_set_after_start(mock_cls):
+    """The module-level _scheduler reference must point to the live instance after start."""
     mock_instance = MagicMock()
     mock_cls.return_value = mock_instance
 

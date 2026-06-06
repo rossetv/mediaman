@@ -927,10 +927,5 @@ class TestDownloadNotifiesRequestingAdmin:
 
         assert mock_record.called
         # The email must be the admin's real address, not the subscriber's.
-        call_email = (
-            mock_record.call_args[1].get("email")
-            if mock_record.call_args[1]
-            else mock_record.call_args[0][1]
-        )
+        call_email = mock_record.call_args[1]["email"]
         assert call_email == "admin@example.com"
-        assert call_email != "other@example.com"

@@ -49,7 +49,7 @@ class TestLoginPage:
 class TestLoginSubmit:
     @pytest.fixture(autouse=True)
     def _clear_limiter(self):
-        _limiter._attempts.clear()
+        _limiter.reset()
 
     def test_valid_credentials_redirect_to_root(self, _app, conn):
         """POST /login with correct credentials redirects to /."""
@@ -232,7 +232,7 @@ class TestLoginRateLimitHeaders:
 
     @pytest.fixture(autouse=True)
     def _clear_limiter(self):
-        _limiter._attempts.clear()
+        _limiter.reset()
 
     def test_rate_limit_returns_retry_after(self, _app, conn):
         _create_admin(conn)
@@ -261,7 +261,7 @@ class TestAuditUsernameSanitisation:
 
     @pytest.fixture(autouse=True)
     def _clear_limiter(self):
-        _limiter._attempts.clear()
+        _limiter.reset()
 
     def test_long_username_truncated_in_audit_row(self, _app, conn):
         _create_admin(conn)
@@ -307,7 +307,7 @@ class TestWeakPasswordCoalescing:
 
     @pytest.fixture(autouse=True)
     def _clear_limiter(self):
-        _limiter._attempts.clear()
+        _limiter.reset()
 
     def test_event_emitted_only_on_first_weak_login(self, _app, conn):
         _create_admin(conn, password="weak1234567a")  # passes minlength but weak overall
@@ -333,7 +333,7 @@ class TestUaHashInAuditLog:
 
     @pytest.fixture(autouse=True)
     def _clear_limiter(self):
-        _limiter._attempts.clear()
+        _limiter.reset()
 
     def test_long_ua_stored_as_short_hash(self, _app, conn):
         _create_admin(conn)

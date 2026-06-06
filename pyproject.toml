@@ -126,7 +126,6 @@ ignore = [
     # Silence the noisiest noise classes for now and tighten in later
     # passes (tracked in FINDINGS.md follow-ups). We KEEP B904 (raise from),
     # SIM110/118, C4, UP, and the genuinely-bug B0xx rules turned on.
-    "B017",     # bare `Exception` in pytest.raises — test style, batched fix
     "RUF001",   # ambiguous unicode in strings — copywriting choice
     "RUF002",   # ambiguous unicode in docstrings — copywriting choice
     "RUF003",   # ambiguous unicode in comments — copywriting choice

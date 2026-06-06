@@ -670,7 +670,9 @@ class TestClaimedNotificationRowDataclass:
         insert_download_notification(conn, title="Frozen")
 
         rows = _claim_pending_notifications(conn)
-        with pytest.raises(Exception):  # FrozenInstanceError subclasses AttributeError
+        with pytest.raises(
+            AttributeError
+        ):  # dataclasses.FrozenInstanceError subclasses AttributeError
             rows[0].title = "Mutated"  # type: ignore[misc]
 
     def test_tvdb_and_tmdb_none_preserved(self, tmp_path):

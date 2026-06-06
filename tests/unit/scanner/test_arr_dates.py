@@ -47,21 +47,25 @@ class TestNormalisePath:
 
 
 class TestArrDateCacheLazyLoad:
-    def test_not_loaded_until_get_called(self):
+    def test_cache_loads_lazily_on_first_get(self):
+        """The cache does not fetch from Arr until get() or ensure_loaded() is called."""
         cache = ArrDateCache()
         assert cache._loaded is False
 
-    def test_loaded_after_get(self):
+    def test_cache_is_populated_after_get(self):
+        """Calling get() triggers a load so subsequent lookups are served from cache."""
         cache = ArrDateCache()
         cache.get("/nonexistent/path")
         assert cache._loaded is True
 
-    def test_loaded_after_ensure_loaded(self):
+    def test_cache_is_populated_after_ensure_loaded(self):
+        """ensure_loaded() forces a load even without a lookup."""
         cache = ArrDateCache()
         cache.ensure_loaded()
         assert cache._loaded is True
 
-    def test_build_called_only_once(self):
+    def test_duplicate_load_is_idempotent(self):
+        """Calling ensure_loaded() twice must not reset the cache — data is preserved."""
         cache = ArrDateCache()
         cache.ensure_loaded()
         # Manually mark something in the dict to confirm _build only ran once.

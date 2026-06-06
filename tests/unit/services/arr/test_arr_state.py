@@ -174,7 +174,7 @@ from unittest.mock import MagicMock  # noqa: E402 — grouped after test classes
 from mediaman.services.arr.state import build_radarr_cache, build_sonarr_cache  # noqa: E402
 
 
-def test_build_radarr_cache_indexes_by_tmdb_id():
+def test_radarr_cache_keyed_by_tmdb_id():
     radarr = MagicMock()
     radarr.get_movies.return_value = [{"tmdbId": 1, "title": "A"}, {"tmdbId": 2, "title": "B"}]
     radarr.get_queue.return_value = [{"movie": {"tmdbId": 2}}]
@@ -188,7 +188,7 @@ def test_build_radarr_cache_handles_none_client():
     assert cache == {"radarr_movies": {}, "radarr_queue_tmdb_ids": set()}
 
 
-def test_build_sonarr_cache_indexes_by_tmdb_id():
+def test_sonarr_cache_keyed_by_tmdb_id():
     sonarr = MagicMock()
     sonarr.get_series.return_value = [{"tmdbId": 10, "title": "X"}, {"tmdbId": 20, "title": "Y"}]
     sonarr.get_queue.return_value = [{"series": {"tmdbId": 20}}]
@@ -310,14 +310,14 @@ from mediaman.services.arr.state import _season_has_aired, _season_stats  # noqa
 
 
 class TestSeasonStats:
-    def test_returns_statistics_dict_when_present(self):
+    def test_statistics_dict_is_returned_when_present(self):
         season = {"seasonNumber": 1, "statistics": {"episodeFileCount": 3}}
         assert _season_stats(season) == {"episodeFileCount": 3}
 
-    def test_returns_empty_dict_when_statistics_absent(self):
+    def test_empty_dict_returned_when_statistics_key_absent(self):
         assert _season_stats({"seasonNumber": 1}) == {}
 
-    def test_returns_empty_dict_when_statistics_malformed(self):
+    def test_empty_dict_returned_when_statistics_is_not_a_dict(self):
         # A non-dict ``statistics`` (e.g. None or a list) must not raise.
         assert _season_stats({"statistics": None}) == {}
         assert _season_stats({"statistics": []}) == {}

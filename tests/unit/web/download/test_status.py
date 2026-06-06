@@ -81,7 +81,7 @@ class TestFormatTimeleft:
 class TestDownloadStatusAuth:
     @pytest.fixture(autouse=True)
     def _clear_limiter(self):
-        _DOWNLOAD_STATUS_LIMITER._attempts.clear()
+        _DOWNLOAD_STATUS_LIMITER.reset()
 
     def test_unauthenticated_returns_401(self, app_factory, conn):
         """No token, no admin session → 401."""
@@ -181,7 +181,7 @@ class TestDownloadStatusAuth:
 class TestDownloadStatusRadarr:
     @pytest.fixture(autouse=True)
     def _clear_limiter(self):
-        _DOWNLOAD_STATUS_LIMITER._attempts.clear()
+        _DOWNLOAD_STATUS_LIMITER.reset()
 
     def test_radarr_movie_with_file_returns_ready(self, app_factory, authed_client, conn):
         """When Radarr reports hasFile=True the status is ready."""
