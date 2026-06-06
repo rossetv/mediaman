@@ -154,3 +154,57 @@ class TestLoadDeletedItemsBatchQuery:
 
         result = _load_deleted_items(conn, _SECRET_KEY, _BASE_URL, _NOW)
         assert result == []
+
+
+class TestBuildRedownloadIndexWindowBound:
+    """R5-H1 — _build_redownload_index must only return records within the 7-day window.
+
+    The index is used to exclude re-downloaded items from the deleted-items
+    list. If it scans the full audit log (no ``created_at >=`` bound), it
+    would exclude items deleted long ago and re-downloaded before the current
+    window — items the newsletter should correctly show as deleted.
+    """
+
+    def test_old_redownload_outside_window_not_included(self, db_path):
+        """A re-download older than 7 days must NOT appear in the index."""
+        conn = _make_conn(db_path)
+        week_ago = (_NOW - timedelta(days=7)).isoformat()
+
+        # Insert a re_downloaded row that is 8 days old — outside the 7-day window.
+        old_ts = (_NOW - timedelta(days=8)).isoformat()
+        conn.execute(
+            "INSERT INTO audit_log"
+            " (media_item_id, action, detail, space_reclaimed_bytes, created_at, actor)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            ("item-old", "re_downloaded", "", 0, old_ts, None),
+        )
+        conn.commit()
+
+        from mediaman.services.mail.newsletter.summary import _build_redownload_index
+
+        index = _build_redownload_index(conn, week_ago)
+        assert "item-old" not in index, (
+            "re-download outside the 7-day window must not appear in the index"
+        )
+
+    def test_recent_redownload_inside_window_is_included(self, db_path):
+        """A re-download within the 7-day window must appear in the index."""
+        conn = _make_conn(db_path)
+        week_ago = (_NOW - timedelta(days=7)).isoformat()
+
+        recent_ts = (_NOW - timedelta(days=2)).isoformat()
+        conn.execute(
+            "INSERT INTO audit_log"
+            " (media_item_id, action, detail, space_reclaimed_bytes, created_at, actor)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            ("item-recent", "re_downloaded", "", 0, recent_ts, None),
+        )
+        conn.commit()
+
+        from mediaman.services.mail.newsletter.summary import _build_redownload_index
+
+        index = _build_redownload_index(conn, week_ago)
+        assert "item-recent" in index, (
+            "re-download within the 7-day window must appear in the index"
+        )
+        assert index["item-recent"] == recent_ts

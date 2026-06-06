@@ -37,8 +37,8 @@ class SuggestionDetail:
     reason: str | None
     poster_url: str | None
     rating: float | None
-    rt_rating: int | None
-    batch_id: int | None
+    rt_rating: str | None  # TEXT column — OMDb returns e.g. "93%"; not a bare integer
+    batch_id: str | None  # TEXT column — stores a fixed-width "YYYY-MM-DD" date string
     downloaded_at: str | None
     created_at: str
 

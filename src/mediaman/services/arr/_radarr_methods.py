@@ -76,12 +76,28 @@ class _RadarrMixin:
             max_retries=max_retries,
         )
 
-    def remonitor_movie(self, movie_id: int) -> None:
-        """Set ``monitored=True`` for *movie_id* and trigger a search."""
+    def remonitor_movie(self, movie_id: int, *, max_retries: int = 3) -> None:
+        """Set ``monitored=True`` for *movie_id* and trigger a search.
+
+        Uses the same retry helper as :meth:`unmonitor_movie` so a transient
+        PUT failure doesn't silently strand the movie in an unmonitored state.
+        """
         self._require_movie("remonitor_movie")  # type: ignore[attr-defined]
-        movie = self.get_movie_by_id(movie_id)
-        movie["monitored"] = True
-        self._put(f"/api/v3/movie/{movie_id}", movie)  # type: ignore[attr-defined]
+
+        def apply_remonitor(movie: RadarrMovie) -> None:
+            movie["monitored"] = True
+
+        self._unmonitor_with_retry(  # type: ignore[attr-defined]
+            fetch_entity=lambda: self.get_movie_by_id(movie_id),
+            put_url=f"/api/v3/movie/{movie_id}",
+            # For remonitor, "already done" means monitored is already True —
+            # skip the PUT in that case but still trigger the search below.
+            is_already_unmonitored=lambda movie: bool(movie.get("monitored", False)),
+            apply_unmonitor=apply_remonitor,
+            log_prefix="radarr.remonitor_movie",
+            log_id=f"movie_id={movie_id}",
+            max_retries=max_retries,
+        )
         self.search_movie(movie_id)
 
     def search_movie(self, movie_id: int) -> None:

@@ -969,3 +969,88 @@ class TestUnknownServiceDrain:
             "Expected a WARNING about unknown service, got: "
             + str([r.message for r in caplog.records])
         )
+
+
+class TestRadarrIndexBuiltOncePerTick:
+    """R4-H1 — get_movies() must be called exactly once per tick regardless of
+    how many pending Radarr notification rows there are.
+
+    Previously ``_check_radarr_movie`` called ``get_movie_by_tmdb()`` once
+    per row, causing O(N) HTTP calls.  The fix pre-builds a ``{tmdbId: movie}``
+    index before the row loop and passes it in, so the loop uses O(1) dict
+    lookups and get_movies() fires exactly once.
+    """
+
+    def setup_method(self):
+        """Clear in-memory backoff state so prior tests don't bleed in."""
+        from mediaman.services.downloads._notification_backoff import (
+            _backoff_state,
+            _backoff_state_lock,
+        )
+
+        with _backoff_state_lock:
+            _backoff_state.clear()
+
+    def _make_conn(self, tmp_path):
+        from mediaman.db import init_db
+
+        return init_db(str(tmp_path / "mm.db"))
+
+    def test_get_movies_called_once_for_multiple_radarr_rows(self, tmp_path, monkeypatch):
+        """When N Radarr rows are pending, get_movies() must fire exactly once."""
+        from unittest.mock import MagicMock
+
+        from mediaman.services.downloads.notifications import (
+            check_download_notifications,
+        )
+
+        conn = self._make_conn(tmp_path)
+        insert_settings(
+            conn,
+            mailgun_domain="test.example.com",
+            mailgun_api_key="dummy-key",
+            mailgun_from_address="noreply@test.example.com",
+        )
+        # Insert three distinct Radarr rows with different tmdb_ids.
+        for tmdb_id in (101, 202, 303):
+            insert_download_notification(
+                conn,
+                email=f"user{tmdb_id}@example.com",
+                title=f"Movie {tmdb_id}",
+                media_type="movie",
+                tmdb_id=tmdb_id,
+                service="radarr",
+            )
+
+        get_movies_call_count = 0
+
+        def mock_get_movies():
+            nonlocal get_movies_call_count
+            get_movies_call_count += 1
+            # Return no matches so all rows stay pending (we only care about call count).
+            return []
+
+        radarr_client = MagicMock()
+        radarr_client.get_movies.side_effect = mock_get_movies
+        # get_movie_by_tmdb should not be called at all when the index is built.
+        radarr_client.get_movie_by_tmdb.side_effect = AssertionError(
+            "get_movie_by_tmdb called — should use radarr_index instead"
+        )
+
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_radarr_from_db",
+            lambda *a, **kw: radarr_client,
+        )
+        monkeypatch.setattr(
+            "mediaman.services.arr.build.build_sonarr_from_db", lambda *a, **kw: None
+        )
+        monkeypatch.setattr(
+            "mediaman.services.mail.mailgun.MailgunClient",
+            lambda *a, **kw: MagicMock(),
+        )
+
+        check_download_notifications(conn, secret_key="x" * 64)
+
+        assert get_movies_call_count == 1, (
+            f"Expected get_movies() called once, got {get_movies_call_count}"
+        )

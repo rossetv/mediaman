@@ -28,6 +28,14 @@ logger = logging.getLogger(__name__)
 #: items) on a slow NAS.
 _ARR_TIMEOUT_SECONDS: tuple[float, float] = (5.0, 30.0)
 
+#: Maximum response body size for arr GET requests (e.g. ``get_movies()`` /
+#: ``get_series()``). The default 8 MiB cap is too small for a large library —
+#: a Radarr library of ~30 000 entries at ~300 bytes/item alone exceeds 8 MiB.
+#: 64 MiB is sized for a library of tens of thousands of items (the same
+#: upper bound the 30 s read-timeout docstring refers to) while still rejecting
+#: pathologically large responses that could pin worker memory.
+_ARR_MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+
 
 class ArrError(Exception):
     """Base for all Sonarr/Radarr-specific failures."""
@@ -75,6 +83,7 @@ class _TransportMixin:
             self._url,
             session=self._session,
             default_timeout=_ARR_TIMEOUT_SECONDS,
+            default_max_bytes=_ARR_MAX_RESPONSE_BYTES,
         )
         #: Set to the error string of the last failed call; ``None`` on success.
         self.last_error: str | None = None

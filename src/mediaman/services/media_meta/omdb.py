@@ -128,11 +128,12 @@ def fetch_ratings(
     try:
         resp = _OMDB_CLIENT.get("/", params=params, timeout=(5.0, 5.0))
         data = resp.json()
-    except (SafeHTTPError, requests.RequestException, ValueError, KeyError):
+    except (SafeHTTPError, requests.RequestException, ValueError):
         # ``Response.json`` raises ``json.JSONDecodeError`` (a ValueError
-        # subclass, not a RequestException) for malformed bodies; KeyError
-        # guards against SafeHTTPClient internals tripping on a missing
-        # dict key.
+        # subclass, not a RequestException) for malformed bodies.
+        # KeyError was previously listed here, but ``resp.json()`` never raises
+        # KeyError — swallowing it would mask a real bug in the caller or the
+        # client internals.
         return {}
     if not isinstance(data, dict) or data.get("Response") != "True":
         return {}

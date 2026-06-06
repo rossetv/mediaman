@@ -83,11 +83,14 @@ class NzbgetClient:
         self._http = SafeHTTPClient(self._url, session=self._session)
 
         # Warn if credentials will travel over plain HTTP to a non-LAN host.
+        # Log only the hostname, not ``self._url``, which may embed a
+        # ``user:pass@`` component and would leak credentials (§7.4).
         if self._url.startswith("http://") and not _is_lan_host(self._url):
+            host = urlparse(self._url).hostname or self._url
             logger.warning(
-                "nzbget.plain_http_non_lan url=%s — basic-auth credentials "
+                "nzbget.plain_http_non_lan host=%s — basic-auth credentials "
                 "are transmitted in the clear; consider enabling HTTPS",
-                self._url,
+                host,
             )
 
     # rationale: returns resp.json().get("result") whose shape depends on

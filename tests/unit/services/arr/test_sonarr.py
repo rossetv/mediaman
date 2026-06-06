@@ -177,6 +177,48 @@ class TestArrClientSonarr:
         assert put_call[2]["json"]["seasons"][0]["monitored"] is True
         assert len(_calls(fake_http, "POST")) == 1
 
+    def test_remonitor_season_retries_on_failed_put(self, client, fake_http, fake_response):
+        """R4-M2: remonitor_season must retry the PUT on transient failure."""
+
+        def _series():
+            return {"id": 1, "title": "Test", "seasons": [{"seasonNumber": 1, "monitored": False}]}
+
+        # Round 1: GET returns unmonitored, PUT fails.
+        fake_http.queue("GET", fake_response(json_data=_series()))
+        fake_http.queue("PUT", fake_response(status=503, text="service unavailable"))
+        # Round 2: fresh GET (new dict to avoid mutation from round 1) + successful PUT.
+        fake_http.queue("GET", fake_response(json_data=_series()))
+        fake_http.queue("PUT", fake_response(status=202, content=b""))
+        fake_http.queue("POST", fake_response(status=201, json_data={}))
+
+        client.remonitor_season(series_id=1, season_number=1, max_retries=3)
+
+        puts = _calls(fake_http, "PUT")
+        assert len(puts) == 2
+        last_season = puts[-1][2]["json"]["seasons"][0]
+        assert last_season["monitored"] is True
+
+    def test_remonitor_season_raises_when_target_season_absent(
+        self, client, fake_http, fake_response
+    ):
+        """R4-M2: remonitor_season raises ArrUpstreamError when season is absent.
+
+        Prevents a silent no-op where the PUT would succeed but the targeted
+        season was never actually remonitored.
+        """
+        fake_http.queue(
+            "GET",
+            fake_response(
+                json_data={
+                    "id": 1,
+                    "title": "X",
+                    "seasons": [{"seasonNumber": 1, "monitored": False}],
+                }
+            ),
+        )
+        with pytest.raises(ArrUpstreamError, match="no season 99"):
+            client.remonitor_season(series_id=1, season_number=99)
+
     def test_remonitor_season_tolerates_season_missing_season_number(
         self, client, fake_http, fake_response
     ):
