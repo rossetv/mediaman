@@ -577,6 +577,134 @@ def test_attach_clears_stale_downloaded_at_in_db(db_path):
     assert row[0] is None
 
 
+def test_attach_renders_without_sonarr_state_when_get_series_raises_safe_http_error():
+    """A SafeHTTPError from Sonarr must not propagate out of
+    attach_download_states — the recommendations are returned with the TV
+    item left without download state (graceful degradation, no 500)."""
+    import pytest
+
+    from mediaman.services.infra import SafeHTTPError
+
+    sonarr = MagicMock()
+    sonarr.get_series.side_effect = SafeHTTPError(
+        503, "Sonarr unreachable", "http://sonarr/api/v3/series"
+    )
+    arr = _FakeArr(sonarr=sonarr)
+
+    tv = {"id": "t1", "tmdb_id": 200, "media_type": "tv"}
+    try:
+        all_recs = attach_download_states([_batch(tv)], arr)
+    except SafeHTTPError:  # pragma: no cover - asserts the bug is fixed
+        pytest.fail("SafeHTTPError leaked out of attach_download_states")
+
+    assert "download_state" not in tv
+    assert set(all_recs) == {"t1"}
+
+
+def test_attach_renders_without_radarr_state_when_get_movies_raises_safe_http_error():
+    """A SafeHTTPError from Radarr must not propagate — the movie item is
+    returned without download state instead of 500ing the page."""
+    import pytest
+
+    from mediaman.services.infra import SafeHTTPError
+
+    radarr = MagicMock()
+    radarr.get_movies.side_effect = SafeHTTPError(
+        503, "Radarr unreachable", "http://radarr/api/v3/movie"
+    )
+    arr = _FakeArr(radarr=radarr)
+
+    movie = {"id": "m1", "tmdb_id": 100, "media_type": "movie"}
+    try:
+        all_recs = attach_download_states([_batch(movie)], arr)
+    except SafeHTTPError:  # pragma: no cover
+        pytest.fail("SafeHTTPError leaked out of attach_download_states")
+
+    assert "download_state" not in movie
+    assert set(all_recs) == {"m1"}
+
+
+def test_attach_renders_without_state_when_cache_build_raises_arr_error():
+    """A domain ArrError (e.g. ArrUpstreamError) is also caught and degraded."""
+    import pytest
+
+    from mediaman.services.arr import ArrUpstreamError
+
+    radarr = MagicMock()
+    radarr.get_movies.side_effect = ArrUpstreamError("null body where a record was expected")
+    arr = _FakeArr(radarr=radarr)
+
+    movie = {"id": "m1", "tmdb_id": 100, "media_type": "movie"}
+    try:
+        all_recs = attach_download_states([_batch(movie)], arr)
+    except ArrUpstreamError:  # pragma: no cover
+        pytest.fail("ArrError leaked out of attach_download_states")
+
+    assert "download_state" not in movie
+    assert set(all_recs) == {"m1"}
+
+
+def test_attach_degrades_each_arr_service_independently():
+    """Sonarr being down must not hide Radarr download state, and vice versa:
+    a failing Sonarr leaves the movie's Radarr state intact."""
+    from mediaman.services.infra import SafeHTTPError
+
+    radarr = MagicMock()
+    radarr.get_movies.return_value = [{"tmdbId": 100, "hasFile": True, "monitored": True}]
+    radarr.get_queue.return_value = []
+    sonarr = MagicMock()
+    sonarr.get_series.side_effect = SafeHTTPError(
+        503, "Sonarr unreachable", "http://sonarr/api/v3/series"
+    )
+    arr = _FakeArr(radarr=radarr, sonarr=sonarr)
+
+    movie = {"id": "m1", "tmdb_id": 100, "media_type": "movie"}
+    tv = {"id": "t1", "tmdb_id": 200, "media_type": "tv"}
+    all_recs = attach_download_states([_batch(movie, tv)], arr)
+
+    # Radarr still resolves despite Sonarr being down.
+    assert movie["download_state"] == "in_library"
+    # Sonarr degraded — no state on the TV item.
+    assert "download_state" not in tv
+    assert set(all_recs) == {"m1", "t1"}
+
+
+def test_attach_keeps_downloaded_at_when_arr_service_is_down():
+    """A down service is treated as unconfigured: a freshly-optimistic
+    ``downloaded_at`` must survive (we cannot confirm absence)."""
+    from mediaman.services.infra import SafeHTTPError
+
+    radarr = MagicMock()
+    radarr.get_movies.side_effect = SafeHTTPError(
+        503, "Radarr unreachable", "http://radarr/api/v3/movie"
+    )
+    arr = _FakeArr(radarr=radarr)
+
+    movie = {
+        "id": "m1",
+        "tmdb_id": 100,
+        "media_type": "movie",
+        "downloaded_at": "2026-01-01T00:00:00+00:00",
+    }
+    attach_download_states([_batch(movie)], arr)
+
+    assert movie["downloaded_at"] == "2026-01-01T00:00:00+00:00"
+
+
+def test_attach_does_not_swallow_programming_errors():
+    """A programming error (TypeError) from the client is a bug, not an
+    expected upstream failure — it must still propagate, never be swallowed."""
+    import pytest
+
+    radarr = MagicMock()
+    radarr.get_movies.side_effect = TypeError("bug in cache build")
+    arr = _FakeArr(radarr=radarr)
+
+    movie = {"id": "m1", "tmdb_id": 100, "media_type": "movie"}
+    with pytest.raises(TypeError, match="bug in cache build"):
+        attach_download_states([_batch(movie)], arr)
+
+
 def test_tv_unmonitored_aired_season_is_ignored():
     """An unmonitored aired season the user explicitly skipped doesn't drag the show into ``partial``."""
     series = {

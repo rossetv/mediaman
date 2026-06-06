@@ -1,3 +1,9 @@
+# rationale: at 500+ lines this module sits just over the ceiling. The pieces
+# (state constants, state computation, cache builders, LazyArrClients, and the
+# attach_download_states orchestrator) are tightly coupled around the ArrCaches
+# shape, and attach_download_states cannot move to web/repository without
+# inverting the dependency graph (the arr package sits below web). Splitting now
+# would scatter one cohesive concern across files with no navigability win.
 """Compute Radarr/Sonarr download state for a media item.
 
 States:
@@ -393,6 +399,50 @@ class LazyArrClients:
         return self._sonarr
 
 
+def _build_radarr_cache_resilient(client: ArrClient | None) -> tuple[RadarrCaches, bool]:
+    """Build the Radarr cache, degrading to empty if Radarr is unreachable.
+
+    Returns ``(cache, configured)``. On an expected upstream failure —
+    ``SafeHTTPError`` (transport) or ``ArrError`` and subclasses (domain) — we
+    log a WARNING and return an empty cache with ``configured=False`` so the
+    recommendations page renders without Radarr badges instead of 500ing, and a
+    down Radarr never wipes a freshly-optimistic ``downloaded_at`` flag.
+    Programming errors (``KeyError``/``TypeError``/…) are not caught (§6).
+    """
+    from mediaman.services.arr import ArrError
+    from mediaman.services.infra import SafeHTTPError
+
+    try:
+        return build_radarr_cache(client), client is not None
+    except (SafeHTTPError, ArrError):
+        logger.warning(
+            "attach_download_states: Radarr unavailable; recommendations will "
+            "render without Radarr download state",
+            exc_info=True,
+        )
+        return build_radarr_cache(None), False
+
+
+def _build_sonarr_cache_resilient(client: ArrClient | None) -> tuple[SonarrCaches, bool]:
+    """Build the Sonarr cache, degrading to empty if Sonarr is unreachable.
+
+    Mirror of :func:`_build_radarr_cache_resilient` for Sonarr. Sonarr fails
+    independently of Radarr: a down Sonarr must not hide Radarr state.
+    """
+    from mediaman.services.arr import ArrError
+    from mediaman.services.infra import SafeHTTPError
+
+    try:
+        return build_sonarr_cache(client), client is not None
+    except (SafeHTTPError, ArrError):
+        logger.warning(
+            "attach_download_states: Sonarr unavailable; recommendations will "
+            "render without Sonarr download state",
+            exc_info=True,
+        )
+        return build_sonarr_cache(None), False
+
+
 # NOTE (§3.2): this module hosts several concepts — state constants, state
 # computation, cache builders, LazyArrClients, and this recommendation-
 # annotation orchestrator. ``attach_download_states`` arguably belongs nearer
@@ -429,6 +479,14 @@ def attach_download_states(
     (the loop previously rebuilt the unused half on every opposite-branch
     item, which was needless repeated work).
 
+    Resilience: a recommendations page must not hard-depend on the arr stack
+    being up. If building either cache raises an expected upstream failure —
+    ``SafeHTTPError`` (transport: unreachable/timeout/5xx) or ``ArrError`` and
+    its subclasses (domain) — that service degrades to an empty/unknown cache
+    and the page still renders, just without that service's download badges.
+    Each service fails independently (a down Sonarr does not hide Radarr state
+    and vice versa). Programming errors propagate untouched (§6).
+
     Returns a ``{item["id"]: item}`` map of every item seen, so the caller
     can serialise the full set without re-walking the batches.
     """
@@ -459,16 +517,21 @@ def attach_download_states(
             if tmdb_id and isinstance(tmdb_id, int) and media_type in ("movie", "tv"):
                 if media_type == "movie":
                     if radarr_cache is None:
-                        client = arr.radarr()
-                        radarr_configured = client is not None
-                        radarr_cache = build_radarr_cache(client)
+                        # Build at most once; degrade to empty (no badges) if
+                        # Radarr is unreachable so the page never 500s. See
+                        # _build_radarr_cache_resilient.
+                        radarr_cache, radarr_configured = _build_radarr_cache_resilient(
+                            arr.radarr()
+                        )
                     caches: ArrCaches = {**radarr_cache, **empty_sonarr}
                     configured = radarr_configured
                 else:
                     if sonarr_cache is None:
-                        client = arr.sonarr()
-                        sonarr_configured = client is not None
-                        sonarr_cache = build_sonarr_cache(client)
+                        # Build at most once; Sonarr fails independently of
+                        # Radarr. See _build_sonarr_cache_resilient.
+                        sonarr_cache, sonarr_configured = _build_sonarr_cache_resilient(
+                            arr.sonarr()
+                        )
                     caches = {**empty_radarr, **sonarr_cache}
                     configured = sonarr_configured
                 state = compute_download_state(media_type, tmdb_id, caches)
