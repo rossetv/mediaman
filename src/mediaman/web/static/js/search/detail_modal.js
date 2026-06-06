@@ -126,6 +126,9 @@
         '</h2></div>';
     }
 
+    // genres are joined before escaping; the separator " · " contains no HTML
+    // special chars, so escapeHtml on the joined string catches any stray < > &
+    // in individual genre values — safe as-is.
     const genres  = (d.genres || []).join(" · ");
     const runtime = d.runtime ? d.runtime + " min" : "";
     const quickBits = [
@@ -167,6 +170,8 @@
 
     if (d.cast && d.cast.length) {
       modalEl.castL.style.display = "";
+      /* Every server-supplied field (profile_url, name, character, initials)
+         is passed through escapeAttr or escapeHtml — no bare interpolation. */
       modalEl.cast.innerHTML = d.cast.map(function(c) {
         const initials = (c.name || "?").split(" ").map(function(x) { return x[0]; }).slice(0, 2).join("");
         const avatar = c.profile_url

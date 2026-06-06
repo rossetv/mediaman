@@ -89,12 +89,22 @@
         btn.className = 'btn-download';
         btn.style.background = 'rgba(255,69,58,0.12)';
         btn.style.color = 'var(--danger)';
+        // Re-wire the button after the failure flash. Remove then re-add the
+        // listener to avoid stacking multiple handlers if the request fails
+        // repeatedly. Using a named handler reference also prevents the
+        // stale-closure issue from the previous .onclick = ... pattern.
         setTimeout(function () {
           btn.textContent = 'Download';
           btn.style.background = '';
           btn.style.color = '';
           btn.className = 'btn-download';
-          btn.onclick = function () { _modalDownload(btn, s); };
+          // _paintActions will have rebuilt the button if the modal was closed
+          // and reopened; only re-wire if the button is still attached.
+          if (btn.isConnected) {
+            btn.removeEventListener('click', btn._dlHandler);
+            btn._dlHandler = function () { _modalDownload(btn, s); };
+            btn.addEventListener('click', btn._dlHandler);
+          }
         }, 3000);
       });
   }
@@ -306,7 +316,10 @@
       var dlBtn2 = document.createElement('button');
       dlBtn2.className = 'btn-download';
       dlBtn2.textContent = 'Download';
-      dlBtn2.onclick = function () { _modalDownload(dlBtn2, s); };
+      // Store the handler ref on the element so the failure-retry path in
+      // _modalDownload can removeEventListener before re-adding it.
+      dlBtn2._dlHandler = function () { _modalDownload(dlBtn2, s); };
+      dlBtn2.addEventListener('click', dlBtn2._dlHandler);
       actionsEl.appendChild(dlBtn2);
     }
 
@@ -315,7 +328,7 @@
     var shareBtn = document.createElement('button');
     shareBtn.className = 'btn-share';
     shareBtn.textContent = 'Share';
-    shareBtn.onclick = function () {
+    shareBtn.addEventListener('click', function () {
       shareBtn.disabled = true;
       shareBtn.textContent = 'Generating…';
       MM.api.post('/api/recommended/' + s.id + '/share-token')
@@ -342,7 +355,7 @@
           shareBtn.disabled = false;
           setTimeout(function () { shareBtn.textContent = 'Share'; }, 2000);
         });
-    };
+    });
     actionsEl.appendChild(shareBtn);
   }
 

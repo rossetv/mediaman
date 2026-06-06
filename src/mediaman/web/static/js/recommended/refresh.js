@@ -74,14 +74,34 @@
     // poll loop would spin silently forever. Two ticks of "idle" before
     // we abort, so a single off-by-one observation right after the
     // worker finishes doesn't kill the loop prematurely.
-    var idleStreak = 0;
+    var POLL_MS              = 3000;
+    var MAX_FAILURES         = 8;
+    var idleStreak           = 0;
     var IDLE_ABORT_THRESHOLD = 2;
+    var consecutiveFailures  = 0;
+    var pollTimer            = null;
+    var inFlight             = false;
+    var stopped              = false;
 
-    var poll = setInterval(function () {
+    function stopPoll() {
+      stopped = true;
+      if (pollTimer !== null) { clearTimeout(pollTimer); pollTimer = null; }
+    }
+
+    function scheduleNext(ms) {
+      if (stopped) return;
+      if (pollTimer !== null) { clearTimeout(pollTimer); pollTimer = null; }
+      pollTimer = setTimeout(function () { pollTimer = null; runTick(); }, ms);
+    }
+
+    function runTick() {
+      if (stopped || inFlight || document.hidden) return;
+      inFlight = true;
       MM.api.get('/api/recommended/refresh/status')
         .then(function (st) {
+          consecutiveFailures = 0;
           if (st.status === 'done') {
-            clearInterval(poll);
+            stopPoll();
             if (st.result && st.result.ok) {
               btn.textContent = 'Done ✓';
               btn.classList.add('is-success');
@@ -95,19 +115,51 @@
           if (st.status === 'idle') {
             idleStreak += 1;
             if (idleStreak >= IDLE_ABORT_THRESHOLD) {
-              clearInterval(poll);
+              stopPoll();
               resetButton(btn);
               showError('The refresh worker stopped responding. Check the server logs and try again.');
+              return;
             }
+          } else {
+            // Any other status (e.g. "running") — keep polling and reset
+            // the idle streak so a transient "idle" between live ticks
+            // doesn't accumulate.
+            idleStreak = 0;
+          }
+          scheduleNext(POLL_MS);
+        })
+        .catch(function (err) {
+          // Auth failure — give up and let the user reload.
+          if (err && (err.status === 401 || err.status === 403)) {
+            stopPoll();
+            window.location.href = '/login';
             return;
           }
-          // Any other status (e.g. "running") — keep polling and reset
-          // the idle streak so a transient "idle" between live ticks
-          // doesn't accumulate.
-          idleStreak = 0;
+          consecutiveFailures += 1;
+          if (consecutiveFailures >= MAX_FAILURES) {
+            stopPoll();
+            resetButton(btn);
+            showError("Couldn't reach the server after several attempts — check your connection and try again.");
+            return;
+          }
+          // Exponential backoff on transient errors, capped at 30 s.
+          var backoff = Math.min(POLL_MS * Math.pow(2, consecutiveFailures), 30000);
+          scheduleNext(backoff);
         })
-        .catch(function () {});
-    }, 3000);
+        .finally(function () { inFlight = false; });
+    }
+
+    // Pause when tab is hidden, resume when visible.
+    document.addEventListener('visibilitychange', function onVisibility() {
+      if (stopped) { document.removeEventListener('visibilitychange', onVisibility); return; }
+      if (document.hidden) {
+        if (pollTimer !== null) { clearTimeout(pollTimer); pollTimer = null; }
+      } else if (pollTimer === null && !inFlight) {
+        runTick();
+      }
+    });
+
+    scheduleNext(POLL_MS);
   }
 
   function resetButton(btn) {
