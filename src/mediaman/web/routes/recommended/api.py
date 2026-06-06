@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 import re
-import sqlite3
-import time as _time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
-import requests
+if TYPE_CHECKING:
+    import sqlite3
+
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
@@ -20,6 +21,7 @@ from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_
 from mediaman.services.downloads.notifications import record_download_notification
 from mediaman.services.infra import SafeHTTPError, get_string_setting
 from mediaman.services.openai.recommendations.repository import (
+    SuggestionDetail,
     fetch_suggestion_by_id,
     fetch_suggestion_header,
     mark_downloaded,
@@ -27,7 +29,7 @@ from mediaman.services.openai.recommendations.repository import (
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.password_hash import get_user_email
-from mediaman.web.repository.recommended import fetch_recommendations
+from mediaman.web.repository.recommended import fetch_recommendations_page
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,10 @@ router = APIRouter()
 
 _DOWNLOAD_ACTION_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=500)
 _SHARE_TOKEN_LIMITER = ActionRateLimiter(max_in_window=30, window_seconds=60, max_per_day=500)
+
+# TTL for share tokens minted by the share-token endpoint.  Named with the
+# unit per §4.5; computed via timedelta to avoid the manual-seconds footgun.
+_SHARE_TOKEN_TTL_DAYS = 14
 
 
 def reset_download_action_limiter() -> None:
@@ -59,9 +65,7 @@ def api_recommended(
 ) -> JSONResponse:
     """Return cached recommendations as JSON, paginated."""
     conn = get_db()
-    all_recs = fetch_recommendations(conn)
-    total = len(all_recs)
-    sliced = all_recs[offset : offset + limit]
+    sliced, total = fetch_recommendations_page(conn, limit=limit, offset=offset)
     return JSONResponse(
         {
             "recommendations": sliced,
@@ -105,9 +109,7 @@ def api_share_token(
             status_code=503,
         )
 
-    ttl_days = 14
-    expires_at_ts = int(_time.time()) + ttl_days * 86400
-    expires_at = datetime.fromtimestamp(expires_at_ts, tz=UTC).isoformat()
+    expires_at = (datetime.now(UTC) + timedelta(days=_SHARE_TOKEN_TTL_DAYS)).isoformat()
 
     # ``admin`` is a username, not an address — resolve the admin's
     # notification email (``None`` when unset). The token still authorises
@@ -120,7 +122,7 @@ def api_share_token(
         tmdb_id=row.tmdb_id,
         recommendation_id=row.id,
         secret_key=config.secret_key,
-        ttl_days=ttl_days,
+        ttl_days=_SHARE_TOKEN_TTL_DAYS,
     )
     share_url = f"{base_url}/download/{share_token}"
 
@@ -150,7 +152,7 @@ def _add_rec_to_radarr(
     conn: sqlite3.Connection,
     *,
     notify_email: str | None,
-    row: sqlite3.Row,
+    row: SuggestionDetail,
     recommendation_id: int,
     secret_key: str,
 ) -> JSONResponse:
@@ -163,21 +165,23 @@ def _add_rec_to_radarr(
     client = build_radarr_from_db(conn, secret_key)
     if not client:
         return JSONResponse({"ok": False, "error": "Radarr not configured"})
-    tmdb_id = row["tmdb_id"]
-    safe_title = _sanitise_title(row["title"])
+    tmdb_id = row.tmdb_id
+    if not tmdb_id:
+        return JSONResponse({"ok": False, "error": "No TMDB ID -- cannot add to Radarr"})
+    safe_title = _sanitise_title(row.title)
     client.add_movie(tmdb_id, safe_title)
     logger.info("Added movie '%s' (tmdb:%d) to Radarr", safe_title, tmdb_id)
-    mark_downloaded(conn, recommendation_id, now_iso())
-    if notify_email:
-        record_download_notification(
-            conn,
-            email=notify_email,
-            title=safe_title,
-            media_type="movie",
-            tmdb_id=tmdb_id,
-            service="radarr",
-        )
-    conn.commit()
+    with conn:
+        mark_downloaded(conn, recommendation_id, now_iso())
+        if notify_email:
+            record_download_notification(
+                conn,
+                email=notify_email,
+                title=safe_title,
+                media_type="movie",
+                tmdb_id=tmdb_id,
+                service="radarr",
+            )
     return JSONResponse({"ok": True, "message": f"Added '{safe_title}' to Radarr"})
 
 
@@ -185,7 +189,7 @@ def _add_rec_to_sonarr(
     conn: sqlite3.Connection,
     *,
     notify_email: str | None,
-    row: sqlite3.Row,
+    row: SuggestionDetail,
     recommendation_id: int,
     secret_key: str,
 ) -> JSONResponse:
@@ -198,28 +202,38 @@ def _add_rec_to_sonarr(
     client = build_sonarr_from_db(conn, secret_key)
     if not client:
         return JSONResponse({"ok": False, "error": "Sonarr not configured"})
-    tmdb_id = row["tmdb_id"]
-    safe_title = _sanitise_title(row["title"])
+    tmdb_id = row.tmdb_id
+    if not tmdb_id:
+        return JSONResponse({"ok": False, "error": "No TMDB ID -- cannot add to Sonarr"})
+    safe_title = _sanitise_title(row.title)
     results = client.lookup_by_tmdb_id(tmdb_id, endpoint="/api/v3/series/lookup")
     if not results:
         return JSONResponse({"ok": False, "error": "Show not found in Sonarr lookup"})
-    tvdb_id = results[0].get("tvdbId")
+    # Filter for the entry whose tmdbId matches the requested id — Sonarr may
+    # return results in a different order on different instances (H-07).
+    matched = next(
+        (r for r in results if str(r.get("tmdbId", "")).strip() == str(tmdb_id).strip()),
+        None,
+    )
+    if matched is None:
+        return JSONResponse({"ok": False, "error": "No matching TMDB entry in Sonarr lookup"})
+    tvdb_id = matched.get("tvdbId")
     if not tvdb_id:
         return JSONResponse({"ok": False, "error": "No TVDB ID found for this show"})
     client.add_series(tvdb_id, safe_title)
     logger.info("Added series '%s' (tvdb:%d) to Sonarr", safe_title, tvdb_id)
-    mark_downloaded(conn, recommendation_id, now_iso())
-    if notify_email:
-        record_download_notification(
-            conn,
-            email=notify_email,
-            title=safe_title,
-            media_type="tv",
-            tmdb_id=tmdb_id,
-            tvdb_id=tvdb_id,
-            service="sonarr",
-        )
-    conn.commit()
+    with conn:
+        mark_downloaded(conn, recommendation_id, now_iso())
+        if notify_email:
+            record_download_notification(
+                conn,
+                email=notify_email,
+                title=safe_title,
+                media_type="tv",
+                tmdb_id=tmdb_id,
+                tvdb_id=tvdb_id,
+                service="sonarr",
+            )
     return JSONResponse({"ok": True, "message": f"Added '{safe_title}' to Sonarr"})
 
 
@@ -238,7 +252,7 @@ def api_download_recommendation(
     if not row:
         return JSONResponse({"ok": False, "error": "Recommendation not found"}, status_code=404)
 
-    if not row["tmdb_id"]:
+    if not row.tmdb_id:
         return JSONResponse({"ok": False, "error": "No TMDB ID -- cannot add to Radarr/Sonarr"})
 
     # ``admin`` is a username; resolve it to the admin's notification email
@@ -246,7 +260,7 @@ def api_download_recommendation(
     notify_email = get_user_email(conn, admin)
 
     try:
-        if row["media_type"] == "movie":
+        if row.media_type == "movie":
             return _add_rec_to_radarr(
                 conn,
                 notify_email=notify_email,
@@ -265,20 +279,20 @@ def api_download_recommendation(
     except SafeHTTPError as exc:
         if exc.status_code in (409, 422):
             return JSONResponse(
-                {"ok": False, "error": f"'{row['title']}' already exists in your library"},
+                {"ok": False, "error": f"'{row.title}' already exists in your library"},
                 status_code=409,
             )
         logger.exception(
             "Failed to add recommendation '%s': HTTP %s",
-            row["title"],
+            row.title,
             exc.status_code,
         )
         return JSONResponse(
             {"ok": False, "error": "Failed to add to download queue"},
             status_code=502,
         )
-    except (requests.RequestException, ArrError, ValueError, sqlite3.Error):
-        logger.exception("Failed to add recommendation '%s'", row["title"])
+    except (ArrError, ValueError):
+        logger.exception("Failed to add recommendation '%s'", row.title)
         return JSONResponse(
             {"ok": False, "error": "Failed to add to download queue"},
             status_code=502,

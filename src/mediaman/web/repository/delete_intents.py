@@ -15,7 +15,6 @@ import logging
 import sqlite3
 
 from mediaman.core.time import now_utc
-from mediaman.db import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +63,6 @@ def _fail_delete_intent(conn: sqlite3.Connection, intent_id: int, error: str) ->
 
 def _reconcile_one_intent(conn: sqlite3.Connection, intent_id: int, media_item_id: str) -> bool:
     """Reconcile a single pending intent.  Returns ``True`` on resolution."""
-    import contextlib
-
     from mediaman.core.audit import log_audit
 
     item_exists = conn.execute(
@@ -80,12 +77,15 @@ def _reconcile_one_intent(conn: sqlite3.Connection, intent_id: int, media_item_i
             media_item_id,
         )
         return True
+    # rationale: §6.4 site 4 (cold-start) — reconciler runs at startup and
+    # processes the whole intent backlog; every error must roll back the
+    # current intent's transaction and record the failure so the next
+    # startup retries without crashing the boot sequence.
     try:
-        conn.execute("BEGIN IMMEDIATE")
-        log_audit(conn, media_item_id, "deleted", "Reconciled by startup cleanup")
-        conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_item_id,))
-        conn.execute("DELETE FROM media_items WHERE id = ?", (media_item_id,))
-        conn.execute("COMMIT")
+        with conn:
+            log_audit(conn, media_item_id, "deleted", "Reconciled by startup cleanup")
+            conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_item_id,))
+            conn.execute("DELETE FROM media_items WHERE id = ?", (media_item_id,))
         _complete_delete_intent(conn, intent_id)
         logger.info(
             "delete_intent.reconciled intent_id=%s media_id=%s reason=cleanup_on_startup",
@@ -93,13 +93,7 @@ def _reconcile_one_intent(conn: sqlite3.Connection, intent_id: int, media_item_i
             media_item_id,
         )
         return True
-    # rationale: §6.4 site 4 (cold-start) — reconciler runs at startup and
-    # processes the whole intent backlog; every error must roll back the
-    # current intent's transaction and record the failure so the next
-    # startup retries without crashing the boot sequence.
     except Exception as exc:
-        with contextlib.suppress(Exception):
-            conn.execute("ROLLBACK")
         _fail_delete_intent(conn, intent_id, str(exc))
         logger.warning(
             "delete_intent.reconcile_failed intent_id=%s media_id=%s error=%s",
@@ -111,13 +105,15 @@ def _reconcile_one_intent(conn: sqlite3.Connection, intent_id: int, media_item_i
         return False
 
 
-def reconcile_pending_delete_intents() -> int:
+def reconcile_pending_delete_intents(conn: sqlite3.Connection) -> int:
     """Find unresolved delete intents and attempt to complete their cleanup.
 
-    Exposed for wiring into bootstrap / startup.  Returns the number of
-    intents resolved during this call.
+    Accepts an explicit connection rather than acquiring one via
+    ``get_db()`` so startup wiring can pass the connection it already
+    holds and tests can use a fixture connection (M-04).
+
+    Returns the number of intents resolved during this call.
     """
-    conn = get_db()
     pending = conn.execute(
         "SELECT id, media_item_id, target_kind, target_id "
         "FROM delete_intents WHERE completed_at IS NULL"

@@ -28,15 +28,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from mediaman.db import get_db
 from mediaman.services.rate_limit import ActionRateLimiter
 from mediaman.web.auth.middleware import get_current_admin
-from mediaman.web.routes.library_api._redownload_match import (
-    _REDOWNLOAD_TITLE_SIMILARITY as _REDOWNLOAD_TITLE_SIMILARITY,
-)
-from mediaman.web.routes.library_api._redownload_match import (
-    _pick_lookup_match as _pick_lookup_match,
-)
-from mediaman.web.routes.library_api._redownload_match import (
-    _redownload_audit_id as _redownload_audit_id,
-)
 from mediaman.web.routes.library_api._redownload_radarr import _try_radarr_redownload
 from mediaman.web.routes.library_api._redownload_sonarr import _try_sonarr_redownload
 

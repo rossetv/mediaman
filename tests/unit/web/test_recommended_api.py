@@ -193,7 +193,7 @@ class TestDownloadRecommendationAdminEmail:
         sid = insert_suggestion(conn, title="Severance", tmdb_id=136315, media_type="tv")
         client = _make_rec_app(conn)
         mock_sonarr = MagicMock()
-        mock_sonarr.lookup_by_tmdb_id.return_value = [{"tvdbId": 999}]
+        mock_sonarr.lookup_by_tmdb_id.return_value = [{"tmdbId": 136315, "tvdbId": 999}]
         mock_sonarr.add_series.return_value = None
 
         with patch(
@@ -214,7 +214,7 @@ class TestDownloadRecommendationAdminEmail:
         sid = insert_suggestion(conn, title="Severance", tmdb_id=136315, media_type="tv")
         client = _make_rec_app(conn)
         mock_sonarr = MagicMock()
-        mock_sonarr.lookup_by_tmdb_id.return_value = [{"tvdbId": 999}]
+        mock_sonarr.lookup_by_tmdb_id.return_value = [{"tmdbId": 136315, "tvdbId": 999}]
         mock_sonarr.add_series.return_value = None
 
         with patch(

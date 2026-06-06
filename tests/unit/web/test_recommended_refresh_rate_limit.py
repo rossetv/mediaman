@@ -334,10 +334,12 @@ class TestDownloadActionRateLimit:
 
         max_in_window = _rec_api._DOWNLOAD_ACTION_LIMITER._max_in_window
 
-        import requests as _requests
+        from mediaman.services.infra import SafeHTTPError
 
         mock_radarr = MagicMock()
-        mock_radarr.add_movie.side_effect = _requests.ConnectionError("Not calling real Radarr")
+        mock_radarr.add_movie.side_effect = SafeHTTPError(
+            status_code=0, body_snippet="transport error: ConnectionError", url="http://radarr/"
+        )
 
         with patch(
             "mediaman.web.routes.recommended.api.build_radarr_from_db", return_value=mock_radarr
@@ -523,7 +525,7 @@ class TestDownloadRecommendationSuccess:
         rec_id = self._insert_tv_suggestion(conn)
 
         mock_sonarr = MagicMock()
-        mock_sonarr.lookup_by_tmdb_id.return_value = [{"tvdbId": 81189}]
+        mock_sonarr.lookup_by_tmdb_id.return_value = [{"tmdbId": 1396, "tvdbId": 81189}]
         mock_sonarr.add_series.return_value = None
 
         with patch(
@@ -609,7 +611,7 @@ class TestDownloadRecommendationSuccess:
         rec_id = self._insert_tv_suggestion(conn)
 
         mock_sonarr = MagicMock()
-        mock_sonarr.lookup_by_tmdb_id.return_value = [{"tvdbId": 81189}]
+        mock_sonarr.lookup_by_tmdb_id.return_value = [{"tmdbId": 1396, "tvdbId": 81189}]
         mock_sonarr.add_series.side_effect = SafeHTTPError(
             status_code=409, body_snippet="already exists", url="http://sonarr/api/v3/series"
         )

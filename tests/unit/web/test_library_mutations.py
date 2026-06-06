@@ -181,10 +181,12 @@ class TestMediaDeleteTransactional:
         app = _app(app_factory, conn)
         client = authed_client(app, conn)
 
-        import requests as _requests
+        from mediaman.services.infra import SafeHTTPError
 
         mock_radarr = MagicMock()
-        mock_radarr.delete_movie.side_effect = _requests.ConnectionError("Radarr exploded")
+        mock_radarr.delete_movie.side_effect = SafeHTTPError(
+            status_code=0, body_snippet="transport error: ConnectionError", url="http://radarr/"
+        )
 
         with patch(
             "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
@@ -202,14 +204,12 @@ class TestMediaDeleteTransactional:
         app = _app(app_factory, conn)
         client = authed_client(app, conn)
 
-        import requests as _requests
-
-        fake_resp = MagicMock()
-        fake_resp.status_code = 404
-        http_err = _requests.HTTPError(response=fake_resp)
+        from mediaman.services.infra import SafeHTTPError
 
         mock_radarr = MagicMock()
-        mock_radarr.delete_movie.side_effect = http_err
+        mock_radarr.delete_movie.side_effect = SafeHTTPError(
+            status_code=404, body_snippet="Not Found", url="http://radarr/"
+        )
 
         with patch(
             "mediaman.web.routes.library_api.build_radarr_from_db", return_value=mock_radarr
@@ -226,11 +226,13 @@ class TestMediaDeleteTransactional:
         app = _app(app_factory, conn)
         client = authed_client(app, conn)
 
-        import requests as _requests
+        from mediaman.services.infra import SafeHTTPError
 
         mock_radarr = MagicMock()
         mock_radarr.delete_movie.side_effect = [
-            _requests.ConnectionError("first fails"),
+            SafeHTTPError(
+                status_code=0, body_snippet="transport error: ConnectionError", url="http://radarr/"
+            ),
             None,
         ]
 

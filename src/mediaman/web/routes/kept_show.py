@@ -34,8 +34,8 @@ from mediaman.web.repository.kept import (
     fetch_show_keep_row,
     fetch_show_title,
     fetch_unkeyed_media_ids,
+    resolve_show_rating_key,
     set_protected_state,
-    show_rating_key_exists,
     upsert_kept_show,
 )
 from mediaman.web.responses import respond_err, respond_ok
@@ -49,35 +49,11 @@ _REMOVE_SHOW_KEEP_LIMITER = ActionRateLimiter(
     window_seconds=60,
     max_per_day=500,
 )
-
-
-def _resolve_show_rating_key(
-    conn: sqlite3.Connection, supplied_key: str
-) -> tuple[str | None, str | None]:
-    """Return (resolved_key, error) for a keep-show request.
-
-    IDOR risk closed by this helper: the previous implementation fell
-    back to matching seasons by show_title whenever the supplied
-    rating key was missing on the stored rows. Two distinct shows
-    sharing a title (a common case -- remakes, international versions,
-    generic one-word titles) collided in that branch so user A keeping
-    Kingdom would also match user B's Kingdom rows.
-
-    Resolution rules:
-      (a) supplied_key is present and at least one media_items row
-          carries that exact show_rating_key -- use the supplied key.
-      (b) anything else -- return (None, error_message) so the caller
-          can 409.
-
-    supplied_key is the raw path parameter. Callers pass it through
-    unchanged -- never synthesised from show_title.
-    """
-    key = (supplied_key or "").strip()
-    if key:
-        if show_rating_key_exists(conn, key):
-            return key, None
-        return None, "Unknown show_rating_key"
-    return None, "show_rating_key required"
+_KEEP_SHOW_LIMITER = ActionRateLimiter(
+    max_in_window=60,
+    window_seconds=60,
+    max_per_day=500,
+)
 
 
 class _KeepShowBody(BaseModel):
@@ -104,7 +80,7 @@ def _validate_keep_show_input(
         return None, respond_err("no_seasons", status=400, message="No seasons selected")
     if duration not in VALID_KEEP_DURATIONS:
         return None, respond_err("invalid_duration", status=400)
-    resolved_key, err = _resolve_show_rating_key(conn, supplied_key)
+    resolved_key, err = resolve_show_rating_key(conn, supplied_key)
     if err or not resolved_key:
         logger.warning(
             "keep_show.rating_key_unresolved supplied=%r user=%s err=%s",
@@ -193,6 +169,14 @@ def api_keep_show(
     admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
     """Keep an entire show (all listed seasons + future seasons via kept_shows rule)."""
+    if not _KEEP_SHOW_LIMITER.check(admin):
+        logger.warning("kept_show.keep_throttled user=%s", admin)
+        return respond_err(
+            "too_many_requests",
+            status=429,
+            message="Too many show-keep requests; try again shortly.",
+        )
+
     conn = get_db()
     duration = body.duration
     season_ids = body.season_ids
@@ -212,16 +196,6 @@ def api_keep_show(
     show_title = fetch_show_title(conn, resolved_key) or "Unknown"
     now_iso_str = now.isoformat()
 
-    upsert_kept_show(
-        conn,
-        show_rating_key=resolved_key,
-        show_title=show_title,
-        action=decision.action,
-        execute_at=decision.execute_at,
-        snooze_duration=duration,
-        created_at=now_iso_str,
-    )
-
     existing_by_season = fetch_existing_actions_for_seasons(conn, season_ids)
     to_update, to_insert = _build_season_action_rows(
         season_ids,
@@ -232,10 +206,18 @@ def api_keep_show(
         now_iso_str=now_iso_str,
     )
 
-    # The seasons write and the audit row share one transaction so a failure
-    # between them rolls both back together. Helper extraction must preserve
-    # this coupling.
+    # The show-keep upsert, seasons write, and audit row share one transaction
+    # so a DB failure in any step rolls the whole thing back atomically (B-04).
     with conn:
+        upsert_kept_show(
+            conn,
+            show_rating_key=resolved_key,
+            show_title=show_title,
+            action=decision.action,
+            execute_at=decision.execute_at,
+            snooze_duration=duration,
+            created_at=now_iso_str,
+        )
         set_protected_state(conn, to_update=to_update, to_insert=to_insert)
         log_audit(
             conn,

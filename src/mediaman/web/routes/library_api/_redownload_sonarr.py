@@ -12,11 +12,13 @@ Radarr branch consumes them too.
 from __future__ import annotations
 
 import logging
-import sqlite3
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
-import requests
 from fastapi.responses import JSONResponse
+
+if TYPE_CHECKING:
+    import sqlite3
 
 from mediaman.services.arr.base import ArrClient, ArrError
 from mediaman.services.infra import SafeHTTPError
@@ -136,6 +138,6 @@ def _try_sonarr_redownload(
             return JSONResponse({"ok": False, "error": f"'{title}' already exists in Sonarr"})
         logger.exception("Re-download via Sonarr failed for '%s': HTTP %s", title, exc.status_code)
         return _sonarr_fallback_fail_response()
-    except (requests.RequestException, ArrError, ValueError, sqlite3.Error):
+    except (ArrError, ValueError):
         logger.exception("Re-download via Sonarr failed for '%s'", title)
         return _sonarr_fallback_fail_response()

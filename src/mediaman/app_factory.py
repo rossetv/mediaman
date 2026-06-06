@@ -66,7 +66,7 @@ def _run_startup_reconciliation(app: FastAPI) -> None:
     try:
         from mediaman.web.repository.delete_intents import reconcile_pending_delete_intents
 
-        reconciled = reconcile_pending_delete_intents()
+        reconciled = reconcile_pending_delete_intents(app.state.db)
         if reconciled:
             logger.info("Reconciled %d pending delete intent(s) at startup", reconciled)
     # rationale: §6.4 site 4 (cold-start) — startup reconciliation is
