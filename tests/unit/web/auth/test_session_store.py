@@ -492,19 +492,39 @@ class TestExpiresAtParsing:
         # though the format differs from what create_session wrote.
         assert validate_session(conn, token) == "alice"
 
-    def test_corrupt_expires_at_does_not_misorder(self, conn):
-        """A corrupt ``expires_at`` string must not silently expire a
-        session via lexicographic ordering."""
+    def test_session_with_corrupt_expiry_is_rejected(self, conn):
+        """B1 regression: a corrupt/unparseable ``expires_at`` must FAIL
+        CLOSED — the session is treated as expired, deleted, and
+        ``validate_session`` returns ``None``.
+
+        Previously the hard-expiry guard skipped the check when the value
+        was unparseable, yielding an immortal session (auth bypass). This
+        test pins the fail-closed polarity that matches the idle path.
+        """
         token = create_session(conn, "alice")
         conn.execute(
             "UPDATE admin_sessions SET expires_at = ? WHERE token_hash = ?",
             ("not-a-timestamp", _hash_token(token)),
         )
         conn.commit()
-        # _parse_iso_aware returns None on a corrupt cell, which the
-        # validate path treats as "no expiry stored" — the session is
-        # still valid (idle-expiry will catch a long-stale row anyway).
-        assert validate_session(conn, token) == "alice"
+        # Corrupt expiry → session rejected, not waved through.
+        assert validate_session(conn, token) is None
+        # And the offending row is swept so a retry can't keep probing it.
+        remaining = conn.execute(
+            "SELECT COUNT(*) AS n FROM admin_sessions WHERE token_hash = ?",
+            (_hash_token(token),),
+        ).fetchone()["n"]
+        assert remaining == 0
+
+    def test_session_with_empty_expiry_is_rejected(self, conn):
+        """An empty-string ``expires_at`` also fails closed (B1)."""
+        token = create_session(conn, "alice")
+        conn.execute(
+            "UPDATE admin_sessions SET expires_at = '' WHERE token_hash = ?",
+            (_hash_token(token),),
+        )
+        conn.commit()
+        assert validate_session(conn, token) is None
 
 
 # ---------------------------------------------------------------------------
@@ -603,44 +623,57 @@ class TestSwallowedFailuresAreVisible:
     best-effort) but the log level is raised so the failure is seen.
     """
 
-    def test_destroy_session_audit_failure_is_logged_at_warning_or_above(
-        self, conn, monkeypatch, caplog
-    ):
-        """A failing audit write inside ``destroy_session`` must produce a
-        log record at WARNING or above — not a DEBUG line that production
-        never emits — and the logout must still complete.
+    def test_destroy_session_audit_failure_rolls_back_fail_closed(self, conn, monkeypatch):
+        """L9 regression: a failing audit write inside ``destroy_session``
+        must FAIL CLOSED.
+
+        Session revocation is a REQUIRED audit event (§7.5). The audit row
+        is now written by ``security_event_or_raise`` inside the same
+        ``BEGIN IMMEDIATE`` as the session delete, so a failed audit insert
+        rolls the whole transaction back: the ``sqlite3.Error`` propagates
+        AND the session is NOT silently dropped without a trail. There must
+        be no "logout with no audit row" outcome.
         """
         from mediaman.core import audit
 
         token = create_session(conn, "alice")
 
         def boom(*_args, **_kwargs):
-            # security_event swallows its own internals, so patch the
-            # whole callable to force destroy_session's handler. A
-            # sqlite3.Error is the narrowed catch the handler expects.
             raise sqlite3.OperationalError("simulated audit-log write failure")
 
-        monkeypatch.setattr(audit, "security_event", boom)
+        monkeypatch.setattr(audit, "security_event_or_raise", boom)
 
-        with caplog.at_level(logging.WARNING, logger="mediaman.web.auth.session_store"):
-            # Must not raise — the session row is already gone; a failed
-            # audit write must never 500 a logout that has happened.
+        # The audit failure propagates rather than being swallowed.
+        with pytest.raises(sqlite3.OperationalError):
             destroy_session(conn, token)
 
-        # The failure is operator-visible: a WARNING-or-above record exists.
-        visible = [
-            r
-            for r in caplog.records
-            if r.name == "mediaman.web.auth.session_store"
-            and r.levelno >= logging.WARNING
-            and "audit" in r.getMessage().lower()
-        ]
-        assert visible, "destroy_session audit failure must log at WARNING or above"
-        # And it carries the traceback for forensics.
-        assert visible[0].exc_info is not None
+        # Fail-closed: because the transaction rolled back, the session row
+        # survives — there is no audit-free logout.
+        assert validate_session(conn, token) == "alice"
 
-        # The logout still took effect despite the audit failure.
-        assert validate_session(conn, token) is None
+    def test_z_suffixed_expired_row_is_swept(self, conn):
+        """M2 regression: an expired row stored with a ``Z`` suffix (format
+        drift) must still be removed by the lexicographic ``expires_at < ?``
+        sweep, which compares against the canonical ``+00:00`` ``now_iso``.
+        """
+        from mediaman.web.auth import session_store
+
+        token = create_session(conn, "alice")
+        # Back-date the expiry to last year, written with the ``Z`` flavour.
+        past_z = (datetime.now(UTC) - timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        conn.execute(
+            "UPDATE admin_sessions SET expires_at = ? WHERE token_hash = ?",
+            (past_z, _hash_token(token)),
+        )
+        conn.commit()
+
+        session_store._writes._cleanup_expired_with_commit(conn, datetime.now(UTC).isoformat())
+
+        remaining = conn.execute(
+            "SELECT COUNT(*) AS n FROM admin_sessions WHERE token_hash = ?",
+            (_hash_token(token),),
+        ).fetchone()["n"]
+        assert remaining == 0
 
     def test_cleanup_reauth_sweep_failure_is_logged_at_warning_or_above(
         self, conn, monkeypatch, caplog

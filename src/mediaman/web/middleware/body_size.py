@@ -176,10 +176,9 @@ class BodySizeLimitMiddleware:
             await _send_413(send)
             return
 
-        # If the first frame already carried the entire body, replay it
-        # straight through.  Otherwise wrap ``receive`` so subsequent
-        # chunks are size-checked as they stream in.
-        more_body = bool(first_message.get("more_body", False))
+        # Wrap ``receive`` so subsequent chunks are size-checked as they
+        # stream in. If the first frame already carried the entire body it
+        # is simply replayed once and no further chunks arrive.
         first_consumed = False
         body_total = bytes_received
         oversize = False
@@ -222,10 +221,11 @@ class BodySizeLimitMiddleware:
         # over the cap, we stop forwarding bytes but cannot replace the
         # already-started response.  In that case the connection will
         # be closed by the wrapper returning ``http.disconnect``.
-        if not more_body:
-            await self.app(scope, _streaming_receive, _watching_send)
-            return
-
+        #
+        # When the whole body arrived in the first frame (``not
+        # more_body``) ``oversize`` can never flip True later, so the
+        # post-app 413 guard below is naturally a no-op for that case —
+        # one ``self.app`` call covers both paths.
         await self.app(scope, _streaming_receive, _watching_send)
         if oversize and not response_started:
             # Edge case: handler returned without starting a response

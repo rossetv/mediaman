@@ -149,15 +149,27 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
     legacy browsers, in-app webviews, and anything that might ship
     cookies without honouring the SameSite attribute.
 
-    The comparison is **host-only**, not (scheme, host). A previous
-    hardening that compared scheme and host broke real reverse-proxy
-    deployments where uvicorn sees ``request.url.scheme == "http"`` but
-    the browser is on ``https://`` and sets ``Origin: https://...``.
-    Trusting ``X-Forwarded-Proto`` to rewrite the scheme is itself a
-    footgun (it requires ``MEDIAMAN_TRUSTED_PROXIES`` to be configured
-    first), and the cross-scheme attack being guarded against is already
-    closed by ``Secure`` cookie flag (browser refuses to send the cookie
-    over HTTP) and ``SameSite=Strict`` on the session cookie.
+    The comparison is **host-only by default**, not (scheme, host). A
+    previous hardening that always compared scheme and host broke real
+    reverse-proxy deployments where uvicorn sees
+    ``request.url.scheme == "http"`` but the browser is on ``https://``
+    and sets ``Origin: https://...``. Trusting ``X-Forwarded-Proto`` to
+    rewrite the scheme is itself a footgun (it requires
+    ``MEDIAMAN_TRUSTED_PROXIES`` to be configured first).
+
+    Scheme tightening (H5): when a session cookie is present AND the
+    request *itself* already resolves as ``https`` (direct TLS, or a
+    correctly-configured proxy that rewrote the scheme), the Origin/Referer
+    scheme must ALSO be ``https``. This closes the same-host
+    scheme-downgrade hole (an attacker on ``http://victim-host`` against a
+    SameSite-ignoring client) without touching the genuinely-ambiguous
+    proxy case: when the request resolves as ``http`` the check stays
+    host-only, so a misconfigured-proxy deployment is never broken.
+
+    Host resolution failure (H4): if the request's own host cannot be
+    resolved (empty ``netloc``) the request is treated as un-comparable
+    and any cookie-authenticated state-changing request is rejected —
+    two empty strings must never compare equal as a "match".
 
     The check is intentionally narrow: only POST/PUT/PATCH/DELETE
     from non-same-origin origins are refused, and only for routes
@@ -182,14 +194,29 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
 
         origin = request.headers.get("origin")
         referer = request.headers.get("referer")
-        # Compare hosts only (see class docstring for why scheme equality
-        # was reverted).  Use ``_normalise_origin`` for the IPv6 + default-
-        # port handling, but ignore the scheme component of the returned
-        # tuple by indexing ``[1]``.
+        has_session = bool(request.cookies.get("session_token"))
+        # Compare hosts only by default (see class docstring for why scheme
+        # equality was reverted for the reverse-proxy case). Use
+        # ``_normalise_origin`` for the IPv6 + default-port handling.
         request_scheme = (request.url.scheme or "").lower()
-        expected_host = _normalise_origin(request.url.netloc or "", default_scheme=request_scheme)[
-            1
-        ]
+        expected_scheme, expected_host = _normalise_origin(
+            request.url.netloc or "", default_scheme=request_scheme
+        )
+
+        # H4 — fail closed when the request host cannot be resolved. Some
+        # ASGI scopes / test clients / proxied requests leave
+        # ``request.url.netloc`` empty, so ``expected_host == ""``. A
+        # malformed Origin/Referer also normalises to ``""``. Letting two
+        # empty strings compare equal would turn the mismatch check into a
+        # silent pass. A cookie-authenticated state-changing request whose
+        # own host is unknowable must be rejected, never waved through.
+        if not expected_host:
+            if has_session:
+                return Response(
+                    status_code=403,
+                    content=b"CSRF: cannot resolve request host for cookie-authenticated request",
+                )
+            return await call_next(request)
 
         # If neither header is present AND no session cookie is present,
         # assume a non-browser API client (curl, scripts). Those callers
@@ -199,7 +226,6 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
         # drops both headers can still carry the session cookie and be
         # exploited via a CSRF form. Reject those to close the gap.
         if not origin and not referer:
-            has_session = bool(request.cookies.get("session_token"))
             if has_session:
                 return Response(
                     status_code=403,
@@ -207,18 +233,33 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
                 )
             return await call_next(request)
 
-        def _host_of(url: str) -> str:
+        def _scheme_host_of(url: str) -> tuple[str, str]:
             try:
-                return _normalise_origin(url, default_scheme=request_scheme)[1]
+                return _normalise_origin(url, default_scheme=request_scheme)
             except ValueError:
                 # Malformed Origin/Referer header — urlsplit / .port raised
                 # for an invalid IPv6 host or a non-numeric port. Treat as
-                # an empty host so the CSRF comparison fails closed (the
-                # request will be rejected as a mismatch).
-                return ""
+                # an empty (scheme, host) so the CSRF comparison fails
+                # closed (the request will be rejected as a mismatch).
+                return ("", "")
 
-        if origin and _host_of(origin) != expected_host:
+        # H5 — when a session cookie is present AND the request itself
+        # resolves as HTTPS, additionally require the Origin/Referer scheme
+        # to be HTTPS. This closes the same-host scheme-downgrade hole (an
+        # attacker on ``http://victim-host`` against a SameSite-ignoring
+        # client) WITHOUT breaking the documented reverse-proxy case: when
+        # the request resolves as ``http`` (the genuinely ambiguous proxy
+        # situation) the check stays host-only, exactly as before.
+        require_https_scheme = has_session and expected_scheme == "https"
+
+        def _origin_rejected(url: str) -> bool:
+            scheme, host = _scheme_host_of(url)
+            if host != expected_host:
+                return True
+            return require_https_scheme and scheme != "https"
+
+        if origin and _origin_rejected(origin):
             return Response(status_code=403, content=b"CSRF: origin mismatch")
-        if not origin and referer and _host_of(referer) != expected_host:
+        if not origin and referer and _origin_rejected(referer):
             return Response(status_code=403, content=b"CSRF: referer mismatch")
         return await call_next(request)

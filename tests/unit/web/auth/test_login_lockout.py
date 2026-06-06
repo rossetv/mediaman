@@ -133,6 +133,38 @@ class TestLockExpiry:
 
         assert is_locked_out(conn, "alice") is False
 
+    def test_corrupt_locked_until_is_treated_as_still_locked(self, conn):
+        """M4 regression: a NON-EMPTY but unparseable ``locked_until``
+        fails CLOSED — the account is treated as STILL LOCKED.
+
+        An attacker who can corrupt the stored value must not be able to
+        escape the lock by garbling it. Mirrors the session-store B1 fix.
+        """
+        for _ in range(5):
+            record_failure(conn, "alice")
+        assert is_locked_out(conn, "alice") is True
+
+        conn.execute(
+            "UPDATE login_failures SET locked_until = ? WHERE username = ?",
+            ("not-a-timestamp", "alice"),
+        )
+        conn.commit()
+        assert is_locked_out(conn, "alice") is True
+
+    def test_null_locked_until_is_not_locked(self, conn):
+        """A NULL ``locked_until`` (counted failures but no active lock) is
+        the legitimate not-locked state — it must NOT be swept up by the
+        M4 fail-closed branch, which only fires on a non-empty corrupt
+        value.
+        """
+        record_failure(conn, "alice")  # counts 1, locked_until stays NULL
+        row = conn.execute(
+            "SELECT locked_until FROM login_failures WHERE username = ?",
+            ("alice",),
+        ).fetchone()
+        assert row["locked_until"] is None
+        assert is_locked_out(conn, "alice") is False
+
 
 class TestAuthenticateIntegration:
     def test_lockout_blocks_even_correct_password(self, conn):
@@ -146,6 +178,36 @@ class TestAuthenticateIntegration:
 
         # Now the correct password must also be rejected while locked.
         assert authenticate(conn, "alice", "correct-password-123") is False
+
+    def test_locked_account_records_failure_even_with_record_failures_false(self, conn):
+        """H2 regression: the locked short-circuit must bump the counter
+        regardless of ``record_failures`` so the escalation bands
+        (5 → 10 → 15) stay reachable on EVERY path — including callers that
+        pass ``record_failures=False`` (``verify_reauth_password``,
+        ``_authorise_password_change``).
+
+        Previously a ``record_failures=False`` attempt against a locked
+        account returned ``False`` without incrementing, stalling the
+        escalation for that path.
+        """
+        create_user(conn, "alice", "correct-password-123", enforce_policy=False)
+
+        # Lock the account at the 15-minute band (count == 5).
+        for _ in range(5):
+            authenticate(conn, "alice", "wrong-password")
+        assert is_locked_out(conn, "alice") is True
+
+        def _count() -> int:
+            return conn.execute(
+                "SELECT failure_count FROM login_failures WHERE username = ?",
+                ("alice",),
+            ).fetchone()["failure_count"]
+
+        before = _count()
+        # A record_failures=False attempt against the LOCKED account must
+        # still bump the counter via the short-circuit.
+        assert authenticate(conn, "alice", "wrong-password", record_failures=False) is False
+        assert _count() == before + 1
 
     def test_successful_login_resets_counter(self, conn):
         create_user(conn, "alice", "correct-password-123", enforce_policy=False)
@@ -452,14 +514,28 @@ class TestAdminUnlock:
         conn.commit()
         assert cleared is False
 
-    def test_unlock_normalises_case(self, conn):
-        """admin_unlock matches lockout's lowercase normalisation."""
-        for _ in range(5):
-            record_failure(conn, "Alice")  # stored as "alice"
+    def test_unlock_is_case_sensitive(self, conn):
+        """M9: the lockout key is the verbatim username — NOT lowercased —
+        so it stays aligned with the case-sensitive ``admin_users.username``
+        lookup. ``admin_unlock`` therefore only clears the EXACT-case key.
 
-        cleared = admin_unlock(conn, "ALICE")
+        A different-case unlock attempt is a no-op (there is no row under
+        that key), and the original-case record is left untouched.
+        """
+        for _ in range(5):
+            record_failure(conn, "Alice")  # stored verbatim as "Alice"
+
+        # Wrong case clears nothing — the keys are distinct identities.
+        cleared_wrong_case = admin_unlock(conn, "ALICE")
+        conn.commit()
+        assert cleared_wrong_case is False
+        assert is_locked_out(conn, "Alice") is True
+
+        # Exact case clears the real record.
+        cleared = admin_unlock(conn, "Alice")
         conn.commit()
         assert cleared is True
+        assert is_locked_out(conn, "Alice") is False
 
     def test_unlock_does_not_commit(self, conn):
         """Caller owns the transaction so unlock + audit land atomically."""
