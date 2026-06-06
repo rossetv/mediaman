@@ -66,7 +66,7 @@
         document.getElementById('download-action').style.display = 'none';
 
         pollStatus();
-        _pollInterval = setInterval(pollStatus, 4000);
+        _startPolling();
       })
       .catch(function(err) {
         if (err instanceof MM.api.APIError) {
@@ -103,6 +103,29 @@
   // raw state string only if the server didn't supply one (defensive — shouldn't
   // happen). The canonical map lives in services/downloads/download_format/_types.py.
 
+  /* ── Polling lifecycle helpers ──
+     Uses setInterval internally; _startPolling / _stopPolling manage the
+     timer and the visibilitychange pause so the tab doesn't hammer the
+     server while hidden. */
+  function _startPolling() {
+    if (_pollInterval !== null) { clearInterval(_pollInterval); }
+    _pollInterval = setInterval(pollStatus, 4000);
+  }
+
+  function _stopPolling() {
+    if (_pollInterval !== null) { clearInterval(_pollInterval); _pollInterval = null; }
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) {
+      _stopPolling();
+    } else if (_pollInterval === null && _downloadState !== 'ready') {
+      /* Resume: run one tick immediately then restart the interval. */
+      pollStatus();
+      _startPolling();
+    }
+  });
+
   /* ── Poll download status ── */
   function pollStatus() {
     if (!_service || !_tmdbId) return;
@@ -112,7 +135,8 @@
     MM.api.get(url)
       .then(function(data) {
         if (data.state === 'ready') {
-          clearInterval(_pollInterval);
+          _downloadState = 'ready';
+          _stopPolling();
           showResult(true, 'Ready to watch!');
           return;
         }
@@ -320,6 +344,6 @@
   /* ── Start polling immediately if already queued ── */
   if (_downloadState === 'queued' && _tmdbId) {
     pollStatus();
-    _pollInterval = setInterval(pollStatus, 4000);
+    _startPolling();
   }
 }());

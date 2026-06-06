@@ -259,16 +259,8 @@
     _pendingDeleteId = mediaId;
     document.getElementById('delete-modal-body').textContent = 'Delete "' + title + '"? This cannot be undone.';
     if (_deleteModal) _deleteModal.open();
-    document.getElementById('delete-confirm-btn').onclick = function () {
-      if (!_pendingDeleteId) return;
-      MM.api.post('/api/media/' + encodeURIComponent(_pendingDeleteId) + '/delete')
-        .then(function () { window.location.reload(); })
-        .catch(function (err) {
-          var msg = (err && err.message) || 'Try again.';
-          window.UIFeedback.error("Couldn't delete item. " + msg);
-        });
-      closeDeleteModal();
-    };
+    // The confirm button is wired once in wire() and reads _pendingDeleteId
+    // from closure state — no re-assignment here.
   }
 
   function closeDeleteModal() {
@@ -326,6 +318,21 @@
         manageBodyOverflow: false,
         closeSelectors: ['[data-action="close-delete-modal"]'],
         onClose: function () { _pendingDeleteId = null; },
+      });
+    }
+    /* Wire the confirm button once — reads _pendingDeleteId from module state
+       rather than re-assigning .onclick on every confirmDelete() call. */
+    var deleteConfirmBtn = document.getElementById('delete-confirm-btn');
+    if (deleteConfirmBtn) {
+      deleteConfirmBtn.addEventListener('click', function () {
+        if (!_pendingDeleteId) return;
+        MM.api.post('/api/media/' + encodeURIComponent(_pendingDeleteId) + '/delete')
+          .then(function () { window.location.reload(); })
+          .catch(function (err) {
+            var msg = (err && err.message) || 'Try again.';
+            window.UIFeedback.error("Couldn't delete item. " + msg);
+          });
+        closeDeleteModal();
       });
     }
 

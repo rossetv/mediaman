@@ -87,7 +87,10 @@
     }
 
     // runSave is extracted so the reauth retry path can re-fire the same
-    // payload without duplicating response-bookkeeping.
+    // payload without duplicating response-bookkeeping. Routes through
+    // MM.reauth.run() so CSRF headers, credentials, and the reauth-modal
+    // flow are applied consistently (the hand-rolled fetch + openModal
+    // pattern is replaced by the shared wrapper).
     function runSave(payload) {
       if (!saveBtn) return;
       saveBtn.disabled = true;
@@ -96,18 +99,16 @@
       saveBtn.textContent = 'Saving…';
       if (statusEl) statusEl.textContent = '';
 
-      var statusCode = 0;
-      fetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+      MM.reauth.run(function () {
+        return MM.api.put('/api/settings', payload);
       })
-        .then(function (r) { statusCode = r.status; return r.json().catch(function () { return {}; }); })
         .then(function (data) {
-          var ok = statusCode >= 200 && statusCode < 300 && data.status === 'saved';
           var ignored = (data.ignored || []).filter(function (k) { return k !== 'status'; });
 
-          if (ok) {
+          // MM.api rejects on non-2xx, so reaching here guarantees the save
+          // succeeded. Treat any 2xx that lacks data.status==='saved' as a
+          // partial success (shouldn't happen, but be defensive).
+          if (data.status === 'saved' || data.ok !== false) {
             saveBtn.textContent = 'Saved ✓';
             if (statusEl) {
               statusEl.textContent = ignored.length
@@ -126,44 +127,26 @@
             return;
           }
 
-          // Sensitive-settings reauth gate. The backend returns 403 with
-          // reauth_required: true when the session has no recent reauth
-          // ticket. Open the reauth modal; on success, re-fire the same
-          // payload so the user keeps their unsaved edits.
-          if (statusCode === 403 && data && data.reauth_required) {
-            saveBtn.textContent = orig;
-            saveBtn.disabled = false;
-            if (statusEl) statusEl.textContent = '';
-            MM.reauth.openModal({
-              onSubmit: function (pw) {
-                return fetch('/api/auth/reauth', {
-                  method: 'POST',
-                  credentials: 'same-origin',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ password: pw }),
-                }).then(function (r) {
-                  var sc = r.status;
-                  return r.json().catch(function () { return {}; }).then(function (d) {
-                    if (sc >= 200 && sc < 300 && d && d.ok) {
-                      runSave(payload);
-                      return { ok: true };
-                    }
-                    return { ok: false, error: (d && d.error) || ('Reauth failed (HTTP ' + sc + ')') };
-                  });
-                });
-              },
-              onCancel: function () {
-                setSaveError('Save cancelled — re-authentication required.');
-              },
-            });
-            return;
-          }
-
-          setSaveError(summariseSaveError(data, statusCode));
+          // Unexpected envelope — surface as a save error.
+          setSaveError(summariseSaveError(data, 200));
           saveBtn.disabled = false;
         })
-        .catch(function () {
-          setSaveError("Couldn't reach the server — check your connection and try again.");
+        .catch(function (err) {
+          // MM.reauth.run() rejects with 'reauth_cancelled' when the user
+          // dismisses the modal — show a polite message rather than a server
+          // error. All other rejections are APIError instances from MM.api.
+          if (err && err.error === 'reauth_cancelled') {
+            setSaveError('Save cancelled — re-authentication required.');
+            saveBtn.disabled = false;
+            return;
+          }
+          if (err && err.status) {
+            // Reconstruct a minimal data envelope so summariseSaveError can
+            // read detail / error fields that MM.api.APIError already parsed.
+            setSaveError(summariseSaveError(err.data || {}, err.status));
+          } else {
+            setSaveError("Couldn't reach the server — check your connection and try again.");
+          }
           if (saveBtn) saveBtn.disabled = false;
         });
     }
