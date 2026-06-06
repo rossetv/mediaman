@@ -2,7 +2,7 @@
 
 Previously each page route called ``validate_session(conn, token)`` with
 no UA/IP, which silently bypassed the fingerprint check. These tests
-exercise the new :func:`mediaman.auth.middleware.resolve_page_session`
+exercise the new :func:`mediaman.web.auth.middleware.resolve_page_session`
 helper via a real page route (``/library``) to confirm a stolen cookie
 replayed from a different User-Agent is redirected to ``/login`` rather
 than granted access.

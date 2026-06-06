@@ -42,7 +42,7 @@ router = APIRouter()
 # the whole pool.  A 300-second window keeps the bucket large enough that
 # real users with fat-finger typos still get through while a credential-
 # stuffing burst from one network gets shut down within the first few
-# tries.  Per-actor lockout (see :mod:`mediaman.auth.login_lockout`)
+# tries.  Per-actor lockout (see :mod:`mediaman.web.auth.login_lockout`)
 # handles slow grinding distinct from this fast-burst defence.
 #
 # CAPTCHA-after-N-failures gate (out of scope here): a follow-up could

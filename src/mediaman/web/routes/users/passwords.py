@@ -44,7 +44,7 @@ def api_change_password(
     (:data:`_PASSWORD_CHANGE_IP_LIMITER`) caps attempts by source so a
     stolen cookie cannot be replayed unbounded from a single attacker
     network even if it bounces across user buckets. The reauth-namespace
-    lockout inside :func:`~mediaman.auth.session.change_password` provides
+    lockout inside :func:`~mediaman.web.auth.password_hash.change_password` provides
     the bcrypt-grade brute-force defence behind both limiters.
     """
     request_ip = get_client_ip(request)

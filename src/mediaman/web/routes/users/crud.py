@@ -75,7 +75,7 @@ def api_create_user(
     """Create a new admin user.
 
     Requires a recent reauth ticket (``POST /api/auth/reauth`` within
-    the last :func:`~mediaman.auth.reauth.reauth_window_seconds` seconds).
+    the last :func:`~mediaman.web.auth.reauth.reauth_window_seconds` seconds).
     Without it, a stolen session cookie cannot mint a permanent admin
     account that survives session rotation.
     """
