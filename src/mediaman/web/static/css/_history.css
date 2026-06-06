@@ -17,7 +17,7 @@
 }
 /* Card variant for history list — no top/bottom padding so rows extend edge-to-edge */
 .card--hist { padding: 0 24px; }
-.hist-date { font-family: var(--font-display); font-size: 13px; color: var(--t3); letter-spacing: -.01em; }
-.hist-msg { font-size: 14px; }
+.hist-date { font-family: var(--font-text); font-size: 13px; color: var(--t3); letter-spacing: -.01em; }
+.hist-msg { font-size: 14px; min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
 .hist-msg b { font-weight: 500; }
 .hist-type { color: var(--t3); font-size: 13px; }

@@ -11,7 +11,7 @@
     <div class="ph-row">
       <div>
         <h1>Hello, {{ username }}</h1>
-        {% if scheduled_count or recently_deleted %}
+        {% if scheduled_count %}
         <p>
           {% if scheduled_count %}{{ scheduled_count }} item{{ 's' if scheduled_count != 1 }} scheduled for deletion{% if scheduled_size %} · {{ scheduled_size }} to reclaim{% endif %}{% endif %}
         </p>
@@ -48,7 +48,7 @@
         <div class="legend"><span class="legend-dot legend-dot--movies"></span>Movies <b>{{ storage.movies_label }} ({{ storage.movies_pct }}%)</b></div>
         <div class="legend"><span class="legend-dot legend-dot--tv"></span>TV Shows <b>{{ storage.tv_label }} ({{ storage.tv_pct }}%)</b></div>
         <div class="legend"><span class="legend-dot legend-dot--anime"></span>Anime <b>{{ storage.anime_label }} ({{ storage.anime_pct }}%)</b></div>
-        <div class="legend"><span class="legend-dot legend-dot--other"></span>Other <b>{{ storage.other_label }}</b></div>
+        <div class="legend"><span class="legend-dot legend-dot--other"></span>Other <b>{{ storage.other_label }} ({{ storage.other_pct }}%)</b></div>
       </div>
     </div>
   </section>

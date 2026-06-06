@@ -125,7 +125,7 @@
             </div>
           </td>
           <td>
-            {{ c.pill(item.type_label, variant=('movie' if item.type_label|lower == 'movie' else ('tv' if item.type_label|lower == 'tv' else 'anime'))) }}
+            {{ c.pill(item.type_label, variant=('movie' if item.media_type == 'movie' else ('tv' if item.media_type == 'tv' else 'anime'))) }}
           </td>
           <td>{{ item.file_size }}</td>
           <td class="u-small">

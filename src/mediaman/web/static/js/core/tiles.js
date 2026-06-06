@@ -129,7 +129,19 @@
 
     /* ── Click handler ── */
     if (typeof onClick === 'function') {
+      // The card opens a detail modal, so it must be a real interactive
+      // control: expose a button role + keyboard activation. The blue focus
+      // ring comes for free from the global :focus-visible rule.
+      card.setAttribute('role', 'button');
+      card.setAttribute('tabindex', '0');
+      card.setAttribute('aria-label', (item.title || 'Result') + ' — open details');
       card.addEventListener('click', function () { onClick(item, card); });
+      card.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+          e.preventDefault();
+          onClick(item, card);
+        }
+      });
     }
 
     return card;

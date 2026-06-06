@@ -89,6 +89,7 @@ def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
                 "title": row.title,
                 "plex_rating_key": row.plex_rating_key,
                 "badge_class": badge_class,
+                "media_type": media_type,
                 "type_label": type_label,
                 "countdown": _days_until(row.execute_at),
                 "added_ago": days_ago(row.added_at),
