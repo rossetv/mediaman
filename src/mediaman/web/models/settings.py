@@ -182,7 +182,10 @@ class SettingsUpdate(BaseModel):
     # field as ``dict[str, Any]`` and validate the shape in
     # ``validate_disk_thresholds`` below — Pydantic's structural typing
     # would otherwise reject the nested dict at parse time.
-    disk_thresholds: dict[str, Any] | None = None
+    # max_length=256 caps the number of entries; a real Plex install
+    # has at most a few dozen libraries, so 256 is generous while still
+    # refusing an OOM-aimed payload of millions of bogus keys.
+    disk_thresholds: Annotated[dict[str, Any] | None, Field(max_length=256)] = None
 
     # ------------------------------------------------------------------
     # Stuck searches
@@ -284,7 +287,10 @@ class SettingsUpdate(BaseModel):
             import zoneinfo
 
             zoneinfo.ZoneInfo(v)
-        except (KeyError, Exception) as exc:  # KeyError: unknown zone; Exception: zoneinfo errors
+        except KeyError as exc:
+            # ZoneInfoNotFoundError is a subclass of KeyError; catching
+            # KeyError alone covers both the "zone not found" case and the
+            # underlying dict-lookup failure inside the zoneinfo machinery.
             raise ValueError(f"scan_timezone {v!r} is not a valid IANA timezone") from exc
         return v
 
@@ -328,6 +334,8 @@ class SettingsUpdate(BaseModel):
             return v
         if not isinstance(v, dict):
             raise ValueError("disk_thresholds must be a JSON object")
+        if len(v) > 256:
+            raise ValueError("disk_thresholds must not contain more than 256 entries")
         for lib_id, cfg in v.items():
             if not isinstance(lib_id, str):
                 raise ValueError("disk_thresholds keys must be strings")

@@ -655,6 +655,117 @@ class TestBodySizeLimitMiddleware:
         resp = client.post("/echo", content=big)
         assert resp.status_code == 413
 
+    def test_413_response_carries_security_headers(self):
+        """R3-M1: a 413 Payload Too Large response must include the four
+        mandatory security headers (X-Frame-Options, CSP,
+        X-Content-Type-Options, Referrer-Policy).
+
+        SecurityHeaders (BaseHTTPMiddleware) must be outermost of the pair;
+        it captures BodySizeLimit's raw ASGI 413 via call_next and adds
+        headers before egress.  This test pins that ordering so a future
+        add_middleware reordering cannot silently regress it.
+        """
+        app = FastAPI()
+        register_security_middleware(app)
+
+        async def handler(req):  # pragma: no cover — should not run
+            from starlette.responses import JSONResponse
+
+            data = await req.body()
+            return JSONResponse({"len": len(data)})
+
+        app.router.add_route("/echo", handler, methods=["POST"])
+
+        client = TestClient(app)
+        # Force a 413 via Content-Length shortcut (no need to send 8 MiB).
+        big = b"x" * (9 * 1024 * 1024)
+        resp = client.post("/echo", content=big)
+        assert resp.status_code == 413
+        assert resp.headers.get("X-Frame-Options") == "DENY"
+        assert "default-src 'self'" in resp.headers.get("Content-Security-Policy", "")
+        assert resp.headers.get("X-Content-Type-Options") == "nosniff"
+        assert resp.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
+
+
+class TestCacheControlHeaders:
+    """R3-M5: Cache-Control: no-store, private is applied broadly.
+
+    Previously only ``/api/`` and ``/auth/`` paths received this header.
+    After the fix all paths except ``/static/`` must receive it, so
+    authenticated HTML routes (e.g. ``/library``, ``/dashboard``) are
+    not cached by a misconfigured reverse proxy.
+    """
+
+    def _build_app_with_routes(self) -> FastAPI:
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.get("/library")
+        def _library():
+            return {"page": "library"}
+
+        @app.get("/dashboard")
+        def _dashboard():
+            return {"page": "dashboard"}
+
+        @app.get("/api/data")
+        def _api_data():
+            return {"data": True}
+
+        return app
+
+    def test_html_route_gets_no_store_private(self):
+        """An authenticated HTML route like /library must carry
+        Cache-Control: no-store, private after the fix."""
+        client = TestClient(self._build_app_with_routes())
+        resp = client.get("/library")
+        assert resp.status_code == 200
+        cc = resp.headers.get("Cache-Control", "")
+        assert "no-store" in cc, f"expected no-store in Cache-Control, got: {cc!r}"
+        assert "private" in cc, f"expected private in Cache-Control, got: {cc!r}"
+
+    def test_dashboard_route_gets_no_store_private(self):
+        """Same for /dashboard."""
+        client = TestClient(self._build_app_with_routes())
+        resp = client.get("/dashboard")
+        assert resp.status_code == 200
+        cc = resp.headers.get("Cache-Control", "")
+        assert "no-store" in cc
+
+    def test_api_route_still_gets_no_store_private(self):
+        """/api/ routes must still receive the header (regression guard)."""
+        client = TestClient(self._build_app_with_routes())
+        resp = client.get("/api/data")
+        assert resp.status_code == 200
+        cc = resp.headers.get("Cache-Control", "")
+        assert "no-store" in cc
+
+    def test_static_path_cache_control_not_overridden(self):
+        """A response that already carries its own Cache-Control must not
+        be overridden — ``setdefault`` is used so poster/static handlers
+        that set a longer TTL are left untouched.
+
+        We simulate a /static/ handler that sets its own Cache-Control and
+        verify the middleware does not clobber it."""
+        from starlette.responses import JSONResponse
+
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.get("/static/style.css")
+        def _static():
+            r = JSONResponse({"ok": True})
+            r.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            return r
+
+        client = TestClient(app)
+        resp = client.get("/static/style.css")
+        assert resp.status_code == 200
+        cc = resp.headers.get("Cache-Control", "")
+        # The handler's value must survive; no-store must NOT be injected.
+        assert "public" in cc, f"expected handler Cache-Control to survive, got: {cc!r}"
+        assert "no-store" not in cc, f"middleware clobbered static Cache-Control: {cc!r}"
+
 
 class TestNormaliseOrigin:
     """``_normalise_origin`` parses Origin/Referer/netloc strings into
@@ -718,15 +829,16 @@ class TestNormaliseOrigin:
         scheme, host = _normalise_origin("example.com:443", default_scheme="https")
         assert (scheme, host) == ("https", "example.com")
 
-    def test_normalise_host_drops_default_port(self):
-        """Backward-compat shim: ``_normalise_host`` returns just the
-        host portion (still used by tests / older code paths)."""
-        from mediaman.web.middleware.csrf import _normalise_host
+    def test_normalise_origin_host_drops_default_port(self):
+        """``_normalise_origin`` returns ``(scheme, host)``; callers that only
+        need the host portion index ``[1]``.  Default ports are stripped when
+        the scheme is supplied via ``default_scheme``."""
+        from mediaman.web.middleware.csrf import _normalise_origin
 
-        assert _normalise_host("example.com:443") == "example.com"
-        assert _normalise_host("example.com") == "example.com"
+        assert _normalise_origin("example.com:443", default_scheme="https")[1] == "example.com"
+        assert _normalise_origin("example.com")[1] == "example.com"
         # IPv6 round-trip: previously this returned ``"[2001:db8"``.
-        assert _normalise_host("[2001:db8::1]:443") == "2001:db8::1"
+        assert _normalise_origin("[2001:db8::1]:443", default_scheme="https")[1] == "2001:db8::1"
 
 
 class TestCSRFHostOnly:

@@ -18,7 +18,10 @@ from starlette.responses import Response
 # State-changing methods that must carry an Origin/Referer from the
 # same host. GET/HEAD/OPTIONS are never state-changing in a correct
 # REST app.
-_CSRF_PROTECTED_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+# TRACE and CONNECT are included as defence-in-depth: both can
+# theoretically carry a session cookie and should never arrive from a
+# cross-origin browser context.
+_CSRF_PROTECTED_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE", "TRACE", "CONNECT"})
 
 # Explicit allowlist of (method, path-pattern) pairs that bypass the
 # Origin/Referer check.  Each entry MUST correspond to a route whose
@@ -118,27 +121,6 @@ def _normalise_origin(value: str, default_scheme: str | None = None) -> tuple[st
     else:
         host_with_port = host
     return (scheme, host_with_port)
-
-
-def _normalise_host(netloc: str) -> str:
-    """Return host (with non-default port) for a bare ``netloc`` string.
-
-    Kept for backward compatibility with callers and tests that only
-    care about the host portion.  New code should prefer
-    :func:`_normalise_origin` so the scheme can be compared too.
-
-    Without a scheme to anchor to, a bare ``"example.com:443"`` is
-    ambiguous — port 443 is the default for ``https`` but not for
-    ``http``.  Tests for this shim assume the historical "production
-    is HTTPS" assumption; fold the netloc through both default schemes
-    and strip the port when it equals either default.
-    """
-    # Try both common defaults; if either yields a stripped host, use
-    # that.  Otherwise return the host[:port] as-is.
-    https_host = _normalise_origin(netloc, default_scheme="https")[1]
-    http_host = _normalise_origin(netloc, default_scheme="http")[1]
-    # The shorter result is the one that successfully stripped the port.
-    return min((https_host, http_host), key=len)
 
 
 class CSRFOriginMiddleware(BaseHTTPMiddleware):

@@ -13,9 +13,12 @@ import pytest
 from pydantic import ValidationError
 
 from mediaman.web.models import (
+    ChangePasswordBody,
+    CreateUserBody,
     DiskThresholds,
     KeepRequest,
     LoginRequest,
+    ReauthBody,
     SettingsUpdate,
     SubscriberCreate,
     _reject_crlf,
@@ -202,3 +205,77 @@ class TestSubscriberCreateHardened:
         with pytest.raises(ValidationError, match="active") as exc:
             SubscriberCreate(email="a@b.com", active=False)
         assert "active" in str(exc.value)
+
+
+class TestUserBodyLengthCaps:
+    """R3-M2: CreateUserBody, ChangePasswordBody, ReauthBody all cap lengths."""
+
+    def test_create_user_username_max_length_rejected(self):
+        with pytest.raises(ValidationError):
+            CreateUserBody(username="a" * 257, password="pw")
+
+    def test_create_user_password_max_length_rejected(self):
+        with pytest.raises(ValidationError):
+            CreateUserBody(username="admin", password="a" * 1025)
+
+    def test_create_user_empty_username_rejected(self):
+        with pytest.raises(ValidationError):
+            CreateUserBody(username="", password="pw")
+
+    def test_create_user_empty_password_rejected(self):
+        with pytest.raises(ValidationError):
+            CreateUserBody(username="admin", password="")
+
+    def test_create_user_valid_passes(self):
+        body = CreateUserBody(username="admin", password="s3cr3t")
+        assert body.username == "admin"
+        assert body.password == "s3cr3t"
+
+    def test_change_password_old_password_max_length_rejected(self):
+        with pytest.raises(ValidationError):
+            ChangePasswordBody(old_password="a" * 1025, new_password="newpw")
+
+    def test_change_password_new_password_max_length_rejected(self):
+        with pytest.raises(ValidationError):
+            ChangePasswordBody(old_password="oldpw", new_password="a" * 1025)
+
+    def test_change_password_empty_old_password_rejected(self):
+        with pytest.raises(ValidationError):
+            ChangePasswordBody(old_password="", new_password="newpw")
+
+    def test_change_password_empty_new_password_rejected(self):
+        with pytest.raises(ValidationError):
+            ChangePasswordBody(old_password="oldpw", new_password="")
+
+    def test_reauth_password_max_length_rejected(self):
+        with pytest.raises(ValidationError):
+            ReauthBody(password="a" * 1025)
+
+    def test_reauth_empty_password_rejected(self):
+        with pytest.raises(ValidationError):
+            ReauthBody(password="")
+
+    def test_reauth_valid_passes(self):
+        body = ReauthBody(password="correct-horse-battery-staple")
+        assert body.password == "correct-horse-battery-staple"
+
+
+class TestDiskThresholdsSettingsUpdateCap:
+    """R3-M3: SettingsUpdate.disk_thresholds is capped at 256 entries."""
+
+    def test_disk_thresholds_over_256_entries_rejected(self):
+        """A disk_thresholds dict with more than 256 entries must be rejected."""
+        big = {str(i): {"path": f"/p/{i}", "threshold": 50} for i in range(257)}
+        with pytest.raises(ValidationError):
+            SettingsUpdate(disk_thresholds=big)
+
+    def test_disk_thresholds_exactly_256_entries_accepted(self):
+        """Exactly 256 entries must be accepted."""
+        at_cap = {str(i): {"path": f"/p/{i}", "threshold": 50} for i in range(256)}
+        update = SettingsUpdate(disk_thresholds=at_cap)
+        assert len(update.disk_thresholds) == 256
+
+    def test_disk_thresholds_none_accepted(self):
+        """None (unset) must still be accepted."""
+        update = SettingsUpdate(disk_thresholds=None)
+        assert update.disk_thresholds is None
