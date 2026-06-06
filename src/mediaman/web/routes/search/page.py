@@ -14,6 +14,7 @@ focuses on request/response shaping.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from typing import cast
 
@@ -39,6 +40,17 @@ from ._enrichment import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _normalise_shelf(raw: Iterable[dict[str, object]], limit: int) -> list[dict[str, object]]:
+    """Normalise *raw* TMDB items and cap the result at *limit* entries.
+
+    Applies :func:`_normalise_tmdb_item` to each element and filters out
+    ``None`` results (items that are missing required fields or have an
+    unsupported media type).  The ``[:limit]`` slice is applied after
+    filtering so the cap is on usable results, not raw API entries.
+    """
+    return [s for s in (_normalise_tmdb_item(x) for x in raw) if s is not None][:limit]
 
 
 @router.get("/search", response_class=HTMLResponse)
@@ -98,7 +110,7 @@ def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)
         return respond_err("tmdb_request_failed", status=502)
 
     raw = page1 + page2
-    shaped = [s for s in (_normalise_tmdb_item(x) for x in raw) if s is not None][:40]
+    shaped = _normalise_shelf(raw, 40)
     _annotate_states(shaped, request)
     _stamp_omdb_ratings(shaped, request)
     return JSONResponse({"results": shaped})
@@ -142,11 +154,9 @@ def api_discover(request: Request, admin: str = Depends(get_current_admin)) -> J
         movies_raw = f_movies_1.result() + f_movies_2.result()
         tv_raw = f_tv_1.result() + f_tv_2.result()
 
-    trending = [s for s in (_normalise_tmdb_item(x) for x in trending_raw) if s is not None][:21]
-    popular_movies = [s for s in (_normalise_tmdb_item(x) for x in movies_raw) if s is not None][
-        :21
-    ]
-    popular_tv = [s for s in (_normalise_tmdb_item(x) for x in tv_raw) if s is not None][:21]
+    trending = _normalise_shelf(trending_raw, 21)
+    popular_movies = _normalise_shelf(movies_raw, 21)
+    popular_tv = _normalise_shelf(tv_raw, 21)
 
     combined = trending + popular_movies + popular_tv
     _annotate_states(combined, request)

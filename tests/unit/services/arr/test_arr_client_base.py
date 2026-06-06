@@ -167,22 +167,6 @@ class TestPublicLookupHelpers:
         _, url, _ = fake_http.calls[0]
         assert "tmdb:42" in url
 
-    def test_lookup_by_tvdb_id_builds_correct_url(self, client, fake_http, fake_response):
-        """lookup_by_tvdb_id appends the tvdb:<id> term to the endpoint."""
-        fake_http.queue("GET", fake_response(json_data=[{"tvdbId": 99}]))
-        result = client.lookup_by_tvdb_id(99, endpoint="/api/v3/series/lookup")
-        assert result == [{"tvdbId": 99}]
-        _, url, _ = fake_http.calls[0]
-        assert "tvdb:99" in url
-
-    def test_lookup_by_imdb_id_builds_correct_url(self, client, fake_http, fake_response):
-        """lookup_by_imdb_id appends the imdb:<id> term to the endpoint."""
-        fake_http.queue("GET", fake_response(json_data=[{"imdbId": "tt1234567"}]))
-        result = client.lookup_by_imdb_id("tt1234567", endpoint="/api/v3/movie/lookup")
-        assert result == [{"imdbId": "tt1234567"}]
-        _, url, _ = fake_http.calls[0]
-        assert "imdb:tt1234567" in url
-
     def test_lookup_by_term_builds_correct_url(self, client, fake_http, fake_response):
         """lookup_by_term appends the provided term to the endpoint."""
         fake_http.queue("GET", fake_response(json_data=[{"title": "Dune"}]))

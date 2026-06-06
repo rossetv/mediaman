@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from mediaman.db import init_db
+from mediaman.scanner import repository
 from mediaman.scanner.engine import ScanEngine
 from mediaman.services.infra import DeletionRefused
 from tests.helpers.factories import insert_media_item, insert_scheduled_action
@@ -32,30 +33,20 @@ class TestDeleteRootsSeparator:
     """C23: MEDIAMAN_DELETE_ROOTS must accept both ':' and ',' separators
     with ':' being canonical and ',' deprecated."""
 
-    def _engine(self, conn, mock_plex):
-        return ScanEngine(
-            conn=conn,
-            plex_client=mock_plex,
-            library_ids=[],
-            library_types={},
-            secret_key="k",
-        )
-
-    def test_colon_separator_parses(self, conn, mock_plex, monkeypatch):
+    def test_colon_separator_parses(self, conn, monkeypatch):
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/a:/b:/c")
-        roots = self._engine(conn, mock_plex)._load_delete_allowed_roots()
+        roots = repository.read_delete_allowed_roots_setting(conn)
         assert roots == ["/a", "/b", "/c"]
 
     def test_comma_separator_parses_with_deprecation_warning(
         self,
         conn,
-        mock_plex,
         monkeypatch,
         caplog,
     ):
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/a,/b,/c")
         with caplog.at_level("WARNING", logger="mediaman"):
-            roots = self._engine(conn, mock_plex)._load_delete_allowed_roots()
+            roots = repository.read_delete_allowed_roots_setting(conn)
         assert roots == ["/a", "/b", "/c"]
         msgs = " ".join(r.getMessage() for r in caplog.records)
         assert "deprecated" in msgs.lower()
@@ -63,26 +54,24 @@ class TestDeleteRootsSeparator:
     def test_mixed_separators_errors_but_still_parses(
         self,
         conn,
-        mock_plex,
         monkeypatch,
         caplog,
     ):
         monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", "/a:/b,/c")
         with caplog.at_level("ERROR", logger="mediaman"):
-            roots = self._engine(conn, mock_plex)._load_delete_allowed_roots()
+            roots = repository.read_delete_allowed_roots_setting(conn)
         assert roots == ["/a", "/b", "/c"]
         assert any("both" in r.getMessage().lower() for r in caplog.records)
 
     def test_empty_value_returns_empty_and_logs_error(
         self,
         conn,
-        mock_plex,
         monkeypatch,
         caplog,
     ):
         monkeypatch.delenv("MEDIAMAN_DELETE_ROOTS", raising=False)
         with caplog.at_level("ERROR", logger="mediaman"):
-            roots = self._engine(conn, mock_plex)._load_delete_allowed_roots()
+            roots = repository.read_delete_allowed_roots_setting(conn)
         assert roots == []
         assert any("not configured" in r.getMessage() for r in caplog.records)
 

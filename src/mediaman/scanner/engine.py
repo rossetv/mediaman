@@ -44,7 +44,6 @@ if TYPE_CHECKING:
 
 from mediaman.core.format import ensure_tz as _ensure_tz
 from mediaman.core.time import parse_iso_utc as _parse_iso_utc
-from mediaman.scanner import repository
 from mediaman.scanner._scan_library import scan_movie_library, scan_tv_library
 from mediaman.scanner.arr_dates import ArrDateCache
 from mediaman.scanner.deletions import (
@@ -153,16 +152,6 @@ class ScanEngine:
             sonarr_client=sonarr_client,
             radarr_client=radarr_client,
         )
-
-    def _load_delete_allowed_roots(self) -> list[str]:
-        return repository.read_delete_allowed_roots_setting(self._conn)
-
-    def _ensure_arr_dates(self) -> None:
-        self._arr_cache.ensure_loaded()
-
-    @property
-    def _arr_dates(self) -> dict[str, str]:
-        return self._arr_cache.dates()
 
     # ------------------------------------------------------------------
     # Public API

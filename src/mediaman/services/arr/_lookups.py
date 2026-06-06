@@ -29,16 +29,6 @@ class _LookupsMixin:
         result = self._get(f"{endpoint}?term=tmdb:{tmdb_id}") or []  # type: ignore[attr-defined]
         return cast(list[ArrLookupResult], result)
 
-    def lookup_by_tvdb_id(self, tvdb_id: int, *, endpoint: str) -> list[ArrLookupResult]:
-        """Return the lookup results for a given TVDB ID."""
-        result = self._get(f"{endpoint}?term=tvdb:{tvdb_id}") or []  # type: ignore[attr-defined]
-        return cast(list[ArrLookupResult], result)
-
-    def lookup_by_imdb_id(self, imdb_id: str, *, endpoint: str) -> list[ArrLookupResult]:
-        """Return the lookup results for a given IMDb ID."""
-        result = self._get(f"{endpoint}?term=imdb:{imdb_id}") or []  # type: ignore[attr-defined]
-        return cast(list[ArrLookupResult], result)
-
     def lookup_by_term(self, term: str, *, endpoint: str) -> list[ArrLookupResult]:
         """Return lookup results for a free-text search term.
 
