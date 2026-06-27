@@ -255,8 +255,14 @@ class TestH01ReadyzFailClosed:
         _register_probes(app)
         return app
 
-    def test_readyz_reports_crypto_down_when_canary_unset(self):
-        """When canary_ok is not set on app.state, /readyz must report crypto as down."""
+    def test_readyz_fails_closed_when_canary_unset(self):
+        """When canary_ok is unset, /readyz fails closed (503).
+
+        The crypto-canary state is no longer returned in the body — it would
+        disclose to an unauthenticated caller whether MEDIAMAN_SECRET_KEY matches
+        the canary — so it is logged for operators instead. The 503 is the
+        fail-closed signal this test guards.
+        """
         from fastapi.testclient import TestClient
 
         app = self._make_readyz_app()
@@ -268,7 +274,10 @@ class TestH01ReadyzFailClosed:
 
         assert resp.status_code == 503
         body = resp.json()
-        assert body["crypto"] == "down", "/readyz must report crypto=down when canary_ok is not set"
+        assert body == {"status": "not_ready"}
+        # Must NOT disclose internal crypto/scheduler state to unauth callers.
+        assert "crypto" not in body
+        assert "scheduler" not in body
 
     def test_readyz_reports_ready_when_both_flags_set(self):
         """When both scheduler_healthy and canary_ok are True, /readyz returns 200."""
