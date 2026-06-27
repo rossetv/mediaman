@@ -245,25 +245,29 @@ def _register_probes(app: FastAPI) -> None:
         signal they can switch their healthcheck to without confusing
         liveness and readiness.
 
-        When the probe is failing the body now carries the *reason* —
-        the last scheduler bootstrap error stashed on
-        ``app.state.scheduler_error`` — so an operator looking at the
-        orchestrator status doesn't have to ssh into the container and
-        tail the python logs to discover *why*.
+        ``/readyz`` is UNAUTHENTICATED and reachable on the public vhost, so the
+        response body must not disclose internal state. The reason a probe is
+        failing — scheduler/crypto-canary up-state and the raw bootstrap exception
+        text (which can carry filesystem paths and exception class names, and
+        whose crypto field reveals whether MEDIAMAN_SECRET_KEY matches the canary)
+        — is written to the LOGS for operators, not returned to callers. The body
+        is just the bare ready/not-ready status; the 200/503 code is the signal an
+        orchestrator needs.
         """
         scheduler_healthy = bool(getattr(app.state, "scheduler_healthy", False))
         canary_ok = bool(getattr(app.state, "canary_ok", False))  # fail-closed: unset → not ready
         ready = scheduler_healthy and canary_ok
-        body: dict[str, str] = {
-            "status": "ready" if ready else "not_ready",
-            "scheduler": "ok" if scheduler_healthy else "down",
-            "crypto": "ok" if canary_ok else "down",
-        }
         if not ready:
-            scheduler_error = getattr(app.state, "scheduler_error", None)
-            if scheduler_error:
-                body["scheduler_error"] = str(scheduler_error)
-        return JSONResponse(body, status_code=200 if ready else 503)
+            logger.warning(
+                "readyz not_ready: scheduler=%s crypto=%s error=%s",
+                "ok" if scheduler_healthy else "down",
+                "ok" if canary_ok else "down",
+                getattr(app.state, "scheduler_error", None),
+            )
+        return JSONResponse(
+            {"status": "ready" if ready else "not_ready"},
+            status_code=200 if ready else 503,
+        )
 
 
 def create_app() -> FastAPI:
