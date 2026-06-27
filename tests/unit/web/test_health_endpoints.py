@@ -32,12 +32,13 @@ def _make_test_app(scheduler_healthy: bool, canary_ok: bool) -> FastAPI:
         sched = bool(getattr(app.state, "scheduler_healthy", False))
         canary = bool(getattr(app.state, "canary_ok", True))
         ready = sched and canary
-        body = {
-            "status": "ready" if ready else "not_ready",
-            "scheduler": "ok" if sched else "down",
-            "crypto": "ok" if canary else "down",
-        }
-        return JSONResponse(body, status_code=200 if ready else 503)
+        # Mirror app_factory: bare status only. /readyz is unauthenticated on the
+        # public vhost, so scheduler/crypto-canary state and the raw bootstrap
+        # error are logged for operators, never returned in the body.
+        return JSONResponse(
+            {"status": "ready" if ready else "not_ready"},
+            status_code=200 if ready else 503,
+        )
 
     app.state.scheduler_healthy = scheduler_healthy
     app.state.canary_ok = canary_ok
@@ -64,8 +65,8 @@ class TestReadyzReflectsBackgroundServices:
         client = TestClient(app)
         resp = client.get("/readyz")
         assert resp.status_code == 200
-        body = resp.json()
-        assert body == {"status": "ready", "scheduler": "ok", "crypto": "ok"}
+        # Bare status only — no internal-state fields disclosed.
+        assert resp.json() == {"status": "ready"}
 
     def test_returns_503_when_scheduler_failed(self):
         """Finding 10: a dead scheduler must surface as a 503 readiness probe."""
@@ -74,9 +75,12 @@ class TestReadyzReflectsBackgroundServices:
         resp = client.get("/readyz")
         assert resp.status_code == 503
         body = resp.json()
-        assert body["status"] == "not_ready"
-        assert body["scheduler"] == "down"
-        assert body["crypto"] == "ok"
+        assert body == {"status": "not_ready"}
+        # Security: the failing probe must NOT leak scheduler/crypto state or the
+        # raw bootstrap error to an unauthenticated caller.
+        assert "scheduler" not in body
+        assert "crypto" not in body
+        assert "scheduler_error" not in body
 
     def test_returns_503_when_canary_failed(self):
         app = _make_test_app(scheduler_healthy=True, canary_ok=False)
@@ -84,8 +88,8 @@ class TestReadyzReflectsBackgroundServices:
         resp = client.get("/readyz")
         assert resp.status_code == 503
         body = resp.json()
-        assert body["status"] == "not_ready"
-        assert body["crypto"] == "down"
+        assert body == {"status": "not_ready"}
+        assert "crypto" not in body
 
 
 class TestReadyzInRealApp:
