@@ -50,7 +50,7 @@ dependencies = [
 # Pinned (~=) so CI installs a known set rather than whatever PyPI ships
 # the day the workflow runs. Bump deliberately; Dependabot will open PRs.
 dev = [
-    "pytest~=9.0",
+    "pytest~=9.1",
     "pytest-cov~=7.1",
     "pytest-mock~=3.15",
     "pytest-asyncio~=1.4",
