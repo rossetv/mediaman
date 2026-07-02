@@ -494,6 +494,24 @@ class TestTrustedHostMiddleware:
             resp = client.get("/ping")
             assert resp.status_code == 200, host
 
+    def test_loopback_accepted_when_host_pinned(self, monkeypatch):
+        """The in-container healthcheck probes ``http://localhost:PORT/healthz``
+        (Host: localhost).  Pinning a public hostname must not reject that
+        loopback probe, else the container reports unhealthy while serving
+        real traffic fine."""
+        monkeypatch.setenv("MEDIAMAN_ALLOWED_HOSTS", "mediaman.example.com")
+        app = FastAPI()
+        register_security_middleware(app)
+
+        @app.get("/ping")
+        def _ping():
+            return {"ok": True}
+
+        for host in ("localhost", "127.0.0.1"):
+            client = TestClient(app, base_url=f"http://{host}")
+            resp = client.get("/ping")
+            assert resp.status_code == 200, host
+
     def test_startup_warning_logged_when_unconfigured(self, monkeypatch, caplog):
         """Operators who forget to pin a hostname get a logged warning
         on app build — silent wildcard acceptance is the bug we're

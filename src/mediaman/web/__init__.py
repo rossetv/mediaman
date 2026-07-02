@@ -25,6 +25,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_LOOPBACK_HOSTS = ("localhost", "127.0.0.1")
+
+
 def _parse_allowed_hosts(raw: str | None) -> list[str]:
     """Parse ``MEDIAMAN_ALLOWED_HOSTS`` into a Starlette ``allowed_hosts`` list.
 
@@ -36,13 +39,26 @@ def _parse_allowed_hosts(raw: str | None) -> list[str]:
     operators can keep wildcard mode but still re-export the var with a
     comment.
 
+    When a real allowlist is supplied we always append loopback
+    (``localhost`` / ``127.0.0.1``) so the in-container Docker healthcheck
+    — which probes ``http://localhost:PORT/healthz`` and therefore sends
+    ``Host: localhost`` — is not rejected the moment an operator pins a
+    public hostname.  A loopback Host header from an *external* client is
+    a non-vector: it can only poison absolute URLs the attacker builds
+    for themselves, and the probe itself is loopback-only.
+
     Hostnames are case-folded because the HTTP host comparison Starlette
     performs is case-insensitive in spec but case-sensitive in code.
     """
     if not raw:
         return ["*"]
     hosts = [h.strip().lower() for h in raw.split(",") if h.strip()]
-    return hosts or ["*"]
+    if not hosts:
+        return ["*"]
+    for loopback in _LOOPBACK_HOSTS:
+        if loopback not in hosts:
+            hosts.append(loopback)
+    return hosts
 
 
 def register_security_middleware(app: FastAPI) -> None:
