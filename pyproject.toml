@@ -62,7 +62,7 @@ dev = [
     # runtime (it is NOT in requirements.lock and never enters the prod image).
     "httpx2~=2.5",
     "ruff~=0.15",
-    "mypy~=2.1",
+    "mypy~=2.3",
     "coverage[toml]~=7.15",
     "types-requests~=2.33",
     # freezegun is the canonical clock for tests that exercise time-dependent
