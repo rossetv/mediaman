@@ -63,7 +63,7 @@ dev = [
     "httpx2~=2.5",
     "ruff~=0.15",
     "mypy~=2.1",
-    "coverage[toml]~=7.14",
+    "coverage[toml]~=7.15",
     "types-requests~=2.33",
     # freezegun is the canonical clock for tests that exercise time-dependent
     # behaviour (lockout windows, session idle expiry, "X days ago" formatters).
