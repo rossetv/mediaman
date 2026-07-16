@@ -149,10 +149,11 @@ is the import contract; the primary runtime entrypoint for outbound calls is
   `get_setting`) and treats only `false` / `0` / `no` / `off` (case-insensitive)
   as `False`; any other non-empty value returns `True`, and a missing / empty
   row returns the caller's `default` (which itself defaults to `True`).
-- **An in-code line-count rationale comment has drifted.** `url_safety.py`'s
-  `# rationale: 451 lines` block now sits on a 473-line file; the reasoning
-  still holds but the cited number is stale. (`retry.py`'s `# rationale: 525 lines`
-  matches its 525-line file and is **not** drifted.)
+- **An in-code line-count rationale comment has drifted.** `url_safety.py` carries a
+  `# rationale: <N> lines` block whose cited count no longer matches the file; the
+  reasoning still holds, only the number is stale. `retry.py` carries the same style
+  of comment and its count still matches. Both counts move with any edit, so re-check
+  with `wc -l` rather than trusting a number quoted here.
 
 ## Extension points
 

@@ -45,11 +45,14 @@ outside Claude.
 
 ## What is worth gating
 
-These gates are the exact mechanical jobs CI runs (`.github/workflows/ci.yml`),
-wrapped by the developer `Makefile`. If a `make` target passes locally, the matching
-CI job should also pass (modulo Python patch version). The gate set is intentionally
-CI-mirrored: no gate here that CI does not also enforce, so "green locally" is a true
-predictor of "green on main".
+These gates are the exact mechanical jobs CI runs (`.github/workflows/ci.yml`). Where
+the developer `Makefile` wraps CI's incantation faithfully, the gate calls the `make`
+target; where it does not (`lint`, `format-check` are scoped to `src tests`, and
+`coverage` hardcodes a floor `CODE_GUIDELINES.md` §11.8 assigns to `pyproject.toml`),
+the gate calls CI's command directly, as named verbatim in §15.8. The gate set is
+CI-mirrored: no gate here that CI does not also enforce, so "green locally" predicts
+"green on main" — with one stated exception, the arm64 image build (see "Gates
+deliberately absent").
 
 Environment: run inside a Python 3.12 virtualenv with `pip install -e ".[dev]"` plus
 `pip-audit` and `bandit` (CI installs those two per-job; they are not in `[dev]`).
@@ -62,22 +65,22 @@ the removal tripwire keys on it. -->
 
 ### gate: lint
 kind: mechanical
-why: ruff lint catches real bug-classes (mutable defaults, raise-without-from, unused code) and enforces the import order; CI's "Lint (ruff)" job fails the build on any finding.
+why: ruff lint catches real bug-classes (mutable defaults, raise-without-from, unused code) and enforces the import order; CI's "Lint (ruff)" job fails the build on any finding. Runs `ruff check .` to mirror CI exactly, NOT `make lint` — that target is scoped to `src tests`, so anything outside those trees is linted by CI and silently missed here. The scope gap is live today, not hypothetical: `ruff check .` covers 421 files, `ruff check src tests` 420 — the difference is `pyproject.toml`, which ruff validates under RUF200 (enabled via `select = ["RUF"]`, not ignored) and which Dependabot edits routinely. Both pass right now, so no finding is being missed yet; a malformed dependency specifier would go red in CI and green under `make lint`.
 added: 2026-07-16 — monocratic (claude-opus-4-8)
 mandated-by-human: no
 
 ```sh
-make lint
+ruff check .
 ```
 
 ### gate: format-check
 kind: mechanical
-why: an unformatted diff fails CI's lint job (`ruff format --check`); keeping the tree formatted is a hard CI gate, and this is its read-only check (never the rewriting `make format`).
+why: an unformatted diff fails CI's lint job; keeping the tree formatted is a hard CI gate, and this is its read-only check (never the rewriting `ruff format`). Runs `ruff format --check .` to mirror CI exactly, for the same reason `lint` does not use its `make` target.
 added: 2026-07-16 — monocratic (claude-opus-4-8)
 mandated-by-human: no
 
 ```sh
-make format-check
+ruff format --check .
 ```
 
 ### gate: typecheck
@@ -112,12 +115,12 @@ make audit
 
 ### gate: tests
 kind: mechanical
-why: the full pytest suite plus the 83% coverage floor is the "Tests" CI gate; a failing test or a coverage drop below the floor means the work is not done.
+why: the full pytest suite plus the coverage floor in `pyproject.toml` (`[tool.coverage.report]` `fail_under`, currently 83) is the "Tests" CI gate; a failing test or a drop below the floor means the work is not done. Deliberately `make test`, NOT `make coverage`: `make coverage` passes `--cov-fail-under=83` on the CLI, and pytest-cov only reads pyproject's `fail_under` when that flag is ABSENT — so the hardcoded 83 would override the config. CI omits the flag for exactly that reason ("one source of truth"), and CODE_GUIDELINES §11.8 says the floor moves up, never down. Pinning 83 here would make this gate pass at 84% on the day the floor moves to 88, while CI goes red — falsifying this file's own promise that green locally predicts green on main.
 added: 2026-07-16 — monocratic (claude-opus-4-8)
 mandated-by-human: no
 
 ```sh
-make coverage
+make test
 ```
 
 ### gate: lock-up-to-date
@@ -147,13 +150,24 @@ code push, so a duplicate semantic gate here would add nothing checkable. -->
 
 ## Gates deliberately absent
 
-<!-- CI-only checks that are NOT local gates, by design (they need Docker + buildx +
-registry secrets or exceed the "few minutes local" bar): -->
+<!-- CI-only checks that are NOT local gates, by design. State the real reason: "it
+needs Docker" is NOT one of them — `gate: lock-up-to-date` above already runs
+`docker run`, so that excuse does not survive this file's own gate set. -->
 
-- **Docker image build** (`Build (amd64)` / `Build (arm64)`) — needs Docker Buildx and
-  the full build context per architecture; runs in CI, not here.
-- **Docker manifest push** / **Cloudflare cache purge** — deploy-time jobs that need
-  registry and Cloudflare credentials; never runnable locally.
+- **Docker image build** (`Build (amd64)` / `Build (arm64)`) — CI builds each
+  architecture on its own native runner. Not enrolled locally; **wall-clock is NOT the
+  reason** and neither is capability: the image installs no build toolchain (see
+  `Dockerfile`), so there is no apt/dpkg cost — a cold `--no-cache` build measured 28s
+  native arm64 and 37s emulated amd64 on an arm64 dev host, inside this file's own
+  "few minutes" bar. Enrolling a build gate is therefore an open follow-up (an ADD —
+  cheap, monocratic, no panel).
+  **Residual risk this leaves uncovered — know it before trusting a green local run:**
+  per `.github/workflows/ci.yml`'s own comment, the PR image build is the safety net
+  that catches a **missing aarch64 wheel hash in `requirements.lock`**. No gate above
+  covers that class: `lock-up-to-date` only proves the lock satisfies `pyproject.toml`
+  on linux/amd64. A green local run does not predict a green arm64 build.
+- **Docker manifest push** / **Cloudflare cache purge** — deploy-time jobs needing
+  registry and Cloudflare credentials; genuinely not runnable locally.
 
 ## Retired
 
