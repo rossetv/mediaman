@@ -1,10 +1,10 @@
 [build-system]
-# setuptools >=82.0.1 is sufficient for src layout + package-data discovery.
+# setuptools >=83.0.0 is sufficient for src layout + package-data discovery.
 # PEP 639 SPDX licence fields (license = "MIT" flat string) require >=77;
 # leave the classic { text = "MIT" } form until we pin setuptools >=77.
 # TODO(P7): bump to setuptools>=77 and adopt PEP 639 + setuptools-scm for
 #           version management once CI lockfile is in place.
-requires = ["setuptools>=82.0.1"]
+requires = ["setuptools>=83.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -62,8 +62,8 @@ dev = [
     # runtime (it is NOT in requirements.lock and never enters the prod image).
     "httpx2~=2.5",
     "ruff~=0.15",
-    "mypy~=2.1",
-    "coverage[toml]~=7.14",
+    "mypy~=2.3",
+    "coverage[toml]~=7.15",
     "types-requests~=2.33",
     # freezegun is the canonical clock for tests that exercise time-dependent
     # behaviour (lockout windows, session idle expiry, "X days ago" formatters).

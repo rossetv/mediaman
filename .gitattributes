@@ -1,0 +1,3 @@
+# The KB decision log is append-only; union-merge so parallel branches never
+# conflict on it (each side's entries are kept).
+.claude/DECISIONS.md merge=union
