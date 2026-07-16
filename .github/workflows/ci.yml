@@ -218,12 +218,15 @@ jobs:
           fi
 
   # Build each architecture on its OWN native runner, in parallel — amd64 on the
-  # standard runner, arm64 on GitHub's free public-repo arm64 runner. This
-  # avoids QEMU emulation entirely (an emulated arm64 build of this image is
-  # minutes slower, almost all of it in apt/dpkg), so the wall-clock cost is
-  # roughly one native build rather than amd64 + emulated-arm64 in series. The
-  # tests and other check jobs run ONCE as the shared gate below; neither arch
-  # leg re-runs them.
+  # standard runner, arm64 on GitHub's free public-repo arm64 runner — so the
+  # wall-clock cost is roughly one native build rather than amd64 +
+  # emulated-arm64 in series. The win is the parallelism plus avoiding emulation
+  # overhead. It is NOT apt: this image installs no build toolchain (see the
+  # Dockerfile's builder stage — every pinned dep ships a prebuilt cp312 wheel
+  # for both arches), so there is no apt/dpkg layer for emulation to slow down.
+  # An earlier version of this comment blamed apt/dpkg; that was false, and it
+  # propagated into the KB before being caught. The tests and other check jobs
+  # run ONCE as the shared gate below; neither arch leg re-runs them.
   docker-build:
     name: Build (${{ matrix.platform.arch }})
     # Gate the image build on every check-job, not just tests. A lint or
