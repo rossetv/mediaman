@@ -59,7 +59,10 @@ auth.json
 .superpowers/
 .remember/
 .worktrees/
-.claude/
+# .claude/ holds the committed KB, specs, plans, settings, skills and hooks —
+# only these two are machine-local and must stay out of git.
+.claude/settings.local.json
+.claude/worktrees/
 docs/superpowers/
 docs/remediation/
 docs/plans/
