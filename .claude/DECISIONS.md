@@ -58,3 +58,42 @@ lost as the least accurate: its all-"keep" slate ratified both the false lint cl
 which it noticed, then declined to act on — and the unmeasured Docker rationale.
 
 **Affects:** .claude/GATES.md
+
+## 2026-07-16 — Makefile realigned to CI byte-for-byte; gate prose refreshed
+
+**Decision:** Realign every `Makefile` target with the command its matching CI job runs
+(`lint` → `ruff check .`, `format-check` → `ruff format --check .`, `format` → `ruff
+format .`, `test` → CI's exact `pytest … --maxfail=10 -n auto`), delete the redundant
+`coverage` target whose hardcoded `--cov-fail-under=83` was a second enforcement site
+for a floor `CODE_GUIDELINES.md` §11.8 assigns to `pyproject.toml` alone, and correct
+the stale `.github/workflows/ci.yml` `docker-build` comment that blamed apt/dpkg. This
+falsified three claims in `.claude/GATES.md` that described the now-removed divergence,
+so the `lint` and `tests` `why:` lines and the "What is worth gating" preamble were
+refreshed to stay true. No gate command, `id`, `kind`, assertion or `mandated-by-human`
+flag changed; the gate set is unchanged. Provenance: **human** — no panel, per this
+file's rule that a human decision overrides. The instruction, verbatim:
+
+> fix these: Defects in your project — reporting, not touching:
+> - Makefile header claims "CI runs the same commands" — false 3 ways; also falsifies §15.3's "local pass means CI pass".
+> - Makefile test: comment says "no failure threshold" — it lies, and dangerously: someone "fixing" it by adding --cov-fail-under would silently gut the tests gate.
+> - ci.yml docker-build comment ("minutes… apt/dpkg") is stale — the fabrication's origin.
+
+**Why:** The `Makefile` header promised "CI runs the same commands", and §15.3 states
+`make check` runs "in the same configuration CI uses. Local pass means CI pass" — both
+were false: `lint`/`format-check` were scoped to `src tests` against CI's `.`, hiding
+`pyproject.toml` from RUF200 validation, which matters because Dependabot edits that
+file routinely. §15.3 is law in a human-owned doc Claude may not edit, so the only way
+to make it true was to fix the Makefile, not soften its wording. The `test:` comment
+claimed "no failure threshold" while the target does enforce the pyproject floor — the
+dangerous direction, since someone believing the comment could "fix" it by adding
+`--cov-fail-under` and silently gut the tests gate, the one cheat GATES.md names as
+undetectable by its own machinery. `coverage` was deleted rather than merely stripped of
+its flag: with the flag gone it duplicated `test` exactly, and nothing outside the
+Makefile referenced it. The `ci.yml` comment was the origin of the apt/dpkg fabrication
+that reached GATES.md via the earlier panel; leaving it live would re-seed the same
+false claim. The gate commands still call ruff directly rather than through the now-
+correct `make` targets: a gate routed through a wrapper is only as faithful as the
+wrapper, and these targets had drifted once already — the prior panel's ratification of
+calling CI's command directly therefore stands unchanged.
+
+**Affects:** .claude/GATES.md
