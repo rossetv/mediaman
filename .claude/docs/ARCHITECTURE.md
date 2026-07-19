@@ -57,6 +57,24 @@ split, never grow, when a second concern appears. -->
 | Rate-limit buckets, arr throttle state, Plex/TMDB client caches | Process memory (module-level singletons) | `services/rate_limit/instances.py`, `services/arr/_throttle_state.py`, `scanner/runner.py` (Plex client cache), `services/media_meta/tmdb.py` (`_CLIENT_CACHE`) | Same module — discarded on restart; single-process assumption enforced by `bootstrap/validators.py` (`enforce_single_worker`) |
 | Poster cache | Filesystem `<data_dir>/poster_cache/` (pre-created by `bootstrap/db.py`) | `web/routes/poster/cache.py` | `web/routes/poster/__init__.py` |
 
+## External systems
+
+Every integration mediaman reaches, its I/O direction, and the owning client
+module (all outbound HTTP is SSRF-hardened — see Boundaries & invariants):
+
+| External system | Direction | Via |
+|-----------------|-----------|-----|
+| Plex | read | `services/media_meta/plex.py` (`PlexClient`, via hardened `_SafePlexSession`) |
+| Sonarr / Radarr | read/write | `services/arr` (`ArrClient`, built by `services/arr/build.py`) |
+| NZBGet | read | `services/downloads/nzbget.py` (`NzbgetClient`, JSON-RPC) |
+| Mailgun | write | `services/mail/mailgun.py` (`MailgunClient`) |
+| TMDB | read | `services/media_meta/tmdb.py` (`TmdbClient`) |
+| OMDb | read | `services/media_meta/omdb.py` (`fetch_ratings`) |
+| OpenAI | read | `services/openai/client.py` (`call_openai`) |
+| SQLite (`mediaman.db`) | read/write | `db/connection.py` — sole `sqlite3.connect` owner |
+| Media filesystem | read/delete | `services/infra/storage` (`delete_path`, allowlist-gated) |
+| Browser / email client | inbound HTTP | FastAPI app (`app_factory.create_app`) |
+
 ## Boundaries & invariants
 
 - **Six-layer dependency ring, imports flow down only:** `web/` → `services/*` → `scanner/` → `db/` → `{crypto/, bootstrap/, core/}` (leaves). An upward import is a review-blocker (CODE_GUIDELINES §2, diagram). Enforcement is docstring convention + code review, **not** an automated import-linter — the sole machine-checked case is `tests/unit/services/rate_limit/test_ip_resolver_import.py`, an AST guard against one module importing `fastapi`.
@@ -70,3 +88,21 @@ split, never grow, when a second concern appears. -->
 - **The schema is DDL-as-code** (`db/schema_definition.py`, one `SCHEMA` string of `CREATE ... IF NOT EXISTS` statements + indexes + the append-only `audit_log` triggers), applied idempotently by `init_db` on every boot; there is no migration runner (CODE_GUIDELINES §9.2).
 - **APScheduler (`scanner/scheduler.py`, `BackgroundScheduler`) is in-process and in-memory** — no persistent job store is configured, so a restart re-registers every job from scratch. Every job carries `max_instances=1`, `coalesce=True`, and a `misfire_grace_time` of 3600s (`_DEFAULT_MISFIRE_GRACE_SECONDS`), so an outage longer than an hour drops the missed tick instead of stacking catch-up runs.
 - **The scheduler refuses to start when the AES canary check failed** (`SchedulerStartupRefused`, raised in `bootstrap/scan_jobs.py` `bootstrap_scheduling` before touching APScheduler) — background jobs must never run against an unverified secret key.
+
+## Key constants
+
+System-wide defaults and caps (the config-tunable ones — `MEDIAMAN_PORT`,
+`MEDIAMAN_MAX_REQUEST_BYTES` — are also in CONFIGURATION.md):
+
+| Constant | Default | Source |
+|----------|---------|--------|
+| `MEDIAMAN_PORT` | `8282` | `config.py` (`Config.port`) |
+| Web server workers | `1` (enforced) | `bootstrap/validators.py` (`enforce_single_worker`) |
+| `SESSION_COOKIE_MAX_AGE` | `86400` (24h) | `web/cookies.py` |
+| `BCRYPT_ROUNDS` | `12` | `web/auth/_password_hash_helpers.py` |
+| Weekly-scan misfire grace | `3600`s | `scanner/scheduler.py` (`_DEFAULT_MISFIRE_GRACE_SECONDS`) |
+| Library-sync interval | `30` min (settings-driven) | `scanner/scheduler.py` (`sync_interval_minutes` default) |
+| `MEDIAMAN_MAX_REQUEST_BYTES` | `8388608` (8 MiB) | `web/middleware/body_size.py` (`_DEFAULT_MAX_REQUEST_BYTES`) |
+| `SafeHTTPClient` default cap | 8 MiB | `services/infra/http/client/_request.py` (`_DEFAULT_MAX_BYTES`) |
+| Arr response cap | 64 MiB | `services/arr/_transport.py` (`_ARR_MAX_RESPONSE_BYTES`) |
+| Plex response cap | 16 MiB | `services/media_meta/_plex_session.py` (`_PLEX_MAX_BYTES`) |
