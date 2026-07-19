@@ -96,5 +96,3 @@ anywhere; web routes mint/verify tokens via `crypto/tokens.py`.
 - SQLite tables: `schema_definition.SCHEMA` is the sole owner of the entire DDL — every table, index and trigger the whole app uses is defined here.
 - Decisions: none yet.
 - Specs: none yet.
-</content>
-</invoke>

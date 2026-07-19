@@ -54,13 +54,13 @@ exit codes) lives in GATES.md, not here. -->
 | Floor | `fail_under = 83` | `pyproject.toml` (`[tool.coverage.report]` `fail_under`) |
 | Floor policy | set two points under the 85% achieved on 2026-05-12; moves up, never down (a PR lowering it needs a written justification) | `pyproject.toml` (comment above `fail_under`); `CODE_GUIDELINES.md` §11.8 |
 | Measured scope | `source = ["mediaman"]`, `branch = true`; omits `*/tests/*`, `*/web/templates/*` | `pyproject.toml` (`[tool.coverage.run]`) |
-| Current reading | ~87.6% as of the last `make coverage` run — a point-in-time measurement, not stored anywhere in the repo; re-run rather than trust this figure as the code moves | not code-verifiable — no file citation |
+| Current reading | ~87.6% as of the last `make test` run — a point-in-time measurement, not stored anywhere in the repo; re-run rather than trust this figure as the code moves | not code-verifiable — no file citation |
 
 ### Parallelism (pytest-xdist)
 
 | Item | Value | Source |
 |------|-------|--------|
-| Invocation | `-n auto`, both in dev (`make test` / `make coverage`) and in CI | `Makefile` (`test`, `coverage`); `.github/workflows/ci.yml` (`Run tests` step) |
+| Invocation | `-n auto`, both in dev (`make test`) and in CI | `Makefile` (`test`); `.github/workflows/ci.yml` (`Run tests` step) |
 | Suite size | ~2700 tests spread across the runner's CPUs; pytest-cov combines per-worker coverage automatically | `.github/workflows/ci.yml` (`Run tests` step comment) |
 | Isolation contract | any test reading a live filesystem/clock signal must pin it — it cannot assume it is alone on the machine | `.github/workflows/ci.yml` (`Run tests` step comment) |
 | Cross-test leakage guards | four autouse fixtures reset module-level global state around every test, because xdist's in-worker test order is non-deterministic | `tests/conftest.py` — see Fixtures below |
@@ -113,6 +113,6 @@ exit codes) lives in GATES.md, not here. -->
 ## Related
 
 - Law: [`CODE_GUIDELINES.md`](../../CODE_GUIDELINES.md) §11 (Testing) — the authoring rules this file's facts implement: 90/10 unit/integration pyramid, one-test-file-per-source-file, behaviour-named tests, factories over hand-built objects, no `time.sleep`, coverage-floor policy, no live upstreams.
-- Runbook: [`GATES.md`](../GATES.md) — `gate: tests` (`make coverage`) is how this suite is CHECKED; this file is how it is architected, a different concern.
+- Runbook: [`GATES.md`](../GATES.md) — `gate: tests` (`make test`) is how this suite is CHECKED; this file is how it is architected, a different concern.
 - `tests/helpers/factories.py` — the `make_*`/`insert_*` data builders referenced above.
-- `Makefile` (`test`, `coverage`) and `.github/workflows/ci.yml` (`Run tests` step) — the two places `-n auto` is invoked.
+- `Makefile` (`test`) and `.github/workflows/ci.yml` (`Run tests` step) — the two places `-n auto` is invoked.

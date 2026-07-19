@@ -17,17 +17,17 @@ decides what to keep or delete, an admin web UI, and a subscriber newsletter.
 
 | Doc | Purpose | Verified |
 |-----|---------|----------|
-| [OVERVIEW](OVERVIEW.md) | system summary — always injected | 2026-07-16 @ c6ea90d |
+| [OVERVIEW](OVERVIEW.md) | system summary — always injected | 2026-07-19 @ c69ed47 |
 | [DECISIONS](DECISIONS.md) | append-only decision log | 2026-07-16 @ c6ea90d |
-| [MEMORY](MEMORY.md) | project memory index — always injected | 2026-07-16 @ c6ea90d |
-| [GATES](GATES.md) | the gates that define "done" — Claude's runbook | 2026-07-16 @ c6ea90d |
-| [ARCHITECTURE](docs/ARCHITECTURE.md) | layering, flows, data layer, integrations | 2026-07-16 @ c6ea90d |
-| [OPERATIONS](docs/OPERATIONS.md) | scheduler jobs, scan lifecycle, degradation | 2026-07-16 @ c6ea90d |
-| [DEPLOYMENT](docs/DEPLOYMENT.md) | image build, compose, CI publish, lock regen | 2026-07-16 @ c6ea90d |
-| [CONFIGURATION](docs/CONFIGURATION.md) | env + settings table, encrypted secrets | 2026-07-16 @ c6ea90d |
-| [TESTING](docs/TESTING.md) | how testing is architected (not the runbook) | 2026-07-16 @ c6ea90d |
-| [SECURITY](docs/SECURITY.md) | auth, crypto, SSRF/path defence, audit log | 2026-07-16 @ c6ea90d |
-| [GLOSSARY](docs/GLOSSARY.md) | domain jargon (arr, kept, abandon, snoozed …) | 2026-07-16 @ c6ea90d |
+| [MEMORY](MEMORY.md) | project memory index — always injected | 2026-07-19 @ c69ed47 |
+| [GATES](GATES.md) | the gates that define "done" — Claude's runbook | 2026-07-19 @ c69ed47 |
+| [ARCHITECTURE](docs/ARCHITECTURE.md) | layering, flows, data layer, integrations | 2026-07-19 @ c69ed47 |
+| [OPERATIONS](docs/OPERATIONS.md) | scheduler jobs, scan lifecycle, degradation | 2026-07-19 @ c69ed47 |
+| [DEPLOYMENT](docs/DEPLOYMENT.md) | image build, compose, CI publish, lock regen | 2026-07-19 @ c69ed47 |
+| [CONFIGURATION](docs/CONFIGURATION.md) | env + settings table, encrypted secrets | 2026-07-19 @ c69ed47 |
+| [TESTING](docs/TESTING.md) | how testing is architected (not the runbook) | 2026-07-19 @ c69ed47 |
+| [SECURITY](docs/SECURITY.md) | auth, crypto, SSRF/path defence, audit log | 2026-07-19 @ c69ed47 |
+| [GLOSSARY](docs/GLOSSARY.md) | domain jargon (arr, kept, abandon, snoozed …) | 2026-07-19 @ c69ed47 |
 
 ## Modules
 
