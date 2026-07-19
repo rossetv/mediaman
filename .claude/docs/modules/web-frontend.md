@@ -70,7 +70,7 @@ thin bootstrap. Static assets are served from the `/static` mount configured in
 - **Scattered inline `style="display:none"`** remains across templates (`base.html`'s comment calls migrating them to CSS classes "the final cleanup step"); they work only because of the `style-src-attr 'unsafe-inline'` directive above.
 - **Mixed JS dialect.** Most modules are ES5 (`var`, `function`) for the stated old-browser posture, but a few newer bootstraps use ES6 (`search.js` uses arrow functions/`const`/destructuring). No transpile step, so this relies on modern-browser support.
 - **`src/mediaman/web/static/js/core/_self_test.html`** is a dev-only offline smoke test for the `MM` core namespace and is explicitly NOT shipped as part of any page.
-- **FontAwesome is fully self-hosted** under `static/fonts/fontawesome` (CSS + web fonts + `LICENSE.txt`) — the only vendored front-end asset; `img-src`/`font-src` in the CSP must accommodate it.
+- **FontAwesome is fully self-hosted** under `static/fonts/fontawesome` (CSS + web fonts + `LICENSE.txt`) — the only vendored front-end asset. The strict CSP already serves it: `_build_csp()` declares no named `font-src` directive, so the web fonts fall through to the `default-src 'self'` fallback (same-origin, permitted); no CSP change is needed for it.
 - **The dashboard Storage block is bespoke inline markup** (not the `c.storage` macro) because the macro's `{color, value}` legend schema doesn't fit the nested-`<small>` number + CSS-classed legend dots — flagged with a TODO to extend the macro.
 
 ## Extension points
