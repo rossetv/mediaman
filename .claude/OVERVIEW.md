@@ -44,26 +44,6 @@ rest; `MEDIAMAN_SECRET_KEY` is the only secret an operator manages directly.
 | Canary | A stored ciphertext used at boot to prove `MEDIAMAN_SECRET_KEY` can still decrypt existing data (`crypto/aes.py` `is_canary_valid`). |
 | Delete allowed roots | `MEDIAMAN_DELETE_ROOTS` / the DB settings equivalent — the mandatory allowlist of filesystem roots mediaman may delete from; deletion fails closed if unset. |
 
-## System boundaries
-
-| External system | Direction | Via |
-|-----------------|-----------|-----|
-| Plex | read | `services/media_meta/plex.py` (`PlexClient`, via hardened `_SafePlexSession`) |
-| Sonarr / Radarr | read/write | `services/arr` (`ArrClient`, built by `services/arr/build.py`) |
-| NZBGet | read | `services/downloads/nzbget.py` (`NzbgetClient`, JSON-RPC) |
-| Mailgun | write | `services/mail/mailgun.py` (`MailgunClient`) |
-| TMDB | read | `services/media_meta/tmdb.py` (`TmdbClient`) |
-| OMDb | read | `services/media_meta/omdb.py` (`fetch_ratings`) |
-| OpenAI | read | `services/openai/client.py` (`call_openai`) |
-| SQLite (`mediaman.db`) | read/write | `db/connection.py` — sole `sqlite3.connect` owner |
-| Media filesystem | read/delete | `services/infra/storage` (`delete_path`, allowlist-gated) |
-| Browser / email client | inbound HTTP | FastAPI app (`app_factory.create_app`) |
-
-Every outbound HTTP call (Plex/Arr/NZBGet/Mailgun/TMDB/OMDb/OpenAI) routes
-through `SafeHTTPClient` or `_SafePlexSession` (`services/infra`), giving SSRF
-re-validation, DNS-rebind pinning, redirect refusal, a size cap, and identity
-encoding uniformly across every integration.
-
 ## Process model
 
 1. Production entry: the `mediaman` console script → `main.cli_main`
@@ -119,18 +99,3 @@ tests/
 ├── unit/                                  # auth, bootstrap, core, crypto, db, scanner, services, web
 └── integration/                           # cross-module flows
 ```
-
-## Key constants
-
-| Constant | Default | Source |
-|----------|---------|--------|
-| `MEDIAMAN_PORT` | `8282` | `config.py` (`Config.port`) |
-| Web server workers | `1` (enforced) | `bootstrap/validators.py` (`enforce_single_worker`) |
-| `SESSION_COOKIE_MAX_AGE` | `86400` (24h) | `web/cookies.py` |
-| `BCRYPT_ROUNDS` | `12` | `web/auth/_password_hash_helpers.py` |
-| Weekly-scan misfire grace | `3600`s | `scanner/scheduler.py` (`_DEFAULT_MISFIRE_GRACE_SECONDS`) |
-| Library-sync interval | `30` min (settings-driven) | `scanner/scheduler.py` (`sync_interval_minutes` default) |
-| `MEDIAMAN_MAX_REQUEST_BYTES` | `8388608` (8 MiB) | `web/middleware/body_size.py` (`_DEFAULT_MAX_REQUEST_BYTES`) |
-| `SafeHTTPClient` default cap | 8 MiB | `services/infra/http/client/_request.py` (`_DEFAULT_MAX_BYTES`) |
-| Arr response cap | 64 MiB | `services/arr/_transport.py` (`_ARR_MAX_RESPONSE_BYTES`) |
-| Plex response cap | 16 MiB | `services/media_meta/_plex_session.py` (`_PLEX_MAX_BYTES`) |
