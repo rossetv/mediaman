@@ -79,7 +79,7 @@
              data-id="{{ item.media_item_id }}" data-tv="{{ (item.media_type == 'tv') | tojson }}"
              data-show-rk="{{ item.show_rating_key or '' }}" data-show-title="{{ item.show_title_raw or item.title | e }}">
           {{ c.btn("Keep", variant="accent-soft", size="sm",
-                   data_attrs={"action": "keep-tile", "duration": "30d"}) }}
+                   data_attrs={"action": "keep-tile", "duration": "30 days"}) }}
           {# TODO: c.btn doesn't expose aria-haspopup/aria-expanded — the caret
              button needs those for the dropdown menu pattern. Leaving inline. #}
           <button type="button" class="btn btn--icon btn--secondary btn-sm-caret"
@@ -88,9 +88,9 @@
             <i class="fa-solid fa-ellipsis svg-icon-xs" aria-hidden="true"></i>
           </button>
           <div class="snooze-dropdown" role="menu">
-            <button class="snooze-option" role="menuitem" tabindex="-1" data-action="keep-tile" data-duration="7d">7 days</button>
-            <button class="snooze-option" role="menuitem" tabindex="-1" data-action="keep-tile" data-duration="30d">30 days</button>
-            <button class="snooze-option" role="menuitem" tabindex="-1" data-action="keep-tile" data-duration="90d">90 days</button>
+            <button class="snooze-option" role="menuitem" tabindex="-1" data-action="keep-tile" data-duration="7 days">7 days</button>
+            <button class="snooze-option" role="menuitem" tabindex="-1" data-action="keep-tile" data-duration="30 days">30 days</button>
+            <button class="snooze-option" role="menuitem" tabindex="-1" data-action="keep-tile" data-duration="90 days">90 days</button>
             <button class="snooze-option forever" role="menuitem" tabindex="-1" data-action="keep-tile" data-duration="forever">Forever</button>
           </div>
         </div>

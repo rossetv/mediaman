@@ -47,11 +47,10 @@
         });
       return;
     }
-    var durMap = { '7d': '7 days', '30d': '30 days', '90d': '90 days', 'forever': 'forever', 'current': null };
     _keepDialogState.showRk = showRk;
     _keepDialogState.showTitle = showTitle;
     _keepDialogState.seasonId = mediaId;
-    _keepDialogState.duration = durMap[duration] || '30 days';
+    _keepDialogState.duration = duration || '30 days';
     openKeepDialog();
   }
 
@@ -188,8 +187,7 @@
         });
     } else {
       /* Finding 35: check each request; report failed season IDs. */
-      var durMap = { '7 days': '7d', '30 days': '30d', '90 days': '90d', 'forever': 'forever' };
-      var dur = durMap[_keepDialogState.duration] || '30d';
+      var dur = _keepDialogState.duration || '30 days';
       /* Sequential loop — accumulates failures, continues after each one. */
       var keepChain = Promise.resolve();
       var failed = [];
