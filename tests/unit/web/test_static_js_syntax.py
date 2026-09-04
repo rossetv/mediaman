@@ -6,36 +6,20 @@ delimiter (indistinguishable from an ASCII quote at a glance) ships straight
 to the browser and breaks every page that loads the file. ``node --check``
 parses without executing, so this is a cheap, deterministic guard.
 
-CI's ubuntu runners ship node. If this test can't find a ``node`` binary it
-fails loudly rather than skipping — a missing interpreter must never mask a
-broken file. Set ``MEDIAMAN_SKIP_NODE_CHECK=1`` to explicitly opt out (e.g.
-a stripped-down sandbox with no node available).
+CI's ubuntu runners ship node on PATH, so this asserts unconditionally
+rather than skipping when the interpreter is missing — a missing
+interpreter must never mask a broken file (CODE_GUIDELINES §11.15: no
+conditional logic in tests).
 """
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 from pathlib import Path
 
-import pytest
-
 REPO = Path(__file__).resolve().parents[3]
 JS_DIR = REPO / "src/mediaman/web/static/js"
-
-# Homebrew's default install location on macOS dev machines — `node` isn't
-# always on a non-interactive shell's PATH even when it's installed.
-_FALLBACK_NODE = Path("/opt/homebrew/bin/node")
-
-
-def _node_binary() -> str | None:
-    found = shutil.which("node")
-    if found:
-        return found
-    if _FALLBACK_NODE.exists():
-        return str(_FALLBACK_NODE)
-    return None
 
 
 def _js_files() -> list[Path]:
@@ -43,18 +27,14 @@ def _js_files() -> list[Path]:
 
 
 def test_static_js_files_parse() -> None:
-    node = _node_binary()
-    if node is None:
-        if os.environ.get("MEDIAMAN_SKIP_NODE_CHECK") == "1":
-            pytest.skip("MEDIAMAN_SKIP_NODE_CHECK=1 set and no node binary on PATH")
-        pytest.fail(
-            "no `node` binary found on PATH (checked "
-            f"{_FALLBACK_NODE} too) — install Node.js, or set "
-            "MEDIAMAN_SKIP_NODE_CHECK=1 to explicitly skip this check"
-        )
+    node = shutil.which("node")
+    assert node is not None, "no `node` binary found on PATH — install Node.js"
+
+    js_files = _js_files()
+    assert js_files, f"expected at least one .js file under {JS_DIR}"
 
     failures = []
-    for js_file in _js_files():
+    for js_file in js_files:
         result = subprocess.run(
             [node, "--check", str(js_file)], capture_output=True, text=True, check=False
         )

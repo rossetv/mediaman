@@ -114,10 +114,11 @@ findings; a same-day CI run of this PR may show `lint`/`format-check` red on tho
 unrelated files, purely from picking up 0.16.6. Out of scope for this change — flagged,
 not fixed.
 
-**pip-audit note (not part of this change, reported for visibility):** `pip-audit -r
-requirements.lock --require-hashes` reports one known vulnerability —
-`cryptography==49.0.0` (PYSEC-2026-3552, fixed in 50.0.0) — unrelated to this branch
-(`requirements.lock` is byte-identical to `origin/main`). Fixing it means regenerating
-`requirements.lock`, which per project memory is a separate, serialised workflow, and is
-out of scope for a three-frontend-defect PR. Flagged, not fixed; the `dependency-audit`
-gate is red on `origin/main` independent of this change.
+**pip-audit note (superseded — kept for history):** at the time this spec was first
+written, `pip-audit -r requirements.lock --require-hashes` reported one known
+vulnerability — `cryptography==49.0.0` (PYSEC-2026-3552, fixed in 50.0.0) — unrelated to
+this branch (`requirements.lock` was then byte-identical to `origin/main`), and fixing it
+was flagged as out of scope for a three-frontend-defect PR. It was subsequently fixed in
+a separate branch (`build/bump-cryptography`, `.claude/specs/20260904-cryptography-cve-bump.md`),
+which this branch now rebases onto — `requirements.lock` here pins `cryptography==50.0.1`
+and `pip-audit -r requirements.lock --require-hashes` is clean.
