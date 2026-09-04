@@ -21,12 +21,13 @@ exit codes) lives in GATES.md, not here. -->
 | Item | Value | Source |
 |------|-------|--------|
 | Test root | `tests/` (`tests/unit/`, `tests/integration/`, `tests/helpers/`) | `pyproject.toml` (`[tool.pytest.ini_options]` `testpaths`) |
-| Unit tree | Mirrors `src/mediaman/**` package-for-package; 148 test files | tree |
+| Unit tree | Mirrors `src/mediaman/**` package-for-package; 152 test files | tree |
 | Integration tree | 5 files exercising route → middleware → repository seams via FastAPI `TestClient` against a real (temp-file) SQLite DB | `tests/integration/` |
 | Shared fixtures | One conftest for the whole tree, `tests/conftest.py` — no per-package `conftest.py` exists | verified: `find tests -iname conftest.py` |
 | `sys.path` | `pythonpath = ["src"]` puts `src/` on the path for collection | `pyproject.toml` (`[tool.pytest.ini_options]` `pythonpath`) |
 | Strictness | `--strict-markers --strict-config` — an unregistered marker or an ini typo fails collection outright | `pyproject.toml` (`addopts`) |
 | Default invocation | `-q --tb=short` | `pyproject.toml` (`addopts`) |
+| External prerequisite | `node` must be on PATH — `tests/unit/web/test_static_js_syntax.py` runs `node --check` over every file under `static/js/`; not a pip dependency | `tests/unit/web/test_static_js_syntax.py` |
 
 ### Markers
 

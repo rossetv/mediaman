@@ -40,6 +40,13 @@ jobs:
           pip install --require-hashes -r requirements.lock
           pip install -e ".[dev]"
 
+      - name: Confirm node is available
+        # test_static_js_syntax.py shells out to `node --check` for every
+        # static/js file — ubuntu-latest ships Node.js pre-installed, but a
+        # future runner-image change silently breaking that assumption
+        # should surface here, not as a confusing test failure downstream.
+        run: node --version
+
       - name: Run tests
         # Coverage threshold lives in pyproject.toml ([tool.coverage.report]
         # fail_under). Don't override it here — one source of truth.

@@ -25,7 +25,7 @@ decides what to keep or delete, an admin web UI, and a subscriber newsletter.
 | [OPERATIONS](docs/OPERATIONS.md) | scheduler jobs, scan lifecycle, degradation | 2026-07-19 @ c69ed47 |
 | [DEPLOYMENT](docs/DEPLOYMENT.md) | image build, compose, CI publish, lock regen | 2026-07-19 @ c69ed47 |
 | [CONFIGURATION](docs/CONFIGURATION.md) | env + settings table, encrypted secrets | 2026-07-19 @ c69ed47 |
-| [TESTING](docs/TESTING.md) | how testing is architected (not the runbook) | 2026-07-19 @ c69ed47 |
+| [TESTING](docs/TESTING.md) | how testing is architected (not the runbook) | 2026-09-04 @ e1c6dc7 |
 | [SECURITY](docs/SECURITY.md) | auth, crypto, SSRF/path defence, audit log | 2026-07-19 @ c69ed47 |
 | [GLOSSARY](docs/GLOSSARY.md) | domain jargon (arr, kept, abandon, snoozed …) | 2026-07-19 @ c69ed47 |
 
