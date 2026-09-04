@@ -74,7 +74,9 @@ def test_template_duration_literals_are_valid_keep_durations() -> None:
 
 def test_js_duration_fallbacks_are_valid_keep_durations() -> None:
     fallbacks = _js_duration_fallbacks()
-    assert fallbacks != {}, "expected a duration fallback (e.g. `duration || '30 days'`) in static/js"
+    assert fallbacks != {}, (
+        "expected a duration fallback (e.g. `duration || '30 days'`) in static/js"
+    )
     for path, values in fallbacks.items():
         for value in values:
             assert value in VALID_KEEP_DURATIONS, (
