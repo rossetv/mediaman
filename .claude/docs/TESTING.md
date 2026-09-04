@@ -27,6 +27,7 @@ exit codes) lives in GATES.md, not here. -->
 | `sys.path` | `pythonpath = ["src"]` puts `src/` on the path for collection | `pyproject.toml` (`[tool.pytest.ini_options]` `pythonpath`) |
 | Strictness | `--strict-markers --strict-config` — an unregistered marker or an ini typo fails collection outright | `pyproject.toml` (`addopts`) |
 | Default invocation | `-q --tb=short` | `pyproject.toml` (`addopts`) |
+| External prerequisite | `node` must be on PATH — `tests/unit/web/test_static_js_syntax.py` runs `node --check` over every file under `static/js/`; not a pip dependency | `tests/unit/web/test_static_js_syntax.py` |
 
 ### Markers
 
