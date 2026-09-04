@@ -56,6 +56,8 @@ exception, the arm64 image build (see "Gates deliberately absent").
 
 Environment: run inside a Python 3.12 virtualenv with `pip install -e ".[dev]"` plus
 `pip-audit` and `bandit` (CI installs those two per-job; they are not in `[dev]`).
+The `tests` gate additionally needs Node.js on PATH — `tests/unit/web/test_static_js_syntax.py`
+runs `node --check` over every file under `static/js/`.
 
 ## Mechanical gates
 
