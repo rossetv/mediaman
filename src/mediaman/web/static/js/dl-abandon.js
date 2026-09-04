@@ -161,13 +161,7 @@
         document.dispatchEvent(new CustomEvent('mediaman:downloads:refresh'));
       })
       .catch(function (err) {
-        if (window.mediamanToast) {
-          window.mediamanToast(
-            'Couldn’t abandon: ' + (err.message || err), { kind: 'error' }
-          );
-        } else {
-          console.error('abandon failed', err);
-        }
+        window.UIFeedback.error('Couldn’t abandon: ' + (err.message || err));
         confirmBtn.setAttribute('aria-disabled', 'false');
       });
   }
