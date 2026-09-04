@@ -61,7 +61,7 @@ dev = [
     # so the TestClient needs httpx2 present. Test-only — the app uses httpx at
     # runtime (it is NOT in requirements.lock and never enters the prod image).
     "httpx2~=2.7",
-    "ruff~=0.15",
+    "ruff~=0.15.0",
     "mypy~=2.3",
     "coverage[toml]~=7.15",
     "types-requests~=2.33",
