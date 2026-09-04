@@ -39,7 +39,7 @@ dependencies = [
     "requests~=2.34",
     "apscheduler~=3.11",
     "bcrypt~=5.0",
-    "cryptography~=49.0",
+    "cryptography~=50.0",
     "python-multipart~=0.0.32",
     "defusedxml~=0.7",
     "pydantic~=2.13",
@@ -61,7 +61,7 @@ dev = [
     # so the TestClient needs httpx2 present. Test-only — the app uses httpx at
     # runtime (it is NOT in requirements.lock and never enters the prod image).
     "httpx2~=2.7",
-    "ruff~=0.15",
+    "ruff~=0.15.0",
     "mypy~=2.3",
     "coverage[toml]~=7.15",
     "types-requests~=2.33",

@@ -368,7 +368,7 @@ def _check_arr_availability(
     conn: sqlite3.Connection,
     sonarr_series_index: list[SonarrSeries] | None = None,
     radarr_index: dict[int, RadarrMovie] | None = None,
-) -> tuple[bool, RadarrMovie | None | _ArrProbeOutcome]:
+) -> tuple[bool, RadarrMovie | _ArrProbeOutcome | None]:
     """Check Radarr/Sonarr for file availability.
 
     Returns ``(ready, movie_obj)``.  The second element of the tuple is one of:
