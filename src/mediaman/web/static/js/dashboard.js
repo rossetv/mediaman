@@ -152,10 +152,8 @@
       { duration: duration })
       .then(function () { window.location.reload(); })
       .catch(function (err) {
-        if (window.UIFeedback) {
-          var msg = (err && err.message) || 'Try again.';
-          window.UIFeedback.error("Couldn't save keep. " + msg);
-        }
+        var msg = (err && err.message) || 'Try again.';
+        window.UIFeedback.error("Couldn't save keep. " + msg);
       });
   }
 
@@ -172,7 +170,7 @@
 
     var keepBtn = e.target.closest('[data-action="keep-tile"]');
     if (keepBtn) {
-      var duration = keepBtn.dataset.duration || '30d';
+      var duration = keepBtn.dataset.duration || '30 days';
       dashSubmitKeep(keepBtn, duration);
       return;
     }
