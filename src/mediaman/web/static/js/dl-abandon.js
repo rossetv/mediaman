@@ -161,8 +161,8 @@
         document.dispatchEvent(new CustomEvent('mediaman:downloads:refresh'));
       })
       .catch(function (err) {
-        window.UIFeedback.error('Couldn’t abandon: ' + (err.message || err));
         confirmBtn.setAttribute('aria-disabled', 'false');
+        window.UIFeedback.error('Couldn’t abandon: ' + (err.message || err));
       });
   }
 

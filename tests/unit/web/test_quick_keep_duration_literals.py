@@ -33,7 +33,7 @@ _JS_FALLBACK_RE = re.compile(r"dataset\.(?:duration|keepDur)\s*\|\|\s*'([^']+)'"
 
 def _template_duration_literals() -> dict[str, list[str]]:
     found: dict[str, list[str]] = {}
-    for path in sorted(TEMPLATES_DIR.glob("*.html")):
+    for path in sorted(TEMPLATES_DIR.rglob("*.html")):
         text = path.read_text(encoding="utf-8")
         values = _TEMPLATE_LITERAL_RE.findall(text) + _MACRO_DURATION_RE.findall(text)
         if values:

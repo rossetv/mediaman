@@ -15,9 +15,12 @@ JS_DIR = REPO / "src/mediaman/web/static/js"
 
 
 def test_no_static_js_file_references_mediaman_toast() -> None:
+    js_files = sorted(JS_DIR.rglob("*.js"))
+    assert js_files, f"expected at least one .js file under {JS_DIR}"
+
     offenders = [
         str(path.relative_to(REPO))
-        for path in sorted(JS_DIR.rglob("*.js"))
+        for path in js_files
         if "mediamanToast" in path.read_text(encoding="utf-8")
     ]
     assert not offenders, (
