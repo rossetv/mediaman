@@ -73,13 +73,6 @@
         var hasKeeps = data.show_kept || data.seasons.some(function (s) { return s.kept; });
         document.getElementById('keep-dialog-remove').classList.toggle('is-visible', hasKeeps);
         if (hasKeeps) document.getElementById('keep-dialog-confirm').textContent = 'Update';
-        if (!_keepDialogState.duration && data.show_kept && data.show_kept.snooze_duration) {
-          _keepDialogState.duration = data.show_kept.snooze_duration;
-          selectDurationByValue(_keepDialogState.duration);
-        } else if (!_keepDialogState.duration) {
-          _keepDialogState.duration = 'forever';
-          selectDurationByValue('forever');
-        }
         renderSeasonPicker(data.seasons, data.show_kept);
       })
       .catch(function () { list.textContent = "Couldn't load seasons."; });
