@@ -85,13 +85,13 @@
     var hero = MM.downloads.buildDom.buildHero(item);
 
     /* Hint text — page-specific copy using the media type from the bootstrap. */
-    var hint = document.createElement(‘div’);
-    hint.className = ‘dl-hint’;
-    hint.textContent = ‘You may close this page — the download will continue in the background. ‘;
-    var br = document.createElement(‘br’);
+    var hint = document.createElement('div');
+    hint.className = 'dl-hint';
+    hint.textContent = 'You may close this page — the download will continue in the background. ';
+    var br = document.createElement('br');
     hint.appendChild(br);
     var hintLine2 = document.createTextNode(
-      ‘You’ll be notified by email when this ‘ + (_mediaType === ‘movie’ ? ‘movie’ : ‘show’) + ‘ is available to watch.’
+      'You’ll be notified by email when this ' + (_mediaType === 'movie' ? 'movie' : 'show') + ' is available to watch.'
     );
     hint.appendChild(hintLine2);
 
