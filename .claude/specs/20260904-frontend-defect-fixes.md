@@ -127,16 +127,17 @@ warnings filter): `ruff check .`, `ruff format --check .` (both clean, verified 
 (3013 tests collected, all passing, coverage above the 83% floor).
 
 **Ruff-version note (not part of this change, reported for visibility):** the dev
-dependency `ruff~=0.15` in `pyproject.toml` is a two-segment PEP 440 specifier, so it only
-pins the leading `0` and floats across the entire 0.x range — a fresh `pip install
--e ".[dev]"` today resolves ruff 0.16.6, not 0.15.x. Ruff 0.16 added Markdown
-code-block formatting and the `RUF036` lint rule, both of which flag pre-existing,
-unrelated content (`CODE_GUIDELINES.md`'s embedded Python examples; a `None`-union
-ordering in `src/mediaman/services/downloads/notifications.py`) that this branch does not
-touch. Gates were verified clean under `ruff==0.15.22` to isolate this from genuine
-findings; a same-day CI run of this PR may show `lint`/`format-check` red on those
-unrelated files, purely from picking up 0.16.6. Out of scope for this change — flagged,
-not fixed.
+dependency `ruff~=0.15.0` in `pyproject.toml` is a **three**-segment PEP 440 specifier, so
+it expands to `>=0.15.0, ==0.15.*` and is effective — a fresh `pip install -e ".[dev]"`
+today resolves ruff 0.15.x (verified: 0.15.22), not 0.16.x. PyPI's latest ruff is 0.16.6,
+and ruff 0.16 added Markdown code-block formatting and the `RUF036` lint rule, both of
+which would flag pre-existing, unrelated content (`CODE_GUIDELINES.md`'s embedded Python
+examples; a `None`-union ordering in `src/mediaman/services/downloads/notifications.py`)
+that this branch does not touch — but that is unreachable today because the pin holds.
+Gates were verified clean under `ruff==0.15.22`, which is what the pin actually resolves
+to, not an isolation workaround. The warning is for the future, not today: a later
+Dependabot bump to `ruff~=0.16.0` will surface those findings on files this branch never
+touched — treat them then as pre-existing drift, not as a regression in this PR.
 
 **pip-audit note (superseded — kept for history):** at the time this spec was first
 written, `pip-audit -r requirements.lock --require-hashes` reported one known
