@@ -152,10 +152,8 @@
       { duration: duration })
       .then(function () { window.location.reload(); })
       .catch(function (err) {
-        if (window.UIFeedback) {
-          var msg = (err && err.message) || 'Try again.';
-          window.UIFeedback.error("Couldn't save keep. " + msg);
-        }
+        var msg = (err && err.message) || 'Try again.';
+        window.UIFeedback.error("Couldn't save keep. " + msg);
       });
   }
 
