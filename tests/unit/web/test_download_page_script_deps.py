@@ -30,7 +30,7 @@ def _tpl(name: str) -> str:
     return (TEMPLATES / name).read_text(encoding="utf-8")
 
 
-def test_download_html_loads_build_dom_before_download_js():
+def test_download_html_loads_build_dom_before_download_js() -> None:
     download = _tpl("download.html")
     assert _BUILD_DOM_TAG in download, (
         "download.html must load downloads/build_dom.js — download.js's "
