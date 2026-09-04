@@ -61,14 +61,34 @@ curly characters that are genuine string *content* untouched (the em dash, and t
 apostrophe inside "You'll").
 
 **Tests.** `tests/unit/web/test_static_js_syntax.py` — runs `node --check` over every file
-under `src/mediaman/web/static/js/`. Fails loudly (not a silent skip) if no `node` binary
-is found on `PATH` or at the Homebrew fallback location, unless
-`MEDIAMAN_SKIP_NODE_CHECK=1` is set. Verified `node --check` fails on the pre-fix file and
-the new test fails accordingly; both pass after the fix. Confirmed via GitHub's
-`runner-images` documentation that `ubuntu-latest` ships Node.js pre-installed and on
-`PATH` with no setup step required; added an explicit `node --version` step to
-`.github/workflows/ci.yml`'s `tests` job as a one-line, low-risk documentation of that
-now-load-bearing assumption.
+under `src/mediaman/web/static/js/`, asserting unconditionally that a `node` binary is on
+`PATH` (CODE_GUIDELINES §11.15 — no conditional logic in tests; CI's `tests` job asserts
+`node --version` explicitly, so the precondition is load-bearing and documented rather
+than silently skippable) and that at least one `.js` file was found. Verified `node
+--check` fails on the pre-fix file and the new test fails accordingly; both pass after
+the fix. Confirmed via GitHub's `runner-images` documentation that `ubuntu-latest` ships
+Node.js pre-installed and on `PATH` with no setup step required; added an explicit `node
+--version` step to `.github/workflows/ci.yml`'s `tests` job as a one-line, low-risk
+documentation of that now-load-bearing assumption.
+
+**Follow-on defect surfaced by making the file parse.** Once `download.js` could
+actually run, its adversarial pre-push review caught a second, more severe bug in the
+same code path: `download.html` (the per-token download-confirmation page) never loaded
+`static/js/downloads/build_dom.js`, the module that defines `MM.downloads.buildDom`.
+`buildHeroCard()` calls `MM.downloads.buildDom.buildHero(item)` — with the module
+missing, a *successful* download threw a `TypeError` in the `.then` handler, which the
+generic `.catch` reported to the user as "Network error — please try again". Before this
+branch the file was a `SyntaxError`, so the button was inert and nobody hit the throw;
+fixing the parse error alone would have converted "dead button" into "false failure
+message on a successful download". Fixed by adding
+`<script src="/static/js/downloads/build_dom.js" defer></script>` to `download.html`,
+immediately before the `download.js` tag (`defer` preserves document order;
+`build_dom.js`'s only dependency, `MM.dom`, is already loaded by `base.html`, which
+`download.html` extends). Regression test:
+`tests/unit/web/test_download_page_script_deps.py` — asserts `download.html` contains
+both script tags with `build_dom.js` ordered before `download.js`. Verified failing
+against the pre-fix template (`git show <pre-fix-commit>:src/mediaman/web/templates/
+download.html`), passing after.
 
 ## Defect 3 — silent abandon-search failures
 
@@ -91,16 +111,20 @@ pre-fix file, passing after.
 
 ## Verification
 
-All three regression tests were confirmed to fail against the pre-fix source (via
-`git stash` of the source changes only, keeping the new test files) and pass after
-restoring the fixes. Full gate suite run locally in a fresh Python 3.12 venv, installing
-`requirements.lock` before `.[dev]` (matching CI's exact install sequence — installing
-`.[dev]` alone resolves unpinned dev/transitive packages, e.g. a newer `anyio` that
-triggers a `DeprecationWarning`-as-error under this repo's strict warnings filter):
-`ruff check .`, `ruff format --check .` (both clean, verified under `ruff==0.15.22` — see
-note below), `mypy src/mediaman` (clean), `bandit -r src/ -c bandit.yaml -ll -f txt`
-(clean), and the full `pytest -n auto` suite (3012 tests collected, all passing, 87.65%
-coverage against an 83% floor).
+All four regression tests were confirmed to fail against their pre-fix source and pass
+after restoring the fix — the first three via `git stash` of the source changes only
+(keeping the new test files); the fourth (`test_download_page_script_deps.py`, added
+after the pre-push adversarial review's round 1) via `git show <pre-fix-commit>:path`
+instead, since this repo's worktrees share one git stash stack and a stash left mid-pop
+from an unrelated session is a real hazard here — reading the old blob directly touches
+neither the working tree nor the stash. Full gate suite run locally in a fresh Python
+3.12 venv, installing `requirements.lock` before `.[dev]` (matching CI's exact install
+sequence — installing `.[dev]` alone resolves unpinned dev/transitive packages, e.g. a
+newer `anyio` that triggers a `DeprecationWarning`-as-error under this repo's strict
+warnings filter): `ruff check .`, `ruff format --check .` (both clean, verified under
+`ruff==0.15.22` — see note below), `mypy src/mediaman` (clean),
+`bandit -r src/ -c bandit.yaml -ll -f txt` (clean), and the full `pytest -n auto` suite
+(3013 tests collected, all passing, coverage above the 83% floor).
 
 **Ruff-version note (not part of this change, reported for visibility):** the dev
 dependency `ruff~=0.15` in `pyproject.toml` is a two-segment PEP 440 specifier, so it only
