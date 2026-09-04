@@ -172,7 +172,7 @@
 
     var keepBtn = e.target.closest('[data-action="keep-tile"]');
     if (keepBtn) {
-      var duration = keepBtn.dataset.duration || '30d';
+      var duration = keepBtn.dataset.duration || '30 days';
       dashSubmitKeep(keepBtn, duration);
       return;
     }
