@@ -42,7 +42,7 @@ dependencies = [
     "cryptography~=50.0",
     "python-multipart~=0.0.32",
     "defusedxml~=0.7",
-    "pydantic~=2.13",
+    "pydantic~=2.14",
 ]
 
 [project.optional-dependencies]
