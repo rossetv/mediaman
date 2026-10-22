@@ -1,5 +1,5 @@
 [build-system]
-# setuptools >=83.0.0 is sufficient for src layout + package-data discovery.
+# setuptools >=84.0.0 is sufficient for src layout + package-data discovery.
 # PEP 639 SPDX licence fields (license = "MIT" flat string) require >=77;
 # leave the classic { text = "MIT" } form until we pin setuptools >=77.
 # TODO(P7): bump to setuptools>=77 and adopt PEP 639 + setuptools-scm for
@@ -112,9 +112,9 @@ filterwarnings = [
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-# ruff 0.17 formats Python code blocks inside Markdown. Our .md files are
+# ruff 0.16+ formats Python code blocks inside Markdown. Our .md files are
 # human docs whose examples are deliberately compact (one-line `...` bodies);
-# keep ruff's scope to Python sources, as it was before 0.17.
+# keep ruff's scope to Python sources, as it was before 0.16.
 extend-exclude = ["*.md"]
 
 [tool.ruff.lint]

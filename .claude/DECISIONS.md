@@ -97,3 +97,16 @@ wrapper, and these targets had drifted once already — the prior panel's ratifi
 calling CI's command directly therefore stands unchanged.
 
 **Affects:** .claude/GATES.md
+
+## 2026-10-22 — ruff excludes Markdown from its scope
+
+**Spec:** .claude/specs/20261022-deps-refresh.md
+
+ruff ≥0.16 formats Python code blocks inside `.md` files, which failed
+`ruff format --check .` on `CODE_GUIDELINES.md` — a human-owned doc whose compact
+`...` examples are deliberate and which Claude may not edit. `extend-exclude = ["*.md"]`
+(Astral's documented opt-out) restores the pre-0.16 scope exactly: the same 424 Python
+files are checked; `ruff check` never read `.md`. Not a gate weakening — Markdown was
+never in the gate's scope. Adversarial review (Opus) concurred: SHIP.
+
+**Affects:** pyproject.toml, .claude/docs/DEPLOYMENT.md

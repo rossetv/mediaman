@@ -53,7 +53,7 @@ README.md's table, not duplicated here. -->
 | Job | What it runs | Gate |
 |-----|---------------|------|
 | `tests` | `pytest -q --cov=mediaman --cov-report=term-missing --maxfail=10 -n auto` | Coverage floor lives in `pyproject.toml` (`[tool.coverage.report]`), not duplicated in CI |
-| `lint` | `ruff check .` + `ruff format --check .` | Both must pass |
+| `lint` | `ruff check .` + `ruff format --check .` | Both must pass; `[tool.ruff] extend-exclude = ["*.md"]` keeps both Python-only (ruff ≥0.16 would otherwise format code blocks in Markdown) |
 | `typecheck` | `mypy src/mediaman` | Full-tree, hard-failing |
 | `security-scan` | `bandit -r src/ -c bandit.yaml -ll` | `-ll` = MEDIUM severity and above; LOW findings are tracked as `nosec` exemptions in `bandit.yaml` |
 | `dependency-audit` | `pip-audit -r requirements.lock --require-hashes` | Audits the concrete locked/hashed set actually shipped, not the loose `pyproject.toml` constraints |
