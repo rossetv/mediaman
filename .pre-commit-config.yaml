@@ -18,7 +18,7 @@ repos:
     # Pin to the same ruff major as `pip install -e ".[dev]"` resolves.
     # Bump in lockstep with the dev dependency to avoid lint drift between
     # the local pre-commit hook and CI.
-    rev: v0.14.6
+    rev: v0.17.1
     hooks:
       - id: ruff-format
       - id: ruff

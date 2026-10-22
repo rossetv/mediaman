@@ -52,7 +52,7 @@ dependencies = [
 dev = [
     "pytest~=9.1",
     "pytest-cov~=7.1",
-    "pytest-mock~=3.15",
+    "pytest-mock~=3.16",
     "pytest-asyncio~=1.4",
     "pytest-xdist~=3.8",
     "httpx~=0.28",
@@ -60,10 +60,10 @@ dev = [
     # under our filterwarnings=error that deprecation is a hard collection error,
     # so the TestClient needs httpx2 present. Test-only — the app uses httpx at
     # runtime (it is NOT in requirements.lock and never enters the prod image).
-    "httpx2~=2.7",
-    "ruff~=0.15.0",
-    "mypy~=2.3",
-    "coverage[toml]~=7.15",
+    "httpx2~=2.13",
+    "ruff~=0.17.0",
+    "mypy~=2.4",
+    "coverage[toml]~=7.16",
     "types-requests~=2.33",
     # freezegun is the canonical clock for tests that exercise time-dependent
     # behaviour (lockout windows, session idle expiry, "X days ago" formatters).
@@ -112,6 +112,10 @@ filterwarnings = [
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+# ruff 0.17 formats Python code blocks inside Markdown. Our .md files are
+# human docs whose examples are deliberately compact (one-line `...` bodies);
+# keep ruff's scope to Python sources, as it was before 0.17.
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 # Expanded selection — the previous E/F/W/I baseline missed common
