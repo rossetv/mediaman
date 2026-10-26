@@ -60,7 +60,7 @@ dev = [
     # under our filterwarnings=error that deprecation is a hard collection error,
     # so the TestClient needs httpx2 present. Test-only — the app uses httpx at
     # runtime (it is NOT in requirements.lock and never enters the prod image).
-    "httpx2~=2.13",
+    "httpx2~=2.16",
     "ruff~=0.17.0",
     "mypy~=2.4",
     "coverage[toml]~=7.16",
