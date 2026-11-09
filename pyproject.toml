@@ -40,7 +40,7 @@ dependencies = [
     "apscheduler~=3.11",
     "bcrypt~=5.0",
     "cryptography~=50.0",
-    "python-multipart~=0.0.32",
+    "python-multipart~=0.0.33",
     "defusedxml~=0.7",
     "pydantic~=2.14",
 ]
