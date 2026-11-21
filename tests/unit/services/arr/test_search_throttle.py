@@ -1,10 +1,10 @@
 """Tests for the DB-backed throttle persistence, concurrency, and stranded-row reaping.
 
 Covers:
-- ``_load_throttle_from_db`` / ``_save_trigger_to_db`` round-trips (H44)
+- ``_load_throttle_from_db`` / ``_save_trigger_to_db`` round-trips
 - ``maybe_trigger_search`` persistence and cold-start warm-up
-- Lock-release during network I/O (Finding 25)
-- ``reconcile_stranded_throttle`` (Domain-06 #10)
+- Lock-release during network I/O
+- ``reconcile_stranded_throttle``
 """
 
 from __future__ import annotations
@@ -47,11 +47,6 @@ def db_conn(tmp_path):
     conn.close()
 
 
-# ---------------------------------------------------------------------------
-# H44: DB-backed throttle persistence
-# ---------------------------------------------------------------------------
-
-
 class TestThrottleDbPersistence:
     """_load_throttle_from_db and _save_trigger_to_db round-trip correctly."""
 
@@ -88,7 +83,7 @@ class TestThrottleDbPersistence:
         assert _load_throttle_from_db(bad_conn, "radarr:X") == (0.0, 0)
 
     def test_load_propagates_unexpected_exception(self):
-        """Domain-06 #9: a non-DB exception must NOT be silently swallowed.
+        """A non-DB exception must NOT be silently swallowed.
 
         Regression: the previous bare ``except Exception`` masked
         schema migration faults and parser bugs — every call returned
@@ -108,7 +103,6 @@ class TestThrottleDbPersistence:
         _save_trigger_to_db(bad_conn, "radarr:X", 999.0, 1)  # must not raise
 
     def test_maybe_trigger_search_persists_to_db(self, db_conn, monkeypatch):
-        """After maybe_trigger_search fires, the DB row is written."""
         mock_radarr = MagicMock()
         monkeypatch.setattr(
             "mediaman.services.arr.search_trigger.build_radarr_from_db",
@@ -198,7 +192,6 @@ class TestThrottleDbPersistence:
         assert count == 6, "expected previous 5 + 1 new trigger, not a reset to 1"
 
     def test_clear_throttle_removes_db_row_and_memory_state(self, db_conn, monkeypatch):
-        """clear_throttle wipes the DB row and the in-memory caches."""
         from mediaman.services.arr.search_trigger import (
             _last_search_trigger,
             _search_count,
@@ -225,17 +218,12 @@ class TestThrottleDbPersistence:
         clear_throttle(db_conn, "radarr:NeverExisted")  # must not raise
 
 
-# ---------------------------------------------------------------------------
-# B2 / H1 — per-arr-instance fan-out cap on the PRIMARY maybe_trigger_search path
-# ---------------------------------------------------------------------------
-
-
 class TestPerArrInstanceFanOutCap:
     """The documented per-arr-instance throttle is enforced on the primary path.
 
     B2: two distinct stuck items on the same arr instance must fire only ONE
     search within ``_PER_ARR_THROTTLE_SECONDS``. The same item must still
-    advance along its own per-item backoff. H1: abandon (clear_throttle with a
+    advance along its own per-item backoff. Abandon (clear_throttle with a
     service) resets the per-instance cap so an immediate re-monitor can search.
     """
 
@@ -261,7 +249,7 @@ class TestPerArrInstanceFanOutCap:
         }
 
     def test_two_stuck_items_same_instance_fire_only_one_search(self, db_conn, monkeypatch):
-        """B2: two different movies on the same Radarr instance → ONE search."""
+        """Two different movies on the same Radarr instance → ONE search."""
         mock_radarr = self._radarr(monkeypatch)
 
         maybe_trigger_search(
@@ -302,7 +290,7 @@ class TestPerArrInstanceFanOutCap:
         assert mock_radarr.search_movie.call_count == 2
 
     def test_clear_throttle_with_service_resets_instance_cap(self, db_conn, monkeypatch):
-        """H1: abandon (clear_throttle service=...) lets a re-monitor search at once."""
+        """Abandon (clear_throttle service=...) lets a re-monitor search at once."""
         from mediaman.services.arr.search_trigger import clear_throttle
 
         mock_radarr = self._radarr(monkeypatch)
@@ -326,14 +314,9 @@ class TestPerArrInstanceFanOutCap:
         )
 
 
-# ---------------------------------------------------------------------------
-# The throttle lock is released during network I/O so it does not block other tasks
-# ---------------------------------------------------------------------------
-
-
 class TestLockReleasedDuringNetwork:
     def test_state_lock_not_held_during_network_call(self, monkeypatch):
-        """Finding 25: another thread must be able to acquire ``_state_lock``
+        """Another thread must be able to acquire ``_state_lock``
         while ``maybe_trigger_search`` is mid-HTTP-call.
 
         Regression: the original implementation wrapped the entire
@@ -427,7 +410,7 @@ class TestLockReleasedDuringNetwork:
         assert _st._search_count.get("radarr:RollbackMe", 0) == 0
 
     def test_rollback_uses_per_attempt_token(self, db_conn, monkeypatch):
-        """Domain-06 #8: a sibling thread overwriting
+        """A sibling thread overwriting
         ``_last_search_trigger[dl_id]`` after our reservation must NOT
         cause our rollback to silently no-op.
 
@@ -488,7 +471,7 @@ class TestLockReleasedDuringNetwork:
         )
 
     def test_db_read_happens_outside_state_lock(self, monkeypatch):
-        """Domain-06 #7: ``_state_lock`` must NOT be held during the cold-cache
+        """``_state_lock`` must NOT be held during the cold-cache
         DB read — a slow SQLite query must not serialise every sibling worker.
         """
         from mediaman.services.arr import search_trigger as _st
@@ -525,16 +508,10 @@ class TestLockReleasedDuringNetwork:
         assert not observed["lock_held_during_db_read"]
 
 
-# ---------------------------------------------------------------------------
-# TestReconcileStrandedThrottle (Domain-06 #10)
-# ---------------------------------------------------------------------------
-
-
 class TestReconcileStrandedThrottle:
     """Stranded ``arr_search_throttle`` rows are reaped after the TTL."""
 
     def test_returns_zero_when_table_is_empty(self, db_conn):
-        """Empty table — nothing to do, no error."""
         assert reconcile_stranded_throttle(db_conn) == 0
 
     def test_keeps_recent_rows(self, db_conn):

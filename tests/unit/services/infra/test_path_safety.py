@@ -1,4 +1,4 @@
-"""Tests for path_safety helpers (finding 31 — unified delete-roots parser)."""
+"""Tests for path_safety helpers (unified delete-roots parser)."""
 
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ class TestParseDeleteRootsEnv:
         assert parse_delete_roots_env(",") == []
 
     def test_consistent_with_deletion_parser(self):
-        """Colon and comma inputs yield identical path lists (finding 31 — same parser)."""
+        """Colon and comma inputs yield identical path lists (same parser)."""
         colon_result = parse_delete_roots_env("/data/movies:/data/tv")
         comma_result = parse_delete_roots_env("/data/movies,/data/tv")
         assert colon_result == comma_result

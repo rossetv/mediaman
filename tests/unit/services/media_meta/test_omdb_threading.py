@@ -1,4 +1,4 @@
-"""Tests for OMDb threading fix (finding 32).
+"""Tests for the OMDb threading fix.
 
 Ensures fetch_ratings can be called without a DB connection (via the omdb_key=
 parameter) and that the programming-error path is not swallowed.

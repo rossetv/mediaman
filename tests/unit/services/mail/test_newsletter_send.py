@@ -112,7 +112,6 @@ class TestSendNewsletterNoMailgunConfig:
         mock_mailgun_cls.assert_not_called()
 
     def test_missing_base_url_raises_config_error(self, db_path):
-        """When base_url is missing, NewsletterConfigError is raised (no unsubscribe URL)."""
         conn = init_db(str(db_path))
         _insert_setting(conn, "mailgun_domain", "mg.example.com")
         _insert_setting(conn, "mailgun_api_key", "key-testvalue")
@@ -144,7 +143,7 @@ class TestSendNewsletterNoMailgunConfig:
         ],
     )
     def test_non_http_base_url_raises_config_error(self, db_path, bad_url):
-        """H70: base_url with a non-HTTP(S) scheme must be rejected before sending.
+        """base_url with a non-HTTP(S) scheme must be rejected before sending.
 
         A javascript: or data: base_url would produce XSS-grade href values in
         the newsletter HTML, so the service must refuse to proceed.
@@ -170,7 +169,6 @@ class TestSendNewsletterNoMailgunConfig:
         mock_mailgun_cls.assert_not_called()
 
     def test_missing_domain_only_raises_config_error(self, db_path):
-        """When only domain is missing (api_key present), NewsletterConfigError is raised."""
         conn = init_db(str(db_path))
         _insert_setting(conn, "mailgun_api_key", "key-testvalue")
         _insert_setting(conn, "mailgun_from_address", "media@example.com")
@@ -224,7 +222,6 @@ class TestSendNewsletterWithScheduledItems:
             yield
 
     def test_scheduled_items_trigger_email_send(self, db_path):
-        """When there are scheduled items and subscribers, email is sent."""
         conn = init_db(str(db_path))
         _configure_mailgun(conn)
         _add_subscriber(conn, "alice@example.com")
@@ -240,7 +237,6 @@ class TestSendNewsletterWithScheduledItems:
         assert "Test Movie" in call_kwargs.kwargs["html"]
 
     def test_scheduled_items_marked_notified_after_send(self, db_path):
-        """After a successful send, scheduled_actions rows are marked notified=1."""
         conn = init_db(str(db_path))
         _configure_mailgun(conn)
         _add_subscriber(conn, "alice@example.com")
@@ -277,7 +273,6 @@ class TestSendNewsletterWithScheduledItems:
         assert sa["notified"] == 0
 
     def test_multiple_subscribers_each_get_an_email(self, db_path):
-        """Each active subscriber receives an individual email."""
         conn = init_db(str(db_path))
         _configure_mailgun(conn)
         _add_subscriber(conn, "alice@example.com")
@@ -295,7 +290,7 @@ class TestSendNewsletterWithScheduledItems:
 
 
 class TestPartialDeliveryFailure:
-    """Finding 23: a partial failure must not lose notifications for the
+    """A partial failure must not lose notifications for the
     recipients that didn't receive the email.
 
     The fix records one row per (scheduled_action, recipient) in the new
@@ -437,7 +432,6 @@ class TestSendNewsletterRecipientOverride:
             yield
 
     def test_recipients_override_bypasses_subscriber_table(self, db_path):
-        """When recipients= is provided, the subscriber table is ignored."""
         conn = init_db(str(db_path))
         _configure_mailgun(conn)
         # No subscribers in the DB
@@ -456,7 +450,6 @@ class TestSendNewsletterRecipientOverride:
         assert mock_mailgun_instance.send.call_args.kwargs["to"] == "override@example.com"
 
     def test_mark_notified_false_leaves_rows_unnotified(self, db_path):
-        """With mark_notified=False the scheduled_actions rows stay at notified=0."""
         conn = init_db(str(db_path))
         _configure_mailgun(conn)
         _add_scheduled_item(conn)
@@ -477,7 +470,7 @@ class TestSendNewsletterRecipientOverride:
 
 
 class TestNewsletterSuggestionContext:
-    """H59: suggestion rows must be passed to the template as explicit dicts, not raw DB rows."""
+    """Suggestion rows must be passed to the template as explicit dicts, not raw DB rows."""
 
     @pytest.fixture(autouse=True)
     def _patch_boundaries(self):

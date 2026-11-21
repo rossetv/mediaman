@@ -56,7 +56,7 @@ class TestNzbgetClient:
 
 
 class TestNzbgetJsonRpcError:
-    """B4/M6 — JSON-RPC errors must raise NzbgetError, not silently return {}."""
+    """JSON-RPC errors must raise NzbgetError, not silently return {}."""
 
     def test_rpc_error_raises_nzbget_error(self, client, fake_http, fake_response):
         """A JSON-RPC error object in the response must raise NzbgetError.
@@ -78,7 +78,6 @@ class TestNzbgetJsonRpcError:
             client.get_status()
 
     def test_rpc_auth_error_raises_nzbget_error(self, client, fake_http, fake_response):
-        """Authentication failure returns an error object; must raise NzbgetError."""
         fake_http.queue(
             "POST",
             fake_response(

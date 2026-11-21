@@ -265,11 +265,6 @@ def test_build_sonarr_cache_logs_warning_on_duplicate_tmdb_id(caplog):
     assert any("duplicate tmdbId=50" in r.message for r in caplog.records)
 
 
-# ---------------------------------------------------------------------------
-# previousAiring / previousAiringDate fallback
-# ---------------------------------------------------------------------------
-
-
 def test_tv_previous_airing_date_treated_as_aired_signal():
     """Older Sonarr exposes ``previousAiringDate`` instead of ``previousAiring``.
 
@@ -300,11 +295,6 @@ def test_tv_previous_airing_date_treated_as_aired_signal():
     }
     assert compute_download_state("tv", 700, caches) == "in_library"
 
-
-# ---------------------------------------------------------------------------
-# _season_stats / _season_has_aired — pure helpers promoted out of
-# compute_download_state's series branch (Phase-4 decomposition)
-# ---------------------------------------------------------------------------
 
 from mediaman.services.arr.state import _season_has_aired, _season_stats  # noqa: E402
 
@@ -340,11 +330,6 @@ class TestSeasonHasAired:
         assert _season_has_aired({"statistics": {"episodeCount": 10}}) is False
         assert _season_has_aired({"seasonNumber": 1}) is False
 
-
-# ---------------------------------------------------------------------------
-# attach_download_states — per-item Arr enrichment lifted out of the
-# /recommended page handler
-# ---------------------------------------------------------------------------
 
 from mediaman.services.arr.state import attach_download_states  # noqa: E402
 
@@ -458,7 +443,7 @@ def test_attach_download_states_keeps_untracked_items_without_state():
 
 
 def test_attach_skips_and_logs_unrecognised_media_type(caplog):
-    """H4: an item with a usable tmdb_id but a media_type that isn't
+    """An item with a usable tmdb_id but a media_type that isn't
     "movie"/"tv" must be skipped+logged, not silently classed as a series.
 
     Regression: ``compute_download_state`` treats anything that isn't

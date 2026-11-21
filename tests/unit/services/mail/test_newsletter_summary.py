@@ -1,6 +1,6 @@
 """Tests for mediaman.services.mail.newsletter.summary._load_deleted_items.
 
-Focuses on the §13.3 N+1 fix: the batch tmdb_id lookup must issue a single
+Focuses on the N+1 fix: the batch tmdb_id lookup must issue a single
 query regardless of the number of deleted rows, handle duplicate (title,
 media_type) pairs, and gracefully handle rows with None titles.
 """
@@ -25,7 +25,6 @@ def _make_conn(db_path):
 
 
 def _insert_deleted_item(conn, *, title: str, media_type: str = "movie", mi_id: str) -> None:
-    """Insert a media_item + deleted audit_log entry."""
     insert_media_item(
         conn,
         id=mi_id,
@@ -66,7 +65,7 @@ class _QueryCountingConnection:
 
 
 class TestLoadDeletedItemsBatchQuery:
-    """§13.3 — the suggestions lookup must be a single batched query, never N per row."""
+    """The suggestions lookup must be a single batched query, never N per row."""
 
     def test_single_query_for_multiple_rows(self, db_path):
         """A recording wrapper must see exactly one suggestions query
@@ -147,7 +146,6 @@ class TestLoadDeletedItemsBatchQuery:
         assert extracted is not None, "Row with title from detail must appear in results"
 
     def test_no_deleted_rows_returns_empty_list(self, db_path):
-        """When there are no deleted items in the past 7 days, return an empty list."""
         conn = _make_conn(db_path)
 
         from mediaman.services.mail.newsletter.summary import _load_deleted_items
@@ -157,7 +155,7 @@ class TestLoadDeletedItemsBatchQuery:
 
 
 class TestBuildRedownloadIndexWindowBound:
-    """R5-H1 — _build_redownload_index must only return records within the 7-day window.
+    """_build_redownload_index must only return records within the 7-day window.
 
     The index is used to exclude re-downloaded items from the deleted-items
     list. If it scans the full audit log (no ``created_at >=`` bound), it

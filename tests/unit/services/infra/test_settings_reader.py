@@ -115,11 +115,6 @@ class TestGetStringSetting:
         assert get_string_setting(conn, "nope", default="hello") == "hello"
 
 
-# ---------------------------------------------------------------------------
-# H45: ConfigDecryptError
-# ---------------------------------------------------------------------------
-
-
 class TestConfigDecryptError:
     def test_is_exception_subclass(self):
         exc = ConfigDecryptError("my_key", ValueError("boom"))

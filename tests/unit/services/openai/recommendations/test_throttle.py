@@ -44,7 +44,7 @@ class TestRecordManualRefresh:
         assert rows[0] == 1
 
     def test_uses_transaction_context_manager(self, conn):
-        """F-11: record_manual_refresh must use with-conn: so failure rolls back cleanly.
+        """record_manual_refresh must use with-conn: so failure rolls back cleanly.
 
         Verify the write is committed (readable after the call on the same
         connection) — the ``with conn:`` pattern auto-commits on success and

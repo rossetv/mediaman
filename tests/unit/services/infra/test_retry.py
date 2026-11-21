@@ -1,4 +1,4 @@
-"""Parity tests for :func:`dispatch_loop` — the outbound retry core.
+"""Parity tests for ``dispatch_loop`` — the outbound retry core.
 
 ``dispatch_loop`` is exercised end-to-end through ``test_http_client.py``
 (transport-error retry, 429/5xx retry, ``Retry-After`` honouring, exhaustion)
@@ -6,7 +6,7 @@ and through ``test_mailgun.py`` (the full-jitter / early-abort POST path).
 These tests pin the pieces those suites do not reach directly: the
 cross-iteration carry-over state (the ``consecutive_5xx`` counter and the
 ``last_status`` / ``last_snippet`` values) that the function decomposition
-threads through a :class:`_LoopState`. If a future change mis-threads that
+threads through a ``_LoopState``. If a future change mis-threads that
 state, the retry / early-abort policy breaks silently — these tests fail loudly
 instead.
 """
@@ -199,7 +199,7 @@ class TestDegenerateAttemptBudget:
         """``attempts=0`` skips the loop entirely. The old code asserted
         ``state.last_exc is not None`` and would raise a bare
         ``AssertionError`` (stripped under ``python -O``). It must now raise
-        the typed ``make_error`` with status 0 (M2)."""
+        the typed ``make_error`` with status 0."""
 
         def dispatch_fn():  # pragma: no cover - never called with attempts=0
             raise AssertionError("dispatch_fn must not run with attempts=0")

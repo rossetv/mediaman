@@ -10,10 +10,6 @@ from unittest.mock import MagicMock
 from mediaman.services.arr.fetcher._base import make_arr_card
 from mediaman.services.arr.fetcher._radarr import fetch_radarr_queue
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 
 def _client(queue: list[dict] | None = None, movies: list[dict] | None = None) -> MagicMock:
     """Build a minimal Radarr client stub."""
@@ -46,11 +42,6 @@ def _queue_item(
     }
 
 
-# ---------------------------------------------------------------------------
-# _make_radarr_card
-# ---------------------------------------------------------------------------
-
-
 class TestMakeRadarrCard:
     def test_kind_is_movie(self):
         card = make_arr_card("movie", "Dune", source="Radarr")
@@ -78,11 +69,6 @@ class TestMakeRadarrCard:
     def test_is_upcoming_defaults_false(self):
         card = make_arr_card("movie", "Dune", source="Radarr")
         assert card["is_upcoming"] is False
-
-
-# ---------------------------------------------------------------------------
-# fetch_radarr_queue — queue items
-# ---------------------------------------------------------------------------
 
 
 class TestFetchRadarrQueueItems:
@@ -116,11 +102,6 @@ class TestFetchRadarrQueueItems:
     def test_empty_queue_returns_empty(self):
         client = _client(queue=[], movies=[])
         assert fetch_radarr_queue(client) == []
-
-
-# ---------------------------------------------------------------------------
-# fetch_radarr_queue — library (searching) items
-# ---------------------------------------------------------------------------
 
 
 class TestFetchRadarrQueueSearching:
@@ -212,7 +193,7 @@ class TestFetchRadarrQueueSearching:
     def test_get_movies_safehttp_503_does_not_crash(self):
         """A 503 from Radarr (raised as ``SafeHTTPError``) is caught.
 
-        Regression for finding Domain-06 #1: prior code only caught
+        Regression: prior code only caught
         ``requests.RequestException`` — but ``SafeHTTPClient`` raises
         ``SafeHTTPError`` (a plain ``Exception`` subclass) for non-2xx
         responses, which propagated past the ``except`` and discarded
@@ -226,11 +207,6 @@ class TestFetchRadarrQueueSearching:
         cards = fetch_radarr_queue(client)
         assert len(cards) == 1
         assert cards[0]["title"] == "Dune"
-
-
-# ---------------------------------------------------------------------------
-# fetch_radarr_queue — progress clamp
-# ---------------------------------------------------------------------------
 
 
 class TestProgressClamp:

@@ -44,11 +44,6 @@ def db_conn(tmp_path):
     conn.close()
 
 
-# ---------------------------------------------------------------------------
-# get_search_info
-# ---------------------------------------------------------------------------
-
-
 class TestGetSearchInfo:
     def test_returns_zeros_for_unknown_id(self):
         """An id never seen before returns (0, 0.0)."""
@@ -128,12 +123,6 @@ class TestGetSearchInfo:
         assert calls["n"] == 1
 
 
-# ---------------------------------------------------------------------------
-# _parse_trigger_inputs — input-coercion preamble lifted out of
-# maybe_trigger_search (Phase-4 decomposition)
-# ---------------------------------------------------------------------------
-
-
 class TestParseTriggerInputs:
     """The pre-lock guard cascade + coercion. Returns ``_TriggerInputs`` or ``None``."""
 
@@ -184,11 +173,6 @@ class TestParseTriggerInputs:
         assert _parse_trigger_inputs(item, matched_nzb=False, secret_key="k") is None
 
 
-# ---------------------------------------------------------------------------
-# reset_search_triggers
-# ---------------------------------------------------------------------------
-
-
 class TestResetSearchTriggers:
     def test_reset_clears_state(self, monkeypatch):
         """After triggering a search, reset_search_triggers zeros everything out."""
@@ -222,11 +206,6 @@ class TestResetSearchTriggers:
         count, last = get_search_info("radarr:Arrival")
         assert count == 0
         assert last == 0.0
-
-
-# ---------------------------------------------------------------------------
-# _trigger_sonarr_partial_missing
-# ---------------------------------------------------------------------------
 
 
 class TestTriggerSonarrPartialMissing:
@@ -271,7 +250,7 @@ class TestTriggerSonarrPartialMissing:
         assert not any(arr_id == 10 for _, arr_id in calls)
 
     def test_renamed_series_does_not_bypass_partial_missing_pass(self, db_conn, monkeypatch):
-        """Domain-06 #11: a series rename mid-run must NOT cause the
+        """A series rename mid-run must NOT cause the
         partial-missing pass to fire a fresh search.
 
         The previous implementation built ``dl_id = sonarr:{title}``

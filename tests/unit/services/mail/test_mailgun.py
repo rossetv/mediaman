@@ -64,7 +64,7 @@ class TestMailgunSend:
 
 
 class TestMailgunRetryPolicy:
-    """The mailgun POST shares :func:`dispatch_loop` with every other
+    """The mailgun POST shares ``dispatch_loop`` with every other
     outbound caller, opting into full-jitter backoff and a 2-consecutive-5xx
     early abort.  These tests pin the user-visible behaviour rather than
     the internal helper that previously implemented it.
@@ -153,7 +153,7 @@ class TestMailgunRetryPolicy:
 
 
 class TestMailgunValidation:
-    """Tests for H55: recipient and header injection guards."""
+    """Tests for recipient and header injection guards."""
 
     def test_valid_address_passes(self):
         _validate_recipient("user@example.com")  # must not raise

@@ -252,22 +252,19 @@ class TestShapeCard:
         assert card["rating"] == 7.5
 
     def test_zero_vote_average_yields_zero_rating(self):
-        """F-01: vote_average=0.0 is a valid (if unusual) score; must not be None."""
+        """vote_average=0.0 is a valid (if unusual) score; must not be None."""
         card = TmdbClient.shape_card({"id": 1, "vote_average": 0.0})
         assert card["rating"] == 0.0
 
     def test_none_vote_average_yields_none_rating(self):
-        """F-01: absent vote_average must still yield None."""
         card = TmdbClient.shape_card({"id": 1})
         assert card["rating"] is None
 
     def test_poster_path_without_leading_slash_is_rejected(self):
-        """F-12: poster_path without a leading slash must not build a URL."""
         card = TmdbClient.shape_card({"id": 1, "poster_path": "noslash.jpg"})
         assert card["poster_url"] is None
 
     def test_poster_path_with_leading_slash_builds_url(self):
-        """F-12: poster_path with a leading slash must build a valid URL."""
         card = TmdbClient.shape_card({"id": 1, "poster_path": "/abc.jpg"})
         assert card["poster_url"] == "https://image.tmdb.org/t/p/w300/abc.jpg"
 

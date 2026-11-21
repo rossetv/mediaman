@@ -31,7 +31,7 @@ class TestNzbMatchesArr:
 
 
 class TestMaybeRecordCompletionsLockDiscipline:
-    """C20 — _maybe_record_completions must release the state lock
+    """_maybe_record_completions must release the state lock
     BEFORE doing Radarr/Sonarr HTTP I/O. A hung Arr previously stalled
     every other /downloads request site-wide because the lock was held
     across the network call."""
@@ -81,7 +81,7 @@ class TestMaybeRecordCompletionsLockDiscipline:
 
 
 class TestEnrichWithTmdbIds:
-    """D6 — every Arr-prefixed entry in the queue snapshot is stamped with
+    """Every Arr-prefixed entry in the queue snapshot is stamped with
     its tmdb_id so detect_completed can propagate the id all the way through
     to record_verified_completions (which used to fall back to title-only
     matching for every completion)."""
@@ -175,7 +175,7 @@ class TestEnrichWithTmdbIds:
             return_value=mock_radarr,
         ):
             dq._enrich_with_tmdb_ids(MagicMock(), current_map, secret_key="x")
-        # Tmdb_id stays absent on failure — caller falls back to title-only matching.
+        # tmdb_id stays absent on failure — caller falls back to title-only matching.
         assert "tmdb_id" not in current_map["radarr:Dune"]
 
 

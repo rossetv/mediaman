@@ -48,13 +48,11 @@ class TestOpenAIModelSelection:
         assert default.startswith("gpt-")
 
     def test_model_defaults_when_no_setting(self, conn):
-        """When no ``openai_model`` setting is stored, the default is used."""
         assert openai_recommendations._get_openai_model(conn) == (
             openai_recommendations._DEFAULT_MODEL
         )
 
     def test_model_honours_setting(self, conn):
-        """An ``openai_model`` setting overrides the default."""
         insert_settings(conn, openai_model="gpt-4o", updated_at="2026-04-18T00:00:00+00:00")
         assert openai_recommendations._get_openai_model(conn) == "gpt-4o"
 
@@ -75,7 +73,6 @@ class TestOpenAIModelSelection:
         assert strip("Margo's Got Money Troubles") == "Margo's Got Money Troubles"
 
     def test_call_openai_sends_configured_model(self, conn, monkeypatch, fake_http, fake_response):
-        """``_call_openai`` must forward the configured model in the request body."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
         insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
         insert_settings(conn, openai_model="gpt-4.1-mini", updated_at="2026-04-18T00:00:00+00:00")
@@ -156,7 +153,6 @@ class TestWebSearchGating:
     def test_web_search_enabled_when_setting_true(
         self, conn, monkeypatch, fake_http, fake_response
     ):
-        """When ``openai_web_search_enabled`` is set to true, tools key is included."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
         insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
         insert_settings(
@@ -240,7 +236,6 @@ class TestWebSearchTitleValidation:
     def test_safe_batch_returned_when_web_search_active(
         self, conn, monkeypatch, fake_http, fake_response
     ):
-        """A fully safe batch passes validation when web search is active."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
         insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
         insert_settings(
@@ -271,7 +266,7 @@ class TestWebSearchTitleValidation:
 
 
 class TestOpenAIKeySource:
-    """H49: debug logging of which source (DB vs env) provided the API key."""
+    """Debug logging of which source (DB vs env) provided the API key."""
 
     def test_logs_db_source_when_key_in_db(self, conn, monkeypatch, caplog):
         """When the key comes from the DB, a DEBUG message says so."""
@@ -297,7 +292,7 @@ class TestOpenAIKeySource:
 
 
 class TestOpenAIClientTimeout:
-    """H58: the OpenAI HTTP client must have a short, explicit read timeout."""
+    """The OpenAI HTTP client must have a short, explicit read timeout."""
 
     def test_read_timeout_is_30s_or_less(self):
         """The module-level client must not use the original 90 s read timeout.
@@ -322,10 +317,9 @@ class TestOpenAIClientTimeout:
 
 
 class TestJsonObjectFormat:
-    """H50: ``_call_openai`` must request json_object format and handle markdown fallback."""
+    """``_call_openai`` must request json_object format and handle markdown fallback."""
 
     def test_json_object_format_sent_in_request(self, conn, monkeypatch, fake_http, fake_response):
-        """The request body must include ``text.format.type == json_object``."""
         monkeypatch.setenv("MEDIAMAN_SECRET_KEY", "0123456789abcdef" * 4)
         insert_settings(conn, openai_api_key="sk-test", updated_at="2026-04-18T00:00:00+00:00")
 

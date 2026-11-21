@@ -152,7 +152,7 @@ class TestPlexClient:
     def test_get_watch_history_body_cap_raises_plex_response_too_large(
         self, mock_cls, fake_http, fake_response
     ):
-        """F-15: body-cap events must raise PlexResponseTooLarge, not plain ValueError.
+        """Body-cap events must raise PlexResponseTooLarge, not plain ValueError.
 
         PlexResponseTooLarge is a subclass of ValueError so existing catchers
         that used ``except ValueError`` continue to work unchanged.
@@ -176,7 +176,7 @@ class TestPlexClient:
             client.get_watch_history("123")
 
     def test_plex_response_too_large_is_value_error_subclass(self):
-        """F-15: PlexResponseTooLarge must be a ValueError subclass for backwards compat."""
+        """PlexResponseTooLarge must be a ValueError subclass for backwards compat."""
         assert issubclass(PlexResponseTooLarge, ValueError)
 
     @patch("mediaman.services.media_meta.plex.PlexServer")
@@ -328,7 +328,7 @@ class TestPlexClient:
 
     @patch("mediaman.services.media_meta.plex.PlexServer")
     def test_get_watch_history_uses_params_kwarg(self, mock_cls, fake_http, fake_response):
-        """H53: metadataItemID must be sent via params= not interpolated into the URL."""
+        """metadataItemID must be sent via params= not interpolated into the URL."""
         mock_server = MagicMock()
         mock_server._baseurl = "http://plex:32400"
         mock_server._token = "test-token"
@@ -351,8 +351,6 @@ class TestPlexClient:
 
 
 class TestScrubPlexToken:
-    """H52: ``_scrub_plex_token`` must redact token values from strings."""
-
     def test_scrubs_token_in_query_string(self):
         msg = "http://plex:32400/status?X-Plex-Token=supersecret&sort=desc"
         result = _scrub_plex_token(msg)
@@ -622,8 +620,7 @@ class TestSafePlexSession:
         )
         with pytest.raises(SafeHTTPError) as excinfo:
             _SafePlexSession().get("http://blocked.example/path?X-Plex-Token=secret-tok-123")
-        # SafeHTTPError stores ``host/path`` with the query string stripped
-        # (L1), so the token cannot leak regardless of upstream redaction.
+        # SafeHTTPError stores ``host/path`` with the query string stripped, so the token cannot leak regardless of upstream redaction.
         assert "secret-tok-123" not in excinfo.value.url
         assert "?" not in excinfo.value.url
         assert excinfo.value.url == "blocked.example/path"

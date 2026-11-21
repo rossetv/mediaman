@@ -86,7 +86,7 @@ class TestArrClientRadarr:
         assert len(puts) == 1
 
     def test_get_movie_by_tmdb_uses_server_side_filter(self, client, fake_http, fake_response):
-        """M5 — get_movie_by_tmdb queries ?tmdbId= rather than dumping the library.
+        """get_movie_by_tmdb queries ?tmdbId= rather than dumping the library.
 
         A single lookup must hit ``/api/v3/movie?tmdbId=<id>`` (one indexed
         query) and return the first matching entry, not fetch every movie and
@@ -110,7 +110,6 @@ class TestArrClientRadarr:
         assert client.get_movie_by_tmdb(999999) is None
 
     def test_delete_movie_sends_delete_request(self, client, fake_http, fake_response):
-        """delete_movie issues a DELETE with the correct URL."""
         fake_http.queue("DELETE", fake_response(content=b""))
         client.delete_movie(movie_id=42)
         delete_call = _find_call(fake_http, "DELETE")
@@ -129,7 +128,6 @@ class TestArrClientRadarr:
         assert post_call is not None
 
     def test_remonitor_movie_retries_on_failed_put(self, client, fake_http, fake_response):
-        """R4-M2: remonitor_movie must retry the PUT on transient failure."""
         # Round 1: GET returns unmonitored, PUT fails.
         fake_http.queue(
             "GET", fake_response(json_data={"id": 1, "title": "Test", "monitored": False})
@@ -150,7 +148,6 @@ class TestArrClientRadarr:
     def test_remonitor_movie_skips_put_when_already_monitored(
         self, client, fake_http, fake_response
     ):
-        """R4-M2: remonitor_movie must skip the PUT if already monitored (noop)."""
         fake_http.queue(
             "GET", fake_response(json_data={"id": 1, "title": "Test", "monitored": True})
         )

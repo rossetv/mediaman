@@ -1,4 +1,4 @@
-"""Tests for is_series_already_tracked and annotate_download_states (B2/M2).
+"""Tests for is_series_already_tracked and annotate_download_states.
 
 Covers:
   - is_series_already_tracked: returns True when tvdbId matches, False otherwise
@@ -14,8 +14,6 @@ from mediaman.services.arr.state import annotate_download_states, is_series_alre
 
 
 class TestIsSeriesAlreadyTracked:
-    """is_series_already_tracked delegates to sonarr_client.get_series (B2)."""
-
     def test_returns_true_when_tvdb_id_found(self):
         client = MagicMock()
         client.get_series.return_value = [{"tvdbId": 111}, {"tvdbId": 222}]
@@ -41,8 +39,6 @@ class TestIsSeriesAlreadyTracked:
 
 
 class TestAnnotateDownloadStates:
-    """annotate_download_states stamps download_state on result dicts (M2)."""
-
     def _make_conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row

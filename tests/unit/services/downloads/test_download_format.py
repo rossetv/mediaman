@@ -1,4 +1,4 @@
-"""Tests for download_format helpers — H37 (classify_series_upcoming) and H41 (parse_clean_title)."""
+"""Tests for download_format helpers (classify_series_upcoming and parse_clean_title)."""
 
 from __future__ import annotations
 
@@ -9,14 +9,9 @@ from mediaman.services.downloads.download_format import (
     parse_clean_title,
 )
 
-# ---------------------------------------------------------------------------
-# H41: parse_clean_title
-# ---------------------------------------------------------------------------
-
 
 class TestParseCleanTitle:
     def test_standard_title_year_resolution(self):
-        """Standard 'Title.Year.Resolution' pattern."""
         assert parse_clean_title("Dune.2021.1080p.x264") == "Dune"
 
     def test_year_prefix_does_not_become_title(self):
@@ -59,11 +54,6 @@ class TestParseCleanTitle:
 
     def test_empty_string_returns_empty(self):
         assert parse_clean_title("") == ""
-
-
-# ---------------------------------------------------------------------------
-# H37: classify_series_upcoming — unparseable airDateUtc handling
-# ---------------------------------------------------------------------------
 
 
 class TestClassifySeriesUpcomingAirDateHandling:
@@ -125,7 +115,6 @@ class TestClassifySeriesUpcomingAirDateHandling:
         assert is_upcoming is True
 
     def test_not_upcoming_when_has_aired_episodes(self):
-        """Series with past-aired episodes should not be classified as upcoming."""
         series = self._series("continuing")
         episodes = [
             {"airDateUtc": "2020-01-01T00:00:00Z"},  # past

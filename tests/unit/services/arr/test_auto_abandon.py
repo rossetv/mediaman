@@ -181,7 +181,7 @@ class TestMaybeAutoAbandon:
         assert called == []
 
     def test_fires_series_with_filtered_seasons(self, monkeypatch):
-        """Series branch: specials (S00) filtered out; only positive seasons abandoned."""
+        """Series branch: specials filtered out; only positive seasons abandoned."""
         from mediaman.services.arr.auto_abandon import maybe_auto_abandon
 
         monkeypatch.setattr(
@@ -220,7 +220,7 @@ class TestMaybeAutoAbandon:
         assert captured_events[0]["detail"]["seasons"] == [2, 5]
 
     def test_non_numeric_season_number_does_not_abort_abandon(self, monkeypatch):
-        """L4: a malformed (non-numeric) ``season_number`` is treated as 0 and
+        """A malformed (non-numeric) ``season_number`` is treated as 0 and
         filtered, not raised on — the valid seasons still abandon."""
         from mediaman.services.arr.auto_abandon import maybe_auto_abandon
 

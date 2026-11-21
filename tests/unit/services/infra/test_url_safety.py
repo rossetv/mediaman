@@ -335,7 +335,7 @@ class TestIdnNormalisation:
         # rationale: _host_is_metadata and _normalise_host are private helpers that
         # implement the UTS-46 normalisation invariant; no public function exposes
         # the intermediate normalised string, so the tricky algorithm must be
-        # tested directly (see CODE_GUIDELINES §11.9 exception).
+        # tested directly.
         from mediaman.services.infra.url_safety import _host_is_metadata, _normalise_host
 
         # A clean ASCII hostname normalises to itself.
@@ -408,7 +408,7 @@ class TestResolveSafeOutboundUrl:
 
 
 class TestResolverTimeout:
-    """M6 — a slow authoritative resolver must not stall the worker.
+    """A slow authoritative resolver must not stall the worker.
 
     ``_resolve_all`` runs ``getaddrinfo`` on a bounded worker; a lookup
     that exceeds the budget is treated as a resolution failure (refuse
@@ -449,11 +449,6 @@ class TestResolverTimeout:
         assert ip == "93.184.216.34"
 
 
-# ---------------------------------------------------------------------------
-# Allowlist (opt-in)
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture
 def settings_db(tmp_path):
     """A properly configured DB via init_db for allowlist tests.
@@ -488,7 +483,7 @@ class TestAllowedOutboundHosts:
 
     def test_amazon_poster_cdns_are_pinned(self, settings_db):
         """Radarr/Sonarr serve some posters from Amazon image hosts, so
-        both must be in the composed allowlist (R2b-H1 regression)."""
+        both must be in the composed allowlist."""
         hosts = allowed_outbound_hosts(settings_db)
         assert "m.media-amazon.com" in hosts
         assert "images.amazon.com" in hosts
@@ -547,7 +542,7 @@ class TestIsSafeOutboundUrlAllowlist:
         )
 
     def test_amazon_poster_host_accepted_private_ip_host_refused(self, fake_dns):
-        """R2b-H1 §10.11: an Amazon poster CDN passes the allowlist+resolve
+        """An Amazon poster CDN passes the allowlist+resolve
         path, while a private-IP-resolving off-allowlist host is refused."""
         fake_dns(["93.184.216.34"])  # clean public IP for the Amazon host
         assert resolve_safe_outbound_url(
@@ -634,16 +629,16 @@ class TestAllowedOutboundHostsFailClosed:
 
 
 class TestSafeHTTPClientAllowlistWiring:
-    """Production-style wiring check (W1.32).
+    """Production-style wiring check.
 
     The contract is:
 
     * Composing the allowlist from a settings DB with ``plex_url=...``
       includes that host.
-    * Constructing a :class:`SafeHTTPClient` with that allowlist allows
+    * Constructing a ``SafeHTTPClient`` with that allowlist allows
       a request to the configured host.
     * The same client refuses a request to an off-allowlist host with
-      :class:`SafeHTTPError` (the SSRF-refusal shape on the boundary).
+      ``SafeHTTPError`` (the SSRF-refusal shape on the boundary).
     """
 
     def test_configured_plex_host_is_allowlisted(self, settings_db, clean_dns):
@@ -679,7 +674,7 @@ class TestSafeHTTPClientAllowlistWiring:
 
 
 def _stub_safe_response():
-    """Minimal :class:`requests.Response` stand-in for the dispatcher.
+    """Minimal ``requests.Response`` stand-in for the dispatcher.
 
     Returns the smallest object the streaming reader will accept: a
     200 status, no content-length header, and an iterator yielding a

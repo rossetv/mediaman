@@ -243,7 +243,7 @@ class TestDeletePathSymlinkSafety:
         assert (outside / "important.txt").exists()
 
     def test_refuses_broken_symlink_root(self, tmp_path):
-        """A delete root that is a *broken* symlink must still be refused (L5).
+        """A delete root that is a *broken* symlink must still be refused.
 
         ``Path.exists()`` follows the link and reports False for a dangling
         target, which previously skipped the ``O_NOFOLLOW`` symlink check.
@@ -276,7 +276,7 @@ class TestDeletePathSymlinkSafety:
 
     def test_cross_device_symlink_entry_refused(self, tmp_path, monkeypatch):
         """A symlink entry whose lstat reports a different device must be
-        refused, not silently unlinked (B1).
+        refused, not silently unlinked.
 
         The device check now runs *before* the symlink short-circuit, so a
         swapped-in entry that lstat reports as both a symlink AND on a foreign
@@ -517,7 +517,7 @@ class TestGetDirectorySize:
         assert size == 300
 
     def test_does_not_follow_directory_symlink_cycle(self, tmp_path):
-        """A symlink cycle must not hang or double-count (M10).
+        """A symlink cycle must not hang or double-count.
 
         ``os.walk(followlinks=False)`` must refuse to descend through a
         directory symlink, so ``a/loop -> a`` terminates and the loop's
@@ -537,7 +537,7 @@ class TestGetDirectorySize:
 
     def test_does_not_double_count_symlinked_sibling_tree(self, tmp_path):
         """A directory symlink to a sibling tree is not followed, so its
-        files are not counted via the link (M10 — avoids inflation)."""
+        files are not counted via the link (avoids inflation)."""
         root = tmp_path / "lib"
         root.mkdir()
         (root / "here.bin").write_bytes(b"a" * 100)
@@ -551,7 +551,7 @@ class TestGetDirectorySize:
 
 
 class TestSafeRmtreeIsPrivate:
-    """``_safe_rmtree`` must not be reachable from the public package surface (B2)."""
+    """``_safe_rmtree`` must not be reachable from the public package surface."""
 
     def test_not_in_storage_barrel_all(self):
         from mediaman.services.infra import storage
@@ -565,7 +565,7 @@ class TestSafeRmtreeIsPrivate:
 
     def test_symlinked_allowed_root_refused_via_delete_path(self, tmp_path):
         """The only public entry, ``delete_path``, still refuses a symlinked
-        allowed-root (B2) — single entry point, defence intact."""
+        allowed-root — single entry point, defence intact."""
         real_root = tmp_path / "real"
         real_root.mkdir()
         target = real_root / "sub"
