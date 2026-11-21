@@ -10,7 +10,12 @@ from mediaman.bootstrap.data_dir import DataDirNotWritableError, assert_data_dir
 from mediaman.config import Config, ConfigError, load_config
 from mediaman.db import init_db
 from mediaman.db.connection import SchemaTooOldError
-from mediaman.web.auth.login_lockout import admin_unlock_with_audit
+from mediaman.web.auth.login_lockout import (
+    admin_unlock_with_audit,
+    is_locked_out,
+    login_key,
+    reauth_key,
+)
 from mediaman.web.auth.password_hash import UserExistsError, create_user
 from mediaman.web.auth.password_policy import password_issues
 
@@ -62,12 +67,20 @@ def _resolve_credentials(args: argparse.Namespace) -> tuple[str, str]:
         )
         sys.exit(2)
 
-    username = (args.username or "").strip() or _prompt_username()
+    try:
+        username = (args.username or "").strip() or _prompt_username()
 
-    if args.password_stdin:
-        password = _read_password_from_stdin()
-    else:
-        password = args.password or getpass.getpass("Password: ")
+        if args.password_stdin:
+            password = _read_password_from_stdin()
+        else:
+            password = args.password or getpass.getpass("Password: ")
+    except EOFError:
+        print(
+            "Error: no terminal to prompt on; pass --username and pipe the "
+            "password with --password-stdin.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     issues = password_issues(password, username=username)
     if issues:
@@ -183,13 +196,18 @@ def unlock_user_cli() -> None:
         if row is None:
             print(f"Error: no such user '{args.username}'.", file=sys.stderr)
             sys.exit(1)
+        was_locked = is_locked_out(conn, login_key(args.username)) or is_locked_out(
+            conn, reauth_key(args.username)
+        )
         cleared = admin_unlock_with_audit(
             conn, args.username, audit_actor="cli", target_id=row["id"]
         )
     finally:
         conn.close()
 
-    if cleared:
+    if was_locked:
         print(f"Cleared the login lockout and failure count for '{args.username}'.")
+    elif cleared:
+        print(f"User '{args.username}' was not locked; cleared the failed-login count.")
     else:
         print(f"User '{args.username}' is not locked; nothing to clear.")

@@ -60,6 +60,38 @@ class TestCreateUserCli:
             cli_mod.create_user_cli()
         assert excinfo.value.code == 1
 
+    def test_no_terminal_exits_one_line_naming_the_non_interactive_flags(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        _enable_config(monkeypatch, tmp_path)
+        monkeypatch.setattr(sys, "argv", ["mediaman-create-user"])
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))  # closed stdin: input() hits EOF
+
+        with pytest.raises(SystemExit) as excinfo:
+            cli_mod.create_user_cli()
+
+        assert excinfo.value.code == 1
+        err = capsys.readouterr().err.strip()
+        assert len(err.splitlines()) == 1
+        assert "--username" in err and "--password-stdin" in err
+
+    def test_no_terminal_for_the_password_prompt_exits_the_same_way(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        _enable_config(monkeypatch, tmp_path)
+        monkeypatch.setattr(sys, "argv", ["mediaman-create-user", "--username", "bob"])
+
+        def eof(*_a, **_kw):
+            raise EOFError
+
+        monkeypatch.setattr(cli_mod.getpass, "getpass", eof)
+
+        with pytest.raises(SystemExit) as excinfo:
+            cli_mod.create_user_cli()
+
+        assert excinfo.value.code == 1
+        assert "--password-stdin" in capsys.readouterr().err
+
     def test_password_stdin_reads_one_line(self, monkeypatch, tmp_path):
         """``--password-stdin`` consumes a single line from stdin."""
         _enable_config(monkeypatch, tmp_path)
@@ -220,6 +252,33 @@ class TestUnlockUserCli:
         self._run(monkeypatch, tmp_path, "alice")  # returns, no SystemExit
 
         assert "not locked" in capsys.readouterr().out
+
+    def test_failures_without_a_lock_are_reported_as_such(self, monkeypatch, tmp_path, capsys):
+        conn = self._db(tmp_path)
+        create_user(conn, "alice", "correct-password-123", enforce_policy=False)
+        for _ in range(2):
+            authenticate(conn, "alice", "wrong-password")
+        conn.close()
+
+        self._run(monkeypatch, tmp_path, "alice")
+
+        out = capsys.readouterr().out
+        assert "was not locked" in out
+        assert "Cleared the login lockout" not in out
+        conn = self._db(tmp_path)
+        assert conn.execute("SELECT COUNT(*) FROM login_failures").fetchone()[0] == 0
+        conn.close()
+
+    def test_locked_user_is_reported_as_a_cleared_lockout(self, monkeypatch, tmp_path, capsys):
+        conn = self._db(tmp_path)
+        create_user(conn, "alice", "correct-password-123", enforce_policy=False)
+        for _ in range(5):
+            authenticate(conn, "alice", "wrong-password")
+        conn.close()
+
+        self._run(monkeypatch, tmp_path, "alice")
+
+        assert "Cleared the login lockout" in capsys.readouterr().out
 
 
 class TestOldDatabaseRefusal:
