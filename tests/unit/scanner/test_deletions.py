@@ -775,6 +775,44 @@ class TestMissingTarget:
         assert "deleted" not in _audits(conn, "m")
         radarr.unmonitor_movie.assert_not_called()
 
+    @pytest.mark.parametrize("root_state", ["missing", "empty"])
+    def test_mount_dropping_after_the_check_leaves_the_row_pending(
+        self, conn, tmp_path, monkeypatch, root_state
+    ):
+        import shutil
+
+        from mediaman.scanner import deletions
+
+        root = tmp_path / "movies"
+        (root / "M").mkdir(parents=True)
+        (root / "M" / "M.mkv").write_bytes(b"x")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        insert_media_item(
+            conn, id="m", plex_rating_key="m", file_path=str(root / "M" / "M.mkv"), radarr_id=5
+        )
+        _due_row(conn, "m")
+        real_claim = deletions.claim_due_deletions_under
+
+        def claim_then_unmount(*args):
+            claimed = real_claim(*args)
+            shutil.rmtree(root)
+            if root_state == "empty":
+                root.mkdir()
+            return claimed
+
+        monkeypatch.setattr(deletions, "claim_due_deletions_under", claim_then_unmount)
+        radarr = MagicMock()
+
+        result = DeletionExecutor(conn=conn, radarr_client=radarr).execute()
+
+        assert result == {"deleted": 0, "reclaimed_bytes": 0}
+        row = conn.execute(
+            "SELECT action, delete_status FROM scheduled_actions WHERE media_item_id='m'"
+        ).fetchone()
+        assert (row["action"], row["delete_status"]) == ("scheduled_deletion", "pending")
+        assert "deleted" not in _audits(conn, "m")
+        radarr.unmonitor_movie.assert_not_called()
+
     def test_file_gone_while_mount_is_up_closes_the_row(self, conn, tmp_path, monkeypatch):
         root = tmp_path / "movies"
         (root / "Other").mkdir(parents=True)

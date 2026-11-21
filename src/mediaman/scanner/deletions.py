@@ -295,6 +295,16 @@ def _unmonitor_arr(
             )
 
 
+def _log_root_unavailable(row: DeletionRow, path: str) -> None:
+    logger.error(
+        "engine.delete.root_unavailable id=%s path=%r — target is missing and "
+        "its delete root is missing or empty (media mount down?); leaving "
+        "the row pending",
+        row.id,
+        path,
+    )
+
+
 class DeletionExecutor:
     """Executes pending deletions whose grace period has elapsed.
 
@@ -469,6 +479,14 @@ class DeletionExecutor:
             path,
             [other.id for other in co_located],
         )
+        # The mount may have dropped since the check before the claim, and
+        # removing a target that is gone does nothing: check its root again.
+        if not os.path.lexists(path) and not delete_root_available(path, allowed_roots):
+            _log_root_unavailable(row, path)
+            for claimed in (row, *co_located):
+                repository.mark_delete_status(self._conn, claimed.id, "pending")
+            self._conn.commit()
+            return []
         if not _delete_file_on_disk(self._conn, row, allowed_roots):
             for other in co_located:
                 repository.mark_delete_status(self._conn, other.id, "pending")
@@ -513,12 +531,6 @@ class DeletionExecutor:
                 log_audit(self._conn, row.media_item_id, "delete_refused", detail)
             return False
         if not mounted:
-            logger.error(
-                "engine.delete.root_unavailable id=%s path=%r — target is missing and "
-                "its delete root is missing or empty (media mount down?); leaving "
-                "the row pending",
-                row.id,
-                path,
-            )
+            _log_root_unavailable(row, path)
             return False
         return True
