@@ -837,6 +837,20 @@ class TestSharedFolderPathSpelling:
         assert (show / "Show - s02e01.mkv").exists()
         assert result["deleted"] == 0
 
+    @pytest.mark.parametrize("spelling", ["{root}/./Show", "{root}/x/../Show"])
+    def test_kept_sibling_spelled_with_dot_segments_blocks_the_removal(
+        self, conn, tmp_path, monkeypatch, spelling
+    ):
+        root, show = self._show(tmp_path, monkeypatch)
+        self._season(conn, "s1", str(show), 1)
+        self._season(conn, "s2", spelling.format(root=root), 2)
+        _due_row(conn, "s1")
+
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert (show / "Show - s02e01.mkv").exists()
+        assert result["deleted"] == 0
+
     def test_due_sibling_spelled_differently_closes_with_the_folder(
         self, conn, tmp_path, monkeypatch
     ):

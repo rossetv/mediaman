@@ -179,6 +179,24 @@ def _at_or_under(stored: str | None, path: str) -> bool:
     return False
 
 
+def _at_or_under_candidates(path: str) -> tuple[str, tuple[str, ...]]:
+    """Return a SQL condition, with its bind values, keeping every row _at_or_under may match.
+
+    _at_or_under still decides; this only spares it reading every row. For
+    each spelling of *path*, the range from its bare folder up to that folder
+    followed by "0", the character after "/", holds the folder and all under
+    it. A stored path holding "//" or "/." may normalise into a match, so it
+    is always kept. Comparisons and a fixed GLOB pattern, not LIKE on the
+    path, so "%" and "_" in a path are literal.
+    """
+    raw, norm = path.rstrip("/"), _normalised(path).rstrip("/")
+    condition = (
+        "((mi.file_path >= ? AND mi.file_path < ?) OR (mi.file_path >= ? AND mi.file_path < ?) "
+        "OR mi.file_path GLOB '*/[/.]*')"
+    )
+    return condition, (raw, raw + "0", norm, norm + "0")
+
+
 def fetch_media_held_outside_pass(
     conn: sqlite3.Connection, media_item_id: str, path: str, now_iso: str
 ) -> list[sqlite3.Row]:
@@ -188,18 +206,22 @@ def fetch_media_held_outside_pass(
     it has an unused ``scheduled_deletion`` row whose time has come, in any
     delete state, since such rows are part of the same pass.
     """
-    rows = conn.execute(
+    where, params = _at_or_under_candidates(path)
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    rows = conn.execute(  # nosec B608
         "SELECT mi.id, mi.title, mi.season_number, mi.file_path FROM media_items mi "
-        "WHERE mi.id != ? "
+        f"WHERE mi.id != ? AND {where} "
         "  AND NOT EXISTS ("
         "    SELECT 1 FROM scheduled_actions sa "
         "    WHERE sa.media_item_id = mi.id AND sa.action = 'scheduled_deletion' "
         "      AND sa.token_used = 0 AND sa.execute_at <= ?"
-        "  ) "
-        "ORDER BY mi.id",
-        (media_item_id, now_iso),
+        "  )",
+        (media_item_id, *params, now_iso),
     ).fetchall()
-    return [row for row in rows if _at_or_under(row["file_path"], path)]
+    # Sorted here: ORDER BY in SQL walks the id index and reads every row.
+    return sorted(
+        (row for row in rows if _at_or_under(row["file_path"], path)), key=lambda row: row["id"]
+    )
 
 
 def claim_due_deletions_under(
@@ -211,14 +233,16 @@ def claim_due_deletions_under(
     same pass: a keep guarded on the delete state then fails on them.
     Returns the rows claimed.
     """
-    rows = conn.execute(
+    where, params = _at_or_under_candidates(path)
+    # rationale: the interpolated condition is a fixed string; every value is bound
+    rows = conn.execute(  # nosec B608
         "SELECT sa.id, sa.media_item_id, sa.action, mi.file_path, mi.file_size_bytes, "
         "mi.radarr_id, mi.sonarr_id, mi.season_number, mi.title, mi.plex_rating_key "
         "FROM scheduled_actions sa "
         "JOIN media_items mi ON sa.media_item_id = mi.id "
-        "WHERE mi.id != ? AND sa.action = 'scheduled_deletion' "
+        f"WHERE mi.id != ? AND sa.action = 'scheduled_deletion' AND {where} "
         "ORDER BY sa.id",
-        (media_item_id,),
+        (media_item_id, *params),
     ).fetchall()
     candidates = [_row_to_deletion_row(row) for row in rows]
     return [
