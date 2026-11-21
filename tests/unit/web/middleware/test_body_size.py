@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Annotated
 
 import pytest
-from starlette.applications import Starlette
+from fastapi import Body, FastAPI, Form
 from starlette.requests import ClientDisconnect, Request
 from starlette.responses import PlainTextResponse
 from starlette.routing import Route
@@ -26,13 +27,24 @@ async def _form(request: Request) -> PlainTextResponse:
     return PlainTextResponse(str(len(form)))
 
 
-def _app() -> Starlette:
-    app = Starlette(
+def _app() -> FastAPI:
+    app = FastAPI(
         routes=[
             Route("/raw", _raw, methods=["POST"]),
             Route("/form", _form, methods=["POST"]),
         ]
     )
+
+    # Typed parameters make FastAPI read the body itself and turn a read
+    # failure into its own 400.
+    @app.post("/typed-form")
+    def typed_form(duration: str = Form(...)) -> dict:
+        return {"duration": duration}
+
+    @app.post("/typed-body")
+    def typed_body(payload: Annotated[dict, Body()]) -> dict:
+        return payload
+
     # Production order: security headers wrap the body-size cap.
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=_CAP)
     app.add_middleware(SecurityHeadersMiddleware)
@@ -88,6 +100,25 @@ def test_oversize_streamed_body_gets_413(path, content_type, caplog):
     assert start["type"] == "http.response.start"
     assert start["status"] == 413
     assert b"x-content-type-options" in {k.lower() for k, _ in start["headers"]}
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+@pytest.mark.parametrize(
+    ("path", "content_type", "chunks"),
+    [
+        ("/typed-form", "application/x-www-form-urlencoded", [b"duration=" + b"x" * 60, b"y" * 60]),
+        ("/typed-body", "application/json", [b'{"a":"' + b"x" * 60, b"y" * 60 + b'"}']),
+    ],
+)
+def test_oversize_streamed_body_on_typed_route_gets_one_413(path, content_type, chunks, caplog):
+    with caplog.at_level(logging.ERROR):
+        sent = _post(path, chunks, content_type)
+
+    starts = [m for m in sent if m["type"] == "http.response.start"]
+    assert [m["status"] for m in starts] == [413]
+    assert b"x-content-type-options" in {k.lower() for k, _ in starts[0]["headers"]}
+    body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+    assert body == b"Payload too large"
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
 

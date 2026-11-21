@@ -206,9 +206,18 @@ class BodySizeLimitMiddleware:
         # whether emitting a 413 is still safe.  ASGI forbids two
         # ``http.response.start`` frames on the same scope.
         response_started = False
+        replaced = False
 
         async def _watching_send(message: Message) -> None:
-            nonlocal response_started
+            nonlocal response_started, replaced
+            if oversize and (replaced or not response_started):
+                # Past the cap, whatever the app answers (a framework's own
+                # 400 for a body it could not parse, say) becomes our 413.
+                if not replaced:
+                    replaced = True
+                    response_started = True
+                    await _send_413(send)
+                return
             if message["type"] == "http.response.start":
                 response_started = True
             await send(message)
