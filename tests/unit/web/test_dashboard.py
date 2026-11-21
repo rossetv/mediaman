@@ -310,3 +310,24 @@ class TestJsonDataAttributesRoundTrip:
         assert len(keep_buttons) == 2
         for button in keep_buttons:
             assert json.loads(button["data-media-id"] or "") == _AWKWARD_TEXT
+
+
+class TestReclaimedChartIsoWeeks:
+    def test_new_year_week_is_one_bucket_and_labels_sort_across_years(self, conn):
+        from mediaman.web.repository.dashboard import fetch_reclaimed_chart
+
+        # Mon 30 Dec 2024 and Wed 1 Jan 2025 are both ISO week 2025-W01.
+        for day, size in (("2024-12-30", 1), ("2025-01-01", 2), ("2025-01-08", 4)):
+            insert_audit_log(
+                conn,
+                action="deleted",
+                space_reclaimed_bytes=size,
+                created_at=f"{day}T10:00:00+00:00",
+            )
+
+        weeks = fetch_reclaimed_chart(conn, limit=12)
+
+        assert [(w.week, w.reclaimed_bytes) for w in weeks] == [
+            ("2025-W02", 4),
+            ("2025-W01", 3),
+        ]

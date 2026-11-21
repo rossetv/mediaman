@@ -18,7 +18,7 @@ from fastapi.templating import Jinja2Templates
 
 from mediaman.web.routes.kept import router as kept_router
 from mediaman.web.routes.library import router as pages_router
-from tests.helpers.factories import insert_media_item, insert_scheduled_action
+from tests.helpers.factories import insert_kept_show, insert_media_item, insert_scheduled_action
 
 _TEMPLATE_DIR = Path(__file__).parents[4] / "src" / "mediaman" / "web" / "templates"
 _AWKWARD_TEXT = """He said "Hi" & it's <b>bold</b>"""
@@ -224,3 +224,58 @@ def test_show_row_flags_whether_its_key_is_a_rating_key(client, conn, show_ratin
 
     assert wrapper["data-has-rk"] == expected
     assert wrapper["data-show-rk"] == (show_rating_key or "Breaking Bad")
+
+
+def _keep(conn, media_id: str) -> None:
+    insert_scheduled_action(
+        conn,
+        media_item_id=media_id,
+        action="protected_forever",
+        execute_at=None,
+        token=f"tok-{media_id}",
+    )
+
+
+def test_partly_kept_show_row_keeps_its_delete_and_says_how_many_are_kept(client, conn):
+    _insert_show(conn, "show-rk")
+    _keep(conn, "s3")
+
+    html = client.get("/library").text
+
+    assert "lib-row-protected" not in html
+    assert "1 of 3 seasons kept" in html
+    assert [b["data-action"] for b in _delete_buttons(html)] == ["pick-season-delete"]
+    assert not _elements_with(html, "data-remove-keep-id")
+
+
+def test_remove_keep_on_a_fully_kept_show_row_opens_the_keep_dialog(client, conn):
+    _insert_show(conn, "show-rk")
+    for media_id in _SEASON_IDS:
+        _keep(conn, media_id)
+
+    html = client.get("/library").text
+
+    assert not _elements_with(html, "data-remove-keep-id")
+    (button,) = _elements_with(html, "data-remove-keep-dialog")
+    assert "snooze-option--remove" in (button.get("class") or "")
+
+
+def test_remove_keep_on_a_single_season_show_kept_as_a_whole_opens_the_keep_dialog(client, conn):
+    insert_media_item(
+        conn,
+        id="s1",
+        title="Show S01",
+        media_type="tv_season",
+        show_title="Show",
+        season_number=1,
+        plex_rating_key="rk-s1",
+        show_rating_key="show-rk",
+        file_path="/f",
+        file_size_bytes=1_000,
+    )
+    insert_kept_show(conn, show_rating_key="show-rk", action="protected_forever")
+
+    html = client.get("/library").text
+
+    assert not _elements_with(html, "data-remove-keep-id")
+    assert len(_elements_with(html, "data-remove-keep-dialog")) == 1

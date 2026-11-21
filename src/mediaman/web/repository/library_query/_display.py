@@ -8,6 +8,7 @@ no DB connection required.
 from __future__ import annotations
 
 import sqlite3
+from datetime import UTC, datetime
 
 from mediaman.core.format import days_ago as _days_ago_fmt
 from mediaman.core.format import format_bytes, relative_day_label
@@ -60,10 +61,44 @@ def protection_label(sa_action: str | None, sa_execute_at: str | None) -> str | 
     return None
 
 
+Keep = tuple[str, str | None]
+
+_NEVER = datetime.min.replace(tzinfo=UTC)
+
+
+def lapse_key(keep: Keep) -> tuple[bool, datetime]:
+    """Order keeps by when they lapse: a snooze at its parsed time, forever last."""
+    if keep[0] == ACTION_PROTECTED_FOREVER:
+        return (True, _NEVER)
+    return (False, parse_iso_strict_utc(keep[1]) or _NEVER)
+
+
+def _row_protection(
+    seasons: dict[str, Keep], show_keep: Keep | None, total: int
+) -> tuple[bool, str | None]:
+    """``(protected, label)`` for a row of *total* items.
+
+    The row is protected only when every item in it is, and then reads the keep
+    that lapses first.  A row with only some items kept is not protected; it
+    says how many are.
+    """
+    live = [keep for keep in seasons.values() if protection_label(*keep) is not None]
+    if show_keep is not None and protection_label(*show_keep) is not None:
+        lapses = [max(keep, show_keep, key=lapse_key) for keep in live]
+        if len(live) < total:
+            lapses.append(show_keep)
+        return True, protection_label(*min(lapses, key=lapse_key))
+    if not live:
+        return False, None
+    if len(live) < total:
+        return False, f"{len(live)} of {total} seasons kept"
+    return True, protection_label(*min(live, key=lapse_key))
+
+
 def _shape_rows(
     rows: list[sqlite3.Row],
-    sa_map: dict[str, tuple[str, str | None]],
-    ks_map: dict[str, tuple[str, str | None]],
+    sa_map: dict[str, dict[str, Keep]],
+    ks_map: dict[str, Keep],
 ) -> list[dict[str, object]]:
     """Convert raw DB rows into display-ready dicts.
 
@@ -77,18 +112,14 @@ def _shape_rows(
         show_rk = r["show_rating_key"] or ""
         show_title = r["show_title"] or r["title"]
 
-        protected = False
-        prot_label: str | None = None
-        if is_tv and show_rk:
-            ks_entry = ks_map.get(show_rk)
-            if ks_entry:
-                prot_label = protection_label(ks_entry[0], ks_entry[1])
-                protected = prot_label is not None
-        if not protected:
-            sa_entry = sa_map.get(str(r["id"]))
-            if sa_entry:
-                prot_label = protection_label(sa_entry[0], sa_entry[1])
-                protected = prot_label is not None
+        # The scanner honours a show keep only under a real rating key.
+        show_keep = ks_map.get(show_rk) if is_tv and r["has_rating_key"] else None
+        show_kept = show_keep is not None and protection_label(*show_keep) is not None
+        protected, prot_label = _row_protection(
+            sa_map.get(str(r["id"]), {}),
+            show_keep,
+            (r["season_count"] or 1) if is_tv else 1,
+        )
 
         season_count = r["season_count"]
         if is_tv:
@@ -126,6 +157,7 @@ def _shape_rows(
                 "is_tv": is_tv,
                 "protected": protected,
                 "protection_label": prot_label,
+                "show_kept": show_kept,
             }
         )
     return items

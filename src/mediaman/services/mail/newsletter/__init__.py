@@ -58,6 +58,15 @@ class NewsletterConfigError(Exception):
 
 
 @dataclass(frozen=True, slots=True)
+class SendResult:
+    """What a send did. *attempted* is 0 when there was nothing to send or Mailgun is unset."""
+
+    sent: int = 0
+    attempted: int = 0
+    configured: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class SendContext:
     deleted_items: list[DeletedNewsletterItem]
     this_week_items: list[NewsletterRecItem]
@@ -186,23 +195,26 @@ def send_newsletter(  # rationale: extracted from send_newsletter to keep the or
     *,
     recipients: list[str] | None = None,
     mark_notified: bool = True,
-) -> None:
+) -> SendResult:
     """Send the newsletter to subscribers or specific recipients.
 
     The scan engine's default call sends to all active subscribers, includes only
     unnotified items and marks them notified=1 afterwards. A manual call (recipients
     given, mark_notified=False) sends to those addresses, includes all scheduled items
     and leaves the notified flag alone.
+
+    Returns how many addresses were mailed out of how many were tried, and whether Mailgun
+    is configured at all.
     """
     mg_settings = _load_mailgun_settings(conn, secret_key)
     if not mg_settings.domain:
         # All four missing — already logged at DEBUG; skip silently.
-        return
+        return SendResult(configured=False)
     base_url = mg_settings.base_url
 
     subscriber_emails = _load_subscribers(conn, recipients)
     if subscriber_emails is None:
-        return
+        return SendResult()
 
     # Compute now once so all sections share the same reference time
     # and cannot straddle midnight.
@@ -226,7 +238,7 @@ def send_newsletter(  # rationale: extracted from send_newsletter to keep the or
     scheduled_items = _load_scheduled_items(conn, secret_key, base_url, now, mark_notified)
     if not _has_content_to_report(scheduled_items, has_recommendations):
         logger.debug("newsletter.skipped", extra={"reason": "no_content"})
-        return
+        return SendResult()
 
     ctx = _build_send_context(
         conn,
@@ -275,6 +287,7 @@ def send_newsletter(  # rationale: extracted from send_newsletter to keep the or
             "deleted": len(ctx.deleted_items),
         },
     )
+    return SendResult(sent=len(successfully_sent), attempted=len(subscriber_emails))
 
 
-__all__ = ["NewsletterConfigError", "send_newsletter"]
+__all__ = ["NewsletterConfigError", "SendResult", "send_newsletter"]

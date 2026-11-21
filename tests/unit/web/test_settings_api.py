@@ -898,3 +898,61 @@ class TestAutoAbandonSetting:
             assert response.status_code == 422, (
                 f"{key} should be rejected (422) after removal from SettingsUpdate"
             )
+
+
+class TestSettingsPageDayValues:
+    def test_page_shows_the_clamped_day_values_the_scanner_uses(
+        self, app_factory, authed_client, conn, templates_stub
+    ):
+        insert_settings(conn, min_age_days="0", inactivity_days="9999", grace_days="500")
+        app = app_factory(router, conn=conn, state_extras={"templates": templates_stub})
+        client = authed_client(app, conn)
+
+        shown = client.get("/settings").json()["settings"]
+
+        assert (shown["min_age_days"], shown["inactivity_days"], shown["grace_days"]) == (
+            1,
+            365,
+            90,
+        )
+
+    def test_page_shows_the_scanner_default_for_an_unreadable_day_value(
+        self, app_factory, authed_client, conn, templates_stub
+    ):
+        insert_settings(conn, min_age_days="abc", inactivity_days="", grace_days="x")
+        app = app_factory(router, conn=conn, state_extras={"templates": templates_stub})
+        client = authed_client(app, conn)
+
+        shown = client.get("/settings").json()["settings"]
+
+        assert (shown["min_age_days"], shown["inactivity_days"], shown["grace_days"]) == (
+            30,
+            30,
+            14,
+        )
+
+    def test_page_shows_the_scanner_defaults_when_no_day_rows_are_stored(
+        self, app_factory, authed_client, conn, templates_stub
+    ):
+        app = app_factory(router, conn=conn, state_extras={"templates": templates_stub})
+        client = authed_client(app, conn)
+
+        shown = client.get("/settings").json()["settings"]
+
+        assert (shown["min_age_days"], shown["inactivity_days"], shown["grace_days"]) == (
+            30,
+            30,
+            14,
+        )
+
+    def test_page_leaves_stored_day_rows_untouched(
+        self, app_factory, authed_client, conn, templates_stub
+    ):
+        insert_settings(conn, min_age_days="0")
+        app = app_factory(router, conn=conn, state_extras={"templates": templates_stub})
+        authed_client(app, conn).get("/settings")
+
+        stored = conn.execute(
+            "SELECT value FROM settings WHERE key=?", ("min_age_days",)
+        ).fetchone()[0]
+        assert stored == "0"

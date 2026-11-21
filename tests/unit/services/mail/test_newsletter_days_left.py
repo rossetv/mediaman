@@ -100,3 +100,26 @@ def test_a_deadline_already_passed_shows_due_today_not_negative_days(conn):
     assert "Due today" in card
     assert "days left" not in card
     assert "-3" not in card
+
+
+@pytest.mark.parametrize(
+    ("hours_away", "expected", "not_expected"),
+    [(4, "Due today", "1 day left"), (26, "1 day left", "2 days left")],
+    ids=["same_utc_date", "next_utc_date"],
+)
+def test_days_left_counts_utc_calendar_days_not_hours(conn, hours_away, expected, not_expected):
+    now = datetime(2030, 6, 10, 10, 0, tzinfo=UTC)
+    insert_media_item(conn, id="Soon", title="Soon", plex_rating_key="Soon")
+    insert_scheduled_action(
+        conn,
+        media_item_id="Soon",
+        scheduled_at=(now - timedelta(days=3)).isoformat(),
+        execute_at=(now + timedelta(hours=hours_away)).isoformat(),
+        token="tok-Soon",
+    )
+
+    with patch("mediaman.services.mail.newsletter.now_utc", return_value=now):
+        card = _cards(conn, manual=False)["Soon"]
+
+    assert expected in card
+    assert not_expected not in card

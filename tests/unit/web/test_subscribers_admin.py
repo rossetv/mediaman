@@ -13,9 +13,10 @@ from fastapi.testclient import TestClient
 
 from mediaman.db import init_db, set_connection
 from mediaman.main import create_app
+from mediaman.services.mail.newsletter import SendResult
 from mediaman.web.auth.password_hash import create_user
 from mediaman.web.auth.session_store import create_session
-from tests.helpers.factories import insert_subscriber
+from tests.helpers.factories import insert_media_item, insert_scheduled_action, insert_subscriber
 
 # NOTE: this file deliberately keeps its own ``app`` / ``authed_client``
 # fixtures rather than adopting the shared ``app_factory`` / ``authed_client``
@@ -185,7 +186,7 @@ class TestSendNewsletter:
         _insert_subscriber(conn, "reader@example.com", active=1)
 
         with patch("mediaman.services.mail.newsletter.send_newsletter") as mock_send:
-            mock_send.return_value = None
+            mock_send.return_value = SendResult(sent=1, attempted=1)
             resp = authed_client.post(
                 "/api/newsletter/send",
                 json={"recipients": ["reader@example.com"]},
@@ -253,6 +254,111 @@ class TestSendNewsletter:
 
         assert resp.status_code == 502
         assert resp.json()["ok"] is False
+
+
+class TestSendNewsletterOutcome:
+    """The reply and the audit row report what actually went out, not what was asked for."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_newsletter_limiter(self):
+        from mediaman.services.rate_limit.instances import NEWSLETTER_LIMITER
+
+        NEWSLETTER_LIMITER.reset()
+        yield
+        NEWSLETTER_LIMITER.reset()
+
+    @staticmethod
+    def _configure(conn, *, with_content=True):
+        for key, value in (
+            ("mailgun_domain", "mg.example.com"),
+            ("mailgun_api_key", "key-testvalue"),
+            ("mailgun_from_address", "media@example.com"),
+            ("base_url", "http://mediaman.local"),
+        ):
+            conn.execute(
+                "INSERT INTO settings (key, value, encrypted, updated_at) VALUES (?, ?, 0, 'x')",
+                (key, value),
+            )
+        conn.commit()
+        if with_content:
+            insert_media_item(conn, id="mi1", title="Movie", plex_rating_key="rk1")
+            insert_scheduled_action(conn, media_item_id="mi1", token="tok1")
+
+    @staticmethod
+    def _send(client, recipients, mailgun=None):
+        mailgun = mailgun or MagicMock()
+        with (
+            patch("mediaman.services.mail.mailgun.MailgunClient", return_value=mailgun),
+            patch(
+                "mediaman.services.infra.get_aggregate_disk_usage",
+                return_value={"total_bytes": 10, "used_bytes": 5, "free_bytes": 5},
+            ),
+            patch("mediaman.services.arr.build.build_radarr_from_db", return_value=None),
+            patch("mediaman.services.arr.build.build_sonarr_from_db", return_value=None),
+        ):
+            return client.post("/api/newsletter/send", json={"recipients": recipients})
+
+    @staticmethod
+    def _audit_rows(conn):
+        return conn.execute(
+            "SELECT detail FROM audit_log WHERE action = 'sec:newsletter.sent'"
+        ).fetchall()
+
+    def test_unconfigured_mailgun_is_an_error_with_no_audit(self, authed_client, app):
+        conn = app.state.db
+        _insert_subscriber(conn, "a@example.com", active=1)
+
+        resp = self._send(authed_client, ["a@example.com"])
+
+        assert resp.status_code >= 400
+        assert resp.json()["ok"] is False
+        assert not self._audit_rows(conn)
+
+    def test_every_send_failing_is_an_error_with_no_audit(self, authed_client, app):
+        conn = app.state.db
+        self._configure(conn)
+        _insert_subscriber(conn, "a@example.com", active=1)
+        mailgun = MagicMock()
+        mailgun.send.side_effect = ValueError("rejected")
+
+        resp = self._send(authed_client, ["a@example.com"], mailgun)
+
+        assert resp.status_code == 502
+        assert resp.json()["ok"] is False
+        assert not self._audit_rows(conn)
+
+    def test_a_partial_failure_reports_the_count_that_went_out(self, authed_client, app):
+        conn = app.state.db
+        self._configure(conn)
+        _insert_subscriber(conn, "good@example.com", active=1)
+        _insert_subscriber(conn, "bad@example.com", active=1)
+        mailgun = MagicMock()
+        mailgun.send.side_effect = lambda *, to, **_: (
+            (_ for _ in ()).throw(ValueError("rejected")) if to == "bad@example.com" else None
+        )
+
+        resp = self._send(authed_client, ["good@example.com", "bad@example.com"], mailgun)
+
+        assert resp.status_code == 200
+        assert resp.json()["sent_to"] == 1
+        assert resp.json()["failed"] == 1
+        assert '"sent_to":1' in self._audit_rows(conn)[0]["detail"]
+
+    def test_nothing_to_send_is_a_success_that_says_so_with_no_audit(self, authed_client, app):
+        conn = app.state.db
+        self._configure(conn, with_content=False)
+        _insert_subscriber(conn, "a@example.com", active=1)
+        mailgun = MagicMock()
+
+        resp = self._send(authed_client, ["a@example.com"], mailgun)
+
+        body = resp.json()
+        assert resp.status_code == 200
+        assert body["ok"] is True
+        assert body["sent_to"] == 0
+        assert "nothing to send" in body["message"].lower()
+        mailgun.send.assert_not_called()
+        assert not self._audit_rows(conn)
 
 
 class TestResolveNewsletterRecipients:
@@ -367,7 +473,10 @@ class TestSubscriberAuditEvents:
 
         conn = app.state.db
         _insert_subscriber(conn, "letter@example.com", active=1)
-        with patch("mediaman.services.mail.newsletter.send_newsletter"):
+        with patch(
+            "mediaman.services.mail.newsletter.send_newsletter",
+            return_value=SendResult(sent=1, attempted=1),
+        ):
             resp = authed_client.post(
                 "/api/newsletter/send",
                 json={"recipients": ["letter@example.com"]},

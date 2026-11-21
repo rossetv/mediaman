@@ -209,7 +209,15 @@
         MM.api.post('/api/newsletter/send', { recipients: recipients })
           .then(function (data) {
             btnConfirmNL.disabled = false;
-            if (data.ok) {
+            if (data.ok && data.sent_to === 0) {
+              btnConfirmNL.textContent = 'Send newsletter';
+              newsletterStatus.textContent = data.message || 'Nothing to send';
+              newsletterStatus.className = 'inline-form-msg ok';
+            } else if (data.ok && data.failed) {
+              btnConfirmNL.textContent = 'Send newsletter';
+              newsletterStatus.textContent = 'Sent to ' + data.sent_to + ' of ' + (data.sent_to + data.failed) + ' (' + data.failed + ' failed)';
+              newsletterStatus.className = 'inline-form-msg err';
+            } else if (data.ok) {
               btnConfirmNL.textContent = 'Sent ✓';
               newsletterStatus.textContent = 'Sent to ' + data.sent_to + ' recipient' + (data.sent_to !== 1 ? 's' : '');
               newsletterStatus.className = 'inline-form-msg ok';

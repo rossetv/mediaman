@@ -5,12 +5,16 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
+import mediaman.web
 from mediaman.config import Config
 from mediaman.crypto import generate_keep_token
 from mediaman.db import set_connection
@@ -31,6 +35,7 @@ from tests.helpers.factories import insert_media_item, insert_scheduled_action
 # of the suite — that means the local class ``_make_app`` methods cannot
 # adopt the shared ``app_factory`` (which always uses the conftest secret).
 SECRET = "a" * 64
+_TEMPLATE_DIR = Path(mediaman.web.__file__).parent / "templates"
 
 
 def _insert_media_item(conn: sqlite3.Connection, media_id: str = "mi1") -> None:
@@ -247,6 +252,33 @@ class TestKeepPageRoute:
 
         assert resp.status_code == 200
         assert "active" in resp.text
+
+    @pytest.mark.parametrize(
+        ("now", "deadline", "date_text", "word"),
+        [
+            ("2026-05-01T09:00:00+00:00", "2026-05-01T12:00:00+00:00", "1 May 2026", "today"),
+            ("2026-05-01T23:00:00+00:00", "2026-05-02T02:00:00+00:00", "2 May 2026", "tomorrow"),
+            ("2026-05-01T12:00:00+00:00", "2026-05-02T14:00:00+00:00", "2 May 2026", "tomorrow"),
+            ("2026-05-01T12:00:00+00:00", "2026-05-04T02:00:00+00:00", "4 May 2026", "in 3 days"),
+        ],
+        ids=["same_day", "just_after_midnight", "one_day_two_hours", "three_days"],
+    )
+    def test_the_word_agrees_with_the_date_shown(
+        self, conn, freezer, now, deadline, date_text, word
+    ):
+        freezer.move_to(now)
+        _insert_media_item(conn)
+        action_id = insert_scheduled_action(
+            conn, media_item_id="mi1", token="placeholder", execute_at=deadline
+        )
+        token = _make_keep_token(conn, "mi1", action_id)
+        app = self._make_app(conn)
+        app.state.templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+        client = TestClient(app, raise_server_exceptions=True)
+
+        text = " ".join(client.get(f"/keep/{token}").text.split())
+
+        assert f"{date_text} — {word}" in text
 
 
 class TestKeepSubmitTokenInvalidation:

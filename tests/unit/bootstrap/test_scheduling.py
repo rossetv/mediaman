@@ -434,3 +434,40 @@ class TestValidateSyncInterval:
     def test_rejects_over_24_hours(self):
         with pytest.raises(ValueError):
             _validate_sync_interval("1500")
+
+
+class TestReadyzLogging:
+    def test_repeated_probes_log_once_per_reason_and_recovery_logs_once(self, caplog):
+        import logging
+
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from mediaman.app_factory import _register_probes
+
+        app = FastAPI()
+        _register_probes(app)
+        app.state.scheduler_healthy = False
+        app.state.canary_ok = True
+        client = TestClient(app)
+
+        def warning_count() -> int:
+            return len([r for r in caplog.records if r.levelno == logging.WARNING])
+
+        with caplog.at_level(logging.INFO, logger="mediaman"):
+            for _ in range(3):
+                assert client.get("/readyz").status_code == 503
+            assert warning_count() == 1
+
+            app.state.canary_ok = False
+            client.get("/readyz")
+            assert warning_count() == 2
+
+            app.state.scheduler_healthy = True
+            app.state.canary_ok = True
+            for _ in range(3):
+                resp = client.get("/readyz")
+            assert resp.status_code == 200
+            assert resp.json() == {"status": "ready"}
+            assert len([r for r in caplog.records if "ready again" in r.getMessage()]) == 1
+            assert warning_count() == 2

@@ -40,6 +40,7 @@ from mediaman.services.scheduled_actions import (
     parse_execute_at,
     token_hash,
 )
+from mediaman.services.scheduled_actions.days_left import days_left as _days_left
 from mediaman.web.auth.middleware import get_current_admin
 from mediaman.web.auth.middleware import is_admin as _is_admin
 from mediaman.web.models import VALID_KEEP_DURATIONS
@@ -147,10 +148,9 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
     item_dict = asdict(row)
     item_dict["added_display"] = format_added_display(item_dict["added_at"])
 
-    # Compute "days left" server-side in the scheduled action's timezone
-    # (UTC). Doing this in the template via ``execute_at.today()`` fails
-    # because ``today()`` is tz-naive and jitters across midnight.
-    days_left = (execute_at.date() - now.date()).days
+    # Computed here, not in the template: ``execute_at.today()`` is tz-naive and
+    # jitters across midnight.
+    days_left = _days_left(execute_at, now)
 
     return templates.TemplateResponse(
         request,

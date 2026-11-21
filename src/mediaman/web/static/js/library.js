@@ -73,7 +73,10 @@
   function openKeepDialog() {
     if (_keepDialogModal) _keepDialogModal.open();
     if (_keepDialogState.duration) selectDurationByValue(_keepDialogState.duration);
+    loadKeepSeasons();
+  }
 
+  function loadKeepSeasons() {
     _keepDialogState.showKept = false;
     _keepDialogState.keptSeasonIds = [];
     var list = document.getElementById('keep-season-list');
@@ -235,13 +238,16 @@
   }
 
   function removeAllKeeps() {
+    /* Disabled until the requests settle, so a second click cannot resend them. */
+    var removeBtn = document.getElementById('keep-dialog-remove');
+    removeBtn.disabled = true;
     window.UIFeedback.confirm({
       title: 'Remove all keeps for this show?',
       body: 'Seasons may be scheduled for deletion on the next scan.',
       confirmLabel: 'Remove all',
       confirmVariant: 'danger'
     }).then(function (ok) {
-      if (!ok) return;
+      if (!ok) { removeBtn.disabled = false; return; }
       var rk = _keepDialogState.showRk;
       var allRequests = [];
       if (rk && _keepDialogState.showKept) {
@@ -262,6 +268,9 @@
       removeChain.then(function () {
         if (failed.length) {
           window.UIFeedback.error('Remove failed for: ' + failed.join(', '));
+          /* Refetch so a retry sends only what is still kept. */
+          loadKeepSeasons();
+          removeBtn.disabled = false;
         } else {
           window.location.reload();
         }
@@ -350,7 +359,10 @@
   function removeKeep(mediaId) {
     MM.api.post('/api/media/' + encodeURIComponent(mediaId) + '/unprotect')
       .then(function () { window.location.reload(); })
-      .catch(function () { /* failure is dropped silently. */ });
+      .catch(function (err) {
+        var msg = (err && err.message) || 'Try again.';
+        window.UIFeedback.error("Couldn't remove keep. " + msg);
+      });
   }
 
   function setSort(value) {
@@ -470,6 +482,12 @@
     if (keepBtn) {
       e.preventDefault();
       submitKeep(keepBtn, keepBtn.dataset.keepDur);
+      return;
+    }
+    if (e.target.closest('[data-remove-keep-dialog]')) {
+      e.preventDefault();
+      /* The dialog's Remove all clears the show's and every season's keep. */
+      submitKeep(e.target.closest('[data-remove-keep-dialog]'));
       return;
     }
     var removeBtn = e.target.closest('[data-remove-keep-id]');

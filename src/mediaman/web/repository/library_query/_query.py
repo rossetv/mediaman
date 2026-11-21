@@ -9,10 +9,9 @@ from __future__ import annotations
 import sqlite3
 from datetime import timedelta
 
-from mediaman.core.scheduled_action_kinds import ACTION_PROTECTED_FOREVER
 from mediaman.core.time import now_utc
 from mediaman.scanner.runner import get_day_setting
-from mediaman.web.repository.library_query._display import _shape_rows
+from mediaman.web.repository.library_query._display import Keep, _shape_rows, lapse_key
 
 VALID_SORTS = {
     "added_desc",
@@ -31,6 +30,9 @@ VALID_TYPES = {"movie", "tv", "anime", "kept", "stale"}
 # SQLite to do a slow scan against every title and show_title row.
 # 200 chars is well above any realistic title length.
 MAX_SEARCH_TERM_LEN = 200
+
+# Joins the ids of a show row's seasons; a unit separator never occurs in an id.
+_ITEM_ID_SEP = "\x1f"
 
 # Canonical media_type values that represent a TV / anime *season* row.
 TV_SEASON_TYPES: tuple[str, ...] = ("tv_season", "tv", "season")
@@ -124,7 +126,7 @@ def _build_cte_sql(where_sql: str, sort: str) -> tuple[str, str]:
             id, title, 'movie' AS display_type,
             plex_rating_key, added_at, file_size_bytes, last_watched_at,
             show_rating_key, show_title, NULL AS season_count,
-            0 AS has_rating_key,
+            0 AS has_rating_key, id AS item_ids,
             EXISTS(
                 SELECT 1 FROM scheduled_actions sa
                 WHERE sa.media_item_id = filtered.id AND sa.token_used = 0
@@ -146,17 +148,16 @@ def _build_cte_sql(where_sql: str, sort: str) -> tuple[str, str]:
             COALESCE(show_title, title) AS show_title,
             COUNT(*) AS season_count,
             MAX(COALESCE(show_rating_key, '') != '') AS has_rating_key,
+            GROUP_CONCAT(id, char(31)) AS item_ids,
             (
                 EXISTS(
                     SELECT 1 FROM kept_shows ks
-                    WHERE ks.show_rating_key = COALESCE(filtered.show_rating_key, filtered.show_title)
-                ) OR EXISTS(
+                    WHERE ks.show_rating_key = filtered.show_rating_key
+                ) OR MAX(EXISTS(
                     SELECT 1 FROM scheduled_actions sa
-                    WHERE sa.media_item_id IN (
-                        SELECT mi2.id FROM media_items mi2
-                        WHERE COALESCE(mi2.show_rating_key, mi2.show_title) = COALESCE(filtered.show_rating_key, filtered.show_title)
-                    ) AND sa.token_used = 0 AND sa.action IN ('protected_forever', 'snoozed')
-                )
+                    WHERE sa.media_item_id = filtered.id
+                    AND sa.token_used = 0 AND sa.action IN ('protected_forever', 'snoozed')
+                ))
             ) AS is_kept
         FROM filtered
         WHERE media_type IN ('tv_season', 'anime_season', 'season', 'tv', 'anime')
@@ -197,16 +198,19 @@ def _execute_paged_query(
 def _fetch_protection_maps(
     conn: sqlite3.Connection,
     rows: list[sqlite3.Row],
-) -> tuple[dict[str, tuple[str, str | None]], dict[str, tuple[str, str | None]]]:
+) -> tuple[dict[str, dict[str, Keep]], dict[str, Keep]]:
     """Load scheduled_actions and kept_shows protection data for *rows*.
 
-    Returns ``(sa_map, ks_map)`` keyed by media_item_id and show_rating_key
-    respectively.  Both maps hold ``(action, execute_at)`` tuples.
+    Returns ``(sa_map, ks_map)``.  ``sa_map`` is keyed by the row id and holds
+    the strongest ``(action, execute_at)`` of each media item in the row (one
+    per season the row's filter let through), keyed by that item's id.
+    ``ks_map`` is keyed by show_rating_key.
     """
-    item_ids = [r["id"] for r in rows]
+    row_items = {str(r["id"]): str(r["item_ids"]).split(_ITEM_ID_SEP) for r in rows}
+    item_ids = sorted({i for ids in row_items.values() for i in ids})
     show_rkeys = {r["show_rating_key"] for r in rows if r["show_rating_key"]}
 
-    sa_map: dict[str, tuple[str, str | None]] = {}
+    strongest: dict[str, Keep] = {}
     if item_ids:
         # rationale: ph is purely "?" * len(item_ids) — no user value ever enters the SQL text
         ph = ",".join("?" * len(item_ids))
@@ -217,11 +221,15 @@ def _fetch_protection_maps(
             f"AND action IN ('protected_forever', 'snoozed')",
             item_ids,
         ).fetchall():
-            prev = sa_map.get(sa["media_item_id"])
-            if prev is None or prev[0] != ACTION_PROTECTED_FOREVER:
-                sa_map[sa["media_item_id"]] = (sa["action"], sa["execute_at"])
+            keep = (sa["action"], sa["execute_at"])
+            prev = strongest.get(sa["media_item_id"])
+            if prev is None or lapse_key(keep) > lapse_key(prev):
+                strongest[sa["media_item_id"]] = keep
+    sa_map = {
+        rid: {i: strongest[i] for i in ids if i in strongest} for rid, ids in row_items.items()
+    }
 
-    ks_map: dict[str, tuple[str, str | None]] = {}
+    ks_map: dict[str, Keep] = {}
     if show_rkeys:
         # rationale: ph is purely "?" * len(show_rkeys) — no user value ever enters the SQL text
         ph = ",".join("?" * len(show_rkeys))
