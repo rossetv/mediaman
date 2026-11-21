@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, timedelta
 
 from mediaman.core.time import now_utc
 
@@ -193,19 +193,26 @@ def fetch_reclaimed_chart(conn: sqlite3.Connection, *, limit: int) -> list[Recla
     rows = conn.execute(
         """
         SELECT
-            strftime('%Y-W%W', created_at) AS week,
+            date(created_at, '-6 days', 'weekday 1') AS week_start,
             SUM(space_reclaimed_bytes)     AS reclaimed_bytes
         FROM audit_log
         WHERE action = 'deleted'
           AND space_reclaimed_bytes IS NOT NULL
-        GROUP BY week
-        ORDER BY week DESC
+        GROUP BY week_start
+        ORDER BY week_start DESC
         LIMIT ?
         """,
         (limit,),
     ).fetchall()
+    # Grouped by the Monday that starts each ISO week, so the New Year week is
+    # one bucket; the label is the ISO year-week of that Monday.
     return [
-        ReclaimedWeek(week=r["week"], reclaimed_bytes=int(r["reclaimed_bytes"] or 0)) for r in rows
+        ReclaimedWeek(
+            week="{}-W{:02d}".format(*date.fromisoformat(r["week_start"]).isocalendar()[:2]),
+            reclaimed_bytes=int(r["reclaimed_bytes"] or 0),
+        )
+        for r in rows
+        if r["week_start"] is not None
     ]
 
 
