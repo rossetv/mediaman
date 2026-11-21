@@ -15,6 +15,8 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
+from mediaman.scanner.runner import DAY_SETTING_RANGES
+
 from ._common import (
     _ALLOWED_URL_SCHEMES,
     _HOST_MAX,
@@ -54,10 +56,13 @@ def _validate_url(v: str | None) -> str | None:
 
 # Field -> (label on the Settings page, lowest, highest), matching the min and
 # max the page's inputs offer.
+_DAY_SETTING_LABELS = {
+    "min_age_days": "Minimum age",
+    "inactivity_days": "Watch inactivity",
+    "grace_days": "Grace period",
+}
 _DAY_SETTING_BOUNDS: dict[str, tuple[str, int, int]] = {
-    "min_age_days": ("Minimum age", 1, 365),
-    "inactivity_days": ("Watch inactivity", 1, 365),
-    "grace_days": ("Grace period", 1, 90),
+    key: (label, *DAY_SETTING_RANGES[key]) for key, label in _DAY_SETTING_LABELS.items()
 }
 
 

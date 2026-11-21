@@ -11,7 +11,7 @@ from datetime import timedelta
 
 from mediaman.core.scheduled_action_kinds import ACTION_PROTECTED_FOREVER
 from mediaman.core.time import now_utc
-from mediaman.services.infra import get_int_setting
+from mediaman.scanner.runner import get_day_setting
 from mediaman.web.repository.library_query._display import _shape_rows
 
 VALID_SORTS = {
@@ -67,8 +67,8 @@ def _build_where_clause(
     if media_type == "kept":
         kept_filter = True
     elif media_type == "stale":
-        _min_age = get_int_setting(conn, "min_age_days", default=30)
-        _inactivity = get_int_setting(conn, "inactivity_days", default=30)
+        _min_age = get_day_setting(conn, "min_age_days", default=30)
+        _inactivity = get_day_setting(conn, "inactivity_days", default=30)
         _now = now_utc()
         age_cutoff = (_now - timedelta(days=_min_age)).isoformat()
         watch_cutoff = (_now - timedelta(days=_inactivity)).isoformat()
