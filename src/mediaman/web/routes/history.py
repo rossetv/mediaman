@@ -34,6 +34,7 @@ ACTION_TYPES = [
     ACTION_SNOOZED,
     "kept",
     "deleted",
+    "delete_failed",
     "downloaded",
     "re_downloaded",
     "unkept",
@@ -51,6 +52,7 @@ ACTION_BADGE_CLASS = {
     "protected": "badge-action-protected",
     ACTION_PROTECTED_FOREVER: "badge-action-protected",
     "deleted": "badge-action-deleted",
+    "delete_failed": "badge-action-deleted",
     "downloaded": "badge-action-downloaded",
     "re_downloaded": "badge-action-redownloaded",
     "unkept": "badge-action-unprotected",
@@ -68,6 +70,7 @@ ACTION_LABELS = {
     "kept_show": "kept show",
     "removed_show_keep": "unkept show",
     "dry_run_skip": "dry run",
+    "delete_failed": "delete failed",
 }
 
 _CONTROL_BYTES_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")

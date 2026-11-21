@@ -51,7 +51,8 @@ ALL_KEYS: frozenset[str] = SECRET_FIELDS | frozenset(
 )
 
 #: Settings keys that require a recent-reauth ticket before they can be
-#: written. See the main module docstring for the membership rule.
+#: written: credentials, where mediaman connects or sends mail, and the
+#: settings that decide when media is deleted.
 SENSITIVE_KEYS: frozenset[str] = frozenset(
     {
         "plex_url",
@@ -66,6 +67,10 @@ SENSITIVE_KEYS: frozenset[str] = frozenset(
         "mailgun_domain",
         "mailgun_from_address",
         "base_url",
+        "min_age_days",
+        "inactivity_days",
+        "grace_days",
+        "dry_run",
     }
     | SECRET_FIELDS
 )

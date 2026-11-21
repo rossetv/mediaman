@@ -33,7 +33,7 @@
              `| tojson`-encoded id that JS parses via JSON.parse. #}
           <button class="btn btn--danger btn--sm" type="button"
                   data-action="remove-show-keep"
-                  data-show-rk="{{ item.show_rating_key | tojson }}">Remove</button>
+                  data-show-rk='{{ item.show_rating_key | tojson }}'>Remove</button>
         </div>
       {% endcall %}
       {% endfor %}
@@ -67,7 +67,7 @@
              `| tojson`-encoded id that JS parses via JSON.parse. #}
           <button class="btn btn--danger btn--sm" type="button"
                   data-action="remove-keep"
-                  data-media-id="{{ item.media_item_id | tojson }}">Remove</button>
+                  data-media-id='{{ item.media_item_id | tojson }}'>Remove</button>
         </div>
       {% endcall %}
       {% endfor %}
@@ -101,7 +101,7 @@
              `| tojson`-encoded id that JS parses via JSON.parse. #}
           <button class="btn btn--danger btn--sm" type="button"
                   data-action="remove-keep"
-                  data-media-id="{{ item.media_item_id | tojson }}">Remove</button>
+                  data-media-id='{{ item.media_item_id | tojson }}'>Remove</button>
         </div>
       {% endcall %}
       {% endfor %}

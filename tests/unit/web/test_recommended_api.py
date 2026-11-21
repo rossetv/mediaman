@@ -102,7 +102,6 @@ class TestFinding15NewsletterSkipsMintWithoutTmdb:
             base_url="https://mm.example.com",
             secret_key=_SECRET,
             dry_run=False,
-            grace_days=7,
             template=_FakeTemplate(),
             mailgun=mailgun_stub,
             report_date="2026-05-01",

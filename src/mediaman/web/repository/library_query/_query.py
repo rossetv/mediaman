@@ -11,7 +11,7 @@ from datetime import timedelta
 
 from mediaman.core.scheduled_action_kinds import ACTION_PROTECTED_FOREVER
 from mediaman.core.time import now_utc
-from mediaman.services.infra import get_int_setting
+from mediaman.scanner.runner import get_day_setting
 from mediaman.web.repository.library_query._display import _shape_rows
 
 VALID_SORTS = {
@@ -67,8 +67,8 @@ def _build_where_clause(
     if media_type == "kept":
         kept_filter = True
     elif media_type == "stale":
-        _min_age = get_int_setting(conn, "min_age_days", default=30)
-        _inactivity = get_int_setting(conn, "inactivity_days", default=30)
+        _min_age = get_day_setting(conn, "min_age_days", default=30)
+        _inactivity = get_day_setting(conn, "inactivity_days", default=30)
         _now = now_utc()
         age_cutoff = (_now - timedelta(days=_min_age)).isoformat()
         watch_cutoff = (_now - timedelta(days=_inactivity)).isoformat()
@@ -124,6 +124,7 @@ def _build_cte_sql(where_sql: str, sort: str) -> tuple[str, str]:
             id, title, 'movie' AS display_type,
             plex_rating_key, added_at, file_size_bytes, last_watched_at,
             show_rating_key, show_title, NULL AS season_count,
+            0 AS has_rating_key,
             EXISTS(
                 SELECT 1 FROM scheduled_actions sa
                 WHERE sa.media_item_id = filtered.id AND sa.token_used = 0
@@ -144,6 +145,7 @@ def _build_cte_sql(where_sql: str, sort: str) -> tuple[str, str]:
             COALESCE(show_rating_key, show_title) AS show_rating_key,
             COALESCE(show_title, title) AS show_title,
             COUNT(*) AS season_count,
+            MAX(COALESCE(show_rating_key, '') != '') AS has_rating_key,
             (
                 EXISTS(
                     SELECT 1 FROM kept_shows ks

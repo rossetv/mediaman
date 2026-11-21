@@ -275,3 +275,21 @@ class TestDiskThresholdsSettingsUpdateCap:
     def test_disk_thresholds_none_accepted(self):
         update = SettingsUpdate(disk_thresholds=None)
         assert update.disk_thresholds is None
+
+
+_DAY_RANGES = [("min_age_days", 1, 365), ("inactivity_days", 1, 365), ("grace_days", 1, 90)]
+
+
+class TestSettingsUpdateDayRanges:
+    """The cleanup day settings accept the range the Settings page offers."""
+
+    @pytest.mark.parametrize(("field", "low", "high"), _DAY_RANGES)
+    def test_both_ends_of_range_accepted(self, field, low, high):
+        assert getattr(SettingsUpdate(**{field: low}), field) == low
+        assert getattr(SettingsUpdate(**{field: high}), field) == high
+
+    @pytest.mark.parametrize(("field", "low", "high"), _DAY_RANGES)
+    def test_one_past_either_end_rejected(self, field, low, high):
+        for value in (low - 1, high + 1):
+            with pytest.raises(ValidationError, match=f"between {low} and {high}"):
+                SettingsUpdate(**{field: value})

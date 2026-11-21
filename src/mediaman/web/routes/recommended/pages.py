@@ -143,9 +143,15 @@ def recommended_page(request: Request) -> Response:
     # Use an explicit type whitelist instead of ``default=str`` so an
     # unexpected non-JSON value crashes the handler loudly rather than
     # silently rendering ``str(value)`` into the page.
-    all_recommendations_json = json.dumps(
-        {str(k): _json_safe(v) for k, v in all_recs.items()},
-    ).replace("</", "<\\/")
+    # The JSON sits inside a <script> element: escaping < > & as \u00XX keeps
+    # "</script" and "<!--" in titles from ending or commenting out the element.
+    # These characters only occur inside JSON strings, so the value is unchanged.
+    all_recommendations_json = (
+        json.dumps({str(k): _json_safe(v) for k, v in all_recs.items()})
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
 
     cooldown = refresh_cooldown_remaining(conn)
     if cooldown is None:

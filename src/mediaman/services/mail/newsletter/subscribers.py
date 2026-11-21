@@ -14,6 +14,7 @@ from mediaman.crypto import generate_download_token, generate_unsubscribe_token
 from mediaman.services.infra import SafeHTTPError
 
 from ._types import DeletedNewsletterItem, NewsletterRecItem, ScheduledNewsletterItem, StorageStats
+from .render import _build_subject
 
 if TYPE_CHECKING:
     from jinja2 import Template as _JinjaTemplate
@@ -67,10 +68,15 @@ def _record_delivery_attempt(
         # commit does not leave partial rows without a commit.
         with conn:
             conn.executemany(
-                "INSERT OR REPLACE INTO newsletter_deliveries "
+                "INSERT INTO newsletter_deliveries "
                 # legacy column name ``recipient`` retained — see docstring
                 "(scheduled_action_id, recipient, sent_at, error, attempted_at) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?) "
+                # A failure never erases an earlier success for the same pair.
+                "ON CONFLICT(scheduled_action_id, recipient) DO UPDATE SET "
+                "sent_at = excluded.sent_at, error = excluded.error, "
+                "attempted_at = excluded.attempted_at "
+                "WHERE excluded.sent_at IS NOT NULL OR newsletter_deliveries.sent_at IS NULL",
                 [
                     (action_id, subscriber, sent_at, err_text, attempted_at)
                     for action_id in scheduled_action_ids
@@ -82,6 +88,29 @@ def _record_delivery_attempt(
             extra={"subscriber": subscriber, "action_count": len(scheduled_action_ids)},
             exc_info=True,
         )
+
+
+def _action_ids(items: list[ScheduledNewsletterItem]) -> list[int]:
+    return [int(item["_action_id"]) for item in items if item.get("_action_id") is not None]
+
+
+def _delivered_action_ids(
+    conn: sqlite3.Connection, scheduled_action_ids: list[int]
+) -> dict[str, set[int]]:
+    """Map each subscriber to those of *scheduled_action_ids* already delivered to them."""
+    if not scheduled_action_ids:
+        return {}
+    placeholders = ",".join("?" * len(scheduled_action_ids))
+    # rationale: placeholder list built from integer IDs only; no user input reaches this interpolation
+    rows = conn.execute(
+        f"SELECT recipient, scheduled_action_id FROM newsletter_deliveries "
+        f"WHERE scheduled_action_id IN ({placeholders}) AND sent_at IS NOT NULL",
+        scheduled_action_ids,
+    ).fetchall()
+    delivered: dict[str, set[int]] = {}
+    for row in rows:
+        delivered.setdefault(row["recipient"], set()).add(row["scheduled_action_id"])
+    return delivered
 
 
 def _mint_deleted_tokens(
@@ -149,7 +178,6 @@ def _render_for_subscriber(
     base_url: str,
     secret_key: str,
     dry_run: bool,
-    grace_days: int,
     template: _JinjaTemplate,
 ) -> str:
     """Mint per-subscriber tokens on shallow copies of the items (so URLs do not bleed
@@ -187,7 +215,6 @@ def _render_for_subscriber(
         dashboard_url=base_url,
         dry_run=dry_run,
         base_url=base_url,
-        grace_days=grace_days,
         unsubscribe_url=unsub_url,
     )
 
@@ -206,7 +233,6 @@ def _send_to_subscribers(
     base_url: str,
     secret_key: str,
     dry_run: bool,
-    grace_days: int,
     template: _JinjaTemplate,
     mailgun: _MailgunClient,
     report_date: str,
@@ -215,18 +241,25 @@ def _send_to_subscribers(
     """Render and send to each subscriber, returning the addresses that succeeded.
 
     With *conn*, a per-subscriber delivery record is persisted for every scheduled item
-    so notified=1 is set only when every active subscriber succeeded.
+    so notified=1 is set only when every active subscriber succeeded. On a later attempt a
+    subscriber's copy leaves out the items already delivered to them, and is skipped when
+    that leaves no scheduled item and no recommendation to report.
     """
-    scheduled_action_ids = [
-        int(item["_action_id"]) for item in scheduled_items if item.get("_action_id") is not None
-    ]
+    delivered = (
+        _delivered_action_ids(conn, _action_ids(scheduled_items)) if conn is not None else {}
+    )
     successfully_sent: list[str] = []
     for email in recipient_emails:
+        # A subscriber already sent some items in an earlier attempt gets only the rest.
+        items = [i for i in scheduled_items if i.get("_action_id") not in delivered.get(email, ())]
+        if scheduled_items and not items and not this_week_items:
+            continue  # everything was delivered and nothing else is worth an email
+        scheduled_action_ids = _action_ids(items)
         html = _render_for_subscriber(
             email=email,
             deleted_items=deleted_items,
             this_week_items=this_week_items,
-            scheduled_items=scheduled_items,
+            scheduled_items=items,
             storage=storage,
             reclaimed_week=reclaimed_week,
             reclaimed_month=reclaimed_month,
@@ -235,11 +268,16 @@ def _send_to_subscribers(
             base_url=base_url,
             secret_key=secret_key,
             dry_run=dry_run,
-            grace_days=grace_days,
             template=template,
         )
         try:
-            mailgun.send(to=email, subject=subject, html=html)
+            mailgun.send(
+                to=email,
+                subject=subject
+                if len(items) == len(scheduled_items)
+                else _build_subject(items, dry_run),
+                html=html,
+            )
             successfully_sent.append(email)
             if conn is not None:
                 _record_delivery_attempt(

@@ -13,7 +13,9 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
+
+from mediaman.scanner.runner import DAY_SETTING_RANGES
 
 from ._common import (
     _ALLOWED_URL_SCHEMES,
@@ -50,6 +52,18 @@ def _validate_url(v: str | None) -> str | None:
     if not parsed.netloc:
         raise ValueError("URL must include a host")
     return v
+
+
+# Field -> (label on the Settings page, lowest, highest), matching the min and
+# max the page's inputs offer.
+_DAY_SETTING_LABELS = {
+    "min_age_days": "Minimum age",
+    "inactivity_days": "Watch inactivity",
+    "grace_days": "Grace period",
+}
+_DAY_SETTING_BOUNDS: dict[str, tuple[str, int, int]] = {
+    key: (label, *DAY_SETTING_RANGES[key]) for key, label in _DAY_SETTING_LABELS.items()
+}
 
 
 class DiskThresholds(BaseModel):
@@ -278,6 +292,21 @@ class SettingsUpdate(BaseModel):
         if not (0 <= iv <= 1440):
             raise ValueError("library_sync_interval must be between 0 and 1440 minutes")
         return iv
+
+    @field_validator(*_DAY_SETTING_BOUNDS, mode="after")
+    @classmethod
+    def validate_day_settings(cls, v: int | None, info: ValidationInfo) -> int | None:
+        """Bound the cleanup day settings to the range the Settings page offers.
+
+        The message names the setting and its range because the page shows it
+        as the reason a save was refused.
+        """
+        if v is None:
+            return v
+        label, low, high = _DAY_SETTING_BOUNDS[info.field_name or ""]
+        if not (low <= v <= high):
+            raise ValueError(f"{label} must be between {low} and {high} days")
+        return v
 
     @field_validator("disk_thresholds", mode="before")
     @classmethod

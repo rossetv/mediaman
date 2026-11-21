@@ -13,6 +13,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import cast
 
+from mediaman.web.repository.library_query import ALL_SEASON_TYPES
+
 logger = logging.getLogger(__name__)
 
 
@@ -126,14 +128,22 @@ def fetch_protected_items(conn: sqlite3.Connection, now: str) -> list[ProtectedR
 def fetch_seasons_for_show(conn: sqlite3.Connection, show_rating_key: str) -> list[SeasonRow]:
     """Return all seasons of a show ordered by season_number.
 
+    Matches the rows the Library groups into one show row: the key is
+    ``COALESCE(show_rating_key, show_title)``, so a show Plex gave no rating
+    key is found by its title.
+
     Performs the batched IN-clause approach to fetch kept status for all
     seasons in one extra query instead of N+1 per season.
     """
+    # rationale: placeholders is purely "?" * len(ALL_SEASON_TYPES) — no user value ever enters the SQL text
+    type_placeholders = ",".join("?" * len(ALL_SEASON_TYPES))
     rows = conn.execute(
         "SELECT id, title, season_number, file_size_bytes, last_watched_at "
         "FROM media_items "
-        "WHERE show_rating_key = ? ORDER BY season_number ASC",
-        (show_rating_key,),
+        "WHERE COALESCE(show_rating_key, show_title) = ? "
+        f"AND media_type IN ({type_placeholders}) "
+        "ORDER BY season_number ASC",
+        (show_rating_key, *ALL_SEASON_TYPES),
     ).fetchall()
 
     ids = [r["id"] for r in rows]

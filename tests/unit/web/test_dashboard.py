@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import UTC, datetime, timedelta
+from html.parser import HTMLParser
+from pathlib import Path
 
+from fastapi.templating import Jinja2Templates
 from fastapi.testclient import TestClient
 
 from mediaman.web.routes.dashboard import router as dashboard_router
@@ -224,3 +228,85 @@ class TestFetchRedownloadAuditRowsBounded:
         media_ids = {row.media_item_id for row in fetch_redownload_audit_rows(conn)}
         assert "fresh" in media_ids
         assert "ancient" not in media_ids
+
+
+_TEMPLATE_DIR = Path(__file__).parents[3] / "src" / "mediaman" / "web" / "templates"
+_AWKWARD_TEXT = """He said "Hi" & it's <b>bold</b>"""
+
+
+class _DataActionElements(HTMLParser):
+    """Collect the attributes of every element carrying ``data-action``."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.elements: list[dict[str, str | None]] = []
+
+    def handle_starttag(self, tag, attrs):
+        found = dict(attrs)
+        if "data-action" in found:
+            self.elements.append(found)
+
+
+def _buttons(html: str, action: str) -> list[dict[str, str | None]]:
+    parser = _DataActionElements()
+    parser.feed(html)
+    return [e for e in parser.elements if e["data-action"] == action]
+
+
+class TestJsonDataAttributesRoundTrip:
+    """Values encoded with tojson in data-* attributes must reach the JS intact."""
+
+    def test_dashboard_redownload_button_carries_title_with_quotes(
+        self, app_factory, authed_client, conn
+    ):
+        insert_media_item(
+            conn,
+            id="m-quote",
+            title=_AWKWARD_TEXT,
+            plex_rating_key="rk1",
+            file_path="/f",
+            file_size_bytes=0,
+            added_at="2024-01-01",
+        )
+        _insert_audit_deleted(conn, "m-quote")
+        app = app_factory(
+            dashboard_router,
+            conn=conn,
+            state_extras={"templates": Jinja2Templates(directory=str(_TEMPLATE_DIR))},
+        )
+        resp = authed_client(app, conn).get("/")
+        assert resp.status_code == 200
+
+        (button,) = _buttons(resp.text, "redownload")
+        assert json.loads(button["data-title"] or "") == _AWKWARD_TEXT
+        assert json.loads(button["data-media-item-id"] or "") == "m-quote"
+        assert json.loads(button["data-media-type"] or "") == "movie"
+
+    def test_kept_page_remove_buttons_carry_ids_with_quotes(self):
+        env = Jinja2Templates(directory=str(_TEMPLATE_DIR)).env
+        item = {
+            "title": "t",
+            "show_title": "s",
+            "media_item_id": _AWKWARD_TEXT,
+            "show_rating_key": _AWKWARD_TEXT,
+            "plex_rating_key": "",
+            "action": "protected_forever",
+            "expiry": "Forever",
+            "type_label": "Movie",
+            "media_type": "movie",
+            "file_size": "1 GB",
+        }
+        html = env.get_template("protected.html").render(
+            username="admin",
+            nav_active="kept",
+            show_items=[item],
+            forever_items=[item],
+            snoozed_items=[item],
+        )
+
+        (show_button,) = _buttons(html, "remove-show-keep")
+        assert json.loads(show_button["data-show-rk"] or "") == _AWKWARD_TEXT
+        keep_buttons = _buttons(html, "remove-keep")
+        assert len(keep_buttons) == 2
+        for button in keep_buttons:
+            assert json.loads(button["data-media-id"] or "") == _AWKWARD_TEXT

@@ -6,23 +6,32 @@ import logging
 
 import requests
 from requests.exceptions import RequestException
+from urllib3.exceptions import NewConnectionError
 
 from mediaman.core.email_validation import validate_email_address as _validate_recipient
 from mediaman.services.infra import SafeHTTPClient, SafeHTTPError
 
 logger = logging.getLogger(__name__)
 
-# Transient HTTP status codes that warrant a retry on POST requests.
-# Mailgun's previous standalone retry primitive included ``500`` in this
-# set; the consolidated dispatch_loop retry path now accepts this
-# override via ``retryable_statuses`` so the mailgun POST retains its
-# 500-also-retryable policy without duplicating retry orchestration.
-_RETRYABLE_POST_STATUSES = frozenset({429, 500, 502, 503, 504})
+# Only a 429 is retried: Mailgun refused the message outright.  A 5xx can follow a
+# message Mailgun already accepted, and a send has no idempotency key, so repeating it
+# could deliver twice.
+_RETRYABLE_POST_STATUSES = frozenset({429})
 
-#: Number of consecutive 5xx responses that trip the early-abort guard.
-#: A genuinely unhealthy upstream is unlikely to recover within the retry
-#: window — burning all three attempts only delays the inevitable failure.
-_CONSECUTIVE_5XX_ABORT = 2
+
+def _request_never_left(exc: Exception) -> bool:
+    """True when the failure happened before the request was sent, so a retry cannot duplicate it.
+
+    That is a connect timeout, or a connection that could not be opened (refused, no route,
+    DNS failure). A read timeout or a reset after the request went out may mean Mailgun
+    accepted the message, so it is not retried.
+    """
+    if isinstance(exc, requests.exceptions.ConnectTimeout):
+        return True
+    if isinstance(exc, requests.exceptions.ConnectionError) and exc.args:
+        reason = getattr(exc.args[0], "reason", None)
+        return isinstance(reason, NewConnectionError)
+    return False
 
 
 # Characters that must never appear in RFC 2822 header values (subject,
@@ -86,8 +95,8 @@ class MailgunClient:
                     timeout=(5.0, 30.0),
                     retry=True,
                     jitter_strategy="full",
-                    abort_after_consecutive_5xx=_CONSECUTIVE_5XX_ABORT,
                     retryable_statuses=_RETRYABLE_POST_STATUSES,
+                    retry_transport_error=_request_never_left,
                 )
                 self._base = base  # remember what worked
                 return

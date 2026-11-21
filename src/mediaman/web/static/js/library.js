@@ -12,7 +12,7 @@
 (function () {
   'use strict';
 
-  var _keepDialogState = { showRk: '', showTitle: '', seasonId: '', duration: '30 days' };
+  var _keepDialogState = { showRk: '', hasRk: false, showKept: false, keptSeasonIds: [], showTitle: '', seasonId: '', duration: '30 days' };
 
   /* Modal handles assigned during wire() — both modals are CSS-class
      driven (no inline display:flex), so we pass activeClass to setupDetail.
@@ -20,6 +20,12 @@
      scroll today and we shouldn't introduce that as a side effect. */
   var _keepDialogModal = null;
   var _deleteModal = null;
+  var _seasonDeleteModal = null;
+
+  /* Each dialog's season fetch is numbered; a response that is not the
+     latest belongs to a show no longer open and is dropped. */
+  var _keepDialogRequest = 0;
+  var _seasonDeleteRequest = 0;
 
   /**
    * Submit a keep/snooze request for a media item.
@@ -33,6 +39,7 @@
     var isTv = wrapper.dataset.tv === 'true';
     var showRk = wrapper.dataset.showRk || '';
     var showTitle = wrapper.dataset.showTitle || '';
+    var hasRk = wrapper.dataset.hasRk === 'true';
 
     if (!isTv) {
       MM.api.postForm('/api/media/' + encodeURIComponent(mediaId) + '/keep',
@@ -45,6 +52,7 @@
       return;
     }
     _keepDialogState.showRk = showRk;
+    _keepDialogState.hasRk = hasRk;
     _keepDialogState.showTitle = showTitle;
     _keepDialogState.seasonId = mediaId;
     _keepDialogState.duration = duration || '30 days';
@@ -55,6 +63,8 @@
     if (_keepDialogModal) _keepDialogModal.open();
     if (_keepDialogState.duration) selectDurationByValue(_keepDialogState.duration);
 
+    _keepDialogState.showKept = false;
+    _keepDialogState.keptSeasonIds = [];
     var list = document.getElementById('keep-season-list');
     list.textContent = 'Loading…';
     var rk = _keepDialogState.showRk || '_by_title';
@@ -64,15 +74,21 @@
     }
     document.getElementById('keep-dialog-remove').classList.remove('is-visible');
     document.getElementById('keep-dialog-confirm').textContent = 'Keep';
+    var request = ++_keepDialogRequest;
     MM.api.get(url)
       .then(function (data) {
+        if (request !== _keepDialogRequest) return;
         document.getElementById('keep-dialog-title').textContent = 'Keep ' + (data.show_title || _keepDialogState.showTitle || 'Show');
+        _keepDialogState.showKept = !!data.show_kept;
+        _keepDialogState.keptSeasonIds = data.seasons.filter(function (s) { return s.kept; }).map(function (s) { return s.id; });
         var hasKeeps = data.show_kept || data.seasons.some(function (s) { return s.kept; });
         document.getElementById('keep-dialog-remove').classList.toggle('is-visible', hasKeeps);
         if (hasKeeps) document.getElementById('keep-dialog-confirm').textContent = 'Update';
         renderSeasonPicker(data.seasons, data.show_kept);
       })
-      .catch(function () { list.textContent = "Couldn't load seasons."; });
+      .catch(function () {
+        if (request === _keepDialogRequest) list.textContent = "Couldn't load seasons.";
+      });
   }
 
   function closeKeepDialog() {
@@ -93,6 +109,8 @@
     var list = document.getElementById('keep-season-list');
     list.replaceChildren();
 
+    /* A show keyed by its title has no rating key to keep the whole show
+       under, so only per-season keeps are offered. */
     var allRow = document.createElement('div');
     allRow.className = 'keep-season-item keep-all-row';
     var allCb = document.createElement('input');
@@ -107,7 +125,7 @@
     allLabel.textContent = 'All seasons';
     allRow.appendChild(allCb);
     allRow.appendChild(allLabel);
-    list.appendChild(allRow);
+    if (_keepDialogState.hasRk) list.appendChild(allRow);
 
     seasons.forEach(function (s) {
       var row = document.createElement('div');
@@ -143,7 +161,8 @@
   }
 
   function confirmKeepDialog() {
-    var allChecked = document.getElementById('keep-all-seasons').checked;
+    var allCb = document.getElementById('keep-all-seasons');
+    var allChecked = !!allCb && allCb.checked;
     var selectedIds = [];
     document.querySelectorAll('#keep-season-list input[data-season-id]:checked').forEach(function (cb) {
       selectedIds.push(cb.dataset.seasonId);
@@ -207,20 +226,15 @@
       confirmVariant: 'danger'
     }).then(function (ok) {
       if (!ok) return;
-      /* Collect season IDs to remove; check response.ok per request. */
-      var seasonIds = [];
       var rk = _keepDialogState.showRk;
-      document.querySelectorAll('#keep-season-list input[data-season-id]').forEach(function (cb) {
-        seasonIds.push(cb.dataset.seasonId);
-      });
-
       var allRequests = [];
-      if (rk) allRequests.push({ url: '/api/show/' + encodeURIComponent(rk) + '/remove', id: rk });
-      seasonIds.forEach(function (sid) {
+      if (rk && _keepDialogState.showKept) {
+        allRequests.push({ url: '/api/show/' + encodeURIComponent(rk) + '/remove', id: rk });
+      }
+      _keepDialogState.keptSeasonIds.forEach(function (sid) {
         allRequests.push({ url: '/api/media/' + encodeURIComponent(sid) + '/unprotect', id: sid });
       });
 
-      /* Sequential loop — accumulates failures, continues after each one. */
       var removeChain = Promise.resolve();
       var failed = [];
       allRequests.forEach(function (req) {
@@ -252,6 +266,69 @@
   function closeDeleteModal() {
     _pendingDeleteId = null;
     if (_deleteModal) _deleteModal.close();
+  }
+
+  /**
+   * Open the per-season Delete list for a grouped show row. Nothing is
+   * deleted from here: each season's own Delete goes through confirmDelete.
+   */
+  function openSeasonDelete(showRk, showTitle) {
+    var list = document.getElementById('season-delete-list');
+    document.getElementById('season-delete-title').textContent = 'Delete from ' + (showTitle || 'show');
+    if (_seasonDeleteModal) _seasonDeleteModal.open();
+    var request = ++_seasonDeleteRequest;
+    if (!showRk) { list.textContent = "Couldn't load seasons."; return; }
+    list.textContent = 'Loading…';
+    MM.api.get('/api/show/' + encodeURIComponent(showRk) + '/seasons')
+      .then(function (data) {
+        if (request === _seasonDeleteRequest) renderSeasonDeleteList(data, showTitle);
+      })
+      .catch(function () {
+        if (request === _seasonDeleteRequest) list.textContent = "Couldn't load seasons.";
+      });
+  }
+
+  function renderSeasonDeleteList(data, showTitle) {
+    var list = document.getElementById('season-delete-list');
+    list.replaceChildren();
+    if (!data.seasons.length) { list.textContent = 'No seasons found.'; return; }
+    var title = data.show_title || showTitle;
+
+    data.seasons.forEach(function (s) {
+      var row = document.createElement('div');
+      row.className = 'keep-season-item';
+      var name = document.createElement('span');
+      name.textContent = s.season_number != null ? 'Season ' + s.season_number : s.title;
+      row.appendChild(name);
+
+      var details = document.createElement('span');
+      details.className = 'keep-season-details';
+      var parts = [];
+      if (s.file_size) parts.push(s.file_size);
+      if (s.last_watched) parts.push('watched ' + s.last_watched);
+      else parts.push('never watched');
+      details.textContent = parts.join(' · ');
+      row.appendChild(details);
+
+      /* A kept season gets no Delete, as a kept row gets none on the page. */
+      if (s.kept || data.show_kept) {
+        var badge = document.createElement('span');
+        badge.className = 'pill pill--kept';
+        badge.textContent = 'Kept';
+        row.appendChild(badge);
+      } else {
+        var del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'btn btn--danger btn--sm';
+        del.textContent = 'Delete';
+        del.addEventListener('click', function () {
+          if (_seasonDeleteModal) _seasonDeleteModal.close();
+          confirmDelete(String(s.id), title + ' — ' + name.textContent);
+        });
+        row.appendChild(del);
+      }
+      list.appendChild(row);
+    });
   }
 
   function removeKeep(mediaId) {
@@ -341,6 +418,20 @@
       if (confirmBtn) confirmBtn.addEventListener('click', confirmKeepDialog);
     }
 
+    /* Season Delete dialog: same markup and display rule as the Keep dialog. */
+    var seasonDeleteOverlay = document.getElementById('season-delete-overlay');
+    if (seasonDeleteOverlay) {
+      _seasonDeleteModal = MM.modal.setupDetail(seasonDeleteOverlay, {
+        activeClass: 'active',
+        manageBodyOverflow: false,
+        closeSelectors: ['[data-action="close-season-delete"]'],
+      });
+      var seasonDeleteCard = seasonDeleteOverlay.querySelector('.keep-dialog');
+      if (seasonDeleteCard) {
+        seasonDeleteCard.addEventListener('click', function (e) { e.stopPropagation(); });
+      }
+    }
+
     /* Mobile sort <select> — uses change event rather than inline onchange. */
     var mobileSort = document.getElementById('lib-mobile-sort-select');
     if (mobileSort) {
@@ -381,6 +472,14 @@
       var title;
       try { title = JSON.parse(deleteBtn.dataset.title); } catch (_) { title = ''; }
       confirmDelete(id, title);
+      return;
+    }
+    var showDeleteBtn = e.target.closest('[data-action="pick-season-delete"]');
+    if (showDeleteBtn) {
+      e.preventDefault();
+      var showTitle;
+      try { showTitle = JSON.parse(showDeleteBtn.dataset.title); } catch (_) { showTitle = ''; }
+      openSeasonDelete(showDeleteBtn.dataset.showRk || '', showTitle);
     }
   });
 

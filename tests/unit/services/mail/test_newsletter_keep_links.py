@@ -44,7 +44,7 @@ def conn(db_path):
     conn.close()
 
 
-def _send(conn, *, manual: bool = False, grace_days: int = 14) -> str:
+def _send(conn, *, manual: bool = False) -> str:
     """Send the newsletter the way the scan (or the admin's manual send) does; return the HTML."""
     mailgun = MagicMock()
     with (
@@ -57,12 +57,11 @@ def _send(conn, *, manual: bool = False, grace_days: int = 14) -> str:
             send_newsletter(
                 conn,
                 _SECRET_KEY,
-                grace_days=grace_days,
                 recipients=["alice@example.com"],
                 mark_notified=False,
             )
         else:
-            send_newsletter(conn, _SECRET_KEY, grace_days=grace_days)
+            send_newsletter(conn, _SECRET_KEY)
     mailgun.send.assert_called_once()
     return mailgun.send.call_args.kwargs["html"]
 
@@ -133,7 +132,7 @@ def test_grace_setting_changed_after_scheduling_keeps_the_link(conn):
     )
     conn.commit()
 
-    tokens = _KEEP_HREF.findall(_send(conn, grace_days=7))
+    tokens = _KEEP_HREF.findall(_send(conn))
 
     assert [hashlib.sha256(t.encode()).hexdigest() for t in tokens] == [
         _token_hash(conn, action_id)

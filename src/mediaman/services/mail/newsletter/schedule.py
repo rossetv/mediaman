@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import sqlite3
 from datetime import datetime
 
@@ -46,6 +47,16 @@ def _keep_url(row: sqlite3.Row, now: datetime, base_url: str, secret_key: str) -
     return f"{base_url}/keep/{token}"
 
 
+def _days_left(row: sqlite3.Row, now: datetime) -> int:
+    """Whole days until the row's deadline, rounded up, never below 0.
+
+    A deadline that is already past, or unreadable, counts as 0 (the same "treat as
+    expired" fallback the keep page uses).
+    """
+    remaining = parse_execute_at(row["execute_at"], default=now) - now
+    return max(0, math.ceil(remaining.total_seconds() / 86400))
+
+
 def _build_scheduled_card(
     row: sqlite3.Row,
     now: datetime,
@@ -86,6 +97,7 @@ def _build_scheduled_card(
         "poster_url": poster_url,
         "file_size_bytes": row["file_size_bytes"] or 0,
         "added_days_ago": added_days_ago,
+        "days_left": _days_left(row, now),
         "last_watched_info": last_watched_info,
         "keep_url": _keep_url(row, now, base_url, secret_key),
         "is_reentry": bool(row["is_reentry"]),

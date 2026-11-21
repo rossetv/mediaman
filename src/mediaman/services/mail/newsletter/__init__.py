@@ -183,7 +183,6 @@ def send_newsletter(  # rationale: extracted from send_newsletter to keep the or
     conn: sqlite3.Connection,
     secret_key: str,
     dry_run: bool = False,
-    grace_days: int = 14,
     *,
     recipients: list[str] | None = None,
     mark_notified: bool = True,
@@ -251,14 +250,13 @@ def send_newsletter(  # rationale: extracted from send_newsletter to keep the or
         base_url=base_url,
         secret_key=secret_key,
         dry_run=dry_run,
-        grace_days=grace_days,
         template=ctx.template,
         mailgun=ctx.mailgun,
         report_date=ctx.report_date,
         conn=conn if mark_notified else None,
     )
 
-    if mark_notified and successfully_sent:
+    if mark_notified:
         # Only flip ``notified=1`` for items where every active subscriber was
         # successfully delivered — a partial failure must leave the row at
         # ``notified=0`` for re-attempt on the next tick.

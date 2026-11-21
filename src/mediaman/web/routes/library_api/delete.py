@@ -58,12 +58,16 @@ def _is_already_gone(exc: Exception) -> bool:
     return getattr(resp, "status_code", None) == 404
 
 
+_ARR_ERRORS = (SafeHTTPError, requests.RequestException, ArrError, ValueError)
+
+
 def _try_radarr_delete(
     client: ArrClient,
     snapshot: MediaDeleteSnapshot,
     *,
     conn: sqlite3.Connection,
     media_id: str,
+    username: str,
 ) -> tuple[int | None, JSONResponse | None]:
     """Delete a movie via Radarr; returns (intent_id, short_circuit_resp). A non-None response
     means the handler must return it immediately (e.g. 502 on an upstream failure).
@@ -74,10 +78,11 @@ def _try_radarr_delete(
         logger.info("No stored radarr_id for '%s' — skipping Radarr-level delete.", title)
         return None, None
     intent_id = _record_delete_intent(conn, media_id, "radarr", str(radarr_id))
+    failed_detail = f"Radarr did not confirm the delete of '{title}' by {username}"
     try:
         client.delete_movie(radarr_id)
         logger.info("Deleted '%s' via Radarr (id %s, with files + exclusion)", title, radarr_id)
-    except (SafeHTTPError, requests.RequestException, ArrError, ValueError) as exc:
+    except _ARR_ERRORS as exc:
         if _is_already_gone(exc):
             logger.info(
                 "Radarr reports id %s already gone for '%s' — idempotent delete",
@@ -85,13 +90,18 @@ def _try_radarr_delete(
                 title,
             )
             return intent_id, None
-        _fail_delete_intent(conn, intent_id, str(exc))
+        _fail_delete_intent(conn, intent_id, media_id, failed_detail, str(exc), actor=username)
         logger.exception("Radarr delete failed for '%s'", title)
         return intent_id, respond_err(
             "upstream_delete_failed",
             status=502,
             message="Upstream Radarr delete failed — DB row preserved",
         )
+    # rationale: any other error is still an unconfirmed delete; close the
+    # intent so the startup reconcile cannot book the item deleted.
+    except Exception as exc:
+        _fail_delete_intent(conn, intent_id, media_id, failed_detail, str(exc), actor=username)
+        raise
     return intent_id, None
 
 
@@ -101,9 +111,13 @@ def _try_sonarr_delete(
     *,
     conn: sqlite3.Connection,
     media_id: str,
+    username: str,
 ) -> tuple[int | None, JSONResponse | None]:
     """Delete a TV season (and the show if empty) via Sonarr; returns (intent_id,
     short_circuit_resp) like _try_radarr_delete.
+
+    A failure after the season files were removed still keeps the DB row: Sonarr did not
+    confirm the whole delete, and a retry is safe because each step is idempotent.
     """
     title = snapshot.title
     sid = snapshot.sonarr_id
@@ -111,8 +125,17 @@ def _try_sonarr_delete(
     if not (sid and season_num is not None):
         return None, None
     intent_id = _record_delete_intent(conn, media_id, "sonarr", str(sid))
+    files_removed = False
+
+    def failed_detail() -> str:
+        detail = f"Sonarr did not confirm the delete of '{title}' S{season_num} by {username}"
+        if files_removed:
+            detail += "; its season files were removed"
+        return detail
+
     try:
         sonarr_client.delete_episode_files(sid, season_num)
+        files_removed = True
         sonarr_client.unmonitor_season(sid, season_num)
         logger.info("Deleted season files for '%s' S%s via Sonarr", title, season_num)
         if not sonarr_client.has_remaining_files(sid):
@@ -121,7 +144,7 @@ def _try_sonarr_delete(
                 "No files remain for '%s' — deleted series from Sonarr with exclusion",
                 title,
             )
-    except (SafeHTTPError, requests.RequestException, ArrError, ValueError) as exc:
+    except _ARR_ERRORS as exc:
         if _is_already_gone(exc):
             logger.info(
                 "Sonarr reports id %s already gone for '%s' — idempotent delete",
@@ -129,13 +152,18 @@ def _try_sonarr_delete(
                 title,
             )
             return intent_id, None
-        _fail_delete_intent(conn, intent_id, str(exc))
+        _fail_delete_intent(conn, intent_id, media_id, failed_detail(), str(exc), actor=username)
         logger.exception("Sonarr delete failed for '%s'", title)
         return intent_id, respond_err(
             "upstream_delete_failed",
             status=502,
             message="Upstream Sonarr delete failed — DB row preserved",
         )
+    # rationale: any other error is still an unconfirmed delete; close the
+    # intent so the startup reconcile cannot book the item deleted.
+    except Exception as exc:
+        _fail_delete_intent(conn, intent_id, media_id, failed_detail(), str(exc), actor=username)
+        raise
     return intent_id, None
 
 
@@ -145,6 +173,7 @@ def _run_arr_delete_branch(
     conn: sqlite3.Connection,
     media_id: str,
     secret_key: str,
+    username: str,
 ) -> tuple[int | None, JSONResponse | None]:
     # Late import: the barrel re-exports build_radarr_from_db /
     # build_sonarr_from_db and tests patch those names at the barrel module
@@ -157,11 +186,13 @@ def _run_arr_delete_branch(
         client = build_radarr_from_db(conn, secret_key)
         if client is None:
             return None, None
-        return _try_radarr_delete(client, snapshot, conn=conn, media_id=media_id)
+        return _try_radarr_delete(client, snapshot, conn=conn, media_id=media_id, username=username)
     sonarr_client = build_sonarr_from_db(conn, secret_key)
     if sonarr_client is None:
         return None, None
-    return _try_sonarr_delete(sonarr_client, snapshot, conn=conn, media_id=media_id)
+    return _try_sonarr_delete(
+        sonarr_client, snapshot, conn=conn, media_id=media_id, username=username
+    )
 
 
 def _finalise_delete(
@@ -232,6 +263,7 @@ def api_media_delete(
         conn=conn,
         media_id=media_id,
         secret_key=request.app.state.config.secret_key,
+        username=username,
     )
     if short_circuit is not None:
         return short_circuit

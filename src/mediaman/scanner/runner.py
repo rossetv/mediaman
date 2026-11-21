@@ -28,11 +28,29 @@ from mediaman.services.arr.build import (
 from mediaman.services.arr.build import (
     build_sonarr_from_db as _build_sonarr,
 )
-from mediaman.services.infra import SafeHTTPError, SSRFRefused
-from mediaman.services.infra import get_int_setting as _get_int_setting
+from mediaman.services.infra import SafeHTTPError, SSRFRefused, get_int_setting
 
 if TYPE_CHECKING:
     from mediaman.services.media_meta.plex import PlexClient
+
+
+# Lowest and highest value each cleanup day setting may take. The Settings
+# page and its API enforce these on input; readers clamp to them as well, so
+# a value stored before the bounds existed cannot drive a scan or a query.
+DAY_SETTING_RANGES: dict[str, tuple[int, int]] = {
+    "min_age_days": (1, 365),
+    "inactivity_days": (1, 365),
+    "grace_days": (1, 90),
+}
+
+
+def get_day_setting(conn: sqlite3.Connection, key: str, *, default: int) -> int:
+    """Return a cleanup day setting held to its allowed range.
+
+    The stored row is never changed; only the value handed back is clamped.
+    """
+    low, high = DAY_SETTING_RANGES[key]
+    return max(low, min(high, get_int_setting(conn, key, default=default)))
 
 
 class ScanSummary(TypedDict, total=False):
@@ -320,9 +338,9 @@ def run_scan_from_db(
     sonarr_client = _build_sonarr(conn, secret_key)
     radarr_client = _build_radarr(conn, secret_key)
 
-    min_age = _get_int_setting(conn, "min_age_days", default=30)
-    inactivity = _get_int_setting(conn, "inactivity_days", default=30)
-    grace = _get_int_setting(conn, "grace_days", default=14)
+    min_age = get_day_setting(conn, "min_age_days", default=30)
+    inactivity = get_day_setting(conn, "inactivity_days", default=30)
+    grace = get_day_setting(conn, "grace_days", default=14)
     dry_run = repository.read_setting(conn, "dry_run") == "true"
 
     engine = ScanEngine(

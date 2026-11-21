@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import pytest
+import requests
+from urllib3.exceptions import MaxRetryError, NewConnectionError, ProtocolError
 
 from mediaman.services.infra import SafeHTTPError
 from mediaman.services.mail.mailgun import (
@@ -64,10 +66,10 @@ class TestMailgunSend:
 
 
 class TestMailgunRetryPolicy:
-    """The mailgun POST shares ``dispatch_loop`` with every other
-    outbound caller, opting into full-jitter backoff and a 2-consecutive-5xx
-    early abort.  These tests pin the user-visible behaviour rather than
-    the internal helper that previously implemented it.
+    """The mailgun POST shares ``dispatch_loop`` with every other outbound caller,
+    opting into full-jitter backoff and retrying only when the message cannot yet have
+    been sent: a connection that never opened, or a 429.  These tests pin the
+    user-visible behaviour.
 
     All tests stub out the sleep and jitter sources so the suite stays
     deterministic and fast.
@@ -84,45 +86,65 @@ class TestMailgunRetryPolicy:
     def _client(self) -> MailgunClient:
         return MailgunClient("example.com", "key-xxx", "noreply@example.com", region="eu")
 
-    @pytest.mark.parametrize(
-        ("status", "text"),
-        [
-            (429, "Too Many Requests"),
-            (503, "Unavailable"),
-            (500, "Boom"),
-        ],
-        ids=["429", "503", "500"],
-    )
-    def test_send_retries_on_retryable_status(self, status, text, fake_http, fake_response):
-        """A retryable status triggers a retry; the second 2xx call wins.
-
-        500 is in the mailgun retryable-statuses override (not in the
-        default ``_RETRYABLE_STATUSES``).
-        """
+    def test_send_retries_on_429(self, fake_http, fake_response):
         client = self._client()
-        fake_http.queue("POST", fake_response(status=status, text=text))
+        fake_http.queue("POST", fake_response(status=429, text="Too Many Requests"))
         fake_http.queue("POST", fake_response(status=200, content=b""))
         client.send(to="user@example.com", subject="Test", html="<p>Hi</p>")
-        post_calls = [c for c in fake_http.calls if c[0] == "POST"]
-        assert len(post_calls) == 2
+        assert len([c for c in fake_http.calls if c[0] == "POST"]) == 2
 
-    def test_send_aborts_after_two_consecutive_5xx(self, fake_http, fake_response):
-        """Two consecutive 5xx responses abort the retry loop early.
-
-        The third attempt budgeted by the default schedule is never used —
-        the mailgun policy gives up because a genuinely unhealthy upstream
-        is unlikely to flip green within a couple of seconds.
-        """
+    @pytest.mark.parametrize("status", [500, 502, 503, 504])
+    def test_send_does_not_retry_a_5xx(self, status, fake_http, fake_response):
+        """A 5xx may follow a send Mailgun already accepted; resending could deliver twice."""
         client = self._client()
-        fake_http.queue("POST", fake_response(status=500, text="boom"))
-        fake_http.queue("POST", fake_response(status=500, text="boom"))
-        # Queue a 200 so we can prove it's NOT consumed.
+        fake_http.queue("POST", fake_response(status=status, text="oops"))
         fake_http.queue("POST", fake_response(status=200, content=b""))
         with pytest.raises(SafeHTTPError) as exc_info:
             client.send(to="user@example.com", subject="Test", html="<p>Hi</p>")
-        assert exc_info.value.status_code == 500
-        post_calls = [c for c in fake_http.calls if c[0] == "POST"]
-        assert len(post_calls) == 2  # aborted before consuming the third response
+        assert exc_info.value.status_code == status
+        assert len([c for c in fake_http.calls if c[0] == "POST"]) == 1
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            requests.exceptions.ConnectTimeout("no route"),
+            requests.exceptions.ConnectionError(
+                MaxRetryError(None, "/", NewConnectionError(None, "refused"))
+            ),
+        ],
+        ids=["connect_timeout", "connection_refused"],
+    )
+    def test_send_retries_when_the_connection_never_opened(self, failure, fake_http, fake_response):
+        client = self._client()
+        outcomes = [failure, fake_response(status=200, content=b"")]
+
+        def handler(method, url, **kwargs):
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        fake_http.handler(handler)
+        client.send(to="user@example.com", subject="Test", html="<p>Hi</p>")
+        assert len([c for c in fake_http.calls if c[0] == "POST"]) == 2
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            requests.exceptions.ReadTimeout("slow"),
+            requests.exceptions.ConnectionError(
+                ProtocolError("Connection aborted.", ConnectionResetError())
+            ),
+            requests.exceptions.ChunkedEncodingError("cut"),
+        ],
+        ids=["read_timeout", "reset_after_send", "chunked_encoding"],
+    )
+    def test_send_does_not_retry_once_the_request_may_have_been_sent(self, failure, fake_http):
+        client = self._client()
+        fake_http.raise_on("POST", failure)
+        with pytest.raises((SafeHTTPError, requests.RequestException)):
+            client.send(to="user@example.com", subject="Test", html="<p>Hi</p>")
+        assert len([c for c in fake_http.calls if c[0] == "POST"]) == 1
 
     def test_send_does_not_retry_401(self, fake_http, fake_response):
         """401 is not in the retryable set and propagates immediately."""

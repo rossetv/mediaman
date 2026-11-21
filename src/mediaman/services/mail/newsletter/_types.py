@@ -16,6 +16,7 @@ class ScheduledNewsletterItem(TypedDict):
     poster_url: str
     file_size_bytes: int
     added_days_ago: int | None
+    days_left: int
     last_watched_info: str | None
     keep_url: str
     is_reentry: bool
