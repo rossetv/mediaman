@@ -9,6 +9,7 @@ from mediaman.services.infra import (
     get_directory_size,
     get_disk_usage_for_paths,
 )
+from mediaman.services.infra.storage import delete_root_available
 
 
 class TestDeletePath:
@@ -28,6 +29,19 @@ class TestDeletePath:
 
     def test_nonexistent_path_is_noop(self, tmp_path):
         delete_path(str(tmp_path / "nope"), allowed_roots=[str(tmp_path)])
+
+
+class TestDeleteRootAvailable:
+    @pytest.mark.parametrize("spelled_via", ["root", "target"])
+    def test_root_and_target_spelled_through_a_symlink_still_match(self, tmp_path, spelled_via):
+        real = tmp_path / "volume" / "movies"
+        (real / "Other").mkdir(parents=True)
+        (real / "Other" / "Other.mkv").write_text("x")
+        (tmp_path / "mnt").symlink_to(tmp_path / "volume")
+        linked = tmp_path / "mnt" / "movies"
+        root, target_dir = (linked, real) if spelled_via == "root" else (real, linked)
+
+        assert delete_root_available(str(target_dir / "M" / "M.mkv"), [str(root)])
 
 
 class TestAggregateDiskUsage:
