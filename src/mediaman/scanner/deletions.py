@@ -28,6 +28,7 @@ from mediaman.scanner import repository
 from mediaman.scanner.repository import DeletionRow
 from mediaman.scanner.repository.scheduled_actions import (
     claim_due_deletion,
+    claim_due_deletions_under,
     fetch_media_held_outside_pass,
 )
 from mediaman.services.arr.base import ArrError
@@ -387,11 +388,10 @@ class DeletionExecutor:
                     len(rows),
                 )
         else:
-            removed_this_pass: list[str] = []
             for row in rows:
-                if self._delete_one(row, allowed_roots, now.isoformat(), removed_this_pass):
+                for closed in self._delete_one(row, allowed_roots, now.isoformat()):
                     deleted_count += 1
-                    reclaimed_bytes += row.file_size_bytes or 0
+                    reclaimed_bytes += closed.file_size_bytes or 0
         if self._cleanup_snoozes:
             repository.cleanup_expired_snoozes(self._conn, now.isoformat())
         self._conn.commit()
@@ -402,9 +402,8 @@ class DeletionExecutor:
         row: DeletionRow,
         allowed_roots: list[str],
         now_iso: str,
-        removed_this_pass: list[str],
-    ) -> bool:
-        """Delete a single eligible row from disk; return True on success.
+    ) -> list[DeletionRow]:
+        """Delete a single eligible row from disk; return the rows closed as deleted.
 
         Parks a row with an empty/NULL ``file_path`` instead of cycling it
         forever between 'deleting' and 'pending': ``delete_path("")``
@@ -418,8 +417,9 @@ class DeletionExecutor:
         decide whether the file is still there (reset to pending) or already
         gone (mark deleted).
 
-        *removed_this_pass* collects the paths this pass has removed, so a
-        row whose media went with an earlier row's folder closes as deleted.
+        Due rows of other items stored at or under the path are claimed in
+        the same transaction, since the removal takes their media too, and
+        close with this row; they go back to pending if the removal fails.
         """
         if not claim_due_deletion(self._conn, row.id, now_iso):
             self._conn.commit()
@@ -428,7 +428,7 @@ class DeletionExecutor:
                 row.id,
                 row.media_item_id,
             )
-            return False
+            return []
 
         path = row.file_path or ""
         if not path.strip():
@@ -447,26 +447,32 @@ class DeletionExecutor:
             )
             repository.delete_scheduled_action(self._conn, row.id)
             self._conn.commit()
-            return False
+            return []
 
-        if not any(_is_within(path, removed) for removed in removed_this_pass):
-            if not self._may_remove(row, path, allowed_roots, now_iso):
-                repository.mark_delete_status(self._conn, row.id, "pending")
-                self._conn.commit()
-                return False
+        if not self._may_remove(row, path, allowed_roots, now_iso):
+            repository.mark_delete_status(self._conn, row.id, "pending")
             self._conn.commit()
-            logger.info(
-                "engine.delete.intent id=%s media_id=%s path=%r",
-                row.id,
-                row.media_item_id,
-                path,
-            )
-            if not _delete_file_on_disk(self._conn, row, allowed_roots):
-                return False
-            removed_this_pass.append(path)
-        _commit_deletion(self._conn, row)
-        _unmonitor_arr(row, radarr_client=self._radarr, sonarr_client=self._sonarr)
-        return True
+            return []
+        co_located = claim_due_deletions_under(self._conn, row.media_item_id, path, now_iso)
+        self._conn.commit()
+        logger.info(
+            "engine.delete.intent id=%s media_id=%s path=%r also_closes=%s",
+            row.id,
+            row.media_item_id,
+            path,
+            [other.id for other in co_located],
+        )
+        if not _delete_file_on_disk(self._conn, row, allowed_roots):
+            for other in co_located:
+                repository.mark_delete_status(self._conn, other.id, "pending")
+            self._conn.commit()
+            return []
+        closed = [row, *co_located]
+        for done in closed:
+            _commit_deletion(self._conn, done)
+        for done in closed:
+            _unmonitor_arr(done, radarr_client=self._radarr, sonarr_client=self._sonarr)
+        return closed
 
     def _may_remove(
         self, row: DeletionRow, path: str, allowed_roots: list[str], now_iso: str
@@ -509,8 +515,3 @@ class DeletionExecutor:
             )
             return False
         return True
-
-
-def _is_within(path: str, folder: str) -> bool:
-    folder = folder.rstrip("/")
-    return path == folder or path.startswith(folder + "/")

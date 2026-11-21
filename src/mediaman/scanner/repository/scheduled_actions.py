@@ -43,6 +43,7 @@ __all__ = [
     "DELETION_ACTION",
     "DeletionRow",
     "claim_due_deletion",
+    "claim_due_deletions_under",
     "cleanup_expired_show_snoozes",
     "cleanup_expired_snoozes",
     "clear_pending_deletions",
@@ -156,6 +157,13 @@ def claim_due_deletion(conn: sqlite3.Connection, action_id: int, now_iso: str) -
     return cursor.rowcount == 1
 
 
+def _at_or_under_params(path: str) -> tuple[str, int, str]:
+    """Bind values for ``mi.file_path = ? OR substr(mi.file_path, 1, ?) = ?``."""
+    folder = path.rstrip("/")
+    prefix = folder + "/"
+    return folder, len(prefix), prefix
+
+
 def fetch_media_held_outside_pass(
     conn: sqlite3.Connection, media_item_id: str, path: str, now_iso: str
 ) -> list[sqlite3.Row]:
@@ -165,8 +173,6 @@ def fetch_media_held_outside_pass(
     it has an unused ``scheduled_deletion`` row whose time has come, in any
     delete state, since such rows are part of the same pass.
     """
-    folder = path.rstrip("/")
-    prefix = folder + "/"
     return conn.execute(
         "SELECT mi.id, mi.title, mi.season_number FROM media_items mi "
         "WHERE mi.id != ? "
@@ -177,8 +183,32 @@ def fetch_media_held_outside_pass(
         "      AND sa.token_used = 0 AND sa.execute_at <= ?"
         "  ) "
         "ORDER BY mi.id",
-        (media_item_id, folder, len(prefix), prefix, now_iso),
+        (media_item_id, *_at_or_under_params(path), now_iso),
     ).fetchall()
+
+
+def claim_due_deletions_under(
+    conn: sqlite3.Connection, media_item_id: str, path: str, now_iso: str
+) -> list[DeletionRow]:
+    """Claim, as claim_due_deletion does, the due rows of other media items at *path* or under it.
+
+    Deleting *path* removes their media too, so their rows must be held by the
+    same pass: a keep guarded on the delete state then fails on them.
+    Returns the rows claimed.
+    """
+    rows = conn.execute(
+        "SELECT sa.id, sa.media_item_id, sa.action, mi.file_path, mi.file_size_bytes, "
+        "mi.radarr_id, mi.sonarr_id, mi.season_number, mi.title, mi.plex_rating_key "
+        "FROM scheduled_actions sa "
+        "JOIN media_items mi ON sa.media_item_id = mi.id "
+        "WHERE mi.id != ? "
+        "  AND (mi.file_path = ? OR substr(mi.file_path, 1, ?) = ?) "
+        "  AND sa.action = 'scheduled_deletion' "
+        "ORDER BY sa.id",
+        (media_item_id, *_at_or_under_params(path)),
+    ).fetchall()
+    candidates = [_row_to_deletion_row(row) for row in rows]
+    return [row for row in candidates if claim_due_deletion(conn, row.id, now_iso)]
 
 
 def mark_delete_status(conn: sqlite3.Connection, action_id: int, status: str) -> None:

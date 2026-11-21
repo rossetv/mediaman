@@ -693,6 +693,62 @@ class TestSharedFolder:
         assert _audits(conn, "s1") == ["deleted"] and _audits(conn, "s2") == ["deleted"]
         assert sorted(c.args for c in sonarr.unmonitor_season.call_args_list) == [(7, 1), (7, 2)]
 
+    def test_keep_on_a_co_located_due_item_during_removal_is_refused(
+        self, conn, db_path, tmp_path, monkeypatch
+    ):
+        from mediaman.scanner import deletions
+        from mediaman.services.scheduled_actions import apply_keep_forever
+
+        _, show = self._show(tmp_path, monkeypatch)
+        self._season(conn, "s1", show, 1)
+        self._season(conn, "s2", show, 2)
+        _due_row(conn, "s1")
+        _due_row(conn, "s2")
+        other = init_db(str(db_path))
+        s2 = other.execute(
+            "SELECT id, execute_at FROM scheduled_actions WHERE media_item_id='s2'"
+        ).fetchone()
+        kept = []
+        real_delete = deletions.delete_path
+
+        def keep_then_delete(path, *, allowed_roots):
+            # Timed at s2's own deadline so only the pass's claim can refuse it.
+            keep_time = datetime.fromisoformat(s2["execute_at"])
+            with other:
+                kept.append(apply_keep_forever(other, s2["id"], keep_time))
+            real_delete(path, allowed_roots=allowed_roots)
+
+        monkeypatch.setattr(deletions, "delete_path", keep_then_delete)
+
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert kept == [0]
+        assert not show.exists()
+        assert result == {"deleted": 2, "reclaimed_bytes": 20}
+        assert _actions(conn, "s2") == []
+        assert _audits(conn, "s2") == ["deleted"]
+
+    def test_failed_removal_returns_co_located_rows_to_pending(self, conn, tmp_path, monkeypatch):
+        from mediaman.scanner import deletions
+        from mediaman.services.infra import DeletionRefused
+
+        _, show = self._show(tmp_path, monkeypatch)
+        self._season(conn, "s1", show, 1)
+        self._season(conn, "s2", show, 2)
+        _due_row(conn, "s1")
+        _due_row(conn, "s2")
+
+        def refuse(path, *, allowed_roots):
+            raise DeletionRefused("refused")
+
+        monkeypatch.setattr(deletions, "delete_path", refuse)
+
+        result = DeletionExecutor(conn=conn).execute()
+
+        assert result["deleted"] == 0
+        statuses = conn.execute("SELECT DISTINCT delete_status FROM scheduled_actions").fetchall()
+        assert [r[0] for r in statuses] == ["pending"]
+
 
 class TestMissingTarget:
     @pytest.mark.parametrize("root_state", ["missing", "empty"])
