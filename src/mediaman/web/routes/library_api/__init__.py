@@ -1,10 +1,11 @@
 """Library JSON API endpoints (/api/library and /api/media/...), package root.
 
-This module holds the keep and library-list routes plus the _KEEP_LIMITER singleton. The
-redownload and delete routes live in the .redownload and .delete submodules, whose
-sub-routers are mounted here. Delete-intent durability helpers come from
-mediaman.web.repository.delete_intents. Names that tests patch (build_radarr_from_db,
-build_sonarr_from_db, the *_LIMITER singletons) are re-exported here so tests can patch them at this path.
+This module holds the keep and library-list routes plus the _KEEP_LIMITER
+singleton. The redownload and delete routes live in the .redownload and .delete
+submodules, whose sub-routers are mounted here. Delete-intent durability helpers
+come from mediaman.web.repository.delete_intents. Names that tests patch
+(build_radarr_from_db, build_sonarr_from_db, the *_LIMITER singletons) are
+re-exported here so tests can patch them at this path.
 """
 
 from __future__ import annotations

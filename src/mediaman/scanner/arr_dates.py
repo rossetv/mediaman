@@ -104,7 +104,7 @@ class ArrDateCache:
         """Return the full path-to-date mapping (built lazily).
 
         Prefer get for individual lookups; this accessor exists for
-        callers that need the raw dict (e.g. back-compat shims, testing).
+        callers that need the raw dict (e.g. testing).
         """
         self.ensure_loaded()
         return self._dates

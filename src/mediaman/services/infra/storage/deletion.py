@@ -219,7 +219,7 @@ def _safe_rmtree(path: Path, allowed_roots: list[Path]) -> None:
     # UNCONDITIONALLY, re-derived from the ``allowed_roots`` this
     # function actually walks under rather than an optional raw-roots
     # parameter a bypassing caller might omit. The primary defence is
-    # that ``_safe_rmtree`` is no longer in the package barrel's ``__all__``,
+    # that ``_safe_rmtree`` is not in the package barrel's ``__all__``,
     # so the only public path in is ``delete_path``, which already rejects
     # symlinked raw roots via ``_validate_delete_roots``. This loop is
     # belt-and-braces for the in-module call: if a root path is *currently*

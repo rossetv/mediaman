@@ -117,9 +117,8 @@ def cleanup_expired_show_snoozes(conn: sqlite3.Connection, now_iso: str) -> int:
     Pulled out of is_show_kept so the cleanup is a separately
     callable, observable, single-purpose operation. Suitable for a
     periodic scheduler job — a single statement covers every expired
-    row in one round trip — but is_show_kept still calls it
-    inline for back-compat with the engine.py caller that expects the
-    legacy "ask + clean" behaviour.
+    row in one round trip — but is_show_kept still calls it inline so
+    that asking also cleans up.
     """
     cur = conn.execute(
         "DELETE FROM kept_shows "

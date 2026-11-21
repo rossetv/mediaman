@@ -42,8 +42,8 @@ _BASE = "https://api.themoviedb.org/3"
 #
 # Building a ``TmdbClient`` per request would create a brand-new
 # ``requests.Session`` each time, paying DNS + TLS handshake costs against
-# ``api.themoviedb.org`` instead of reusing the connection pool.  We cache one client per (token, timeout)
-# pair so multiple callers share the same session.
+# ``api.themoviedb.org`` instead of reusing the connection pool.  We cache one
+# client per (token, timeout) pair so multiple callers share the same session.
 #
 # Max size: 4 entries — one per timeout variant with headroom for token
 # rotation (the old token's entry ages out as soon as the new one is used).

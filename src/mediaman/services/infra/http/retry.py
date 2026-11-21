@@ -150,7 +150,7 @@ def _compute_delay(
     """Return the sleep delay for *attempt* (0-indexed) under the chosen jitter strategy.
 
     ``"fixed"`` indexes into ``_RETRY_BACKOFFS`` (0.5s, 1.0s) — the
-    schedule used by every mediaman outbound caller historically.
+    schedule used by the mediaman outbound callers.
     ``"full"`` returns ``random.uniform(0, 2**attempt)`` — full-jitter
     exponential backoff used by the mailgun POST path so a thundering
     herd of failed sends doesn't synchronise on the retry window.  The

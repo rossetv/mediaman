@@ -7,10 +7,9 @@ the opposite of the previous default — accepting the previous
 "fail-open to plaintext" behaviour was the root cause of the cookie
 downgrade bug found in the security audit.
 
-``is_request_secure`` and ``_secure_cookie_override`` were moved out of
-``mediaman.web.routes.auth`` into the shared ``mediaman.web.cookies``
-module so that four route modules (auth, force-password-change,
-users.passwords, users.sessions) no longer need to import a peer route
+``is_request_secure`` and ``_secure_cookie_override`` live in the shared
+``mediaman.web.cookies`` module, so the auth, force-password-change,
+users.passwords and users.sessions routes need not import a peer route
 just to ask the cookie-scheme question.
 """
 

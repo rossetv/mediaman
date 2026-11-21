@@ -234,7 +234,7 @@ class TestShutdownScheduling:
 
 
 class TestReadyzFailClosed:
-    """H-01: /readyz canary default must be fail-closed (False, not True)."""
+    """/readyz canary default must be fail-closed (False, not True)."""
 
     def _make_readyz_app(self):
         """Build a minimal app with the /readyz probe registered."""

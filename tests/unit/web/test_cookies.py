@@ -6,8 +6,7 @@ Covers the public surface of the cookies module:
 
 ``is_request_secure`` and ``_secure_cookie_override`` are exercised by
 `tests.unit.web.test_auth_routes` which still owns the broader
-secure-cookie scheme behaviour suite (kept there to minimise churn when
-the function moved out of ``mediaman.web.routes.auth``).
+secure-cookie scheme behaviour suite.
 """
 
 from __future__ import annotations

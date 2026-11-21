@@ -36,9 +36,7 @@ class TestUnsubscribeHtmlEscaping:
     so an attacker who lands a malicious payload in the unsubscribe URL
     cannot inject HTML/JS into the rendered confirmation page.
 
-    The previous bespoke ``_unsub_confirm_html`` / ``_unsub_html``
-    helpers duplicated the real templates — they have been removed and
-    the routes render via Jinja2 directly. We exercise the live route
+    The routes render via Jinja2 templates directly. We exercise the live route
     so a regression in the template (e.g. someone replaces ``{{ email }}``
     with ``{{ email | safe }}``) is caught.
     """

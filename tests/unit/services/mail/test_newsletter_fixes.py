@@ -172,17 +172,17 @@ class TestEmptyRecipientsNotFallthrough:
     def _add_scheduled_item(self, conn) -> None:
         insert_media_item(
             conn,
-            id="mi-f07",
+            id="mi-movie",
             title="Test Movie",
-            plex_rating_key="rk-f07",
-            file_path="/media/f07.mkv",
+            plex_rating_key="rk-movie",
+            file_path="/media/movie.mkv",
             file_size_bytes=1_000_000,
         )
         insert_scheduled_action(
             conn,
-            media_item_id="mi-f07",
+            media_item_id="mi-movie",
             action="scheduled_deletion",
-            token="tok-f07",
+            token="tok-movie",
             token_used=False,
             notified=False,
         )
