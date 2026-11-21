@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="830" height="710" viewBox="0 0 830 710" role="img" aria-labelledby="t d">
+<title id="t">How a stale item is handled</title>
+<desc id="d">The weekly scan reads Plex and finds a stale movie. It is queued for deletion with a 14-day grace period. The newsletter shows it with a signed Keep link. If a reader keeps it, it stays. If not, the first scan after the grace period deletes the file from disk, and only inside MEDIAMAN_DELETE_ROOTS; with no roots set nothing is deleted. Separately, Delete on the Library page asks Radarr or Sonarr to delete the item with its files and does not check the roots.</desc>
+<style>
+  .bg { fill: #fbfbfd; }
+  .card { fill: #ffffff; stroke: #d2d2d7; stroke-width: 1; }
+  .keep { fill: #eef9f1; stroke: #34a853; stroke-width: 1.25; }
+  .del { fill: #fdf0ef; stroke: #e5483e; stroke-width: 1.25; }
+  .panel { fill: none; stroke: #c7c7cc; stroke-width: 1; stroke-dasharray: 5 4; }
+  .num { fill: #eef5fd; stroke: #0071e3; stroke-width: 1; }
+  .numt { font: 600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #0058b0; }
+  .tag { fill: #fbfbfd; stroke: #d2d2d7; stroke-width: 1; }
+  .tagt { font: 500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #6e6e73; }
+  .line { fill: none; stroke: #8e8e93; stroke-width: 1.25; }
+  .head { fill: none; stroke: #8e8e93; stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round; }
+  .h { font: 600 17px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1d1d1f; }
+  .n { font: 600 14.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1d1d1f; }
+  .s { font: 400 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #515154; }
+  .lab { font: 500 12.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #6e6e73; }
+  .kt { fill: #1e7b34; }
+  .dt { fill: #c0281f; }
+  .m { font: 500 12.5px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #1d1d1f; }
+  @media (prefers-color-scheme: dark) {
+    .bg, .tag { fill: #0d1117; }
+    .card { fill: #1d1d1f; stroke: #3a3a3f; }
+    .tag { stroke: #3a3a3f; }
+    .keep { fill: #10291a; stroke: #30d158; }
+    .del { fill: #331614; stroke: #ff6961; }
+    .panel { stroke: #48484d; }
+    .num { fill: #10243b; stroke: #2997ff; }
+    .numt { fill: #6cb6ff; }
+    .tagt, .lab { fill: #a1a1a6; }
+    .line, .head { stroke: #8e8e93; }
+    .h, .n, .m { fill: #f5f5f7; }
+    .s { fill: #c7c7cc; }
+    .kt { fill: #4ade80; }
+    .dt { fill: #ff8a80; }
+  }
+</style>
+<rect class="bg" width="830" height="710" rx="12"/>
+<text class="h" x="32" y="40">How a stale item is handled</text>
+<text class="lab" x="32" y="62">One movie from scan to disk, with the default settings.</text>
+
+<!-- 1 scan -->
+<rect class="card" x="32" y="84" width="766" height="72" rx="10"/>
+<circle class="num" cx="62" cy="120" r="13"/><text class="numt" x="62" y="125" text-anchor="middle">1</text>
+<text class="n" x="90" y="113">The weekly scan finds a stale movie</text>
+<text class="s" x="90" y="136">mediaman reads Plex. The Martian was added over 30 days ago and has not been watched for 30 days.</text>
+
+<path class="line" d="M415 156 V178"/><path class="head" d="M410 172 L415 178 L420 172"/>
+
+<!-- 2 queued -->
+<rect class="card" x="32" y="180" width="766" height="72" rx="10"/>
+<circle class="num" cx="62" cy="216" r="13"/><text class="numt" x="62" y="221" text-anchor="middle">2</text>
+<text class="n" x="90" y="209">It is queued with a 14-day grace period</text>
+<text class="s" x="90" y="232">The Dashboard lists it under Scheduled for deletion. Nothing on disk is touched yet.</text>
+
+<path class="line" d="M415 252 V274"/><path class="head" d="M410 268 L415 274 L420 268"/>
+
+<!-- 3 newsletter -->
+<rect class="card" x="32" y="276" width="766" height="72" rx="10"/>
+<rect class="tag" x="712" y="268" width="66" height="18" rx="9"/><text class="tagt" x="745" y="281" text-anchor="middle">reader</text>
+<circle class="num" cx="62" cy="312" r="13"/><text class="numt" x="62" y="317" text-anchor="middle">3</text>
+<text class="n" x="90" y="305">The newsletter shows it with a Keep button</text>
+<text class="s" x="90" y="328">Mailgun sends it after the scan. The Keep link is signed; it keeps the movie for 7, 30 or 90 days.</text>
+
+<!-- branch -->
+<path class="line" d="M415 348 V364 H220 V396"/><path class="head" d="M215 390 L220 396 L225 390"/>
+<path class="line" d="M415 364 H610 V396"/><path class="head" d="M605 390 L610 396 L615 390"/>
+<text class="lab kt" x="232" y="384">kept</text>
+<text class="lab dt" x="622" y="384">not kept</text>
+
+<rect class="keep" x="32" y="398" width="376" height="104" rx="10"/>
+<text class="n" x="52" y="426">It stays</text>
+<text class="s" x="52" y="450">The movie leaves the queue. A later scan can</text>
+<text class="s" x="52" y="470">queue it again once the keep runs out.</text>
+
+<rect class="del" x="422" y="398" width="376" height="104" rx="10"/>
+<text class="n" x="442" y="426">Deleted from disk</text>
+<text class="s" x="442" y="450">At the first scan after the grace period, and only</text>
+<text class="s" x="442" y="470">inside <tspan class="m" textLength="158" lengthAdjust="spacingAndGlyphs">MEDIAMAN_DELETE_ROOTS</tspan>.</text>
+<text class="s" x="442" y="490">With no roots set, nothing is deleted.</text>
+
+<!-- separate path -->
+<rect class="panel" x="32" y="534" width="766" height="152" rx="12"/>
+<text class="n" x="52" y="562">Separately: Delete on the Library page</text>
+
+<rect class="card" x="52" y="580" width="250" height="86" rx="10"/>
+<text class="n" x="72" y="616">You click Delete</text>
+<text class="s" x="72" y="640">on a movie or a TV season</text>
+
+<path class="line" d="M302 623 H344"/><path class="head" d="M338 618 L344 623 L338 628"/>
+
+<rect class="del" x="346" y="580" width="432" height="86" rx="10"/>
+<text class="n" x="366" y="610">Radarr or Sonarr deletes it with its files</text>
+<text class="s" x="366" y="634">wherever they are on disk:</text>
+<text class="m" x="366" y="654" textLength="158" lengthAdjust="spacingAndGlyphs">MEDIAMAN_DELETE_ROOTS</text>
+<text class="s" x="530" y="654">is not checked.</text>
+</svg>
