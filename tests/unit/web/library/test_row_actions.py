@@ -224,3 +224,25 @@ def test_show_row_flags_whether_its_key_is_a_rating_key(client, conn, show_ratin
 
     assert wrapper["data-has-rk"] == expected
     assert wrapper["data-show-rk"] == (show_rating_key or "Breaking Bad")
+
+
+def _keep(conn, media_id: str) -> None:
+    insert_scheduled_action(
+        conn,
+        media_item_id=media_id,
+        action="protected_forever",
+        execute_at=None,
+        token=f"tok-{media_id}",
+    )
+
+
+def test_partly_kept_show_row_keeps_its_delete_and_says_how_many_are_kept(client, conn):
+    _insert_show(conn, "show-rk")
+    _keep(conn, "s3")
+
+    html = client.get("/library").text
+
+    assert "lib-row-protected" not in html
+    assert "1 of 3 seasons kept" in html
+    assert [b["data-action"] for b in _delete_buttons(html)] == ["pick-season-delete"]
+    assert not _elements_with(html, "data-remove-keep-id")

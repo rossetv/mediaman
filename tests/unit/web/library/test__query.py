@@ -7,7 +7,7 @@ client — these are pure DB-query helpers.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
@@ -40,6 +40,32 @@ def _insert_movie(
         added_at=added_at or _now_iso(),
         file_path="/f",
         file_size_bytes=file_size,
+    )
+
+
+def _long_ago() -> str:
+    return (datetime.now(UTC) - timedelta(days=400)).isoformat()
+
+
+def _keep_forever(conn, media_id: str) -> None:
+    insert_scheduled_action(
+        conn,
+        media_item_id=media_id,
+        action="protected_forever",
+        scheduled_at=_now_iso(),
+        token=f"tok-{media_id}",
+        token_used=False,
+    )
+
+
+def _snooze(conn, media_id: str, until: datetime, token: str | None = None) -> None:
+    insert_scheduled_action(
+        conn,
+        media_item_id=media_id,
+        action="snoozed",
+        execute_at=until.isoformat(),
+        token=token or f"tok-{media_id}",
+        token_used=False,
     )
 
 
@@ -276,9 +302,8 @@ class TestFetchLibrary:
         for kwargs in ({}, {"media_type": "kept"}):
             items, _ = fetch_library(conn, **kwargs)
             assert len(items) == 1
-            assert items[0]["protected"] is True
+            assert items[0]["protected"] is False
             assert items[0]["protection_label"] == "1 of 2 seasons kept"
-            assert items[0]["protection_label"] != "Keep"
 
     def test_show_row_reads_the_earliest_snooze_when_every_season_is_snoozed(self, db_path):
         conn = init_db(str(db_path))
@@ -331,7 +356,7 @@ class TestFetchLibrary:
             items, _ = fetch_library(conn, **kwargs)
             assert items[0]["protection_label"] == "Kept forever"
 
-    def test_show_without_rating_key_is_protected_when_a_later_season_is_kept(self, db_path):
+    def test_show_without_rating_key_says_a_later_kept_season_is_kept(self, db_path):
         conn = init_db(str(db_path))
         set_connection(conn)
         _insert_tv_season(conn, "a1", "Show", None, season=1)
@@ -345,7 +370,8 @@ class TestFetchLibrary:
             token_used=False,
         )
         items, _ = fetch_library(conn)
-        assert items[0]["protected"] is True
+        assert items[0]["protected"] is False
+        assert items[0]["protection_label"] == "1 of 2 seasons kept"
 
     def test_every_season_kept_reads_the_snooze_that_lapses_before_a_forever_keep(self, db_path):
         conn = init_db(str(db_path))
@@ -371,6 +397,66 @@ class TestFetchLibrary:
         )
         items, _ = fetch_library(conn)
         assert items[0]["protection_label"] == "Kept for 10 more days"
+
+    def test_stale_view_ignores_a_keep_on_a_season_left_out_of_the_row(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_tv_season(conn, "a1", "Show", "rk1", season=1, added_at=_long_ago())
+        _insert_tv_season(conn, "a2", "Show", "rk1", season=2)
+        _keep_forever(conn, "a2")
+        (row,) = fetch_library(conn, media_type="stale")[0]
+        assert (row["type_label"], row["protected"], row["protection_label"]) == (
+            "1 season",
+            False,
+            None,
+        )
+
+    def test_search_ignores_a_keep_on_a_season_it_did_not_match(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_tv_season(conn, "a1", "Show", "rk1", season=1)
+        _insert_tv_season(conn, "a2", "Show", "rk1", season=2)
+        conn.execute("UPDATE media_items SET title = 'Pilot' WHERE id = 'a1'")
+        _keep_forever(conn, "a2")
+        (row,) = fetch_library(conn, q="Pilot")[0]
+        assert (row["protected"], row["protection_label"]) == (False, None)
+
+    def test_row_of_kept_seasons_above_the_lowest_reads_its_own_earliest_lapse(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_tv_season(conn, "a1", "Show", "rk1", season=1)
+        _insert_tv_season(conn, "a2", "Show", "rk1", season=2, added_at=_long_ago())
+        _insert_tv_season(conn, "a3", "Show", "rk1", season=3, added_at=_long_ago())
+        for sid, days in (("a1", 5), ("a2", 40), ("a3", 10)):
+            _snooze(conn, sid, datetime.now(UTC) + timedelta(days=days, hours=1))
+        (row,) = fetch_library(conn, media_type="stale")[0]
+        assert (row["type_label"], row["protected"], row["protection_label"]) == (
+            "2 seasons",
+            True,
+            "Kept for 10 more days",
+        )
+
+    def test_show_level_keep_protects_a_row_whose_seasons_have_no_keep(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_tv_season(conn, "a1", "Show", "rk1", season=1)
+        _insert_tv_season(conn, "a2", "Show", "rk1", season=2)
+        insert_kept_show(conn, show_rating_key="rk1", action="protected_forever")
+        (row,) = fetch_library(conn)[0]
+        assert (row["protected"], row["protection_label"]) == (True, "Kept forever")
+
+    def test_later_snooze_wins_whatever_utc_offset_it_is_written_in(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_movie(conn, "m1", "Dune")
+        now = datetime.now(UTC)
+        earlier = now + timedelta(days=10, hours=1)
+        later = now + timedelta(days=11, hours=2)
+        # As text the earlier instant sorts last: its +14:00 wall clock is ahead.
+        _snooze(conn, "m1", earlier.astimezone(timezone(timedelta(hours=14))), token="tok-e")
+        _snooze(conn, "m1", later.astimezone(timezone(timedelta(hours=-12))), token="tok-l")
+        (row,) = fetch_library(conn)[0]
+        assert row["protection_label"] == "Kept for 11 more days"
 
     def test_show_stays_unprotected_when_another_show_has_a_kept_season(self, db_path):
         conn = init_db(str(db_path))
