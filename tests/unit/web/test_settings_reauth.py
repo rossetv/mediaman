@@ -51,9 +51,13 @@ class TestSensitiveKeySetMembership:
         assert "mailgun_domain" in SENSITIVE_KEYS
         assert "mailgun_from_address" in SENSITIVE_KEYS
 
+    def test_deletion_settings_are_sensitive(self):
+        for key in ("grace_days", "min_age_days", "inactivity_days", "dry_run"):
+            assert key in SENSITIVE_KEYS, f"{key!r} missing from SENSITIVE_KEYS"
+
     def test_low_impact_keys_are_not_sensitive(self):
         """Don't gate harmless UI-only knobs behind reauth."""
-        for key in ("scan_day", "scan_time", "min_age_days", "dry_run"):
+        for key in ("scan_day", "scan_time"):
             assert key not in SENSITIVE_KEYS
 
 

@@ -201,9 +201,9 @@ def api_update_settings(
 ) -> Response:
     """Persist settings from the request body.
 
-    Sensitive keys (every secret, URL field, mail address and base_url) need a recent-reauth
-    ticket; see SENSITIVE_KEYS and _touches_sensitive_keys. Without it the entire PUT is
-    rejected with 403, even if only some keys are sensitive. The write and audit row share
+    Sensitive keys (every secret, URL field, mail address, base_url and deletion setting) need
+    a recent-reauth ticket; see SENSITIVE_KEYS and _touches_sensitive_keys. Without it the
+    entire PUT is rejected with 403, even if only some keys are sensitive. The write and audit row share
     one BEGIN IMMEDIATE transaction via security_event_or_raise, so a high-impact change
     never lacks an audit trail.
     """

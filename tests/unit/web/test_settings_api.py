@@ -382,6 +382,20 @@ class TestSettingsPutPersistsEveryDeclaredKey:
         )
         assert resp.status_code == 422
 
+    def test_put_out_of_range_day_setting_names_field_and_range(
+        self, app_factory, authed_client, conn
+    ):
+        """The Settings page shows the 422 detail as the reason a save failed,
+        so it must say which setting is wrong and what range it accepts."""
+        client = _client(app_factory, authed_client, conn)
+        resp = client.put("/api/settings", json={"grace_days": 0})
+        assert resp.status_code == 422
+        (error,) = resp.json()["detail"]
+        assert error["loc"] == ["body", "grace_days"]
+        assert "Grace period" in error["msg"]
+        assert "1 and 90" in error["msg"]
+        assert conn.execute("SELECT 1 FROM settings WHERE key = 'grace_days'").fetchone() is None
+
     def test_put_rejects_openai_model_outside_allowlist(self, app_factory, authed_client, conn):
         """openai_model must reject anything outside the fixed allowlist (HTTP 422).
 
