@@ -48,7 +48,7 @@ def _keep_url(row: sqlite3.Row, now: datetime, base_url: str, secret_key: str) -
 
 
 def _days_left(row: sqlite3.Row, now: datetime) -> int:
-    """Whole days until the row's deadline, rounded up, never below 0.
+    """UTC calendar days until the row's deadline, never below 0.
 
     A deadline that is already past, or unreadable, counts as 0 (the same "treat as
     expired" fallback the keep page uses).

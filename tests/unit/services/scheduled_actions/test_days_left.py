@@ -15,12 +15,13 @@ _NOW = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
     ("remaining", "expected"),
     [
         (timedelta(days=3), 3),
-        (timedelta(days=2, seconds=1), 3),
-        (timedelta(hours=3), 1),
-        (timedelta(seconds=1), 1),
+        (timedelta(hours=3), 0),
+        (timedelta(hours=11, minutes=59), 0),
+        (timedelta(hours=12), 1),
+        (timedelta(days=1, hours=2), 1),
         (timedelta(0), 0),
         (timedelta(days=-2), 0),
     ],
 )
-def test_a_started_day_counts_and_a_passed_deadline_is_zero(remaining, expected):
+def test_the_count_is_calendar_days_so_it_agrees_with_the_date_shown(remaining, expected):
     assert days_left(_NOW + remaining, _NOW) == expected

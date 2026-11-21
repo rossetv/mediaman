@@ -2,17 +2,13 @@
 
 from __future__ import annotations
 
-import math
-from datetime import datetime
-
-_SECONDS_PER_DAY = 86400
+from datetime import UTC, datetime
 
 
 def days_left(execute_at: datetime, now: datetime) -> int:
-    """Whole days until *execute_at*, rounded up, never below 0.
+    """UTC calendar days from *now* to *execute_at*, never below 0.
 
-    The deletion pass runs an item once ``execute_at <= now``, so a started day still has to
-    elapse before it is due: "N days left" means it is due within N days, never sooner than
-    N-1 days away. A deadline that has passed counts as 0.
+    Calendar days, not elapsed time, so the count always agrees with the date shown beside it:
+    0 means the deadline is later today, 1 means tomorrow. A deadline that has passed counts as 0.
     """
-    return max(0, math.ceil((execute_at - now).total_seconds() / _SECONDS_PER_DAY))
+    return max(0, (execute_at.astimezone(UTC).date() - now.astimezone(UTC).date()).days)
