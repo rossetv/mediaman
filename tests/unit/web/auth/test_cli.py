@@ -220,3 +220,49 @@ class TestUnlockUserCli:
         self._run(monkeypatch, tmp_path, "alice")  # returns, no SystemExit
 
         assert "not locked" in capsys.readouterr().out
+
+
+class TestOldDatabaseRefusal:
+    """A database older than the supported schema is refused cleanly by both CLIs."""
+
+    def _old_db(self, monkeypatch, tmp_path):
+        import sqlite3
+
+        _enable_config(monkeypatch, tmp_path)
+        path = tmp_path / "mediaman.db"
+        conn = sqlite3.connect(path)
+        conn.execute("PRAGMA user_version=35")
+        conn.close()
+        return path
+
+    @pytest.mark.parametrize(
+        ("argv", "entry"),
+        [
+            (
+                [
+                    "mediaman-create-user",
+                    "--username",
+                    "alice",
+                    "--password",
+                    "Correct-Horse-Battery-9!",
+                ],
+                "create_user_cli",
+            ),
+            (["mediaman-unlock-user", "alice"], "unlock_user_cli"),
+        ],
+    )
+    def test_cli_prints_the_refusal_and_leaves_the_file_alone(
+        self, monkeypatch, tmp_path, capsys, argv, entry
+    ):
+        path = self._old_db(monkeypatch, tmp_path)
+        before = path.read_bytes()
+        monkeypatch.setattr(sys, "argv", argv)
+
+        with pytest.raises(SystemExit) as excinfo:
+            getattr(cli_mod, entry)()
+
+        assert excinfo.value.code == 1
+        err = capsys.readouterr().err
+        assert "schema version 35" in err
+        assert "Traceback" not in err
+        assert path.read_bytes() == before

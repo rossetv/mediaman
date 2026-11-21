@@ -34,6 +34,7 @@ from mediaman.bootstrap.db import bootstrap_db
 from mediaman.bootstrap.scan_jobs import bootstrap_scheduling, shutdown_scheduling
 from mediaman.config import ConfigError, load_config
 from mediaman.core.scrub_filter import install_root_filter
+from mediaman.db.connection import SchemaTooOldError
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +130,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         bootstrap_db(app, config)
     except DataDirNotWritableError as exc:
         logger.critical("%s", exc)
+        sys.exit(1)
+    except SchemaTooOldError as exc:
+        logger.critical("Database bootstrap failed at startup: %s", exc)
         sys.exit(1)
     # rationale: any further bootstrap failure
     # must abort process; we cannot serve traffic without a DB.

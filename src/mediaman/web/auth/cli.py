@@ -9,6 +9,7 @@ from pathlib import Path
 from mediaman.bootstrap.data_dir import DataDirNotWritableError, assert_data_dir_writable
 from mediaman.config import Config, ConfigError, load_config
 from mediaman.db import init_db
+from mediaman.db.connection import SchemaTooOldError
 from mediaman.web.auth.login_lockout import admin_unlock_with_audit
 from mediaman.web.auth.password_hash import UserExistsError, create_user
 from mediaman.web.auth.password_policy import password_issues
@@ -105,7 +106,7 @@ def _preflight_data_dir(config: Config) -> Path:
 
 
 def _open_db() -> sqlite3.Connection:
-    """Load the config and open the database, exiting 1 on a bad config or data dir."""
+    """Load the config and open the database, exiting 1 on a bad config, data dir or too-old database."""
     try:
         config = load_config()
     except ConfigError as exc:
@@ -113,7 +114,11 @@ def _open_db() -> sqlite3.Connection:
         sys.exit(1)
 
     data_dir = _preflight_data_dir(config)
-    return init_db(str(data_dir / "mediaman.db"))
+    try:
+        return init_db(str(data_dir / "mediaman.db"))
+    except SchemaTooOldError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 def create_user_cli() -> None:
