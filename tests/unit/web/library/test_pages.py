@@ -136,12 +136,24 @@ class TestFinding35BulkKeepResponseOk:
             "Old unchecked Promise.all found — failed requests were silently ignored"
         )
 
-    def test_library_template_has_response_ok_check(self):
-        """The new bulk-keep code must check response.ok. The JS now lives in
-        static/js/library.js."""
-        import pathlib
+    def test_bulk_keep_and_remove_all_report_failed_requests(self):
+        """A failed request must surface, not be swallowed by an unconditional reload.
 
+        core/api.js rejects on a non-ok response; library.js catches each request
+        and collects the failures, reloading only when none failed."""
+        import pathlib
+        import re
+
+        api = pathlib.Path("src/mediaman/web/static/js/core/api.js").read_text()
         js = pathlib.Path("src/mediaman/web/static/js/library.js").read_text()
-        assert "if (!r.ok)" in js or "response.ok" in js, (
-            "No response.ok check found in library.js bulk-keep JS"
-        )
+
+        def code(src: str) -> str:
+            src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+            return re.sub(r"(?m)^\s*//.*$", "", src)
+
+        assert re.search(r"if \(!resp\.ok\) \{[^}]*throw new APIError", code(api), re.S)
+        body = code(js)
+        remove_all = body[body.index("function removeAllKeeps") :]
+        remove_all = remove_all[: remove_all.index("var _pendingDeleteId")]
+        assert ".catch(function () { failed.push(" in remove_all
+        assert "if (failed.length)" in remove_all
