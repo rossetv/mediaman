@@ -38,11 +38,9 @@ class TestValidateSessionReadOnlyByDefault:
     def test_repeated_validation_skips_writer_within_throttle(self, conn):
         """Two validations within the refresh interval must not write twice.
 
-        Regression: previously every validate_session call opened
-        ``BEGIN IMMEDIATE`` and wrote ``last_used_at`` whenever the
-        throttle had elapsed. With the read-only-by-default refactor
-        the throttle still gates the write, but a second validation in
-        the same minute must not hit the writer at all.
+        validate_session is read-only by default: the throttle gates the
+        ``last_used_at`` write, and a second validation in the same
+        minute must not hit the writer at all.
         """
         token = create_session(conn, "alice", user_agent="ua", client_ip="1.2.3.4")
         # First call: refresh window has just passed creation, so a
@@ -525,9 +523,9 @@ class TestExpiresAtParsing:
 
 
 class TestAtomicSessionAndReauthDelete:
-    """``_delete_session_with_commit`` used to commit the session
-    delete and then call reauth-revoke in a swallowed try/except.  If the
-    revoke failed, the session was gone but the ticket survived.  Now both
+    """``_delete_session_with_commit`` must not commit the session
+    delete and then revoke reauth in a swallowed try/except, or a failed
+    revoke would leave the ticket alive.  Both
     deletes happen inside one ``BEGIN IMMEDIATE`` so a failure on either
     side rolls both back.
     """
@@ -601,8 +599,8 @@ class TestAtomicSessionAndReauthDelete:
 
 
 class TestSwallowedFailuresAreVisible:
-    """Several best-effort writes in ``session_store`` previously
-    logged a swallowed failure at ``logger.debug(..., exc_info=True)``.
+    """Several best-effort writes in ``session_store`` must not
+    log a swallowed failure at ``logger.debug(..., exc_info=True)``.
     DEBUG is disabled in production, so those failures were invisible —
     including the audit-log write for a session destruction, a required
     audit event. The swallow stays (these writes are genuinely
@@ -736,8 +734,8 @@ class TestSwallowedFailuresAreVisible:
 
 
 class TestEvictionPathFailsClosedOnNonDbError:
-    """``_try_delete_session`` previously caught ``Exception``,
-    so a programming error (bad import, ``TypeError``) on the
+    """``_try_delete_session`` must not catch ``Exception``,
+    or a programming error (bad import, ``TypeError``) on the
     security-critical session-eviction path was silently downgraded to a
     WARNING and the stolen/expired session was left alive — fail *open*.
     The catch is now ``sqlite3.Error`` only: a non-DB exception

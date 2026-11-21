@@ -116,9 +116,9 @@
     collectSettings: collectSettings,
     refreshOverviewHero: refreshOverviewHero,
     BOOT: BOOT,
-    // The legacy surface — callers (and our own docstring) used to mutate
-    // these directly. Forward to the new modules so any external code that
-    // still pokes at them keeps working.
+    // Legacy surface: these members forward to the diskThresholds and
+    // savebar modules so external code that calls them on
+    // MM.settings.general keeps working.
     get SELECTED_LIBS() {
       return MM.settings.diskThresholds
         ? MM.settings.diskThresholds.getSelectedLibs()

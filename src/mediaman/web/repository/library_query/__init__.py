@@ -1,6 +1,5 @@
 """Library display query — re-export barrel.
 
-Promoted from a single ``library_query.py`` module as it grew.
 Three private modules, one concept each:
 
 * `._query` — shared constants (``VALID_SORTS``, ``VALID_TYPES``,

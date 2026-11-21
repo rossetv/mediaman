@@ -59,7 +59,7 @@
             setTimeout(function () { window.location.reload(); }, 1500);
           }
         })
-        .catch(function () { /* keep silent — original behaviour. */ });
+        .catch(function () { /* keep silent on poll failure. */ });
     }, 3000);
   }
 
@@ -138,7 +138,7 @@
         btn.classList.add('is-success');
         setTimeout(function () { window.location.reload(); }, 1000);
       })
-      .catch(function () { /* original silently dropped failure. */ });
+      .catch(function () { /* failure is dropped silently. */ });
   }
 
   /* Submit a keep request from a dashboard tile. The library.html keep-dialog

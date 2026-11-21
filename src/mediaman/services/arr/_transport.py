@@ -145,7 +145,7 @@ class _TransportMixin:
             self.last_error = str(exc)
             raise
 
-    # rationale: 63-line retry loop carries the ``last_observed`` /
+    # rationale: the retry loop carries the ``last_observed`` /
     # ``attempt`` state through every branch (already-unmonitored, success,
     # transient failure, final failure). Extracting a per-attempt helper
     # would thread three out-parameters through every call and the

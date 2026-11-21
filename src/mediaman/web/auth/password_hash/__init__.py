@@ -4,9 +4,7 @@ Owns the "how are passwords hashed
 and compared" concern; session persistence lives in
 `mediaman.web.auth.session_store`.
 
-This package was promoted from a single ``password_hash.py`` module
-as it grew. It owned three concepts — the
-"and" smell — now one private module each:
+The package holds three concepts, one private module each:
 
 * `._user_crud` — admin-user CRUD (``create_user``, ``list_users``,
   ``delete_user``, ``get_user_email``, ``set_user_email``,

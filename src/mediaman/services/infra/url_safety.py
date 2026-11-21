@@ -57,7 +57,7 @@ public API and the allowlist composition.
 # part (the stateless deny-list constants and predicates) has *already* been
 # extracted to ``_url_safety_blocks.py``. What remains does not decompose
 # along a clean seam: the apparent allowlist-composition boundary
-# (``allowed_outbound_hosts`` / ``_extract_host``) is only ~67 lines and is
+# (``allowed_outbound_hosts`` / ``_extract_host``) is small and is
 # entangled with the analysis path through the shared ``PINNED_EXTERNAL_HOSTS``
 # set and ``_host_in_allowlist`` semantics, so splitting it would scatter one
 # security-critical concept and its shared constants across files for no

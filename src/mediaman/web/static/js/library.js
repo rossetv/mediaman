@@ -257,7 +257,7 @@
   function removeKeep(mediaId) {
     MM.api.post('/api/media/' + encodeURIComponent(mediaId) + '/unprotect')
       .then(function () { window.location.reload(); })
-      .catch(function () { /* original failed silently — preserve that. */ });
+      .catch(function () { /* failure is dropped silently. */ });
   }
 
   function setSort(value) {

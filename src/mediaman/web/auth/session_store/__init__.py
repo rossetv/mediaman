@@ -4,8 +4,7 @@ Owns the "how are sessions
 persisted and validated" concern; password hashing lives in
 `mediaman.web.auth.password_hash`.
 
-This package was promoted from a single ``session_store.py`` module as it
-grew. The public surface — ``create_session``,
+The public surface — ``create_session``,
 ``validate_session``, ``destroy_session``, ``destroy_all_sessions_for``,
 ``list_sessions_for`` and the `SessionMetadata` projection — plus
 the constants tests read directly (``_SESSION_TOKEN_RE``,

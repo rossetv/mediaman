@@ -706,8 +706,7 @@ class TestBodySizeLimitMiddleware:
 class TestCacheControlHeaders:
     """Cache-Control: no-store, private is applied broadly.
 
-    Previously only ``/api/`` and ``/auth/`` paths received this header.
-    After the fix all paths except ``/static/`` must receive it, so
+    All paths except ``/static/`` must receive it, so
     authenticated HTML routes (e.g. ``/library``, ``/dashboard``) are
     not cached by a misconfigured reverse proxy.
     """
@@ -732,7 +731,7 @@ class TestCacheControlHeaders:
 
     def test_html_route_gets_no_store_private(self):
         """An authenticated HTML route like /library must carry
-        Cache-Control: no-store, private after the fix."""
+        Cache-Control: no-store, private."""
         client = TestClient(self._build_app_with_routes())
         resp = client.get("/library")
         assert resp.status_code == 200
@@ -852,7 +851,7 @@ class TestNormaliseOrigin:
 
         assert _normalise_origin("example.com:443", default_scheme="https")[1] == "example.com"
         assert _normalise_origin("example.com")[1] == "example.com"
-        # IPv6 round-trip: previously this returned ``"[2001:db8"``.
+        # IPv6 round-trip: the host keeps its full address, not ``"[2001:db8"``.
         assert _normalise_origin("[2001:db8::1]:443", default_scheme="https")[1] == "2001:db8::1"
 
 
@@ -925,9 +924,9 @@ class TestCSRFHostOnly:
 class TestForcePasswordChangeHealthExempt:
     """``/healthz`` and ``/readyz`` are exempt from the
     ForcePasswordChangeMiddleware.  Probes never carry sessions, but
-    a stale browser cookie sharing the same origin used to redirect
-    the probe away from a 200 response.  Adding the probe paths to
-    the allowlist closes that gap."""
+    a stale browser cookie sharing the same origin would redirect
+    the probe away from a 200 response.  The probe paths are on
+    the allowlist to prevent that."""
 
     def test_healthz_skipped_with_session(self):
         """Even with a flagged session_token cookie present, /healthz

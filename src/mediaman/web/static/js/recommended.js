@@ -90,7 +90,7 @@
         // Re-wire the button after the failure flash. Remove then re-add the
         // listener to avoid stacking multiple handlers if the request fails
         // repeatedly. Using a named handler reference also prevents the
-        // stale-closure issue from the previous .onclick = ... pattern.
+        // stale-closure issue that assigning .onclick would cause.
         setTimeout(function () {
           btn.textContent = 'Download';
           btn.className = 'btn-download';

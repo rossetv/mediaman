@@ -351,7 +351,7 @@ def _insert_scheduled_action_findings(
 
 
 def _make_keep_app_findings(app_factory, conn: sqlite3.Connection):
-    """Stand up a minimal keep-router app using the findings-suite SECRET."""
+    """Stand up a minimal keep-router app using the module-level test secret."""
     mock_templates = MagicMock()
     mock_templates.TemplateResponse.side_effect = lambda req, tmpl, ctx: HTMLResponse(
         json.dumps({k: str(v) for k, v in ctx.items() if k != "item"}), 200
