@@ -1,6 +1,6 @@
-"""Behaviour tests for review-wave fixes applied to the newsletter service.
+"""Behaviour tests for the newsletter service.
 
-Each test class is named after the finding ID it exercises, with a brief
+Each test class is named after the behaviour it exercises, with a brief
 description of the correctness property being verified.
 """
 
@@ -26,13 +26,8 @@ _DELETED_AT = (_NOW - timedelta(days=2)).isoformat()
 _REDOWNLOAD_AT = (_NOW - timedelta(days=1)).isoformat()
 
 
-# ---------------------------------------------------------------------------
-# F-01 — redownload index key mismatch
-# ---------------------------------------------------------------------------
-
-
 class TestF01RedownloadFilterWorks:
-    """F-01: _build_redownload_index must key by media_item_id / plex_rating_key
+    """_build_redownload_index must key by media_item_id / plex_rating_key
     so that re-downloaded items are correctly excluded from the deleted-items list.
     """
 
@@ -151,13 +146,8 @@ class TestF01RedownloadFilterWorks:
         )
 
 
-# ---------------------------------------------------------------------------
-# F-07 — empty recipients list must not fall through to full subscriber query
-# ---------------------------------------------------------------------------
-
-
 class TestF07EmptyRecipientsNotFallthrough:
-    """F-07: passing recipients=[] must send to nobody, not to all subscribers."""
+    """Passing recipients=[] must send to nobody, not to all subscribers."""
 
     _PATCH_STORAGE = "mediaman.services.infra.storage.get_aggregate_disk_usage"
     _PATCH_MAILGUN = "mediaman.services.mail.mailgun.MailgunClient"

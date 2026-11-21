@@ -16,7 +16,7 @@ from starlette.responses import Response
 
 # Content Security Policy — per-request nonce strategy.
 #
-# Wave 7 extracted every page-level inline ``<script>`` block to an
+# Every page-level inline ``<script>`` block lives in an
 # external file under ``static/js/``. The only remaining inline scripts
 # in templates are ``<script type="application/json">`` JSON islands,
 # which are non-executable and not subject to ``script-src``. As a
@@ -30,7 +30,7 @@ from starlette.responses import Response
 # lands the fallback prevents a CSP violation on every page render.
 #
 # Templates expose the nonce via ``request.state.csp_nonce`` (set by
-# :class:`SecurityHeadersMiddleware`).  Any future inline ``<script>``
+# `SecurityHeadersMiddleware`).  Any future inline ``<script>``
 # that genuinely has to stay inline must add
 # ``nonce="{{ request.state.csp_nonce }}"`` to the tag.
 #
@@ -71,8 +71,8 @@ def _build_csp(nonce: str) -> str:
     """Return the per-request CSP header text with *nonce* threaded in.
 
     ``script-src`` no longer carries ``'unsafe-inline'``: every
-    page-level inline ``<script>`` was extracted to an external file in
-    Wave 7, and the only remaining inline scripts are
+    page-level inline ``<script>`` lives in an external file, and the
+    only remaining inline scripts are
     ``type="application/json"`` data islands which CSP does not gate.
 
     ``style-src`` carries a nonce for ``<style>`` blocks. **Critical
@@ -102,12 +102,12 @@ def _build_csp(nonce: str) -> str:
 
 # Backward-compatible representative CSP value for tests and tooling
 # that need a static string snapshot of the policy.  The placeholder
-# obviously is not a real per-request value — call :func:`_build_csp`
+# obviously is not a real per-request value — call `_build_csp`
 # for the runtime header.
 _CSP = _build_csp("placeholder")
 
 # Always-on headers applied to every response.  CSP is added per-request
-# in :class:`SecurityHeadersMiddleware` because the nonce changes on
+# in `SecurityHeadersMiddleware` because the nonce changes on
 # every dispatch.
 _STATIC_HEADERS: dict[str, str] = {
     "X-Frame-Options": "DENY",
@@ -198,7 +198,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("Content-Security-Policy", _build_csp(nonce))
         # Hide server banner (FastAPI/uvicorn leaks nothing sensitive,
         # but there's no reason to advertise). ``setdefault`` for
-        # consistency with every other header here (L2) — a handler that
+        # consistency with every other header here — a handler that
         # deliberately set its own ``Server`` value is left untouched.
         response.headers.setdefault("Server", "mediaman")
         # Cache-Control: no-store, private on every authenticated response

@@ -1,5 +1,3 @@
-"""Session-fingerprint binding (mode + IP/UA hash) for the session-store cookie."""
-
 from __future__ import annotations
 
 import hashlib
@@ -33,7 +31,7 @@ _FINGERPRINT_MODE_ENV = "MEDIAMAN_FINGERPRINT_MODE"
 #:              has a stable public IP and a stable UA.
 _VALID_FINGERPRINT_MODES = {"strict", "loose", "off"}
 
-#: Per-mode bucket configuration consumed by :func:`_client_fingerprint`.
+#: Per-mode bucket configuration consumed by `_client_fingerprint`.
 #: ``ipv4_prefix`` / ``ipv6_prefix`` — CIDR length to bucket the client
 #: IP at; ``None`` means "use the full address with no bucketing".
 #: ``ua_hash_chars`` — number of leading hex chars of the SHA-256 UA
@@ -45,7 +43,6 @@ _FINGERPRINT_BUCKETS: dict[str, dict[str, int | None]] = {
 
 
 def _fingerprint_mode() -> str:
-    """Return the current fingerprint mode from the environment."""
     mode = (os.environ.get(_FINGERPRINT_MODE_ENV) or "loose").lower()
     if mode not in _VALID_FINGERPRINT_MODES:
         return "loose"
@@ -61,11 +58,11 @@ def _client_fingerprint(
     """Compute a stable fingerprint for session-to-client binding.
 
     Dispatches on *mode* — defaults to the value of
-    :func:`_fingerprint_mode` when the caller does not pin it.  ``off``
+    `_fingerprint_mode` when the caller does not pin it.  ``off``
     is intentionally not handled here; create-/validate-side code
     branches on ``mode == 'off'`` before calling this helper.
 
-    See :data:`_VALID_FINGERPRINT_MODES` for the documented trade-offs
+    See `_VALID_FINGERPRINT_MODES` for the documented trade-offs
     of each mode.
     """
     if mode is None:

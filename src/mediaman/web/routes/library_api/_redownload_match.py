@@ -1,12 +1,8 @@
 """Shared redownload helpers: lookup matching and audit-ID selection.
 
-These two helpers are consumed by both the Radarr and the Sonarr branch
-of ``POST /api/media/redownload`` (and the handler itself), so they live
-in their own dependency-free module to avoid an import cycle between
-:mod:`mediaman.web.routes.library_api.redownload` and the per-Arr branch
-modules. ``redownload`` re-exports both names so the historic patch
-targets (``mediaman.web.routes.library_api.redownload._pick_lookup_match``
-and the barrel re-export) keep working.
+Used by both the Radarr and Sonarr branches, so they live in a dependency-free module to
+avoid an import cycle with .redownload. redownload re-exports both names so the historic
+patch targets keep working.
 """
 
 from __future__ import annotations
@@ -27,7 +23,6 @@ def _pick_lookup_match(
     tvdb_id: int | None,
     imdb_id: str | None,
 ) -> tuple[Mapping[str, object] | None, str | None]:
-    """Return (entry, error) for a Radarr/Sonarr lookup response."""
     if not lookup:
         return None, "No lookup results"
 
@@ -91,14 +86,11 @@ def _redownload_audit_id(
     tvdb_id: int | None,
     imdb_id: str | None,
 ) -> str:
-    """Pick a stable audit-log ``media_item_id`` for a redownload.
+    """Pick a stable audit-log media_item_id for a redownload.
 
-    Prefer the most stable identifier available: ``tmdb:<id>`` for movies
-    and TV (TMDB IDs are universal across both Arrs); ``tvdb:<id>`` if
-    Sonarr only knew the show by TVDB; finally ``imdb:<id>`` as a last
-    resort.  Each prefix makes the column self-describing instead of an
-    opaque integer the dashboard might accidentally match against
-    unrelated UUIDs.
+    Prefers tmdb:<id> (universal across both Arrs), then tvdb:<id>, then imdb:<id>. The
+    prefix makes the column self-describing so the dashboard cannot match an opaque integer
+    against unrelated UUIDs.
     """
     if tmdb_id is not None:
         return f"tmdb:{tmdb_id}"

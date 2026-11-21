@@ -1,5 +1,3 @@
-"""Unit tests for mediaman.core.audit.log_audit and security_event helpers."""
-
 from __future__ import annotations
 
 import sqlite3
@@ -139,7 +137,7 @@ class TestSecurityEventOrRaise:
 
 
 class TestActorColumn:
-    """Domain 05 HIGH: ``actor`` is a first-class queryable column.
+    """``actor`` is a first-class queryable column.
 
     Previously the actor was only embedded in the security-event
     ``detail`` body via ``actor=alice`` and ``log_audit`` rows had no
@@ -206,7 +204,7 @@ class TestActorColumn:
 
 
 class TestSecurityBodyInjectionStripped:
-    """M6: CR/LF/NUL in free-form audit fields must be stripped so a caller
+    """CR/LF/NUL in free-form audit fields must be stripped so a caller
     cannot forge log-line boundaries or spoof ``actor=``/``ip=`` fields a
     later log-grep would attribute to the system.
     """

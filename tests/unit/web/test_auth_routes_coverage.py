@@ -1,4 +1,4 @@
-"""Additional tests for :mod:`mediaman.web.routes.auth` HTTP endpoints.
+"""Additional tests for `mediaman.web.routes.auth` HTTP endpoints.
 
 The existing test_auth_routes.py covers the pure helper functions
 (_sanitise_log_field, is_request_secure). This file tests the actual
@@ -33,13 +33,11 @@ def _create_admin(conn, username: str = "admin", password: str = "password1234")
 
 class TestLoginPage:
     def test_get_login_returns_200(self, _app):
-        """GET /login renders the login page."""
         client = TestClient(_app, raise_server_exceptions=True)
         resp = client.get("/login")
         assert resp.status_code == 200
 
     def test_login_page_error_context_is_none(self, _app):
-        """The login page template is invoked with error=None on a fresh GET."""
         client = TestClient(_app, raise_server_exceptions=True)
         resp = client.get("/login")
         ctx = resp.json()
@@ -67,7 +65,6 @@ class TestLoginSubmit:
         assert resp.headers["location"] == "/"
 
     def test_valid_login_sets_session_cookie(self, _app, conn):
-        """A successful login sets a session_token cookie."""
         _create_admin(conn)
         client = TestClient(_app, raise_server_exceptions=True)
 
@@ -94,7 +91,6 @@ class TestLoginSubmit:
         assert "Invalid" in ctx["error"]
 
     def test_no_session_cookie_on_failed_login(self, _app, conn):
-        """A failed login must not set a session_token cookie."""
         _create_admin(conn)
         client = TestClient(_app, raise_server_exceptions=True)
         resp = client.post(
@@ -119,7 +115,6 @@ class TestLoginSubmit:
         assert "Too many" in ctx["error"]
 
     def test_audit_log_written_on_failed_login(self, _app, conn):
-        """A failed login attempt is recorded in the audit_log."""
         _create_admin(conn)
         client = TestClient(_app, raise_server_exceptions=True)
         client.post("/login", data={"username": "admin", "password": "wrong"})
@@ -129,7 +124,6 @@ class TestLoginSubmit:
         assert row is not None
 
     def test_audit_log_written_on_successful_login(self, _app, conn):
-        """A successful login is recorded in the audit_log."""
         _create_admin(conn)
         client = TestClient(_app, raise_server_exceptions=True)
         with patch("mediaman.web.routes.auth.is_request_secure", return_value=False):
@@ -145,7 +139,6 @@ class TestLoginSubmit:
 
 class TestLogout:
     def test_logout_without_session_returns_401(self, _app):
-        """POST /api/auth/logout without a session cookie returns 401."""
         client = TestClient(_app, raise_server_exceptions=True)
         resp = client.post("/api/auth/logout")
         assert resp.status_code == 401

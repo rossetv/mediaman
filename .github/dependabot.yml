@@ -35,3 +35,9 @@ updates:
     labels:
       - "dependencies"
       - "docker"
+    # The app supports Python 3.12 only; allow 3.12.x patch updates of the base image.
+    ignore:
+      - dependency-name: "python"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"

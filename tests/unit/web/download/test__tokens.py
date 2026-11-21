@@ -1,4 +1,4 @@
-"""Tests for :mod:`mediaman.web.routes.download._tokens`.
+"""Tests for mediaman.web.routes.download._tokens.
 
 The module maintains both an in-memory cache and a persistent SQLite
 table of consumed download tokens so the same link cannot be replayed
@@ -125,11 +125,6 @@ class TestUnmarkTokenUsed:
         digest = hashlib.sha256(b"vanish-token").hexdigest()
         with _USED_TOKENS_LOCK:
             assert digest not in _USED_TOKENS
-
-
-# ---------------------------------------------------------------------------
-# Token persistence to SQLite: token reuse must survive restarts and cross-worker collisions
-# ---------------------------------------------------------------------------
 
 
 class TestPersistentClaim:

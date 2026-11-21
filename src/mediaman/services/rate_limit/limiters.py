@@ -1,15 +1,15 @@
 """Sliding-window rate limiters.
 
-Canonical home is :mod:`mediaman.services.rate_limit`.
+Canonical home is ``mediaman.services.rate_limit``.
 
-Holds :class:`RateLimiter` (IP-bucketed) and :class:`ActionRateLimiter`
+Holds ``RateLimiter`` (IP-bucketed) and ``ActionRateLimiter``
 (per-actor, for authenticated admin operations).
 
 Test-support globals
 --------------------
-:data:`_LIMITER_REGISTRY` is a :class:`weakref.WeakSet` that every
+``_LIMITER_REGISTRY`` is a ``weakref.WeakSet`` that every
 ``RateLimiter`` and ``ActionRateLimiter`` instance self-registers with at
-construction time.  :func:`reset_all_limiters` calls ``.reset()`` on every
+construction time.  ``reset_all_limiters`` calls ``.reset()`` on every
 live instance so test fixtures can guarantee a clean slate in one call,
 regardless of how many module-level limiters exist.  The registry has no
 effect on production behaviour — it does not hold a strong reference, so
@@ -32,10 +32,6 @@ import weakref
 # least-recently-used bucket. Move to a setting if larger deployments
 # materialise — for now this is a safety net, not a tunable.
 _MAX_BUCKETS = 10_000
-
-# ---------------------------------------------------------------------------
-# Limiter registry — test-support only, zero production overhead.
-# ---------------------------------------------------------------------------
 
 # WeakSet so the registry never keeps a limiter alive beyond its natural
 # lifetime.  Populated by RateLimiter.__init__ and ActionRateLimiter.__init__.
@@ -96,7 +92,6 @@ class ActionRateLimiter:
     _DAILY_PRUNE_EVERY = 512
 
     def check(self, actor: str) -> bool:
-        """Return True if the action is allowed, False if rate-limited."""
         now = time.monotonic()
         with self._lock:
             if self._max_per_day > 0:
@@ -134,7 +129,6 @@ class ActionRateLimiter:
             return True
 
     def _prune_daily(self, now: float) -> None:
-        """Drop actors whose entire 24h log has aged out."""
         cutoff = now - _ONE_DAY_SECONDS
         stale: list[str] = []
         for actor, log in self._daily.items():
@@ -173,7 +167,7 @@ class RateLimiter:
     """Thread-safe in-memory sliding window rate limiter.
 
     Eviction is O(1) per call: buckets are stored in an
-    :class:`collections.OrderedDict` ordered by most-recent access, and
+    ``collections.OrderedDict`` ordered by most-recent access, and
     the least-recently-used bucket is popped when the cap is hit.
     """
 
@@ -190,7 +184,6 @@ class RateLimiter:
         _LIMITER_REGISTRY.add(self)
 
     def check(self, ip: str) -> bool:
-        """Return True if the request is allowed, False if rate-limited."""
         key = _bucket_key(ip)
         now = time.monotonic()
         with self._lock:
@@ -211,7 +204,6 @@ class RateLimiter:
             return True
 
     def _maybe_prune(self, now: float) -> None:
-        """Drop IP buckets whose timestamps are all outside the window."""
         self._calls_since_prune += 1
         if self._calls_since_prune < self._PRUNE_EVERY:
             return
@@ -225,7 +217,6 @@ class RateLimiter:
             self._attempts.pop(key, None)
 
     def _evict_oldest(self) -> None:
-        """Evict the least-recently-used bucket in O(1)."""
         if not self._attempts:
             return
         # popitem(last=False) removes the first (LRU) entry.

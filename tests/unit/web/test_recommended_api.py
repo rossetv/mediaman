@@ -1,4 +1,4 @@
-"""Tests for :mod:`mediaman.web.routes.recommended.api`.
+"""Tests for `mediaman.web.routes.recommended.api`.
 
 Covers share-token minting and related guards.
 """
@@ -39,13 +39,8 @@ def _make_rec_app(conn) -> TestClient:
     return TestClient(app, raise_server_exceptions=True)
 
 
-# ---------------------------------------------------------------------------
-# A public download token must not be minted when the recommended item has no TMDB id
-# ---------------------------------------------------------------------------
-
-
 class TestFinding15MintRequiresTmdbId:
-    """Finding 15: share-token mint must refuse recommendations without a TMDB id."""
+    """Share-token mint must refuse recommendations without a TMDB id."""
 
     def test_mint_without_tmdb_id_returns_422(self, conn):
         """Minting a share token for a suggestion without tmdb_id must return 422."""
@@ -66,13 +61,8 @@ class TestFinding15MintRequiresTmdbId:
         assert resp.status_code != 422
 
 
-# ---------------------------------------------------------------------------
-# Newsletter dispatch must skip the redownload token mint when the item has no tmdb_id
-# ---------------------------------------------------------------------------
-
-
 class TestFinding15NewsletterSkipsMintWithoutTmdb:
-    """Finding 15 (H-1): newsletter must skip redownload mint when no tmdb_id.
+    """Newsletter must skip redownload mint when no tmdb_id.
 
     The previous code hardcoded ``tmdb_id=None`` for deleted items, producing
     a public token whose submit fell back to ``lookup_by_term(title)``.  The
@@ -125,13 +115,6 @@ class TestFinding15NewsletterSkipsMintWithoutTmdb:
         assert rendered_deleted[0]["redownload_url"] == ""
         # With tmdb_id → token-bearing URL.
         assert rendered_deleted[1]["redownload_url"].startswith("https://mm.example.com/download/")
-
-
-# ---------------------------------------------------------------------------
-# Admin-email resolution: both the download-notification path and the
-# share-token path must resolve the admin's *email* — never use the bare
-# username — and treat a missing email as "skip the notification".
-# ---------------------------------------------------------------------------
 
 
 class TestDownloadRecommendationAdminEmail:

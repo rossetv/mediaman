@@ -1,13 +1,9 @@
 """Raw HTTP transport layer and shared retry helper for *arr clients.
 
-Owns the construction of the :class:`SafeHTTPClient` plus the four
+Owns the construction of the ``SafeHTTPClient`` plus the four
 authenticated verbs (``_get`` / ``_put`` / ``_post`` / ``_delete``)
-and the optimistic-concurrency :func:`_unmonitor_with_retry` loop
-shared by :meth:`unmonitor_season` and :meth:`unmonitor_movie`.
-
-Split from the original monolithic ``base.py`` so the unified
-:class:`~mediaman.services.arr.base.ArrClient` can compose the
-transport, lookup, add-flow, and per-service mixins.
+and the optimistic-concurrency ``_unmonitor_with_retry`` loop
+shared by ``unmonitor_season`` and ``unmonitor_movie``.
 """
 
 from __future__ import annotations
@@ -38,7 +34,7 @@ _ARR_MAX_RESPONSE_BYTES = 64 * 1024 * 1024
 
 
 class ArrError(Exception):
-    """Base for all Sonarr/Radarr-specific failures."""
+    pass
 
 
 class ArrConfigError(ArrError):
@@ -48,8 +44,8 @@ class ArrConfigError(ArrError):
 class ArrKindMismatch(ArrError):
     """Raised when a series-shaped operation is invoked on a Radarr client (or vice versa).
 
-    For example, calling :meth:`~mediaman.services.arr.base.ArrClient.delete_episode_files`
-    on a client built with :data:`~mediaman.services.arr.spec.RADARR_SPEC`
+    For example, calling ``delete_episode_files``
+    on a client built with ``RADARR_SPEC``
     (``kind="movie"``) raises this exception.
     """
 
@@ -65,12 +61,12 @@ class ArrUpstreamError(ArrError):
 
 
 class _TransportMixin:
-    """Authenticated HTTP verbs + the shared :func:`_unmonitor_with_retry`.
+    """Authenticated HTTP verbs + the shared ``_unmonitor_with_retry``.
 
-    Mixed into :class:`~mediaman.services.arr.base.ArrClient`.  Not
+    Mixed into ``ArrClient``.  Not
     intended for direct instantiation.
 
-    :attr:`last_error` is ``None`` when the last call succeeded and is
+    ``last_error`` is ``None`` when the last call succeeded and is
     set to the exception string on failure.  UI layers read it to
     surface fetch failures without silently rendering stale data.
     """
@@ -90,9 +86,9 @@ class _TransportMixin:
 
     # Any: raw resp.json() of an arbitrary *arr endpoint; callers cast() to the right _types TypedDict.
     def _get(self, path: str) -> dict[Any, Any] | list[Any]:
-        """Perform an authenticated GET.  Sets :attr:`last_error` on failure.
+        """Perform an authenticated GET.  Sets ``last_error`` on failure.
 
-        Raises :exc:`ArrUpstreamError` if the response body is null (empty
+        Raises ``ArrUpstreamError`` if the response body is null (empty
         or explicitly null JSON).
         """
         try:
@@ -109,7 +105,7 @@ class _TransportMixin:
             raise
 
     def _put(self, path: str, data: Mapping[str, Any]) -> None:
-        """Perform an authenticated PUT.  Sets :attr:`last_error` on failure."""
+        """Perform an authenticated PUT.  Sets ``last_error`` on failure."""
         try:
             self._http.put(path, headers=self._headers, json=data)
             self.last_error = None
@@ -120,9 +116,9 @@ class _TransportMixin:
 
     # Any: raw resp.json() of an arbitrary *arr endpoint; callers cast() to the right _types TypedDict.
     def _post(self, path: str, data: Mapping[str, Any]) -> dict[Any, Any] | list[Any]:
-        """Perform an authenticated POST.  Sets :attr:`last_error` on failure.
+        """Perform an authenticated POST.  Sets ``last_error`` on failure.
 
-        Raises :exc:`ArrUpstreamError` if the response body is null (empty
+        Raises ``ArrUpstreamError`` if the response body is null (empty
         or explicitly null JSON) — every add-flow caller reads a field off
         the POST result (e.g. ``new_series.get("id")``), so a ``None`` body
         must fail closed here rather than surface as a bare ``AttributeError``.
@@ -140,7 +136,7 @@ class _TransportMixin:
             raise
 
     def _delete(self, path: str) -> None:
-        """Perform an authenticated DELETE.  Sets :attr:`last_error` on failure."""
+        """Perform an authenticated DELETE.  Sets ``last_error`` on failure."""
         try:
             self._http.delete(path, headers=self._headers)
             self.last_error = None
@@ -149,7 +145,7 @@ class _TransportMixin:
             self.last_error = str(exc)
             raise
 
-    # rationale: 63-line retry loop carries the ``last_observed`` /
+    # rationale: the retry loop carries the ``last_observed`` /
     # ``attempt`` state through every branch (already-unmonitored, success,
     # transient failure, final failure). Extracting a per-attempt helper
     # would thread three out-parameters through every call and the
@@ -168,8 +164,8 @@ class _TransportMixin:
     ) -> None:
         """Read-modify-write to set ``monitored=False``, retrying on transport failures.
 
-        Both :meth:`~mediaman.services.arr.base.ArrClient.unmonitor_season` and
-        :meth:`~mediaman.services.arr.base.ArrClient.unmonitor_movie` use this
+        Both ``unmonitor_season`` and
+        ``unmonitor_movie`` use this
         helper.
 
         Each attempt re-reads the entity, applies ``apply_unmonitor``, and
@@ -179,9 +175,9 @@ class _TransportMixin:
         Sonarr/Radarr expose no ETag/version, so a PUT that a sibling later
         clobbers is indistinguishable from success and the loop returns after
         the first successful PUT without re-reading to confirm. Under the
-        single-worker model (§1.12) genuine concurrent re-monitors are rare,
+        single-worker model genuine concurrent re-monitors are rare,
         so transport-retry is the only guarantee offered. Raises
-        :exc:`ArrError` when ``max_retries`` consecutive PUTs all fail at the
+        ``ArrError`` when ``max_retries`` consecutive PUTs all fail at the
         transport layer.
         """
         last_observed: bool | None = None

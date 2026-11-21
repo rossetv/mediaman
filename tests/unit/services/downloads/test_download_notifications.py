@@ -269,7 +269,7 @@ class TestSonarrSeriesMatching:
         assert not sent
 
     def test_concurrent_check_does_not_double_send(self, tmp_path, monkeypatch):
-        """Finding 22: a second pass while the first is still working
+        """A second pass while the first is still working
         must not pick up the same row.
 
         Simulates a scheduler tick that re-enters before the previous
@@ -350,9 +350,9 @@ class TestSonarrSeriesMatching:
 
 
 class TestReconcileStrandedNotifications:
-    """H-5: a startup sweep recovers rows stranded at notified=2 after a crash.
+    """A startup sweep recovers rows stranded at notified=2 after a crash.
 
-    The atomic claim added for finding 22 flips ``notified=0 → 2`` before
+    The atomic claim flips ``notified=0 → 2`` before
     the actual mail attempt.  An OOM, container restart, or SIGKILL
     between claim and send leaves the row pinned at ``notified=2`` because
     the in-process release path only fires on Python-level exceptions.
@@ -502,7 +502,7 @@ class TestReconcileStrandedNotifications:
 
 
 class TestNarrowedExceptClauses:
-    """§6.4 — the three catch clauses in the Radarr/Sonarr probes must catch the
+    """The three catch clauses in the Radarr/Sonarr probes must catch the
     concrete failure types (SafeHTTPError, requests.RequestException, ArrError)
     and release the claim on each.  They must NOT swallow programmer errors like
     TypeError or AttributeError.
@@ -534,7 +534,6 @@ class TestNarrowedExceptClauses:
         assert result.arr_unreachable is True
 
     def test_check_radarr_movie_handles_arr_error(self, tmp_path, monkeypatch):
-        """ArrError from Radarr → arr_unreachable=True."""
         from unittest.mock import MagicMock
 
         from mediaman.services.arr.base import ArrError
@@ -575,7 +574,6 @@ class TestNarrowedExceptClauses:
         assert arr_unreachable is True
 
     def test_check_sonarr_series_handles_arr_error(self, tmp_path):
-        """ArrError from Sonarr → arr_unreachable=True."""
         from unittest.mock import MagicMock
 
         from mediaman.services.arr.base import ArrError
@@ -595,7 +593,7 @@ class TestNarrowedExceptClauses:
 
 
 class TestClaimedNotificationRowDataclass:
-    """§9.5 — _claim_pending_notifications must return ClaimedNotificationRow dataclasses,
+    """_claim_pending_notifications must return ClaimedNotificationRow dataclasses,
     not raw sqlite3.Row objects.  Pins the field names and types so any future
     SELECT column change is caught at the dataclass boundary rather than propagating
     to call sites as a silent KeyError.
@@ -607,7 +605,6 @@ class TestClaimedNotificationRowDataclass:
         return init_db(str(tmp_path / "mm.db"))
 
     def test_returns_list_of_claimed_notification_rows(self, tmp_path):
-        """_claim_pending_notifications must return ClaimedNotificationRow, not sqlite3.Row."""
         from mediaman.services.downloads._notification_claims import (
             ClaimedNotificationRow,
             _claim_pending_notifications,
@@ -728,7 +725,7 @@ class TestClaimedNotificationRowDataclass:
 
 
 class TestPollThrottleVsArrBackoff:
-    """B1 — in-progress poll throttle must NOT accumulate exponential delay.
+    """In-progress poll throttle must NOT accumulate exponential delay.
 
     An item still downloading should be re-evaluated after ~60 s (short fixed
     poll interval), not after the 30-minute exponential backoff cap that is
@@ -864,7 +861,7 @@ class TestPollThrottleVsArrBackoff:
 
 
 class TestUnknownServiceDrain:
-    """B3 — a row with an unknown service value must be drained (notified=1),
+    """A row with an unknown service value must be drained (notified=1),
     not left spinning in an infinite claim/release cycle.
     """
 
@@ -974,7 +971,7 @@ class TestUnknownServiceDrain:
 
 
 class TestRadarrIndexBuiltOncePerTick:
-    """R4-H1 — get_movies() must be called exactly once per tick regardless of
+    """get_movies() must be called exactly once per tick regardless of
     how many pending Radarr notification rows there are.
 
     Previously ``_check_radarr_movie`` called ``get_movie_by_tmdb()`` once

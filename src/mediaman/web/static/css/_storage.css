@@ -1,15 +1,9 @@
-/* =============================================================
-   STORAGE — capacity bar primitives used on the library/dashboard
+/* STORAGE — capacity bar primitives used on the library/dashboard
    storage card. Owns `.storage*`, the segmented progress bar, and
-   the legend dots. Extracted from _base.css per CODE_GUIDELINES.md
-   §3.1.
-   ============================================================= */
+   the legend dots. */
 
-/* =============================================================
-   11. STORAGE BAR
-   ============================================================= */
 .storage {
-  background: var(--s2); /* D33: was gradient, replaced per DESIGN.md §7 */
+  background: var(--s2);
   border-radius: var(--r-lg);
   padding: 28px;
   position: relative;

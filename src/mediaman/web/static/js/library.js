@@ -1,7 +1,7 @@
 /**
  * library.js — interactive behaviour for /library.
  *
- * Extracted from library.html (Finding 65: move inline scripts external so
+ * Extracted from library.html (inline scripts moved external so
  * a strict CSP nonce can be applied). All event wiring is delegated from
  * the document so it survives DOM updates and avoids inline handlers.
  *
@@ -12,9 +12,6 @@
 (function () {
   'use strict';
 
-  /* ----------------------------------------------------------------------
-   * Keep dialog state — module-private; not exposed on window.
-   * ---------------------------------------------------------------------- */
   var _keepDialogState = { showRk: '', showTitle: '', seasonId: '', duration: '30 days' };
 
   /* Modal handles assigned during wire() — both modals are CSS-class
@@ -179,7 +176,7 @@
           btn.textContent = 'Keep';
         });
     } else {
-      /* Finding 35: check each request; report failed season IDs. */
+      /* Check each request; report failed season IDs. */
       var dur = _keepDialogState.duration || '30 days';
       /* Sequential loop — accumulates failures, continues after each one. */
       var keepChain = Promise.resolve();
@@ -210,7 +207,7 @@
       confirmVariant: 'danger'
     }).then(function (ok) {
       if (!ok) return;
-      /* Finding 35: collect season IDs to remove; check response.ok per request. */
+      /* Collect season IDs to remove; check response.ok per request. */
       var seasonIds = [];
       var rk = _keepDialogState.showRk;
       document.querySelectorAll('#keep-season-list input[data-season-id]').forEach(function (cb) {
@@ -242,9 +239,6 @@
     });
   }
 
-  /* ----------------------------------------------------------------------
-   * Delete confirmation modal
-   * ---------------------------------------------------------------------- */
   var _pendingDeleteId = null;
 
   function confirmDelete(mediaId, title) {
@@ -263,12 +257,9 @@
   function removeKeep(mediaId) {
     MM.api.post('/api/media/' + encodeURIComponent(mediaId) + '/unprotect')
       .then(function () { window.location.reload(); })
-      .catch(function () { /* original failed silently — preserve that. */ });
+      .catch(function () { /* failure is dropped silently. */ });
   }
 
-  /* ----------------------------------------------------------------------
-   * Sort + search-debounce helpers (toolbar wiring)
-   * ---------------------------------------------------------------------- */
   function setSort(value) {
     document.getElementById('sort-input').value = value;
     document.getElementById('toolbar-form').submit();
@@ -296,13 +287,10 @@
     _searchTimer = setTimeout(function () { document.getElementById('toolbar-form').submit(); }, 400);
   }
 
-  /* ----------------------------------------------------------------------
-   * Wiring — runs on script load (deferred, so DOM is parsed).
-   * ---------------------------------------------------------------------- */
   function wire() {
-    /* ── Delete modal — CSS-class-driven (.is-visible owns the display
+    /* Delete modal: CSS-class-driven (.is-visible owns the display
          rule), close-cancel button uses data-action, body scroll is not
-         locked by this modal today. ── */
+         locked by this modal today. */
     var deleteModalEl = document.getElementById('delete-modal');
     if (deleteModalEl) {
       _deleteModal = MM.modal.setupDetail(deleteModalEl, {
@@ -328,9 +316,9 @@
       });
     }
 
-    /* ── Keep dialog — CSS-class-driven (.active owns the display rule).
+    /* Keep dialog: CSS-class-driven (.active owns the display rule).
          The dialog card stops click propagation so a click on it doesn't
-         bubble to the overlay's backdrop-close. ── */
+         bubble to the overlay's backdrop-close. */
     var keepOverlay = document.getElementById('keep-dialog-overlay');
     if (keepOverlay) {
       _keepDialogModal = MM.modal.setupDetail(keepOverlay, {
@@ -366,7 +354,7 @@
     }
   }
 
-  /* Finding 17: delegate data-keep-dur and data-action="confirm-delete" clicks
+  /* Delegate data-keep-dur and data-action="confirm-delete" clicks
      instead of using inline onclick handlers. Values come from data-* attributes
      so they are never interpolated into JS strings. */
   document.addEventListener('click', function (e) {
@@ -396,7 +384,7 @@
     }
   });
 
-  /* Finding 10: delegated click handler for the .th-sort buttons.
+  /* Delegated click handler for the .th-sort buttons.
      Replaces the inline onclick attribute on <th> (which was illegal
      a11y — <th> isn't keyboard-activatable). */
   document.addEventListener('click', function (e) {

@@ -3,7 +3,7 @@
 These tests cover only the kind-agnostic plumbing layer (``_get``/``_put``/
 ``_post``/``_delete``, ``is_reachable``, ``last_error``, the lookup helpers
 and ``get_release``).  Either spec is valid here because none of these
-methods read :attr:`ArrClient.spec`; ``SONARR_SPEC`` is used arbitrarily.
+methods read ``ArrClient.spec``; ``SONARR_SPEC`` is used arbitrarily.
 """
 
 from __future__ import annotations
@@ -92,7 +92,7 @@ class TestConstructor:
 
 
 class TestLastError:
-    """H35 -- last_error is populated on failure and cleared on success."""
+    """last_error is populated on failure and cleared on success."""
 
     def test_last_error_initially_none(self):
         """last_error is None before any call is made."""
@@ -138,7 +138,7 @@ class TestLastError:
 
 
 class TestPostNullBodyGuard:
-    """B1 — _post must fail closed on a null upstream body like _get does.
+    """_post must fail closed on a null upstream body like _get does.
 
     Add-flow callers (add_series/add_movie/add_series_with_seasons) cast the
     POST result and read a field off it; a literal ``null`` body would
@@ -157,7 +157,7 @@ class TestPostNullBodyGuard:
 
 
 class TestPublicLookupHelpers:
-    """H14 — public helpers that replace direct _get() calls at call sites."""
+    """Public helpers that replace direct _get() calls at call sites."""
 
     def test_lookup_by_tmdb_id_builds_correct_url(self, client, fake_http, fake_response):
         """lookup_by_tmdb_id appends the tmdb:<id> term to the endpoint."""
@@ -176,7 +176,7 @@ class TestPublicLookupHelpers:
         assert "term=Dune" in url
 
     def test_lookup_by_term_url_encodes_special_characters(self, client, fake_http, fake_response):
-        """M1 — lookup_by_term URL-encodes the term inside the helper.
+        """lookup_by_term URL-encodes the term inside the helper.
 
         A term with ``&`` or a space must not inject a spurious query
         parameter into the upstream request; the raw characters must be
@@ -195,7 +195,6 @@ class TestPublicLookupHelpers:
         assert client.lookup_by_tmdb_id(1, endpoint="/api/v3/movie/lookup") == []
 
     def test_get_release_returns_dict_for_valid_id(self, client, fake_http, fake_response):
-        """get_release returns the item dict for a known ID."""
         fake_http.queue("GET", fake_response(json_data={"id": 7, "title": "Dune"}))
         result = client.get_release(7, endpoint="/api/v3/movie")
         assert result == {"id": 7, "title": "Dune"}

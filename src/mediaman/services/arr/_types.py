@@ -3,7 +3,7 @@
 Sonarr and Radarr both expose a JSON API at ``/api/v3/...`` that returns
 deeply-nested dicts.  Rather than threading ``dict[str, Any]`` through every
 caller, this module pins the field names and types of the shapes mediaman
-actually reads, per :doc:`CODE_GUIDELINES` §5.3.
+actually reads.
 
 Every TypedDict here is ``total=False`` because the *arr APIs habitually
 omit optional fields entirely from the response when they are empty; a
@@ -70,7 +70,7 @@ class ArrSeriesStatistics(TypedDict, total=False):
 
     ``episodeFileCount`` is the only field mediaman reads — it is the
     series-level "any episode present" signal used by
-    :func:`mediaman.services.arr.state.series_has_files`.
+    ``mediaman.services.arr.state.series_has_files``.
     """
 
     episodeFileCount: int
@@ -113,8 +113,6 @@ class RadarrMovieFile(TypedDict, total=False):
 
 
 class RadarrMovie(TypedDict, total=False):
-    """Radarr movie payload (``/api/v3/movie`` and ``/api/v3/movie/{id}``)."""
-
     id: int
     title: str
     tmdbId: int
@@ -134,8 +132,6 @@ class RadarrMovie(TypedDict, total=False):
 
 
 class ArrQueueEpisode(TypedDict, total=False):
-    """``episode`` sub-object on a Sonarr queue record."""
-
     id: int
     seasonNumber: int
     episodeNumber: int
@@ -164,8 +160,6 @@ class ArrQueueItem(TypedDict, total=False):
 
 
 class ArrEpisodeFile(TypedDict, total=False):
-    """A single record from ``/api/v3/episodefile``."""
-
     id: int
     seriesId: int
     seasonNumber: int
@@ -174,8 +168,6 @@ class ArrEpisodeFile(TypedDict, total=False):
 
 
 class ArrEpisode(TypedDict, total=False):
-    """A single record from ``/api/v3/episode``."""
-
     id: int
     seriesId: int
     seasonNumber: int
@@ -186,8 +178,6 @@ class ArrEpisode(TypedDict, total=False):
 
 
 class ArrRootFolder(TypedDict, total=False):
-    """A single record from ``/api/v3/rootfolder``."""
-
     id: int
     path: str
     accessible: bool
@@ -195,8 +185,6 @@ class ArrRootFolder(TypedDict, total=False):
 
 
 class ArrQualityProfile(TypedDict, total=False):
-    """A single record from ``/api/v3/qualityprofile``."""
-
     id: int
     name: str
 
@@ -206,7 +194,7 @@ class ArrLookupResult(TypedDict, total=False):
 
     Lookup endpoints return the same shape as the corresponding library
     list, plus a few search-only fields.  The body of the response is a
-    union of fields from :class:`SonarrSeries` / :class:`RadarrMovie`,
+    union of fields from ``SonarrSeries`` / ``RadarrMovie``,
     so callers reading specific fields should pick the right TypedDict.
     """
 

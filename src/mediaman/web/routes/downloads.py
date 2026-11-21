@@ -1,9 +1,6 @@
-"""Downloads page — unified NZBGet + Radarr/Sonarr queue.
-
-This module is intentionally thin: all the merging, matching, state
-mapping, completion detection, and recent-downloads persistence lives
-under ``mediaman.services``. The route layer just authenticates the
-request and hands the response dict to the template or JSON serialiser.
+"""Downloads page: unified NZBGet + Radarr/Sonarr queue. Merging, matching and state mapping
+live under mediaman.services; the route only authenticates and hands the result to the
+template or JSON.
 """
 
 from __future__ import annotations
@@ -32,10 +29,8 @@ class AbandonRequest(BaseModel):
 def _lookup_dl_item(
     conn: sqlite3.Connection, secret_key: str, dl_id: str
 ) -> dict[str, object] | None:
-    """Find the queue item with the given dl_id.
-
-    Lookup happens against a freshly-built response so we don't trust
-    any stale client-side state.
+    """Find the queue item with the given dl_id in a freshly built response, never trusting
+    stale client-side state.
     """
     payload = build_downloads_response(conn, secret_key)
     for bucket in (payload.get("queue", []), payload.get("upcoming", [])):
@@ -50,7 +45,6 @@ def _lookup_dl_item(
 
 @router.get("/downloads", response_class=HTMLResponse)
 def downloads_page(request: Request) -> Response:
-    """Render the unified downloads page."""
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
@@ -75,7 +69,6 @@ def downloads_page(request: Request) -> Response:
 
 @router.get("/api/downloads")
 def downloads_api(request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
-    """Return the simplified download queue as JSON."""
     conn = get_db()
     config = request.app.state.config
     return JSONResponse(build_downloads_response(conn, config.secret_key))
@@ -90,12 +83,9 @@ def downloads_abandon(
 ) -> JSONResponse:
     """Unmonitor a stuck searching item and clear its throttle row.
 
-    Movies: ``seasons`` is ignored; the whole movie is unmonitored.
-    Series: ``seasons`` MUST contain at least one season number.
-
-    Returns 404 if the dl_id is no longer in the queue (e.g. another
-    tab already abandoned it, or Radarr just grabbed a release), and
-    400 if the request is malformed (empty seasons on a series).
+    Movies ignore seasons; a series needs at least one season number. Returns 404 if the
+    dl_id is no longer in the queue (another tab abandoned it, or Radarr just grabbed a
+    release) and 400 for a malformed request (empty seasons on a series).
     """
     conn = get_db()
     secret_key = request.app.state.config.secret_key

@@ -30,11 +30,11 @@ def token_hash(token: str) -> str:
 # columns.  Both queries below inline exactly these columns in this
 # order so a single ``_row_to_verified_keep_action`` mapper covers both.
 # It is kept as a literal in each query (not interpolated) so no string
-# is ever built into SQL — see CODE_GUIDELINES §9.6.
+# is ever built into SQL.
 
 
 def _row_to_verified_keep_action(row: sqlite3.Row) -> VerifiedKeepAction:
-    """Map a joined ``scheduled_actions`` + ``media_items`` row to :class:`VerifiedKeepAction`.
+    """Map a joined ``scheduled_actions`` + ``media_items`` row to ``VerifiedKeepAction``.
 
     *row* must have been produced by one of the two lookup queries in
     this module, which project every ``scheduled_actions`` column plus
@@ -72,7 +72,7 @@ def lookup_verified_action(
     """Validate the keep-token HMAC, then look up its ``scheduled_actions`` row.
 
     Returns the row joined with ``media_items`` (so the caller has the
-    title, poster, etc. for display) as a :class:`VerifiedKeepAction`, or
+    title, poster, etc. for display) as a ``VerifiedKeepAction``, or
     ``None`` for any failure: bad signature, expired token, token/payload
     mismatch, or row absent.  Rejecting on signature first stops forged
     tokens reaching the DB lookup at all.

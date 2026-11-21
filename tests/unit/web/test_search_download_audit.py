@@ -1,8 +1,8 @@
 """Tests for audit log behaviour on admin search-download submissions.
 
 Covers:
-  - B1: _submit_movie and _submit_tv each write an audit row before commit
-  - H7: _submit_tv returns 503 when Sonarr get_series() fails during
+  - _submit_movie and _submit_tv each write an audit row before commit
+  - _submit_tv returns 503 when Sonarr get_series() fails during
         duplicate-check instead of proceeding blindly
 """
 
@@ -16,7 +16,7 @@ _MODULE = "mediaman.web.routes.search.download"
 
 
 class TestSubmitMovieAudit:
-    """_submit_movie must write an audit row (B1)."""
+    """_submit_movie must write an audit row."""
 
     def _body(self, tmdb_id: int = 100, title: str = "Dune") -> MagicMock:
         body = MagicMock()
@@ -26,7 +26,6 @@ class TestSubmitMovieAudit:
         return body
 
     def test_audit_row_written_on_new_movie(self, conn):
-        """Audit row is written and committed when a new movie is added."""
         body = self._body()
 
         mock_radarr = MagicMock()
@@ -88,7 +87,7 @@ class TestSubmitMovieAudit:
 
 
 class TestSubmitTvAudit:
-    """_submit_tv must write an audit row and return 503 on get_series failure (B1/H7)."""
+    """_submit_tv must write an audit row and return 503 on get_series failure."""
 
     def _body(self, tmdb_id: int = 200, title: str = "Lost") -> MagicMock:
         body = MagicMock()
@@ -100,7 +99,6 @@ class TestSubmitTvAudit:
         return body
 
     def test_audit_row_written_on_new_series(self, conn):
-        """Audit row is written and committed when a new series is added."""
         body = self._body()
 
         mock_sonarr = MagicMock()
@@ -121,7 +119,6 @@ class TestSubmitTvAudit:
         assert row is not None, "audit_log must contain a row after a successful series add"
 
     def test_returns_503_when_get_series_fails(self, conn):
-        """H7: returns 503 (not 409 or 200) when Sonarr get_series fails."""
         from mediaman.services.infra import SafeHTTPError
 
         body = self._body()
@@ -145,7 +142,6 @@ class TestSubmitTvAudit:
         assert row is None, "audit_log must be empty when the duplicate check fails"
 
     def test_no_add_series_when_get_series_fails(self, conn):
-        """H7: add_series must NOT be called when the duplicate check fails."""
         import requests as _req
 
         body = self._body()

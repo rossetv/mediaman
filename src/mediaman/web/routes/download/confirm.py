@@ -1,5 +1,3 @@
-"""Download confirmation page."""
-
 from __future__ import annotations
 
 import json
@@ -48,7 +46,6 @@ router = APIRouter()
 # Rate limiter for the public download GET endpoint.
 _DOWNLOAD_LIMITER_GET = RateLimiter(max_attempts=30, window_seconds=60)
 
-# ---------------------------------------------------------------------------
 # Per-service Arr-state cache.
 #
 # Each GET /download/{token} previously issued four outbound HTTP calls
@@ -64,30 +61,25 @@ _DOWNLOAD_LIMITER_GET = RateLimiter(max_attempts=30, window_seconds=60)
 # next click without manual refresh. The cache is process-local so
 # multi-worker deploys re-fetch per worker — that is acceptable since
 # the limit is per-IP per-worker as well.
-# ---------------------------------------------------------------------------
 
 _ARR_CACHE_TTL_SECONDS = 30.0
 # rationale: bounded to 20 entries (2 services × up to 10 deployment variants)
 # to prevent unbounded growth — while the keyspace is practically two entries
 # (radarr + sonarr for one deployment's secret key), multi-tenant and test
-# scenarios can accumulate keys; a hard cap is the §13.2 safety net.
+# scenarios can accumulate keys; a hard cap is the safety net.
 _ARR_CACHE_MAX_ENTRIES = 20
 _ARR_CACHE_LOCK = threading.Lock()
 # Per-process Arr-state TTL cache; must be in-process state to survive
 # across requests in the same worker without an extra DB or network round-trip.
 # Two independently-typed dicts so each getter returns a precise subtype
-# without a cast or type suppression (§5.5).
+# without a cast or type suppression.
 _RADARR_CACHE: dict[str, tuple[float, RadarrCaches]] = {}
 _SONARR_CACHE: dict[str, tuple[float, SonarrCaches]] = {}
 
 
 def _get_radarr_cache_cached(conn: sqlite3.Connection, secret_key: str) -> RadarrCaches:
-    """Return the Radarr cache dict, using a process-wide TTL cache.
-
-    Uses the double-check pattern: re-check under the write lock before
-    fetching so two concurrent threads on a cache miss both see the
-    freshly-populated entry rather than each issuing a redundant outbound
-    call (§8.7).
+    """Return the Radarr cache dict from a process-wide TTL cache, re-checking under the write
+    lock so concurrent misses do not each fetch.
     """
     fp = _key_fingerprint(secret_key)
     now = time.monotonic()
@@ -109,10 +101,6 @@ def _get_radarr_cache_cached(conn: sqlite3.Connection, secret_key: str) -> Radar
 
 
 def _get_sonarr_cache_cached(conn: sqlite3.Connection, secret_key: str) -> SonarrCaches:
-    """Return the Sonarr cache dict, using a process-wide TTL cache.
-
-    Uses the double-check pattern (§8.7) — see :func:`_get_radarr_cache_cached`.
-    """
     fp = _key_fingerprint(secret_key)
     now = time.monotonic()
     with _ARR_CACHE_LOCK:
@@ -133,27 +121,20 @@ def _get_sonarr_cache_cached(conn: sqlite3.Connection, secret_key: str) -> Sonar
 
 
 def _reset_arr_cache_for_tests() -> None:
-    """Clear the Arr-state cache. Test helper; never call in production."""
     with _ARR_CACHE_LOCK:
         _RADARR_CACHE.clear()
         _SONARR_CACHE.clear()
 
 
 def validate_youtube_id(s: str | None) -> str | None:
-    """Return *s* if it is a valid YouTube video ID, else None."""
     if not s:
         return None
     return s if _YOUTUBE_ID_RE.match(s) else None
 
 
 def _coerce_string_list(value: object) -> list[str]:
-    """Return *value* coerced to a list of plain strings.
-
-    Defends against malicious or malformed JSON in DB columns: a
-    suggestion's ``genres`` / ``cast_json`` should be a list of strings,
-    but a tampered DB row could carry nested objects, ints, or arbitrary
-    JSON. The template treats the result as plain text, so anything
-    that cannot be a string is dropped.
+    """Return value as a list of plain strings, dropping anything else: a tampered DB row could
+    carry nested objects or ints in genres/cast_json.
     """
     if not isinstance(value, list):
         return []
@@ -161,7 +142,6 @@ def _coerce_string_list(value: object) -> list[str]:
 
 
 def _base_download_item(payload: Mapping[str, object]) -> dict[str, object]:
-    """Build the skeleton download item from a validated token payload."""
     return {
         "title": payload.get("title", ""),
         "media_type": payload.get("mt", ""),
@@ -190,7 +170,6 @@ def _base_download_item(payload: Mapping[str, object]) -> dict[str, object]:
 def _build_item_from_suggestion(
     payload: Mapping[str, object], enrichment: SuggestionEnrichment
 ) -> dict[str, object]:
-    """Build a fully-populated download item from a suggestions row."""
     item = _base_download_item(payload)
     item.update(
         {
@@ -207,7 +186,7 @@ def _build_item_from_suggestion(
             "director": enrichment.director,
             # Sanitisation is applied by _enrich_item_fields (always called
             # after item construction), so the raw value is stored here and
-            # validated exactly once — not twice (M1).
+            # validated exactly once — not twice.
             "trailer_key": enrichment.trailer_key,
             "imdb_rating": enrichment.imdb_rating,
             "metascore": enrichment.metascore,
@@ -221,11 +200,6 @@ def _build_item_from_payload(
     conn: sqlite3.Connection,
     secret_key: str,
 ) -> dict[str, object]:
-    """Build the download item dict from the token payload, enriching where possible.
-
-    Tries the suggestion DB row (``sid``), redownload enrichment, or falls
-    back to the base skeleton.
-    """
     sid = payload.get("sid")
     if sid:
         # ``sid`` is typed as ``int | None`` in DownloadTokenPayload but the
@@ -251,7 +225,6 @@ def _build_item_from_payload(
 
 
 def _enrich_item_fields(item: dict[str, object]) -> None:
-    """Sanitise trailer key and decode genres/cast JSON in-place."""
     trailer_value = item.get("trailer_key")
     item["trailer_key"] = validate_youtube_id(
         trailer_value if isinstance(trailer_value, str) else None
@@ -277,7 +250,6 @@ def _resolve_download_state(
     secret_key: str,
     mt: str,
 ) -> None:
-    """Fetch Arr library state and set ``item["download_state"]`` in-place."""
     item["download_state"] = None
     if not tmdb_id:
         return
@@ -347,7 +319,6 @@ def _build_hero_context(
 
 @router.get("/download/{token}", response_class=HTMLResponse)
 def download_page(request: Request, token: str) -> HTMLResponse:
-    """Render the download confirmation page."""
     config = request.app.state.config
     templates = cast(Jinja2Templates, request.app.state.templates)
     conn = get_db()

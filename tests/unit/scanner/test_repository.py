@@ -73,11 +73,6 @@ def _insert_action(
     )
 
 
-# ---------------------------------------------------------------------------
-# upsert_media_item
-# ---------------------------------------------------------------------------
-
-
 class TestUpsertMediaItem:
     def _item_dict(self, rk="m1", title="Film"):
         return {
@@ -120,7 +115,7 @@ class TestUpsertMediaItem:
         assert "2023-06-15" in row["added_at"]
 
     def test_conflict_refreshes_plex_library_id(self, conn):
-        """M4: a Plex section re-org moves an item between libraries. The
+        """A Plex section re-org moves an item between libraries. The
         ON CONFLICT update must refresh ``plex_library_id`` so the orphan
         guard's universe (``count_items_in_libraries`` /
         ``fetch_ids_in_libraries``) attributes the item to its new library
@@ -142,7 +137,7 @@ class TestUpsertMediaItem:
         assert repository.count_items_in_libraries(conn, [1]) == 0
 
     def test_conflict_refreshes_show_title_and_season_number(self, conn):
-        """M4: corrected upstream season metadata (``show_title`` /
+        """Corrected upstream season metadata (``show_title`` /
         ``season_number``) must propagate on conflict rather than stick at
         the stale first-seen value.
         """
@@ -171,11 +166,6 @@ class TestUpsertMediaItem:
         assert row["season_number"] == 2
 
 
-# ---------------------------------------------------------------------------
-# update_last_watched
-# ---------------------------------------------------------------------------
-
-
 class TestUpdateLastWatched:
     def test_stores_most_recent_watch(self, conn):
         _insert_item(conn)
@@ -192,11 +182,6 @@ class TestUpdateLastWatched:
         repository.update_last_watched(conn, "m1", [])
         row = conn.execute("SELECT last_watched_at FROM media_items WHERE id='m1'").fetchone()
         assert row["last_watched_at"] is None
-
-
-# ---------------------------------------------------------------------------
-# count_items_in_libraries / fetch_ids_in_libraries
-# ---------------------------------------------------------------------------
 
 
 class TestCountAndFetchLibraryItems:
@@ -216,11 +201,6 @@ class TestCountAndFetchLibraryItems:
         _insert_item(conn, media_id="x2", library_id=5)
         ids = repository.fetch_ids_in_libraries(conn, [5])
         assert set(ids) == {"x1", "x2"}
-
-
-# ---------------------------------------------------------------------------
-# delete_media_items / delete_actions_for_media_items
-# ---------------------------------------------------------------------------
 
 
 class TestDeleteMediaItems:
@@ -269,11 +249,6 @@ class TestDeleteMediaItems:
         assert conn.execute("SELECT id FROM media_items WHERE id='m1'").fetchone() is not None
 
 
-# ---------------------------------------------------------------------------
-# is_protected
-# ---------------------------------------------------------------------------
-
-
 class TestIsProtected:
     def test_protected_forever_returns_true(self, conn):
         _insert_item(conn)
@@ -306,7 +281,7 @@ class TestIsProtected:
         assert repository.is_protected(conn, "does-not-exist") is False
 
     def test_protected_forever_wins_over_later_expired_snooze(self, conn):
-        """Regression for Domain 05 finding: ``ORDER BY id DESC LIMIT 1``
+        """Regression: ``ORDER BY id DESC LIMIT 1``
         let a later expired snooze row mask an earlier protected_forever
         row. A protected_forever row is authoritative regardless of where
         it sits in id order.
@@ -352,11 +327,6 @@ class TestIsProtected:
         assert repository.is_protected(conn, "m1") is False
 
 
-# ---------------------------------------------------------------------------
-# is_already_scheduled
-# ---------------------------------------------------------------------------
-
-
 class TestIsAlreadyScheduled:
     def test_pending_deletion_returns_true(self, conn):
         _insert_item(conn)
@@ -373,11 +343,6 @@ class TestIsAlreadyScheduled:
         assert repository.is_already_scheduled(conn, "m1") is False
 
 
-# ---------------------------------------------------------------------------
-# has_expired_snooze
-# ---------------------------------------------------------------------------
-
-
 class TestHasExpiredSnooze:
     def test_consumed_snooze_returns_true(self, conn):
         _insert_item(conn)
@@ -392,11 +357,6 @@ class TestHasExpiredSnooze:
     def test_no_snooze_returns_false(self, conn):
         _insert_item(conn)
         assert repository.has_expired_snooze(conn, "m1") is False
-
-
-# ---------------------------------------------------------------------------
-# is_show_kept
-# ---------------------------------------------------------------------------
 
 
 class TestIsShowKept:
@@ -453,11 +413,6 @@ class TestIsShowKept:
         assert repository.is_show_kept(conn, "unknown-rk") is False
 
 
-# ---------------------------------------------------------------------------
-# read_delete_allowed_roots_setting
-# ---------------------------------------------------------------------------
-
-
 class TestReadDeleteAllowedRoots:
     def test_reads_json_from_db(self, conn, monkeypatch):
         monkeypatch.delenv("MEDIAMAN_DELETE_ROOTS", raising=False)
@@ -485,7 +440,7 @@ class TestReadDeleteAllowedRoots:
         assert roots == []
 
     def test_corrupt_json_logs_warning_and_returns_empty(self, conn, monkeypatch, caplog):
-        """Corrupt JSON in the DB row must emit a WARNING (§6.7) and
+        """Corrupt JSON in the DB row must emit a WARNING and
         still return [] so the caller's fail-closed behaviour is unchanged.
         """
         monkeypatch.delenv("MEDIAMAN_DELETE_ROOTS", raising=False)
@@ -508,11 +463,6 @@ class TestReadDeleteAllowedRoots:
         ]
         assert warning_records, "Expected a WARNING from the corrupt-JSON path; none was emitted"
         assert "scanner.delete_roots.invalid_json" in warning_records[0].message
-
-
-# ---------------------------------------------------------------------------
-# cleanup_expired_snoozes
-# ---------------------------------------------------------------------------
 
 
 class TestCleanupExpiredSnoozes:
@@ -538,7 +488,7 @@ class TestCleanupExpiredSnoozes:
         )
 
     def test_expired_consumed_snooze_still_marks_reentry_on_next_scan(self, conn):
-        """H1: the cleanup sweep must NOT delete an expired *consumed*
+        """The cleanup sweep must NOT delete an expired *consumed*
         (``token_used = 1``) snooze. That row is the sole re-entry signal
         read by ``has_expired_snooze``; deleting it would silently make
         re-entry detection never fire for any item whose snooze lapsed
@@ -566,11 +516,6 @@ class TestCleanupExpiredSnoozes:
         )
         # The re-entry signal still fires on the next scan.
         assert repository.has_expired_snooze(conn, "m1") is True
-
-
-# ---------------------------------------------------------------------------
-# cleanup_expired_show_snoozes  (Domain 05 — split from is_show_kept)
-# ---------------------------------------------------------------------------
 
 
 class TestCleanupExpiredShowSnoozes:
@@ -613,11 +558,6 @@ class TestCleanupExpiredShowSnoozes:
         )
 
 
-# ---------------------------------------------------------------------------
-# update_last_watched — monotonic guard (Domain 05)
-# ---------------------------------------------------------------------------
-
-
 class TestUpdateLastWatchedMonotonic:
     def test_does_not_rewind_existing_timestamp(self, conn):
         """A subsequent re-scan that fetches an older watch entry must not
@@ -641,11 +581,6 @@ class TestUpdateLastWatchedMonotonic:
         repository.update_last_watched(conn, "m1", [{"viewed_at": recent}])
         row = conn.execute("SELECT last_watched_at FROM media_items WHERE id='m1'").fetchone()
         assert "2024-06-01" in row["last_watched_at"]
-
-
-# ---------------------------------------------------------------------------
-# schedule_deletion — race handling (Domain 05)
-# ---------------------------------------------------------------------------
 
 
 class TestScheduleDeletionRace:
@@ -702,11 +637,6 @@ class TestScheduleDeletionRace:
         assert len(rows) == 1
 
 
-# ---------------------------------------------------------------------------
-# delete_media_items + delete_actions_for_media_items — atomic two-table delete
-# ---------------------------------------------------------------------------
-
-
 class TestDeleteMediaItemsAtomic:
     def test_two_table_delete_under_one_transaction_clears_both(self, conn):
         """The delete phase wraps both repository DELETEs in one
@@ -724,11 +654,6 @@ class TestDeleteMediaItemsAtomic:
             conn.execute("SELECT id FROM scheduled_actions WHERE media_item_id='m1'").fetchone()
             is None
         )
-
-
-# ---------------------------------------------------------------------------
-# DeletionRow dataclass — §9.5 typed return shape
-# ---------------------------------------------------------------------------
 
 
 class TestDeletionRowShape:
@@ -778,11 +703,6 @@ class TestDeletionRowShape:
         assert not hasattr(row, "__dict__")
 
 
-# ---------------------------------------------------------------------------
-# count_pending_deletions — §9.4 count split out of clear_pending_deletions
-# ---------------------------------------------------------------------------
-
-
 class TestCountPendingDeletions:
     def test_counts_only_unused_scheduled_deletions(self, conn):
         _insert_item(conn, media_id="m1")
@@ -808,11 +728,6 @@ class TestCountPendingDeletions:
         counted = repository.count_pending_deletions(conn)
         cleared = repository.clear_pending_deletions(conn)
         assert counted == cleared == 2
-
-
-# ---------------------------------------------------------------------------
-# Batched guard sets — §13.3 N+1 elimination parity
-# ---------------------------------------------------------------------------
 
 
 class TestBatchedGuardSetParity:

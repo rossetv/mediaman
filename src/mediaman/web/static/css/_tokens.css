@@ -1,12 +1,6 @@
-/* ============================================================================
-   MEDIAMAN — cinematic dark theme (Apple TV / Music inspired)
-   Tokens, primitives, and one-source-of-truth components.
-   See DESIGN.md for the full visual system.
-   ============================================================================ */
+/* MEDIAMAN — cinematic dark theme (Apple TV / Music inspired)
+   Tokens, primitives, and one-source-of-truth components. */
 
-/* =============================================================
-   1. TOKENS
-   ============================================================= */
 :root {
   --font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   --font-text:    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -27,7 +21,7 @@
   --t4: rgba(255,255,255,.32);
 
   /* Accents — interactive only.
-     Note: DESIGN.md §3 names Apple Blue (#0071e3) the "accent" and Bright Blue
+     Note: the Apple design language names Apple Blue (#0071e3) the "accent" and Bright Blue
      (#2997ff) the "link" colour. Mediaman's tokens flip those names — `--accent`
      is the dark-bg link blue (#2997ff) and `--accent-cta` is the CTA / focus blue
      (#0071e3). Renaming the tokens would cascade through every CSS file and
@@ -56,7 +50,7 @@
   /* Spacing & nav */
   --pad:     clamp(20px,4vw,40px);
   --section: clamp(36px,6vw,72px);
-  /* nav-glass height (DESIGN.md §4). The compact .nav-topbar hardcodes 48px. */
+  /* nav-glass height. The compact .nav-topbar hardcodes 48px. */
   --nav-h:   52px;
 
   /* Z-index scale — single source of truth for app-wide stacking.
@@ -68,7 +62,7 @@
   --z-confirm:        200;
   --z-toast:          210;
 
-  /* Semantic rgba helpers — see DESIGN.md §2 Semantic Palette.
+  /* Semantic rgba helpers.
      These four literals appeared across 30+ selectors with no shared name;
      tokenising them here removes the scatter and makes intent legible. */
 
@@ -77,8 +71,8 @@
   --rgba-overlay-sm: rgba(255,255,255,.06);
 
   /* Accent (blue) chip background — keep, badge-tv, type pills, lib-pill.on.
-     Adopted DESIGN.md §2 "low-opacity background counterpart (0.10–0.22 alpha)"
-     for the accent/interactive semantic; .15 is the canonical mid-point. */
+     Low-opacity background counterpart (0.10–0.22 alpha) for the
+     accent/interactive semantic; .15 is the canonical mid-point. */
   --rgba-accent-bg: rgba(41,151,255,.15);
 
   /* Success (green) chip background — kept state, .btn--success, disk-badge.ok.
@@ -112,7 +106,7 @@
 
   /* Third-party service brand identity — used only by the settings
      integration glyphs (.gy-*). Exempt from the single-accent rule
-     (DESIGN.md §2) because they are brand/content identity, not UI chrome.
+     because they are brand/content identity, not UI chrome.
      Tokenised so a brand refresh is a one-line edit and the values are
      greppable. */
   --brand-plex:      #e5a00d;  --brand-plex-bg:    rgba(229,160,13,.14);

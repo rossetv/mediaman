@@ -1,9 +1,8 @@
-{# ============================================================================
-   Mediaman component macros — single source of truth for buttons, pills,
+{# Mediaman component macros — single source of truth for buttons, pills,
    tiles, tables and settings primitives. Import via:
        {% import "_components.html" as c %}
 
-   SECURITY (H66 / Domain 10): macros below use ``|safe`` (and a few raw
+   SECURITY: macros below use ``|safe`` (and a few raw
    ``{{ … }}`` interpolations) for inputs that are deliberately HTML
    fragments (icon SVG strings, sub-text with inline links, header_extra
    slots). These inputs MUST be server-controlled literals — never pass
@@ -11,8 +10,7 @@
    without first running it through Jinja's autoescape. If you need to
    surface user-supplied text inside one of these slots, escape it first
    (e.g. ``{{ user_value | e }}``) and concatenate, or use a different
-   macro that escapes by default.
-   ============================================================================ #}
+   macro that escapes by default. #}
 
 
 {# Font Awesome icon. `name` is the FA glyph slug (e.g. "fa-house"); `style`
@@ -34,7 +32,7 @@
    Note: `attrs` (raw HTML string) and `sub` (raw HTML) have been removed to
    prevent XSS — use explicit parameters or `data_attrs` dict instead.
 
-   SECURITY (R8-L6): `{{ label }}` is NOT marked |safe and is therefore
+   SECURITY: `{{ label }}` is NOT marked |safe and is therefore
    auto-escaped by Jinja's autoescape (enabled for .html via
    jinja2.select_autoescape() in app_factory.py).  Do NOT add |safe to
    label — that would allow XSS if a caller passes user-supplied text.
@@ -251,10 +249,8 @@
 {%- endmacro %}
 
 
-{# ============================================================================
-   Settings v2 primitives — used by templates/settings/_sec_*.html.
-   All rendered markup is scoped under `.setg-pg` on the page root.
-   ============================================================================ #}
+{# Settings v2 primitives — used by templates/settings/_sec_*.html.
+   All rendered markup is scoped under `.setg-pg` on the page root. #}
 
 {# Rail nav item — href-anchored link in the left sidebar. #}
 {% macro setg_rail_item(href, label, icon_svg, count="", count_tone="") -%}

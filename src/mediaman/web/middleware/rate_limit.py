@@ -7,7 +7,7 @@ return a 429 JSON response.  Placing it in ``services/`` violated the
 rule that services may not import from ``web/``.
 
 The non-FastAPI building blocks (``RateLimiter``, ``ActionRateLimiter``,
-``get_client_ip``) remain in :mod:`mediaman.services.rate_limit` where they
+``get_client_ip``) remain in `mediaman.services.rate_limit` where they
 can be used without any web-layer dependency.
 
 Wraps an endpoint function so that a limiter check runs before the
@@ -89,8 +89,8 @@ def rate_limit(
     """Decorate a FastAPI route handler with an inline rate-limit check.
 
     Args:
-        limiter: A :class:`~mediaman.services.rate_limit.limiters.RateLimiter`
-                 or :class:`~mediaman.services.rate_limit.limiters.ActionRateLimiter`
+        limiter: A `mediaman.services.rate_limit.limiters.RateLimiter`
+                 or `mediaman.services.rate_limit.limiters.ActionRateLimiter`
                  instance to check before calling the handler.
         key:     ``"actor"`` (default) — keyed on the ``admin`` parameter
                  resolved by ``Depends(get_current_admin)``.

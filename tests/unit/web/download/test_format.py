@@ -1,6 +1,6 @@
 """Tests for download format helpers.
 
-Covers pure logic in :mod:`mediaman.services.downloads.download_format`:
+Covers pure logic in mediaman.services.downloads.download_format:
 - map_state
 - build_item
 - select_hero
@@ -8,7 +8,7 @@ Covers pure logic in :mod:`mediaman.services.downloads.download_format`:
 - classify_movie_upcoming
 - classify_series_upcoming
 
-Also covers completion detection (:mod:`mediaman.services.arr.completion`).
+Also covers completion detection (mediaman.services.arr.completion).
 """
 
 from __future__ import annotations
@@ -129,7 +129,6 @@ class TestBuildItem:
 
 class TestHeroSelection:
     def test_single_item_is_hero(self):
-        """A single item in the queue becomes the hero."""
         items = [
             build_item(
                 dl_id="r:A",
@@ -219,7 +218,6 @@ class TestHeroSelection:
         assert len(rest) == 1
 
     def test_empty_queue_returns_none(self):
-        """Empty queue returns None hero."""
         hero, rest = select_hero([])
         assert hero is None
         assert rest == []
@@ -259,7 +257,6 @@ class TestCompletionDetection:
         assert completed == []
 
     def test_reset_clears_previous(self):
-        """_reset_previous_queue clears the in-memory snapshot."""
         _reset_previous_queue()  # Should not raise
 
 

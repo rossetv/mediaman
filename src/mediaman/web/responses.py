@@ -40,7 +40,7 @@ def respond_ok(data: dict[str, object] | None = None, *, status: int = 200) -> J
         status: HTTP status code (default 200).
 
     Returns:
-        A :class:`~fastapi.responses.JSONResponse` with the envelope body.
+        A `fastapi.responses.JSONResponse` with the envelope body.
     """
     body: dict[str, object] = {"ok": True}
     if data is not None:
@@ -72,7 +72,7 @@ def respond_err(
                  (e.g. ``reauth_required=True``, ``issues=[...]``).
 
     Returns:
-        A :class:`~fastapi.responses.JSONResponse` with the envelope body.
+        A `fastapi.responses.JSONResponse` with the envelope body.
     """
     body: dict[str, object] = {"ok": False, "error": error}
     if message is not None:

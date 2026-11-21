@@ -1,12 +1,5 @@
-"""Sonarr branch of the redownload flow: add-and-record + try-redownload.
-
-These helpers are the Sonarr half of ``POST /api/media/redownload``.
-They are split out of :mod:`mediaman.web.routes.library_api.redownload` to
-keep that module under the size ceiling; the redownload handler imports
-them back so the registered route and its behaviour are unchanged. The
-shared lookup matcher and audit-ID picker live in
-:mod:`mediaman.web.routes.library_api._redownload_match` because the
-Radarr branch consumes them too.
+"""Sonarr branch of the redownload flow, split out of .redownload.
+The shared lookup matcher and audit-ID picker live in ._redownload_match.
 """
 
 from __future__ import annotations
@@ -41,10 +34,8 @@ def _sonarr_add_and_record(
     imdb_id: str | None,
     username: str,
 ) -> JSONResponse | None:
-    """Add a series via Sonarr and persist the audit row.
-
-    Returns ``None`` if the lookup entry has no usable ``tvdbId`` (in
-    which case the caller treats the lookup as a miss).
+    """Add a series via Sonarr and persist the audit row; None if the lookup entry has no
+    usable tvdbId, which the caller treats as a miss.
     """
     resolved_tvdb = entry.get("tvdbId")
     if not resolved_tvdb:
@@ -84,7 +75,6 @@ def _sonarr_add_and_record(
 
 
 def _sonarr_fallback_fail_response() -> JSONResponse:
-    """Return the generic 200-body failure used when Sonarr is unreachable."""
     return JSONResponse(
         {"ok": False, "error": "Download request failed — check service connectivity"}
     )
@@ -101,12 +91,9 @@ def _try_sonarr_redownload(
     imdb_id: str | None,
     username: str,
 ) -> JSONResponse | None:
-    """Attempt a Sonarr redownload; ``None`` means fall through to "not found".
-
-    Unlike the Radarr branch, all Sonarr exceptions surface as a 200-body
-    failure response: by the time we reach Sonarr there is no further
-    fallback, so a transport error must be reported rather than silently
-    swallowed.
+    """Attempt a Sonarr redownload; None means fall through to "not found". Unlike Radarr,
+    every Sonarr exception becomes a 200-body failure response: there is no further
+    fallback, so a transport error must be reported.
     """
     try:
         # lookup_by_term URL-encodes the term internally — pass the raw title.

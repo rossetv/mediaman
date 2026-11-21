@@ -1,11 +1,11 @@
-"""Ring 0: shared formatting helpers.
+"""Shared formatting helpers.
 
 Byte sizes, relative time strings, and ISO-timestamp normalisation in a
 single place so callers don't drift across subtle variants.
 
-Ring 0 contract: stdlib only (json, re, datetime), no I/O, no imports from
-other mediaman modules.  :func:`parse_iso_utc` is imported from
-:mod:`mediaman.core.time` — the only intra-Ring-0 import permitted.
+Stdlib only (json, re, datetime), no I/O, no imports from other mediaman
+modules.  parse_iso_utc, imported from mediaman.core.time, is the only
+intra-package import.
 """
 
 from __future__ import annotations
@@ -17,14 +17,10 @@ from datetime import UTC, datetime
 from mediaman.core.time import now_utc
 from mediaman.core.time import parse_iso_utc as parse_iso_utc
 
-# ---------------------------------------------------------------------------
-# Audit-log detail parsers — shared by dashboard and newsletter.
-# ---------------------------------------------------------------------------
-
 _AUDIT_TITLE_RE = re.compile(r"^Deleted[: ]+['\"]?(.+?)['\"]?(?:\s+by\s+.+?)?(?:\s+\[rk:.*\])?$")
 _AUDIT_RK_RE = re.compile(r"\[rk:([^\]]+)\]")
 
-#: Hard cap on the length of a string fed to :data:`_AUDIT_TITLE_RE`.
+#: Hard cap on the length of a string fed to _AUDIT_TITLE_RE.
 #: The non-greedy ``(.+?)`` followed by optional groups can exhibit
 #: O(n^2) backtracking on long inputs, so we cap before matching to
 #: keep the worst case bounded. 256 chars covers every legitimate
@@ -46,7 +42,7 @@ def title_from_audit_detail(detail: str | None) -> str:
     dashboard/newsletter than a generic placeholder for a row that simply
     used an unrecognised wording.
 
-    Long inputs are truncated to :data:`_AUDIT_TITLE_MAX_INPUT` before
+    Long inputs are truncated to _AUDIT_TITLE_MAX_INPUT before
     matching to bound the regex worst case; a malformed audit row
     cannot trigger pathological backtracking.
     """
@@ -75,13 +71,13 @@ def ensure_tz(dt: datetime | None) -> datetime:
     UTC: PlexAPI's ``viewedAt`` is built with ``tz=timezone.utc``, the
     scanner uses ``datetime.now(timezone.utc).isoformat()`` for
     ``added_at``, and Radarr/Sonarr emit ISO timestamps that
-    :func:`parse_iso_utc` already treats as UTC when no offset is
+    parse_iso_utc already treats as UTC when no offset is
     present.
 
     The previous implementation treated a naive input as **local
     time** (via ``.astimezone(timezone.utc)``), which silently shifted
     timestamps by the local UTC offset and disagreed with
-    :func:`parse_iso_utc`'s naive-as-UTC convention. Two helpers that
+    parse_iso_utc's naive-as-UTC convention. Two helpers that
     both labelled themselves "ensure UTC" but applied opposite rules
     is a bug factory; the unified rule is "naive is UTC".
 
@@ -158,7 +154,7 @@ def format_day_month(dt: datetime, *, long_month: bool = False) -> str:
     rendered for English-speaking subscribers.
 
     Args:
-        dt: A :class:`datetime` instance (aware or naive).
+        dt: A datetime instance (aware or naive).
         long_month: When ``True``, use the full month name (e.g. ``"April"``);
             when ``False`` (default), use the abbreviated form (e.g. ``"Apr"``).
 
@@ -225,7 +221,7 @@ def relative_day_label(
     # delta <= 0 from here. A past date renders via ``past`` when one was
     # supplied; otherwise (and for delta == 0) it collapses to ``today``.
     # Testing ``past is None`` here narrows the type for the call below
-    # without a runtime ``assert`` (§16.3).
+    # without a runtime ``assert``.
     if delta < 0 and past is not None:
         return past(-delta)
     return today

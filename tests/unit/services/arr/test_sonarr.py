@@ -178,7 +178,6 @@ class TestArrClientSonarr:
         assert len(_calls(fake_http, "POST")) == 1
 
     def test_remonitor_season_retries_on_failed_put(self, client, fake_http, fake_response):
-        """R4-M2: remonitor_season must retry the PUT on transient failure."""
 
         def _series():
             return {"id": 1, "title": "Test", "seasons": [{"seasonNumber": 1, "monitored": False}]}
@@ -201,7 +200,7 @@ class TestArrClientSonarr:
     def test_remonitor_season_raises_when_target_season_absent(
         self, client, fake_http, fake_response
     ):
-        """R4-M2: remonitor_season raises ArrUpstreamError when season is absent.
+        """remonitor_season raises ArrUpstreamError when season is absent.
 
         Prevents a silent no-op where the PUT would succeed but the targeted
         season was never actually remonitored.
@@ -222,7 +221,7 @@ class TestArrClientSonarr:
     def test_remonitor_season_tolerates_season_missing_season_number(
         self, client, fake_http, fake_response
     ):
-        """M6: a malformed season lacking ``seasonNumber`` must not KeyError.
+        """A malformed season lacking ``seasonNumber`` must not KeyError.
 
         ``remonitor_season`` uses ``.get("seasonNumber")`` (matching
         ``unmonitor_season``) so a ``total=False`` season dict missing the
@@ -356,7 +355,6 @@ class TestArrClientSonarr:
         assert client.get_queue() == []
 
     def test_delete_series_sends_delete_request(self, client, fake_http, fake_response):
-        """delete_series issues a DELETE with the correct URL."""
         fake_http.queue("DELETE", fake_response(content=b""))
         client.delete_series(series_id=42)
         delete_call = _calls(fake_http, "DELETE")[0]
@@ -477,7 +475,7 @@ class TestAddSeriesWithSeasons:
 
 
 class TestDeleteEpisodeFiles:
-    """H46 — bulk DELETE via /api/v3/episodefile/bulk with 404 fallback."""
+    """Bulk DELETE via /api/v3/episodefile/bulk with 404 fallback."""
 
     def test_bulk_delete_sends_single_request(self, client, fake_http, fake_response):
         """All episode-file ids for the season are sent in one DELETE."""

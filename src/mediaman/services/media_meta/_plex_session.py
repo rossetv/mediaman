@@ -35,16 +35,11 @@ def _resolve_safe_outbound_url(
     *,
     allowed_hosts: frozenset[str] | None = None,
 ) -> tuple[bool, str | None, str | None]:
-    """Call ``resolve_safe_outbound_url``, delegating through the parent
-    ``plex`` module's namespace when it is already imported.
+    """Call resolve_safe_outbound_url through the parent plex module's namespace when it is
+    imported.
 
-    This indirection allows test code that monkeypatches
-    ``plex.resolve_safe_outbound_url`` to affect behaviour here without
-    requiring a circular import.
-
-    ``allowed_hosts`` is threaded through so per-session allowlist
-    enforcement reaches the underlying helper. When ``None``,
-    the helper falls back to deny-list-only validation.
+    Tests that monkeypatch plex.resolve_safe_outbound_url then affect this path without
+    a circular import. allowed_hosts of None means deny-list-only validation.
     """
     plex_mod = _sys.modules.get(_PLEX_MODULE_NAME)
     fn = (
@@ -78,10 +73,8 @@ _PLEX_TIMEOUT_SECONDS: tuple[float, float] = (5.0, 30.0)
 
 
 def _scrub_plex_token(msg: str) -> str:
-    """Replace any ``X-Plex-Token=<value>`` substring in *msg* with ``<redacted>``.
-
-    Applied to exception messages and log lines before they propagate so the
-    token never appears in tracebacks, log files, or error responses.
+    """Replace X-Plex-Token=<value> in *msg* with <redacted> so the token never reaches
+    tracebacks, logs or error responses.
     """
     return _PLEX_TOKEN_RE.sub(r"\1<redacted>", msg)
 
@@ -89,7 +82,7 @@ def _scrub_plex_token(msg: str) -> str:
 class _SafePlexSession(http_requests.Session):
     """``requests.Session`` subclass enforcing mediaman's outbound rules.
 
-    Injected into :class:`plexapi.server.PlexServer` via the ``session=``
+    Injected into plexapi.server.PlexServer via the ``session=``
     constructor kwarg so every plexapi call — library enumeration,
     section scanning, raw queries — inherits:
 
@@ -98,7 +91,7 @@ class _SafePlexSession(http_requests.Session):
       duration of the request).
     * ``allow_redirects=False`` — a 302 to ``169.254.169.254`` would
       otherwise leak the X-Plex-Token into cloud metadata.
-    * Streamed body capped at :data:`_PLEX_MAX_BYTES`, so a malicious
+    * Streamed body capped at _PLEX_MAX_BYTES, so a malicious
       or buggy upstream cannot pin a worker's memory.
     * ``(connect, read)`` timeout split, so a slow-lorris read cannot
       hold a connection indefinitely.
@@ -116,11 +109,11 @@ class _SafePlexSession(http_requests.Session):
         # ``_read_capped`` would see only the compressed length: a tiny gzip
         # bomb could decompress to gigabytes (urllib3 inflates before we read).
         # ``identity`` is the only encoding ``_read_capped`` is allowed to
-        # accept — see its Content-Encoding guard (R6-H1).
+        # accept — see its Content-Encoding guard.
         self.headers["Accept-Encoding"] = "identity"
         # Per-session allowlist. The caller derives the
         # composed set once at the boundary via
-        # :func:`~mediaman.services.infra.url_safety.allowed_outbound_hosts`
+        # allowed_outbound_hosts
         # and threads it through ``PlexClient`` to here. ``None`` means
         # deny-list-only — the default for unit-test fixtures that do
         # not exercise the allowlist path.
@@ -197,21 +190,17 @@ class _SafePlexSession(http_requests.Session):
 
     @staticmethod
     def _read_capped(response: http_requests.Response, max_bytes: int) -> bytes:
-        """Read the response body up to *max_bytes*, raising if the cap is hit.
+        """Read the body up to *max_bytes*, raising _PlexBodyTooLarge if the cap is hit.
 
-        Mirrors ``services.infra.http.streaming._read_capped`` but kept
-        private to this module so the Plex session has no compile-time
-        dependency on SafeHTTPClient internals and preserves the
-        ``_PlexBodyTooLarge`` contract that :meth:`request` catches.
-        Carries the same two hardenings as the shared reader: a
-        ``Content-Encoding != identity`` rejection (decompression-bomb
-        guard) and a size check that runs *before* the buffer grows.
+        Mirrors the shared streaming reader but stays private so the Plex session does
+        not depend on SafeHTTPClient internals. Rejects Content-Encoding other than
+        identity (decompression bombs) and checks size before the buffer grows.
         """
         # Reject any non-identity Content-Encoding outright. urllib3/requests
         # inflates the body before we ever see it, so a 1 KB gzip bomb that
         # expands 1000:1 would slip past the compressed Content-Length
         # fast-fail and force gigabytes of allocation before the byte cap
-        # fires (R6-H1). ``Accept-Encoding: identity`` is set in __init__ so
+        # fires. ``Accept-Encoding: identity`` is set in __init__ so
         # a compliant Plex never returns one; this is defence in depth.
         encoding = (response.headers.get("Content-Encoding", "") or "").strip().lower()
         if encoding and encoding != "identity":
@@ -236,7 +225,7 @@ class _SafePlexSession(http_requests.Session):
                 continue
             # Check *before* extending so the buffer never exceeds the cap,
             # even momentarily — the previous extend-then-check left a peak
-            # of ``max_bytes + chunk_size`` (R6-M1, soft-cap overage).
+            # of ``max_bytes + chunk_size``.
             if len(buf) + len(chunk) > max_bytes:
                 raise _PlexBodyTooLarge(f"Plex response body exceeded cap of {max_bytes} bytes")
             buf.extend(chunk)
@@ -244,4 +233,4 @@ class _SafePlexSession(http_requests.Session):
 
 
 class _PlexBodyTooLarge(Exception):
-    """Internal signal that a Plex response breached the body cap."""
+    pass

@@ -1,6 +1,3 @@
-/* =============================================================
-   17. RECENTLY-DELETED LIST (dashboard) — .ditem
-   ============================================================= */
 .dlist { display: flex; flex-direction: column; gap: 2px; }
 
 .ditem {
@@ -19,13 +16,10 @@
   height: 66px;
   border-radius: var(--r-xs);
   overflow: hidden;
-  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
+  background: var(--s3);
 }
 .ditem-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
-/* =============================================================
-   25. KEEP PUBLIC LANDING PAGE
-   ============================================================= */
 .keep-page {
   min-height: 100vh;
   background: var(--bg);
@@ -33,7 +27,7 @@
   overflow: hidden;
 }
 .keep-page::before {
-  content: none; /* D34: DESIGN.md §7 forbids gradients on UI chrome; decorative radial-gradient removed */
+  content: none;
 }
 .keep-nav {
   position: relative;
@@ -80,7 +74,7 @@
   margin: 0 auto 18px;
   border-radius: var(--r-md);
   overflow: hidden;
-  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
+  background: var(--s3);
   aspect-ratio: 2/3;
   box-shadow: var(--shadow-card);
 }

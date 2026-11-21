@@ -1,7 +1,7 @@
 """APScheduler setup for periodic scanning and library sync.
 
-Imports of :mod:`apscheduler`, :mod:`mediaman.db`, and the service
-modules are deferred to :func:`start_scheduler` so that importing
+Imports of apscheduler, mediaman.db, and the service
+modules are deferred to start_scheduler so that importing
 this module does not drag in heavy dependencies or trigger DB access
 at import time — unconditional top-level imports of heavy dependencies are deferred to call time.
 """
@@ -50,7 +50,6 @@ _DEFAULT_MISFIRE_GRACE_SECONDS = 3600
 
 
 def _track_connection(conn: sqlite3.Connection) -> sqlite3.Connection:
-    """Register *conn* for explicit close on scheduler shutdown."""
     with _scheduler_connections_lock:
         _scheduler_connections.append(conn)
     return conn
@@ -66,7 +65,7 @@ def _open_db_for_job() -> sqlite3.Connection:
 def _close_tracked_connections() -> None:
     """Close every connection registered by background jobs.
 
-    Called from :func:`stop_scheduler`. Safe to call concurrently with
+    Called from stop_scheduler. Safe to call concurrently with
     in-flight jobs because APScheduler waits for each job to settle
     before signalling completion (we pass ``wait=False`` for fast
     shutdown but the worker threads still drain their current tick).
@@ -97,7 +96,7 @@ def _register_scan_jobs(
 ) -> None:
     """Register the weekly scan and the optional library-sync job.
 
-    Called by :func:`start_scheduler` *while ``_scheduler_lock`` is still
+    Called by start_scheduler *while ``_scheduler_lock`` is still
     held* — extracting it does not release the lock, so the
     all-jobs-or-no-jobs registration window is preserved.
     """
@@ -137,7 +136,7 @@ def _register_maintenance_jobs(
 ) -> None:
     """Register the fixed-cadence background maintenance jobs.
 
-    Called by :func:`start_scheduler` *while ``_scheduler_lock`` is still
+    Called by start_scheduler *while ``_scheduler_lock`` is still
     held* — extracting it does not release the lock, so the
     all-jobs-or-no-jobs registration window is preserved.
     """
@@ -203,17 +202,17 @@ def start_scheduler(
         sync_fn: Optional zero-argument callable for library sync.
         sync_interval_minutes: Minutes between library syncs (default ``30``).
         secret_key: Application secret used to decrypt stored Radarr/Sonarr
-            API keys; forwarded to :func:`trigger_pending_searches`.
+            API keys; forwarded to trigger_pending_searches.
 
     Returns:
-        The running :class:`BackgroundScheduler` instance.
+        The running BackgroundScheduler instance.
 
     Notes:
         Every job is registered with ``misfire_grace_time``. Without it
         APScheduler silently *drops* fires that are more than a few
         seconds late — combined with ``coalesce=True`` a long restart
         would erase an entire missed weekly scan. The
-        :data:`_DEFAULT_MISFIRE_GRACE_SECONDS` window means routine
+        _DEFAULT_MISFIRE_GRACE_SECONDS window means routine
         restarts (deploys, host reboots) still get their fire after the
         process comes back, but a multi-hour outage is treated as
         "skip this tick" rather than letting catch-up work pile up.
@@ -245,7 +244,6 @@ def start_scheduler(
 
 
 def stop_scheduler() -> None:
-    """Shut down the running scheduler and close any tracked DB connections."""
     global _scheduler
     with _scheduler_lock:
         scheduler_to_stop = _scheduler
@@ -255,6 +253,5 @@ def stop_scheduler() -> None:
             scheduler_to_stop.shutdown(wait=False)
         finally:
             # Close DB connections opened by job lambdas regardless of
-            # whether shutdown raised — leaking the connections is the
-            # finding we're fixing.
+            # whether shutdown raised, so the connections are never leaked.
             _close_tracked_connections()

@@ -12,10 +12,6 @@ import requests
 
 from mediaman.scanner.arr_dates import ArrDateCache, normalise_path
 
-# ---------------------------------------------------------------------------
-# normalise_path
-# ---------------------------------------------------------------------------
-
 
 class TestNormalisePath:
     def test_strips_data_prefix(self):
@@ -39,11 +35,6 @@ class TestNormalisePath:
 
     def test_empty_string(self):
         assert normalise_path("") == ""
-
-
-# ---------------------------------------------------------------------------
-# ArrDateCache
-# ---------------------------------------------------------------------------
 
 
 class TestArrDateCacheLazyLoad:
@@ -164,7 +155,7 @@ class TestArrDateCacheSonarr:
         assert cache._dates == {}
 
     def test_sonarr_compares_z_and_offset_forms_correctly(self):
-        """Domain 05: comparing ISO strings as plain strings was wrong.
+        """Comparing ISO strings as plain strings was wrong.
 
         ``"2024-06-01T00:00:00Z"`` (UTC) and
         ``"2024-06-01T00:00:00+00:00"`` (offset form) describe the same

@@ -1,7 +1,7 @@
 """TMDB + OMDb enrichment for recommendation dicts.
 
 Takes a list of partially-populated recommendation dicts (from
-:mod:`.prompts`) and fills in ``year``, ``description``, ``rating``,
+prompts) and fills in ``year``, ``description``, ``rating``,
 ``poster_url``, and assorted detail fields by calling TMDB and OMDb.
 """
 
@@ -22,24 +22,13 @@ def enrich_recommendations(
     conn: sqlite3.Connection,
     secret_key: str,
 ) -> None:
-    """Enrich recommendations in place with TMDB data + OMDB ratings.
+    """Enrich recommendations in place with TMDB data and OMDb ratings, sharing one
+    TmdbClient. *secret_key* decrypts the stored API credentials.
 
-    Replaces the previous three-pass pipeline
-    (``_fetch_tmdb_data`` → ``_fetch_tmdb_details`` → ``_fetch_omdb_ratings``)
-    with a single loop that reuses the shared :class:`TmdbClient` and the
-    canonical :func:`services.omdb.fetch_ratings` helper.
-
-    ``secret_key`` is required for decrypting API credentials stored in the DB.
-
-    Preserved quirks from the old implementation:
-
-    * Description is truncated to 250 characters (suggestions table
-      keeps rows compact).
-    * When TMDB finds a release year we refresh ``trailer_url`` with
-      ``"<title> <year> official trailer"`` so the YouTube search link
-      matches the canonical year.
-    * If TMDB yielded no ``rating`` but OMDb has an IMDb score, we fall
-      back to that score (rounded to 1dp) as the card rating.
+    Quirks kept from earlier versions: the description is truncated to 250 characters;
+    when TMDB finds a year, trailer_url is refreshed to "<title> <year> official
+    trailer"; if TMDB has no rating but OMDb has an IMDb score, that score (1dp) is
+    used.
     """
     from mediaman.services.media_meta.omdb import fetch_ratings
     from mediaman.services.media_meta.tmdb import TmdbClient

@@ -32,14 +32,12 @@ def _valid_token(
 class TestDownloadPageGet:
     @pytest.fixture(autouse=True)
     def _clear_state(self):
-        """Clear in-memory state between tests."""
         _download_tokens._USED_TOKENS.clear()
         _download_confirm._DOWNLOAD_LIMITER_GET.reset()
         _download_submit._DOWNLOAD_LIMITER_POST.reset()
         _download_confirm._reset_arr_cache_for_tests()
 
     def test_valid_token_renders_confirm_state(self, app_factory, conn, secret_key, templates_stub):
-        """GET with a valid token returns state=confirm with item details."""
         app = app_factory(download_router, conn=conn, state_extras={"templates": templates_stub})
         client = TestClient(app)
 
@@ -60,7 +58,6 @@ class TestDownloadPageGet:
         assert ctx["item"]["title"] == "Dune"
 
     def test_invalid_token_renders_expired_state(self, app_factory, conn, templates_stub):
-        """GET with an invalid/tampered token returns state=expired."""
         app = app_factory(download_router, conn=conn, state_extras={"templates": templates_stub})
         client = TestClient(app)
 
@@ -137,7 +134,6 @@ class TestDownloadPageGet:
 class TestDownloadPagePost:
     @pytest.fixture(autouse=True)
     def _clear_state(self):
-        """Clear in-memory state between tests."""
         _download_tokens._USED_TOKENS.clear()
         _download_confirm._DOWNLOAD_LIMITER_GET.reset()
         _download_submit._DOWNLOAD_LIMITER_POST.reset()
@@ -146,7 +142,6 @@ class TestDownloadPagePost:
     def test_post_valid_movie_token_calls_radarr(
         self, app_factory, conn, secret_key, templates_stub
     ):
-        """POST with a valid movie token triggers Radarr add_movie."""
         app = app_factory(download_router, conn=conn, state_extras={"templates": templates_stub})
         client = TestClient(app)
 
@@ -167,7 +162,6 @@ class TestDownloadPagePost:
         mock_radarr.add_movie.assert_called_once_with(42, "Dune")
 
     def test_post_valid_tv_token_calls_sonarr(self, app_factory, conn, secret_key, templates_stub):
-        """POST with a valid TV token triggers Sonarr add_series."""
         app = app_factory(download_router, conn=conn, state_extras={"templates": templates_stub})
         client = TestClient(app)
 
@@ -191,7 +185,6 @@ class TestDownloadPagePost:
     def test_post_with_already_used_token_returns_409(
         self, app_factory, conn, secret_key, templates_stub
     ):
-        """POST with a token that's already been used returns HTTP 409."""
         app = app_factory(download_router, conn=conn, state_extras={"templates": templates_stub})
         client = TestClient(app)
 
@@ -215,7 +208,6 @@ class TestDownloadPagePost:
         assert resp2.json()["ok"] is False
 
     def test_post_invalid_token_returns_410(self, app_factory, conn, templates_stub):
-        """POST with an invalid token returns HTTP 410."""
         app = app_factory(download_router, conn=conn, state_extras={"templates": templates_stub})
         client = TestClient(app)
 
@@ -275,7 +267,7 @@ class TestDownloadPagePost:
 
 
 class TestTwoPhaseConsumption:
-    """C14 — token must be released back on transient Radarr/Sonarr errors."""
+    """Token must be released back on transient Radarr/Sonarr errors."""
 
     @pytest.fixture(autouse=True)
     def _clear_state(self):
@@ -287,7 +279,6 @@ class TestTwoPhaseConsumption:
     def test_token_released_on_radarr_exception(
         self, app_factory, conn, secret_key, templates_stub
     ):
-        """A transient exception from Radarr must not permanently burn the token."""
         import requests
 
         app = app_factory(download_router, conn=conn, state_extras={"templates": templates_stub})
@@ -324,7 +315,6 @@ class TestTwoPhaseConsumption:
     def test_token_released_on_sonarr_exception(
         self, app_factory, conn, secret_key, templates_stub
     ):
-        """A transient exception from Sonarr must not permanently burn the token."""
         import requests
 
         app = app_factory(download_router, conn=conn, state_extras={"templates": templates_stub})
@@ -436,7 +426,7 @@ class TestTwoPhaseConsumption:
 
 
 class TestPollingCapability:
-    """C24 — POST /download/{token} issues a poll_token; status endpoint requires it."""
+    """POST /download/{token} issues a poll_token; status endpoint requires it."""
 
     @pytest.fixture(autouse=True)
     def _clear_state(self):
@@ -448,7 +438,6 @@ class TestPollingCapability:
     def test_successful_post_returns_poll_token(
         self, app_factory, conn, secret_key, templates_stub
     ):
-        """A successful POST /download/{token} for a movie includes a poll_token."""
         app = app_factory(download_router, conn=conn, state_extras={"templates": templates_stub})
         client = TestClient(app)
 
@@ -571,7 +560,7 @@ class TestPollingCapability:
 
 
 class TestYoutubeTrailerKeyValidation:
-    """H72 — trailer_key must pass the YouTube ID regex before reaching the template."""
+    """Trailer_key must pass the YouTube ID regex before reaching the template."""
 
     def test_valid_youtube_id_passes_through(self):
         """A well-formed 11-char YouTube ID is returned unchanged."""
@@ -604,13 +593,11 @@ class TestYoutubeTrailerKeyValidation:
         assert validate_youtube_id("<script>abc") is None
 
     def test_none_input_returns_none(self):
-        """None input returns None without raising."""
         from mediaman.web.routes.download.confirm import validate_youtube_id
 
         assert validate_youtube_id(None) is None
 
     def test_empty_string_returns_none(self):
-        """Empty string returns None."""
         from mediaman.web.routes.download.confirm import validate_youtube_id
 
         assert validate_youtube_id("") is None

@@ -1,11 +1,11 @@
 """Reauth-gate, password-change throttling, and admin-unlock tests for
-:mod:`mediaman.web.routes.users`.
+`mediaman.web.routes.users`.
 
-Covers the high-impact paths added in M6, M8, M21:
-- POST /api/users without recent reauth must be rejected (M6).
-- POST /api/auth/reauth establishes a recent-reauth ticket (M6).
-- Password-change attempts feed the reauth-namespace lockout (M8).
-- POST /api/users/{id}/unlock requires reauth and clears the lock (M21).
+Covers the high-impact paths:
+- POST /api/users without recent reauth must be rejected.
+- POST /api/auth/reauth establishes a recent-reauth ticket.
+- Password-change attempts feed the reauth-namespace lockout.
+- POST /api/users/{id}/unlock requires reauth and clears the lock.
 - Audit-in-transaction: a failing audit insert rolls back the mutation.
 """
 
@@ -61,11 +61,6 @@ def _clear_rate_limiters():
         lim.reset()
 
 
-# ---------------------------------------------------------------------------
-# POST /api/users requires a recent re-authentication ticket
-# ---------------------------------------------------------------------------
-
-
 class TestCreateUserRequiresReauth:
     def test_create_user_without_reauth_returns_403(self, app_factory, authed_client, conn):
         """A valid session alone must NOT be enough to mint a new admin."""
@@ -93,11 +88,6 @@ class TestCreateUserRequiresReauth:
         assert resp.json()["ok"] is True
 
 
-# ---------------------------------------------------------------------------
-# POST /api/auth/reauth — establishes the ticket; throttles failures.
-# ---------------------------------------------------------------------------
-
-
 class TestReauthEndpoint:
     def test_reauth_correct_password_grants_ticket(self, app_factory, authed_client, conn):
         client, token = _build(app_factory, authed_client, conn)
@@ -118,7 +108,7 @@ class TestReauthEndpoint:
         assert has_recent_reauth(conn, token, "admin") is False
 
     def test_five_wrong_reauth_attempts_lock_namespace(self, app_factory, authed_client, conn):
-        """M8: the reauth endpoint must throttle wrong-password attempts.
+        """The reauth endpoint must throttle wrong-password attempts.
 
         After five failures, the reauth namespace is locked and even the
         correct password is refused for the lock duration.
@@ -168,11 +158,6 @@ class TestReauthEndpoint:
 
         resp = client.post("/api/auth/reauth", json={"password": "password1234"})
         assert resp.status_code == 429
-
-
-# ---------------------------------------------------------------------------
-# change_password attempts are tracked in the reauth-namespace lockout counter
-# ---------------------------------------------------------------------------
 
 
 class TestChangePasswordThrottling:
@@ -229,11 +214,6 @@ class TestChangePasswordThrottling:
             "SELECT failure_count FROM login_failures WHERE username = 'admin'"
         ).fetchone()
         assert plain is None
-
-
-# ---------------------------------------------------------------------------
-# POST /api/users/{id}/unlock requires a recent re-authentication ticket
-# ---------------------------------------------------------------------------
 
 
 class TestAdminUnlockEndpoint:
@@ -302,11 +282,6 @@ class TestAdminUnlockEndpoint:
         assert len(rows) == 1
         assert "actor=admin" in rows[0]["detail"]
         assert "other" in rows[0]["detail"]
-
-
-# ---------------------------------------------------------------------------
-# Audit fail-closed for admin creation
-# ---------------------------------------------------------------------------
 
 
 class TestCreateUserAuditInTransaction:

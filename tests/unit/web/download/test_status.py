@@ -1,4 +1,4 @@
-"""Tests for :mod:`mediaman.web.routes.download.status`.
+"""Tests for mediaman.web.routes.download.status.
 
 Covers GET /api/download/status:
   - unauthenticated (no token, no admin) → 401
@@ -40,8 +40,6 @@ def _download_token(secret_key: str, media_type: str = "movie", tmdb_id: int = 4
 
 
 class TestFormatTimeleft:
-    """Unit tests for the _format_timeleft helper."""
-
     def test_empty_string_returns_empty(self):
         assert _format_timeleft("") == ""
 
@@ -91,7 +89,7 @@ class TestDownloadStatusAuth:
         assert resp.status_code == 401
 
     def test_download_token_no_longer_accepted(self, app_factory, conn, secret_key):
-        """Finding 14: download tokens are no longer accepted for status polling;
+        """Download tokens are no longer accepted for status polling;
         only poll_token (short-lived) is valid for unauthenticated callers."""
         app = app_factory(status_router, conn=conn)
         client = TestClient(app, raise_server_exceptions=True)
@@ -166,10 +164,9 @@ class TestDownloadStatusAuth:
     def test_unknown_service_returns_422(self, app_factory, authed_client, conn):
         """An unrecognised service name is rejected at the type layer.
 
-        Wave 5-4 tightened the route signature to ``service: Literal["radarr",
-        "sonarr"]``, so FastAPI's request-validation now returns 422 for any
-        other value rather than reaching the handler and falling through to
-        an 'unknown' state.
+        The route signature is ``service: Literal["radarr", "sonarr"]``, so
+        FastAPI's request validation returns 422 for any other value rather
+        than reaching the handler and falling through to an 'unknown' state.
         """
         app = app_factory(status_router, conn=conn)
         client = authed_client(app, conn)
@@ -218,10 +215,6 @@ class TestDownloadStatusRadarr:
         assert resp.json()["state"] == "unknown"
 
 
-# ---------------------------------------------------------------------------
-# Status polling endpoints require a poll_token, not the original download token
-# ---------------------------------------------------------------------------
-
 _STATUS_SECRET = "a" * 64
 
 
@@ -245,16 +238,15 @@ def _make_status_app_finding14(conn) -> TestClient:
 
 
 class TestFinding14PollTokenRequired:
-    """Finding 14: unauthenticated status polling must use poll_token, not download token."""
+    """Unauthenticated status polling must use poll_token, not download token."""
 
     def test_no_token_returns_401(self, conn):
-        """Calling /api/download/status without any token must return 401."""
         client = _make_status_app_finding14(conn)
         resp = client.get("/api/download/status", params={"service": "radarr", "tmdb_id": 42})
         assert resp.status_code == 401
 
     def test_download_token_no_longer_accepted(self, conn):
-        """The long-lived download token must not be accepted for polling (finding 14)."""
+        """The long-lived download token must not be accepted for polling."""
         download_token = generate_download_token(
             email="test@example.com",
             action="download",

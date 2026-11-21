@@ -23,7 +23,7 @@
   window.MM = window.MM || {};
   MM.recommended = MM.recommended || {};
 
-  /* H66: parse from application/json script tag — textContent is safe because the
+  /* Parse from application/json script tag — textContent is safe because the
      browser never interprets the content as script. The assert below catches any
      server-side regression where un-escaped </script would appear in the payload. */
   var _recDataEl = document.getElementById('rec-data');
@@ -90,7 +90,7 @@
         // Re-wire the button after the failure flash. Remove then re-add the
         // listener to avoid stacking multiple handlers if the request fails
         // repeatedly. Using a named handler reference also prevents the
-        // stale-closure issue from the previous .onclick = ... pattern.
+        // stale-closure issue that assigning .onclick would cause.
         setTimeout(function () {
           btn.textContent = 'Download';
           btn.className = 'btn-download';
@@ -105,10 +105,10 @@
       });
   }
 
-  /* ── Detail modal — MM.modal.setupDetail owns display/aria/body-overflow +
+  /* MM.modal.setupDetail owns display/aria/body-overflow +
      ModalA11y registration.  onOpen receives the rec id as payload; onClose
      tears down the trailer iframe, stops the status poller, and resets the
-     URL hash. ── */
+     URL hash. */
   var _detailModal = (function () {
     var dm = document.getElementById('detail-modal');
     if (!dm) return null;
@@ -154,7 +154,7 @@
     heroEl.appendChild(gradient);
     var heroInfo = document.createElement('div');
     heroInfo.className = 'detail-modal-hero-info';
-    // Finding 11 (a11y): the visible title is the modal's h2; #detail-modal-title
+    // a11y: the visible title is the modal's h2; #detail-modal-title
     // matches aria-labelledby on the dialog wrapper so AT announces the real title.
     var heroTitle = document.createElement('h2');
     heroTitle.id = 'detail-modal-title';
@@ -225,8 +225,8 @@
     _clear(trailerEl);
     _clear(trailerFallback);
 
-    /* Finding 19: enforce exactly-11-char pattern before building iframe.
-       Finding 18: only emit fallback link if URL is a YouTube HTTPS URL. */
+    /* Enforce exactly-11-char pattern before building iframe.
+       Only emit fallback link if URL is a YouTube HTTPS URL. */
     if (s.trailer_key && /^[A-Za-z0-9_-]{11}$/.test(s.trailer_key)) {
       var iframe = document.createElement('iframe');
       iframe.src = 'https://www.youtube.com/embed/' + s.trailer_key + '?rel=0';
@@ -355,8 +355,7 @@
     actionsEl.appendChild(shareBtn);
   }
 
-  /* ── Event delegation for tile cards and download buttons ──
-     Replaces inline onclick attributes on .tile and [data-download-rec]. */
+  /* Replaces inline onclick attributes on .tile and [data-download-rec]. */
   document.addEventListener('click', function (e) {
     /* Stop propagation for elements marked with data-stop-propagation */
     var stopEl = e.target.closest('[data-stop-propagation]');

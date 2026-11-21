@@ -3,7 +3,7 @@
 Belt-and-braces on top of ``SameSite=Strict`` session cookies — covers
 legacy browsers, in-app webviews, and anything that might ship cookies
 without honouring the SameSite attribute. See
-:class:`CSRFOriginMiddleware` for the full rationale.
+`CSRFOriginMiddleware` for the full rationale.
 """
 
 from __future__ import annotations
@@ -57,7 +57,6 @@ _CSRF_EXEMPT_ROUTES: tuple[tuple[str, re.Pattern[str]], ...] = (
 
 
 def _csrf_route_is_exempt(method: str, path: str) -> bool:
-    """Return True iff (*method*, *path*) is in the explicit exempt list."""
     for exempt_method, pattern in _CSRF_EXEMPT_ROUTES:
         if exempt_method == method and pattern.match(path):
             return True
@@ -139,7 +138,7 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
     rewrite the scheme is itself a footgun (it requires
     ``MEDIAMAN_TRUSTED_PROXIES`` to be configured first).
 
-    Scheme tightening (H5): when a session cookie is present AND the
+    Scheme tightening: when a session cookie is present AND the
     request *itself* already resolves as ``https`` (direct TLS, or a
     correctly-configured proxy that rewrote the scheme), the Origin/Referer
     scheme must ALSO be ``https``. This closes the same-host
@@ -148,25 +147,18 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
     proxy case: when the request resolves as ``http`` the check stays
     host-only, so a misconfigured-proxy deployment is never broken.
 
-    Host resolution failure (H4): if the request's own host cannot be
+    Host resolution failure: if the request's own host cannot be
     resolved (empty ``netloc``) the request is treated as un-comparable
     and any cookie-authenticated state-changing request is rejected —
     two empty strings must never compare equal as a "match".
 
     The check is intentionally narrow: only POST/PUT/PATCH/DELETE
     from non-same-origin origins are refused, and only for routes
-    that aren't in :data:`_CSRF_EXEMPT_ROUTES` (where the token, not
+    that aren't in `_CSRF_EXEMPT_ROUTES` (where the token, not
     the cookie, is the authorisation).
     """
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        """Enforce same-origin CSRF policy on state-changing requests.
-
-        Passes the request through unchanged for safe methods (GET, HEAD,
-        OPTIONS) and for CSRF-exempt routes. For all other requests it
-        compares the ``Origin`` or ``Referer`` header host against the
-        request host and rejects mismatches with a 403 response.
-        """
         if request.method not in _CSRF_PROTECTED_METHODS:
             return await call_next(request)
 
@@ -185,7 +177,7 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
             request.url.netloc or "", default_scheme=request_scheme
         )
 
-        # H4 — fail closed when the request host cannot be resolved. Some
+        # Fail closed when the request host cannot be resolved. Some
         # ASGI scopes / test clients / proxied requests leave
         # ``request.url.netloc`` empty, so ``expected_host == ""``. A
         # malformed Origin/Referer also normalises to ``""``. Letting two
@@ -225,7 +217,7 @@ class CSRFOriginMiddleware(BaseHTTPMiddleware):
                 # closed (the request will be rejected as a mismatch).
                 return ("", "")
 
-        # H5 — when a session cookie is present AND the request itself
+        # When a session cookie is present AND the request itself
         # resolves as HTTPS, additionally require the Origin/Referer scheme
         # to be HTTPS. This closes the same-host scheme-downgrade hole (an
         # attacker on ``http://victim-host`` against a SameSite-ignoring

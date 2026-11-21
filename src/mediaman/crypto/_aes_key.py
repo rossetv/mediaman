@@ -29,15 +29,11 @@ class CryptoInputError(CryptoError):
 
     Covers structural problems that are detectable before attempting
     decryption — e.g. an empty ciphertext or one that exceeds the
-    maximum length.  Distinct from :class:`CryptoError` so callers that
+    maximum length.  Distinct from CryptoError so callers that
     want to distinguish a malformed-input condition from a key-management
     failure can do so without catching the broad base class.
     """
 
-
-# ---------------------------------------------------------------------------
-# AES / GCM / HKDF constants
-# ---------------------------------------------------------------------------
 
 _HKDF_INFO = b"mediaman-aes-v2"
 _V2_PREFIX = b"\x02"
@@ -57,7 +53,7 @@ _GCM_NONCE_BYTES = 12
 _GCM_TAG_BYTES = 16
 
 # Minimum unique-character thresholds for the two accepted secret-key
-# shapes (see :func:`_is_secret_key_strong`).  Calibrated against
+# shapes (see _is_secret_key_strong).  Calibrated against
 # 100k samples of secrets.token_hex(32) / token_urlsafe(32) — both
 # bars sit well below the natural minimum a true CSPRNG produces, so
 # legitimate keys are accepted while structured low-entropy strings
@@ -66,25 +62,20 @@ _MIN_HEX_UNIQUE = 10
 _MIN_URLSAFE_UNIQUE = 18
 
 
-# ---------------------------------------------------------------------------
-# Key-strength heuristic
-# ---------------------------------------------------------------------------
-
-
 def _is_secret_key_strong(secret: str) -> bool:
     """Return True if *secret* meets the minimum-entropy bar for ``MEDIAMAN_SECRET_KEY``.
 
     The check accepts exactly two shapes:
 
     * **Hex** — 64+ characters from ``[0-9a-fA-F]``, with at least
-      :data:`_MIN_HEX_UNIQUE` distinct characters. 64 hex chars carries
+      _MIN_HEX_UNIQUE distinct characters. 64 hex chars carries
       256 bits when truly random; the unique-char floor blocks structured
       low-entropy strings such as ``"deadbeef" * 8`` (8 unique).
     * **URL-safe base64** — 43+ characters from ``[A-Za-z0-9_-]`` that
       decode cleanly to 32+ bytes (the shape of
-      :func:`secrets.token_urlsafe(32)`), with at least
-      :data:`_MIN_URLSAFE_UNIQUE` distinct characters. The unique-char
-      floor blocks the audit's ``"abcdefghij" * 4 + "abc"`` example
+      secrets.token_urlsafe(32)), with at least
+      _MIN_URLSAFE_UNIQUE distinct characters. The unique-char
+      floor blocks the ``"abcdefghij" * 4 + "abc"`` example
       (10 unique) which would otherwise satisfy the structural rule.
 
     Anything else — too short, mixed alphabets, structured repeats —
@@ -107,13 +98,7 @@ def _is_secret_key_strong(secret: str) -> bool:
     return False
 
 
-# ---------------------------------------------------------------------------
-# HKDF key derivation
-# ---------------------------------------------------------------------------
-
-
 def _derive_aes_key_hkdf(secret_key: str, salt: bytes) -> bytes:
-    """Derive a 256-bit AES key via HKDF-SHA256(secret, salt, info)."""
     hkdf = HKDF(
         algorithm=hashes.SHA256(),
         length=32,
@@ -123,11 +108,7 @@ def _derive_aes_key_hkdf(secret_key: str, salt: bytes) -> bytes:
     return hkdf.derive(secret_key.encode())
 
 
-# ---------------------------------------------------------------------------
-# Salt cache — single entry
-# ---------------------------------------------------------------------------
-
-# mediaman is a single-process design (CODE_GUIDELINES §1.12), so the salt
+# mediaman is a single-process design, so the salt
 # cache only ever needs to remember one DB path. Storing a single
 # ``(path, salt)`` tuple under a lock is enough to skip the second DB read
 # on the hot path; if a different path is queried the previous entry is
@@ -137,27 +118,19 @@ _salt_cache_lock = threading.Lock()
 
 
 def _salt_cache_get(cache_key: str) -> bytes | None:
-    """Return the cached salt for *cache_key* if it matches the single entry."""
     with _salt_cache_lock:
         return _salt_cache.get(cache_key)
 
 
 def _salt_cache_put(cache_key: str, salt: bytes) -> None:
-    """Store *salt* under *cache_key*, replacing any previous single entry."""
     with _salt_cache_lock:
         _salt_cache.clear()
         _salt_cache[cache_key] = salt
 
 
 def _salt_cache_pop(cache_key: str) -> None:
-    """Drop the cached salt for *cache_key* if present."""
     with _salt_cache_lock:
         _salt_cache.pop(cache_key, None)
-
-
-# ---------------------------------------------------------------------------
-# DB path helper
-# ---------------------------------------------------------------------------
 
 
 def _get_db_path(conn: sqlite3.Connection) -> str:
@@ -169,11 +142,6 @@ def _get_db_path(conn: sqlite3.Connection) -> str:
     # in-memory DBs — desirable, since tests use ``:memory:`` and want a
     # fresh salt per connection rather than a stale cross-test entry.
     return row[2] if row else ""
-
-
-# ---------------------------------------------------------------------------
-# Salt persistence
-# ---------------------------------------------------------------------------
 
 
 def _load_or_create_salt(conn: sqlite3.Connection) -> bytes:
@@ -231,7 +199,7 @@ def _load_or_create_salt(conn: sqlite3.Connection) -> bytes:
     if row is None or not row["value"]:
         # The INSERT was ignored AND no row is present — the row vanished
         # between commit and re-read (concurrent delete or an unexpected
-        # trigger). Fail loud rather than dereferencing ``None`` (§1.11).
+        # trigger). Fail loud rather than dereferencing ``None``.
         raise CryptoError("HKDF salt vanished after first-run insert")
     decoded = base64.b64decode(row["value"])
     if len(decoded) != 16:

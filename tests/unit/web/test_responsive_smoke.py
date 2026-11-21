@@ -143,7 +143,6 @@ def test_three_surface_nav_present():
 
 
 def test_bottom_tab_bar_uses_safe_area():
-    """The fixed bottom tab bar must respect the iOS / Android safe area."""
     css = _css()
     idx = css.find(".nav-tabs {")
     assert idx >= 0

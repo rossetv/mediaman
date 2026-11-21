@@ -4,7 +4,7 @@ Owns the second step of startup. After the DB is open, validate the
 ``MEDIAMAN_SECRET_KEY`` against the persisted canary so a key mismatch
 refuses to spawn background jobs that would silently fail. The canary
 verdict is stashed on ``app.state.canary_ok``; downstream
-:func:`mediaman.bootstrap.scan_jobs.bootstrap_scheduling` reads the flag
+mediaman.bootstrap.scan_jobs.bootstrap_scheduling reads the flag
 and refuses to start the scheduler when it is false.
 
 The web UI remains accessible regardless, so an admin can still log in
@@ -30,11 +30,11 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
 
     Does NOT refuse to start on a mismatch — the admin must still be
     able to log in to re-enter secrets. The downstream
-    :func:`bootstrap_scheduling` reads the flag and refuses to start the
+    bootstrap_scheduling reads the flag and refuses to start the
     scheduler when the canary failed.
 
     The canary state is initialised to ``False`` and only flipped to
-    ``True`` after :func:`is_canary_valid` returns a positive result. A
+    ``True`` after is_canary_valid returns a positive result. A
     crypto or DB failure leaves the flag at its fail-closed default.
     ``ImportError`` / ``ModuleNotFoundError`` are intentionally NOT caught
     here — a missing module is a deployment bug that must crash bootstrap
@@ -69,7 +69,7 @@ def bootstrap_crypto(app: FastAPI, config: Config) -> None:
                 logger.exception("aes.canary_failed audit write failed reason=%s", reason)
 
         canary_ok = bool(is_canary_valid(db, config.secret_key, on_failure=_on_canary_failure))
-    # §6.4 site 4 (cold-start): surface crypto/DB failures as canary_ok=False
+    # cold-start: surface crypto/DB failures as canary_ok=False
     # so the operator UI can signal the mismatch without crashing the web server.
     # ImportError / ModuleNotFoundError are deliberately re-raised — a missing
     # module is a deployment bug that must surface immediately (c089474).

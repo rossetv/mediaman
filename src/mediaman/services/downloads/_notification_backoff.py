@@ -1,21 +1,10 @@
-"""In-process backoff helpers for transient *arr outages and in-progress polls.
+"""In-process backoff for transient *arr outages and in-progress polls.
 
-Two distinct failure modes are tracked separately:
-
-1. **Arr-failure backoff** (``_record_arr_failure`` / ``_is_backed_off``):
-   exponential backoff applied when Radarr/Sonarr is genuinely unreachable
-   (network error, 5xx, ArrError).  Caps at 30 minutes so a sticky outage
-   doesn't burn N claim/release cycles per minute.
-
-2. **In-progress poll throttle** (``_record_poll_attempt``):
-   short fixed-interval throttle (60 seconds) applied when an item is still
-   downloading but the *arr service is reachable.  Uses the same in-memory
-   ``next_retry_at`` table so the main ``_is_backed_off`` gate covers both,
-   but the delay does NOT accumulate exponentially — a download that takes
-   4 hours is re-evaluated every ~60 s, not at the 30-minute cap.
-
-Keeping these separate prevents a movie that takes hours to download from
-accruing exponential delay just because it wasn't ready yet (B1).
+Two failure modes are tracked separately. Arr failures (unreachable, 5xx, ArrError) back
+off exponentially, capped at 30 minutes. Items still downloading get a fixed ~60 s
+re-check that does not accumulate, so a download taking hours is not delayed as if the
+arr service were down. Both use the same in-memory next_retry_at table read by
+_is_backed_off.
 """
 
 from __future__ import annotations
@@ -43,7 +32,6 @@ _backoff_state_lock = threading.Lock()
 
 
 def _is_backed_off(row_id: int, now: datetime) -> bool:
-    """Return True if *row_id* should be skipped this tick due to backoff or throttle."""
     with _backoff_state_lock:
         record = _backoff_state.get(row_id)
     if record is None:
@@ -53,11 +41,8 @@ def _is_backed_off(row_id: int, now: datetime) -> bool:
 
 
 def _record_arr_failure(row_id: int, now: datetime) -> None:
-    """Bump the exponential backoff counter for *row_id* on a genuine *arr failure.
-
-    Only call this when Radarr/Sonarr is actually unreachable or returned an
-    error.  Do NOT call for items that are still downloading — use
-    :func:`_record_poll_attempt` instead.
+    """Bump the exponential backoff for *row_id*. Only for genuine arr failures; use
+    _record_poll_attempt for items still downloading.
     """
     with _backoff_state_lock:
         attempts, _next = _backoff_state.get(row_id, (0, now))
@@ -67,12 +52,8 @@ def _record_arr_failure(row_id: int, now: datetime) -> None:
 
 
 def _record_poll_attempt(row_id: int, now: datetime) -> None:
-    """Schedule a short fixed-interval re-evaluation for an in-progress download.
-
-    Sets ``next_retry_at = now + _POLL_INTERVAL_SECONDS`` without incrementing
-    the failure counter, so the exponential backoff schedule is unaffected.
-    A long download gets re-evaluated every ~60 s rather than accruing the
-    same exponential delay as a genuine *arr outage.
+    """Set next_retry_at to now + _POLL_INTERVAL_SECONDS without touching the failure
+    counter.
     """
     with _backoff_state_lock:
         existing = _backoff_state.get(row_id)
@@ -84,6 +65,5 @@ def _record_poll_attempt(row_id: int, now: datetime) -> None:
 
 
 def _clear_backoff(row_id: int) -> None:
-    """Forget the backoff/throttle record for *row_id* once it has cleared."""
     with _backoff_state_lock:
         _backoff_state.pop(row_id, None)

@@ -1,7 +1,4 @@
-"""Download submit endpoint."""
-
-# rationale: 430 lines, over the 300-line target but under the 500 ceiling.
-# Not split further: this is one concept — the POST /download/{token} flow —
+# rationale: not split further. This is one concept — the POST /download/{token} flow —
 # and it is already decomposed into small private helpers (token validation,
 # the two-phase claim, the Arr submit branches, the shared success epilogue,
 # the already-exists handler). The Radarr and Sonarr submit helpers share
@@ -43,11 +40,8 @@ _DOWNLOAD_LIMITER_POST = RateLimiter(max_attempts=10, window_seconds=60)
 
 
 class DownloadPayload(TypedDict):
-    """Validated parameters for a single Radarr/Sonarr download submission.
-
-    Execution context (``conn``) is passed separately as an explicit
-    function parameter rather than stored here — TypedDicts model
-    serialisable data shapes, not runtime execution contexts (§5.3/§5.5).
+    """Validated parameters for one download submission. conn is passed separately: TypedDicts
+    model serialisable data, not execution contexts.
     """
 
     token: str
@@ -72,15 +66,11 @@ def _record_and_respond(
     secret_key: str,
     tvdb_id: int | None = None,
 ) -> JSONResponse:
-    """Audit, notify, commit, mint a poll token, and return the success response.
+    """Audit, notify, commit, mint a poll token and return the success response; the epilogue
+    shared by both submitters.
 
-    Shared epilogue for :func:`_submit_to_radarr` and :func:`_submit_to_sonarr`
-    — the ~25 lines that are identical between the two after the Arr client
-    call succeeds.
-
-    *email* is ``None`` when the token was minted by an admin with no
-    notification email set; the download still completes, but the
-    notification row is skipped rather than stored undeliverable.
+    email is None when an admin minted the token with no notification email; the
+    notification row is then skipped rather than stored undeliverable.
     """
     log_audit(conn, title, audit_action, audit_detail)
     if email:
@@ -114,15 +104,9 @@ def _record_and_respond(
 
 
 def _submit_to_radarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSONResponse:
-    """Add a movie to Radarr and return the poll-token response.
-
-    Returns a JSONResponse directly.  Raises :exc:`SafeHTTPError` on Arr-level
-    failures so the caller's except clause can handle 409/422 uniformly.
-
-    Args:
-        payload: Validated download parameters.
-        conn:    Open SQLite connection; passed explicitly rather than carried
-                 inside the TypedDict so ``DownloadPayload`` stays serialisable (M9).
+    """Add a movie to Radarr and return the poll-token response; raises SafeHTTPError on
+    Arr-level failures for the caller to handle. conn is passed explicitly so
+    DownloadPayload stays serialisable.
     """
     token = payload["token"]
     title = payload["title"]
@@ -171,15 +155,9 @@ def _submit_to_radarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
 
 
 def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSONResponse:
-    """Add a series to Sonarr and return the poll-token response.
-
-    Returns a JSONResponse directly.  Raises :exc:`SafeHTTPError` on Arr-level
-    failures so the caller's except clause can handle 409/422 uniformly.
-
-    Args:
-        payload: Validated download parameters.
-        conn:    Open SQLite connection; passed explicitly rather than carried
-                 inside the TypedDict so ``DownloadPayload`` stays serialisable (M9).
+    """Add a series to Sonarr and return the poll-token response; raises SafeHTTPError on
+    Arr-level failures for the caller to handle. conn is passed explicitly so
+    DownloadPayload stays serialisable.
     """
     token = payload["token"]
     title = payload["title"]
@@ -242,9 +220,8 @@ def _submit_to_sonarr(payload: DownloadPayload, conn: sqlite3.Connection) -> JSO
 def _validate_token_request(
     request: Request, token: str, secret_key: str
 ) -> tuple[DownloadTokenPayload | None, JSONResponse | None]:
-    """Run pre-flight checks: rate limit, token length, HMAC, exp validity.
-
-    Returns (payload, None) on success or (None, error_response) on failure.
+    """Pre-flight checks (rate limit, token length, HMAC, exp). Returns (payload, None) on
+    success or (None, error_response).
     """
     if not _DOWNLOAD_LIMITER_POST.check(get_client_ip(request)):
         return None, JSONResponse({"ok": False, "error": "Too many requests"}, status_code=429)
@@ -269,10 +246,8 @@ def _validate_token_request(
 
 
 def _claim_token(token: str, exp_value: float) -> JSONResponse | None:
-    """Phase 1 reservation: mark the token used in the DB.
-
-    Returns None on success (token claimed), or an error response on
-    DB failure (503) or replay (409).
+    """Mark the token used in the DB (phase 1 reservation). Returns None on success, or an
+    error response for a DB failure (503) or replay (409).
     """
     try:
         claimed = _mark_token_used(token, int(exp_value))
@@ -295,11 +270,8 @@ def _claim_token(token: str, exp_value: float) -> JSONResponse | None:
 def _build_dl_payload(
     token: str, payload: DownloadTokenPayload, secret_key: str
 ) -> tuple[DownloadPayload, str, bool]:
-    """Extract fields from the token payload and build a DownloadPayload.
-
-    Returns (dl_payload, media_type, is_redownload).  The DB connection is
-    not included — it is passed as an explicit parameter to the submit helpers
-    so ``DownloadPayload`` remains a purely-data TypedDict (M9).
+    """Build a DownloadPayload from the token payload. Returns (dl_payload, media_type,
+    is_redownload); the connection is left out so the payload stays purely data.
     """
     title = payload.get("title", "")
     media_type = payload.get("mt", "")
@@ -393,12 +365,10 @@ def _handle_already_exists_error(
 def download_submit(request: Request, token: str) -> JSONResponse:
     """Trigger a download via Radarr or Sonarr.
 
-    CSRF-exempt: this route is HMAC-token-authenticated and gets clicked
-    through from email clients where the browser's Origin is whichever
-    webmail host the recipient happens to use.  The exemption is opt-in
-    via the explicit ``_CSRF_EXEMPT_ROUTES`` allowlist in
-    :mod:`mediaman.web` — adding a sibling ``POST /download/...`` will
-    NOT silently inherit the exemption.
+    CSRF-exempt: the route is HMAC-token-authenticated and clicked from email clients, where
+    the browser's Origin is whichever webmail host the recipient uses. The exemption is
+    opt-in via _CSRF_EXEMPT_ROUTES in mediaman.web, so a sibling POST /download/... route
+    does not inherit it.
     """
     config = request.app.state.config
     conn = get_db()

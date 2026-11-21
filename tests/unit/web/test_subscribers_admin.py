@@ -69,11 +69,6 @@ def _insert_subscriber(conn, email: str, active: int = 1) -> None:
     insert_subscriber(conn, email=email, active=active)
 
 
-# ---------------------------------------------------------------------------
-# GET /api/subscribers
-# ---------------------------------------------------------------------------
-
-
 class TestListSubscribers:
     def test_returns_empty_list_when_no_subscribers(self, authed_client):
         resp = authed_client.get("/api/subscribers")
@@ -107,11 +102,6 @@ class TestListSubscribers:
         client = TestClient(app)
         resp = client.get("/api/subscribers", follow_redirects=False)
         assert resp.status_code in (302, 303, 401, 403)
-
-
-# ---------------------------------------------------------------------------
-# POST /api/subscribers
-# ---------------------------------------------------------------------------
 
 
 class TestAddSubscriber:
@@ -154,11 +144,6 @@ class TestAddSubscriber:
         assert resp.status_code in (302, 303, 401, 403)
 
 
-# ---------------------------------------------------------------------------
-# DELETE /api/subscribers/{id}
-# ---------------------------------------------------------------------------
-
-
 class TestRemoveSubscriber:
     def test_removes_existing_subscriber(self, authed_client, app):
         conn = app.state.db
@@ -186,15 +171,9 @@ class TestRemoveSubscriber:
         assert resp.status_code in (302, 303, 401, 403)
 
 
-# ---------------------------------------------------------------------------
-# POST /api/newsletter/send
-# ---------------------------------------------------------------------------
-
-
 class TestSendNewsletter:
     @pytest.fixture(autouse=True)
     def _reset_newsletter_limiter(self):
-        """Reset the newsletter rate-limiter between tests."""
         from mediaman.services.rate_limit.instances import NEWSLETTER_LIMITER
 
         NEWSLETTER_LIMITER.reset()
@@ -346,17 +325,12 @@ class TestResolveNewsletterRecipients:
         assert rejected == 1
 
 
-# ---------------------------------------------------------------------------
-# Audit logging + rate limiting (Domain 03 findings 9-11, 14)
-# ---------------------------------------------------------------------------
-
-
 class TestSubscriberAuditEvents:
     """Add, remove, and newsletter sends must each write a security_event
     row — without them, a compromised admin token can churn the
-    subscriber list and dispatch newsletters with no audit trail. Per
-    CODE_GUIDELINES §7.5/§10.10 the audit log records full actor/target
-    identity (including email); masking belongs on operational logs only."""
+    subscriber list and dispatch newsletters with no audit trail. The
+    audit log records full actor/target identity (including email);
+    masking belongs on operational logs only."""
 
     def test_add_writes_security_event(self, authed_client, app):
         conn = app.state.db
@@ -421,8 +395,7 @@ class TestSubscriberAddRemoveRateLimit:
 
 class TestSubscriberAddLogging:
     """The info log on a successful add records the full email so the
-    operator can correlate against the subscriber list during triage —
-    see CODE_GUIDELINES §7.4."""
+    operator can correlate against the subscriber list during triage."""
 
     def test_log_message_contains_full_email(self, authed_client, app, caplog):
         with caplog.at_level("INFO"):

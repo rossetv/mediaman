@@ -25,20 +25,10 @@ def looks_like_series_nzb(nzb_name: str) -> bool:
 
 
 def parse_clean_title(nzb_name: str) -> str:
-    """Extract a clean title from an NZB filename.
+    """Extract a clean title from an NZB filename by stripping technical tokens (year,
+    resolution, codec, source, audio, episode markers) from both ends.
 
-    Strips recognised technical tokens (year, resolution, codec, source,
-    audio, episode markers) from both ends and keeps everything else as the
-    title.  Year-prefixed names like ``"2021.Dune.1080p.x264"`` correctly
-    return ``"Dune"`` rather than the year alone.
-
-    Strategy:
-    1. Normalise separators (dots/underscores -> spaces).
-    2. Split on the first recognised token from the *left*.
-    3. If that split yields an empty prefix (token was the first word, i.e.
-       a year-prefixed name), strip the leading token and re-split on the
-       remaining string from the *left* again, continuing until a non-empty
-       prefix is found or we run out of tokens.
+    Year-prefixed names like "2021.Dune.1080p.x264" return "Dune", not the year.
     """
     name = nzb_name.replace(".", " ").replace("_", " ")
 
@@ -66,21 +56,12 @@ _MATCH_NORMALISE = re.compile(r"[^a-z0-9]+")
 
 
 def normalise_for_match(title: str) -> str:
-    """Canonicalise a title for fuzzy substring matching against NZB names.
+    """Canonicalise a title for fuzzy matching against NZB names: strip Unicode Cf
+    characters (invisible joiners and marks that make identical-looking strings differ),
+    lowercase, and collapse non-alphanumeric runs to one space.
 
-    Steps applied in order:
-    1. Strip Unicode ``Cf`` (format) characters — these are invisible
-       zero-width joiners, left-to-right marks, etc. that can make two
-       visually identical strings compare as unequal.
-    2. Lowercase.
-    3. Replace every run of non-alphanumeric characters with a single
-       space and trim.
-
-    Fixes punctuation drift between a Sonarr series title like
-    ``"Married at First Sight (AU)"`` and the cleaned NZB filename
-    ``"Married at First Sight AU"`` — both normalise to
-    ``"married at first sight au"`` so the substring check in
-    :mod:`mediaman.services.downloads.download_queue` stops orphaning episodes.
+    This stops punctuation drift such as "Married at First Sight (AU)" versus "Married
+    at First Sight AU" from orphaning episodes in the download queue.
     """
     s = (title or "").lower()
     # Strip Unicode Cf (format) characters — invisible glue that can
@@ -91,12 +72,10 @@ def normalise_for_match(title: str) -> str:
 
 
 def format_relative_time(ts: float, now: float) -> str:
-    """Render a relative-time string like ``"12m ago"`` or ``"3d ago"``.
+    """Render a relative time like "12m ago"; "" when *ts* is non-positive (unknown).
 
-    Returns ``""`` when ``ts`` is non-positive (meaning "unknown"). Used
-    for the "Last searched Xm ago" subline under the searching pill —
-    kept identical shape to the JS helper in the download templates so
-    server-rendered and poll-updated labels don't jitter.
+    Same shape as the JS helper so server-rendered and poll-updated labels do not
+    jitter.
     """
     if ts <= 0:
         return ""
@@ -113,11 +92,6 @@ def format_relative_time(ts: float, now: float) -> str:
 
 
 def format_episode_label(season: int | None, episode: int | None) -> str:
-    """Format an episode label like ``"S01E02"`` or ``"S03"``.
-
-    Returns ``""`` when *season* is ``None``. Omits the episode portion
-    when *episode* is ``None`` (season-only pack entries).
-    """
     if season is None:
         return ""
     label = f"S{season:02d}"
@@ -127,7 +101,6 @@ def format_episode_label(season: int | None, episode: int | None) -> str:
 
 
 def format_eta(remain_mb: float, download_rate: int) -> str:
-    """Format ETA string from remaining MB and download rate (bytes/sec)."""
     if download_rate > 0 and remain_mb > 0:
         eta_sec = int(remain_mb * 1024 * 1024 / download_rate)
         if eta_sec >= 3600:

@@ -16,8 +16,6 @@ from enum import Enum
 
 @dataclass(frozen=True)
 class SubscriberRow:
-    """A single row from the subscribers table."""
-
     id: int
     email: str
     active: bool
@@ -25,19 +23,11 @@ class SubscriberRow:
 
 
 class AddSubscriberOutcome(Enum):
-    """Outcome of :func:`try_add_subscriber`."""
-
     ADDED = "added"
     ALREADY_SUBSCRIBED = "already_subscribed"
 
 
-# ---------------------------------------------------------------------------
-# Reads
-# ---------------------------------------------------------------------------
-
-
 def list_subscribers(conn: sqlite3.Connection) -> list[SubscriberRow]:
-    """Return all subscribers ordered by creation date."""
     rows = conn.execute(
         "SELECT id, email, active, created_at FROM subscribers ORDER BY created_at ASC"
     ).fetchall()
@@ -53,7 +43,6 @@ def list_subscribers(conn: sqlite3.Connection) -> list[SubscriberRow]:
 
 
 def find_subscriber_by_id(conn: sqlite3.Connection, subscriber_id: int) -> str | None:
-    """Return the email for the given subscriber id, or None if not found."""
     row = conn.execute("SELECT email FROM subscribers WHERE id = ?", (subscriber_id,)).fetchone()
     return row["email"] if row is not None else None
 
@@ -61,7 +50,6 @@ def find_subscriber_by_id(conn: sqlite3.Connection, subscriber_id: int) -> str |
 def find_subscriber_status_by_email(
     conn: sqlite3.Connection, email: str
 ) -> tuple[int, bool] | None:
-    """Return (id, active) for the given email, or None if not found."""
     row = conn.execute("SELECT id, active FROM subscribers WHERE email = ?", (email,)).fetchone()
     if row is None:
         return None
@@ -84,11 +72,6 @@ def fetch_active_subscribers_in(conn: sqlite3.Connection, emails: set[str]) -> l
         tuple(emails),
     ).fetchall()
     return [r["email"] for r in rows]
-
-
-# ---------------------------------------------------------------------------
-# Writes
-# ---------------------------------------------------------------------------
 
 
 def try_add_subscriber(conn: sqlite3.Connection, *, email: str, now: str) -> AddSubscriberOutcome:
@@ -130,10 +113,8 @@ def try_add_subscriber(conn: sqlite3.Connection, *, email: str, now: str) -> Add
 
 
 def delete_subscriber(conn: sqlite3.Connection, subscriber_id: int) -> None:
-    """Delete a subscriber row by primary key."""
     conn.execute("DELETE FROM subscribers WHERE id = ?", (subscriber_id,))
 
 
 def deactivate_subscriber(conn: sqlite3.Connection, subscriber_id: int) -> None:
-    """Set active=0 for a subscriber (used by the public unsubscribe flow)."""
     conn.execute("UPDATE subscribers SET active = 0 WHERE id = ?", (subscriber_id,))

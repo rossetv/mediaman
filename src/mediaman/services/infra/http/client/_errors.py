@@ -1,8 +1,8 @@
-"""Error type for :class:`~mediaman.services.infra.http.client.SafeHTTPClient`.
+"""Error type for ``SafeHTTPClient``.
 
 Split out from the orchestration so both the request engine
-(:mod:`._request`) and the client class (:mod:`._core`) can import
-:class:`SafeHTTPError` without a circular dependency. Re-exported from the
+(``_request``) and the client class (``_core``) can import
+``SafeHTTPError`` without a circular dependency. Re-exported from the
 package barrel so ``from mediaman.services.infra.http.client import
 SafeHTTPError`` keeps working.
 """
@@ -18,9 +18,9 @@ def _safe_url(url: str) -> str:
 
     Query strings on outbound URLs routinely carry API keys
     (``?apikey=...``). This exception is logged with ``logger.exception``
-    at several §6.4 sites, so its ``str()`` must never embed the raw query
+    at several sites, so its ``str()`` must never embed the raw query
     or the key lands in the logs. Mirrors
-    :func:`~mediaman.services.infra.http.retry._safe_path`.
+    ``_safe_path``.
     """
     try:
         parsed = urlparse(url)
@@ -31,14 +31,14 @@ def _safe_url(url: str) -> str:
 
 
 class SafeHTTPError(Exception):
-    """Raised when a :class:`SafeHTTPClient` call returns a non-2xx.
+    """Raised when a ``SafeHTTPClient`` call returns a non-2xx.
 
     Carries the final status code, a truncated body snippet, and the
     query-stripped URL that failed.  The snippet is UTF-8 best-effort —
     binary bodies are replaced rather than raising a secondary decode error.
 
     ``url`` is stored as ``host/path`` only — the query string is dropped so
-    a logged exception cannot leak an ``?apikey=...`` credential (L1 / §7.4).
+    a logged exception cannot leak an ``?apikey=...`` credential.
     """
 
     def __init__(self, status_code: int, body_snippet: str, url: str) -> None:
@@ -48,7 +48,6 @@ class SafeHTTPError(Exception):
         super().__init__(f"HTTP {status_code} from {self.url}: {body_snippet[:120]}")
 
     def json_error(self) -> dict[str, object] | None:
-        """Return the parsed JSON error body, or ``None`` if not JSON."""
         try:
             parsed = _json.loads(self.body_snippet)
         except (ValueError, TypeError):

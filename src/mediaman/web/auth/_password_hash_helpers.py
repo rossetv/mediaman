@@ -1,4 +1,4 @@
-"""Private helpers for :mod:`mediaman.web.auth.password_hash`.
+"""Private helpers for `mediaman.web.auth.password_hash`.
 
 Owns the bcrypt-input preparation pipeline (NFKC normalise → SHA-256
 pre-hash for >72-byte inputs → bcrypt-ready bytes), the cached dummy
@@ -40,7 +40,7 @@ _LOG_FIELD_RE = _re.compile(r"[^A-Za-z0-9._@\-]")
 def _sanitise_log_field(value: str, limit: int = 64) -> str:
     """Strip non-safe characters from *value* and truncate to *limit*.
 
-    The truncation marker is decided on the POST-sanitise length (L7): an
+    The truncation marker is decided on the POST-sanitise length: an
     all-symbol input that sanitises to empty must not get a misleading
     ``"..."`` suffix, and the ``"..."`` only appears when genuine
     characters were dropped by the length cap.
@@ -123,7 +123,7 @@ _DUMMY_HASH_LOCK = threading.Lock()
 def _get_dummy_hash() -> bytes:
     """Lazily compute the bcrypt dummy hash the first time it's needed.
 
-    The ~150 ms bcrypt computation runs OUTSIDE the lock (L6, §8.7 — locks
+    The ~150 ms bcrypt computation runs OUTSIDE the lock (locks
     stay narrow): a fast double-checked read returns the cached value
     when present, otherwise the hash is computed lock-free and the lock is
     held only to publish the result. Two cold-start callers may each

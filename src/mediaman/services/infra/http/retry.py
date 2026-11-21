@@ -5,36 +5,35 @@ Responsibility
 Wrap a single-attempt HTTP dispatch function in a retry loop that handles
 two classes of transient failure:
 
-* **Transport errors** — :class:`requests.Timeout`, :class:`requests.ConnectionError`,
+* **Transport errors** — ``requests.Timeout``, ``requests.ConnectionError``,
   and a handful of related exceptions that indicate the remote end went away
   or the connection was reset.  These are retried with a fixed backoff
   schedule on any method when the caller opts in.
 
 * **Retryable status codes** — 429, 502, 503, 504.  On 429/503 we honour a
   server-supplied ``Retry-After`` header (both delta-seconds and HTTP-date
-  forms) capped to :data:`_RETRY_AFTER_MAX_SECONDS` so a pathological
+  forms) capped to ``_RETRY_AFTER_MAX_SECONDS`` so a pathological
   upstream cannot pin a worker indefinitely.
 
 Invariants
 ----------
 - POST/PUT/DELETE never retry unless the caller explicitly passes
   ``retry=True``.  GET retries by default.  The retry flag is set in
-  :class:`~mediaman.services.infra.http.client.SafeHTTPClient`, not here.
+  ``SafeHTTPClient``, not here.
 - The retry schedule is fixed at two extra attempts (three total) — the
-  :data:`_RETRY_BACKOFFS` tuple drives the sleep between attempts.
+  ``_RETRY_BACKOFFS`` tuple drives the sleep between attempts.
 - ``_dispatch_loop`` is pure — it calls the supplied *dispatch_fn* and
   *read_fn* and does not touch the session or SSRF state directly.
 """
 
-# rationale: 525 lines, over the 500-line ceiling.
-# This file is one cohesive concept — the outbound-retry engine — and does
+# rationale: this file is one cohesive concept — the outbound-retry engine — and does
 # not decompose along a clean seam. Every name is part of that one engine:
 # the retry constants, the ``Retry-After`` parser, the body-snippet / safe-
 # path log helpers, ``_compute_delay``, the cross-iteration ``_LoopState``,
 # the three per-step handlers (``_handle_transport_error``,
 # ``_handle_retryable_status``, ``_finalise_response``), and ``dispatch_loop``
-# itself. The wave-2 ``dispatch_loop`` decomposition already extracted the
-# step handlers and the carry-over state; splitting further (e.g. lifting the
+# itself. ``dispatch_loop`` is already split into the step handlers and the
+# carry-over state; splitting further (e.g. lifting the
 # ``Retry-After`` parser into a sibling module) would be a sibling-dump that
 # fragments one tightly-coupled engine across files for no navigational gain.
 # The public surface is a single function, ``dispatch_loop``; everything else
@@ -62,10 +61,6 @@ from mediaman.services.infra.http.streaming import (
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Retry constants
-# ---------------------------------------------------------------------------
-
 #: HTTP status codes treated as transient on idempotent requests.
 _RETRYABLE_STATUSES = frozenset({429, 502, 503, 504})
 
@@ -92,17 +87,12 @@ _RETRYABLE_EXCEPTIONS: tuple[type[Exception], ...] = (
 _BODY_SNIPPET_BYTES = 512
 
 
-# ---------------------------------------------------------------------------
-# Header parsing
-# ---------------------------------------------------------------------------
-
-
 def _retry_after_seconds(value: str | None) -> float | None:
     """Parse a ``Retry-After`` header value into a delay in seconds.
 
     Accepts both the integer-seconds form (``"30"``) and the HTTP-date form
     (RFC 7231 §7.1.1.1).  Returns the delay capped to
-    :data:`_RETRY_AFTER_MAX_SECONDS`.  Returns ``None`` for missing or
+    ``_RETRY_AFTER_MAX_SECONDS``.  Returns ``None`` for missing or
     unparseable values.
     """
     if not value:
@@ -133,13 +123,7 @@ def _retry_after_seconds(value: str | None) -> float | None:
     return min(delta, _RETRY_AFTER_MAX_SECONDS)
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
 def _snippet(body: bytes) -> str:
-    """Return a short UTF-8 snippet of *body* suitable for error messages."""
     if not body:
         return ""
     return body[:_BODY_SNIPPET_BYTES].decode("utf-8", errors="replace")
@@ -158,11 +142,6 @@ def _safe_path(url: str) -> str:
         return "?"
 
 
-# ---------------------------------------------------------------------------
-# Dispatch loop
-# ---------------------------------------------------------------------------
-
-
 def _compute_delay(
     attempt: int,
     *,
@@ -170,15 +149,12 @@ def _compute_delay(
 ) -> float:
     """Return the sleep delay for *attempt* (0-indexed) under the chosen jitter strategy.
 
-    ``"fixed"`` indexes into :data:`_RETRY_BACKOFFS` (0.5s, 1.0s) — the
+    ``"fixed"`` indexes into ``_RETRY_BACKOFFS`` (0.5s, 1.0s) — the
     schedule used by every mediaman outbound caller historically.
-    ``"full"`` returns :func:`random.uniform(0, 2**attempt)` — full-jitter
+    ``"full"`` returns ``random.uniform(0, 2**attempt)`` — full-jitter
     exponential backoff used by the mailgun POST path so a thundering
-    herd of failed sends doesn't synchronise on the retry window.  This
-    matches the pre-consolidation mailgun formula exactly: both
-    ``_retry_with_jitter`` (now removed) and this helper iterate
-    ``attempt`` from ``0`` upwards via ``range(attempts)``, so the
-    expected sleep is the same — ``E[uniform(0, 2**attempt)] = 2**(attempt-1)``
+    herd of failed sends doesn't synchronise on the retry window.  The
+    expected sleep is ``E[uniform(0, 2**attempt)] = 2**(attempt-1)``
     seconds, starting at 0.5s for the first retry.
     """
     if jitter_strategy == "full":
@@ -190,7 +166,7 @@ def _compute_delay(
 
 @dataclass
 class _LoopState:
-    """Carry-over state mutated across :func:`dispatch_loop` iterations.
+    """Carry-over state mutated across ``dispatch_loop`` iterations.
 
     These four fields are the only state that survives between attempts and
     therefore must be threaded through the per-step helpers verbatim:
@@ -228,8 +204,7 @@ def _handle_transport_error(
     Records the exception on *state*, resets the consecutive-5xx streak (a
     transport error breaks any 5xx run), then either sleeps and returns — so
     the caller's loop ``continue``s to the next attempt — or, when the attempt
-    budget is exhausted, raises the ``make_error`` exception. The behaviour is
-    identical to the inline ``except _RETRYABLE_EXCEPTIONS`` block it replaces.
+    budget is exhausted, raises the ``make_error`` exception.
     """
     logger.warning(
         "HTTP %s %s transport error: %s",
@@ -270,8 +245,7 @@ def _handle_retryable_status(
     when the threshold is hit), honours a ``Retry-After`` header on 429/503,
     sleeps for the resulting delay, and finally records ``last_status`` /
     ``last_snippet`` on *state* so the post-loop branch can build the final
-    error. On return the caller's loop ``continue``s to the next attempt. The
-    body is logic-identical to the inline retryable-status block it replaces.
+    error. On return the caller's loop ``continue``s to the next attempt.
 
     Only called when ``response.status_code`` is in the retryable set *and*
     ``attempt + 1 < attempts``.
@@ -327,8 +301,7 @@ def _finalise_response(
 
     Reached once a response is neither a transport error nor a retryable
     status with attempts left (either it is a 2xx, a non-retryable status, or
-    a retryable status on the final attempt). Behaviour is identical to the
-    inline non-2xx raise / ``return response`` it replaces.
+    a retryable status on the final attempt).
     """
     if not (200 <= response.status_code < 300):
         snippet = _snippet(body)
@@ -362,16 +335,16 @@ def dispatch_loop(
     (delta-seconds and HTTP-date forms, capped to 60 seconds).
 
     The loop body reads as three named steps — transport-error handling
-    (:func:`_handle_transport_error`), retryable-status handling
-    (:func:`_handle_retryable_status`), and the final non-2xx raise / success
-    return (:func:`_finalise_response`) — with the cross-iteration carry-over
-    state held in a single :class:`_LoopState`.
+    (``_handle_transport_error``), retryable-status handling
+    (``_handle_retryable_status``), and the final non-2xx raise / success
+    return (``_finalise_response``) — with the cross-iteration carry-over
+    state held in a single ``_LoopState``.
 
     Args:
         dispatch_fn: Zero-arg callable that issues a single HTTP request and
-            returns a :class:`requests.Response` (streaming mode).
+            returns a ``requests.Response`` (streaming mode).
         read_fn: Callable that reads the capped body from the response,
-            raising :class:`_SizeCapExceeded` or :class:`_ContentTypeMismatch`
+            raising ``_SizeCapExceeded`` or ``_ContentTypeMismatch``
             on violations.
         method: HTTP verb for log messages.
         url: Full URL for log messages and error attribution.
@@ -379,8 +352,8 @@ def dispatch_loop(
             retrying, ``1`` otherwise).
         make_error: Factory that produces a ``SafeHTTPError``-style exception
             given ``(status_code, body_snippet, url)`` keyword args.  Kept as
-            a callable to avoid a circular import with :mod:`.client`.
-        jitter_strategy: ``"fixed"`` (default) uses :data:`_RETRY_BACKOFFS`;
+            a callable to avoid a circular import with ``client``.
+        jitter_strategy: ``"fixed"`` (default) uses ``_RETRY_BACKOFFS``;
             ``"full"`` uses full-jitter exponential backoff
             ``uniform(0, 2**attempt)`` for callers (e.g. mailgun) that want a
             wider sleep envelope so retries don't synchronise.
@@ -391,21 +364,21 @@ def dispatch_loop(
             full attempt budget.
 
             Relationship to ``attempts`` (off-by-one): the abort check only
-            runs inside :func:`_handle_retryable_status`, which is reached
+            runs inside ``_handle_retryable_status``, which is reached
             only when ``attempt + 1 < attempts`` (more attempts remain). The
-            final attempt's 5xx goes straight to :func:`_finalise_response`
+            final attempt's 5xx goes straight to ``_finalise_response``
             and raises a normal error *without* consulting the streak. So a
             threshold ``N`` only ever fires if ``attempts > N`` — with the
             default ``attempts=3``, ``abort_after_consecutive_5xx=2`` aborts
             on the 2nd response (attempt index 1) before the 3rd is issued,
             and ``=1`` aborts after the 1st. Setting the threshold ``>=
             attempts`` makes it a no-op: the budget exhausts naturally first.
-        retryable_statuses: Override :data:`_RETRYABLE_STATUSES` for callers
+        retryable_statuses: Override ``_RETRYABLE_STATUSES`` for callers
             with a different transient-set (mailgun adds ``500``).  ``None``
             uses the default set.
 
     Returns:
-        The final :class:`requests.Response` on success (2xx status code).
+        The final ``requests.Response`` on success (2xx status code).
 
     Raises:
         Exception: Produced by *make_error* on non-2xx final status or transport error.
@@ -415,7 +388,7 @@ def dispatch_loop(
     # engine taking ``attempts`` as a free parameter — a caller-supplied 0
     # would otherwise skip the loop and fall through to a raise of a ``None``
     # exception. Raise a typed ``SafeHTTPError`` via ``make_error`` rather
-    # than an ``assert`` (stripped under ``python -O``) — see §6.1.
+    # than an ``assert`` (stripped under ``python -O``).
     if attempts < 1:
         raise make_error(
             status_code=0,

@@ -36,10 +36,10 @@ if TYPE_CHECKING:
 
 
 class ScanSummary(TypedDict, total=False):
-    """Return type for :func:`run_scan_from_db` and :meth:`ScanEngine.run_scan`.
+    """Return type for run_scan_from_db and ScanEngine.run_scan.
 
     All keys are optional (``total=False``) because the type is also used
-    for the lightweight :meth:`~mediaman.scanner.engine.ScanEngine.sync_library`
+    for the lightweight mediaman.scanner.engine.ScanEngine.sync_library
     return value which only populates a subset.  The canonical full-scan
     keys are:
 
@@ -51,7 +51,7 @@ class ScanSummary(TypedDict, total=False):
     * ``deleted`` — items deleted from disk this run.
     * ``reclaimed_bytes`` — bytes freed by deletions.
 
-    Do NOT add new keys here without also updating :meth:`ScanEngine.run_scan`
+    Do NOT add new keys here without also updating ScanEngine.run_scan
     and any callers that check specific keys — this is the single source of
     truth for the shape of the summary dict.
     """
@@ -66,7 +66,7 @@ class ScanSummary(TypedDict, total=False):
 
 
 class PlexClientBundle(NamedTuple):
-    """Return type for :func:`_build_plex_client`.
+    """Return type for _build_plex_client.
 
     NamedTuple (not TypedDict) because callers use positional tuple unpacking
     (``plex, lib_ids, lib_types, lib_titles = result``), which TypedDict
@@ -257,7 +257,7 @@ def _build_plex_client(conn: sqlite3.Connection, secret_key: str) -> PlexClientB
     (disk thresholds, *arr clients, etc.) before constructing a ScanEngine.
 
     PlexClient construction is delegated to
-    :func:`mediaman.services.arr.build.build_plex_from_db` to avoid
+    mediaman.services.arr.build.build_plex_from_db to avoid
     duplicating the URL/token lookup and decrypt logic. The
     ``PlexClient`` constructor itself revalidates the configured URL,
     so a stored URL that has since started resolving to an internal
@@ -296,7 +296,7 @@ def run_scan_from_db(
     token, library IDs, threshold values, and optional Sonarr/Radarr URLs —
     then constructs the relevant clients and runs the scan.
 
-    Returns the summary dict from :meth:`ScanEngine.run_scan`, or an empty
+    Returns the summary dict from ScanEngine.run_scan, or an empty
     dict if the minimum required settings (plex_url / plex_token) are absent.
 
     Args:
@@ -314,21 +314,17 @@ def run_scan_from_db(
         return {}
     plex, lib_ids, lib_types, lib_titles = result
 
-    # ── Disk threshold filtering ────────────────────────────────────────────
     if not skip_disk_check:
         lib_ids = _filter_libraries_by_disk(conn, lib_ids, lib_titles)
 
-    # ── Optional *arr clients ────────────────────────────────────────────────
     sonarr_client = _build_sonarr(conn, secret_key)
     radarr_client = _build_radarr(conn, secret_key)
 
-    # ── Thresholds ───────────────────────────────────────────────────────────
     min_age = _get_int_setting(conn, "min_age_days", default=30)
     inactivity = _get_int_setting(conn, "inactivity_days", default=30)
     grace = _get_int_setting(conn, "grace_days", default=14)
     dry_run = repository.read_setting(conn, "dry_run") == "true"
 
-    # ── Run ──────────────────────────────────────────────────────────────────
     engine = ScanEngine(
         conn=conn,
         plex_client=plex,

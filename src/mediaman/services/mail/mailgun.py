@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 # Transient HTTP status codes that warrant a retry on POST requests.
 # Mailgun's previous standalone retry primitive included ``500`` in this
-# set; the consolidated :func:`dispatch_loop` retry path now accepts this
+# set; the consolidated dispatch_loop retry path now accepts this
 # override via ``retryable_statuses`` so the mailgun POST retains its
 # 500-also-retryable policy without duplicating retry orchestration.
 _RETRYABLE_POST_STATUSES = frozenset({429, 500, 502, 503, 504})
@@ -39,10 +39,8 @@ def _validate_header_value(value: str, field: str) -> None:
 class MailgunClient:
     """Sends emails via the Mailgun HTTP API.
 
-    Attempts the configured region's endpoint first (``eu`` by default).
-    On a 401 or 404 — which Mailgun returns for a domain registered in
-    the other region — the client transparently retries against the
-    alternative endpoint and remembers the working one for future calls.
+    On 401 or 404 (Mailgun's answer for a domain registered in the other region) it
+    retries against the alternate region and remembers the working one.
     """
 
     _EU_BASE = "https://api.eu.mailgun.net"
@@ -67,7 +65,6 @@ class MailgunClient:
         self._http = SafeHTTPClient(session=self._session)
 
     def _other_base(self) -> str:
-        """Return the alternate (EU/US) base URL to the currently active one."""
         return self._US_BASE if self._base == self._EU_BASE else self._EU_BASE
 
     def send(self, *, to: str, subject: str, html: str) -> None:
@@ -103,7 +100,6 @@ class MailgunClient:
                     last_error = exc
                     break
                 if exc.status_code == 404 and base != bases[-1]:
-                    # F-11: dotted event name, variable in extra=
                     logger.info(
                         "mailgun.region_fallback",
                         extra={"base": base, "reason": "404_domain_not_found"},
@@ -119,7 +115,6 @@ class MailgunClient:
             raise last_error
 
     def is_reachable(self) -> bool:
-        """Return True if either region reports the domain exists."""
         for base in (self._base, self._other_base()):
             try:
                 self._http.get(
@@ -129,7 +124,7 @@ class MailgunClient:
                 self._base = base
                 return True
             except (SafeHTTPError, RequestException):
-                # F-10: log at debug level so an operator can see what failed (§6.7)
+                # Log at debug level so an operator can see what failed.
                 logger.debug(
                     "mailgun.reachability_check_failed",
                     extra={"base": base},

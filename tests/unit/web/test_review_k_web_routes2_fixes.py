@@ -1,12 +1,12 @@
-"""Behaviour-named tests for security and correctness fixes from K-web-routes2 review.
+"""Behaviour-named tests for security and correctness fixes in the web routes.
 
 Covers:
-- B-03: api_keep_show is rate-limited (returns 429 when limit exceeded)
-- B-04: upsert_kept_show + set_protected_state + log_audit roll back atomically
-- H-01: keep_submit and keep_forever handle token replay atomically
-- H-07: _add_rec_to_sonarr rejects Sonarr results whose tmdbId does not match
-- DEFERRED-A: fetch_suggestion_by_id returns a typed SuggestionDetail dataclass
-- DEFERRED-B: unsubscribe_confirm writes a subscriber.opted_out security event
+- api_keep_show is rate-limited (returns 429 when limit exceeded)
+- upsert_kept_show + set_protected_state + log_audit roll back atomically
+- keep_submit and keep_forever handle token replay atomically
+- _add_rec_to_sonarr rejects Sonarr results whose tmdbId does not match
+- fetch_suggestion_by_id returns a typed SuggestionDetail dataclass
+- unsubscribe_confirm writes a subscriber.opted_out security event
 """
 
 from __future__ import annotations
@@ -39,20 +39,11 @@ from tests.helpers.factories import (
     insert_suggestion,
 )
 
-# ---------------------------------------------------------------------------
-# Shared secrets / helpers
-# ---------------------------------------------------------------------------
-
 _SECRET = "a" * 64
 
 
 def _now_plus_days(n: int) -> str:
     return (datetime.now(UTC) + timedelta(days=n)).isoformat()
-
-
-# ---------------------------------------------------------------------------
-# App builder helpers
-# ---------------------------------------------------------------------------
 
 
 def _kept_show_app(conn: sqlite3.Connection) -> TestClient:
@@ -93,11 +84,6 @@ def _make_full_app(db_path, secret_key) -> tuple[object, object]:
     return app, conn
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture(autouse=True)
 def _reset_rate_limiters():
     """Reset all rate limiters touched by this file before and after each test."""
@@ -108,11 +94,6 @@ def _reset_rate_limiters():
     _KEEP_SHOW_LIMITER.reset()
     _KEEP_POST_LIMITER.reset()
     _UNSUB_LIMITER.reset()
-
-
-# ---------------------------------------------------------------------------
-# Helpers for inserting show seasons and keep tokens
-# ---------------------------------------------------------------------------
 
 
 def _insert_season(
@@ -170,13 +151,8 @@ def _make_keep_token(conn: sqlite3.Connection, media_id: str, action_id: int) ->
     return token
 
 
-# ===========================================================================
-# B-03: api_keep_show is rate-limited
-# ===========================================================================
-
-
 class TestB03KeepShowRateLimited:
-    """B-03: api_keep_show must return 429 when the rate limiter is exhausted."""
+    """Api_keep_show must return 429 when the rate limiter is exhausted."""
 
     def test_keep_show_rate_limited_when_limit_exceeded(self, conn):
         """Filling the KEEP_SHOW_LIMITER bucket produces a 429 on the next request."""
@@ -209,13 +185,8 @@ class TestB03KeepShowRateLimited:
         assert resp.json()["ok"] is True
 
 
-# ===========================================================================
-# B-04: upsert_kept_show + set_protected_state + log_audit are atomic
-# ===========================================================================
-
-
 class TestB04KeepShowTransactionAtomicity:
-    """B-04: all three writes in api_keep_show share one transaction."""
+    """All three writes in api_keep_show share one transaction."""
 
     def test_kept_show_row_created_on_success(self, conn):
         """Happy path: kept_shows row is present after a successful keep."""
@@ -281,13 +252,8 @@ class TestB04KeepShowTransactionAtomicity:
         assert row is None
 
 
-# ===========================================================================
-# H-01: keep_submit handles token replay atomically
-# ===========================================================================
-
-
 class TestH01KeepSubmitTokenAtomicity:
-    """H-01: mark_token_consumed + apply_keep_snooze + log_audit are in one transaction."""
+    """Mark_token_consumed + apply_keep_snooze + log_audit are in one transaction."""
 
     @pytest.fixture(autouse=True)
     def _reset_post_limiter(self):
@@ -353,13 +319,8 @@ class TestH01KeepSubmitTokenAtomicity:
         assert body["error"] == "invalid_or_expired"
 
 
-# ===========================================================================
-# H-01 (keep_forever): admin forever path also rejects replays atomically
-# ===========================================================================
-
-
 class TestH01KeepForeverTokenAtomicity:
-    """H-01 (keep_forever): mark_token_consumed + apply_keep_forever + log_audit atomic."""
+    """Mark_token_consumed + apply_keep_forever + log_audit atomic."""
 
     def test_replay_of_forever_returns_409(self, conn, app_factory, authed_client):
         """Submitting a forever keep twice must yield 409 on the second attempt."""
@@ -385,13 +346,8 @@ class TestH01KeepForeverTokenAtomicity:
         assert resp.json()["error"] == "already_processed"
 
 
-# ===========================================================================
-# H-07: _add_rec_to_sonarr rejects unmatched tmdbId in Sonarr results
-# ===========================================================================
-
-
 class TestH07SonarrTmdbIdFiltering:
-    """H-07: _add_rec_to_sonarr must filter results to the exact tmdbId match."""
+    """_add_rec_to_sonarr must filter results to the exact tmdbId match."""
 
     def test_sonarr_lookup_returns_wrong_tmdb_id_is_rejected(self, conn):
         """When Sonarr's lookup returns no entry with the requested tmdbId, return an error."""
@@ -548,13 +504,8 @@ class TestH07SonarrTmdbIdFiltering:
         mock_client.add_series.assert_not_called()
 
 
-# ===========================================================================
-# DEFERRED-A: fetch_suggestion_by_id returns a SuggestionDetail dataclass
-# ===========================================================================
-
-
 class TestDeferredAFetchSuggestionByIdReturnsDataclass:
-    """DEFERRED-A: fetch_suggestion_by_id must return a typed SuggestionDetail, not a raw Row."""
+    """Fetch_suggestion_by_id must return a typed SuggestionDetail, not a raw Row."""
 
     def test_returns_suggestion_detail_dataclass(self, conn):
         from mediaman.services.openai.recommendations.repository import (
@@ -614,13 +565,8 @@ class TestDeferredAFetchSuggestionByIdReturnsDataclass:
         _ = result.tmdb_id
 
 
-# ===========================================================================
-# DEFERRED-B: unsubscribe_confirm writes a subscriber.opted_out security event
-# ===========================================================================
-
-
 class TestDeferredBUnsubscribeWritesSecurityEvent:
-    """DEFERRED-B: a successful opt-out via the unsubscribe route must write a
+    """A successful opt-out via the unsubscribe route must write a
     subscriber.opted_out security event to audit_log."""
 
     # Security events are written to audit_log with action='sec:<event>' and
@@ -655,7 +601,6 @@ class TestDeferredBUnsubscribeWritesSecurityEvent:
         assert row["actor"] == "unsub@example.com"
 
     def test_inactive_subscriber_does_not_write_security_event(self, full_app, secret_key):
-        """An already-inactive subscriber must not trigger a security event."""
         app, conn = full_app
         insert_subscriber(conn, email="already@example.com", active=0)
         token = generate_unsubscribe_token(email="already@example.com", secret_key=secret_key)

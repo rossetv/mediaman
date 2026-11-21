@@ -1,16 +1,8 @@
-"""Library page routes.
+"""Library page routes (GET /library).
 
-Handles the browser-facing GET /library page.  All JSON API endpoints
-(``/api/library``, ``/api/media/…``) live in the sibling module
-:mod:`mediaman.web.routes.library_api`.
-
-Query helpers (``fetch_library``, public helpers) and the shared
-constants (``VALID_SORTS``, ``VALID_TYPES``, ``TV_SEASON_TYPES``,
-etc.) now live in the canonical location
-:mod:`mediaman.web.repository.library_query` so that
-:mod:`mediaman.web.routes.library_api` can import them without
-creating a peer-route import (§2.8.6).  This module re-exports them
-so external importers (tests, app_factory) continue to work.
+The JSON API lives in mediaman.web.routes.library_api. Query helpers and shared constants
+live in mediaman.web.repository.library_query so library_api can import them without a
+peer-route import; this module re-exports them for external importers (tests, app_factory).
 """
 
 from __future__ import annotations
@@ -70,16 +62,10 @@ from mediaman.web.repository.library_query import (
 def fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
     """Return counts and stale count for the library stats bar.
 
-    The TV/anime totals use the same grouping definition as
-    :func:`fetch_library`'s display_items CTE —
-    ``COALESCE(show_rating_key, show_title)``.  When a show has NULL in
-    both columns SQLite's ``COUNT(DISTINCT NULL)`` returned 0 while the
-    CTE's ``GROUP BY NULL`` collapsed every such row into a single group
-    of 1, so the two queries reported different totals on the same data.
-
-    Wrapping the count in a sub-select with ``GROUP BY`` (instead of
-    ``COUNT(DISTINCT ...)``) makes the NULL behaviour match: NULL is a
-    group in its own right, counted as 1.
+    TV/anime totals group like fetch_library's display_items CTE, by
+    COALESCE(show_rating_key, show_title). COUNT(DISTINCT NULL) counts 0 while the CTE's
+    GROUP BY NULL collapses such rows into one group, so the count wraps a GROUP BY
+    sub-select to make NULL count as 1.
     """
     movies = count_movies(conn)
     tv = count_tv_shows(conn)
@@ -108,10 +94,6 @@ def fetch_stats(conn: sqlite3.Connection) -> dict[str, object]:
     }
 
 
-# ---------------------------------------------------------------------------
-# Page route
-# ---------------------------------------------------------------------------
-
 router = APIRouter()
 
 
@@ -124,7 +106,6 @@ def library_page(
     page: int = Query(default=1, ge=1, le=100_000),
     per_page: int = Query(default=20, ge=1, le=100),
 ) -> Response:
-    """Render the library page.  Redirects to /login if the session is invalid."""
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved

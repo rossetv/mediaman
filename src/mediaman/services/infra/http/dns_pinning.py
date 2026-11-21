@@ -2,7 +2,7 @@
 
 Threat model
 ------------
-The SSRF guard in :mod:`mediaman.services.infra.url_safety` resolves the
+The SSRF guard in ``mediaman.services.infra.url_safety`` resolves the
 target hostname to an IP *before* the request is dispatched.  Between that
 resolution and the moment urllib3 (via ``socket.getaddrinfo``) resolves the
 same hostname to open a TCP connection, an attacker-controlled DNS server can
@@ -15,17 +15,17 @@ The fix is to *pin* the validated IP and force every ``getaddrinfo`` call for
 that hostname to return the same address for the duration of the request.  We
 do this by replacing ``socket.getaddrinfo`` once at import time with a thin
 wrapper that consults a per-thread pin table.  Concurrent worker threads never
-see each other's pins because the table lives on a :class:`threading.local`.
+see each other's pins because the table lives on a ``threading.local``.
 
-Process-wide blast radius (M6 / §1.12, §8.5)
---------------------------------------------
+Process-wide blast radius
+-------------------------
 This monkeypatch is **process-global**: it replaces the stdlib resolver for
 the *entire interpreter*, so every third-party library that calls
 ``socket.getaddrinfo`` (a logging handler resolving a syslog host, an
 APScheduler job, an unrelated HTTP client) consults the pin table too. The
 collateral is bounded because (a) pins are keyed by the *exact* host string,
 so an unrelated lookup for a different hostname is unaffected, and (b) a pin
-only exists for the duration of a :func:`pin` ``with`` block on the *same*
+only exists for the duration of a ``pin`` ``with`` block on the *same*
 thread. But any nested call within that block that resolves the *same*
 hostname will receive the pinned IP. The module-level mutable globals
 below (``_DNS_PIN_LOCAL``, ``_ORIG_GETADDRINFO``, ``_PIN_INSTALLED``) are a
@@ -46,7 +46,7 @@ execution inside our process.
 
 Usage
 -----
-The :func:`pin` context manager is the **only** supported way to install a
+The ``pin`` context manager is the **only** supported way to install a
 pin.  Direct manipulation of ``_DNS_PIN_LOCAL`` bypasses the SSRF defence.
 """
 
@@ -64,10 +64,6 @@ logger = logging.getLogger(__name__)
 
 _DNS_PINNING_MODULE = "mediaman.services.infra.http.dns_pinning"
 
-# ---------------------------------------------------------------------------
-# Module-level singletons
-# ---------------------------------------------------------------------------
-
 # DNS pin cache: per-thread pin map, the original resolver reference, and a
 # one-time install guard must all be module-global so the monkey-patch survives
 # across every outbound socket call in the process without re-patching on each
@@ -76,11 +72,6 @@ _DNS_PIN_LOCAL = threading.local()
 _ORIG_GETADDRINFO = socket.getaddrinfo
 _PIN_INSTALL_LOCK = threading.Lock()
 _PIN_INSTALLED = False
-
-
-# ---------------------------------------------------------------------------
-# The monkey-patched resolver
-# ---------------------------------------------------------------------------
 
 
 def _patched_getaddrinfo(
@@ -135,13 +126,8 @@ def _patched_getaddrinfo(
     return _orig(host, port, *args, **kwargs)
 
 
-# ---------------------------------------------------------------------------
-# Hook installation
-# ---------------------------------------------------------------------------
-
-
 def _install_dns_pin_hook() -> None:
-    """Install :func:`_patched_getaddrinfo` in place of ``socket.getaddrinfo``.
+    """Install ``_patched_getaddrinfo`` in place of ``socket.getaddrinfo``.
 
     Idempotent and thread-safe.  Called once at module import so any request
     that goes through this client is automatically pinning-aware.
@@ -201,16 +187,11 @@ def ensure_hook_installed() -> None:
 _install_dns_pin_hook()
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
 @contextlib.contextmanager
 def pin(hostname: str, ip: str) -> Iterator[None]:
     """Pin DNS for *hostname* to *ip* for the duration of the ``with`` block.
 
-    The pin is stored on a :class:`threading.local`, so other threads are
+    The pin is stored on a ``threading.local``, so other threads are
     unaffected.  On exit the pin is cleared (or restored to the previous pin
     if contexts are nested for the same hostname).
 

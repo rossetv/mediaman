@@ -1,10 +1,7 @@
 """Factory helpers for building Radarr / Sonarr / NZBGet clients from DB settings.
 
-Every route module used to have its own inline copy of the
-"read URL + decrypt API key + construct client" dance. Those copies
-drifted over time, making bugs local (e.g. one forgetting to decrypt,
-another ignoring an empty URL). This module is the single source of
-truth.
+The single place that does "read URL + decrypt API key + construct
+client", so no caller can forget to decrypt or accept an empty URL.
 """
 
 from __future__ import annotations
@@ -41,11 +38,6 @@ def _read_arr_credentials(
 
 
 def build_radarr_from_db(conn: sqlite3.Connection, secret_key: str) -> ArrClient | None:
-    """Return an ``ArrClient`` configured for Radarr, or ``None`` if Radarr isn't configured.
-
-    Looks up ``radarr_url`` / ``radarr_api_key`` and, if both are set,
-    returns a constructed client.
-    """
     creds = _read_arr_credentials(conn, "radarr", secret_key)
     if creds is None:
         return None
@@ -56,7 +48,6 @@ def build_radarr_from_db(conn: sqlite3.Connection, secret_key: str) -> ArrClient
 
 
 def build_sonarr_from_db(conn: sqlite3.Connection, secret_key: str) -> ArrClient | None:
-    """Return an ``ArrClient`` configured for Sonarr, or ``None`` if Sonarr isn't configured."""
     creds = _read_arr_credentials(conn, "sonarr", secret_key)
     if creds is None:
         return None
@@ -67,7 +58,6 @@ def build_sonarr_from_db(conn: sqlite3.Connection, secret_key: str) -> ArrClient
 
 
 def build_plex_from_db(conn: sqlite3.Connection, secret_key: str) -> PlexClient | None:
-    """Return a ``PlexClient`` or ``None`` if Plex isn't configured."""
     url = get_string_setting(conn, "plex_url")
     token = get_string_setting(conn, "plex_token", secret_key=secret_key)
     if not url or not token:
@@ -85,7 +75,7 @@ def build_nzbget_from_db(
 
     Reads ``nzbget_url``, ``nzbget_username``, and ``nzbget_password`` (which
     may be encrypted) from DB settings via
-    :func:`~mediaman.services.infra.settings_reader.get_string_setting`.
+    ``get_string_setting``.
 
     ``secret_key`` is required to decrypt ``nzbget_password``.
     """

@@ -29,9 +29,9 @@ _FILTER_MAP: dict[str, tuple[str, ...]] = {
 class AuditRow:
     """One audit-log row joined with its media/show title columns.
 
-    Returned by :func:`fetch_security_audit_rows` and
-    :func:`fetch_media_audit_rows` so the history route consumes typed
-    attributes instead of a raw :class:`sqlite3.Row`. Both queries
+    Returned by fetch_security_audit_rows and
+    fetch_media_audit_rows so the history route consumes typed
+    attributes instead of a raw sqlite3.Row. Both queries
     project the same nine columns — the security path supplies ``NULL``
     for the three title columns so the shape is uniform.
     """
@@ -48,7 +48,6 @@ class AuditRow:
 
 
 def _row_to_audit_row(row: sqlite3.Row) -> AuditRow:
-    """Map a joined ``audit_log`` row to an :class:`AuditRow`."""
     return AuditRow(
         id=row["id"],
         media_item_id=row["media_item_id"],
@@ -170,11 +169,6 @@ def fetch_media_audit_rows(
         params,
     ).fetchall()
     return [_row_to_audit_row(row) for row in rows]
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
 
 
 def _media_where_clause(action: str | None) -> tuple[str, tuple[str, ...]]:

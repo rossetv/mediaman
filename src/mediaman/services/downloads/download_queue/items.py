@@ -1,13 +1,6 @@
-"""Download-card item builders and NZBGet matching helpers.
-
-WHAT: Builds individual download-card items (matched and unmatched Arr entries),
-      maps episode data to display dicts, and tests NZBGet titles against Arr
-      candidates. Also defines the ``DownloadsResponse`` TypedDict that is the
-      return type of the orchestrator.
-
-WHY: Item construction and NZBGet matching are tightly coupled — both operate on
-     the same ArrCard/NZB pair — but are entirely independent of the queue
-     orchestration lifecycle. Keeping them here lets queue.py stay thin.
+"""Download-card item builders and NZBGet matching helpers, including the DownloadsResponse
+TypedDict. Matching and construction work on the same ArrCard/NZB pair but are
+independent of queue orchestration, so they live apart from it.
 """
 
 from __future__ import annotations
@@ -30,14 +23,7 @@ from mediaman.services.downloads.download_format._types import DownloadItem
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Response TypedDict
-# ---------------------------------------------------------------------------
-
-
 class DownloadsResponse(TypedDict):
-    """Return type for :func:`~mediaman.services.downloads.download_queue.queue.build_downloads_response`."""
-
     hero: dict[str, object] | None
     queue: list[dict[str, object]]
     upcoming: list[dict[str, object]]
@@ -45,35 +31,20 @@ class DownloadsResponse(TypedDict):
     subtitle: str
 
 
-# ---------------------------------------------------------------------------
-# NZBGet matching
-# ---------------------------------------------------------------------------
-
-
 def nzb_matches_arr(nzb_t_norm: str, arr_candidates: list[str]) -> bool:
-    """Return True if *nzb_t_norm* matches any candidate in *arr_candidates*.
-
-    Performs a bidirectional substring test so both "married at first sight
-    au" ⊂ longer NZB titles and the reverse work correctly.  *arr_candidates*
-    is a list of normalised strings built from the arr item's primary title
-    and any release names Sonarr/Radarr recorded.
+    """Return True if *nzb_t_norm* matches any of *arr_candidates* by bidirectional
+    substring test (normalised strings from the arr item's title and recorded release
+    names).
     """
     return any(cand in nzb_t_norm or nzb_t_norm in cand for cand in arr_candidates)
-
-
-# ---------------------------------------------------------------------------
-# Episode helpers
-# ---------------------------------------------------------------------------
 
 
 def _stuck_seasons_from_episodes(
     episodes: Sequence[Mapping[str, object]],
 ) -> list[dict[str, int]]:
-    """Group queue episodes by season_number and count missing episodes.
-
-    Returns a sorted list of ``{"number": int, "missing_episodes": int}``
-    dicts, ascending by season number. Episodes without a season_number
-    are grouped as season 0 — Sonarr uses 0 for specials.
+    """Group queue episodes by season and count missing ones, ascending, as {"number",
+    "missing_episodes"} dicts. Episodes without a season_number count as season 0
+    (Sonarr specials).
     """
     by_season: dict[int, int] = {}
     for ep in episodes:
@@ -86,11 +57,6 @@ def _stuck_seasons_from_episodes(
 def build_episode_dicts(
     eps_raw: list[ArrEpisodeEntry] | list[dict[str, object]],
 ) -> list[dict[str, object]]:
-    """Map raw Sonarr episode entries to simplified display dicts.
-
-    Used in both the NZBGet-matched and unmatched branches so the two
-    paths produce identical episode structures.
-    """
     return [
         {
             "label": e.get("label", ""),
@@ -103,11 +69,6 @@ def build_episode_dicts(
     ]
 
 
-# ---------------------------------------------------------------------------
-# Item builders
-# ---------------------------------------------------------------------------
-
-
 def build_matched_item(
     arr: ArrCard,
     matched_nzb: Mapping[str, object],
@@ -115,7 +76,6 @@ def build_matched_item(
     eta: str,
     download_rate: int,
 ) -> DownloadItem:
-    """Build a download-card item for an *arr entry that matched an NZBGet item."""
     # The NZBGet matched-entry dict is constructed by ``parse_nzb_queue`` in
     # queue.py with values typed as ``object``; coerce each field to its
     # expected runtime type at the boundary so downstream code stays typed.
@@ -164,7 +124,6 @@ def build_matched_item(
 
 
 def _derive_series_state(episodes: list[dict[str, object]]) -> str:
-    """Derive the card state from episode list for an unmatched series item."""
     if episodes and all(e["state"] == "ready" for e in episodes):
         return "almost_ready"
     if any(e["state"] in ("downloading", "queued") for e in episodes):
@@ -182,7 +141,6 @@ def _build_unmatched_series_item(
     added_at: float,
     abandon_visible_now: bool,
 ) -> DownloadItem:
-    """Build the card for an unmatched series arr entry."""
     episodes = build_episode_dicts(arr.get("episodes", []))
     state = _derive_series_state(episodes)
     search_hint = (
@@ -230,7 +188,6 @@ def _build_unmatched_movie_item(
     added_at: float,
     abandon_visible_now: bool,
 ) -> DownloadItem:
-    """Build the card for an unmatched movie arr entry."""
     state = (
         "almost_ready"
         if (arr.get("progress") or 0) >= 100
@@ -272,14 +229,11 @@ def build_unmatched_arr_item(
     build_search_hint: Callable[..., str],
     build_arr_link: Callable[[ArrCard, dict[str, str]], str],
 ) -> DownloadItem:
-    """Build a download-card item for an *arr entry with no NZBGet match.
+    """Build a card for an *arr entry with no NZBGet match, deriving state from episode
+    progress (series) or percentage (movie).
 
-    Derives the card state from episode progress (series) or reported
-    percentage (movie) so callers don't need kind-specific logic.
-
-    ``abandon_visible`` becomes True once the item has been searching for
-    at least :data:`~mediaman.services.arr.auto_abandon._ABANDON_BUTTON_VISIBLE_AFTER_SECONDS`
-    seconds (10 hours by default), measured against ``added_at``.
+    abandon_visible turns True once the item has been searching for at least
+    _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS (10 hours by default) since added_at.
     """
     from mediaman.services.arr.auto_abandon import _ABANDON_BUTTON_VISIBLE_AFTER_SECONDS
     from mediaman.services.arr.search_trigger import get_search_info

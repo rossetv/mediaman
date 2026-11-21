@@ -2,7 +2,7 @@
 
 These functions validate operator-supplied configuration values (scan
 schedule settings, worker count, trusted-proxy CIDRs) and raise
-:class:`ValueError` or :class:`RuntimeError` on bad input so the caller
+ValueError or RuntimeError on bad input so the caller
 sees a clear, actionable message instead of an opaque downstream failure.
 
 They have no side effects and no imports beyond the standard library, so
@@ -10,12 +10,12 @@ they are easy to unit-test and safe to call from any layer.
 
 Exported validators
 -------------------
-- :func:`validate_scan_time` — parse ``HH:MM`` into ``(hour, minute)``
-- :func:`validate_scan_day` — validate weekday token(s) for APScheduler
-- :func:`validate_scan_timezone` — confirm an IANA timezone string
-- :func:`validate_sync_interval` — parse and bound a sync interval in minutes
-- :func:`enforce_single_worker` — refuse multi-worker uvicorn deployments
-- :func:`sanitise_trusted_proxies` — strip wildcard/invalid proxy CIDRs
+- validate_scan_time — parse ``HH:MM`` into ``(hour, minute)``
+- validate_scan_day — validate weekday token(s) for APScheduler
+- validate_scan_timezone — confirm an IANA timezone string
+- validate_sync_interval — parse and bound a sync interval in minutes
+- enforce_single_worker — refuse multi-worker uvicorn deployments
+- sanitise_trusted_proxies — strip wildcard/invalid proxy CIDRs
 """
 
 from __future__ import annotations
@@ -45,12 +45,12 @@ _FORBIDDEN_TRUSTED_PROXY_TOKENS = frozenset({"*", "0.0.0.0/0", "::/0"})
 def validate_scan_time(s: str) -> tuple[int, int]:
     """Parse and validate a scan time string in ``HH:MM`` 24-hour format.
 
-    Returns ``(hour, minute)`` on success. Raises :class:`ValueError`
+    Returns ``(hour, minute)`` on success. Raises ValueError
     with a descriptive message on any invalid input so the operator sees
     a clear startup error rather than a silent misconfiguration.
 
     Validation is two-stage: a regex confirms the shape, then
-    :func:`datetime.strptime` confirms the value is a real time (e.g.
+    datetime.strptime confirms the value is a real time (e.g.
     ``"25:00"`` would pass the regex but fail strptime).
     """
     if not _SCAN_TIME_RE.match(s):
@@ -71,7 +71,7 @@ def validate_scan_day(s: str) -> str:
 
     Accepts either a single token (``"mon"``) or a comma-separated list
     (``"mon,wed,fri"``). Tokens are normalised to lowercase short
-    weekday names; anything else raises :class:`ValueError`.
+    weekday names; anything else raises ValueError.
     """
     raw = (s or "").strip().lower()
     if not raw:
@@ -91,8 +91,8 @@ def validate_scan_day(s: str) -> str:
 def validate_scan_timezone(s: str) -> str:
     """Reject scan_timezone values that aren't IANA timezones.
 
-    Uses :class:`zoneinfo.ZoneInfo` to confirm the string resolves;
-    raises :class:`ValueError` with a clear message otherwise so the
+    Uses zoneinfo.ZoneInfo to confirm the string resolves;
+    raises ValueError with a clear message otherwise so the
     operator sees the startup failure instead of an opaque
     APScheduler exception once the cron trigger fires.
     """
@@ -193,10 +193,10 @@ def sanitise_trusted_proxies(raw: str) -> str:
 
     Sanitisation rules:
 
-    * Reject the literal wildcards in :data:`_FORBIDDEN_TRUSTED_PROXY_TOKENS`
+    * Reject the literal wildcards in _FORBIDDEN_TRUSTED_PROXY_TOKENS
       with a ``CRITICAL`` log line; return the empty string so
       the caller falls through to the proxy-headers-OFF branch.
-    * Drop any entry that fails :class:`ipaddress.ip_network` parsing
+    * Drop any entry that fails ipaddress.ip_network parsing
       (single IPs are accepted because ``ip_network('10.0.0.1')`` is a
       valid /32 network); log a WARNING per dropped entry so a typo is
       visible.

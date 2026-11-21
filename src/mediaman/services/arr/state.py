@@ -1,4 +1,4 @@
-# rationale: at 500+ lines this module sits just over the ceiling. The pieces
+# rationale: the pieces
 # (state constants, state computation, cache builders, LazyArrClients, and the
 # attach_download_states orchestrator) are tightly coupled around the ArrCaches
 # shape, and attach_download_states cannot move to web/repository without
@@ -39,10 +39,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Download-state action constants
-# ---------------------------------------------------------------------------
-
 #: Item has every file present.
 ACTION_IN_LIBRARY: Final = "in_library"
 #: TV item has *some* episode files but not all aired episodes.
@@ -54,21 +50,17 @@ ACTION_QUEUED: Final = "queued"
 
 
 class RadarrCaches(TypedDict):
-    """Cache fragment returned by :func:`build_radarr_cache`."""
-
     radarr_movies: dict[int, RadarrMovie]
     radarr_queue_tmdb_ids: set[int]
 
 
 class SonarrCaches(TypedDict):
-    """Cache fragment returned by :func:`build_sonarr_cache`."""
-
     sonarr_series: dict[int, SonarrSeries]
     sonarr_queue_tmdb_ids: set[int]
 
 
 class ArrCaches(RadarrCaches, SonarrCaches):
-    """Full merged cache; produced by ``{**build_radarr_cache(), **build_sonarr_cache()}``."""
+    pass
 
 
 def series_has_files(series_data: SonarrSeries) -> bool:
@@ -112,9 +104,7 @@ def _season_has_aired(season: ArrSeason) -> bool:
 def _compute_series_state(series: SonarrSeries, tmdb_id: int, caches: ArrCaches) -> str | None:
     """Return the download state for a tracked Sonarr *series*.
 
-    Extracted verbatim from the series branch of
-    :func:`compute_download_state`; *series* is the already-resolved
-    cache entry (never ``None``).
+    *series* is the already-resolved cache entry (never ``None``).
     """
     # Only consider seasons that have aired and are not season 0 (specials).
     # We additionally require ``monitored=True`` so an unmonitored season
@@ -196,13 +186,13 @@ def _build_arr_index(
 ) -> dict[int, RadarrMovie] | dict[int, SonarrSeries]:
     """Fetch all library items and build a ``{tmdbId: item}`` index.
 
-    Shared implementation for :func:`build_radarr_cache` and
-    :func:`build_sonarr_cache`, which were ~90% identical (§1.9 rule of three
-    is satisfied: Radarr, Sonarr, and the ``_ArrLibraryIndex`` helper in
-    ``completion/_verification.py`` all build the same tmdbId-keyed dict).
+    Shared implementation for ``build_radarr_cache`` and
+    ``build_sonarr_cache``, which were ~90% identical; the
+    ``_ArrLibraryIndex`` helper in ``completion/_verification.py`` builds the
+    same tmdbId-keyed dict.
 
     Args:
-        client: Configured :class:`ArrClient` (never ``None`` — callers guard).
+        client: Configured ``ArrClient`` (never ``None`` — callers guard).
         items_getter: Name of the method to call to fetch all items
             (``"get_movies"`` or ``"get_series"``).
         queue_tmdb_key: Key under each queue entry's media sub-dict that holds
@@ -266,7 +256,7 @@ def build_sonarr_cache(client: ArrClient | None) -> SonarrCaches:
     ``build_radarr_cache`` via dict-spread to get a full ``ArrCaches``.
     ``client`` may be ``None``.
 
-    See :func:`build_radarr_cache` for the duplicate-tmdb-id handling.
+    See ``build_radarr_cache`` for the duplicate-tmdb-id handling.
     """
     if client is None:
         return {"sonarr_series": {}, "sonarr_queue_tmdb_ids": set()}
@@ -290,12 +280,12 @@ def annotate_download_states(
     """Stamp ``download_state`` onto each result dict in *results*, in place.
 
     Builds the Radarr and Sonarr caches from DB settings, then walks
-    *results* and calls :func:`compute_download_state` for each item that
+    *results* and calls ``compute_download_state`` for each item that
     has a ``tmdb_id`` and ``media_type``.  Failures to build either cache
     are logged and treated as empty (the item receives ``download_state=None``).
 
     This is a service function — route handlers call it instead of
-    inlining the cache-build + iteration loop (§2.7).
+    inlining the cache-build + iteration loop.
 
     Args:
         results: List of normalised TMDB result dicts to annotate in place.
@@ -338,10 +328,10 @@ def is_series_already_tracked(sonarr_client: ArrClient, tvdb_id: int) -> bool:
 
     Iterates the full series list returned by Sonarr and checks for a
     matching ``tvdbId``.  This is a service-layer function so route handlers
-    are not responsible for iterating external-service payloads (§2.7).
+    are not responsible for iterating external-service payloads.
 
     Args:
-        sonarr_client: A configured Sonarr :class:`ArrClient`.
+        sonarr_client: A configured Sonarr ``ArrClient``.
         tvdb_id: The TVDB ID to look up.
 
     Raises:
@@ -354,21 +344,16 @@ def is_series_already_tracked(sonarr_client: ArrClient, tvdb_id: int) -> bool:
     return any(s.get("tvdbId") == tvdb_id for s in sonarr_client.get_series())
 
 
-# ---------------------------------------------------------------------------
-# LazyArrClients — request-scoped Radarr/Sonarr client pair
-# ---------------------------------------------------------------------------
-
-
 class LazyArrClients:
     """Request-scoped Radarr/Sonarr client pair built lazily from DB settings.
 
-    Each client is built at most once per :class:`LazyArrClients` instance.
-    Call :meth:`radarr` / :meth:`sonarr` to obtain the client (or ``None``
+    Each client is built at most once per ``LazyArrClients`` instance.
+    Call ``radarr`` / ``sonarr`` to obtain the client (or ``None``
     when the service is not configured).
 
     Args:
         conn: Open SQLite connection with ``row_factory`` set to
-            :class:`sqlite3.Row`.
+            ``sqlite3.Row``.
         secret_key: Application secret used to decrypt encrypted settings.
     """
 
@@ -381,7 +366,6 @@ class LazyArrClients:
         self._sonarr_built: bool = False
 
     def radarr(self) -> ArrClient | None:
-        """Return the Radarr :class:`~mediaman.services.arr.base.ArrClient`, building it on first call."""
         if not self._radarr_built:
             from mediaman.services.arr.build import build_radarr_from_db
 
@@ -390,7 +374,6 @@ class LazyArrClients:
         return self._radarr
 
     def sonarr(self) -> ArrClient | None:
-        """Return the Sonarr :class:`~mediaman.services.arr.base.ArrClient`, building it on first call."""
         if not self._sonarr_built:
             from mediaman.services.arr.build import build_sonarr_from_db
 
@@ -407,7 +390,7 @@ def _build_radarr_cache_resilient(client: ArrClient | None) -> tuple[RadarrCache
     log a WARNING and return an empty cache with ``configured=False`` so the
     recommendations page renders without Radarr badges instead of 500ing, and a
     down Radarr never wipes a freshly-optimistic ``downloaded_at`` flag.
-    Programming errors (``KeyError``/``TypeError``/…) are not caught (§6).
+    Programming errors (``KeyError``/``TypeError``/…) are not caught.
     """
     from mediaman.services.arr import ArrError
     from mediaman.services.infra import SafeHTTPError
@@ -426,7 +409,7 @@ def _build_radarr_cache_resilient(client: ArrClient | None) -> tuple[RadarrCache
 def _build_sonarr_cache_resilient(client: ArrClient | None) -> tuple[SonarrCaches, bool]:
     """Build the Sonarr cache, degrading to empty if Sonarr is unreachable.
 
-    Mirror of :func:`_build_radarr_cache_resilient` for Sonarr. Sonarr fails
+    Mirror of ``_build_radarr_cache_resilient`` for Sonarr. Sonarr fails
     independently of Radarr: a down Sonarr must not hide Radarr state.
     """
     from mediaman.services.arr import ArrError
@@ -443,13 +426,12 @@ def _build_sonarr_cache_resilient(client: ArrClient | None) -> tuple[SonarrCache
         return build_sonarr_cache(None), False
 
 
-# NOTE (§3.2): this module hosts several concepts — state constants, state
+# NOTE: this module hosts several concepts — state constants, state
 # computation, cache builders, LazyArrClients, and this recommendation-
 # annotation orchestrator. ``attach_download_states`` arguably belongs nearer
 # the recommendations service, but its ``suggestions``-table UPDATE cannot move
 # into the ``mediaman.web.repository`` layer (the arr package sits below web in
-# the dependency graph and must not import upward). Left here under the 500-line
-# ceiling; split it out only if the file grows past the ceiling.
+# the dependency graph and must not import upward). Left here for that reason.
 def attach_download_states(
     batches: list[dict[str, object]],
     arr: LazyArrClients,
@@ -458,7 +440,7 @@ def attach_download_states(
     """Annotate each recommendation with its Arr download state, in place.
 
     Walks every ``trending``/``personal`` item across *batches*; for an
-    item with a ``tmdb_id`` it computes :func:`compute_download_state`
+    item with a ``tmdb_id`` it computes ``compute_download_state``
     against the relevant Arr cache and, when that yields a non-``None``
     state, writes it onto ``item["download_state"]``.
 
@@ -475,9 +457,7 @@ def attach_download_states(
 
     The Radarr and Sonarr caches are built lazily — at most once each, and
     only if a movie / TV item is actually present — via *arr*. The two
-    *empty* cache halves are built once up front rather than per iteration
-    (the loop previously rebuilt the unused half on every opposite-branch
-    item, which was needless repeated work).
+    *empty* cache halves are built once up front rather than per iteration.
 
     Resilience: a recommendations page must not hard-depend on the arr stack
     being up. If building either cache raises an expected upstream failure —
@@ -485,7 +465,7 @@ def attach_download_states(
     its subclasses (domain) — that service degrades to an empty/unknown cache
     and the page still renders, just without that service's download badges.
     Each service fails independently (a down Sonarr does not hide Radarr state
-    and vice versa). Programming errors propagate untouched (§6).
+    and vice versa). Programming errors propagate untouched.
 
     Returns a ``{item["id"]: item}`` map of every item seen, so the caller
     can serialise the full set without re-walking the batches.
@@ -560,7 +540,7 @@ def attach_download_states(
         placeholders = ",".join("?" * len(stale_flag_ids))
         # The in-memory ``downloaded_at = None`` self-heal above and this DB
         # write are one fact (clear the stale badge); run the write inside an
-        # explicit transaction (§9.7) so a locked-DB failure rolls back cleanly
+        # explicit transaction so a locked-DB failure rolls back cleanly
         # rather than leaving a half-applied state on this render path.
         with conn:
             # rationale: placeholders is purely "?" * len(stale_flag_ids) — no user value ever enters the SQL text

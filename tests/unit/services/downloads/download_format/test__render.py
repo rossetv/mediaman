@@ -8,10 +8,6 @@ from mediaman.services.downloads.download_format import (
     select_hero,
 )
 
-# ---------------------------------------------------------------------------
-# build_item
-# ---------------------------------------------------------------------------
-
 
 class TestBuildItem:
     def _item(self, **kwargs) -> dict:
@@ -58,11 +54,6 @@ class TestBuildItem:
         assert item["arr_source"] == "Radarr"
 
 
-# ---------------------------------------------------------------------------
-# build_episode_summary
-# ---------------------------------------------------------------------------
-
-
 class TestBuildEpisodeSummary:
     def test_all_ready(self):
         eps = [{"state": "ready"}, {"state": "ready"}]
@@ -95,11 +86,6 @@ class TestBuildEpisodeSummary:
         eps = [{"state": "ready"}, {"state": "downloading"}]
         result = build_episode_summary(eps)
         assert " · " in result
-
-
-# ---------------------------------------------------------------------------
-# select_hero
-# ---------------------------------------------------------------------------
 
 
 class TestSelectHero:

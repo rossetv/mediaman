@@ -1,16 +1,16 @@
 """SQLite connection management and job-run helpers.
 
-Schema DDL lives in :mod:`mediaman.db.schema_definition` and is applied
-in full on every :func:`init_db` call.
+Schema DDL lives in mediaman.db.schema_definition and is applied
+in full on every init_db call.
 
 Connection lifecycle
 --------------------
-The bootstrap thread calls :func:`set_connection` early in startup, registering
-the connection it opened (via :func:`init_db`) as the owning-thread connection.
-Subsequent threads call :func:`get_db`, which lazily opens a fresh per-thread
-connection configured via :func:`_configure_connection` — the owning-thread
+The bootstrap thread calls set_connection early in startup, registering
+the connection it opened (via init_db) as the owning-thread connection.
+Subsequent threads call get_db, which lazily opens a fresh per-thread
+connection configured via _configure_connection — the owning-thread
 connection takes precedence when the calling thread matches, and the thread-local
-connection serves all other callers.  :func:`open_thread_connection` is the
+connection serves all other callers.  open_thread_connection is the
 explicit escape hatch for callers that need a brand-new, fully configured
 connection outside the lazy-open mechanism.
 """
@@ -33,7 +33,6 @@ logger = logging.getLogger(__name__)
 
 
 def _configure_connection(conn: sqlite3.Connection) -> None:
-    """Apply the pragmas every connection to this DB needs."""
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
@@ -62,7 +61,7 @@ def init_db(db_path: str) -> sqlite3.Connection:
 
 _thread_local = threading.local()
 # Single-process connection registry; mutated only from the bootstrap thread
-# (§1.12 single-worker invariant) at startup and in test tear-down — no lock
+# at startup and in test tear-down — no lock
 # required because there is never concurrent mutation in production code.
 _db_path: str | None = None
 _owning_thread: int | None = None
@@ -73,8 +72,8 @@ def get_db() -> sqlite3.Connection:
     """Return a thread-local connection to the configured DB file.
 
     Raises:
-        RuntimeError: If :func:`init_db` has not been called and no connection
-            has been registered via :func:`set_connection`.
+        RuntimeError: If init_db has not been called and no connection
+            has been registered via set_connection.
     """
     if _db_path is None and _owning_conn is None:
         raise RuntimeError("Database not initialised — call init_db first")
@@ -104,7 +103,6 @@ def get_db() -> sqlite3.Connection:
 
 
 def set_connection(conn: sqlite3.Connection) -> None:
-    """Register *conn* as the bootstrap connection for its thread."""
     global _owning_conn, _owning_thread
     _owning_conn = conn
     _owning_thread = threading.get_ident()
@@ -117,7 +115,7 @@ def reset_connection() -> None:
     test does not leak into the next (the thread-local is process-wide
     and would otherwise survive across the test boundary). Production
     code must not call this — the only correct lifecycle is one
-    :func:`init_db` per process.
+    init_db per process.
     """
     global _owning_conn, _owning_thread, _db_path
     _owning_conn = None
@@ -140,7 +138,6 @@ def reset_connection() -> None:
 
 
 def _set_db_path(path: str) -> None:
-    """Record the DB path used for future per-thread connections."""
     global _db_path
     _db_path = path
 
@@ -149,14 +146,14 @@ def open_thread_connection(db_path: str) -> sqlite3.Connection:
     """Open a new SQLite connection configured for use in a background thread.
 
     Applies the standard pragmas (WAL mode, busy timeout, foreign keys, row
-    factory) via :func:`_configure_connection`.  The caller owns the returned
+    factory) via _configure_connection.  The caller owns the returned
     connection and is responsible for closing it.
 
     Args:
         db_path: Filesystem path to the SQLite database file.
 
     Returns:
-        A fully configured :class:`sqlite3.Connection`.
+        A fully configured sqlite3.Connection.
     """
     conn = sqlite3.connect(db_path)
     _configure_connection(conn)
@@ -164,7 +161,6 @@ def open_thread_connection(db_path: str) -> sqlite3.Connection:
 
 
 def close_db() -> None:
-    """Close the current thread's lazily-opened connection, if any."""
     conn: sqlite3.Connection | None = getattr(_thread_local, "conn", None)
     if conn is not None:
         try:
@@ -174,8 +170,8 @@ def close_db() -> None:
 
 
 # Heartbeat lease: a running job renews its ``heartbeat_at`` column at
-# least once per :data:`_JOB_HEARTBEAT_INTERVAL_SECONDS`. A row whose
-# heartbeat is older than :data:`_JOB_HEARTBEAT_STALE_SECONDS` is
+# least once per _JOB_HEARTBEAT_INTERVAL_SECONDS. A row whose
+# heartbeat is older than _JOB_HEARTBEAT_STALE_SECONDS is
 # considered crashed and no longer blocks new runs.
 _JOB_HEARTBEAT_INTERVAL_SECONDS = 60
 _JOB_HEARTBEAT_STALE_SECONDS = 5 * 60
@@ -228,7 +224,7 @@ def _start_job_run(conn: sqlite3.Connection, table: str) -> int | None:
     """Insert a new 'running' row in *table* and return its id.
 
     Stamps ``owner_id`` and ``heartbeat_at`` so subsequent
-    :func:`heartbeat_job_run` calls keep the row visible as live.
+    heartbeat_job_run calls keep the row visible as live.
 
     Precondition: *conn* must not already have an open transaction.
     This function issues ``BEGIN IMMEDIATE`` directly; calling it inside
@@ -284,7 +280,7 @@ def _heartbeat_job_run(conn: sqlite3.Connection, table: str, run_id: int) -> Non
     """Stamp ``heartbeat_at`` for *run_id* with the current UTC time.
 
     Long-running scans should call this periodically (every minute is
-    enough — see :data:`_JOB_HEARTBEAT_INTERVAL_SECONDS`) so a sibling
+    enough — see _JOB_HEARTBEAT_INTERVAL_SECONDS) so a sibling
     invocation does not mistake the run for crashed and start an
     overlapping job. Best-effort: a transient lock failure is logged
     but not propagated.
@@ -301,14 +297,13 @@ def _heartbeat_job_run(conn: sqlite3.Connection, table: str, run_id: int) -> Non
 
 
 def is_scan_running(conn: sqlite3.Connection) -> bool:
-    """Return True if a scan job is currently active."""
     return _is_job_running(conn, "scan_runs")
 
 
 def start_scan_run(conn: sqlite3.Connection) -> int | None:
     """Begin a scan run. Returns the run id or None if one is already active.
 
-    Must not be called inside an existing transaction — see :func:`_start_job_run`.
+    Must not be called inside an existing transaction — see _start_job_run.
     """
     return _start_job_run(conn, "scan_runs")
 
@@ -329,14 +324,13 @@ def heartbeat_scan_run(conn: sqlite3.Connection, run_id: int) -> None:
 
 
 def is_refresh_running(conn: sqlite3.Connection) -> bool:
-    """Return True if a recommendation-refresh job is currently active."""
     return _is_job_running(conn, "refresh_runs")
 
 
 def start_refresh_run(conn: sqlite3.Connection) -> int | None:
     """Begin a refresh run. Returns the run id or None if one is already active.
 
-    Must not be called inside an existing transaction — see :func:`_start_job_run`.
+    Must not be called inside an existing transaction — see _start_job_run.
     """
     return _start_job_run(conn, "refresh_runs")
 

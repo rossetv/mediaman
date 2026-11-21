@@ -1,13 +1,7 @@
-/* =============================================================
-   TABLES — library/history table primitives, stat cards, and the
+/* TABLES — library/history table primitives, stat cards, and the
    snooze-dropdown menu, and pagination. Covers `.tbl`,
-   `.thumb`/`.lib-thumb`, stat cards (`.stats`/`.lib-stats`).
-   Extracted from _base.css per CODE_GUIDELINES.md §3.1.
-   ============================================================= */
+   `.thumb`/`.lib-thumb`, stat cards (`.stats`/`.lib-stats`). */
 
-/* =============================================================
-   10. TABLES (library, history)
-   ============================================================= */
 .tbl { width: 100%; border-collapse: collapse; }
 .tbl .col-thumb { width: 60px; } /* thumbnail column */
 .tbl thead th {
@@ -51,7 +45,7 @@
   width: 44px;
   height: 66px;
   border-radius: var(--r-xs);
-  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
+  background: var(--s3);
   overflow: hidden;
   flex-shrink: 0;
   display: block;
@@ -68,9 +62,6 @@ img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
   letter-spacing: -.005em;
 }
 
-/* =============================================================
-   12. STAT CARDS (library)
-   ============================================================= */
 .lib-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -103,9 +94,6 @@ img.lib-thumb { width: 44px; height: 66px; object-fit: cover; }
 .lib-stat-label { font-size: 12px; color: var(--t3); letter-spacing: -.005em; }
 .lib-stat-value--stale { color: var(--danger); }
 
-/* =============================================================
-   21. LIBRARY TABLE
-   ============================================================= */
 .toolbar-row {
   display: flex;
   align-items: center;

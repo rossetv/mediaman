@@ -1,7 +1,7 @@
 """Prompt construction and raw-response parsing for recommendations.
 
 Each public function returns a list of partially-populated recommendation
-dicts (no TMDB/OMDb data yet — that is added by :mod:`.enrich`).
+dicts (no TMDB/OMDb data yet — that is added by enrich).
 """
 
 from __future__ import annotations
@@ -72,17 +72,11 @@ _INJECTION_PATTERNS = re.compile(
 
 
 def _safe_previous_titles(titles: list[str] | None) -> list[str]:
-    """Return *titles* with any entry containing the untrusted-block
-    delimiter substring filtered out.
+    """Return *titles* minus any entry containing the untrusted-block delimiter substring.
 
-    The previous-titles list is JSON-encoded inside an
-    ``<UNTRUSTED_PREVIOUS_TITLES>`` block so any quoted ``</UNTRUSTED_``
-    substring would survive only as an escaped JSON string literal —
-    not a real closing tag.  Even so, we drop the entry rather than
-    rely on the encoder, so a future change to the block format cannot
-    silently re-introduce the breakout vector.
-
-    Returns a new list; never raises.
+    Titles are JSON-encoded inside an <UNTRUSTED_PREVIOUS_TITLES> block, so a quoted
+    </UNTRUSTED_ would only be an escaped literal. Entries are dropped anyway so a
+    future change to the block format cannot reintroduce the breakout.
     """
     if not titles:
         return []
@@ -118,19 +112,13 @@ top-level object — wrapping the array under "items" is the only way to comply.
 
 
 def strip_season_suffix(title: str) -> str:
-    """Return *title* with a trailing "Season N" / "SN" marker removed."""
     return _SEASON_SUFFIX_RE.sub("", title).strip()
 
 
 def sanitise_plex_string(s: str) -> str:
-    """Sanitise a Plex-derived string before embedding it in an OpenAI prompt.
-
-    Steps applied in order:
-    1. NFC-normalise (fold combining sequences to their precomposed form).
-    2. Strip C0/C1 control characters (preserving space, tab).
-    3. Remove characters whose Unicode general category does not start with
-       L (letter), N (number), P (punctuation), or Z (separator/space).
-    4. Truncate to ``_PLEX_STRING_MAX_LEN`` characters.
+    """Sanitise a Plex-derived string before embedding it in a prompt: NFC-normalise, strip
+    C0/C1 control characters (keeping space and tab), drop characters outside the
+    Unicode L, N, P and Z categories, and truncate to _PLEX_STRING_MAX_LEN.
     """
     s = unicodedata.normalize("NFC", s)
     s = _CTRL_CHAR_RE.sub("", s)
@@ -144,12 +132,8 @@ logger = logging.getLogger(__name__)
 
 
 def _validate_llm_string(value: str, max_len: int, field: str) -> str | None:
-    """Return *value* if it passes LLM-output validation, or ``None`` to reject.
-
-    Checks applied:
-    * Strip and enforce maximum length.
-    * Reject strings containing C0/C1 control characters.
-    * Reject strings matching known prompt-injection patterns.
+    """Return *value* if it passes LLM-output validation, else None: stripped, within
+    *max_len*, free of C0/C1 control characters and of known prompt-injection patterns.
     """
     value = value.strip()
     if not value:
@@ -180,14 +164,10 @@ def _validate_llm_string(value: str, max_len: int, field: str) -> str | None:
 def parse_recommendations(
     items: list[dict[str, object]], category: str
 ) -> list[RecommendationItem]:
-    """Normalise and validate raw GPT recommendations.
-
-    Each item is validated against stricter rules to prevent prompt-injection and control-character leakage:
-
-    * Titles must be ≤ 200 characters, contain no control characters, and
-      must not match known prompt-injection patterns.
-    * Reasons must be ≤ 1000 characters and pass the same checks.
-    * Items that fail validation are skipped with a warning log.
+    """Normalise and validate raw GPT recommendations to block prompt injection and
+    control-character leakage: titles at most 200 characters, reasons at most 1000, both
+    free of control characters and injection patterns. Failing items are skipped with a
+    warning.
     """
     results: list[RecommendationItem] = []
     for item in items:
@@ -241,13 +221,8 @@ def generate_trending(
     *,
     secret_key: str | None = None,
 ) -> list[RecommendationItem]:
-    """Generate trending media recommendations using web search.
-
-    Args:
-        conn: DB connection.
-        previous_titles: Titles recommended in the last 30 days — GPT is instructed
-            not to repeat them.
-        secret_key: Encryption key for reading the OpenAI API key from DB settings.
+    """Generate trending recommendations using web search. *previous_titles* are titles
+    from the last 30 days that GPT is told not to repeat.
     """
     now = now_utc()
     last_week_end = now - timedelta(days=now.weekday() + 1)
@@ -286,7 +261,7 @@ def generate_trending(
     return parse_recommendations(items, "trending")
 
 
-# rationale: body is 49 executable lines (§3.1 ceiling is 60). The function
+# rationale: the function
 # is kept as one unit because the byte-budget calculation for the Plex data
 # block is a single coherent algorithm whose safety properties (never
 # truncating mid-codepoint, never chopping the closing delimiter) can only
@@ -300,22 +275,13 @@ def generate_personal(
     *,
     secret_key: str | None = None,
 ) -> list[RecommendationItem]:
-    """Generate personalised recommendations based on watch history and user ratings.
+    """Generate personalised recommendations from watch history and ratings.
 
-    All Plex-sourced titles and ratings are sanitised through
-    :func:`sanitise_plex_string` before being embedded in the prompt, and
-    the entire user-data block is wrapped in explicit ``<BEGIN_PLEX_DATA>``
-    / ``<END_PLEX_DATA>`` delimiters.  The system instructions explicitly
-    tell the model to treat that region as untrusted data and never to
-    execute any instruction it may contain.
-
-    Args:
-        conn: DB connection.
-        watch_history: Recently watched titles from Plex.
-        user_ratings: User star ratings from Plex.
-        previous_titles: Titles recommended in the last 30 days — GPT is instructed
-            not to repeat them.
-        secret_key: Encryption key for reading the OpenAI API key from DB settings.
+    Plex-sourced titles and ratings pass through sanitise_plex_string and the user-data
+    block is wrapped in <BEGIN_PLEX_DATA> / <END_PLEX_DATA> delimiters; the system
+    instructions tell the model to treat that region as untrusted data and never execute
+    instructions in it. *previous_titles* are titles from the last 30 days that GPT is
+    told not to repeat.
     """
     history_text = "\n".join(
         f"- {sanitise_plex_string(str(h['title']))} ({h['type']})" for h in watch_history[:50]
@@ -328,7 +294,6 @@ def generate_personal(
             for r in user_ratings[:80]
         )
 
-    # ----------------------------------------------------------------------
     # Size budget: truncate the *inner* content (history + ratings + JSON
     # of previous titles) at a CHARACTER boundary BEFORE we wrap it in the
     # ``<UNTRUSTED_PREVIOUS_TITLES>`` and ``<BEGIN_PLEX_DATA>`` delimiters.
@@ -345,7 +310,6 @@ def generate_personal(
     # We now budget bytes against the inner content alone and rebuild the
     # block from the trimmed pieces, so the closing delimiters are always
     # intact and complete codepoints survive the trim.
-    # ----------------------------------------------------------------------
     inner_parts = [f"Recent watch history:\n{history_text}"]
     if ratings_lines:
         inner_parts.append("User ratings (1-5 stars — higher = liked more):\n" + ratings_lines)

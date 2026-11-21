@@ -3,11 +3,11 @@
 Owns the ``arr_search_throttle`` table interactions: loading, saving,
 reconciling stranded rows, clearing per-item state, and resetting all
 in-memory state.  All mutable in-memory state is imported from
-:mod:`mediaman.services.arr._throttle_state` so the two modules share
+``mediaman.services.arr._throttle_state`` so the two modules share
 the same dicts and lock object.
 
 All names in this module are re-exported verbatim from
-:mod:`mediaman.services.arr.search_trigger` so existing import paths
+``mediaman.services.arr.search_trigger`` so existing import paths
 and test monkeypatch targets continue to work.
 """
 
@@ -32,10 +32,10 @@ logger = logging.getLogger(__name__)
 
 _STRANDED_THROTTLE_TTL_SECONDS = 90 * 24 * 60 * 60  # 90 days
 
-# Rate-limit for the persist-failure WARNING (M7): a wedged disk would
+# Rate-limit for the persist-failure WARNING: a wedged disk would
 # otherwise emit one WARNING per dl_id per tick, drowning the log. We log at
 # most once per this window and fold the suppressed count into the next line.
-# Best-effort in-process counters (§1.12); reset on restart.
+# Best-effort in-process counters; reset on restart.
 _PERSIST_WARN_INTERVAL_SECONDS = 60.0
 _persist_warn_last: float = 0.0
 _persist_warn_suppressed: int = 0
@@ -116,9 +116,9 @@ def _save_trigger_to_db(conn: sqlite3.Connection, dl_id: str, epoch: float, coun
 
 
 def _warn_persist_failure(dl_id: str) -> None:
-    """Emit a rate-limited WARNING for a throttle-persist failure (M7).
+    """Emit a rate-limited WARNING for a throttle-persist failure.
 
-    Logs at most once per :data:`_PERSIST_WARN_INTERVAL_SECONDS`, folding the
+    Logs at most once per ``_PERSIST_WARN_INTERVAL_SECONDS``, folding the
     number of suppressed failures since the last line into the message so the
     operator still sees the scale of a wedged disk without log flooding.
     """

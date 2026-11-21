@@ -1,14 +1,6 @@
-"""Search page and TMDB-backed list endpoints.
-
-Hosts:
-
-* ``GET /search`` — the search HTML page.
-* ``GET /api/search`` — typeahead/multi-search endpoint.
-* ``GET /api/search/discover`` — Trending/Popular shelves endpoint.
-
-The list endpoints share a TMDB-paged-fetch + state-annotation + ratings
-fan-out pipeline; those helpers live in :mod:`._enrichment` so this module
-focuses on request/response shaping.
+"""Search page and TMDB-backed list endpoints (GET /search, GET /api/search, GET
+/api/search/discover). The shared fetch, annotation and ratings pipeline lives in
+._enrichment.
 """
 
 from __future__ import annotations
@@ -43,12 +35,8 @@ router = APIRouter()
 
 
 def _normalise_shelf(raw: Iterable[dict[str, object]], limit: int) -> list[dict[str, object]]:
-    """Normalise *raw* TMDB items and cap the result at *limit* entries.
-
-    Applies :func:`_normalise_tmdb_item` to each element and filters out
-    ``None`` results (items that are missing required fields or have an
-    unsupported media type).  The ``[:limit]`` slice is applied after
-    filtering so the cap is on usable results, not raw API entries.
+    """Normalise raw TMDB items and cap the result at limit. The slice applies after filtering
+    out unusable items, so the cap counts usable results, not raw API entries.
     """
     normalised = (_normalise_tmdb_item(tmdb_item) for tmdb_item in raw)
     return [item for item in normalised if item is not None][:limit]
@@ -56,7 +44,6 @@ def _normalise_shelf(raw: Iterable[dict[str, object]], limit: int) -> list[dict[
 
 @router.get("/search", response_class=HTMLResponse)
 def search_page(request: Request) -> Response:
-    """Render the media search page. Redirects to /login if the session is invalid."""
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
@@ -74,19 +61,8 @@ def search_page(request: Request) -> Response:
 
 @router.get("/api/search")
 def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
-    """Search TMDB for movies and TV shows matching *q*.
-
-    Fetches pages 1 and 2 in parallel, normalises each result, annotates
-    download state, and enriches with OMDb ratings. Returns up to 40 results.
-
-    Args:
-        q: Search query (must be at least 2 characters).
-        request: Incoming FastAPI request (used to resolve app state).
-        admin: Authenticated admin username (rate-limit key).
-
-    Returns:
-        JSON with a ``results`` list, or an error response on rate-limit or
-        TMDB misconfiguration.
+    """Search TMDB for movies and TV shows matching q: pages 1 and 2 in parallel, up to 40
+    results, with download state and OMDb ratings.
     """
     if not _QUERY_LIMITER.check(admin):
         logger.warning("search.query_throttled user=%s", admin)
@@ -119,16 +95,8 @@ def api_search(q: str, request: Request, admin: str = Depends(get_current_admin)
 
 @router.get("/api/search/discover")
 def api_discover(request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
-    """Return trending and popular shelves from TMDB for the discover view.
-
-    Fetches trending, popular movies, and popular TV pages in parallel across
-    a thread pool; results are TTL-cached per shelf key to avoid redundant TMDB
-    calls. Each shelf is normalised, state-annotated, and ratings-enriched before
-    being returned.
-
-    Returns:
-        JSON with ``trending``, ``popular_movies``, and ``popular_tv`` lists,
-        each capped at 21 items.
+    """Return trending and popular shelves from TMDB, each capped at 21 items. Shelves are
+    fetched in parallel and TTL-cached per shelf key to avoid redundant TMDB calls.
     """
     if not _QUERY_LIMITER.check(admin):
         logger.warning("search.discover_throttled user=%s", admin)

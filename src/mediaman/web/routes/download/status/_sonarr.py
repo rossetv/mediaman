@@ -1,20 +1,6 @@
-"""Sonarr status-projection helpers.
-
-The Sonarr status projection has three independent phases, each broken out
-into its own helper here:
-
-  * :func:`_sonarr_queue_entries`  — walk the download queue, collecting the
-    per-episode accumulators for the target series.
-  * :func:`_sonarr_aggregate`      — fold those per-episode entries into a
-    single multi-episode ``DownloadItem``.
-  * :func:`_sonarr_series_fallback` — the no-queue path: ask ``get_series()``
-    whether the series is already on disk, recently downloaded, or still
-    being searched for.
-
-The orchestrator ``_sonarr_status`` — which builds the Arr client and runs
-the three phases in order — lives in the package barrel
-(:mod:`mediaman.web.routes.download.status`) so the ``build_sonarr_from_db``
-call site stays patchable by the test suite.
+"""Sonarr status projections: _sonarr_queue_entries, _sonarr_aggregate and the no-queue
+_sonarr_series_fallback. The orchestrator lives in the package barrel so
+build_sonarr_from_db stays patchable.
 """
 
 from __future__ import annotations
@@ -42,8 +28,6 @@ if TYPE_CHECKING:
 
 
 class _SonarrEpEntry(TypedDict):
-    """Intermediate per-episode accumulator used inside ``_sonarr_status``."""
-
     label: str
     title: str
     progress: int
@@ -57,11 +41,8 @@ class _SonarrEpEntry(TypedDict):
 def _sonarr_queue_entries(
     queue: list[ArrQueueItem], tmdb_id: int
 ) -> tuple[str, str, list[_SonarrEpEntry]]:
-    """Walk the Sonarr download *queue*, collecting entries for *tmdb_id*.
-
-    Returns ``(series_title, series_poster, ep_entries)`` — the title and
-    poster are taken from the first matching queue item, ``ep_entries`` is
-    one accumulator per matching episode (empty when nothing matches).
+    """Return (series_title, series_poster, ep_entries) from the first matching queue item;
+    ep_entries has one accumulator per matching episode.
     """
     series_title = ""
     series_poster = ""
@@ -104,11 +85,7 @@ def _sonarr_queue_entries(
 def _sonarr_aggregate(
     series_title: str, series_poster: str, ep_entries: list[_SonarrEpEntry]
 ) -> DownloadItem:
-    """Fold the per-episode *ep_entries* into one multi-episode download item.
-
-    Callers must only invoke this with a non-empty ``ep_entries`` list — it
-    is the queue-present branch of ``_sonarr_status``.
-    """
+    """Fold ep_entries into one multi-episode item; callers must pass a non-empty list."""
     ep_entries.sort(key=lambda e: e["label"])
     episodes = build_episode_dicts(cast("list[dict[str, object]]", ep_entries))
     total_size = sum(e["size"] for e in ep_entries)
@@ -147,12 +124,6 @@ def _sonarr_aggregate(
 def _sonarr_series_fallback(
     client: ArrClient, conn: sqlite3.Connection, tmdb_id: int
 ) -> DownloadItem:
-    """Return the no-queue status for *tmdb_id* via ``client.get_series()``.
-
-    Used when the download queue holds nothing for the series: classifies
-    it as ``ready`` (already on disk, or a recent download row), or
-    ``searching`` (matched but no files, or no match at all).
-    """
     all_series = client.get_series()
     matched = next(
         (s for s in all_series if s.get("tmdbId") == tmdb_id),

@@ -1,15 +1,15 @@
 """TOCTOU-hardened filesystem deletion operations.
 
 This module owns the destructive operations that consume the validated
-delete-root allowlist: the public :func:`delete_path` entry point and its
+delete-root allowlist: the public ``delete_path`` entry point and its
 private ``_safe_rmtree`` recursive remover (not exported from the package
 barrel — ``delete_path`` is the only public way to trigger a deletion). The
 allowlist *validation* helpers (forbidden-root refusal, atomic symlink check)
-live in :mod:`._delete_roots`.
+live in ``_delete_roots``.
 
 Threat model: between the caller's containment check and the actual removal
 there is a TOCTOU window. An attacker who can swap a directory for a symlink
-in that window could redirect the deletion at ``/``. :func:`_safe_rmtree`
+in that window could redirect the deletion at ``/``. ``_safe_rmtree``
 narrows the window by re-resolving and re-checking containment at delete time,
 pinning to the root's filesystem device (checked *before* the per-entry
 symlink branch so a cross-device swap is refused regardless), and walking with
@@ -18,7 +18,7 @@ is ever crossed. The per-entry ``lstat``-then-``unlink`` on a name is two
 syscalls, not one atomic operation — ``os.unlink`` never follows a final
 symlink, so the link target is safe, but this is defence-in-depth, not a
 claim of per-entry atomicity. See the ``# rationale:`` block on
-:func:`_safe_rmtree` for the precise scope of the guarantee.
+``_safe_rmtree`` for the precise scope of the guarantee.
 """
 
 from __future__ import annotations
@@ -38,15 +38,15 @@ def path_within_delete_roots(path: str, allowed_roots: list[str]) -> bool:
 
     A pure containment predicate — it performs **no** filesystem mutation
     and never raises. Use it to decide whether a stored path *would have
-    been* deletable by :func:`delete_path` when the file itself is already
-    absent (so the device / symlink checks in :func:`_safe_rmtree` cannot
+    been* deletable by ``delete_path`` when the file itself is already
+    absent (so the device / symlink checks in ``_safe_rmtree`` cannot
     run). The crash-recovery path uses it to refuse crediting "freed bytes"
     for a path that was never inside the configured roots.
 
     Returns ``False`` (fail-closed) when *path* is empty, not absolute, the
     allowlist is empty or malformed (any forbidden / relative / symlink
     root), or *path* resolves to a root itself rather than a strict
-    descendant. The strict-descendant rule matches :func:`delete_path`
+    descendant. The strict-descendant rule matches ``delete_path``
     exactly so the predicate and the executor never disagree.
     """
     if not path or not isinstance(path, str):
@@ -69,7 +69,7 @@ def delete_path(path: str, *, allowed_roots: list[str] | None = None) -> None:
     """Delete a file or directory, with mandatory path validation.
 
     ``allowed_roots`` is required and must be a non-empty list. Raises
-    :class:`DeletionRefused` if it is missing or empty, if any root is
+    ``DeletionRefused`` if it is missing or empty, if any root is
     itself a forbidden top-level path (``/``, ``/etc``, ``/data``, etc.),
     or if the resolved target is not a *strict descendant* of one of the
     roots.
@@ -143,9 +143,9 @@ def delete_path(path: str, *, allowed_roots: list[str] | None = None) -> None:
 def _safe_rmtree(path: Path, allowed_roots: list[Path]) -> None:
     """Delete *path* without following symlinks or escaping *allowed_roots*.
 
-    NOT a public entry point. :func:`delete_path` is the only supported way
+    NOT a public entry point. ``delete_path`` is the only supported way
     in — ``_safe_rmtree`` is deliberately absent from the package barrel's
-    ``__all__`` (B2) so a caller cannot reach it without going through
+    ``__all__`` so a caller cannot reach it without going through
     ``delete_path``'s full allowlist validation. The defences below are
     re-checked here regardless, so a direct in-module call is still safe.
 
@@ -182,9 +182,9 @@ def _safe_rmtree(path: Path, allowed_roots: list[Path]) -> None:
         )
 
     # Reject any allowed root that is a symlink on disk — checked
-    # UNCONDITIONALLY (B2), re-derived from the ``allowed_roots`` this
+    # UNCONDITIONALLY, re-derived from the ``allowed_roots`` this
     # function actually walks under rather than an optional raw-roots
-    # parameter a bypassing caller might omit. The primary B2 defence is
+    # parameter a bypassing caller might omit. The primary defence is
     # that ``_safe_rmtree`` is no longer in the package barrel's ``__all__``,
     # so the only public path in is ``delete_path``, which already rejects
     # symlinked raw roots via ``_validate_delete_roots``. This loop is
@@ -273,8 +273,8 @@ def _safe_rmtree(path: Path, allowed_roots: list[Path]) -> None:
             for name in filenames:
                 entry_stat = os.lstat(name, dir_fd=dirfd)
                 # Device check FIRST — before the symlink short-circuit — so a
-                # cross-device entry is refused whether or not it is a symlink
-                # (B1). A symlink entry swapped in for a hardlink-to-another-
+                # cross-device entry is refused whether or not it is a symlink.
+                # A symlink entry swapped in for a hardlink-to-another-
                 # device file must still trip the device guard.
                 if entry_stat.st_dev != root_dev:
                     raise DeletionRefused(
@@ -292,7 +292,7 @@ def _safe_rmtree(path: Path, allowed_roots: list[Path]) -> None:
             for name in dirnames:
                 entry_stat = os.lstat(name, dir_fd=dirfd)
                 # Device check FIRST (see filenames loop above) — a cross-
-                # device subdir entry is refused even if it is a symlink (B1).
+                # device subdir entry is refused even if it is a symlink.
                 if entry_stat.st_dev != root_dev:
                     raise DeletionRefused(
                         f"Refusing to delete '{resolved}' — subdirectory "

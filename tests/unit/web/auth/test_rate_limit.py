@@ -1,5 +1,3 @@
-"""Tests for login rate limiting."""
-
 from __future__ import annotations
 
 import logging
@@ -135,7 +133,7 @@ class TestRateLimiterEviction:
         assert "10.0.4.0/24" in limiter._attempts
 
     def test_bucket_count_never_exceeds_max(self, monkeypatch):
-        """F-16: the bucket dict must never hold more entries than _MAX_BUCKETS.
+        """The bucket dict must never hold more entries than _MAX_BUCKETS.
 
         The old code evicted AFTER inserting, so len could reach _MAX_BUCKETS+1
         transiently. The fixed code evicts BEFORE inserting a new key.
@@ -256,7 +254,6 @@ class TestActionRateLimiterSlidingDay:
 
 class TestGetClientIp:
     def test_ignores_forwarded_headers_when_no_trusted_proxy(self, monkeypatch):
-        """By default no proxy is trusted — forwarded headers are ignored."""
         monkeypatch.delenv("MEDIAMAN_TRUSTED_PROXIES", raising=False)
 
         class FakeRequest:
@@ -328,9 +325,6 @@ class TestGetClientIp:
 
 
 class TestGetClientIpH7:
-    """H7: focused test matrix for multi-hop XFF chains and X-Real-IP validation."""
-
-    # ------------------------------------------------------------------ H7(a)
     def test_chain_only_innermost_proxy_trusted(self, monkeypatch):
         """Proxy chain A → B → client where only B is trusted.
 
@@ -349,7 +343,6 @@ class TestGetClientIpH7:
         result = get_client_ip(FakeRequest())
         assert result == "198.51.100.7"
 
-    # ------------------------------------------------------------------ H7(b)
     def test_untrusted_proxy_xff_is_ignored(self, monkeypatch):
         """An untrusted proxy's XFF header must not be honoured.
 
@@ -364,7 +357,6 @@ class TestGetClientIpH7:
 
         assert get_client_ip(FakeRequest()) == "203.0.113.99"
 
-    # ------------------------------------------------------------------ H7(c)
     def test_malformed_x_real_ip_falls_through_to_peer(self, monkeypatch):
         """A non-IP X-Real-IP must be silently discarded; peer is returned."""
         monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
@@ -387,7 +379,6 @@ class TestGetClientIpH7:
 
         assert get_client_ip(FakeRequest()) == "198.51.100.42"
 
-    # ------------------------------------------------------------------ H7(d)
     def test_empty_xff_falls_through_to_peer(self, monkeypatch):
         """An empty (or absent) XFF header must fall through to peer."""
         monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "10.0.0.0/8")
@@ -575,11 +566,6 @@ class TestTrustedProxiesParser:
             assert cloudflare_proxies() == []
 
 
-# ---------------------------------------------------------------------------
-# XFF right-to-left walk (prevents leftmost-spoof bypass)
-# ---------------------------------------------------------------------------
-
-
 class TestXffRightmostWalk:
     def test_attacker_cannot_spoof_leftmost_xff(self, monkeypatch):
         """Right-to-left walk ignores an attacker-prepended leftmost entry."""
@@ -602,11 +588,6 @@ class TestXffRightmostWalk:
             client = type("C", (), {"host": "10.0.0.2"})()
 
         assert get_client_ip(FakeRequest()) == "10.0.0.2"
-
-
-# ---------------------------------------------------------------------------
-# CF-Connecting-IP header handling
-# ---------------------------------------------------------------------------
 
 
 class TestCfConnectingIp:

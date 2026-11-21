@@ -1,8 +1,8 @@
 """Protection and snooze queries on ``scheduled_actions`` and ``kept_shows``.
 
-Split from :mod:`scheduled_actions` so the protection/snooze read path lives
+Split from scheduled_actions so the protection/snooze read path lives
 in its own module while deletion-lifecycle mutations stay in
-:mod:`scheduled_actions`. Both modules write to the same table group; this
+scheduled_actions. Both modules write to the same table group; this
 module is read-heavy (or small targeted DELETEs) and never touches
 ``DeletionRow``.
 """
@@ -24,7 +24,7 @@ def is_protected(conn: sqlite3.Connection, media_id: str) -> bool:
     has ``action='protected_forever'`` (regardless of ``token_used``),
     or if **any** of its ``snoozed`` rows still has ``execute_at`` at or
     after *now*. The boundary is inclusive (``>=``) so the protection
-    side owns the exact-``now`` instant; :func:`cleanup_expired_snoozes`
+    side owns the exact-``now`` instant; cleanup_expired_snoozes
     uses the complementary strict ``<`` so the two never overlap and a
     snooze whose ``execute_at`` equals *now* is treated as still active.
 
@@ -85,7 +85,7 @@ def is_show_kept_pure(
     """Pure read for ``is_show_kept``: returns True iff a live keep rule exists.
 
     Performs **no** writes. Used directly by callers that want a clean
-    boolean answer without touching the DB; :func:`is_show_kept` wraps
+    boolean answer without touching the DB; is_show_kept wraps
     this with the legacy expired-snooze cleanup to preserve the
     pre-existing engine.py contract.
     """
@@ -114,10 +114,10 @@ def cleanup_expired_show_snoozes(conn: sqlite3.Connection, now_iso: str) -> int:
     therefore left untouched. Returns the row count removed so callers
     can log / metric the cleanup.
 
-    Pulled out of :func:`is_show_kept` so the cleanup is a separately
+    Pulled out of is_show_kept so the cleanup is a separately
     callable, observable, single-purpose operation. Suitable for a
     periodic scheduler job — a single statement covers every expired
-    row in one round trip — but :func:`is_show_kept` still calls it
+    row in one round trip — but is_show_kept still calls it
     inline for back-compat with the engine.py caller that expects the
     legacy "ask + clean" behaviour.
     """
@@ -137,15 +137,15 @@ def is_show_kept(conn: sqlite3.Connection, show_rating_key: str | None) -> bool:
     Composed from two single-purpose helpers so each side is observable
     in isolation:
 
-    * :func:`is_show_kept_pure` — the read.
-    * :func:`cleanup_expired_show_snoozes` — the cleanup.
+    * is_show_kept_pure — the read.
+    * cleanup_expired_show_snoozes — the cleanup.
 
     The split makes each side observable in isolation. This top-level
     function preserves the legacy "ask + clean" contract for the
     existing engine.py caller: when the read says the keep is no
     longer live (i.e. an expired snooze), we sweep the row out so the
     table doesn't accrete dead rows over time. Callers that want a
-    pure read should call :func:`is_show_kept_pure` directly.
+    pure read should call is_show_kept_pure directly.
     """
     if not show_rating_key:
         return False
@@ -169,11 +169,11 @@ def fetch_protected_media_ids(
     """Return the subset of *media_ids* that are protected.
 
     Batched, set-building replacement for the per-item
-    :func:`is_protected` round trip in the hot scan loop (§13.3). The
-    active-ness rule matches :func:`is_protected` byte-for-byte: a
+    is_protected round trip in the hot scan loop. The
+    active-ness rule matches is_protected byte-for-byte: a
     ``protected_forever`` row (any ``token_used``) or a ``snoozed`` row
     whose ``execute_at`` is non-NULL and at or after *now* (inclusive
-    ``>=`` boundary, matching :func:`is_protected`). Chunked into
+    ``>=`` boundary, matching is_protected). Chunked into
     groups of 500 to stay below SQLite's parameter limit.
     """
     if not media_ids:
@@ -182,7 +182,7 @@ def fetch_protected_media_ids(
     for start in range(0, len(media_ids), 500):
         chunk = media_ids[start : start + 500]
         id_placeholders = ",".join("?" * len(chunk))
-        # rationale: §9.6 IN-clause batching — only "?" placeholders interpolated; every value is bound
+        # rationale: IN-clause batching — only "?" placeholders interpolated; every value is bound
         rows = conn.execute(  # nosec B608
             f"SELECT DISTINCT media_item_id FROM scheduled_actions "
             f"WHERE media_item_id IN ({id_placeholders}) "
@@ -203,10 +203,10 @@ def fetch_already_scheduled_media_ids(
     """Return the subset of *media_ids* with a pending ``scheduled_deletion``.
 
     Batched, set-building replacement for the per-item
-    :func:`is_already_scheduled` round trip in the hot scan loop
-    (§13.3). The rule matches :func:`is_already_scheduled` exactly:
-    ``action = 'scheduled_deletion'`` with ``token_used = 0``. Chunked
-    into groups of 500 to stay below SQLite's parameter limit.
+    is_already_scheduled round trip in the hot scan loop. The rule matches
+    is_already_scheduled exactly: ``action = 'scheduled_deletion'`` with
+    ``token_used = 0``. Chunked into groups of 500 to stay below SQLite's
+    parameter limit.
     """
     if not media_ids:
         return set()
@@ -214,7 +214,7 @@ def fetch_already_scheduled_media_ids(
     for start in range(0, len(media_ids), 500):
         chunk = media_ids[start : start + 500]
         id_placeholders = ",".join("?" * len(chunk))
-        # rationale: §9.6 IN-clause batching — only "?" placeholders interpolated; every value is bound
+        # rationale: IN-clause batching — only "?" placeholders interpolated; every value is bound
         rows = conn.execute(  # nosec B608
             f"SELECT DISTINCT media_item_id FROM scheduled_actions "
             f"WHERE media_item_id IN ({id_placeholders}) "
@@ -233,17 +233,17 @@ def fetch_kept_show_keys(
     """Return the subset of *show_rating_keys* with a live keep rule.
 
     Batched, set-building replacement for the per-season
-    :func:`is_show_kept_pure` round trip in the TV scan loop. The
-    live-keep rule matches :func:`is_show_kept_pure` exactly: a
+    is_show_kept_pure round trip in the TV scan loop. The
+    live-keep rule matches is_show_kept_pure exactly: a
     ``protected_forever`` row, or a row whose ``execute_at`` is non-NULL
     and still in the future. ``kept_shows.show_rating_key`` is ``UNIQUE``
     (see the schema), so there is at most one row per key and the set
     answer equals the helper's ``LIMIT 1`` read byte-for-byte. Chunked
     into groups of 500 to stay below SQLite's parameter limit.
 
-    Unlike :func:`is_show_kept`, this performs **no** cleanup write: the
+    Unlike is_show_kept, this performs **no** cleanup write: the
     caller sweeps expired snoozes once up front via
-    :func:`cleanup_expired_show_snoozes` before building this set.
+    cleanup_expired_show_snoozes before building this set.
     """
     if not show_rating_keys:
         return set()
@@ -251,7 +251,7 @@ def fetch_kept_show_keys(
     for start in range(0, len(show_rating_keys), 500):
         chunk = show_rating_keys[start : start + 500]
         key_placeholders = ",".join("?" * len(chunk))
-        # rationale: §9.6 IN-clause batching — only "?" placeholders interpolated; every value is bound
+        # rationale: IN-clause batching — only "?" placeholders interpolated; every value is bound
         rows = conn.execute(  # nosec B608
             f"SELECT show_rating_key FROM kept_shows "
             f"WHERE show_rating_key IN ({key_placeholders}) "
@@ -271,7 +271,7 @@ def cleanup_expired_snoozes(conn: sqlite3.Connection, now_iso: str) -> None:
     Scoped to ``token_used = 0`` deliberately. A ``snoozed`` row with
     ``token_used = 1`` is the audit-grade record that the user once asked
     to keep this item, and it is the **sole** re-entry signal read by
-    :func:`has_expired_snooze` (which matches only consumed rows). Sweeping
+    has_expired_snooze (which matches only consumed rows). Sweeping
     consumed rows here would destroy that signal, so an item whose snooze
     expired more than one deletion-pass ago would be re-scheduled with
     ``is_reentry = False`` and a normal grace period instead of being

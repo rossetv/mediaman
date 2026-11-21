@@ -1,18 +1,9 @@
-"""Unified TMDB client — search, details, and shape helpers.
+"""Unified TMDB client: search, details, and shape helpers.
 
-Collapses the four previously-duplicated TMDB integrations (download
-confirmation, OpenAI recommendation enrichment, search detail modal,
-deleted-item poster fill) into a single class. All callers read the
-bearer token through :func:`services.settings_reader.get_string_setting`
-so token decrypt behaviour stays consistent.
-
-The TMDB response-shape ``TypedDict``\\ s and the pure shaping helpers
-(``shape_card`` / ``shape_detail``) live in the sibling
-:mod:`._tmdb_shapes` module — they are network-free transforms over the
-TMDB JSON payload. They are re-exported here, and :class:`TmdbClient`
-re-binds the helpers as static methods, so the historical
-``from ...tmdb import TmdbCard`` / ``TmdbClient.shape_card(...)`` call
-sites keep working unchanged.
+Callers read the bearer token through get_string_setting so token decryption stays
+consistent. The shape TypedDicts and helpers live in _tmdb_shapes and are re-exported
+here; TmdbClient re-binds the helpers as static methods so existing imports and call
+sites keep working.
 """
 
 from __future__ import annotations
@@ -47,7 +38,6 @@ logger = logging.getLogger(__name__)
 
 _BASE = "https://api.themoviedb.org/3"
 
-# ---------------------------------------------------------------------------
 # Module-level client cache.
 #
 # ``TmdbClient.from_db`` was previously called per request, which built a
@@ -60,13 +50,12 @@ _BASE = "https://api.themoviedb.org/3"
 # rotation (the old token's entry ages out as soon as the new one is used).
 # Beyond 4 entries the oldest is evicted so the cache cannot grow without
 # bound if callers vary ``timeout`` unexpectedly.  Rebuilt on process restart.
-# ---------------------------------------------------------------------------
 _CLIENT_CACHE: dict[tuple[str, float], TmdbClient] = {}
 _CLIENT_CACHE_LOCK = threading.Lock()
 _CLIENT_CACHE_MAXSIZE = 4
 
 
-# H71: TMDB attribution notice
+# TMDB attribution notice
 # TMDB requires that all products using their API display the TMDB logo
 # and a "This product uses the TMDB API but is not endorsed or certified
 # by TMDB" attribution notice. Poster image requests to image.tmdb.org
@@ -77,12 +66,10 @@ _CLIENT_CACHE_MAXSIZE = 4
 
 
 class TmdbClient:
-    """Thin wrapper around ``api.themoviedb.org/3``.
+    """Thin wrapper around api.themoviedb.org/3 using a Bearer read-token from settings
+    (key 'tmdb_read_token', may be encrypted).
 
-    Uses a Bearer read-token fetched from settings (key
-    ``'tmdb_read_token'``, may be encrypted). Constructor fails closed —
-    :meth:`from_db` returns ``None`` when no token is configured or
-    decryption fails.
+    from_db returns None when no token is configured or decryption fails.
     """
 
     def __init__(self, read_token: str, *, timeout: float = 10.0) -> None:
@@ -109,21 +96,11 @@ class TmdbClient:
         *,
         timeout: float = 10.0,
     ) -> TmdbClient | None:
-        """Factory that reads the read-token from the settings table.
+        """Build a client from the settings table, or None when the token is missing or
+        cannot be decrypted; callers must handle None.
 
-        Returns ``None`` if the token is missing or cannot be decrypted —
-        callers must handle the absence gracefully, not raise.
-
-        Subsequent calls with the same (token, timeout) pair return the
-        same cached :class:`TmdbClient` so the underlying
-        :class:`requests.Session` (and its TLS connection pool) is shared
-        across requests.  When the operator rotates the token a fresh
-        client is built automatically because the cache key changes.
-
-        ``timeout`` is the default request timeout in seconds — the
-        default (10.0) is the upper bound of the previous inline
-        timeouts; call sites that historically used 5s can still pass a
-        lower value if they need to stay snappy.
+        Clients are cached per (token, timeout) so the requests.Session and its TLS pool
+        are shared; rotating the token builds a fresh client.
         """
         token = get_string_setting(conn, "tmdb_read_token", secret_key=secret_key, default="")
         if not token:
@@ -147,10 +124,6 @@ class TmdbClient:
             _CLIENT_CACHE[cache_key] = client
             return client
 
-    # ------------------------------------------------------------------
-    # Network calls
-    # ------------------------------------------------------------------
-
     # rationale: returns resp.json() whose runtime type varies per endpoint
     # (dict for single-item endpoints, list for collection endpoints). Each
     # public method narrows the result via .get() or isinstance guards and
@@ -158,33 +131,20 @@ class TmdbClient:
     # casts across every caller while keeping all public API return types
     # concrete.
     def _get(self, path: str, params: dict[str, object] | None = None) -> Any:
-        """Perform an authenticated GET against *path* and return the parsed JSON.
+        """GET *path* with authentication and return the parsed JSON.
 
-        Centralises the ``self._http.get(..., headers=self._headers, params=...)``
-        repetition shared by every public network method.  Propagates all
-        exceptions to the caller — each public method has its own ``except``
-        clause that decides whether to return ``None`` or ``[]``.
-
-        Raises :class:`ValueError` when the response body is not valid
-        JSON (e.g. TMDB returned an HTML error page during an outage).
-        ``requests.Response.json`` raises ``ValueError`` (a subclass of
-        ``json.JSONDecodeError``) — neither subclass of
-        :class:`requests.RequestException` — so the per-method ``except``
-        clauses must cover it explicitly via :class:`ValueError`.
+        Exceptions propagate; each public method decides whether to return None or [].
+        Raises ValueError on a non-JSON body (e.g. an HTML error page during an outage).
+        It is not a RequestException, so callers must catch it explicitly.
         """
         return self._http.get(path, headers=self._headers, params=params or {}).json()
 
     @staticmethod
     def _log_request_failure(label: str, exc: Exception) -> None:
-        """Log a TMDB request failure at the right level.
+        """Log a TMDB request failure by severity.
 
-        * 401/403 → WARNING — operator-actionable (token wrong/expired).
-        * 5xx     → ERROR — TMDB-side outage worth paging on.
-        * Other   → DEBUG — transient network error or 4xx that we can
-          safely swallow.
-
-        Callers still return None/[] regardless of severity; the only
-        difference is what the operator sees.
+        401/403 is WARNING (operator-actionable token), 5xx is ERROR (TMDB outage),
+        anything else is DEBUG. Callers return None or [] regardless.
         """
         if isinstance(exc, SafeHTTPError):
             if exc.status_code in (401, 403):
@@ -203,7 +163,6 @@ class TmdbClient:
         logger.debug("tmdb.request_failed", extra={"label": label, "exc": str(exc)})
 
     def is_reachable(self) -> bool:
-        """Return True if the TMDB API is reachable and the token is valid."""
         try:
             self._get("/configuration")
             return True
@@ -218,13 +177,7 @@ class TmdbClient:
         year: int | None = None,
         media_type: str = "movie",
     ) -> TmdbSearchResult | None:
-        """Search TMDB for the best matching movie or TV show.
-
-        Returns the first result dict from ``/search/{movie|tv}``, or
-        ``None`` on error / no matches. The caller chooses what to do
-        with the raw payload (pass it through :meth:`shape_card`, merge
-        specific fields, etc.).
-        """
+        """Return the first result of /search/{movie|tv}, or None on error or no match."""
         endpoint = "movie" if media_type == "movie" else "tv"
         params: dict[str, object] = {"query": title}
         if year:
@@ -237,13 +190,10 @@ class TmdbClient:
         return results[0] if results else None
 
     def search_multi(self, title: str) -> TmdbSearchResult | None:
-        """Search TMDB across movies, TV, and people — returns the raw
-        first result.
+        """Return the first /search/multi result, for callers that only know the title.
 
-        Used by callers (e.g. the dashboard deleted-items panel) that
-        only know the title and don't care about media_type. The first
-        result may be a ``person`` entry with no poster — the caller
-        is responsible for checking ``poster_path``.
+        The result may be a person entry with no poster; the caller must check
+        poster_path.
         """
         try:
             results = self._get("/search/multi", {"query": title}).get("results") or []
@@ -255,13 +205,8 @@ class TmdbClient:
     def _get_results(
         self, path: str, *, params: dict[str, object], label: str
     ) -> list[dict[str, object]]:
-        """Fetch *path* and return its ``results`` list, ``[]`` on any failure.
-
-        Four collection-endpoint methods previously duplicated the same
-        try/except/.get("results") block (search_multi_paged, trending,
-        popular_movies, popular_tv).  Returns an empty list on transport
-        failure, HTTP error, JSON decode failure, or a payload that isn't
-        a dict — never raises.
+        """Fetch *path* and return its results list; [] on any failure (transport, HTTP,
+        JSON decode or a non-dict payload). Never raises.
         """
         try:
             payload = self._get(path, params)
@@ -272,12 +217,8 @@ class TmdbClient:
         return results if isinstance(results, list) else []
 
     def search_multi_paged(self, query: str, page: int = 1) -> list[dict[str, object]]:
-        """Return one page of ``/search/multi`` results as a raw list.
-
-        Unlike :meth:`search_multi` (which returns only the first hit),
-        this returns the full page so callers can merge multiple pages
-        themselves. Returns an empty list on error or when TMDB returns
-        no hits — never raises.
+        """Return one page of /search/multi results; [] on error. Unlike search_multi it
+        returns the full page.
         """
         return self._get_results(
             "/search/multi",
@@ -286,10 +227,8 @@ class TmdbClient:
         )
 
     def trending(self, page: int = 1) -> list[dict[str, object]]:
-        """Return one page of ``/trending/all/week`` results.
-
-        TMDB recomputes this daily so the caller may cache aggressively.
-        Returns an empty list on error — never raises.
+        """Return one page of /trending/all/week results; [] on error. TMDB recomputes this
+        daily, so callers may cache.
         """
         return self._get_results(
             "/trending/all/week",
@@ -298,11 +237,9 @@ class TmdbClient:
         )
 
     def popular_movies(self, page: int = 1) -> list[dict[str, object]]:
-        """Return one page of ``/movie/popular`` results.
+        """Return one page of /movie/popular results; [] on error.
 
-        Items do not include a ``media_type`` field — callers that need
-        it must inject ``"movie"`` themselves.
-        Returns an empty list on error — never raises.
+        Items have no media_type; callers inject "movie".
         """
         return self._get_results(
             "/movie/popular",
@@ -311,11 +248,9 @@ class TmdbClient:
         )
 
     def popular_tv(self, page: int = 1) -> list[dict[str, object]]:
-        """Return one page of ``/tv/popular`` results.
+        """Return one page of /tv/popular results; [] on error.
 
-        Items do not include a ``media_type`` field — callers that need
-        it must inject ``"tv"`` themselves.
-        Returns an empty list on error — never raises.
+        Items have no media_type; callers inject "tv".
         """
         return self._get_results(
             "/tv/popular",
@@ -324,10 +259,8 @@ class TmdbClient:
         )
 
     def details(self, media_type: str, tmdb_id: int) -> TmdbDetailsPayload | None:
-        """Return the raw TMDB details payload with videos + credits appended.
-
-        On HTTP or JSON errors returns ``None`` — callers should skip
-        enrichment rather than raise.
+        """Return the raw details payload with videos and credits appended, or None on
+        error.
         """
         endpoint = "movie" if media_type == "movie" else "tv"
         try:
@@ -340,11 +273,7 @@ class TmdbClient:
             self._log_request_failure(f"{endpoint}/{tmdb_id} details", exc)
             return None
 
-    # ------------------------------------------------------------------
-    # Shaping helpers — pure functions, no side effects
-    # ------------------------------------------------------------------
-    #
-    # The implementations live in :mod:`._tmdb_shapes`; they are re-bound
+    # The implementations live in _tmdb_shapes; they are re-bound
     # here as static methods so the historical ``TmdbClient.shape_card`` /
     # ``TmdbClient.shape_detail`` call sites (and the test monkeypatches
     # that target them) keep working unchanged.

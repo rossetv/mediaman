@@ -1,38 +1,14 @@
-"""Proxy Plex poster images with on-disk caching.
+"""Proxy Plex poster images with on-disk caching, keeping the Plex token out of the frontend.
 
-Keeps the Plex token out of the frontend.  Posters are cached to
-``MEDIAMAN_DATA_DIR/poster_cache/`` on first fetch and served from disk
-on subsequent requests, avoiding repeated round-trips to Plex.
+Package layout: cache.py holds the filesystem cache, fetch.py the outbound fetch logic, SSRF
+guards and URL/mime helpers, and this module the route handler, rate limiters, auth gate and
+re-exports of the names tests patch at mediaman.web.routes.poster.<name>.
 
-Package layout
---------------
-``poster/cache.py``
-    Filesystem cache state and helpers: directory bootstrap, atomic
-    write, LRU sweep, sidecar mime persistence.
-
-``poster/fetch.py``
-    Outbound HTTP fetch logic, SSRF guards, and pure URL/mime helpers
-    (rating-key validation, mime coercion, allowed-host check, Plex
-    URL sanitiser, Plex/Radarr/Sonarr fetchers).
-
-``poster/__init__.py`` (this module)
-    FastAPI route handler, rate limiters, auth gate, and back-compat
-    re-exports of the names tests patch at the
-    ``mediaman.web.routes.poster.<name>`` path.
-
-Access control
---------------
-
-Logged-in admins can fetch any poster by rating key.  Email clients
-have no session cookie, so email-embedded posters must be rendered
-with a signed URL produced by :func:`sign_poster_url`.  The signature
-carries an expiry (default 180 days) and is domain-separated via a
-dedicated HMAC sub-key (see :mod:`mediaman.crypto`).
-
-Unauthenticated callers (no session, no valid signed token) receive
-a uniform 401 regardless of whether the rating_key exists on the
-Plex server.  This prevents the endpoint being used as an existence
-oracle to enumerate the user's library rating keys.
+Access control: logged-in admins can fetch any poster by rating key. Email clients have no
+session cookie, so email-embedded posters use a signed URL from sign_poster_url, whose
+signature carries an expiry (default 180 days) and is domain-separated via a dedicated HMAC
+sub-key. Unauthenticated callers get a uniform 401 whether or not the rating_key exists, so
+the endpoint cannot serve as an existence oracle for the library.
 """
 
 from __future__ import annotations
@@ -85,10 +61,10 @@ from mediaman.web.routes.poster.fetch import resolve_poster_content as _resolve_
 from mediaman.web.routes.poster.fetch import safe_mime as _safe_mime  # noqa: F401
 
 __all__ = [
-    # Public names this barrel re-exports for callers (§3.5).
+    # Public names this barrel re-exports for callers.
     # The private names formerly listed here (_POSTER_HTTP, _fetch_arr_poster,
     # etc.) are patched by tests via their absolute module paths, not via this
-    # barrel, so they do not belong in __all__ (L6).
+    # barrel, so they do not belong in __all__.
     "proxy_poster",
     "router",
     "sign_poster_url",
@@ -106,13 +82,11 @@ def _authenticate_poster_request(
     admin: str | None,
     secret_key: str,
 ) -> Response | None:
-    """Authenticate a poster request.  Return an error Response or None on success.
+    """Authenticate a poster request; return an error Response, or None on success.
 
-    Auth FIRST — return 401 for any unauthenticated caller regardless
-    of whether the rating_key is well-formed or present on the Plex
-    server.  This closes the enumeration oracle noted in the pentest.
-    Authenticated admin sessions skip the IP cap — they're already
-    bounded by the auth layer.
+    Auth comes first: any unauthenticated caller gets 401 whether or not the rating_key is
+    well-formed or exists, which closes the enumeration oracle. Admin sessions skip the IP
+    cap since the auth layer already bounds them.
     """
     if admin is None:
         if not _POSTER_PUBLIC_LIMITER.check(get_client_ip(request)):
@@ -139,18 +113,10 @@ def proxy_poster(
 ) -> Response:
     """Serve a poster image, fetching from Plex only on cache miss.
 
-    Authentication: either an active admin session, or a valid HMAC
-    signature in ``?sig=...`` (generated via :func:`sign_poster_url`).
-    Unauthenticated callers with no or bad signature get a 401 —
-    importantly, the 401 is returned BEFORE any rating_key validity
-    or existence check, so the endpoint cannot be used as an oracle
-    to enumerate Plex rating keys.
-
-    Unauthenticated callers (signed-URL path) are additionally
-    rate-limited per /24 (IPv4) or /64 (IPv6) at 60 req/min so a leaked
-    signed URL cannot be used as a bandwidth-amplification vector.
-    Authenticated admin sessions skip the IP cap — they're already
-    bounded by the auth layer.
+    Needs an admin session or a valid HMAC signature in ?sig=. The 401 comes before any
+    rating_key validity or existence check, so the endpoint is no oracle for enumerating
+    rating keys. Unauthenticated (signed-URL) callers are also rate-limited per /24 (IPv4)
+    or /64 (IPv6) at 60 req/min so a leaked URL cannot amplify bandwidth.
     """
     config = request.app.state.config
     auth_err = _authenticate_poster_request(request, rating_key, sig, admin, config.secret_key)

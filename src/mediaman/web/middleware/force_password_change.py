@@ -5,7 +5,7 @@ When an admin signs in with a plaintext password that fails the current
 strength policy, the login route flips ``must_change_password`` on
 their row. This middleware intercepts every subsequent cookie-bearing
 request and routes it to ``/force-password-change`` until the flag is
-cleared. See :class:`ForcePasswordChangeMiddleware` for the full set of
+cleared. See `ForcePasswordChangeMiddleware` for the full set of
 allowed paths.
 """
 
@@ -53,13 +53,6 @@ class ForcePasswordChangeMiddleware(BaseHTTPMiddleware):
     )
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        """Redirect to the password-change page when the session user must change their password.
-
-        Passes requests through unchanged when there is no session cookie, when
-        the path is in the allowed-prefix list, or when the session is invalid.
-        For all other authenticated requests it checks the ``must_change_password``
-        flag and redirects to ``/force-password-change`` when set.
-        """
         token = request.cookies.get("session_token")
         if not token:
             return await call_next(request)
@@ -91,7 +84,7 @@ class ForcePasswordChangeMiddleware(BaseHTTPMiddleware):
         # ``resolve_page_session``) reuses this result instead of running a
         # second full ``validate_session`` — two SELECTs, two potential
         # ``last_used_at`` writes, two fingerprint computations per
-        # authenticated request (H6). The UA-empty handling is unified with
+        # authenticated request. The UA-empty handling is unified with
         # the dependencies (``or None``) so BOTH passes feed identical
         # fingerprint inputs and cannot disagree (one evicting, one not).
         username = resolve_cached_session(request, conn, token)

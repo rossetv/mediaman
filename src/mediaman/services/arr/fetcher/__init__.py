@@ -2,8 +2,8 @@
 
 Public entry points:
 
-- :func:`fetch_arr_queue` -- backward-compatible, returns a plain list of cards.
-- :func:`fetch_arr_queue_result` -- returns a :class:`FetchResult` that also
+- ``fetch_arr_queue`` -- backward-compatible, returns a plain list of cards.
+- ``fetch_arr_queue_result`` -- returns a ``FetchResult`` that also
   carries any fetch errors so the UI can display a banner.
 
 All previously-public symbols are re-exported here so existing imports such as
@@ -42,12 +42,12 @@ __all__ = [
 
 
 def fetch_arr_queue_result(conn: sqlite3.Connection, secret_key: str) -> FetchResult:
-    """Fetch Radarr/Sonarr queues and return a :class:`FetchResult`.
+    """Fetch Radarr/Sonarr queues and return a ``FetchResult``.
 
     ``secret_key`` is required to decrypt the Radarr/Sonarr API keys stored
     in DB settings.
 
-    Unlike :func:`fetch_arr_queue`, this surfaces errors alongside cards so
+    Unlike ``fetch_arr_queue``, this surfaces errors alongside cards so
     callers can show a UI banner when a service is unreachable.
     """
     from mediaman.services.arr.build import build_radarr_from_db, build_sonarr_from_db
@@ -93,7 +93,7 @@ def fetch_arr_queue(conn: sqlite3.Connection, secret_key: str) -> list[ArrCard]:
     Returns a list of download cards.  Movies are one card each.
     TV series are grouped into a single card with an ``episodes`` list.
 
-    This is the backward-compatible wrapper around :func:`fetch_arr_queue_result`.
+    This is the backward-compatible wrapper around ``fetch_arr_queue_result``.
     Callers that need to surface fetch errors to the UI should use that function
     instead.
     """

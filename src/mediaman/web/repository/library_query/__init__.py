@@ -1,16 +1,15 @@
 """Library display query — re-export barrel.
 
-Promoted from a single ``library_query.py`` module when it crossed the
-300-line target.  Three private modules, one concept each:
+Three private modules, one concept each:
 
-* :mod:`._query` — shared constants (``VALID_SORTS``, ``VALID_TYPES``,
+* `._query` — shared constants (``VALID_SORTS``, ``VALID_TYPES``,
   ``TV_SEASON_TYPES``, ``ANIME_SEASON_TYPES``, ``ALL_SEASON_TYPES``,
   ``MAX_SEARCH_TERM_LEN``) plus the core paginated query pipeline
   (``fetch_library`` and its private helpers).
-* :mod:`._display` — display-formatting helpers (``days_ago``, ``type_css``,
+* `._display` — display-formatting helpers (``days_ago``, ``type_css``,
   ``protection_label``, ``_shape_rows``) that convert raw DB values into
   Jinja-template-ready strings and dicts.
-* :mod:`._stats` — simple ``COUNT`` / ``SUM`` queries for the library stats bar
+* `._stats` — simple ``COUNT`` / ``SUM`` queries for the library stats bar
   (``count_movies``, ``count_tv_shows``, ``count_anime_shows``, ``count_stale``,
   ``sum_total_size_bytes``).
 

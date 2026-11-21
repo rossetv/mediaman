@@ -187,13 +187,12 @@ class TestLookupVerifiedAction:
 
 
 class TestKeepLimiters:
-    """H28: GET and POST must have independent rate-limit counters."""
+    """GET and POST must have independent rate-limit counters."""
 
     def test_get_and_post_limiters_are_separate_objects(self):
         assert _KEEP_GET_LIMITER is not _KEEP_POST_LIMITER
 
     def test_exhausting_get_limiter_does_not_block_post_limiter(self):
-        """Exhausting the GET limit for an IP must leave the POST limiter unaffected."""
         # Drain the GET limiter to its cap.
         test_ip = "10.99.0.1"
         while _KEEP_GET_LIMITER.check(test_ip):
@@ -251,7 +250,7 @@ class TestKeepPageRoute:
 
 
 class TestKeepSubmitTokenInvalidation:
-    """H27: keep_submit must mark the token as used and reject replays."""
+    """Keep_submit must mark the token as used and reject replays."""
 
     def _make_app(self, conn: sqlite3.Connection) -> FastAPI:
         app = FastAPI()
@@ -267,7 +266,6 @@ class TestKeepSubmitTokenInvalidation:
         return app
 
     def test_invalid_token_returns_400_invalid_or_expired(self, conn):
-        """A forged / unknown token must return 400 with error=invalid_or_expired."""
         app = self._make_app(conn)
         client = TestClient(app, raise_server_exceptions=True)
 
@@ -293,7 +291,6 @@ class TestKeepSubmitTokenInvalidation:
         assert resp.status_code == 400
 
     def test_token_used_flag_set_in_keep_tokens_used(self, conn):
-        """A successful POST must insert into keep_tokens_used."""
         _insert_media_item(conn)
         action_id = _insert_action(conn)
         token = _make_keep_token(conn, "mi1", action_id)
@@ -354,7 +351,7 @@ def _insert_scheduled_action_findings(
 
 
 def _make_keep_app_findings(app_factory, conn: sqlite3.Connection):
-    """Stand up a minimal keep-router app using the findings-suite SECRET."""
+    """Stand up a minimal keep-router app using the module-level test secret."""
     mock_templates = MagicMock()
     mock_templates.TemplateResponse.side_effect = lambda req, tmpl, ctx: HTMLResponse(
         json.dumps({k: str(v) for k, v in ctx.items() if k != "item"}), 200
@@ -370,13 +367,8 @@ def _make_keep_app_findings(app_factory, conn: sqlite3.Connection):
     return app, TestClient(app, raise_server_exceptions=True)
 
 
-# ---------------------------------------------------------------------------
-# "forever" duration is rejected on the public keep route but accepted on the admin endpoint
-# ---------------------------------------------------------------------------
-
-
 class TestFinding12ForeverEndpointSeparation:
-    """Finding 12: forever must be refused on the public keep POST."""
+    """Forever must be refused on the public keep POST."""
 
     def test_forever_duration_rejected_on_public_post(self, app_factory, conn):
         _insert_media_item(conn)
@@ -410,13 +402,8 @@ class TestFinding12ForeverEndpointSeparation:
         assert resp.status_code == 401
 
 
-# ---------------------------------------------------------------------------
-# Keep POST refuses to apply actions that are expired or not in pending state
-# ---------------------------------------------------------------------------
-
-
 class TestFinding13KeepDeadlineCheck:
-    """Finding 13: keep_submit must reject rows that have expired or are not pending."""
+    """Keep_submit must reject rows that have expired or are not pending."""
 
     def test_expired_action_returns_400(self, app_factory, conn):
         """A keep POST where execute_at is in the past must return 400."""
@@ -469,13 +456,8 @@ class TestFinding13KeepDeadlineCheck:
         assert resp.status_code in (200, 302, 307)
 
 
-# ---------------------------------------------------------------------------
-# Keep tokens are stored as hashes, not as raw values
-# ---------------------------------------------------------------------------
-
-
 class TestFinding16KeepTokenHash:
-    """Finding 16: token hash helpers and insert-only-hash logic."""
+    """Token hash helpers and insert-only-hash logic."""
 
     def test_lookup_verified_action_returns_row_when_token_matches(self, conn):
         """lookup_verified_action must return the row when HMAC is valid and conditions are met."""
@@ -517,7 +499,6 @@ class TestFinding16KeepTokenHash:
         assert row.plex_rating_key == "rk-join"
 
     def test_lookup_verified_action_returns_none_for_wrong_secret(self, conn):
-        """lookup_verified_action must return None when the signing secret is wrong."""
         import time as _time
 
         from mediaman.crypto import generate_keep_token
@@ -535,7 +516,6 @@ class TestFinding16KeepTokenHash:
         assert row is None
 
     def test_schedule_deletion_writestoken_hash(self, conn):
-        """schedule_deletion must write token_hash to the row."""
         from mediaman.scanner.phases.upsert import schedule_deletion
 
         _insert_media_item(conn)

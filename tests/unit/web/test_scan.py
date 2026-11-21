@@ -51,7 +51,7 @@ class TestScanTrigger:
         assert resp.json() == {"status": "started"}
 
     def test_trigger_spawns_heartbeat_thread(self, app_factory, authed_client, conn, db_path):
-        """D05 finding 9: the manual scan must start a heartbeat thread
+        """The manual scan must start a heartbeat thread
         alongside the scan worker so the lease is renewed during long
         Plex / *arr round-trips. Pre-fix the manual route only had the
         scan worker, so a long scan would let the lease lapse and a
@@ -258,11 +258,6 @@ class TestLibrarySync:
             resp = client.post("/api/library/sync")
         assert resp.status_code == 502
         assert resp.json()["ok"] is False
-
-
-# ---------------------------------------------------------------------------
-# Audit logging + rate limiting (Domain 03 findings 15-18)
-# ---------------------------------------------------------------------------
 
 
 class TestScanTriggerRateLimit:

@@ -1,13 +1,7 @@
-/* =============================================================
-   SETTINGS — v1 primitives shared by settings panels (cards, rows,
+/* SETTINGS — v1 primitives shared by settings panels (cards, rows,
    inline buttons) and the JS-emitted bits (library pills' selected
    state). The v2 cinematic page chrome (scoped under `.setg-pg`)
-   lives in _settings_pg.css.
-   ============================================================= */
-
-/* =============================================================
-   16. SETTINGS LAYOUT (setg-* primitives)
-   ============================================================= */
+   lives in _settings_pg.css. */
 
 /* Canonical card primitive for settings panels.
    Legacy alias `.settings-card` removed: zero template hits confirmed via
@@ -22,7 +16,7 @@
 /* Canonical horizontal label/control row.
    .settings-subrow and .form-row (in _base.css) serve the same purpose with
    minor layout differences; all share --gap-row so the column gap is
-   consistent. See _base.css §3 for the canonical row comment. */
+   consistent. */
 .setg-row {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -99,10 +93,6 @@
 }
 .library-pills .lib-pill:hover { color: var(--t1); }
 .library-pills .lib-pill.on { background: var(--accent); color: var(--color-on-accent); }
-
-/* =============================================================
-   27. SETTINGS — JS-emitted bits (library pills' selected state).
-   ============================================================= */
 
 /* Library pill — JS toggles .selected; alias to .on for visual parity. */
 .library-pills .lib-pill.selected { background: var(--accent); color: var(--color-on-accent); }

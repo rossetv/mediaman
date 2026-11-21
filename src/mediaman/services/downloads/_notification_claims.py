@@ -25,11 +25,7 @@ STRANDED_CLAIM_GRACE_SECONDS = 3600
 
 @dataclass(frozen=True, slots=True)
 class ClaimedNotificationRow:
-    """A single ``download_notifications`` row returned by the atomic claim.
-
-    Fields mirror the SELECT column list in ``_claim_pending_notifications``
-    exactly.  Immutable and slotted per §5.2.
-    """
+    """A row returned by the atomic claim; fields mirror the claim's SELECT columns."""
 
     id: int
     email: str
@@ -41,7 +37,6 @@ class ClaimedNotificationRow:
 
 
 def _row_to_claimed(row: sqlite3.Row) -> ClaimedNotificationRow:
-    """Map a raw ``sqlite3.Row`` from the claim SELECT to ``ClaimedNotificationRow``."""
     return ClaimedNotificationRow(
         id=int(row["id"]),
         email=str(row["email"]),
@@ -54,18 +49,11 @@ def _row_to_claimed(row: sqlite3.Row) -> ClaimedNotificationRow:
 
 
 def _claim_pending_notifications(conn: sqlite3.Connection) -> list[ClaimedNotificationRow]:
-    """Atomically claim every un-notified notification row.
+    """Atomically claim every un-notified row with UPDATE ... WHERE notified=0 RETURNING,
+    so a concurrent worker or re-entrant tick cannot claim the same row.
 
-    Uses ``UPDATE ... WHERE notified=0 RETURNING`` so a sibling worker
-    (or a re-entrant scheduler tick) cannot pick up the same row a second
-    time. SQLite has supported the RETURNING clause since 3.35, which is
-    comfortably older than the project's ``sqlite3`` floor.
-
-    Returns the claimed rows in the same shape the previous SELECT
-    returned, so the caller's row-handling code stays unchanged. On a
-    SQLite build without RETURNING we fall back to the old
-    SELECT-then-UPDATE flow inside an IMMEDIATE transaction so the
-    write lock blocks any concurrent claim.
+    Without RETURNING support (SQLite before 3.35) it falls back to SELECT-then-UPDATE
+    inside an IMMEDIATE transaction so the write lock blocks any concurrent claim.
     """
     claim_iso = now_iso()
     try:
@@ -77,7 +65,7 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[ClaimedNotifi
         ).fetchall()
         # Build the return value before committing so the rows are safely in a
         # local variable — a Python exception between commit and return would
-        # otherwise strand them at notified=2 (M7).
+        # otherwise strand them at notified=2.
         claimed = [_row_to_claimed(r) for r in rows]
         conn.commit()
         return claimed
@@ -87,7 +75,7 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[ClaimedNotifi
         # BEGIN IMMEDIATE here preserves write-lock semantics so a sibling
         # worker cannot pick up the same rows concurrently.
         #
-        # NOTE (B5): this pattern is correct ONLY because db/connection.py
+        # NOTE: this pattern is correct ONLY because db/connection.py
         # creates connections with the DEFAULT isolation_level (legacy mode),
         # meaning ``with conn:`` does NOT auto-BEGIN — the explicit
         # ``BEGIN IMMEDIATE`` below is the first and only transaction start.
@@ -119,15 +107,8 @@ def _claim_pending_notifications(conn: sqlite3.Connection) -> list[ClaimedNotifi
 
 
 def _release_claim(conn: sqlite3.Connection, row_id: int) -> None:
-    """Roll a claimed row back to ``notified=0`` so a future tick can retry.
-
-    Used when the early-bail conditions inside :func:`check_download_notifications`
-    fail (e.g. Mailgun later turns out to be unreachable for a specific
-    item) — without this the row would stay stuck at ``notified=2``
-    indefinitely.
-
-    Clears ``claimed_at`` along with the status so a subsequent reconcile
-    sweep does not see a phantom in-flight stamp on a row that is queued.
+    """Roll a claimed row back to notified=0 so a later tick can retry. Clears claimed_at
+    so a reconcile sweep does not see a phantom in-flight stamp.
     """
     try:
         conn.execute(
@@ -140,16 +121,9 @@ def _release_claim(conn: sqlite3.Connection, row_id: int) -> None:
 
 
 def _release_claims_bulk(conn: sqlite3.Connection, row_ids: list[int]) -> None:
-    """Roll many claimed rows back to ``notified=0`` in a single statement.
-
-    The per-row :func:`_release_claim` ran one ``UPDATE`` + one
-    ``COMMIT`` per stranded row.  When Mailgun is unconfigured every
-    pending row goes through the release path on every tick — that's N
-    fsyncs per scheduler poke. This helper does the same work in a
-    single statement and a single commit.
-
-    Skips silently when ``row_ids`` is empty so callers can pipe the
-    "claimed" list straight in.
+    """Roll many claimed rows back to notified=0 with one UPDATE and one commit; a no-op
+    for empty *row_ids*. Per-row release cost an fsync per row on every tick while
+    Mailgun is unconfigured.
     """
     if not row_ids:
         return
@@ -173,23 +147,12 @@ def reconcile_stranded_notifications(
     *,
     grace_seconds: int = STRANDED_CLAIM_GRACE_SECONDS,
 ) -> int:
-    """Reset rows stranded at ``notified=2`` after a crashed worker.
+    """Reset rows stranded at notified=2 after a crashed worker.
 
-    The atomic claim prevents two workers from sending the same
-    notification, but it does so by flipping ``notified=0 → 2`` *before*
-    the actual mail attempt.  An OOM, container restart, or SIGKILL
-    between the claim and the send leaves rows pinned at ``notified=2``
-    forever — the in-process release path inside the sender loop only fires
-    on Python exceptions.
-
-    Call this once on startup (the FastAPI lifespan does so).  Rows whose
-    ``claimed_at`` is older than *grace_seconds* are reset back to
-    ``notified=0`` with ``claimed_at`` cleared so the next scheduler tick
-    picks them up.  Returns the number of rows reset.
-
-    *grace_seconds* is generous enough that a legitimate slow Mailgun
-    pipeline isn't reaped — it is only ever observed by the next process
-    after a restart, by which point the previous in-flight call is gone.
+    The claim flips notified 0 to 2 before the send, so an OOM, restart or SIGKILL in
+    between pins the row; the in-process release only fires on Python exceptions. Call
+    once on startup. Rows whose claimed_at is older than *grace_seconds* go back to
+    notified=0; returns the number reset.
     """
     cutoff = (now_utc() - timedelta(seconds=grace_seconds)).isoformat()
     cur = conn.execute(

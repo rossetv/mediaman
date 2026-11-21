@@ -6,7 +6,7 @@
  * existing one to patch in place.
  *
  * Thin aliases q, setText, and findByDlId delegate to MM.dom to avoid
- * duplicating logic already provided by core/dom.js (CODE_GUIDELINES §1).
+ * duplicating logic already provided by core/dom.js.
  *
  * Exposes:
  *   MM.downloads.buildDom.q(sel, ctx)              → MM.dom.q
@@ -126,7 +126,7 @@
     card.className = 'dl-hero dl-card-enter';
     if (item.id) card.setAttribute('data-dl-id', item.id);
 
-    /* Background — set via DLPoster.apply (H67: avoids CSS string injection). */
+    /* Background — set via DLPoster.apply (avoids CSS string injection). */
     var bg = document.createElement('div');
     bg.className = 'dl-hero-bg';
     if (bgUrl) bg.setAttribute('data-bg-url', bgUrl);

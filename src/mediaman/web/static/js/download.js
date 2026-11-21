@@ -9,7 +9,6 @@
 (function () {
   'use strict';
 
-  /* ── Bootstrap from JSON island ── */
   var bootstrapEl = document.getElementById('page-bootstrap');
   if (!bootstrapEl) return;
   var raw = bootstrapEl.textContent;
@@ -28,7 +27,6 @@
   var _downloadState = boot.download_state || '';
   var _pollInterval = null;
 
-  /* ── Download button click handler ── */
   function triggerDownload() {
     var btn = document.getElementById('btn-download');
     btn.textContent = 'Adding…';
@@ -77,9 +75,8 @@
       });
   }
 
-  /* ── Build hero card DOM matching _dl_hero_card.html structure ──
-     Delegates to the shared MM.downloads.buildDom.buildHero helper to avoid
-     duplicating the .dl-hero tree (CODE_GUIDELINES §1). Values are set via
+  /* buildHeroCard delegates to the shared MM.downloads.buildDom.buildHero helper to avoid
+     duplicating the .dl-hero tree. Values are set via
      textContent / DOM properties — safe by default. */
   function buildHeroCard(wrapper, item) {
     var hero = MM.downloads.buildDom.buildHero(item);
@@ -103,8 +100,7 @@
   // raw state string only if the server didn't supply one (defensive — shouldn't
   // happen). The canonical map lives in services/downloads/download_format/_types.py.
 
-  /* ── Polling lifecycle helpers ──
-     Uses setInterval internally; _startPolling / _stopPolling manage the
+  /* Polling uses setInterval internally; _startPolling / _stopPolling manage the
      timer and the visibilitychange pause so the tab doesn't hammer the
      server while hidden. */
   function _startPolling() {
@@ -126,10 +122,9 @@
     }
   });
 
-  /* ── Poll download status ── */
   function pollStatus() {
     if (!_service || !_tmdbId) return;
-    /* Finding 14: use the short-lived poll_token, not the long-lived download token. */
+    /* Use the short-lived poll_token, not the long-lived download token. */
     var url = '/api/download/status?service=' + _service + '&tmdb_id=' + _tmdbId
       + (_pollToken ? '&poll_token=' + encodeURIComponent(_pollToken) : '');
     MM.api.get(url)
@@ -291,7 +286,6 @@
     }
   }
 
-  /* ── Show final result (success or error) ── */
   function showResult(success, message) {
     var actionEl = document.getElementById('download-action');
     if (actionEl) actionEl.style.display = 'none';
@@ -324,13 +318,11 @@
     resultEl.style.background = success ? 'rgba(48,209,88,0.04)' : 'rgba(255,69,58,0.04)';
   }
 
-  /* ── Wire up the download button click (was inline onclick="triggerDownload()"). ── */
   var dlBtn = document.getElementById('btn-download');
   if (dlBtn) {
     dlBtn.addEventListener('click', triggerDownload);
   }
 
-  /* ── Wire up episode toggle for server-rendered hero cards ── */
   (function() {
     var toggle = document.querySelector('#dl-hero-wrapper [data-v="ep-toggle"]');
     if (toggle) {
@@ -345,7 +337,6 @@
     }
   })();
 
-  /* ── Start polling immediately if already queued ── */
   if (_downloadState === 'queued' && _tmdbId) {
     pollStatus();
     _startPolling();

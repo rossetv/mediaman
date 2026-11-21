@@ -1,8 +1,8 @@
-"""Sonarr-specific methods for :class:`~mediaman.services.arr.base.ArrClient`.
+"""Sonarr-specific methods for ``ArrClient``.
 
 Mixed into the unified client.  Every method here calls
 ``self._require_series(...)`` first so a Radarr-flavoured client gets
-:exc:`ArrKindMismatch` instead of a confusing 404 from the Sonarr URL
+``ArrKindMismatch`` instead of a confusing 404 from the Sonarr URL
 shape.
 """
 
@@ -22,8 +22,8 @@ class _SonarrMixin:
     """Sonarr (``kind="series"``) operations.
 
     Every method asserts the client kind via
-    :meth:`~mediaman.services.arr.base.ArrClient._require_series` so a
-    Radarr-flavoured client raises :exc:`ArrKindMismatch` rather than
+    ``_require_series`` so a
+    Radarr-flavoured client raises ``ArrKindMismatch`` rather than
     silently issuing the wrong URL shape.
     """
 
@@ -34,7 +34,7 @@ class _SonarrMixin:
         an ``episodeFileIds`` list) rather than N serial DELETEs, which
         would hammer Sonarr on large seasons.
 
-        Raises :exc:`ArrKindMismatch` when called on a Radarr client.
+        Raises ``ArrKindMismatch`` when called on a Radarr client.
         """
         self._require_series("delete_episode_files")  # type: ignore[attr-defined]
         efs = cast(
@@ -80,13 +80,12 @@ class _SonarrMixin:
         # ``self.spec.exclusion_param`` carries the per-flavour spelling
         # (``addImportListExclusion`` for Sonarr, ``addImportExclusion``
         # for Radarr).  Reading through the spec keeps the spelling in
-        # one place — see :class:`mediaman.services.arr.spec.ArrSpec`.
+        # one place — see ``mediaman.services.arr.spec.ArrSpec``.
         self._delete(  # type: ignore[attr-defined]
             f"/api/v3/series/{series_id}?deleteFiles=true&{self.spec.exclusion_param}=true"  # type: ignore[attr-defined]
         )
 
     def has_remaining_files(self, series_id: int) -> bool:
-        """Return True if the series still has any episode files on disk."""
         self._require_series("has_remaining_files")  # type: ignore[attr-defined]
         efs = cast(
             list[ArrEpisodeFile],
@@ -95,7 +94,6 @@ class _SonarrMixin:
         return bool(efs)
 
     def get_series(self) -> list[SonarrSeries]:
-        """Return all series in the Sonarr library."""
         self._require_series("get_series")  # type: ignore[attr-defined]
         data = self._get("/api/v3/series")  # type: ignore[attr-defined]
         return cast(list[SonarrSeries], data) if isinstance(data, list) else []
@@ -103,7 +101,7 @@ class _SonarrMixin:
     def get_series_by_id(self, series_id: int) -> SonarrSeries:
         """Return a single series by its Sonarr ID.
 
-        Raises :exc:`ArrUpstreamError` when Sonarr returns a non-dict response.
+        Raises ``ArrUpstreamError`` when Sonarr returns a non-dict response.
         """
         self._require_series("get_series_by_id")  # type: ignore[attr-defined]
         data = self._get(f"/api/v3/series/{series_id}")  # type: ignore[attr-defined]
@@ -114,13 +112,11 @@ class _SonarrMixin:
         return cast(SonarrSeries, data)
 
     def get_episodes(self, series_id: int) -> list[ArrEpisode]:
-        """Return all episodes for a given series."""
         self._require_series("get_episodes")  # type: ignore[attr-defined]
         data = self._get(f"/api/v3/episode?seriesId={series_id}")  # type: ignore[attr-defined]
         return cast(list[ArrEpisode], data) if isinstance(data, list) else []
 
     def get_episode_files(self, series_id: int) -> list[ArrEpisodeFile]:
-        """Return episode file records for a given series."""
         self._require_series("get_episode_files")  # type: ignore[attr-defined]
         data = self._get(f"/api/v3/episodefile?seriesId={series_id}")  # type: ignore[attr-defined]
         return cast(list[ArrEpisodeFile], data) if isinstance(data, list) else []
@@ -130,7 +126,7 @@ class _SonarrMixin:
 
         Sonarr v3 has no PATCH endpoint, so this is a read-modify-write
         on the full series payload.  The retry loop tolerates concurrent
-        writers — see :func:`_unmonitor_with_retry` for the details.
+        writers — see ``_unmonitor_with_retry`` for the details.
         """
         self._require_series("unmonitor_season")  # type: ignore[attr-defined]
 
@@ -169,10 +165,10 @@ class _SonarrMixin:
     def remonitor_season(self, series_id: int, season_number: int, *, max_retries: int = 3) -> None:
         """Set ``monitored=True`` for *season_number* and trigger a search.
 
-        Uses the same retry helper as :meth:`unmonitor_season` so a transient
+        Uses the same retry helper as ``unmonitor_season`` so a transient
         PUT failure doesn't silently strand the season in an unmonitored state.
 
-        Raises :exc:`ArrUpstreamError` when the target season number is absent
+        Raises ``ArrUpstreamError`` when the target season number is absent
         from the series payload — this prevents a silent no-op where the PUT
         succeeds but the season was never remonitored, which would be followed
         by a SeasonSearch for a season Sonarr never re-monitored.
@@ -217,7 +213,6 @@ class _SonarrMixin:
         )
 
     def search_series(self, series_id: int) -> None:
-        """Trigger a Sonarr SeriesSearch command for a single series."""
         self._require_series("search_series")  # type: ignore[attr-defined]
         self._post("/api/v3/command", {"name": "SeriesSearch", "seriesId": series_id})  # type: ignore[attr-defined]
 
@@ -268,8 +263,8 @@ class _SonarrMixin:
         """Add a TV series by TVDB ID and trigger a search.
 
         ``quality_profile_id`` is selected via
-        :meth:`_choose_quality_profile` when not specified.  Raises
-        :exc:`ValueError` if ``tvdb_id <= 0`` rather than letting Sonarr
+        ``_choose_quality_profile`` when not specified.  Raises
+        ``ValueError`` if ``tvdb_id <= 0`` rather than letting Sonarr
         return an opaque 400.
         """
         self._require_series("add_series")  # type: ignore[attr-defined]
@@ -329,7 +324,6 @@ class _SonarrMixin:
         monitored_seasons: list[int],
         quality_profile_id: int | None,
     ) -> dict[str, object]:
-        """Build the POST body for :meth:`add_series_with_seasons`."""
         root_path = self._choose_root_folder()  # type: ignore[attr-defined]
         profile_id = (
             quality_profile_id if quality_profile_id is not None else self._choose_quality_profile()  # type: ignore[attr-defined]

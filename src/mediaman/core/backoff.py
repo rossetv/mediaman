@@ -1,4 +1,4 @@
-"""Ring 0: exponential backoff with optional deterministic jitter.
+"""Exponential backoff with optional deterministic jitter.
 
 This module provides a single ``ExponentialBackoff`` class that covers two
 distinct use cases present in the codebase:
@@ -27,8 +27,8 @@ Deterministic-jitter backoff (arr search throttle)
     ``ValueError`` immediately rather than silently rolling a fresh random
     value that would break the invariant above.
 
-Ring 0 contract: stdlib only (hashlib, random), no I/O, no imports from
-other mediaman modules.
+Stdlib only (hashlib, random), no I/O, no imports from other mediaman
+modules.
 """
 
 from __future__ import annotations
@@ -126,7 +126,7 @@ class ExponentialBackoff:
         """Return a stable ±jitter multiplier seeded from *seed*.
 
         Public so tests can monkeypatch this method on a specific
-        :class:`ExponentialBackoff` instance to pin the multiplier when
+        ExponentialBackoff instance to pin the multiplier when
         asserting on the unjittered curve.  Uses blake2b (not ``hash()``)
         because ``PYTHONHASHSEED`` salts the built-in hash differently on
         every interpreter start — two workers handling the same item

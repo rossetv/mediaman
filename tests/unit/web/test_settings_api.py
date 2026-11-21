@@ -142,7 +142,6 @@ class TestDiskUsageAPI:
         assert data["usage_pct"] == 40.0
 
     def test_returns_error_for_missing_path_param(self, app_factory, authed_client, conn):
-        """No path param — expects 400."""
         client = _client(app_factory, authed_client, conn)
 
         resp = client.get("/api/settings/disk-usage")
@@ -254,7 +253,7 @@ class TestSettingsPutSsrfGuard:
 class TestSettingsPutPersistsEveryDeclaredKey:
     """PUT /api/settings must persist every key declared in SettingsUpdate.
 
-    This is the regression guard for C11: previously, keys missing from
+    This is the regression guard: previously, keys missing from
     SettingsUpdate were silently dropped by Pydantic before reaching the
     route handler, so the UI's save returned 200 but changed nothing.
     """
@@ -540,7 +539,6 @@ class TestApiTestServiceOpenAiTmdbOmdb:
         assert "auth_failed" in data["error"]
 
     def test_openai_connection_error_classified(self, app_factory, authed_client, conn):
-        """A transport error must be classified as connection_refused."""
         self._store_setting(conn, "openai_api_key", "sk-goodkey1234")
         client = _client(app_factory, authed_client, conn)
 

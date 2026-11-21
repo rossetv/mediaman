@@ -30,11 +30,9 @@ def _annotate_rec_download_states(
     conn: sqlite3.Connection,
     secret_key: str,
 ) -> None:
-    """Annotate recommendation items in place with their Arr download state.
-
-    Populates ``item["download_state"]`` (``in_library`` / ``partial`` /
-    ``downloading`` / ``queued``) by consulting Radarr and Sonarr caches.
-    Silently skips items with no ``tmdb_id``.
+    """Annotate recommendation items in place with their Arr download state (in_library,
+    partial, downloading or queued) from the Radarr and Sonarr caches; items without
+    tmdb_id are skipped.
     """
     radarr_client = build_radarr_from_db(conn, secret_key)
     sonarr_client = build_sonarr_from_db(conn, secret_key)

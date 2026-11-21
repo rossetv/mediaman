@@ -25,13 +25,9 @@ logger = logging.getLogger(__name__)
 class AbandonResult:
     """Outcome of an abandon call.
 
-    For movies, ``succeeded``/``failed`` carry the literal token ``0`` to
-    signal "the movie itself" — there is no per-season concept.  For
-    series, the lists carry the actual season numbers.
-
-    A fully successful call has ``failed == []``; the throttle row is only
-    cleared when nothing failed, so partial-failure callers can retry the
-    rest without losing search-count context.
+    For movies, succeeded/failed carry the token 0 for the movie itself; for series they
+    carry season numbers. The throttle row is cleared only when failed is empty, so
+    partial failures can retry without losing search-count context.
     """
 
     kind: str  # "movie" or "series"
@@ -47,12 +43,9 @@ def abandon_movie(
     arr_id: int,
     dl_id: str,
 ) -> AbandonResult:
-    """Unmonitor *arr_id* in Radarr and clear its throttle row.
-
-    Returns an :class:`AbandonResult` whose ``failed`` list contains ``0``
-    when the unmonitor call raises or the Radarr client cannot be built.
-    The throttle is preserved on failure so retries still know how many
-    times mediaman has been poking.
+    """Unmonitor *arr_id* in Radarr and clear its throttle row. failed holds 0 when the
+    unmonitor call raises or the client cannot be built; the throttle is kept so retries
+    know the search count.
     """
     client = build_radarr_from_db(conn, secret_key)
     if client is None:
@@ -75,13 +68,9 @@ def abandon_series(
     series_id: int,
     dl_id: str,
 ) -> AbandonResult:
-    """Unmonitor every monitored season of *series_id* in Sonarr.
-
-    Used when the user stops tracking a not-yet-released series from the
-    "Coming soon" list — there are no per-season stuck-search rows to
-    pick from, so we unmonitor the whole show. Already-unmonitored
-    seasons are skipped. If the series payload cannot be fetched the
-    failure is signalled with the literal token ``0`` in ``failed``.
+    """Unmonitor every monitored season of *series_id* in Sonarr, skipping
+    already-unmonitored ones. Used for not-yet-released series, which have no per-season
+    stuck-search rows. A failure to fetch the series is reported as 0 in failed.
     """
     client = build_sonarr_from_db(conn, secret_key)
     if client is None:
@@ -131,16 +120,12 @@ def abandon_seasons(
     season_numbers: list[int],
     dl_id: str,
 ) -> AbandonResult:
-    """Unmonitor each of *season_numbers* on *series_id* in Sonarr.
+    """Unmonitor each of *season_numbers* in Sonarr, one call per season; partial failures
+    land in failed instead of raising. The throttle row is cleared only if every season
+    succeeded.
 
-    Loops one ``unmonitor_season`` call per season; partial failures are
-    surfaced via the result's ``failed`` list rather than raising.  The
-    throttle row is cleared only when every season succeeded, so the next
-    poke (if the user re-monitors the failed seasons) keeps its history.
-
-    Raises :class:`ValueError` when *season_numbers* is empty — the
-    endpoint should reject zero-season requests with a 400 rather than
-    have this service silently no-op.
+    Raises ValueError for empty *season_numbers* so the endpoint can return 400 instead
+    of this silently doing nothing.
     """
     if not season_numbers:
         raise ValueError("abandon_seasons requires at least one season number")

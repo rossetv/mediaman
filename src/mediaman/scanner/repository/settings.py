@@ -15,7 +15,7 @@ def read_setting(conn: sqlite3.Connection, key: str) -> str | None:
 
     The single repository entry point for the duplicated inline
     ``SELECT value FROM settings WHERE key=?`` reads that previously lived
-    in :mod:`runner` and :mod:`phases.delete` (§9.4 — the repository owns
+    in runner and phases.delete (the repository owns
     the SQL). The value is returned verbatim (no JSON / bool coercion);
     callers parse it for their own needs. A missing row and a row with a
     SQL ``NULL`` value both yield ``None``.

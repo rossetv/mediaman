@@ -1,17 +1,8 @@
-"""Search routes package — TMDB-backed search, discover and download.
+"""Search routes package: TMDB-backed search, discover and download.
 
-This package is a thin aggregator. The actual route handlers live in:
-
-  * :mod:`.page`        — GET /search, GET /api/search, GET /api/search/discover
-  * :mod:`.detail`      — GET /api/search/detail/{media_type}/{tmdb_id}
-  * :mod:`.download`    — POST /api/search/download
-  * :mod:`._enrichment` — shared TMDB normalisation, Arr-state annotation,
-                          and the parallel OMDb ratings fan-out used by
-                          ``page.py``.
-
-The names re-exported from this ``__init__`` are the ones existing callers
-(and tests) reach for via ``from mediaman.web.routes.search import X``;
-keeping them here preserves the import surface across the split.
+A thin aggregator over .page, .detail, .download and ._enrichment (shared TMDB
+normalisation, Arr-state annotation and the parallel OMDb ratings fan-out). The names
+re-exported here are the import surface existing callers and tests use.
 """
 
 from __future__ import annotations

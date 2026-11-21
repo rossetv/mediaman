@@ -1,34 +1,11 @@
-"""Library JSON API endpoints — package root.
+"""Library JSON API endpoints (/api/library and /api/media/...), package root.
 
-Package layout:
-
-* :mod:`~mediaman.web.repository.delete_intents` — delete-intent
-  durability helpers (record / complete / fail / reconcile). Imported
-  from the repository layer (§2.7.1) and re-exported here for
-  backwards-compatible test patch targets.
-* :mod:`~mediaman.web.routes.library_api.redownload` — redownload route,
-  request schema, lookup matching, audit-ID generation, and the
-  ``_REDOWNLOAD_LIMITER`` singleton. Its sub-router is mounted onto the
-  package router below.
-* :mod:`~mediaman.web.routes.library_api.delete` — the media delete
-  pipeline (``POST /api/media/{id}/delete``), the Radarr/Sonarr delete
-  branch helpers, and the ``_DELETE_LIMITER`` singleton. Its sub-router
-  is mounted onto the package router below.
-* This module (``__init__``) — keep / library-list routes plus the
-  ``_KEEP_LIMITER`` singleton. Names that tests patch
-  (``build_radarr_from_db``, ``build_sonarr_from_db``, the
-  ``*_LIMITER`` singletons) are re-exported here so the historic patch
-  targets keep working.
-
-Handles all ``/api/library`` and ``/api/media/…`` JSON routes:
-
-* GET  /api/library                — paginated library list
-* POST /api/media/{id}/keep        — protect a media item
-* POST /api/media/{id}/delete      — delete via Radarr/Sonarr (two-phase)
-* POST /api/media/redownload       — trigger a re-download via Radarr/Sonarr
-
-The browser-facing GET /library page lives in the sibling module
-:mod:`mediaman.web.routes.library`.
+This module holds the keep and library-list routes plus the _KEEP_LIMITER singleton. The
+redownload and delete routes live in the .redownload and .delete submodules, whose
+sub-routers are mounted here. Delete-intent durability helpers come from
+mediaman.web.repository.delete_intents. Names that tests patch (build_radarr_from_db,
+build_sonarr_from_db, the *_LIMITER singletons) are re-exported here so the historic patch
+targets keep working.
 """
 
 from __future__ import annotations
@@ -102,10 +79,6 @@ router.include_router(_redownload_router)
 router.include_router(_delete_router)
 
 
-# ---------------------------------------------------------------------------
-# Rate limiters
-# ---------------------------------------------------------------------------
-
 # Per-admin cap on keep/unkeep toggles.  These are cheap DB writes with no
 # downstream Arr round-trip, so a generous burst cap is fine: 60 per minute
 # / 500 per day per actor.
@@ -114,11 +87,6 @@ _KEEP_LIMITER = ActionRateLimiter(
     window_seconds=60,
     max_per_day=500,
 )
-
-
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
 
 
 @router.get("/api/library")
@@ -130,7 +98,6 @@ def api_library(
     per_page: int = Query(default=20, ge=1, le=100),
     username: str = Depends(get_current_admin),
 ) -> JSONResponse:
-    """Return paginated library items as JSON."""
     conn = get_db()
     sort = sort if sort in VALID_SORTS else "added_desc"
     media_type = type if type in VALID_TYPES else ""
@@ -157,7 +124,6 @@ def api_media_keep(
     duration: str = Form(...),
     username: str = Depends(get_current_admin),
 ) -> JSONResponse:
-    """Apply protection to a media item."""
     if not _KEEP_LIMITER.check(username):
         logger.warning("media.keep_throttled user=%s", username)
         return respond_err(
@@ -175,7 +141,7 @@ def api_media_keep(
 
     # rationale: the helper takes the media-existence check, scheduled_actions
     # UPSERT, and audit row inside one ``BEGIN IMMEDIATE`` block so the SELECT
-    # cannot race with a concurrent delete (TOCTOU closed at §9.7).
+    # cannot race with a concurrent delete.
     try:
         apply_keep_in_tx(
             conn,
@@ -195,10 +161,6 @@ def api_media_keep(
 
     return respond_ok({"id": media_id, "duration": snooze_label})
 
-
-# ---------------------------------------------------------------------------
-# Public API surface
-# ---------------------------------------------------------------------------
 
 __all__ = [
     "api_library",

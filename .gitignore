@@ -55,27 +55,9 @@ auth.json
 .vscode/
 *.swp
 
-# Superpowers brainstorm artifacts & local-only docs/memory
-.superpowers/
-.remember/
+# Local tooling and git worktrees
 .worktrees/
-# .claude/ holds the committed KB, specs, plans, settings, skills and hooks —
-# only these two are machine-local and must stay out of git.
-.claude/settings.local.json
-.claude/worktrees/
-docs/superpowers/
-docs/remediation/
-docs/plans/
-
-# Playwright MCP scratch + ad-hoc screenshots (dev only)
-.playwright-mcp/
-/scorecard.png
-.desloppify/
-
-# Pre-OSS audit artefacts (local only)
-.review/
-FINDINGS.md
-PLAN.md
+.claude/
 
 # macOS Finder duplicate-suffix shadow files (e.g. "foo 2.py")
 * [0-9].py

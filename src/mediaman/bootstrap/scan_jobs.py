@@ -42,7 +42,7 @@ _SHUTDOWN_TIMEOUT_SECONDS = 30
 # Stuck-deletion recovery is best-effort at startup, but a recurring
 # failure means deletions are leaking forever. We escalate to CRITICAL
 # once the failure repeats so the noise is impossible to miss.
-# Single-process bootstrap-thread invariant (§1.12) — mutated only from
+# Single-process bootstrap-thread invariant — mutated only from
 # bootstrap_scheduling; no lock required.
 _stuck_deletion_failures = 0
 
@@ -99,7 +99,7 @@ def _run_scheduled_scan(db_path: str | None, secret_key: str) -> None:
     try:
         run_scan_from_db(db_conn, secret_key)
         finish_scan_run(db_conn, run_id, "done")
-    except Exception as exc:  # rationale: §6.4 site 2 — scheduler must survive a single bad row
+    except Exception as exc:  # rationale: scheduler must survive a single bad row
         try:
             finish_scan_run(db_conn, run_id, "error", str(exc))
         except sqlite3.Error:  # pragma: no cover — finish is best-effort here
@@ -111,14 +111,13 @@ def _run_scheduled_scan(db_path: str | None, secret_key: str) -> None:
 
 
 def _run_library_sync_job(secret_key: str) -> None:
-    """Execute a lightweight library sync from Plex."""
     from mediaman.db import get_db
     from mediaman.scanner.runner import run_library_sync
 
     try:
         db_conn = get_db()
         run_library_sync(db_conn, secret_key)
-    except Exception:  # rationale: §6.4 site 2 — scheduler must survive a single bad row
+    except Exception:  # rationale: scheduler must survive a single bad row
         logger.exception("Library sync failed")
 
 
@@ -136,7 +135,7 @@ def _recover_stuck_deletions_at_boot(conn: sqlite3.Connection) -> None:
 
         recover_stuck_deletions(conn)
         _stuck_deletion_failures = 0
-    except Exception:  # rationale: §6.4 site 4 — cold-start recovery
+    except Exception:  # rationale: cold-start recovery
         _stuck_deletion_failures += 1
         if _stuck_deletion_failures > 1:
             logger.critical(
@@ -152,8 +151,6 @@ def _recover_stuck_deletions_at_boot(conn: sqlite3.Connection) -> None:
 
 @dataclass(frozen=True, slots=True)
 class _SchedulerConfig:
-    """Validated scheduler settings read fresh from the DB at boot."""
-
     scan_day: str
     hour: int
     minute: int
@@ -164,9 +161,9 @@ class _SchedulerConfig:
 def _read_scheduler_config(conn: sqlite3.Connection) -> _SchedulerConfig:
     """Read and validate the scheduler settings from the DB.
 
-    Each value is passed through its :mod:`mediaman.bootstrap.validators`
+    Each value is passed through its mediaman.bootstrap.validators
     check so a malformed setting raises here (and is caught by
-    :func:`bootstrap_scheduling`'s cold-start handler) rather than
+    bootstrap_scheduling's cold-start handler) rather than
     reaching APScheduler.
     """
     from mediaman.services.infra import get_string_setting as _get_setting
@@ -199,18 +196,15 @@ def _build_scheduler_callbacks(
     """
 
     def scan_callback() -> None:
-        """APScheduler callback: run the weekly scheduled scan in a worker thread."""
         _run_scheduled_scan(db_path, secret_key)
 
     def sync_callback() -> None:
-        """APScheduler callback: run the periodic library sync in a worker thread."""
         _run_library_sync_job(secret_key)
 
     return scan_callback, sync_callback
 
 
 def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
-    """Start the APScheduler jobs. Returns True iff the scheduler actually started."""
     from mediaman.scanner.scheduler import start_scheduler
 
     conn = app.state.db
@@ -264,7 +258,7 @@ def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
             sched_config.sync_interval,
         )
         return True
-    # rationale: §6.4 site 4 — cold-start recovery; app stays up so the operator can investigate.
+    # rationale: cold-start recovery; app stays up so the operator can investigate.
     except Exception as exc:
         logger.exception("bootstrap.scheduler_start_failed", extra={"error": str(exc)})
         app.state.scheduler_error = str(exc) or exc.__class__.__name__
@@ -274,8 +268,8 @@ def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
 def shutdown_scheduling() -> None:
     """Stop the APScheduler jobs with a bounded wait.
 
-    Calls :func:`mediaman.scanner.scheduler.stop_scheduler` from a worker
-    thread and joins for at most :data:`_SHUTDOWN_TIMEOUT_SECONDS`. The
+    Calls mediaman.scanner.scheduler.stop_scheduler from a worker
+    thread and joins for at most _SHUTDOWN_TIMEOUT_SECONDS. The
     underlying call passes ``wait=False`` to APScheduler for fast
     shutdown of the scheduler thread itself, but jobs already executing
     are allowed to complete within the timeout window so a SIGTERM mid-
@@ -292,7 +286,7 @@ def shutdown_scheduling() -> None:
     def _drain() -> None:
         try:
             stop_scheduler()
-        except Exception:  # rationale: §6.4 shutdown path — log and proceed so SIGTERM completes  # pragma: no cover — best-effort shutdown
+        except Exception:  # rationale: log and proceed so SIGTERM completes  # pragma: no cover — best-effort shutdown
             logger.exception("scheduler shutdown raised — abandoning in-flight jobs")
         finally:
             done.set()

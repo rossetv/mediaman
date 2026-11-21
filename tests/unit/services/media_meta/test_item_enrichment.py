@@ -14,10 +14,6 @@ from mediaman.services.media_meta.item_enrichment import (
 )
 from tests.helpers.factories import insert_suggestion
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 SECRET = "test-secret-32-chars-XXXXXXXXXX"
 
 
@@ -26,11 +22,6 @@ def conn(tmp_path) -> sqlite3.Connection:
     db = init_db(str(tmp_path / "mediaman.db"))
     yield db
     db.close()
-
-
-# ---------------------------------------------------------------------------
-# enrich_item_with_tmdb
-# ---------------------------------------------------------------------------
 
 
 class TestFetchTmdbForItem:
@@ -178,11 +169,6 @@ class TestFetchTmdbForItem:
         assert item["poster_url"]  # some poster present
 
 
-# ---------------------------------------------------------------------------
-# enrich_redownload_item
-# ---------------------------------------------------------------------------
-
-
 class TestEnrichRedownloadItem:
     """Tests for the higher-level enrichment entry point."""
 
@@ -218,14 +204,12 @@ class TestEnrichRedownloadItem:
 
     @patch("mediaman.services.media_meta.item_enrichment.enrich_item_with_tmdb")
     def test_enrichment_falls_back_to_tmdb_when_no_cache(self, mock_fetch, conn):
-        """Cache miss: enrich_item_with_tmdb is called as the fallback."""
         item = {"title": "Uncached Film", "media_type": "movie"}
         enrich_redownload_item(item, conn, SECRET)
         mock_fetch.assert_called_once_with(item, conn, SECRET)
 
     @patch("mediaman.services.media_meta.item_enrichment.enrich_item_with_tmdb")
     def test_enrichment_skips_tmdb_when_cache_has_poster(self, mock_fetch, conn):
-        """Cache hit with poster_url bypasses TMDB entirely."""
         insert_suggestion(
             conn,
             title="Cached Film",

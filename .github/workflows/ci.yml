@@ -123,12 +123,8 @@ jobs:
         run: pip install bandit[toml]
 
       - name: bandit
-        # `-ll` reports MEDIUM severity and above (bandit's flag conventions:
-        # -l surfaces LOW+, -ll MEDIUM+, -lll HIGH-only). Domain-11's claim
-        # that the prior `-ll` filtered everything below HIGH was wrong;
-        # `-ll` already includes MEDIUM, which is the intended gate. The
-        # 24 LOW findings (mostly try/except/pass and assert-in-tests
-        # patterns) are tracked as nosec exemptions in `bandit.yaml`.
+        # `-ll` reports MEDIUM severity and above, so LOW findings never fail
+        # CI. bandit.yaml skips B608; its header says why.
         run: bandit -r src/ -c bandit.yaml -ll -f txt
 
   dependency-audit:
@@ -231,9 +227,8 @@ jobs:
   # overhead. It is NOT apt: this image installs no build toolchain (see the
   # Dockerfile's builder stage — every pinned dep ships a prebuilt cp312 wheel
   # for both arches), so there is no apt/dpkg layer for emulation to slow down.
-  # An earlier version of this comment blamed apt/dpkg; that was false, and it
-  # propagated into the KB before being caught. The tests and other check jobs
-  # run ONCE as the shared gate below; neither arch leg re-runs them.
+  # The tests and other check jobs run ONCE as the shared gate below; neither
+  # arch leg re-runs them.
   docker-build:
     name: Build (${{ matrix.platform.arch }})
     # Gate the image build on every check-job, not just tests. A lint or

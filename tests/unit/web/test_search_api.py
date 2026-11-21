@@ -847,12 +847,11 @@ class TestDownloadEndpoint:
 
 
 class TestSearchQueryCap:
-    """H12 — /api/search must silently truncate queries over 100 chars."""
+    """/api/search must silently truncate queries over 100 chars."""
 
     def test_query_over_100_chars_is_accepted_and_truncated(
         self, authed_client, fake_http, fake_response
     ):
-        """A query over 100 chars must be truncated to 100 before passing to TMDB."""
         page1 = {
             "results": [
                 {
@@ -883,7 +882,7 @@ class TestSearchQueryCap:
 
 
 class TestDownloadNotifiesRequestingAdmin:
-    """H24 — download notification must go to the requesting admin, not first subscriber."""
+    """Download notification must go to the requesting admin, not first subscriber."""
 
     @pytest.fixture(autouse=True)
     def _clear_limiters(self):

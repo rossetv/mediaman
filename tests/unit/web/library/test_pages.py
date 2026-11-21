@@ -1,4 +1,4 @@
-"""Tests for :mod:`mediaman.web.routes.library.pages`.
+"""Tests for mediaman.web.routes.library.pages.
 
 GET /library page route:
   - unauthenticated → redirect to /login
@@ -47,14 +47,12 @@ class TestLibraryPage:
         assert resp.status_code == 200
 
     def test_context_includes_username(self, _app, authed_client, conn):
-        """Rendered context must include the admin username."""
         client = authed_client(_app, conn)
         resp = client.get("/library")
         ctx = resp.json()
         assert ctx["username"] == "admin"
 
     def test_context_includes_items_and_stats(self, _app, authed_client, conn):
-        """Rendered context includes items list and stats dict."""
         _insert_movie(conn, "m1", "Dune")
         client = authed_client(_app, conn)
         resp = client.get("/library")
@@ -80,7 +78,7 @@ class TestLibraryPage:
         assert ctx["current_type"] == ""
 
     def test_page_below_minimum_rejected(self, _app, authed_client, conn):
-        """A page value of 0 is rejected with 422 (finding 17).
+        """A page value of 0 is rejected with 422.
 
         Pagination bounds are now enforced at the input layer — invalid
         values surface as a Pydantic validation error rather than being
@@ -91,7 +89,7 @@ class TestLibraryPage:
         assert resp.status_code == 422
 
     def test_per_page_above_maximum_rejected(self, _app, authed_client, conn):
-        """A per_page value above 100 is rejected with 422 (finding 17)."""
+        """A per_page value above 100 is rejected with 422."""
         client = authed_client(_app, conn)
         resp = client.get("/library?per_page=9999")
         assert resp.status_code == 422
@@ -116,13 +114,8 @@ class TestLibraryPage:
         assert ctx["q"] == "Dune"
 
 
-# ---------------------------------------------------------------------------
-# Bulk keep/remove operations honour the response.ok flag from each item's API call
-# ---------------------------------------------------------------------------
-
-
 class TestFinding35BulkKeepResponseOk:
-    """Finding 35: library bulk-keep JS must check response.ok.
+    """Library bulk-keep JS must check response.ok.
 
     Server-side: keep API returns appropriate status codes for bad requests.
     Client-side: verified via static file content inspection.
@@ -145,7 +138,7 @@ class TestFinding35BulkKeepResponseOk:
 
     def test_library_template_has_response_ok_check(self):
         """The new bulk-keep code must check response.ok. The JS now lives in
-        static/js/library.js (Finding 65 inline-script extraction)."""
+        static/js/library.js."""
         import pathlib
 
         js = pathlib.Path("src/mediaman/web/static/js/library.js").read_text()

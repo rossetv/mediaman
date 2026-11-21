@@ -151,16 +151,10 @@ class TestApiDashboardReclaimedChart:
         assert isinstance(weeks[0]["reclaimed"], str)
 
 
-# ---------------------------------------------------------------------------
-# Dashboard re-download passes stable identifiers (TMDB/TVDB/IMDB ids) to the redownload route
-# ---------------------------------------------------------------------------
-
-
 class TestFinding34DashboardRedownload:
-    """Finding 34: the redownload button must pass media_item_id and media_type."""
+    """The redownload button must pass media_item_id and media_type."""
 
     def test_dashboard_item_includes_media_type(self, app_factory, authed_client, conn):
-        """GET /api/dashboard/deleted must populate media_type and media_item_id."""
         insert_media_item(
             conn,
             id="m1",

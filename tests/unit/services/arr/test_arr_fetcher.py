@@ -12,10 +12,6 @@ from mediaman.db import init_db
 from mediaman.services.arr.fetcher import FetchResult, fetch_arr_queue, fetch_arr_queue_result
 from tests.helpers.factories import insert_settings
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 
 def _make_conn(tmp_path) -> sqlite3.Connection:
     return init_db(str(tmp_path / "mediaman.db"))
@@ -33,11 +29,6 @@ def _configure_radarr(conn: sqlite3.Connection) -> None:
 def _configure_sonarr(conn: sqlite3.Connection) -> None:
     _put(conn, "sonarr_url", "http://sonarr.local")
     _put(conn, "sonarr_api_key", "test-key")
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture(autouse=True)
@@ -60,11 +51,6 @@ def conn(tmp_path) -> sqlite3.Connection:
     db.close()
 
 
-# ---------------------------------------------------------------------------
-# Tests: empty / unconfigured
-# ---------------------------------------------------------------------------
-
-
 def test_returns_empty_when_nothing_configured(conn):
     result = fetch_arr_queue(conn, "test-secret-32-chars-XXXXXXXXXX")
     assert result == []
@@ -76,11 +62,6 @@ def test_returns_empty_when_radarr_not_configured(mock_build_radarr, conn):
     mock_build_radarr.return_value = None
     result = fetch_arr_queue(conn, "test-secret-32-chars-XXXXXXXXXX")
     assert result == []
-
-
-# ---------------------------------------------------------------------------
-# Tests: Radarr queue
-# ---------------------------------------------------------------------------
 
 
 @patch("mediaman.services.arr.build.build_radarr_from_db")
@@ -174,7 +155,6 @@ def test_is_upcoming_flag_set_for_future_release(mock_build_radarr, conn):
 
 @patch("mediaman.services.arr.build.build_radarr_from_db")
 def test_unmonitored_movie_excluded(mock_build_radarr, conn):
-    """Unmonitored movies must not appear in the queue."""
     _configure_radarr(conn)
 
     mock_client = MagicMock()
@@ -226,11 +206,6 @@ def test_radarr_failure_does_not_crash(mock_build_radarr, mock_build_sonarr, con
 
     # Sonarr card present; no exception raised
     assert any(c["kind"] == "series" and c["title"] == "Breaking Bad" for c in result)
-
-
-# ---------------------------------------------------------------------------
-# Tests: Sonarr queue
-# ---------------------------------------------------------------------------
 
 
 @patch("mediaman.services.arr.build.build_sonarr_from_db")
@@ -309,7 +284,7 @@ def test_sonarr_episodes_grouped_by_series(mock_build_sonarr, conn):
 
 @patch("mediaman.services.arr.build.build_sonarr_from_db")
 def test_sonarr_empty_downloadids_do_not_double_count(mock_build_sonarr, conn):
-    """C19 — two queue rows with empty downloadId must not collapse into one pack total."""
+    """Two queue rows with empty downloadId must not collapse into one pack total."""
     _configure_sonarr(conn)
 
     series_payload = {"id": 7, "title": "Orphan Black", "year": 2013, "images": []}
@@ -416,11 +391,6 @@ def test_sonarr_searching_series_appears(mock_build_sonarr, conn):
     result = fetch_arr_queue(conn, "test-secret-32-chars-XXXXXXXXXX")
 
     assert any(c["title"] == "House of the Dragon" for c in result)
-
-
-# ---------------------------------------------------------------------------
-# H38: FetchResult dataclass and fetch_arr_queue_result
-# ---------------------------------------------------------------------------
 
 
 class TestFetchResult:

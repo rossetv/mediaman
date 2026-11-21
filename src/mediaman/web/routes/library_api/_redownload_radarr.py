@@ -1,12 +1,5 @@
-"""Radarr branch of the redownload flow: add-and-record + try-redownload.
-
-These two helpers are the Radarr half of ``POST /api/media/redownload``.
-They are split out of :mod:`mediaman.web.routes.library_api.redownload` to
-keep that module under the size ceiling; the redownload handler imports
-them back so the registered route and its behaviour are unchanged. The
-shared lookup matcher and audit-ID picker live in
-:mod:`mediaman.web.routes.library_api._redownload_match` because the
-Sonarr branch consumes them too.
+"""Radarr branch of the redownload flow, split out of .redownload.
+The shared lookup matcher and audit-ID picker live in ._redownload_match.
 """
 
 from __future__ import annotations
@@ -41,10 +34,8 @@ def _radarr_add_and_record(
     imdb_id: str | None,
     username: str,
 ) -> JSONResponse | None:
-    """Add a movie via Radarr and persist the audit row.
-
-    Returns ``None`` if the lookup entry has no usable ``tmdbId`` (in
-    which case the caller should keep falling through).
+    """Add a movie via Radarr and persist the audit row; None if the lookup entry has no usable
+    tmdbId, so the caller keeps falling through.
     """
     resolved_tmdb = entry.get("tmdbId")
     if not resolved_tmdb:
@@ -88,11 +79,8 @@ def _try_radarr_redownload(
     imdb_id: str | None,
     username: str,
 ) -> JSONResponse | None:
-    """Attempt a Radarr redownload; ``None`` means fall through to Sonarr.
-
-    A successful add returns the "added to Radarr" response. A duplicate
-    (HTTP 409/422) returns an "already exists" response. All other failures
-    log and return ``None`` so the Sonarr fallback gets a chance.
+    """Attempt a Radarr redownload; None means fall through to Sonarr. A duplicate (HTTP
+    409/422) returns an "already exists" response; other failures log and return None.
     """
     try:
         # lookup_by_term URL-encodes the term internally — pass the raw title.

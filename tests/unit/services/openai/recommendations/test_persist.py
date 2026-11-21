@@ -12,10 +12,6 @@ from mediaman.db import init_db
 from mediaman.services.openai.recommendations.persist import refresh_recommendations
 from tests.helpers.factories import insert_media_item, insert_suggestion
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 
 @pytest.fixture
 def conn(db_path):
@@ -60,11 +56,6 @@ def _fake_personal():
             "poster_url": None,
         }
     ]
-
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
 
 
 class TestRefreshRecommendations:
@@ -302,7 +293,7 @@ class TestRefreshRecommendations:
         )
 
     def test_anime_media_type_normalised_to_tv(self, conn):
-        """F-07: media_type 'anime' in watch history must be normalised to 'tv'.
+        """media_type 'anime' in watch history must be normalised to 'tv'.
 
         The old elif guard preserved 'anime' as-is; the fixed code maps it to
         'tv' so the prompt only ever sees 'movie' or 'tv'.

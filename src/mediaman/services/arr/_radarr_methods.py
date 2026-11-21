@@ -1,8 +1,8 @@
-"""Radarr-specific methods for :class:`~mediaman.services.arr.base.ArrClient`.
+"""Radarr-specific methods for ``ArrClient``.
 
 Mixed into the unified client.  Every method here calls
 ``self._require_movie(...)`` first so a Sonarr-flavoured client gets
-:exc:`ArrKindMismatch` instead of a confusing 404 from the Radarr URL
+``ArrKindMismatch`` instead of a confusing 404 from the Radarr URL
 shape.
 """
 
@@ -21,13 +21,12 @@ class _RadarrMixin:
     """Radarr (``kind="movie"``) operations.
 
     Every method asserts the client kind via
-    :meth:`~mediaman.services.arr.base.ArrClient._require_movie` so a
-    Sonarr-flavoured client raises :exc:`ArrKindMismatch` rather than
+    ``_require_movie`` so a
+    Sonarr-flavoured client raises ``ArrKindMismatch`` rather than
     silently issuing the wrong URL shape.
     """
 
     def get_movies(self) -> list[RadarrMovie]:
-        """Return all movies in the Radarr library."""
         self._require_movie("get_movies")  # type: ignore[attr-defined]
         data = self._get("/api/v3/movie")  # type: ignore[attr-defined]
         return cast(list[RadarrMovie], data) if isinstance(data, list) else []
@@ -35,7 +34,7 @@ class _RadarrMixin:
     def get_movie_by_id(self, movie_id: int) -> RadarrMovie:
         """Return a single movie by its Radarr ID.
 
-        Raises :exc:`ArrUpstreamError` when Radarr returns a non-dict response.
+        Raises ``ArrUpstreamError`` when Radarr returns a non-dict response.
         """
         self._require_movie("get_movie_by_id")  # type: ignore[attr-defined]
         data = self._get(f"/api/v3/movie/{movie_id}")  # type: ignore[attr-defined]
@@ -49,7 +48,7 @@ class _RadarrMixin:
         """Delete a movie from Radarr and its files from disk."""
         self._require_movie("delete_movie")  # type: ignore[attr-defined]
         # ``self.spec.exclusion_param`` carries the per-flavour spelling
-        # — see :meth:`delete_series` for the rationale.
+        # — see ``delete_series`` for the rationale.
         self._delete(  # type: ignore[attr-defined]
             f"/api/v3/movie/{movie_id}?deleteFiles=true&{self.spec.exclusion_param}=true"  # type: ignore[attr-defined]
         )
@@ -59,7 +58,7 @@ class _RadarrMixin:
 
         Radarr v3 has no PATCH endpoint, so this is a read-modify-write
         on the full movie payload.  The retry loop tolerates concurrent
-        writers — see :func:`_unmonitor_with_retry` for the details.
+        writers — see ``_unmonitor_with_retry`` for the details.
         """
         self._require_movie("unmonitor_movie")  # type: ignore[attr-defined]
 
@@ -79,7 +78,7 @@ class _RadarrMixin:
     def remonitor_movie(self, movie_id: int, *, max_retries: int = 3) -> None:
         """Set ``monitored=True`` for *movie_id* and trigger a search.
 
-        Uses the same retry helper as :meth:`unmonitor_movie` so a transient
+        Uses the same retry helper as ``unmonitor_movie`` so a transient
         PUT failure doesn't silently strand the movie in an unmonitored state.
         """
         self._require_movie("remonitor_movie")  # type: ignore[attr-defined]
@@ -101,7 +100,6 @@ class _RadarrMixin:
         self.search_movie(movie_id)
 
     def search_movie(self, movie_id: int) -> None:
-        """Trigger a Radarr MoviesSearch command for a single movie."""
         self._require_movie("search_movie")  # type: ignore[attr-defined]
         self._post(  # type: ignore[attr-defined]
             "/api/v3/command", {"name": "MoviesSearch", "movieIds": [movie_id]}
@@ -113,8 +111,8 @@ class _RadarrMixin:
         """Add a movie by TMDB ID and trigger a search.
 
         ``quality_profile_id`` is selected via
-        :meth:`_choose_quality_profile` when not specified.  Raises
-        :exc:`ValueError` if ``tmdb_id <= 0`` rather than letting Radarr
+        ``_choose_quality_profile`` when not specified.  Raises
+        ``ValueError`` if ``tmdb_id <= 0`` rather than letting Radarr
         return an opaque 400.
         """
         self._require_movie("add_movie")  # type: ignore[attr-defined]

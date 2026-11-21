@@ -1,5 +1,3 @@
-"""Data-fetching helpers for the dashboard page."""
-
 from __future__ import annotations
 
 import json
@@ -33,10 +31,6 @@ from mediaman.web.repository.dashboard import (
     fetch_scheduled_deletions,
 )
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
 # Bounded scan size so the dashboard render doesn't degenerate into a
 # long table walk on a heavy audit_log. 5 batches × 50 rows = 250
 # candidates is enough headroom for any realistic mix of re-downloaded
@@ -51,10 +45,6 @@ _RECENT_DELETED_MAX_BATCHES = 5
 _DISK_USAGE_CACHE_TTL_SECONDS = 30.0
 _disk_usage_cache: dict[str, tuple[float, dict[str, int]]] = {}
 _disk_usage_cache_lock = threading.Lock()
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _days_until(dt_str: str | None) -> str:
@@ -72,7 +62,6 @@ def _days_until(dt_str: str | None) -> str:
 
 
 def _fetch_scheduled(conn: sqlite3.Connection) -> list[dict[str, object]]:
-    """Return scheduled-deletion items joined with media_items, enriched for the template."""
     rows = fetch_scheduled_deletions(conn, ACTION_SCHEDULED_DELETION)
 
     items = []
@@ -137,24 +126,14 @@ def _was_redownloaded_after(
     title: str,
     by_title_lower: dict[str, str],
 ) -> bool:
-    """Return True if a re-download for *title* happened after *deletion_created_at*.
-
-    Looks up the title-keyed index. The index is passed explicitly so
-    callers can build it once per page render rather than rebuilding it
-    per deletion row.
-    """
     last_redownload = by_title_lower.get(title.lower())
     return bool(last_redownload and last_redownload > deletion_created_at)
 
 
 def _fetch_recently_deleted(conn: sqlite3.Connection, secret_key: str) -> list[dict[str, object]]:
-    """Return up to 10 recent ``deleted`` audit_log entries.
-
-    Skips deletions that have a more-recent re-download. The earlier
-    implementation issued a single ``LIMIT 20`` query and post-filtered;
-    when most rows had a re-download the result was short of 10 with no
-    retry. Now we page through audit_log in batches until we have 10
-    unfiltered items or hit a hard cap.
+    """Return up to 10 recent deleted audit_log entries, skipping ones with a newer
+    re-download. Pages through audit_log in batches up to a hard cap so the filtering cannot
+    leave the result short.
     """
     from mediaman.web.routes.dashboard._poster_fanout import _fill_tmdb_posters
 
@@ -245,14 +224,10 @@ def _configured_library_paths(conn: sqlite3.Connection) -> list[str]:
 
 
 def _cached_disk_usage(cache_key: str, paths: list[str] | None = None) -> dict[str, int]:
-    """Return aggregate disk usage, cached for 30s and keyed on *cache_key*.
-
-    When *paths* is given, usage is aggregated across that explicit list of
-    library mount points (each physical disk counted once); otherwise
-    *cache_key* is treated as a single base path scanned for sub-mounts.
-    Misses still hit the underlying call; the cache only short-circuits
-    repeats within the TTL. A settings change to the configured paths
-    produces a new *cache_key*, invalidating the cache automatically.
+    """Return aggregate disk usage cached for 30s and keyed on cache_key. With paths, usage is
+    aggregated across those mount points (each physical disk counted once); otherwise
+    cache_key is a single base path scanned for sub-mounts. A change of configured paths
+    yields a new key.
     """
     now = time.monotonic()
     with _disk_usage_cache_lock:
@@ -268,14 +243,9 @@ def _cached_disk_usage(cache_key: str, paths: list[str] | None = None) -> dict[s
 
 
 def _fetch_storage_stats(conn: sqlite3.Connection) -> dict[str, object]:
-    """Return storage stats dict for the dashboard template.
-
-    Disk usage is aggregated across every configured library drive (the
-    ``disk_thresholds`` paths), so a setup that spreads movies and TV across
-    separate physical disks reports the combined capacity rather than a
-    single drive's. Falls back to the media root when no paths are
-    configured, and to zeroes on any filesystem error. Per-type sizes come
-    from summing file_size_bytes on media_items.
+    """Return storage stats for the dashboard template. Disk usage spans every configured
+    library drive; falls back to the media root without paths and to zeroes on a filesystem
+    error.
     """
     # Disk-level stats — aggregate across every configured library drive
     try:

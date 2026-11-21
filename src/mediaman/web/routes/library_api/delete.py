@@ -1,11 +1,5 @@
-"""Media delete pipeline: ``POST /api/media/{id}/delete``.
-
-The delete flow is split out of the package barrel to keep that module
-under the size ceiling. It owns the two-phase, three-transaction delete
-contract, the Radarr/Sonarr delete branch helpers, the delete-intent
-durability wiring, and the ``_DELETE_LIMITER`` singleton. The barrel
-mounts this module's ``router`` and re-exports ``_DELETE_LIMITER`` so the
-historic test patch / import targets keep working.
+"""Media delete pipeline (POST /api/media/{id}/delete), split out of the package barrel. The barrel mounts this router and re-exports _DELETE_LIMITER so
+the historic test patch targets keep working.
 """
 
 from __future__ import annotations
@@ -53,11 +47,8 @@ _DELETE_LIMITER = ActionRateLimiter(
 
 
 def _is_already_gone(exc: Exception) -> bool:
-    """Return True when an Arr exception carries a 404 — already-deleted upstream.
-
-    Checks both :class:`SafeHTTPError` (``exc.status_code``) and any
-    exception carrying a ``response.status_code`` attribute so that the
-    same function works regardless of which exception type the caller passes.
+    """Return True when an Arr exception carries a 404 (already deleted upstream), whether it
+    is a SafeHTTPError or any exception with response.status_code.
     """
     # SafeHTTPError exposes the status code directly
     if getattr(exc, "status_code", None) == 404:
@@ -74,11 +65,8 @@ def _try_radarr_delete(
     conn: sqlite3.Connection,
     media_id: str,
 ) -> tuple[int | None, JSONResponse | None]:
-    """Delete a movie via Radarr; returns ``(intent_id, short_circuit_resp)``.
-
-    The response is ``None`` when the caller should proceed to the cleanup
-    transaction; a non-None ``JSONResponse`` means the handler must return
-    immediately (e.g. 502 on an upstream failure).
+    """Delete a movie via Radarr; returns (intent_id, short_circuit_resp). A non-None response
+    means the handler must return it immediately (e.g. 502 on an upstream failure).
     """
     title = snapshot.title
     radarr_id = snapshot.radarr_id
@@ -114,11 +102,8 @@ def _try_sonarr_delete(
     conn: sqlite3.Connection,
     media_id: str,
 ) -> tuple[int | None, JSONResponse | None]:
-    """Delete a TV season (and the show if empty) via Sonarr.
-
-    Returns ``(intent_id, short_circuit_resp)``: when the response is
-    ``None`` the caller proceeds to the cleanup transaction; otherwise
-    the handler returns the response immediately.
+    """Delete a TV season (and the show if empty) via Sonarr; returns (intent_id,
+    short_circuit_resp) like _try_radarr_delete.
     """
     title = snapshot.title
     sid = snapshot.sonarr_id
@@ -161,7 +146,6 @@ def _run_arr_delete_branch(
     media_id: str,
     secret_key: str,
 ) -> tuple[int | None, JSONResponse | None]:
-    """Dispatch to the Radarr or Sonarr branch based on the snapshot's media type."""
     # Late import: the barrel re-exports build_radarr_from_db /
     # build_sonarr_from_db and tests patch those names at the barrel module
     # path. A top-level ``from ...library_api import …`` here would create a
@@ -188,12 +172,9 @@ def _finalise_delete(
     intent_id: int | None,
     username: str,
 ) -> None:
-    """Cleanup transaction: audit + scheduled_actions prune + row drop.
-
-    Wrapped in ``BEGIN IMMEDIATE`` by :func:`finalise_delete_in_tx` so a
-    SQLite failure rolls the whole lot back together (fail-closed: no
-    half-deleted row). The pending delete-intent row, if any, is marked
-    complete after the cleanup commits.
+    """Cleanup transaction: audit, scheduled_actions prune and row drop, wrapped in BEGIN
+    IMMEDIATE so a SQLite failure rolls everything back (no half-deleted row). The pending
+    delete-intent is marked complete after the commit.
     """
     title = snapshot.title
     rk = snapshot.plex_rating_key or ""
@@ -220,19 +201,15 @@ def api_media_delete(
 ) -> JSONResponse:
     """Delete a media item via Radarr/Sonarr.
 
-    Two-phase, three-transaction layout — intentionally split:
+    Two-phase, three-transaction layout, deliberately split:
 
-    1. **Snapshot transaction** (``BEGIN IMMEDIATE`` … ``COMMIT``)
-       — read the media row, capture identifiers, release the lock.
-    2. **External Arr call** (no DB transaction held)
-       — Radarr / Sonarr round-trip can take seconds; holding a SQLite
-       write lock that long would block every other writer in the process.
-       A delete-intent row is persisted *before* this step so a crash
-       between the Arr call returning and the DB cleanup landing can be
-       reconciled by :func:`reconcile_pending_delete_intents` at startup.
-    3. **Cleanup transaction** (``BEGIN IMMEDIATE`` … ``COMMIT``)
-       — write the audit row, prune ``scheduled_actions``, drop the
-       ``media_items`` row, then mark the delete-intent complete.
+    1. Snapshot transaction: read the media row and capture identifiers, then release the
+      lock.
+    2. External Arr call with no DB transaction held, since a seconds-long round-trip would
+      block every other SQLite writer. A delete-intent row is persisted first so a crash
+      between the Arr call and the cleanup can be reconciled at startup.
+    3. Cleanup transaction: audit row, prune scheduled_actions, drop the media_items row,
+      mark the intent complete.
     """
     if not _DELETE_LIMITER.check(username):
         logger.warning("media.delete_throttled user=%s", username)
@@ -242,7 +219,7 @@ def api_media_delete(
     conn = get_db()
 
     # Snapshot transaction: the helper opens ``BEGIN IMMEDIATE`` and rolls
-    # back on :exc:`NotFound`. We map "absent media row" to 403 so the
+    # back on NotFound. We map "absent media row" to 403 so the
     # endpoint cannot be used as an existence oracle (an authenticated
     # caller learns "forbidden" rather than "not found" for unknown ids).
     try:

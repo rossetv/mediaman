@@ -6,8 +6,8 @@
 
 {% call c.setg_block("setg-users", "Users & Access", "Who can sign in and administer Mediaman") %}
 
-  {# ----- Signed-in user (self card). Action buttons live inside the
-         card body (usr-self-actions), not in the card header. ----- #}
+  {# Signed-in user (self card). Action buttons live inside the
+         card body (usr-self-actions), not in the card header. #}
   {% call c.setg_card(title="Your account", sub="The account you're signed in with.", pad=True) %}
     <div class="usr-self-head">
       <div class="av">{{ user_initial }}</div>
@@ -68,7 +68,6 @@
     </div>
   {% endcall %}
 
-  {# ----- Team members ----- #}
   {% set team_actions %}
     {{ c.btn("Add user", variant="primary", size="sm", id="btn-add-user",
              icon='<i class="fa-solid fa-plus" aria-hidden="true"></i> ') }}

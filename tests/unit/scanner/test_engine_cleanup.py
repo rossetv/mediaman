@@ -28,7 +28,7 @@ def mock_plex():
 
 
 class TestOrphanGuard:
-    """C31: a scan returning zero (or near-zero) items must not be
+    """A scan returning zero (or near-zero) items must not be
     trusted as authoritative — refuse orphan removal and log why."""
 
     def _populate_items(self, conn, lib_id, n):
@@ -134,7 +134,7 @@ class TestOrphanGuard:
 
 
 class TestHistoryFetchFailureNeverPrunes:
-    """R7-H1: a transient watch-history fetch failure must NEVER cause an
+    """A transient watch-history fetch failure must NEVER cause an
     item's ``media_items`` row or its pending ``scheduled_actions`` to be
     pruned by orphan removal.
 
@@ -216,7 +216,7 @@ class TestHistoryFetchFailureNeverPrunes:
 
 
 class TestConcurrentScanGuard:
-    """H60: manual and cron scans cannot both run simultaneously.
+    """Manual and cron scans cannot both run simultaneously.
 
     The DB-backed ``scan_runs`` table is the single concurrency gate.
     ``start_scan_run`` uses ``BEGIN IMMEDIATE`` so only one caller

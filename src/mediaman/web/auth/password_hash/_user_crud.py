@@ -2,8 +2,8 @@
 
 Owns the create / list / delete operations and the per-user
 notification-email and force-rotation flag mutations. The
-authentication path lives in :mod:`._authenticate` and password
-rotation in :mod:`._change_password`; this module is the "rows in
+authentication path lives in `._authenticate` and password
+rotation in `._change_password`; this module is the "rows in
 ``admin_users``" concern.
 
 Every state-changing function here follows the audit-in-transaction
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 class UserExistsError(Exception):
-    """Raised by :func:`create_user` when *username* is already taken.
+    """Raised by `create_user` when *username* is already taken.
 
     Callers can catch this specifically instead of a generic ``ValueError``
     so the HTTP layer can map it to a 409 without accidentally swallowing
@@ -40,8 +40,6 @@ class UserExistsError(Exception):
 
 
 class UserRecord(TypedDict):
-    """A single admin user row returned by :func:`list_users`."""
-
     id: int
     username: str
     created_at: str
@@ -49,7 +47,6 @@ class UserRecord(TypedDict):
 
 
 def user_must_change_password(conn: sqlite3.Connection, username: str) -> bool:
-    """Return True when *username*'s account is flagged to force a rotation."""
     row = conn.execute(
         "SELECT must_change_password FROM admin_users WHERE username = ?",
         (username,),
@@ -60,7 +57,6 @@ def user_must_change_password(conn: sqlite3.Connection, username: str) -> bool:
 
 
 def set_must_change_password(conn: sqlite3.Connection, username: str, flag: bool) -> None:
-    """Set / clear the force-rotation flag for *username*."""
     conn.execute(
         "UPDATE admin_users SET must_change_password = ? WHERE username = ?",
         (1 if flag else 0, username),
@@ -79,7 +75,7 @@ def create_user(
 ) -> None:
     """Insert an admin user with a bcrypt-hashed password.
 
-    The bcrypt cost is :data:`BCRYPT_ROUNDS`. Passwords are routed
+    The bcrypt cost is `BCRYPT_ROUNDS`. Passwords are routed
     through ``_prepare_bcrypt_input`` first so inputs over 72 bytes
     preserve full entropy (see package docstring).
 
@@ -139,7 +135,6 @@ def create_user(
 
 
 def list_users(conn: sqlite3.Connection) -> list[UserRecord]:
-    """Return all admin users (without password hashes)."""
     rows = conn.execute(
         "SELECT id, username, created_at, email FROM admin_users ORDER BY id"
     ).fetchall()
@@ -186,7 +181,7 @@ def set_user_email(
 
     Empty / whitespace-only strings collapse to ``NULL`` so the column
     always holds either ``NULL`` or a validated address. Validation is
-    delegated to :func:`mediaman.core.email_validation.validate_email_address`,
+    delegated to `mediaman.core.email_validation.validate_email_address`,
     which raises ``ValueError`` on a malformed input.
 
     Unknown usernames silently no-op — callers are expected to gate on

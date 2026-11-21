@@ -1,6 +1,3 @@
-/* =============================================================
-   5. BUTTONS — one system, used everywhere
-   ============================================================= */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -81,7 +78,7 @@
 .keep-trigger--kept { background: var(--rgba-success-bg); color: var(--success); }
 .keep-trigger--kept:hover { background: rgba(48,209,88,.22); }
 
-/* Legacy aliases .btn-keep, .btn-danger, .btn-ghost removed (R8-H4).
+/* Legacy aliases .btn-keep, .btn-danger, .btn-ghost removed.
    ui-feedback.js now emits `.btn.btn--accent-soft` / `.btn.btn--danger`
    / `.btn.btn--ghost` — use those instead. */
 
@@ -112,9 +109,6 @@
 .scan-dots span:nth-child(3) { animation-delay: .3s; }
 @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
 
-/* =============================================================
-   6. PILLS, FILTERS, BADGES
-   ============================================================= */
 .pill {
   display: inline-flex;
   align-items: center;
@@ -185,7 +179,7 @@
 .fpill--kept.on  { background: var(--success); color: #002210; }
 .fpill--stale.on { background: var(--danger); color: #2a0706; }
 
-/* Mobile touch target — DESIGN.md §8 requires a 44px minimum hit area
+/* Mobile touch target — a 44px minimum hit area
    for filter pills below the phone/tablet split. */
 @media (max-width: 639px) {
   .fpill { min-height: 44px; }

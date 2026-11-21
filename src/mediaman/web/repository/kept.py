@@ -18,8 +18,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class ProtectedRow:
-    """A single scheduled_actions row joined with media_items for the kept page."""
-
     sa_id: int
     media_item_id: str
     action: str
@@ -35,8 +33,6 @@ class ProtectedRow:
 
 @dataclass(frozen=True)
 class SeasonRow:
-    """A media_items row with a flag indicating whether the season is kept."""
-
     id: str
     season_number: int | None
     title: str
@@ -47,15 +43,8 @@ class SeasonRow:
 
 @dataclass(frozen=True)
 class ShowKeptRow:
-    """A kept_shows row for a specific show."""
-
     action: str
     execute_at: str | None
-
-
-# ---------------------------------------------------------------------------
-# Validation helpers
-# ---------------------------------------------------------------------------
 
 
 def resolve_show_rating_key(
@@ -84,11 +73,6 @@ def resolve_show_rating_key(
             return key, None
         return None, "Unknown show_rating_key"
     return None, "show_rating_key required"
-
-
-# ---------------------------------------------------------------------------
-# Reads
-# ---------------------------------------------------------------------------
 
 
 def fetch_protected_items(conn: sqlite3.Connection, now: str) -> list[ProtectedRow]:
@@ -179,7 +163,6 @@ def fetch_seasons_for_show(conn: sqlite3.Connection, show_rating_key: str) -> li
 
 
 def fetch_show_kept_status(conn: sqlite3.Connection, show_rating_key: str) -> ShowKeptRow | None:
-    """Return the kept_shows row for a show, or None if not kept."""
     row = conn.execute(
         "SELECT action, execute_at FROM kept_shows WHERE show_rating_key = ?",
         (show_rating_key,),
@@ -224,7 +207,6 @@ def fetch_existing_actions_for_seasons(
 
 
 def fetch_show_keep_row(conn: sqlite3.Connection, show_rating_key: str) -> tuple[int, str] | None:
-    """Return (id, show_title) from kept_shows for the given key, or None."""
     row = conn.execute(
         "SELECT id, show_title FROM kept_shows WHERE show_rating_key = ?",
         (show_rating_key,),
@@ -235,7 +217,6 @@ def fetch_show_keep_row(conn: sqlite3.Connection, show_rating_key: str) -> tuple
 
 
 def show_rating_key_exists(conn: sqlite3.Connection, show_rating_key: str) -> bool:
-    """Return True if any media_items row carries the given show_rating_key."""
     row = conn.execute(
         "SELECT 1 FROM media_items WHERE show_rating_key = ? LIMIT 1",
         (show_rating_key,),
@@ -244,7 +225,6 @@ def show_rating_key_exists(conn: sqlite3.Connection, show_rating_key: str) -> bo
 
 
 def fetch_show_title(conn: sqlite3.Connection, show_rating_key: str) -> str | None:
-    """Return the show_title for the first media_items row with the given key, or None."""
     row = conn.execute(
         "SELECT show_title FROM media_items WHERE show_rating_key = ? LIMIT 1",
         (show_rating_key,),
@@ -257,7 +237,6 @@ def fetch_show_title(conn: sqlite3.Connection, show_rating_key: str) -> str | No
 def fetch_owned_season_ids(
     conn: sqlite3.Connection, season_ids: list[str], show_rating_key: str
 ) -> set[str]:
-    """Return the subset of ``season_ids`` whose media_items row is owned by ``show_rating_key``."""
     if not season_ids:
         return set()
     # rationale: placeholders is purely "?" * len(season_ids) — no user value ever enters the SQL text
@@ -288,13 +267,7 @@ def fetch_unkeyed_media_ids(conn: sqlite3.Connection, candidate_ids: set[str]) -
     return [r["id"] for r in rows]
 
 
-# ---------------------------------------------------------------------------
-# Writes
-# ---------------------------------------------------------------------------
-
-
 def delete_protection(conn: sqlite3.Connection, action_id: int) -> None:
-    """Delete a single scheduled_actions row by primary key."""
     conn.execute("DELETE FROM scheduled_actions WHERE id = ?", (action_id,))
 
 
@@ -308,7 +281,6 @@ def upsert_kept_show(
     snooze_duration: str,
     created_at: str,
 ) -> None:
-    """Insert or update a kept_shows row."""
     conn.execute(
         "INSERT INTO kept_shows "
         "(show_rating_key, show_title, action, execute_at, snooze_duration, created_at) "
@@ -320,7 +292,6 @@ def upsert_kept_show(
 
 
 def delete_kept_show(conn: sqlite3.Connection, kept_show_id: int) -> None:
-    """Delete a kept_shows row by primary key."""
     conn.execute("DELETE FROM kept_shows WHERE id = ?", (kept_show_id,))
 
 

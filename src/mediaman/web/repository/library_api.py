@@ -1,14 +1,13 @@
 """Repository functions for the library JSON API routes.
 
 Covers SQL operations driving the keep, delete, and redownload flows in
-:mod:`mediaman.web.routes.library_api`. Tables touched here:
+`mediaman.web.routes.library_api`. Tables touched here:
 ``media_items``, ``scheduled_actions``, ``audit_log``, and
-``download_notifications`` (via :func:`record_download_notification`).
+``download_notifications`` (via `record_download_notification`).
 
-Repository purity contract: route handlers must orchestrate, not query
-(`CODE_GUIDELINES.md` §2.7.1). Multi-statement work runs inside a single
-``with conn:`` block so the audit row and the business mutation land in
-the same commit (§9.7).
+Route handlers orchestrate and do not query. Multi-statement work runs inside a
+single ``with conn:`` block so the audit row and the business mutation land in
+the same commit.
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ class NotFound(Exception):
     responses (404 for keep, 403 for delete to avoid leaking existence).
     Defined here rather than at the call site so the SQL function can
     raise inside ``with conn:`` and the route does not need a generic
-    ``RuntimeError`` sentinel (`CODE_GUIDELINES.md` §6.1).
+    ``RuntimeError`` sentinel.
     """
 
 
@@ -51,11 +50,6 @@ class MediaDeleteSnapshot:
     plex_rating_key: str | None
 
 
-# ---------------------------------------------------------------------------
-# Keep flow
-# ---------------------------------------------------------------------------
-
-
 def apply_keep_in_tx(
     conn: sqlite3.Connection,
     *,
@@ -74,7 +68,7 @@ def apply_keep_in_tx(
     ``token_used = 0`` and updates it in place if present; otherwise
     inserts a fresh row.  The audit row is written inside the same
     transaction so a SQLite failure rolls the keep back along with the
-    audit record (`CODE_GUIDELINES.md` §9.7).
+    audit record.
 
     Raises:
         NotFound: when the target media_items row does not exist. The
@@ -126,17 +120,12 @@ def apply_keep_in_tx(
         )
 
 
-# ---------------------------------------------------------------------------
-# Delete flow
-# ---------------------------------------------------------------------------
-
-
 def snapshot_media_for_delete(conn: sqlite3.Connection, media_id: str) -> MediaDeleteSnapshot:
     """Read the media row needed for a delete and release the write-lock.
 
     Runs under ``BEGIN IMMEDIATE`` so concurrent writers cannot mutate the
     row between read and release; ``with conn:`` commits on normal exit
-    (or rolls back on :exc:`NotFound`).
+    (or rolls back on `NotFound`).
 
     Raises:
         NotFound: when no row matches *media_id*.
@@ -196,11 +185,6 @@ def finalise_delete_in_tx(
         )
         conn.execute("DELETE FROM scheduled_actions WHERE media_item_id = ?", (media_id,))
         conn.execute("DELETE FROM media_items WHERE id = ?", (media_id,))
-
-
-# ---------------------------------------------------------------------------
-# Redownload flow
-# ---------------------------------------------------------------------------
 
 
 def record_redownload(

@@ -28,21 +28,12 @@ from mediaman.services.arr.completion import (
 from mediaman.services.infra import SafeHTTPError
 from tests.helpers.factories import insert_recent_download
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 
 @pytest.fixture
 def conn(tmp_path) -> sqlite3.Connection:
     db = init_db(str(tmp_path / "mediaman.db"))
     yield db
     db.close()
-
-
-# ---------------------------------------------------------------------------
-# detect_completed
-# ---------------------------------------------------------------------------
 
 
 class TestDetectCompleted:
@@ -123,11 +114,6 @@ class TestDetectCompleted:
         assert result == []
 
 
-# ---------------------------------------------------------------------------
-# cleanup_recent_downloads
-# ---------------------------------------------------------------------------
-
-
 class TestCleanupRecentDownloads:
     def test_skips_when_no_recent_downloads(self, conn):
         """An empty table results in zero rows deleted, no Radarr/Sonarr calls needed."""
@@ -155,11 +141,6 @@ class TestCleanupRecentDownloads:
         remaining = [r[0] for r in conn.execute("SELECT dl_id FROM recent_downloads").fetchall()]
         assert "radarr:OldFilm" not in remaining
         assert "radarr:NewFilm" in remaining
-
-
-# ---------------------------------------------------------------------------
-# record_verified_completions
-# ---------------------------------------------------------------------------
 
 
 SECRET_KEY = "test-secret-32-chars-XXXXXXXXXX"
@@ -193,7 +174,6 @@ class TestRecordVerifiedCompletions:
         assert len(rows) == 1
 
     def test_skips_radarr_item_without_file(self, conn, monkeypatch):
-        """A Radarr item that has no file is not persisted."""
         mock_radarr = MagicMock()
         mock_radarr.get_movies.return_value = [
             {"title": "Dune", "hasFile": False},
@@ -436,10 +416,7 @@ class TestRecordVerifiedCompletions:
 
 
 class TestDetectCompletedTmdbId:
-    """Tmdb-id propagation through detect_completed (D6 fix)."""
-
     def test_propagates_tmdb_id_from_previous_snapshot(self):
-        """A ``tmdb_id`` field on the previous-snapshot entry is carried into the CompletedItem."""
         previous = {
             "radarr:Dune": {
                 "id": "radarr:Dune",
@@ -464,11 +441,6 @@ class TestDetectCompletedTmdbId:
         }
         result = detect_completed(previous, {})
         assert "tmdb_id" not in result[0]
-
-
-# ---------------------------------------------------------------------------
-# Narrowed except-clause tests (Phase 3 fixes)
-# ---------------------------------------------------------------------------
 
 
 class TestBatchInsertCompletionsExceptNarrowing:

@@ -1,5 +1,4 @@
-/* =============================================================
-   SETTINGS v2 PANELS — page-specific composed components scoped
+/* SETTINGS v2 PANELS — page-specific composed components scoped
    under `.setg-pg`. Owns the overview hero (`.ov-*`), brand glyph
    tints (`.gy-*`), the integration config card (`.intg-card`),
    library pills, the library path card (`.lp-*`), subscribers
@@ -9,10 +8,8 @@
    settings page, and the `.link-danger` ghost button used by user
    and subscriber rows. The chrome/primitives (shell, rail,
    savebar, card, row, input, field, toggle, conn, btn-test,
-   disk-badge, reauth-sheet) live in _settings_pg.css.
-   ============================================================= */
+   disk-badge, reauth-sheet) live in _settings_pg.css. */
 
-/* Overview hero -------------------------------------------------- */
 .setg-pg .ov-hero {
   display: grid; gap: 16px;
   grid-template-columns: 1.55fr 1fr;
@@ -86,7 +83,6 @@
 .setg-pg .ov-status-item .st { font-size: 11px; color: var(--t3); margin-top: 1px; }
 .setg-pg .ov-status-item .conn-dot { flex-shrink: 0; }
 
-/* Brand glyph tints (used by ov-status + intg-card) ------------- */
 .setg-pg .gy-plex    { background: var(--brand-plex-bg);    color: var(--brand-plex); }
 .setg-pg .gy-sonarr  { background: var(--brand-sonarr-bg);  color: var(--brand-sonarr); }
 .setg-pg .gy-radarr  { background: var(--brand-radarr-bg);  color: var(--brand-radarr); }
@@ -96,7 +92,6 @@
 .setg-pg .gy-tmdb    { background: var(--brand-tmdb-bg);    color: var(--brand-tmdb); }
 .setg-pg .gy-omdb    { background: var(--brand-omdb-bg);    color: var(--brand-omdb); }
 
-/* Integration config card --------------------------------------- */
 .setg-pg .intg-card {
   background: var(--s1);
   border: 1px solid var(--hair);
@@ -136,7 +131,6 @@
 }
 .setg-pg .intg-card-bd { padding: 22px 24px 24px; }
 .setg-pg .intg-card-bd > .fld-row + .fld-row { margin-top: 18px; }
-/* Library pills -------------------------------------------------- */
 .setg-pg .lib-pills { display: flex; flex-wrap: wrap; gap: 8px; }
 .setg-pg .lib-pill-count { font-size: 11.5px; }
 .setg-pg .lib-pill {
@@ -151,7 +145,6 @@
   border-color: rgba(41,151,255,.4);
 }
 
-/* Library path card (disk thresholds) --------------------------- */
 .setg-pg .lp-card {
   border: 1px solid var(--hair);
   border-radius: var(--r-md);
@@ -224,7 +217,6 @@
 .setg-pg .lp-foot .untested { color: var(--t3); }
 .setg-pg .lp-foot .untested::before { content: "○"; margin-right: 6px; }
 
-/* Subscribers ---------------------------------------------------- */
 .setg-pg .sub-list { display: flex; flex-direction: column; gap: 6px; }
 .setg-pg .sub-row {
   display: flex; align-items: center; gap: 14px;
@@ -239,7 +231,7 @@
   display: grid; place-items: center;
   font-size: 11px; font-weight: 600; color: #fff;
   flex-shrink: 0;
-  background: var(--s3); /* D33: off-palette avatar gradient replaced per DESIGN.md */
+  background: var(--s3);
 }
 .setg-pg .sub-row .em { flex: 1; min-width: 0; font-size: 13.5px; }
 .setg-pg .sub-row .em small { display: block; color: var(--t3); font-size: 11px; margin-top: 2px; }
@@ -314,14 +306,13 @@
   transform: rotate(45deg);
 }
 
-/* Users list ---------------------------------------------------- */
 .setg-pg .usr-self-head { display: flex; align-items: center; gap: 16px; }
 .setg-pg .usr-self-head .av {
   width: 44px; height: 44px; border-radius: 50%;
   display: grid; place-items: center;
   font-size: 15px; font-weight: 600; color: #fff;
   flex-shrink: 0;
-  background: var(--s3); /* D33: off-palette avatar gradient replaced per DESIGN.md */
+  background: var(--s3);
 }
 .setg-pg .usr-self-head .usr-meta { flex: 1; min-width: 0; }
 .setg-pg .usr-self-head .usr-name { font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
@@ -338,7 +329,7 @@
   width: 38px; height: 38px; border-radius: 50%;
   display: grid; place-items: center;
   font-size: 14px; font-weight: 600; color: #fff; flex-shrink: 0;
-  background: var(--s3); /* D33: off-palette avatar gradient replaced per DESIGN.md */
+  background: var(--s3);
 }
 .setg-pg .usr-row .usr-meta { flex: 1; min-width: 0; }
 .setg-pg .usr-row .usr-name { font-size: 14px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
@@ -350,7 +341,6 @@
   letter-spacing: -.01em;
 }
 
-/* Inline forms (add user, change password, delete confirm) ----- */
 .setg-pg .inline-form {
   margin: 12px 0 4px;
   padding: 16px 20px;
@@ -374,7 +364,6 @@
 .setg-pg .inline-form-msg.err { color: var(--danger); }
 .setg-pg .inline-form-msg ul { margin: 6px 0 0 16px; padding: 0; font-size: 12px; color: var(--danger); }
 
-/* Password strength meter --------------------------------------- */
 .setg-pg .fpc-meter {
   height: 4px; background: var(--s3); border-radius: var(--r-pill);
   overflow: hidden; margin-top: 4px;
@@ -391,7 +380,6 @@
 .setg-pg .fpc-caption-ok     { color: var(--warning); }
 .setg-pg .fpc-caption-strong { color: var(--success); }
 
-/* Link-style danger button (used in user/subscriber rows) ------- */
 .setg-pg .link-danger {
   font-size: 12px; color: var(--danger);
   background: transparent; padding: 6px 12px; border-radius: var(--r-pill);

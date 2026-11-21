@@ -1,14 +1,9 @@
 """Protected items page and API endpoints.
 
-Handles items shielded from deletion: those marked protected_forever or
-snoozed with a future execute_at. Provides page render, JSON listing,
-and unprotect action.
-
-The show-level keep machinery (keep / remove a whole show's seasons)
-lives in the sibling module :mod:`mediaman.web.routes.kept_show`; its
-sub-router is mounted onto this package router and
-``_resolve_show_rating_key`` is re-exported here so the historic test
-import target keeps working.
+Handles items shielded from deletion: protected_forever or snoozed with a future execute_at.
+The show-level keep routes live in mediaman.web.routes.kept_show, whose sub-router is
+mounted here; _resolve_show_rating_key is re-exported so the historic test import target
+keeps working.
 """
 
 from __future__ import annotations
@@ -63,7 +58,6 @@ router.include_router(_kept_show_router)
 def _fetch_protected(
     conn: sqlite3.Connection,
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
-    """Return (forever_items, snoozed_items) from scheduled_actions joined with media_items."""
     now = now_iso()
     rows = fetch_protected_items(conn, now)
 
@@ -98,7 +92,7 @@ def _fetch_protected(
 
 @router.get("/kept")
 def redirect_kept_to_library(request: Request) -> RedirectResponse:
-    """Redirect /kept to the library Kept filter -- auth-gated."""
+    """Redirect /kept to the library Kept filter, auth-gated."""
     if not _is_admin(request):
         return RedirectResponse("/login", status_code=302)
     return RedirectResponse("/library?type=kept", status_code=301)
@@ -106,7 +100,7 @@ def redirect_kept_to_library(request: Request) -> RedirectResponse:
 
 @router.get("/kept/page")
 def redirect_kept_page(request: Request) -> RedirectResponse:
-    """Redirect legacy /kept/page to /library?type=kept -- auth-gated."""
+    """Redirect legacy /kept/page to /library?type=kept, auth-gated."""
     if not _is_admin(request):
         return RedirectResponse("/login", status_code=302)
     return RedirectResponse("/library?type=kept", status_code=301)
@@ -114,7 +108,6 @@ def redirect_kept_page(request: Request) -> RedirectResponse:
 
 @router.get("/api/kept")
 def api_protected(username: str = Depends(get_current_admin)) -> JSONResponse:
-    """Return all actively kept items as JSON."""
     conn = get_db()
     forever, snoozed = _fetch_protected(conn)
     return JSONResponse({"forever": forever, "snoozed": snoozed})
@@ -122,7 +115,6 @@ def api_protected(username: str = Depends(get_current_admin)) -> JSONResponse:
 
 @router.post("/api/media/{media_item_id}/unprotect")
 def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)) -> JSONResponse:
-    """Remove protection from a media item."""
     if not _UNPROTECT_LIMITER.check(username):
         logger.warning("media.unprotect_throttled user=%s", username)
         return respond_err(
@@ -153,7 +145,6 @@ def api_unprotect(media_item_id: str, username: str = Depends(get_current_admin)
 def api_show_seasons(
     show_rating_key: str, request: Request, admin: str = Depends(get_current_admin)
 ) -> JSONResponse:
-    """Return all seasons of a show for the keep dialog season picker."""
     conn = get_db()
     season_rows = fetch_seasons_for_show(conn, show_rating_key)
 
@@ -197,7 +188,7 @@ def api_show_seasons(
 
 @router.get("/protected")
 def redirect_protected_page(request: Request) -> RedirectResponse:
-    """Redirect old /protected URL to library kept filter -- auth-gated."""
+    """Redirect old /protected URL to the library kept filter, auth-gated."""
     if not _is_admin(request):
         return RedirectResponse("/login", status_code=302)
     return RedirectResponse("/library?type=kept", status_code=301)

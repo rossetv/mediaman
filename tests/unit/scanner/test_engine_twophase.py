@@ -30,7 +30,7 @@ def mock_plex():
 
 
 class TestDeleteRootsSeparator:
-    """C23: MEDIAMAN_DELETE_ROOTS must accept both ':' and ',' separators
+    """MEDIAMAN_DELETE_ROOTS must accept both ':' and ',' separators
     with ':' being canonical and ',' deprecated."""
 
     def test_colon_separator_parses(self, conn, monkeypatch):
@@ -77,7 +77,7 @@ class TestDeleteRootsSeparator:
 
 
 class TestTwoPhaseDelete:
-    """C30: deletions must mark a 'deleting' status before the rm so a
+    """Deletions must mark a 'deleting' status before the rm so a
     crash mid-way can be recovered by recover_stuck_deletions."""
 
     def _insert_item(self, conn, item_id, file_path="/tmp/fake", size=1_000_000):

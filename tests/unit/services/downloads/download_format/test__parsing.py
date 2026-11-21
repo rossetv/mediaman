@@ -11,10 +11,6 @@ from mediaman.services.downloads.download_format import (
     parse_clean_title,
 )
 
-# ---------------------------------------------------------------------------
-# looks_like_series_nzb
-# ---------------------------------------------------------------------------
-
 
 class TestLooksLikeSeriesNzb:
     def test_s01e01_pattern_detected(self):
@@ -36,17 +32,11 @@ class TestLooksLikeSeriesNzb:
         assert looks_like_series_nzb("show.s01e05.WEB-DL") is True
 
 
-# ---------------------------------------------------------------------------
-# parse_clean_title
-# ---------------------------------------------------------------------------
-
-
 class TestParseCleanTitle:
     def test_standard_title_year_resolution(self):
         assert parse_clean_title("Dune.2021.1080p.x264") == "Dune"
 
     def test_year_prefix_not_returned_as_title(self):
-        """Year-prefix names must not return the year as the title."""
         result = parse_clean_title("2021.Dune.1080p")
         assert result == "Dune"
 
@@ -70,11 +60,6 @@ class TestParseCleanTitle:
         assert parse_clean_title("Dune.HEVC.x265") == "Dune"
 
 
-# ---------------------------------------------------------------------------
-# normalise_for_match
-# ---------------------------------------------------------------------------
-
-
 class TestNormaliseForMatch:
     def test_lowercases_title(self):
         assert normalise_for_match("DUNE") == "dune"
@@ -91,11 +76,6 @@ class TestNormaliseForMatch:
     def test_strips_leading_trailing_spaces(self):
         result = normalise_for_match("  Dune  ")
         assert result == "dune"
-
-
-# ---------------------------------------------------------------------------
-# format_relative_time
-# ---------------------------------------------------------------------------
 
 
 class TestFormatRelativeTime:
@@ -122,11 +102,6 @@ class TestFormatRelativeTime:
         assert format_relative_time(now - 86400, now) == "1d ago"
 
 
-# ---------------------------------------------------------------------------
-# format_episode_label
-# ---------------------------------------------------------------------------
-
-
 class TestFormatEpisodeLabel:
     def test_season_and_episode(self):
         assert format_episode_label(1, 2) == "S01E02"
@@ -139,11 +114,6 @@ class TestFormatEpisodeLabel:
 
     def test_double_digit_values_zero_padded(self):
         assert format_episode_label(10, 15) == "S10E15"
-
-
-# ---------------------------------------------------------------------------
-# format_eta
-# ---------------------------------------------------------------------------
 
 
 class TestFormatEta:

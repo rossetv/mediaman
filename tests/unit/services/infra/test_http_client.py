@@ -1,8 +1,8 @@
-"""Tests for :class:`SafeHTTPClient` — the central outbound HTTP wrapper.
+"""Tests for ``SafeHTTPClient`` — the central outbound HTTP wrapper.
 
 These tests exercise the safety machinery directly (redirects off,
 timeout split, size cap, SSRF re-check per call, retry policy, and the
-:class:`SafeHTTPError` shape) rather than going through a service
+``SafeHTTPError`` shape) rather than going through a service
 module.
 """
 
@@ -43,7 +43,7 @@ def _response(*, status=200, body=b"", headers=None):
 def _real_response(body: bytes, *, status: int = 200):
     """Build a genuine ``requests.Response`` streaming *body* in two chunks.
 
-    Used by the H5 regression tests so ``.json()`` / ``.text`` exercise the
+    Used by the tests so ``.json()`` / ``.text`` exercise the
     real ``requests`` ``_content`` re-attachment path rather than a mock.
     """
     resp = requests.Response()
@@ -380,7 +380,7 @@ class TestExpectedContentType:
         assert "Content-Encoding" in excinfo.value.body_snippet
 
     def test_encoding_rejected_without_pinned_content_type(self, monkeypatch):
-        """A non-identity Content-Encoding is refused on the DEFAULT path (H1).
+        """A non-identity Content-Encoding is refused on the DEFAULT path.
 
         The common poster/JSON fetch passes no ``expected_content_type``.
         A malicious upstream can send a tiny gzip body that urllib3 inflates
@@ -441,7 +441,7 @@ class TestAcceptEncodingIdentity:
 
 
 class TestBufferedBodyReattached:
-    """The capped streamed read must leave ``.json()`` / ``.text`` usable (H5).
+    """The capped streamed read must leave ``.json()`` / ``.text`` usable.
 
     ``retry.py`` re-attaches the buffered bytes via the ``requests`` private
     ``_content`` / ``_content_consumed`` attributes. This is a deliberate
@@ -481,17 +481,17 @@ class TestSafeHTTPErrorShape:
             SafeHTTPClient().get("http://example.com/bork")
         exc = excinfo.value
         assert exc.status_code == 400
-        # ``url`` is stored query-stripped as ``host/path`` (L1) — never the
+        # ``url`` is stored query-stripped as ``host/path`` — never the
         # full scheme URL with a query string.
         assert exc.url == "example.com/bork"
         assert "bad" in exc.body_snippet
 
     def test_url_strips_query_string(self, monkeypatch):
-        """A logged ``SafeHTTPError`` must never embed the query string (L1).
+        """A logged ``SafeHTTPError`` must never embed the query string.
 
         Outbound query strings routinely carry ``?apikey=...`` — the error's
         ``str()`` and ``.url`` are read by ``logger.exception`` sites, so a
-        leak here lands the key in the logs (§7.4).
+        leak here lands the key in the logs.
         """
         monkeypatch.setattr(
             http_client,
@@ -551,7 +551,7 @@ class TestDNSPinning:
     """
 
     def test_pin_context_replays_validated_ip(self, monkeypatch):
-        """Inside :func:`pin`, ``socket.getaddrinfo`` returns
+        """Inside ``pin``, ``socket.getaddrinfo`` returns
         the pinned IP regardless of any subsequent change in DNS state."""
         # The autouse fixture replaces socket.getaddrinfo for the test —
         # to test the pin we restore the patched version explicitly.

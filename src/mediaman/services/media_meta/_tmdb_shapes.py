@@ -1,19 +1,8 @@
-"""TMDB response-shape types and pure shaping helpers.
+"""TMDB response-shape types and pure, network-free shaping helpers.
 
-This module owns the *data* side of the TMDB integration: the
-``TypedDict`` descriptions of the raw TMDB JSON payloads and the pure
-functions that transform a raw TMDB dict into a tightly-typed domain
-shape. It is split out from :mod:`mediaman.services.media_meta.tmdb`
-(which keeps the :class:`~mediaman.services.media_meta.tmdb.TmdbClient`
-network client) so the file-size ceiling is respected and the pure,
-network-free transforms are isolated for testing.
-
-The shape helpers are pure functions over the TMDB JSON payload — no
-network calls, no settings access — so they're trivially testable and
-reusable by callers that have already fetched the raw data.
-:class:`TmdbClient` re-binds :func:`shape_card` and :func:`shape_detail`
-as static methods, so existing ``TmdbClient.shape_card(...)`` call sites
-keep working unchanged.
+Split out of tmdb to keep that file small. TmdbClient re-binds shape_card and
+shape_detail as static methods, so existing TmdbClient.shape_card(...) call sites keep
+working.
 """
 
 from __future__ import annotations
@@ -70,10 +59,7 @@ class TmdbDetailsPayload(TypedDict, total=False):
 
 
 class TmdbCard(TypedDict):
-    """Compact card shape returned by :meth:`TmdbClient.shape_card`.
-
-    Suitable for search results and recommendation tiles; uses w300 poster size.
-    """
+    """Compact card shape (w300 poster) for search results and recommendation tiles."""
 
     tmdb_id: int | None
     year: int | None
@@ -83,10 +69,8 @@ class TmdbCard(TypedDict):
 
 
 class TmdbDetail(TypedDict, total=False):
-    """Rich detail shape returned by :meth:`TmdbClient.shape_detail`.
-
-    Merged into the card dict by :func:`~mediaman.services.media_meta.item_enrichment.apply_tmdb_detail`.
-    All fields are optional because some are only available for certain media types.
+    """Rich detail shape merged into the card dict; all fields are optional because some
+    exist only for certain media types.
     """
 
     tagline: str | None
@@ -107,13 +91,8 @@ class TmdbDetail(TypedDict, total=False):
 def shape_card(data: Mapping[str, Any]) -> TmdbCard:
     """Return the compact-card shape for a TMDB search / details payload.
 
-    Fields: ``year`` (int | None), ``poster_url`` (str | None, w300),
-    ``rating`` (float rounded to 1dp | None), ``description`` (str,
-    may be empty), ``tmdb_id`` (int | None).
-
-    Matches the shape produced inline by download.py and the
-    recommendations enrichment path — both used w300 posters and
-    rounded vote_average to 1dp.
+    The poster is w300 and the rating is rounded to 1dp, matching the other TMDB card
+    paths.
     """
     date = data.get("release_date") or data.get("first_air_date") or ""
     year: int | None = None
@@ -145,23 +124,16 @@ def shape_card(data: Mapping[str, Any]) -> TmdbCard:
     }
 
 
-# rationale: same reason as :func:`shape_card` — TMDB's ``/{movie,tv}/{id}``
+# rationale: same reason as shape_card — TMDB's ``/{movie,tv}/{id}``
 # detail response is wide and frequently extended.  ``Mapping[str, Any]``
 # accepts both raw dicts and ``TmdbDetailsPayload`` TypedDicts; field access
 # is guarded by ``.get()`` plus isinstance checks within the body.
 def shape_detail(data: Mapping[str, Any], *, media_type: str) -> TmdbDetail:
-    """Return the rich-detail shape for a TMDB ``details`` payload.
+    """Return the rich-detail shape for a TMDB details payload.
 
-    Fields: ``tagline``, ``runtime``, ``genres`` (JSON string or
-    None), ``cast_json`` (JSON string of top-8 cast with ``name`` +
-    ``character`` — None when empty), ``director`` (name string or
-    None — director for movies, first creator for TV),
-    ``trailer_key`` (YouTube key or None), ``description`` (overview
-    string, may be empty).
-
-    The JSON-encoded ``genres`` and ``cast_json`` shapes match the
-    ``suggestions`` table columns and the ``items`` dict passed to
-    the download template — callers merge them directly.
+    genres and cast_json are JSON strings matching the suggestions table columns, so
+    callers merge them directly. director is the director for movies and the first
+    creator for TV.
     """
     out: TmdbDetail = {
         "tagline": data.get("tagline") or None,

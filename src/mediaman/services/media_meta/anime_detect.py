@@ -1,8 +1,4 @@
-"""Anime detection logic extracted from :mod:`mediaman.services.media_meta.plex`.
-
-Kept as a standalone module so other parts of the codebase (e.g. scanner
-utilities) can detect anime without importing the full Plex dependency tree.
-"""
+"""Anime detection, kept standalone so callers need not import the Plex dependency tree."""
 
 from __future__ import annotations
 
@@ -51,13 +47,9 @@ _JP_STUDIOS: frozenset[str] = frozenset(
 def is_anime(show: Any) -> bool:
     """Return True if *show* (a plexapi show object) is likely anime.
 
-    Detection rules applied in order:
-    1. Explicit ``Anime`` genre tag → True.
-    2. ``Animation`` genre + studio name in :data:`_JP_STUDIOS` → True.
-    3. Everything else → False.
-
-    This two-tier check avoids false positives for Western animation
-    (SpongeBob, Pixar films, etc.) that carry only the ``Animation`` tag.
+    True for an Anime genre tag, or an Animation tag plus a studio in _JP_STUDIOS. The
+    studio check avoids false positives for Western animation that carries only the
+    Animation tag.
     """
     genres = {g.tag.lower() for g in getattr(show, "genres", [])}
     if "anime" in genres:

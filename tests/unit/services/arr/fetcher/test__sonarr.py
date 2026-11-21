@@ -14,10 +14,6 @@ from mediaman.services.arr.fetcher._sonarr import (
     fetch_sonarr_queue,
 )
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 
 def _client(queue=None, series=None, episodes=None):
     c = MagicMock()
@@ -52,11 +48,6 @@ def _queue_ep(
     }
 
 
-# ---------------------------------------------------------------------------
-# _make_sonarr_card
-# ---------------------------------------------------------------------------
-
-
 class TestMakeSonarrCard:
     def test_kind_is_series(self):
         card = make_arr_card("series", "Breaking Bad", source="Sonarr")
@@ -77,11 +68,6 @@ class TestMakeSonarrCard:
     def test_release_names_defaults_to_empty_list(self):
         card = make_arr_card("series", "Silo", source="Sonarr")
         assert card["release_names"] == []
-
-
-# ---------------------------------------------------------------------------
-# _aggregate_pack_episodes
-# ---------------------------------------------------------------------------
 
 
 class TestAggregatePackEpisodes:
@@ -186,11 +172,6 @@ class TestAggregatePackEpisodes:
         assert [e["label"] for e in card["episodes"]] == ["S01E01", "S01E03"]
 
 
-# ---------------------------------------------------------------------------
-# fetch_sonarr_queue — queue items
-# ---------------------------------------------------------------------------
-
-
 class TestFetchSonarrQueueItems:
     def test_single_episode_becomes_card(self):
         client = _client(queue=[_queue_ep()])
@@ -222,11 +203,6 @@ class TestFetchSonarrQueueItems:
     def test_empty_queue_returns_empty(self):
         client = _client(queue=[], series=[])
         assert fetch_sonarr_queue(client) == []
-
-
-# ---------------------------------------------------------------------------
-# fetch_sonarr_queue — searching series
-# ---------------------------------------------------------------------------
 
 
 class TestFetchSonarrQueueSearching:
@@ -292,7 +268,7 @@ class TestFetchSonarrQueueSearching:
     def test_get_series_safehttp_503_does_not_crash(self):
         """A 503 from Sonarr (raised as ``SafeHTTPError``) is caught.
 
-        Regression for finding Domain-06 #2: ``SafeHTTPClient`` raises
+        Regression: ``SafeHTTPClient`` raises
         ``SafeHTTPError`` (NOT a ``RequestException`` subclass) for
         non-2xx responses; the previous code dropped every already-
         collected card when get_series returned 503.
@@ -308,7 +284,7 @@ class TestFetchSonarrQueueSearching:
     def test_get_episodes_safehttp_503_recovers(self):
         """A 503 from get_episodes is caught; the searching card still appears.
 
-        Regression for finding Domain-06 #2 (inner case): ``get_episodes``
+        Regression: ``get_episodes``
         sits inside the still-searching loop and previously only caught
         ``RequestException`` — a 503 propagated to the outer handler and
         wiped the partial result.
@@ -331,11 +307,6 @@ class TestFetchSonarrQueueSearching:
         client.get_episodes.side_effect = SafeHTTPError(503, "down", "/api/v3/episode")
         cards = fetch_sonarr_queue(client)
         assert any(c["title"] == "Andor" for c in cards)
-
-
-# ---------------------------------------------------------------------------
-# Progress clamp
-# ---------------------------------------------------------------------------
 
 
 class TestProgressClamp:
@@ -368,7 +339,7 @@ class TestClusterKeyTitleColon:
         """A title literally containing ``:`` must not collapse two
         distinct rows into one cluster.
 
-        Regression for finding Domain-06 #4. Old separator was ``:`` —
+        Regression: Old separator was ``:`` —
         a title like ``"Star Trek: Picard"`` could produce identical
         synthesised keys for two different rows, double-counting their
         pack totals. NUL (``\\x00``) cannot appear in Sonarr payload
@@ -401,11 +372,6 @@ class TestClusterKeyTitleColon:
         # Distinct labels → distinct keys → not a pack, sizes summed.
         assert all(e["is_pack_episode"] is False for e in card["episodes"])
         assert card["size"] == 2_000_000
-
-
-# ---------------------------------------------------------------------------
-# fetch_sonarr_queue — season_number on episode entries
-# ---------------------------------------------------------------------------
 
 
 class TestSeasonNumberOnEntries:

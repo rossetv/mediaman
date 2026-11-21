@@ -4,10 +4,10 @@ change, and login-time re-evaluation.
 Rules (NIST SP 800-63B-ish):
 
 - Minimum length: 12 characters.
-- Maximum length: :data:`MAX_BYTES` UTF-8 bytes (1024). Caps DB /
+- Maximum length: `MAX_BYTES` UTF-8 bytes (1024). Caps DB /
   session-storage size and prevents pathological CPU time on Unicode
   normalisation. Bcrypt's 72-byte truncation is handled separately by
-  the SHA-256 pre-hash in :mod:`mediaman.web.auth.password_hash`, so the
+  the SHA-256 pre-hash in `mediaman.web.auth.password_hash`, so the
   byte cap is purely a resource limit, not an entropy one.
 - Not a substring of or equal to the username (case-insensitive).
 - Not in the top common-passwords list.
@@ -27,12 +27,12 @@ Inputs are NFKC-normalised before any check runs. Different OSes /
 IMEs emit different byte sequences for the same visible character —
 ``é`` may arrive as a single precomposed code point or as ``e`` plus a
 combining acute. The bcrypt path normalises identically (see
-:func:`mediaman.web.auth.password_hash._normalise_password`) so the
+`mediaman.web.auth.password_hash._normalise_password`) so the
 two encodings round-trip to the same hash. NFKC also folds
 compatibility forms (full-width digits, ligatures) so a user who set
 their password on macOS can sign in from Windows.
 
-The public entry point is :func:`password_issues`, which returns an
+The public entry point is `password_issues`, which returns an
 ordered list of human-readable issues — an empty list means the
 password is acceptable. UI layers render the list; server-side
 validation just checks whether the list is empty.
@@ -54,7 +54,7 @@ def _load_common_passwords() -> frozenset[str]:
     ``lru_cache`` so the file is read at most once per process — on first
     use rather than at module import, which keeps test collection fast and
     avoids touching the filesystem for modules that never call
-    :func:`password_issues`. The ``frozenset`` makes membership checks O(1).
+    `password_issues`. The ``frozenset`` makes membership checks O(1).
     """
     data_file = Path(__file__).parent / "data" / "common_passwords.txt"
     passwords: set[str] = set()
@@ -93,7 +93,6 @@ MAX_BYTES = 1024
 
 
 def _char_classes(password: str) -> set[str]:
-    """Return the set of character classes present in *password*."""
     classes: set[str] = set()
     for c in password:
         if c.islower():
@@ -132,7 +131,7 @@ def password_issues(password: str, username: str = "") -> list[str]:
     The input is NFKC-normalised before any further checks so visually
     identical strings produced by different IMEs / OSes are treated as
     equal — this matches the normalisation applied at the bcrypt
-    boundary (see :mod:`mediaman.web.auth.password_hash`).
+    boundary (see `mediaman.web.auth.password_hash`).
     """
     issues: list[str] = []
 
@@ -188,7 +187,6 @@ def password_issues(password: str, username: str = "") -> list[str]:
 
 
 def is_strong(password: str, username: str = "") -> bool:
-    """Return True when *password* has zero policy issues."""
     return not password_issues(password, username)
 
 
@@ -223,7 +221,6 @@ def _is_sequential(password: str) -> bool:
 
 
 def policy_summary() -> list[str]:
-    """Return the human-readable policy summary for UI display."""
     return [
         f"At least {MIN_LENGTH} characters long.",
         "Mix of lowercase, uppercase, digits, and symbols "

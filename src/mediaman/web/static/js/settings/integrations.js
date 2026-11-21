@@ -23,9 +23,6 @@
 
   MM.settings.integrations = {
 
-    // ------------------------------------------------------------------
-    // setConnStatus — shared updater used by test + auto-test paths.
-    // ------------------------------------------------------------------
     setConnStatus: function (service, tone, label) {
       document.querySelectorAll('[data-conn="' + service + '"]').forEach(function (el) {
         el.classList.remove('ok', 'warn', 'err', 'off', 'untested');
@@ -51,9 +48,6 @@
     init: function () {
       var self = MM.settings.integrations;
 
-      // ----------------------------------------------------------------
-      // Manual test buttons
-      // ----------------------------------------------------------------
       function testService(service, btn) {
         self.setConnStatus(service, 'untested', 'Testing…');
         if (btn) { btn.disabled = true; btn.textContent = 'Testing…'; }
@@ -87,9 +81,6 @@
         });
       });
 
-      // ----------------------------------------------------------------
-      // Auto-test configured services on page load.
-      // ----------------------------------------------------------------
       var AUTO_CHECKS = [
         { service: 'plex',    fields: ['plex_url', 'plex_token'] },
         { service: 'sonarr',  fields: ['sonarr_url', 'sonarr_api_key'] },
@@ -134,9 +125,6 @@
       }
       autoTest();
 
-      // ----------------------------------------------------------------
-      // Library sync button
-      // ----------------------------------------------------------------
       var syncBtn = document.getElementById('btn-sync-library');
       if (syncBtn) syncBtn.addEventListener('click', function () {
         var orig = syncBtn.textContent;

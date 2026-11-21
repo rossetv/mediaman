@@ -29,7 +29,7 @@ def _resolve_max_request_bytes() -> int:
     """Return the configured per-request body-size cap in bytes.
 
     Reads ``MEDIAMAN_MAX_REQUEST_BYTES`` from the environment.  Falls
-    back to :data:`_DEFAULT_MAX_REQUEST_BYTES` when unset, blank, or
+    back to `_DEFAULT_MAX_REQUEST_BYTES` when unset, blank, or
     unparseable; logs a warning if the value parses but is negative
     (which would silently disable the limit).
     """
@@ -58,7 +58,7 @@ def _resolve_max_request_bytes() -> int:
 def _declared_length_over_cap(scope: Scope, max_bytes: int) -> bool:
     """Return True if a ``Content-Length`` header already exceeds *max_bytes*.
 
-    Fast path: lets :meth:`BodySizeLimitMiddleware.__call__` reject an
+    Fast path: lets `BodySizeLimitMiddleware.__call__` reject an
     oversize request before reading any body bytes. A malformed
     ``Content-Length`` is treated as ``-1`` (not over the cap) so the
     streaming byte-counter still gets a chance to enforce the limit.
@@ -75,7 +75,6 @@ def _declared_length_over_cap(scope: Scope, max_bytes: int) -> bool:
 
 
 async def _send_413(send: Send) -> None:
-    """Emit a minimal ``413 Payload Too Large`` response with ``close``."""
     await send(
         {
             "type": "http.response.start",
@@ -98,7 +97,7 @@ async def _send_413(send: Send) -> None:
 class BodySizeLimitMiddleware:
     """Reject requests whose body exceeds the configured cap.
 
-    Pure ASGI middleware (not :class:`BaseHTTPMiddleware`) — Starlette's
+    Pure ASGI middleware (not `BaseHTTPMiddleware`) — Starlette's
     BaseHTTPMiddleware buffers the entire body before invoking the
     handler, so it cannot enforce a cap *as bytes stream in*.  By
     consuming the ``http.request`` chunks directly we can short-circuit

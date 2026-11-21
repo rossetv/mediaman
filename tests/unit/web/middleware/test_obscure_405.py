@@ -1,7 +1,7 @@
-"""Tests for :class:`mediaman.web.middleware.obscure_405.Obscure405Middleware`.
+"""Tests for mediaman.web.middleware.obscure_405.Obscure405Middleware.
 
 Covers the 405→401 normalisation on ``/api/*`` (method-enumeration
-defence) plus the L1 wiring guarantee: because ``obscure_405`` rebuilds a
+defence) plus the wiring guarantee: because ``obscure_405`` rebuilds a
 fresh ``Response`` and drops the inner app's headers, the outer
 ``SecurityHeadersMiddleware`` must re-apply security headers via
 ``setdefault`` — which only holds when ``obscure_405`` is wrapped INSIDE
@@ -63,7 +63,7 @@ class TestObscure405:
         assert resp.status_code == 405
 
     def test_security_headers_reapplied_to_obscured_401_when_wrapped(self):
-        """L1 wiring: obscure_405 builds a fresh Response and drops all
+        """Obscure_405 builds a fresh Response and drops all
         inner headers. With SecurityHeadersMiddleware wrapping it (the
         production order) the security headers are re-applied to the 401
         replacement via ``setdefault``.

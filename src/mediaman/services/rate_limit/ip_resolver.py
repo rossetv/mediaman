@@ -1,7 +1,6 @@
 """Client-IP resolution respecting trusted-proxy forwarded headers.
 
-Split from the original monolithic ``rate_limit.py`` (R4). Contains
-``get_client_ip``, the XFF / X-Real-IP / CF-Connecting-IP parsing, and
+Contains ``get_client_ip``, the XFF / X-Real-IP / CF-Connecting-IP parsing, and
 the trusted-proxy allowlist logic.
 
 Cloudflare-specific note
@@ -29,8 +28,6 @@ from typing import Protocol
 
 
 class _AddressLike(Protocol):
-    """Minimal interface for the ``client`` attribute of an HTTP request."""
-
     @property
     def host(self) -> str: ...
 
@@ -101,20 +98,18 @@ def _parse_proxy_env(env_var: str) -> list[IPv4Network | IPv6Network]:
 
 @functools.lru_cache(maxsize=1)
 def _trusted_proxies_cached() -> tuple[IPv4Network | IPv6Network, ...]:
-    """Memoised parse of ``MEDIAMAN_TRUSTED_PROXIES``."""
     return tuple(_parse_proxy_env("MEDIAMAN_TRUSTED_PROXIES"))
 
 
 @functools.lru_cache(maxsize=1)
 def _cloudflare_proxies_cached() -> tuple[IPv4Network | IPv6Network, ...]:
-    """Memoised parse of ``MEDIAMAN_CLOUDFLARE_PROXIES``."""
     return tuple(_parse_proxy_env("MEDIAMAN_CLOUDFLARE_PROXIES"))
 
 
 def trusted_proxies() -> list[IPv4Network | IPv6Network]:
     """Return the list of trusted proxy networks from MEDIAMAN_TRUSTED_PROXIES.
 
-    Result is cached; call :func:`clear_cache` after changing the env var
+    Result is cached; call ``clear_cache`` after changing the env var
     (tests do this via ``monkeypatch``).
     """
     return list(_trusted_proxies_cached())
@@ -139,7 +134,6 @@ def clear_cache() -> None:
 
 
 def _ip_in_networks(ip: str, networks: list[IPv4Network | IPv6Network]) -> bool:
-    """Return True if *ip* parses and falls inside any of *networks*."""
     if not ip or not networks:
         return False
     try:
@@ -150,13 +144,12 @@ def _ip_in_networks(ip: str, networks: list[IPv4Network | IPv6Network]) -> bool:
 
 
 def peer_is_trusted(peer: str | None, trusted: list[IPv4Network | IPv6Network]) -> bool:
-    """Return True if the direct peer IP is in the trusted-proxy allowlist."""
     if not peer:
         return False
     return _ip_in_networks(peer, trusted)
 
 
-# rationale: body is 58 executable lines (§3.1 ceiling is 60). The function
+# rationale: the function
 # is a single security decision tree: peer trust check → CF header → XFF
 # chain → X-Real-IP → peer fallback. Splitting individual header checks
 # into private helpers would distribute the trust-hierarchy logic across

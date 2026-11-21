@@ -160,7 +160,7 @@
 
     var discardBtn = document.getElementById('btn-discard');
     if (discardBtn) discardBtn.addEventListener('click', function () {
-      /* TODO(H73): use UIFeedback.confirm instead of window.confirm for consistency. */
+      /* TODO: use UIFeedback.confirm instead of window.confirm for consistency. */
       window.UIFeedback.confirm({
         title: 'Discard unsaved changes?',
         body: 'The page will reload and any unsaved settings will be lost.',

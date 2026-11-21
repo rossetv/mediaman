@@ -29,9 +29,9 @@ from mediaman.web.routes.download.submit import router as submit_router
 def _clear_state():
     """Reset all download-route shared state via the public reset API.
 
-    Wave 4 added :func:`reset_download_limiters`, :func:`reset_download_caches`
-    and :func:`reset_used_tokens` precisely so tests don't have to reach
-    into module privates. Keep this helper aligned with that surface.
+    ``reset_download_limiters()``, ``reset_download_caches()`` and
+    ``reset_used_tokens()`` exist so tests don't have to reach into module
+    privates. Keep this helper aligned with that surface.
     """
     reset_used_tokens()
     reset_download_limiters()

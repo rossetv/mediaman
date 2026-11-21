@@ -1,15 +1,9 @@
-/* =============================================================
-   MODALS — the detail modal (hero + body + ratings + cast + seasons
+/* MODALS — the detail modal (hero + body + ratings + cast + seasons
    + progress + success), the generic delete-confirm overlay, and the
    keep-dialog used to extend protection windows. Owns
    `.modal-backdrop`/`.modal-sheet`, the `.detail-modal-*` family,
-   `.delete-modal-*`, and `.keep-dialog*`. Extracted from _base.css
-   per CODE_GUIDELINES.md §3.1.
-   ============================================================= */
+   `.delete-modal-*`, and `.keep-dialog*`. */
 
-/* =============================================================
-   23. DETAIL MODAL — restyled with card / btn / pill primitives
-   ============================================================= */
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -55,7 +49,7 @@
 .detail-modal-hero {
   position: relative;
   height: 280px;
-  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
+  background: var(--s3);
   overflow: hidden;
 }
 .detail-modal-hero img {
@@ -161,7 +155,7 @@
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  background: var(--s3); /* D33: was gradient, replaced per DESIGN.md §7 */
+  background: var(--s3);
   display: grid;
   place-items: center;
   font-size: 16px;

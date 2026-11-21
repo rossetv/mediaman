@@ -2,9 +2,9 @@
 
 Provides the SQL surface for the dashboard route.  All reads sit against
 ``scheduled_actions``, ``media_items`` and ``audit_log``; the route layer
-in :mod:`mediaman.web.routes.dashboard._data` keeps the view-model shaping
+in `mediaman.web.routes.dashboard._data` keeps the view-model shaping
 (formatting, poster URL synthesis, type-badge mapping) and depends on
-these dataclasses rather than on raw rows (§9.5).
+these dataclasses rather than on raw rows.
 """
 
 from __future__ import annotations
@@ -24,8 +24,6 @@ _REDOWNLOAD_WINDOW_DAYS = 365
 
 @dataclass(frozen=True)
 class ScheduledDeletionRow:
-    """A scheduled_actions row joined with media_items for the dashboard."""
-
     sa_id: int
     media_item_id: str
     execute_at: str | None
@@ -40,16 +38,12 @@ class ScheduledDeletionRow:
 
 @dataclass(frozen=True)
 class RedownloadAuditRow:
-    """An audit_log row used to detect re-downloads after a deletion."""
-
     media_item_id: str
     created_at: str
 
 
 @dataclass(frozen=True)
 class DeletedAuditRow:
-    """A ``deleted`` audit_log row joined with media_items for the dashboard."""
-
     audit_id: int
     media_item_id: str
     created_at: str
@@ -62,8 +56,6 @@ class DeletedAuditRow:
 
 @dataclass(frozen=True)
 class MediaTypeSize:
-    """A (media_type, total_bytes) row from the per-type size aggregate."""
-
     media_type: str
     total: int
 
@@ -72,7 +64,6 @@ def fetch_scheduled_deletions(
     conn: sqlite3.Connection,
     deletion_action: str,
 ) -> list[ScheduledDeletionRow]:
-    """Return scheduled-deletion rows joined with media_items, sorted by execute_at."""
     rows = conn.execute(
         """
         SELECT
@@ -114,7 +105,7 @@ def fetch_scheduled_deletions(
 def fetch_redownload_audit_rows(conn: sqlite3.Connection) -> list[RedownloadAuditRow]:
     """Return recent audit_log entries for ``re_downloaded`` and ``downloaded`` actions.
 
-    Bounded to the last :data:`_REDOWNLOAD_WINDOW_DAYS` days so the dashboard
+    Bounded to the last `_REDOWNLOAD_WINDOW_DAYS` days so the dashboard
     render does not load an ever-growing audit_log into memory. ``created_at``
     is stored as ISO-8601 UTC, so the lexicographic ``>`` comparison is a
     correct chronological cutoff.
@@ -140,7 +131,6 @@ def fetch_deleted_audit_batch(
     limit: int,
     offset: int,
 ) -> list[DeletedAuditRow]:
-    """Return a batch of ``deleted`` audit_log rows joined with media_items."""
     rows = conn.execute(
         """
         SELECT
@@ -176,7 +166,6 @@ def fetch_deleted_audit_batch(
 
 
 def fetch_media_type_sizes(conn: sqlite3.Connection) -> list[MediaTypeSize]:
-    """Return the total file_size_bytes grouped by media_type."""
     rows = conn.execute(
         """
         SELECT media_type, SUM(file_size_bytes) AS total
@@ -188,7 +177,6 @@ def fetch_media_type_sizes(conn: sqlite3.Connection) -> list[MediaTypeSize]:
 
 
 def sum_reclaimed_bytes(conn: sqlite3.Connection) -> int:
-    """Return the total space_reclaimed_bytes from ``deleted`` audit_log rows."""
     row = conn.execute(
         "SELECT SUM(space_reclaimed_bytes) AS total FROM audit_log WHERE action='deleted'"
     ).fetchone()
@@ -197,14 +185,11 @@ def sum_reclaimed_bytes(conn: sqlite3.Connection) -> int:
 
 @dataclass(frozen=True)
 class ReclaimedWeek:
-    """Aggregate reclaimed-bytes-per-week row used by the chart endpoint."""
-
     week: str
     reclaimed_bytes: int
 
 
 def fetch_reclaimed_chart(conn: sqlite3.Connection, *, limit: int) -> list[ReclaimedWeek]:
-    """Return the most recent N weeks of reclaimed-bytes totals, newest first."""
     rows = conn.execute(
         """
         SELECT

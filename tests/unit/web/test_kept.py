@@ -120,7 +120,7 @@ class TestApiShowSeasons:
 
 
 class TestKeepShowIdorDefence:
-    """C13 — /api/show/{key}/keep must not collide two shows sharing a title."""
+    """/api/show/{key}/keep must not collide two shows sharing a title."""
 
     def test_seasons_owned_by_different_show_rejected(self, app_factory, authed_client, conn):
         """A season_id from a different show with the same title is refused."""
@@ -177,7 +177,7 @@ class TestKeepShowIdorDefence:
 
 
 class TestResolveShowRatingKey:
-    """C13 helper unit tests."""
+    """Helper unit tests."""
 
     def test_empty_supplied_key_is_refused(self, conn):
         from mediaman.web.routes.kept import _resolve_show_rating_key
@@ -202,16 +202,10 @@ class TestResolveShowRatingKey:
         assert err is not None
 
 
-# ---------------------------------------------------------------------------
-# Additional coverage
-# ---------------------------------------------------------------------------
-
-
 class TestKeptPageRedirects:
     """Auth-gated /kept and /kept/page redirect behaviour."""
 
     def test_kept_unauthenticated_redirects_to_login(self, app_factory, conn):
-        """GET /kept without a session redirects to /login."""
         app = app_factory(kept_router, conn=conn)
         client = TestClient(app, raise_server_exceptions=True)
         resp = client.get("/kept", follow_redirects=False)
@@ -228,7 +222,6 @@ class TestKeptPageRedirects:
         assert "kept" in resp.headers["location"]
 
     def test_kept_page_unauthenticated_redirects_to_login(self, app_factory, conn):
-        """GET /kept/page without a session redirects to /login."""
         app = app_factory(kept_router, conn=conn)
         client = TestClient(app, raise_server_exceptions=True)
         resp = client.get("/kept/page", follow_redirects=False)
@@ -313,7 +306,6 @@ class TestKeepShowSnoozed:
         assert sa["snooze_duration"] == "30 days"
 
     def test_keep_show_invalid_duration_returns_400(self, app_factory, authed_client, conn):
-        """An unrecognised duration is rejected with 400."""
         _insert_season(conn, "m-Y", "rk-show-Y", "Futurama", season=1)
 
         app = app_factory(kept_router, conn=conn)

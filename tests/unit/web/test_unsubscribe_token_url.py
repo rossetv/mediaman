@@ -1,4 +1,4 @@
-"""Tests for finding 36 — unsubscribe URLs must not expose email as a query param."""
+"""Tests that unsubscribe URLs must not expose email as a query param."""
 
 from __future__ import annotations
 
@@ -101,7 +101,6 @@ class TestUnsubscribeRoute:
         _setup_limiter()
 
     def test_get_with_token_only_shows_confirmation(self, client, app, secret_key):
-        """GET /unsubscribe?token=... shows confirmation without email param."""
         conn = app.state.db
         _insert_subscriber(conn, "user@example.com")
         token = generate_unsubscribe_token(email="user@example.com", secret_key=secret_key)
@@ -116,7 +115,6 @@ class TestUnsubscribeRoute:
         assert "no longer valid" in resp.text.lower() or resp.status_code in (200,)
 
     def test_post_with_token_only_unsubscribes(self, client, app, secret_key):
-        """POST /unsubscribe with token= only must unsubscribe successfully."""
         conn = app.state.db
         _insert_subscriber(conn, "post@example.com")
         token = generate_unsubscribe_token(email="post@example.com", secret_key=secret_key)
@@ -130,7 +128,6 @@ class TestUnsubscribeRoute:
         assert row["active"] == 0
 
     def test_post_with_tampered_token_rejected(self, client, app, secret_key):
-        """A tampered token must not allow unsubscribe."""
         conn = app.state.db
         _insert_subscriber(conn, "safe@example.com")
         resp = client.post("/unsubscribe", data={"token": "tampered.token.value"})
@@ -164,7 +161,7 @@ class TestUnsubscribeRoute:
 
 
 class TestUnsubscribeAuditAtomicity:
-    """§7.5 — deactivation and its audit row must land atomically.
+    """Deactivation and its audit row must land atomically.
 
     security_event_or_raise is used so a failed audit write rolls back the
     deactivation.  These tests verify:
@@ -198,7 +195,7 @@ class TestUnsubscribeAuditAtomicity:
         assert audit_row is not None, "audit row must be written on successful unsubscribe"
 
     def test_audit_write_failure_rolls_back_deactivation(self, app, secret_key):
-        """If the audit INSERT fails the deactivation is rolled back — §7.5 atomicity.
+        """If the audit INSERT fails the deactivation is rolled back.
 
         Patches _insert_security_event to raise sqlite3.OperationalError so that
         security_event_or_raise propagates the exception, which aborts the

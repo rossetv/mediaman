@@ -1,17 +1,12 @@
-/* =============================================================
-   UI FEEDBACK — toasts and confirm dialogs
+/* UI FEEDBACK — toasts and confirm dialogs
    Styling for DOM nodes emitted by static/js/ui-feedback.js.
    The JS controls structure and timing; this stylesheet supplies
-   the visual contract for `.ui-toast*` and `.ui-confirm-*`.
-   See DESIGN.md §2 for the semantic tint usage.
-   ============================================================= */
+   the visual contract for `.ui-toast*` and `.ui-confirm-*`. */
 
-/* -------------------------------------------------------------
-   Toast host — fixed top-right column, anchored above the nav
+/* Toast host — fixed top-right column, anchored above the nav
    bar (z-index 50/60) and above any modal dialogs (100, 110, 200)
    so toasts always remain visible — including when reporting the
-   outcome of a confirm dialog opened above another modal.
-   ------------------------------------------------------------- */
+   outcome of a confirm dialog opened above another modal. */
 .ui-toast-host {
   position: fixed;
   top: calc(var(--nav-h) + 16px);
@@ -24,13 +19,11 @@
   max-width: min(360px, calc(100vw - 40px));
 }
 
-/* -------------------------------------------------------------
-   Toast — translucent card with semantic left-border accent.
+/* Toast — translucent card with semantic left-border accent.
    Defaults to opacity 0 / slight off-screen translate so the
    `.is-visible` toggle (added in requestAnimationFrame by the
    JS) animates the toast in. Honours prefers-reduced-motion via
-   the global rule in _base.css §2.
-   ------------------------------------------------------------- */
+   the global rule in _base.css. */
 .ui-toast {
   pointer-events: auto;
   background: var(--s2);
@@ -54,7 +47,7 @@
 }
 
 /* Variant accents — coloured left-border + tinted background hint,
-   reusing the semantic palette from DESIGN.md §2. */
+   reusing the semantic palette. */
 .ui-toast--success {
   border-left-color: var(--success);
   background: linear-gradient(90deg, rgba(48,209,88,.08), var(--s2) 40%);
@@ -69,11 +62,9 @@
   background: linear-gradient(90deg, rgba(41,151,255,.08), var(--s2) 40%);
 }
 
-/* -------------------------------------------------------------
-   Confirm dialog — overlay + card. Sits above existing modals
+/* Confirm dialog — overlay + card. Sits above existing modals
    (modal-backdrop = 100, delete-modal-overlay = 110) so a
-   destructive confirm raised by JS always wins focus.
-   ------------------------------------------------------------- */
+   destructive confirm raised by JS always wins focus. */
 .ui-confirm-overlay {
   position: fixed;
   inset: 0;

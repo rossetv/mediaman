@@ -36,11 +36,6 @@ def db_conn(tmp_path):
     conn.close()
 
 
-# ---------------------------------------------------------------------------
-# TestAutoAbandon
-# ---------------------------------------------------------------------------
-
-
 class TestAutoAbandon:
     def test_off_when_setting_disabled(self, db_conn, monkeypatch):
         """auto_abandon_enabled=False never auto-abandons regardless of age."""
@@ -135,7 +130,6 @@ class TestAutoAbandon:
         assert called["n"] == 0
 
     def test_series_passes_derived_seasons(self, db_conn, monkeypatch):
-        """For a series item, derives season list from episodes."""
         monkeypatch.setattr(
             "mediaman.services.arr.auto_abandon.get_bool_setting",
             lambda c, k, default=False: True,
@@ -172,7 +166,7 @@ class TestAutoAbandon:
         assert called == {"series_id": 7, "seasons": [21, 22], "dl_id": "sonarr:X"}
 
     def test_series_with_only_season_zero_episodes_skipped(self, db_conn, monkeypatch):
-        """Domain-06 #12: all-specials queue must NOT be auto-abandoned.
+        """An all-specials queue must NOT be auto-abandoned.
 
         Regression: a specials-only queue produced ``seasons=[0]`` which
         would unmonitor every special — catastrophic for opt-in specials.
@@ -212,7 +206,6 @@ class TestAutoAbandon:
         assert called["n"] == 0
 
     def test_series_with_mixed_specials_filters_season_zero(self, db_conn, monkeypatch):
-        """Mixed specials + real seasons → only the real seasons are abandoned."""
         monkeypatch.setattr(
             "mediaman.services.arr.auto_abandon.get_bool_setting",
             lambda c, k, default=False: True,
@@ -248,7 +241,6 @@ class TestAutoAbandon:
         assert called["seasons"] == [1, 2]
 
     def test_series_with_no_episodes_skipped(self, db_conn, monkeypatch):
-        """Series with empty episodes list is silently skipped (no error)."""
         monkeypatch.setattr(
             "mediaman.services.arr.auto_abandon.get_bool_setting",
             lambda c, k, default=False: True,
@@ -279,11 +271,6 @@ class TestAutoAbandon:
         assert called["n"] == 0
 
 
-# ---------------------------------------------------------------------------
-# TestAutoAbandonAuditLog
-# ---------------------------------------------------------------------------
-
-
 def _read_auto_abandon_rows(conn) -> list[tuple[str, str | None, str]]:
     """Return ``(action, actor, detail)`` for every auto-abandon audit row."""
     return list(
@@ -295,7 +282,7 @@ def _read_auto_abandon_rows(conn) -> list[tuple[str, str | None, str]]:
 
 
 class TestAutoAbandonAuditLog:
-    """Finding 06 — every auto-abandon firing must leave a ``sec:auto_abandon.fired`` audit row."""
+    """Every auto-abandon firing must leave a ``sec:auto_abandon.fired`` audit row."""
 
     def test_movie_fire_emits_audit_row(self, db_conn, monkeypatch):
         """Firing on a movie writes one ``sec:auto_abandon.fired`` row."""

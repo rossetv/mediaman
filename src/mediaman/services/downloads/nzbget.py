@@ -15,12 +15,11 @@ logger = logging.getLogger(__name__)
 
 
 class NzbgetError(Exception):
-    """Raised when the NZBGet JSON-RPC endpoint returns an error object.
+    """Raised when the JSON-RPC endpoint returns an error object (method not found, auth
+    failure).
 
-    NZBGet uses ``{"error": {"code": ..., "message": ...}, "result": null}``
-    for method-not-found, authentication failures, and similar protocol
-    errors.  Without this exception those cases silently returned ``{}``
-    and callers saw an empty queue with no explanation.
+    Without it those cases returned {} and callers saw an empty queue with no
+    explanation.
     """
 
 
@@ -30,20 +29,11 @@ _NZBGET_MAX_BYTES = 1 * 1024 * 1024
 
 
 def _is_lan_host(url: str) -> bool:
-    """Return True when *url*'s host looks like a LAN/loopback address.
+    """Return True when *url*'s host is a LAN or loopback address.
 
-    Uses :mod:`ipaddress` to evaluate every RFC1918 / loopback / link-local /
-    ULA range correctly, including the previously-missed:
-
-    * ``172.16.0.0/12`` — the third RFC1918 v4 block.
-    * ``::1/128`` — IPv6 loopback.
-    * ``fc00::/7`` — unique local addresses (RFC4193).
-    * ``fe80::/10`` — IPv6 link-local.
-
-    The plain string-prefix check this replaced (``"127."``, ``"10."``,
-    ``"192.168."``) silently misclassified any of the above as
-    "internet-side" and therefore noisily warned about plain-HTTP
-    credentials on a perfectly LAN-local NZBGet.
+    Uses ipaddress to cover RFC1918 (including 172.16.0.0/12), loopback, link-local and
+    unique-local ranges; a string-prefix check misclassified several of them and warned
+    needlessly about plain HTTP on a LAN.
     """
     try:
         host = urlparse(url).hostname or ""
@@ -84,7 +74,7 @@ class NzbgetClient:
 
         # Warn if credentials will travel over plain HTTP to a non-LAN host.
         # Log only the hostname, not ``self._url``, which may embed a
-        # ``user:pass@`` component and would leak credentials (§7.4).
+        # ``user:pass@`` component and would leak credentials.
         if self._url.startswith("http://") and not _is_lan_host(self._url):
             host = urlparse(self._url).hostname or self._url
             logger.warning(
@@ -99,13 +89,9 @@ class NzbgetClient:
     # typed value; annotating _call as Any avoids cascading casts while
     # keeping get_status / get_queue fully typed.
     def _call(self, method: str) -> Any:
-        """Invoke *method* on the NZBGet JSON-RPC endpoint and return the result.
-
-        Raises :exc:`NzbgetError` when the response body contains a JSON-RPC
-        ``error`` field.  NZBGet uses this for method-not-found, authentication
-        failures, and similar protocol errors — without this guard those cases
-        silently returned ``{}`` and callers had no way to tell idle-queue from
-        broken-connection.
+        """Invoke *method* and return the result. Raises NzbgetError when the response
+        carries a JSON-RPC error field, so an idle queue can be told from a broken
+        connection.
         """
         resp = self._http.post(
             "/jsonrpc",
@@ -119,22 +105,16 @@ class NzbgetClient:
         return data.get("result", {})
 
     def get_status(self) -> dict[str, object]:
-        """Return the NZBGet global status dict."""
         result = self._call("status")
         return result if isinstance(result, dict) else {}
 
     def get_queue(self) -> list[dict[str, object]]:
-        """Return the current NZBGet download queue."""
         result = self._call("listgroups")
         return result if isinstance(result, list) else []
 
     def is_reachable(self) -> bool:
-        """Return True if NZBGet is reachable and responding.
-
-        Catches :exc:`SafeHTTPError` (non-2xx responses) and
-        :exc:`~requests.RequestException` (network/transport errors) only —
-        not the broad ``Exception`` which would swallow ``SystemExit``,
-        ``KeyboardInterrupt``, and programming errors.
+        """Return True if NZBGet responds. Catches only HTTP and transport errors, not the
+        broad Exception.
         """
         try:
             self.get_status()

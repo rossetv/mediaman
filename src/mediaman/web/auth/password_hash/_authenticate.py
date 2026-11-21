@@ -1,12 +1,12 @@
 """The credential-verification path.
 
-Owns :func:`authenticate` and its two private helpers. The "constant
+Owns `authenticate` and its two private helpers. The "constant
 time across the meaningful branches" property — a real-username probe
 and a fake-username probe burn the same bcrypt latency — is implemented
-here: see :func:`_verify_credentials_against_db`'s dummy bcrypt cycle.
+here: see `_verify_credentials_against_db`'s dummy bcrypt cycle.
 
-User CRUD lives in :mod:`._user_crud`; password rotation in
-:mod:`._change_password`.
+User CRUD lives in `._user_crud`; password rotation in
+`._change_password`.
 """
 
 from __future__ import annotations
@@ -36,12 +36,12 @@ def _short_circuit_authenticate(
     (empty username, or locked account). Returns ``None`` when the
     caller must continue with the bcrypt verification path.
 
-    The locked branch ALWAYS bumps :func:`record_failure` — regardless
+    The locked branch ALWAYS bumps `record_failure` — regardless
     of *record_failures* — so the escalation thresholds
     (5 → 10 → 15 failures → 15 min / 1 h / 24 h) remain reachable on
     every authentication path, including callers that pass
     ``record_failures=False`` (``verify_reauth_password``,
-    ``_authorise_password_change``). See C6 in ``test_login_lockout.py``.
+    ``_authorise_password_change``). See ``test_login_lockout.py``.
     The *record_failures* flag governs only the bcrypt-verify path's
     decision to count a wrong-password attempt; once an account is
     already locked, counting the continued hammering is what keeps the
@@ -61,7 +61,7 @@ def _short_circuit_authenticate(
     # CPU. record_failure keeps acquiring the writer lock, which is
     # the price of the escalation property — and it runs unconditionally
     # here so escalation bands stay reachable on the ``record_failures=False``
-    # paths too (H2).
+    # paths too.
     if is_locked_out(conn, username):
         record_failure(conn, username)
         logger.warning("auth.account_locked user=%s reason=lockout_active", username)
@@ -120,7 +120,7 @@ def authenticate(
     * Empty username — there is no user to authenticate, and burning a
       bcrypt round per request would let an unauthenticated attacker
       DoS the server's CPU by streaming empty-username login attempts.
-    * Account already locked — :mod:`mediaman.web.auth.login_lockout`
+    * Account already locked — `mediaman.web.auth.login_lockout`
       already knows the answer is "no" without re-checking the hash.
       Skipping bcrypt here cuts the cost of a sustained brute-force
       hammering a locked account from one bcrypt round per attempt
@@ -128,9 +128,9 @@ def authenticate(
       retained even on the locked path because the escalation
       thresholds (5 → 10 → 15 failures → 15 min / 1 h / 24 h) are
       reachable only while the counter keeps climbing during the
-      lock window — see the C6 test in ``test_login_lockout.py``.
+      lock window — see ``test_login_lockout.py``.
       Without the continued counter bump the escalation-window logic in
-      :mod:`mediaman.web.auth.login_lockout` cannot escalate to the 1-hour
+      `mediaman.web.auth.login_lockout` cannot escalate to the 1-hour
       and 24-hour windows.
 
     The "constant-time" property is preserved across the *meaningful*

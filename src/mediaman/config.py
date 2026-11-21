@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 
 class ConfigError(Exception):
-    """Raised when required configuration is missing or invalid."""
+    pass
 
 
 @dataclass(frozen=True)
@@ -18,8 +18,8 @@ class Config:
     on startup rather than silently misbehaving at runtime.
 
     ``bind_host`` is intentionally an empty string by default — meaning
-    "no operator override." :func:`mediaman.main.cli_main` then calls
-    :func:`mediaman.main._resolve_bind_host` so the bind address can be
+    "no operator override." mediaman.main.cli_main then calls
+    mediaman.main._resolve_bind_host so the bind address can be
     Docker-aware (``0.0.0.0`` inside a container, ``127.0.0.1`` on bare
     metal). Operators who want a specific address must set
     ``MEDIAMAN_BIND_HOST`` explicitly.
@@ -31,7 +31,7 @@ class Config:
     directory the runtime user can write.
 
     ``MEDIAMAN_DELETE_ROOTS`` is read directly by the deletion-time call
-    site in :mod:`mediaman.scanner.repository` (it is not threaded
+    site in mediaman.scanner.repository (it is not threaded
     through this dataclass). Adding a stale ``delete_roots`` field here
     would imply a single source of truth that does not exist in practice
     and risks divergence between this snapshot and the live env var on
@@ -58,7 +58,7 @@ def load_config() -> Config:
     accepting a low-entropy input here would silently invalidate
     every other guarantee in the app.
 
-    Raises :class:`ConfigError` with a clear message on any invalid value
+    Raises ConfigError with a clear message on any invalid value
     so operators see an actionable error rather than a cryptic crash.
     """
     secret_key = os.environ.get("MEDIAMAN_SECRET_KEY")
@@ -78,7 +78,6 @@ def load_config() -> Config:
             'python -c "import secrets; print(secrets.token_hex(32))"'
         )
 
-    # ── Port ──────────────────────────────────────────────────────────────────
     raw_port = os.environ.get("MEDIAMAN_PORT", "8282").strip()
     try:
         port = int(raw_port)
@@ -87,12 +86,10 @@ def load_config() -> Config:
     if not (1 <= port <= 65535):
         raise ConfigError(f"MEDIAMAN_PORT must be between 1 and 65535, got {port}")
 
-    # ── Data directory ────────────────────────────────────────────────────────
     data_dir = os.environ.get("MEDIAMAN_DATA_DIR", "/data").strip()
     if not data_dir:
         raise ConfigError("MEDIAMAN_DATA_DIR must not be empty")
 
-    # ── Bind host ─────────────────────────────────────────────────────────────
     # Empty string means "unset" — let cli_main fall through to
     # _resolve_bind_host() which is Docker-aware. That way a fresh
     # container deployment binds to 0.0.0.0 (the only address reachable
@@ -100,12 +97,11 @@ def load_config() -> Config:
     # presenting a "healthy but unreachable" service.
     bind_host = os.environ.get("MEDIAMAN_BIND_HOST", "").strip()
 
-    # ── Trusted proxies ───────────────────────────────────────────────────────
     trusted_proxies = os.environ.get("MEDIAMAN_TRUSTED_PROXIES", "").strip()
 
     # ``MEDIAMAN_DELETE_ROOTS`` is intentionally not snapshotted here —
     # it is read on demand at deletion time in
-    # :mod:`mediaman.scanner.repository`. See the Config docstring.
+    # mediaman.scanner.repository. See the Config docstring.
 
     return Config(
         secret_key=secret_key,

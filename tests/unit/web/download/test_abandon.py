@@ -1,6 +1,6 @@
 """Tests for POST /api/downloads/{dl_id}/abandon.
 
-Covers :mod:`mediaman.web.routes.downloads`:
+Covers mediaman.web.routes.downloads:
 - movie happy path → abandon_movie called, 200
 - series happy path with seasons → abandon_seasons called, 200
 - upcoming series → abandon_series called (no seasons body), 200

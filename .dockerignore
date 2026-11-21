@@ -12,25 +12,17 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
-.superpowers/
 .claude/
-.remember/
-docs/
 data/
 # Exclude markdown files individually — keep README.md so `pip install .`
 # can read the readme field in pyproject.toml (pyproject references README.md).
-FINDINGS.md
 CONTRIBUTING.md
-CODE_OF_CONDUCT.md
 SECURITY.md
-CHANGELOG.md
 
 # CI / static-analysis configuration — not needed at runtime.
 bandit.yaml
 
 # Developer tooling and documentation — not needed at runtime.
-CODE_GUIDELINES.md
-DESIGN.md
 Makefile
 scripts/
 tests/

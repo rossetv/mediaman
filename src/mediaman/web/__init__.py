@@ -1,7 +1,7 @@
 """Web package — ASGI middleware orchestration for the FastAPI app.
 
 The middleware classes themselves live in
-:mod:`mediaman.web.middleware.*`; this module is the thin orchestrator
+`mediaman.web.middleware.*`; this module is the thin orchestrator
 that registers them on the app in the right order.
 """
 
@@ -62,11 +62,6 @@ def _parse_allowed_hosts(raw: str | None) -> list[str]:
 
 
 def register_security_middleware(app: FastAPI) -> None:
-    """Register security middleware on a FastAPI/Starlette app.
-
-    Exposed as a helper so the app factory can wire the middleware without
-    having to import Starlette primitives directly.
-    """
     # Order matters: add_middleware is LIFO — the last call added is the
     # outermost middleware.  Execution order (outermost → innermost):
     #   TrustedHost: hostile Host: header rejected at the door.

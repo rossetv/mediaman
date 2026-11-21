@@ -88,10 +88,10 @@ def resolve_safe_readonly_path(raw: str, roots: list[Path]) -> Path | None:
     tolerable only because the sole caller — the disk-usage endpoint — merely
     *stats* the result. A **destructive** caller must NOT use this; deletion
     paths resolve roots through the fd-based ``O_NOFOLLOW`` validation in
-    :mod:`mediaman.services.infra.storage._delete_roots` instead, which closes
+    ``mediaman.services.infra.storage._delete_roots`` instead, which closes
     the window this function leaves open.
 
-    Returns the resolved :class:`~pathlib.Path` if it sits within one of
+    Returns the resolved ``Path`` if it sits within one of
     *roots*, or ``None`` if:
 
     * *raw* cannot be parsed as a path.
@@ -111,7 +111,7 @@ def resolve_safe_readonly_path(raw: str, roots: list[Path]) -> Path | None:
     is reading stat data from an unintended path within a configured
     root, not arbitrary file disclosure. For a destructive operation
     we'd need the fd-based ``O_NOFOLLOW`` pattern used by
-    :mod:`mediaman.services.infra.storage`, but the read-only
+    ``mediaman.services.infra.storage``, but the read-only
     nature of this caller makes the upgrade a non-priority.
     """
     try:

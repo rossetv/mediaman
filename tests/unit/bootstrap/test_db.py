@@ -72,7 +72,7 @@ def test_unknown_errno_falls_back_to_chown_hint():
 
 
 def test_bootstrap_db_uses_pathlib_join_for_db_path(tmp_path, monkeypatch):
-    """``Path / 'mediaman.db'`` joining — finding 13.
+    """``Path / 'mediaman.db'`` joining.
 
     A trailing slash on ``MEDIAMAN_DATA_DIR`` previously produced
     ``//mediaman.db`` because of the f-string concatenation. Path
@@ -104,7 +104,7 @@ def test_bootstrap_db_uses_pathlib_join_for_db_path(tmp_path, monkeypatch):
 
 
 def test_bootstrap_db_mkdir_failure_raises_data_dir_not_writable(monkeypatch, tmp_path):
-    """Finding 12: a mkdir error surfaces as DataDirNotWritableError, not OSError."""
+    """A mkdir error surfaces as DataDirNotWritableError, not OSError."""
     from dataclasses import dataclass
     from pathlib import Path
 

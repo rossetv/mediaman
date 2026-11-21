@@ -18,10 +18,6 @@ from mediaman.services.openai.client import (
 )
 from tests.helpers.factories import insert_settings
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 
 @pytest.fixture
 def conn(db_path):
@@ -32,11 +28,6 @@ def _put(conn, key, value):
     insert_settings(conn, **{key: value}, updated_at="2026-01-01")
 
 
-# ---------------------------------------------------------------------------
-# get_openai_key
-# ---------------------------------------------------------------------------
-
-
 class TestGetOpenAiKey:
     def test_raises_when_no_db_and_no_key(self, monkeypatch):
         """Environment variables are no longer accepted; ValueError is raised."""
@@ -45,7 +36,6 @@ class TestGetOpenAiKey:
             get_openai_key(None)
 
     def test_returns_db_key_when_available(self, monkeypatch, conn):
-        """If DB has a key, it is returned."""
         monkeypatch.setenv("OPENAI_API_KEY", "sk-env-key")
         with patch(
             "mediaman.services.infra.settings_reader.get_string_setting", return_value="sk-db-key"
@@ -63,11 +53,6 @@ class TestGetOpenAiKey:
             get_openai_key(conn, secret_key="x" * 32)
 
 
-# ---------------------------------------------------------------------------
-# get_openai_model
-# ---------------------------------------------------------------------------
-
-
 class TestGetOpenAiModel:
     def test_default_model_returned_when_conn_is_none(self):
         assert get_openai_model(None) == _DEFAULT_MODEL
@@ -80,11 +65,6 @@ class TestGetOpenAiModel:
         assert get_openai_model(conn) == "gpt-4o"
 
 
-# ---------------------------------------------------------------------------
-# is_web_search_enabled
-# ---------------------------------------------------------------------------
-
-
 class TestIsWebSearchEnabled:
     def test_defaults_false_when_conn_is_none(self):
         assert is_web_search_enabled(None) is False
@@ -95,11 +75,6 @@ class TestIsWebSearchEnabled:
     def test_returns_true_when_enabled(self, conn):
         _put(conn, "openai_web_search_enabled", "true")
         assert is_web_search_enabled(conn) is True
-
-
-# ---------------------------------------------------------------------------
-# is_web_search_title_safe
-# ---------------------------------------------------------------------------
 
 
 class TestValidateWebSearchTitle:
@@ -123,11 +98,6 @@ class TestValidateWebSearchTitle:
 
     def test_embedded_http_url_rejected(self):
         assert is_web_search_title_safe("Dune http://evil.com") is False
-
-
-# ---------------------------------------------------------------------------
-# call_openai
-# ---------------------------------------------------------------------------
 
 
 class TestCallOpenAi:
@@ -172,7 +142,6 @@ class TestCallOpenAi:
         assert result == []
 
     def test_web_search_tool_included_when_enabled(self, conn, fake_http, fake_response):
-        """When web search is enabled, the request body includes the tool."""
         payload = [{"title": "Severance", "media_type": "tv", "reason": "Great show"}]
         openai_resp = {
             "output": [

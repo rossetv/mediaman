@@ -1,25 +1,14 @@
-"""download_queue package — builds the merged NZBGet + Radarr/Sonarr download queue response.
+"""Merged NZBGet + Radarr/Sonarr download queue response.
 
-WHAT: Orchestrates fetching, matching, completion detection, and hero selection for the
-      download queue. The heavy lifting is delegated to three focused submodules:
+Orchestrates fetching, matching, completion detection and hero selection, delegating to
+items (card builders, NZBGet matching, DownloadsResponse), classify (search hints,
+countdown bands, deep links) and queue (NZBGet parsing, Arr matching, unmatched-NZB
+accumulation).
 
-- :mod:`.items`    — item builders (matched/unmatched Arr entries), NZBGet matching,
-                     episode helpers, and the ``DownloadsResponse`` TypedDict.
-- :mod:`.classify` — state-derivation helpers: search hints, countdown bands,
-                     deep links into Radarr/Sonarr.
-- :mod:`.queue`    — stateless sub-functions: NZBGet parsing, Arr card matching,
-                     unmatched-NZB accumulation.
-
-WHY: The module-level state (``_previous_queue``, ``_previous_initialised``,
-     ``_state_lock``) lives here — not in a submodule — because the test suite
-     patches and directly assigns to these names via
-     ``mediaman.services.downloads.download_queue._previous_queue`` etc. Keeping
-     the state (and the functions that mutate it) in the package root avoids
-     import-path gymnastics that would break those tests.
-
-All previously-public symbols remain accessible here so existing imports such as
-``from mediaman.services.downloads.download_queue import build_downloads_response``
-continue to work without modification.
+The module-level state (_previous_queue, _previous_initialised, _state_lock) lives here
+because the tests patch and assign those names on this package; keeping the state and
+its mutators in the root avoids import-path workarounds. Public symbols remain
+importable from here.
 """
 
 from __future__ import annotations
@@ -74,9 +63,6 @@ __all__ = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Module-level state for completion detection.
-# ---------------------------------------------------------------------------
 # rationale: in-process snapshot of the previous NZBGet queue for completion
 # detection; process restart resets it (reconcile-on-startup handles gaps);
 # single-worker invariant.  _previous_initialised distinguishes "never polled"
@@ -92,16 +78,10 @@ _state_lock = threading.Lock()
 
 
 def _reset_previous_queue() -> None:
-    """Reset the in-memory queue snapshot. Used by tests."""
     global _previous_queue, _previous_initialised
     with _state_lock:
         _previous_queue = {}
         _previous_initialised = False
-
-
-# ---------------------------------------------------------------------------
-# Completion detection helpers
-# ---------------------------------------------------------------------------
 
 
 def _enrich_with_tmdb_ids(
@@ -109,23 +89,15 @@ def _enrich_with_tmdb_ids(
     current_map: dict[str, dict[str, object]],
     secret_key: str,
 ) -> None:
-    """Stamp each Arr-sourced entry in *current_map* with its ``tmdb_id``.
+    """Stamp each Arr-sourced entry in *current_map* with its tmdb_id.
 
-    The simplified items emitted by the queue builder don't carry
-    ``tmdbId``, but :func:`record_verified_completions` needs it to
-    disambiguate two same-titled releases (without it, the title-only
-    fallback fires on every completion and silently merges duplicates).
+    record_verified_completions needs it to tell apart same-titled releases; otherwise
+    the title-only fallback merges duplicates. The libraries are fetched lazily, only
+    when an Arr-prefixed entry exists, and keyed by arr_id rather than the
+    collision-prone title.
 
-    The enrichment fetches the Radarr/Sonarr libraries lazily — only
-    when at least one Arr-prefixed entry is present — and builds an
-    ``arr_id -> tmdb_id`` map. The ``arr_id`` is already on every
-    queue item, so this keeps the lookup keyed off a stable, unique
-    identifier rather than the (collision-prone) title.
-
-    On any exception the enrichment silently bows out: a failure here
-    must not block completion detection, only narrow the disambiguation
-    window. ``record_verified_completions`` already logs a warning
-    whenever the title-only fallback fires.
+    Any exception is swallowed: a failure must not block completion detection, only
+    narrow the disambiguation.
     """
     from mediaman.services.arr.build import build_radarr_from_db as _build_radarr
     from mediaman.services.arr.build import build_sonarr_from_db as _build_sonarr
@@ -190,26 +162,14 @@ def _maybe_record_completions(
 ) -> None:
     """Detect items that vanished since the last poll and record verified completions.
 
-    Lock discipline (C20): the lock is held only for the tiny critical
-    section that snapshots the previous-queue state into local vars and
-    then swaps in the new one. All HTTP I/O to Radarr/Sonarr (which
-    ``record_verified_completions`` performs to verify an item has files
-    before recording it) happens outside the lock — a slow/hung Arr
-    must not stall every other thread waiting on ``_state_lock`` (and
-    therefore every inbound ``/downloads`` request).
+    The lock is held only to snapshot the previous queue and swap in the new one;
+    Radarr/Sonarr I/O in record_verified_completions happens outside it, so a slow Arr
+    cannot stall every /downloads request. Swapping first means a concurrent poll sees
+    the new state and does not re-report the same completion.
 
-    The ordering here — swap the snapshot first, then do I/O — means a
-    concurrent poll that arrives while we're still verifying will see
-    the new state and not re-report the same completion. That's the
-    right trade-off: the alternative (do I/O first, then swap) keeps
-    the snapshot stale for the I/O window, which is worse.
-
-    Each Arr-sourced entry in ``current_map`` is enriched with its
-    ``tmdb_id`` before being stashed into the previous-queue snapshot,
-    so the next call's :func:`detect_completed` propagates the id all
-    the way through to :func:`record_verified_completions` — pinning
-    completion verification to a stable identifier instead of the
-    collision-prone title.
+    Arr-sourced entries get their tmdb_id before being stored, so the next call's
+    detect_completed carries it through to verification instead of matching on the
+    title.
     """
     global _previous_queue, _previous_initialised
 
@@ -226,28 +186,17 @@ def _maybe_record_completions(
         record_verified_completions(conn, completed, secret_key)
 
 
-# ---------------------------------------------------------------------------
-# Page-header subtitle
-# ---------------------------------------------------------------------------
-
-
 def _downloads_subtitle(
     hero: dict[str, object] | None,
     queue: list[dict[str, object]],
     upcoming: list[dict[str, object]],
 ) -> str:
-    """Build the Downloads page-header subtitle summarising queue state.
+    """Build the page-header subtitle, the single source for the server-rendered page and
+    the poll-driven JS update.
 
-    The line is the single source of truth for both the server-rendered
-    page and the poll-driven JS update, so the count logic lives in one
-    place. Four cases:
-
-    * something downloading       → ``"2 items in progress"``
-      (with ``" · 3 coming soon"`` appended when releases are scheduled)
-    * nothing downloading, but
-      releases are scheduled       → ``"Nothing downloading · 3 coming soon"``
-    * nothing downloading,
-      nothing scheduled            → ``""`` — the empty-state card says it all
+    Something downloading gives "2 items in progress" (plus " · 3 coming soon" when
+    releases are scheduled). Nothing downloading gives "Nothing downloading · 3 coming
+    soon", or "" when nothing is scheduled either (the empty-state card says it all).
     """
     active = (1 if hero else 0) + len(queue)
     coming = len(upcoming)
@@ -261,23 +210,12 @@ def _downloads_subtitle(
     return ""
 
 
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
-
-
 def build_downloads_response(conn: sqlite3.Connection, secret_key: str) -> DownloadsResponse:
-    """Build the simplified download queue with hero selection.
+    """Build the download queue with hero selection, merging NZBGet and Radarr/Sonarr
+    queues by fuzzy title match and adding recent downloads from the database.
 
-    Merges NZBGet + Radarr/Sonarr queues using fuzzy title matching,
-    maps each item through ``map_state`` / ``build_item``, selects a
-    hero, and fetches recent downloads from the database.
-
-    ``secret_key`` is required for decrypting API credentials stored in DB
-    settings (NZBGet password, Radarr/Sonarr API keys).
-
-    Returns ``{"hero": dict|None, "queue": list[dict], "upcoming":
-    list[dict], "recent": list[dict], "subtitle": str}``.
+    *secret_key* decrypts the stored API credentials. Returns {"hero", "queue",
+    "upcoming", "recent", "subtitle"}.
     """
     from mediaman.services.downloads.download_format import select_hero
 

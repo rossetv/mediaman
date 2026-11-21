@@ -1,5 +1,3 @@
-"""History page -- paginated audit log with optional action-type filter."""
-
 from __future__ import annotations
 
 import logging
@@ -83,7 +81,6 @@ def _scrub_detail(detail: str | None) -> str:
 
 
 def _build_item(r: AuditRow) -> dict[str, object]:
-    """Render an audit_log row into the dict the template/JSON expects."""
     action = r.action
     is_security = isinstance(action, str) and action.startswith("sec:")
 
@@ -119,7 +116,6 @@ def _build_item(r: AuditRow) -> dict[str, object]:
 def _fetch_rows(
     conn: sqlite3.Connection, *, action: str | None, page: int, per_page: int
 ) -> list[dict[str, object]]:
-    """Dispatch to the security-only or media-events row fetcher."""
     if action == "security":
         rows = fetch_security_audit_rows(conn, page=page, per_page=per_page)
     else:
@@ -130,7 +126,6 @@ def _fetch_rows(
 def _fetch_history(
     conn: sqlite3.Connection, action: str | None, page: int, per_page: int
 ) -> tuple[list[dict[str, object]], int]:
-    """Return (items, total_count) for the audit log."""
     total = count_audit_rows(conn, action)
     items = _fetch_rows(conn, action=action, page=page, per_page=per_page)
     return items, total
@@ -138,7 +133,6 @@ def _fetch_history(
 
 @router.get("/history", response_class=HTMLResponse)
 def history_page(request: Request) -> Response:
-    """Render the audit-log history page. Redirects to /login if session is invalid."""
     resolved = resolve_page_session(request)
     if isinstance(resolved, RedirectResponse):
         return resolved
@@ -185,7 +179,6 @@ def api_history(
     per_page: int = Query(default=_PER_PAGE_DEFAULT, ge=1, le=_PER_PAGE_MAX),
     _admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
-    """Return paginated audit log as JSON."""
     if action and action not in ACTION_TYPES:
         action = None
 
@@ -210,7 +203,6 @@ def api_security_events(
     per_page: int = Query(default=_PER_PAGE_DEFAULT, ge=1, le=_PER_PAGE_MAX),
     _admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
-    """Return paginated sec:* audit rows."""
     conn = get_db()
     items, total = _fetch_history(conn, "security", page, per_page)
     total_pages = max(1, (total + per_page - 1) // per_page)

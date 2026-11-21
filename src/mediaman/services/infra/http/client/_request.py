@@ -1,9 +1,9 @@
 """Low-level transport and per-request helpers for the outbound HTTP client.
 
-This module owns the request-engine seam that :class:`._core.SafeHTTPClient`
-composes: the single-attempt transport function (:func:`_dispatch`), the
-per-call SSRF / transport indirection helpers (:func:`_resolve_outbound`,
-:func:`_invoke_dispatch`), and the module-level timeout / size-cap defaults.
+This module owns the request-engine seam that ``_core.SafeHTTPClient``
+composes: the single-attempt transport function (``_dispatch``), the
+per-call SSRF / transport indirection helpers (``_resolve_outbound``,
+``_invoke_dispatch``), and the module-level timeout / size-cap defaults.
 
 Patchability note
 -----------------
@@ -35,10 +35,6 @@ resolve_safe_outbound_url = _resolve_safe_outbound_url
 
 _HTTP_CLIENT_MODULE = "mediaman.services.infra.http.client"
 
-# ---------------------------------------------------------------------------
-# Module-level constants
-# ---------------------------------------------------------------------------
-
 #: Default per-call timeouts.  Connect is short — a TCP handshake that hasn't
 #: completed in 5 s means the target is unreachable.  Read is generous because
 #: OpenAI and TMDB occasionally take 20-30 s.
@@ -67,10 +63,6 @@ def _build_user_agent() -> str:
 _USER_AGENT = _build_user_agent()
 
 
-# ---------------------------------------------------------------------------
-# Low-level transport function
-# ---------------------------------------------------------------------------
-
 # rationale: caller / json / data / auth mirror ``requests.Session.request``
 # (and ``requests.adapters.HTTPAdapter``), which themselves accept ``Any``
 # for these parameters — there is no upstream stub that pins the shape.
@@ -78,8 +70,8 @@ _USER_AGENT = _build_user_agent()
 # or duplicate the requests library's permissive contract. The same
 # applies to ``params: dict[str, Any]``: ``requests`` accepts values of
 # any JSON-serialisable type for query parameters. The rationale below
-# applies to every ``Any`` site in :func:`_dispatch` and the verb methods
-# on :class:`SafeHTTPClient`.
+# applies to every ``Any`` site in ``_dispatch`` and the verb methods
+# on ``SafeHTTPClient``.
 
 
 def _dispatch(
@@ -112,11 +104,6 @@ def _dispatch(
         stream=True,
     )
     return resp
-
-
-# ---------------------------------------------------------------------------
-# Per-request helpers
-# ---------------------------------------------------------------------------
 
 
 def _resolve_outbound(
@@ -164,9 +151,7 @@ def _invoke_dispatch(
     ``_dispatch`` is looked up from the package's namespace (via
     ``sys.modules``) on every call so that
     ``monkeypatch.setattr(http_client, "_dispatch", ...)`` in tests
-    intercepts the actual transport. Lifted out of ``_request`` so the
-    orchestrator stays a flat table of contents; the behaviour is identical
-    to the former nested ``_dispatch_fn`` closure.
+    intercepts the actual transport.
     """
     _hc = sys.modules.get(_HTTP_CLIENT_MODULE)
     _d = getattr(_hc, "_dispatch", None) if _hc is not None else None

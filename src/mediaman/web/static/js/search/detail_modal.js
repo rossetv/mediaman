@@ -23,7 +23,6 @@
   window.MM = window.MM || {};
   MM.search = MM.search || {};
 
-  // ===== Modal DOM refs =====
   const modal   = document.getElementById("detail-modal");
   const modalEl = {
     hero:     document.getElementById("modal-hero"),
@@ -56,11 +55,9 @@
   const detailModal = MM.modal.setupDetail(modal);
   function closeModal() { detailModal.close(); }
 
-  // ===== Helpers delegated to shelves module =====
   function escapeHtml(v) { return MM.search.shelves.escapeHtml(v); }
   function escapeAttr(v) { return MM.search.shelves.escapeAttr(v); }
 
-  // ===== Modal reset =====
   function resetModal() {
     modalEl.hero.innerHTML     = "";
     modalEl.quick.innerHTML    = "";
@@ -79,7 +76,6 @@
     modalEl.actions.innerHTML      = "";
   }
 
-  // ===== Open / fetch detail =====
   async function openDetail(mediaType, tmdbId) {
     detailModal.open();
     resetModal();
@@ -110,8 +106,7 @@
     renderDetail(data);
   }
 
-  // ===== Detail content rendering =====
-  /* SECURITY (R8-M2): hero, quick, ratings, and cast blocks use innerHTML
+  /* SECURITY: hero, quick, ratings, and cast blocks use innerHTML
      with template literals. This is intentional — the DOM-construction path
      would not materially reduce risk because the same data is flowing through.
      EVERY server-supplied value MUST go through escapeHtml() or escapeAttr()
@@ -157,7 +152,7 @@
     modalEl.tagline.textContent = d.tagline ? '"' + d.tagline + '"' : "";
     modalEl.desc.textContent    = d.description || "";
 
-    /* Finding 19: validate key is exactly 11 URL-safe base64 chars before
+    /* Validate key is exactly 11 URL-safe base64 chars before
        building the iframe to prevent injection via a crafted trailer_key. */
     if (d.trailer_key && /^[A-Za-z0-9_-]{11}$/.test(d.trailer_key)) {
       modalEl.trailerL.style.display = "";
@@ -196,7 +191,6 @@
     renderPrimaryButton(d);
   }
 
-  // ===== Season picker =====
   function renderSeasonPicker(seasons) {
     modalEl.seasonsL.style.display = "";
     modalEl.seasons.style.display  = "";
@@ -284,7 +278,6 @@
     }
   }
 
-  // ===== Download button =====
   function renderPrimaryButton(d) {
     const tickedSeasons = [...seasonTickState.entries()].filter(function([, v]) { return v; }).map(function([k]) { return k; });
     let label    = "Download";
@@ -354,7 +347,6 @@
     }
   }
 
-  // ===== Init =====
   function init({ refreshCurrentView }) {
     _refreshCurrentView = refreshCurrentView;
   }

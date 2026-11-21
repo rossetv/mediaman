@@ -2,11 +2,11 @@
 
 For each configured library the engine:
 
-1. Fetches all items from Plex (via :mod:`phases.fetch`).
-2. Upserts each item into ``media_items`` (via :mod:`phases.upsert`).
+1. Fetches all items from Plex (via phases.fetch).
+2. Upserts each item into ``media_items`` (via phases.upsert).
 3. Skips items that are protected (forever or active snooze).
 4. Skips items already awaiting deletion.
-5. Evaluates eligibility via :mod:`phases.evaluate`.
+5. Evaluates eligibility via phases.evaluate.
 6. Schedules eligible items: inserts into ``scheduled_actions`` with an
    HMAC token and marks re-entries where a prior snooze has expired.
 7. Writes an ``audit_log`` entry for every scheduled action.
@@ -15,17 +15,17 @@ For each configured library the engine:
 The SQL, Plex I/O, Arr-date caching, and deletion execution each live
 in their own module; this module is orchestration only.
 
-Import-cycle rule: :mod:`repository` imports nothing from
-:mod:`fetch` / :mod:`deletions`; :mod:`deletions` may import
-:mod:`repository`; :mod:`fetch` may import :mod:`repository`; this
+Import-cycle rule: repository imports nothing from
+fetch / deletions; deletions may import
+repository; fetch may import repository; this
 module orchestrates all three.
 """
 
 # rationale: scan orchestrator — owns the per-library commit boundary so a
 # SIGKILL mid-scan can only roll back the in-flight library, never a successful
 # upsert from an earlier one. The per-library scan body lives in
-# :mod:`_scan_library` so this shell stays scannable; the helpers there do not
-# commit, leaving the transaction boundary visible in :meth:`run_scan`.
+# _scan_library so this shell stays scannable; the helpers there do not
+# commit, leaving the transaction boundary visible in run_scan.
 
 from __future__ import annotations
 
@@ -153,14 +153,10 @@ class ScanEngine:
             radarr_client=radarr_client,
         )
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
     def sync_library(self) -> dict[str, int]:
         """Sync media items from Plex without evaluating for deletion.
 
-        A lightweight alternative to :meth:`run_scan` that only fetches
+        A lightweight alternative to run_scan that only fetches
         current library state from Plex and updates the ``media_items``
         table. No eligibility checks, no deletions, no newsletter.
 
@@ -225,7 +221,7 @@ class ScanEngine:
         for lib_id, fetched in per_lib_fetches.items():
             # Union the history-fetch skips into the seen set: those items
             # are still present in Plex, just not fetched this pass, so they
-            # must never be pruned as orphans (R7-H1).
+            # must never be pruned as orphans.
             seen_lib_keys: set[str] = {f.item["plex_rating_key"] for f in fetched.items}
             seen_lib_keys.update(fetched.skipped_keys)
             for f in fetched.items:
@@ -338,7 +334,6 @@ class ScanEngine:
         self._conn.commit()
 
     def _record_deletion_outcome(self, summary: dict[str, int]) -> None:
-        """Execute pending deletions and record their counts in *summary*."""
         deletion_result = self.execute_deletions()
         summary["deleted"] = deletion_result["deleted"]
         summary["reclaimed_bytes"] = deletion_result["reclaimed_bytes"]
@@ -349,7 +344,7 @@ class ScanEngine:
         Recommendations refresh runs FIRST so the newsletter reflects
         this week's picks rather than last week's stale batch — the
         cards are loaded from the ``suggestions`` table that
-        :func:`_refresh_recommendations` rewrites. Both calls are
+        _refresh_recommendations rewrites. Both calls are
         wrapped in narrow exception handlers because either failing
         must not abort a successful scan. Skipped entirely in dry-run
         mode.
@@ -377,14 +372,10 @@ class ScanEngine:
     def execute_deletions(self) -> DeletionResult:
         """Execute pending deletions where the grace period has passed.
 
-        Delegates to :class:`DeletionExecutor`. Kept on ``ScanEngine``
+        Delegates to DeletionExecutor. Kept on ``ScanEngine``
         so existing callers don't need to know about the split.
         """
         return self._deletions.execute()
-
-    # ------------------------------------------------------------------
-    # Internal helpers — scan orchestration
-    # ------------------------------------------------------------------
 
     def _resolve_added_at(self, item: dict[str, object]) -> datetime:
         """Return the best available 'added' datetime for a media item.
@@ -442,8 +433,8 @@ class ScanEngine:
     ) -> int:
         """Remove ``media_items`` whose ``plex_rating_key`` is gone from Plex.
 
-        Delegates to :func:`phases.delete.remove_orphans` which owns the
-        fail-closed safeguard logic (C31). Only considers items belonging
+        Delegates to phases.delete.remove_orphans which owns the
+        fail-closed safeguard logic. Only considers items belonging
         to libraries that were successfully scanned.
         """
         return remove_orphans(self._conn, seen_keys, scanned_libs)

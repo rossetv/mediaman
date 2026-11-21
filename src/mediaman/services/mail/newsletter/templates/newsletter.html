@@ -4,7 +4,7 @@
      inline or in this <style> block. They deliberately do NOT use the CSS
      custom-property tokens from static/css/_tokens.css (which email clients
      also strip). If the design-system palette changes, update this file
-     manually to keep values in sync. See DESIGN.md §2 for canonical values. -->
+     manually to keep values in sync. -->
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -31,7 +31,6 @@
   .mm-email .sect { padding:22px 28px; border-bottom:1px solid rgba(255,255,255,0.06); text-align:left; }
   .mm-email .lbl { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.8px; color:rgba(255,255,255,0.56); margin-bottom:14px; }
 
-  /* ── Storage + Reclaimed ── */
   .mm-email .sz { font-size:26px; font-weight:600; line-height:1.1; color:#fff; }
   .mm-email .sz small { font-size:13px; font-weight:400; color:rgba(255,255,255,0.56); }
   .mm-email .bar { height:16px; background:#2a2a2d; border-radius:4px; display:flex; overflow:hidden; margin:12px 0; }
@@ -45,7 +44,6 @@
   .mm-email .stat { font-size:20px; font-weight:600; color:#30d158; line-height:1.15; }
   .mm-email .stat-lbl { font-size:11px; color:rgba(255,255,255,0.4); letter-spacing:0.3px; margin-top:2px; }
 
-  /* ── Posters and shared pieces ── */
   .mm-email .poster { background:#1d1d1f; border-radius:4px; display:block; }
   .mm-email img.poster { object-fit:cover; }
   .mm-email .item-title { font-weight:600; color:#fff; }
@@ -58,7 +56,6 @@
   .mm-email .pill-blue  { background:rgba(41,151,255,0.12); color:#2997ff; }
   .mm-email .pill-yellow{ background:rgba(255,214,10,0.12); color:#ffd60a; }
 
-  /* ── Scheduled hero ── */
   .mm-email .hero {
     background:linear-gradient(180deg, rgba(255,69,58,0.08) 0%, rgba(255,69,58,0.02) 100%);
     border:1px solid rgba(255,69,58,0.18);
@@ -99,7 +96,6 @@
     letter-spacing:-0.12px;
   }
 
-  /* ── Deleted strip ── */
   .mm-email .deleted-strip { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; }
   .mm-email .deleted-strip .del { text-align:left; }
   .mm-email .deleted-strip .poster { width:100%; aspect-ratio:2/3; }
@@ -107,7 +103,6 @@
   .mm-email .deleted-strip .item-meta { font-size:10px; margin-top:2px; }
   .mm-email .deleted-strip .btn-ghost { font-size:10px; padding:4px 8px; margin-top:6px; display:block; }
 
-  /* ── Recommendations grid — defaults to the 900-1099 tier (4-up) ── */
   .mm-email .rec-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px 12px; }
   .mm-email .rec-card { text-align:left; display:flex; flex-direction:column; }
   .mm-email .rec-card .poster { width:100%; aspect-ratio:2/3; }
@@ -118,7 +113,6 @@
   .mm-email .rec-card .btn-ghost,
   .mm-email .rec-card .pill { margin-top:7px; display:block; font-size:11px; padding:6px 8px; }
 
-  /* ══ @media fallbacks (fire first, container queries below override) ══ */
   @media (min-width: 1400px) {
     .mm-email .rec-grid { grid-template-columns:repeat(6,1fr); }
     .mm-email .deleted-strip { grid-template-columns:repeat(6,1fr); }
@@ -160,7 +154,6 @@
     .mm-email .hero-h { flex-wrap:wrap; gap:8px; }
   }
 
-  /* ══ @container queries — come AFTER @media so they win when both match ══ */
   @container (min-width: 1400px) {
     .mm-email .sect { padding:30px 40px; }
     .mm-email .eh { padding:32px 40px 24px; }
@@ -291,20 +284,17 @@
       <div class="mm-frame" style="max-width:1280px;">
         <div class="mm-email">
 
-          {#- ── DRY RUN BANNER ── -#}
           {% if dry_run %}
           <div style="background:#2a1a00;border:1px solid rgba(255,159,10,0.3);border-radius:8px 8px 0 0;padding:10px 20px;text-align:center;font-size:13px;color:#ff9f0a;font-weight:600;letter-spacing:-0.224px;">
             &#9888; DRY RUN MODE — No items will actually be deleted
           </div>
           {% endif %}
 
-          {#- ── HEADER ── -#}
           <div class="eh"{% if dry_run %} style="border-top:none;"{% endif %}>
             <div class="brand">media<span>man</span></div>
             <div class="dateline">Weekly Report &middot; {{ report_date }}</div>
           </div>
 
-          {#- ── STORAGE & RECLAIMED ── -#}
           <div class="sect">
             <div class="lbl">Storage &amp; Reclaimed</div>
             <div class="sz">{{ fmt_bytes(storage.used_bytes) }} <small>of {{ fmt_bytes(storage.total_bytes) }} &middot; {{ fmt_bytes(storage.free_bytes) }} free</small></div>
@@ -326,7 +316,6 @@
             </div>
           </div>
 
-          {#- ── SCHEDULED FOR DELETION (hero) ── -#}
           {% if scheduled_items %}
           <div class="sect">
             <div class="hero">
@@ -366,7 +355,6 @@
           </div>
           {% endif %}
 
-          {#- ── DELETED SINCE LAST REPORT ── -#}
           {% if deleted_items %}
           <div class="sect">
             <div class="lbl">Deleted Since Last Report</div>
@@ -389,7 +377,6 @@
           </div>
           {% endif %}
 
-          {#- ── TRENDING THIS WEEK ── -#}
           {% set trending_items = this_week_items | selectattr('category', 'equalto', 'trending') | list %}
           {% if trending_items %}
           <div class="sect">
@@ -422,7 +409,6 @@
           </div>
           {% endif %}
 
-          {#- ── BASED ON YOUR WATCH HISTORY ── -#}
           {% set personal_items = this_week_items | selectattr('category', 'equalto', 'personal') | list %}
           {% if personal_items %}
           <div class="sect">
@@ -455,7 +441,6 @@
           </div>
           {% endif %}
 
-          {#- ── FOOTER ── -#}
           <div style="padding:24px 24px 28px; text-align:center;">
             <a href="{{ dashboard_url }}" class="btn-ghost" style="padding:10px 22px; font-size:13px;">Open Mediaman Dashboard &rarr;</a>
             <div style="font-size:11px; color:rgba(255,255,255,0.4); margin-top:16px; line-height:1.6; letter-spacing:-0.12px;">

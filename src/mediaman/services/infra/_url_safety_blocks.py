@@ -1,9 +1,9 @@
-"""Private deny-list constants and predicates for :mod:`url_safety`.
+"""Private deny-list constants and predicates for ``url_safety``.
 
 Lives in ``services/infra/`` alongside its consumer and is not part of
 the public surface — every name in here begins with an underscore on
 purpose so callers don't get a second front door past the SSRF guard.
-Imported by :mod:`mediaman.services.infra.url_safety` only.
+Imported by ``mediaman.services.infra.url_safety`` only.
 """
 
 from __future__ import annotations
@@ -59,7 +59,7 @@ _BLOCKED_HOST_SUFFIXES = (".internal",)
 #: Sonarr/Radarr/NZBGet on ``host.docker.internal:<port>``, so they are
 #: exempt from the ``.internal`` suffix block. The exemption is for the
 #: *hostname* rule only — the resolved address (the Docker gateway, an
-#: RFC1918 host) still goes through :func:`_ip_is_blocked`, so strict
+#: RFC1918 host) still goes through ``_ip_is_blocked``, so strict
 #: egress refuses it like any other LAN host.
 _ALLOWED_DOCKER_HOSTNAMES = frozenset(
     {
@@ -116,7 +116,6 @@ def _strict_egress_enabled(override: bool | None) -> bool:
 
 
 def _host_is_metadata(hostname: str) -> bool:
-    """Return True if *hostname* is a known metadata endpoint name."""
     h = hostname.lower().rstrip(".")
     if h in _METADATA_HOSTNAMES:
         return True
@@ -194,13 +193,13 @@ def _resolve_all(hostname: str) -> list[ipaddress.IPv4Address | ipaddress.IPv6Ad
     Returns an empty list on resolution failure — the caller should
     treat that as "cannot verify, refuse" rather than "looks fine".
 
-    Timeout (M6 / §8.9): ``socket.getaddrinfo`` has no per-call timeout
+    Timeout: ``socket.getaddrinfo`` has no per-call timeout
     of its own and runs *before* the HTTP request is issued, so it would
     otherwise sit **outside** the SafeHTTPClient ``(connect=5, read=30)``
     budget — a slow or malicious resolver could block the single worker
     for the OS resolver timeout (commonly 5-30 s × retries). To bound the
     wait we run the blocking lookup on a one-shot worker thread and wait
-    at most :data:`_RESOLVE_TIMEOUT_SECONDS` for it. On timeout we return
+    at most ``_RESOLVE_TIMEOUT_SECONDS`` for it. On timeout we return
     the empty list, i.e. the *same* "cannot verify → refuse" outcome as a
     ``gaierror``; this only bounds the wait and never changes the address
     set for a host that answers in time, so no SSRF check is weakened. A

@@ -28,7 +28,7 @@ def mock_plex():
 
 
 class TestRunScanDryRun:
-    """D05 finding 1: dry_run must skip *every* mutating side-effect of a
+    """``dry_run`` must skip *every* mutating side-effect of a
     full scan, not just the on-disk rm.
     """
 
@@ -127,7 +127,7 @@ class TestRunScanDryRun:
         assert conn.execute("SELECT COUNT(*) FROM media_items").fetchone()[0] == 50
 
     def test_dry_run_does_not_send_newsletter(self, conn, mock_plex):
-        """The mailer must not be invoked in dry_run mode (D05 finding 1)."""
+        """The mailer must not be invoked in dry_run mode."""
         with (
             patch("mediaman.scanner.engine._send_newsletter") as mock_news,
             patch("mediaman.scanner.engine._refresh_recommendations"),
@@ -148,7 +148,7 @@ class TestRunScanDryRun:
         """An expired snooze must not be deleted in dry_run mode —
         cleanup is a write that ``run_scan`` (via ``execute_deletions``)
         would normally perform but must be suppressed under a true
-        preview (D05 finding 10).
+        preview.
         """
         now = datetime.now(UTC)
         past = (now - timedelta(seconds=1)).isoformat()
@@ -188,7 +188,7 @@ class TestRunScanDryRun:
 
 
 class TestResolveAddedAt:
-    """D05 findings 2 + 3 and M3: ``_resolve_added_at`` must prefer Arr date,
+    """``_resolve_added_at`` must prefer Arr date,
     then Plex ``added_at``, and otherwise fall straight to ``now`` — it must
     NOT consult ``updated_at`` (a metadata-refresh marker), so the eligibility
     clock agrees with the stored ``media_items.added_at``. An unparseable Arr
@@ -222,7 +222,7 @@ class TestResolveAddedAt:
         """A bad Arr cache value used to be silently replaced by
         ``datetime.now(UTC)`` and gave the item permanent protection.
         It must now fall through to ``added_at`` so eligibility is
-        evaluated normally (D05 finding 3).
+        evaluated normally.
         """
         from mediaman.scanner.arr_dates import normalise_path
 
@@ -244,7 +244,7 @@ class TestResolveAddedAt:
         assert abs((resolved - old_added).total_seconds()) < 2
 
     def test_missing_added_at_does_not_fall_back_to_updated_at(self, conn, mock_plex, freezer):
-        """M3: with no Arr date and no ``added_at``, ``updated_at`` must be
+        """With no Arr date and no ``added_at``, ``updated_at`` must be
         ignored entirely and the clock falls straight to ``now`` — so a
         subtitle/poster refresh can never keep an item permanently young, and
         the eligibility clock matches the ``now``-stored ``media_items.added_at``.

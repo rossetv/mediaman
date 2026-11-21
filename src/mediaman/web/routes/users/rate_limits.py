@@ -1,49 +1,27 @@
 """Module-level rate limiter instances for user-management routes.
 
-Every limiter lives here so that:
-- route modules import a single canonical instance (no drift between copies).
-- tests can import and reset them all from one place.
+Every limiter lives here so route modules share one canonical instance and tests can reset
+them all from one place.
 
-Limiter rationale
------------------
-``_USER_MGMT_LIMITER``
-    General user-management operations (delete, unlock). Wide enough for
-    legitimate admin workflows; tight enough to contain a stolen-session
-    attacker.
+_USER_MGMT_LIMITER: general operations (delete, unlock); wide enough for real admin
+workflows, tight enough to contain a stolen session.
 
-``_USER_CREATE_LIMITER``
-    Tighter than the general limiter — a compromised admin session must
-    not be able to mass-create accounts before being spotted. 3 per hour
-    / 5 per day is sufficient for any legitimate operator workflow.
+_USER_CREATE_LIMITER: tighter (3/hour, 5/day) so a compromised session cannot mass-create
+accounts before being spotted.
 
-``_REAUTH_LIMITER``
-    Per-actor per-minute cap on reauth attempts. The namespace lockout
-    inside ``verify_reauth_password`` is the main brute-force defence;
-    this limiter is the per-minute throttle that keeps the lockout
-    reachable without allowing an open-ended number of bcrypt cycles.
-    30/minute leaves head-room for the lockout to trip at 5 failures and
-    then continue climbing toward the 10/15 escalation bands.
+_REAUTH_LIMITER: per-actor per-minute cap on reauth attempts. The namespace lockout is the
+main brute-force defence; this keeps it reachable without allowing unbounded bcrypt cycles.
+30/minute lets the lockout trip at 5 failures and keep climbing toward the 10/15 escalation
+bands.
 
-``_PASSWORD_CHANGE_LIMITER``
-    Per-actor burst cap for password-change calls (10/min). Tighter than
-    the reauth limiter because a successful change rotates the
-    credential — no legitimate workflow fires this endpoint dozens of
-    times per minute. Set just above the 5-failures namespace lockout
-    threshold so the ``403 account locked`` surfaces before the ``429``.
+_PASSWORD_CHANGE_LIMITER: per-actor cap (10/min), set just above the 5-failure lockout
+threshold so "403 account locked" surfaces before the 429.
 
-``_PASSWORD_CHANGE_IP_LIMITER``
-    Per-IP companion to ``_PASSWORD_CHANGE_LIMITER``. A stolen session
-    cookie can be replayed from anywhere; the per-actor bucket alone does
-    not cover that fan-out. A per-IP cap applied in addition prevents a
-    single source grinding away even if the username rotates at the
-    request layer.
+_PASSWORD_CHANGE_IP_LIMITER: per-IP companion, since a stolen cookie can be replayed from
+anywhere and a per-actor bucket alone does not cover that fan-out.
 
-``_SESSIONS_LIST_LIMITER``
-    Per-actor cap for ``GET /api/users/sessions``. Without this an
-    attacker holding a stolen cookie could poll the endpoint to detect
-    the moment the legitimate user signs in (a new row appears). 30/min
-    leaves comfortable head-room for a UI that refreshes every few
-    seconds.
+_SESSIONS_LIST_LIMITER: per-actor cap (30/min) on GET /api/users/sessions, so a cookie thief
+cannot poll it to detect the moment the legitimate user signs in.
 """
 
 from __future__ import annotations

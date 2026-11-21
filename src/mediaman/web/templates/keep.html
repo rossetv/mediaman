@@ -17,9 +17,6 @@
 
   <div class="keep-container">
 
-    {# ============================================================
-       STATE: ACTIVE — item is scheduled for deletion
-       ============================================================ #}
     {% if state == "active" %}
 
       <div class="status-pill status-scheduled">
@@ -82,7 +79,7 @@
             <button class="snooze-btn" type="submit" name="duration" value="90 days">
               Keep for <span class="duration">90 days</span>
             </button>
-            {# Finding 14: 'forever' is admin-only and is rejected by POST /keep/{token}.
+            {# 'forever' is admin-only and is rejected by POST /keep/{token}.
                Admins manage forever-keeps via the authenticated /library or /protected
                pages instead, so the button is intentionally absent here. #}
           </div>
@@ -94,9 +91,6 @@
         {% else %}<a href="/login">Sign in for more options →</a>{% endif %}
       </div>
 
-    {# ============================================================
-       STATE: ALREADY KEPT — token already used
-       ============================================================ #}
     {% elif state == "already_kept" %}
 
       <div class="status-pill status-protected">
@@ -152,9 +146,6 @@
         {% else %}<a href="/login">Sign in for more options →</a>{% endif %}
       </div>
 
-    {# ============================================================
-       STATE: EXPIRED — link expired or item not found
-       ============================================================ #}
     {% else %}
 
       <div class="status-pill status-expired">

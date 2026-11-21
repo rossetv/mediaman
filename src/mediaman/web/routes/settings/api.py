@@ -1,25 +1,16 @@
-"""JSON API endpoints for settings: read, write, service tests, Plex libraries, disk usage.
-
-Owns the FastAPI handlers for GET /api/settings, PUT /api/settings,
-POST /api/settings/test/{service}, GET /api/plex/libraries and
-GET /api/settings/disk-usage, plus the handler-private helpers that
-support them (write throttling, reauth gating, persistence, tester
-dispatch/timeout/caching).
-
-The package barrel (:mod:`mediaman.web.routes.settings`) aggregates this
-module's ``router`` via ``include_router`` so the registered route set is
-unchanged. Tests patch the symbols they need on the owning module — see
-the barrel docstring for the flat-import re-export contract.
+"""JSON API endpoints for settings: read, write, service tests, Plex libraries and disk usage,
+plus their private helpers (write throttling, reauth gating, persistence, tester dispatch,
+timeout and caching). The package barrel includes this router; tests patch symbols on the
+owning module.
 """
 
-# rationale: 449 lines, over the 300-line target but under the 500 ceiling.
-# Not split further: this is one concept — the settings JSON API — and its
+# rationale: not split further. This is one concept — the settings JSON API — and its
 # only natural seam, the four-stage tester pipeline (_resolve_tester_dispatch
 # → _load_tester_settings → _run_tester_with_timeout → _cache_tester_response),
 # is a single sequential chain bound to api_test_service; carving it into a
 # sibling would scatter one flow across two files and break the
 # ``settings.api`` monkeypatch surface the tests rely on for no navigability
-# gain. Every function is under the 60-line ceiling.
+# gain.
 
 from __future__ import annotations
 
@@ -103,12 +94,9 @@ router = APIRouter()
 
 @router.get("/api/settings")
 def api_get_settings(request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
-    """Return all settings as JSON with secret fields masked as '****'.
-
-    Skips decryption of secret fields — we read the ``encrypted=1`` flag
-    instead and emit ``****`` directly.  The plaintext is never needed
-    here and decrypting it just to mask it is wasted work + an
-    unnecessary exposure window for every secret on every settings GET.
+    """Return all settings as JSON with secret fields masked as '****'. Secrets are never
+    decrypted: the encrypted=1 flag is enough to mask them, and decrypting would only add an
+    exposure window on every settings GET.
     """
     conn = get_db()
     config = request.app.state.config
@@ -128,10 +116,9 @@ def api_get_settings(request: Request, admin: str = Depends(get_current_admin)) 
 def _settings_write_throttled(
     request: Request, conn: sqlite3.Connection, admin: str, body_dict: dict[str, object]
 ) -> JSONResponse | None:
-    """Return a 429 response if the admin has exhausted the write budget; else None.
-
-    Records a ``settings.write.throttled`` audit event before refusing so
-    we can see in the log when an actor is hitting the cap.
+    """Return a 429 response if the admin has exhausted the write budget, else None. A
+    settings.write.throttled audit event is recorded first so a hit cap is visible in the
+    log.
     """
     if _SETTINGS_WRITE_LIMITER.check(admin):
         return None
@@ -151,11 +138,9 @@ def _settings_write_throttled(
 def _settings_reauth_required(
     conn: sqlite3.Connection, body_dict: dict[str, object], session_token: str | None, admin: str
 ) -> JSONResponse | None:
-    """Return a 403 when a sensitive key change lacks a recent reauth ticket; else None.
-
-    An attacker mixing one sensitive field with several harmless ones
-    must not get a partial write, so a single sensitive key in the body
-    rejects the entire PUT.
+    """Return a 403 when a sensitive key change lacks a recent reauth ticket, else None. One
+    sensitive key rejects the whole PUT, so mixing it with harmless fields cannot get a
+    partial write.
     """
     sensitive_write = _touches_sensitive_keys(body_dict)
     if sensitive_write and not has_recent_reauth(conn, session_token, admin):
@@ -178,11 +163,8 @@ def _persist_settings(
     now: str,
 ) -> Response:
     """Write the settings rows and audit entry; return the saved/ignored envelope.
-
-    Encrypt-on-write happens inside the repository so the plaintext
-    never escapes that boundary (§9.9). The audit row is written under
-    the same ``BEGIN IMMEDIATE`` so a SQLite or audit failure rolls
-    every settings mutation back together (M27).
+    Encrypt-on-write happens inside the repository so plaintext never escapes it, and the
+    audit row shares the BEGIN IMMEDIATE so a failure rolls every mutation back together.
     """
     written = sorted(k for k in body_dict if k in _ALL_KEYS)
     ignored = sorted(k for k in body_dict if k not in _ALL_KEYS)
@@ -219,17 +201,11 @@ def api_update_settings(
 ) -> Response:
     """Persist settings from the request body.
 
-    Sensitive keys (every secret + every URL field + mail addresses +
-    ``base_url``) require a recent-reauth ticket — see
-    :data:`SENSITIVE_KEYS` and :func:`_touches_sensitive_keys`. Without
-    the ticket the entire PUT is rejected with 403 even when only some
-    of the body's keys are sensitive: an attacker mixing one sensitive
-    field with several harmless ones must not get a partial write.
-
-    The settings write and the audit row are flushed in the same
-    ``BEGIN IMMEDIATE`` transaction via :func:`security_event_or_raise`
-    so we never have a "settings changed but no audit trail" outcome
-    for high-impact mutations (M27).
+    Sensitive keys (every secret, URL field, mail address and base_url) need a recent-reauth
+    ticket; see SENSITIVE_KEYS and _touches_sensitive_keys. Without it the entire PUT is
+    rejected with 403, even if only some keys are sensitive. The write and audit row share
+    one BEGIN IMMEDIATE transaction via security_event_or_raise, so a high-impact change
+    never lacks an audit trail.
     """
     body_dict: dict[str, object] = body.model_dump(exclude_none=True)
     conn = get_db()
@@ -252,13 +228,10 @@ def api_update_settings(
 def _resolve_tester_dispatch(
     service: str, admin: str
 ) -> tuple[Callable[[dict[str, object]], JSONResponse] | None, JSONResponse | None]:
-    """Look up *service*'s tester and gate cache/rate-limit replies.
-
-    Returns ``(tester, None)`` when the caller should proceed to a fresh
-    invocation, ``(None, response)`` for unknown-service, cache-hit, and
-    rate-limit replies. Cache hits bypass the rate limiter so a settings
-    page reload (8 services × cache hit) does not eat the per-minute
-    budget on the second visit.
+    """Look up service's tester and gate cache and rate-limit replies. Returns (tester, None)
+    to proceed with a fresh run, or (None, response) for unknown-service, cache-hit and
+    rate-limit replies. Cache hits bypass the limiter so a settings page reload does not eat
+    the per-minute budget.
     """
     tester = _SERVICE_TESTERS.get(service)
     if tester is None:
@@ -287,12 +260,9 @@ def _resolve_tester_dispatch(
 def _load_tester_settings(
     service: str, conn: sqlite3.Connection, secret_key: str
 ) -> tuple[dict[str, object] | None, JSONResponse | None]:
-    """Load only the settings keys *service*'s tester actually needs.
-
-    Returns ``(settings, None)`` on success or ``(None, error_response)``
-    when decryption fails. Restricting decryption to the named keys
-    (see :data:`_SERVICE_TESTER_KEYS`) avoids decrypting every secret in
-    the DB just to test one of them.
+    """Load only the settings keys service's tester needs (see _SERVICE_TESTER_KEYS), so
+    testing one service does not decrypt every secret. Returns (settings, None) or (None,
+    error_response) when decryption fails.
     """
     needed_keys = _SERVICE_TESTER_KEYS.get(service)
     try:
@@ -310,12 +280,9 @@ def _run_tester_with_timeout(
     tester: Callable[[dict[str, object]], JSONResponse],
     settings: dict[str, object],
 ) -> JSONResponse:
-    """Run *tester* under a hard :data:`_TESTER_TIMEOUT_SECONDS` cap.
-
-    An unreachable Plex used to pin the request thread for 35 s through
-    stacked timeouts; the wall-clock cap prevents that self-inflicted
-    DoS vector. The tester response is returned verbatim so the caller
-    can cache the JSON body and surface the original HTTP envelope.
+    """Run tester under a hard _TESTER_TIMEOUT_SECONDS cap: an unreachable Plex once pinned the
+    request thread for 35 s through stacked timeouts. The response is returned verbatim so
+    the caller can cache the body and keep the original HTTP envelope.
     """
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
@@ -331,18 +298,14 @@ def _run_tester_with_timeout(
                 payload = {"ok": False, "error": "timeout"}
                 _cache_put(service, payload)
                 return JSONResponse(payload)
-    except Exception:  # rationale: §6.4 site 2 — dispatch fanout for arbitrary tester callables; a single broken tester must not surface as a 500 on the settings page.
+    except Exception:  # rationale: dispatch fanout for arbitrary tester callables; a single broken tester must not surface as a 500 on the settings page.
         logger.exception("Service test failed for %s", service)
         return JSONResponse({"ok": False, "error": "Service connection test failed"})
 
 
 def _cache_tester_response(service: str, response: JSONResponse) -> JSONResponse:
-    """Decode the tester response body and cache the JSON payload.
-
-    Falls through to returning the raw response unchanged when the body
-    is not a JSON envelope — preserves the original status code and
-    headers for non-cacheable replies (e.g. a streamed timeout payload
-    already cached upstream).
+    """Decode the tester response body and cache the JSON payload. A non-JSON body returns the
+    raw response unchanged, preserving its status code and headers.
     """
     try:
         payload = json.loads(bytes(response.body).decode("utf-8"))
@@ -356,27 +319,17 @@ def _cache_tester_response(service: str, response: JSONResponse) -> JSONResponse
 def api_test_service(
     service: str, request: Request, admin: str = Depends(get_current_admin)
 ) -> JSONResponse:
-    """Test connectivity for a named service using current stored settings.
+    """Test connectivity for a named service using the stored settings.
 
-    A single unified endpoint replaces eight individual per-service
-    endpoints.  The dispatch table :data:`_SERVICE_TESTERS` maps service
-    name → tester callable; unknown names return 400.
+    One endpoint dispatches through _SERVICE_TESTERS (service name to tester); unknown names
+    return 400. Layered on top:
 
-    Constraints layered on top of the dispatch:
-
-    * Per-admin rate limit (10/min, 60/day) — without it a logged-in
-      attacker could chain test calls to flood Plex / Mailgun. The
-      limit guards real tester invocations only; cache-served replies
-      bypass it so a settings page reload (8 services × cache hit) does
-      not eat the whole budget on the second visit.
-    * Decryption is restricted to the keys this tester actually needs
-      (see :data:`_SERVICE_TESTER_KEYS`).  The previous code decrypted
-      every secret in the DB on every test, which is a needless plain-
-      text exposure window.
-    * Each tester runs under a hard :data:`_TESTER_TIMEOUT_SECONDS`
-      wall-clock cap.  An unreachable Plex used to pin the request
-      thread for 35 s through stacked timeouts; that's a self-inflicted
-      DoS vector.
+    * A per-admin rate limit (10/min, 60/day) stops a logged-in attacker chaining tests to
+      flood Plex or Mailgun. It guards real invocations only; cache-served replies bypass
+      it.
+    * Decryption is limited to the keys the tester needs (see _SERVICE_TESTER_KEYS),
+      avoiding a plaintext exposure window for every secret.
+    * Each tester runs under a hard _TESTER_TIMEOUT_SECONDS cap.
     """
     tester, short_circuit = _resolve_tester_dispatch(service, admin)
     if short_circuit is not None:
@@ -402,7 +355,6 @@ def api_test_service(
 
 @router.get("/api/plex/libraries")
 def api_plex_libraries(request: Request, admin: str = Depends(get_current_admin)) -> JSONResponse:
-    """Return all Plex library sections available on the configured server."""
     conn = get_db()
     config = request.app.state.config
     try:
@@ -438,7 +390,6 @@ def api_plex_libraries(request: Request, admin: str = Depends(get_current_admin)
 def api_disk_usage(
     request: Request, path: str = "", admin: str = Depends(get_current_admin)
 ) -> JSONResponse:
-    """Return disk usage stats for an allowlisted filesystem path."""
     if not path:
         return respond_err("path_required", status=400, message="path parameter is required")
     if len(path) > 4096:

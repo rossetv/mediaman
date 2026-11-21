@@ -2,7 +2,7 @@
 
 Covers PlexFetcher.fetch_library_items for both movie and show libraries,
 including watch-history error tolerance and the skipped-key set that
-protects history-fetch failures from orphan pruning (R7-H1).
+protects history-fetch failures from orphan pruning.
 """
 
 from __future__ import annotations
@@ -31,11 +31,6 @@ def _make_plex(*, movies=None, seasons=None, watch_history=None, season_history=
     return client
 
 
-# ---------------------------------------------------------------------------
-# movie libraries
-# ---------------------------------------------------------------------------
-
-
 class TestFetchMovieLibrary:
     def test_returns_one_record_per_movie(self):
         plex = _make_plex(movies=[_make_movie("1"), _make_movie("2")])
@@ -61,11 +56,11 @@ class TestFetchMovieLibrary:
     def test_watch_history_error_excludes_item_and_records_skip(self):
         """A failed watch-history fetch must NOT yield an empty history —
         that would let a transient Plex 500 reclassify the item as
-        'never watched' and queue it for deletion (D05 finding 13).
+        'never watched' and queue it for deletion.
 
         The fetcher fails closed: the item is excluded from ``items`` AND
         its key is recorded in ``skipped_keys`` so the engine can protect
-        it from orphan pruning (R7-H1). A future scan retries once Plex is
+        it from orphan pruning. A future scan retries once Plex is
         healthy again.
         """
         plex = _make_plex(movies=[_make_movie("1"), _make_movie("2")])
@@ -94,11 +89,6 @@ class TestFetchMovieLibrary:
         fetcher = PlexFetcher(plex_client=plex, library_types={})
         fetched = fetcher.fetch_library_items("99")
         assert fetched.items[0].media_type == "movie"
-
-
-# ---------------------------------------------------------------------------
-# show libraries
-# ---------------------------------------------------------------------------
 
 
 class TestFetchShowLibrary:
@@ -135,12 +125,12 @@ class TestFetchShowLibrary:
         assert fetched.items[0].media_type == "anime_season"
 
     def test_season_watch_history_error_excludes_season_and_records_skip(self):
-        """Same fail-closed contract as the movie path (D05 finding 13).
+        """Same fail-closed contract as the movie path.
 
         A transient Plex 500 on a season's watch-history fetch must NOT
         reclassify the season as never-watched. The season is dropped from
         ``items`` and recorded in ``skipped_keys`` so orphan removal cannot
-        prune it on a scan that merely failed to fetch its history (R7-H1).
+        prune it on a scan that merely failed to fetch its history.
         """
         plex = _make_plex(seasons=[_make_season("201"), _make_season("202")])
         plex.get_season_watch_history.side_effect = [

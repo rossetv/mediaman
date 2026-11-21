@@ -56,7 +56,7 @@ class TestPosterSignature:
     """Poster URLs are signed with an expiry-bearing HMAC token.
 
     The ``sign_poster_url`` → ``validate_poster_token`` pair now uses
-    the domain-separated token API in :mod:`mediaman.crypto`, so the
+    the domain-separated token API in `mediaman.crypto`, so the
     signature cannot be confused with keep/download/unsubscribe
     tokens.
     """
@@ -295,7 +295,6 @@ class TestPosterEndpointAuth:
         assert r.status_code == 401
 
     def test_invalid_rating_key_admin_returns_404(self, tmp_path):
-        """Admin + bad rating key returns 404."""
         client, conn = self._build_test_app(tmp_path, self._KEY, stub_cache=False)
 
         from mediaman.web.auth.password_hash import create_user
@@ -310,7 +309,7 @@ class TestPosterEndpointAuth:
 
 
 class TestArrPosterByStoredId:
-    """C16 — Radarr/Sonarr poster lookup must use the stored radarr_id /
+    """Radarr/Sonarr poster lookup must use the stored radarr_id /
     sonarr_id rather than a title match, otherwise a request for an
     unrelated row with the same title poisons the cache."""
 
@@ -371,7 +370,7 @@ class TestArrPosterByStoredId:
         os.environ["MEDIAMAN_DATA_DIR"] = str(tmp_path)
 
         # Radarr is called via get_movie_by_id(radarr_id) — the single-item
-        # lookup added in H3 — so mock that method directly.  The correct
+        # lookup — so mock that method directly.  The correct
         # poster URL must come from the record with id 2020.
         mock_radarr = MagicMock()
         mock_radarr.get_movie_by_id.return_value = {
@@ -406,7 +405,7 @@ class TestArrPosterByStoredId:
 
 
 class TestPosterTokenTimingSafety:
-    """H19 regression — validate_poster_token must use hmac.compare_digest.
+    """Validate_poster_token must use hmac.compare_digest.
 
     We cannot test the C implementation's timing properties in a unit test,
     but we can assert that the comparison path goes through
@@ -466,7 +465,7 @@ class TestPosterTokenTimingSafety:
 
 
 class TestPosterCacheAtomicWrite:
-    """H18 — cache writes must be atomic (temp file + os.replace)."""
+    """Cache writes must be atomic (temp file + os.replace)."""
 
     _KEY = "0123456789abcdef" * 4
 
@@ -497,7 +496,6 @@ class TestPosterCacheAtomicWrite:
         return TestClient(app), conn
 
     def test_no_tmp_file_left_after_successful_cache_write(self, tmp_path):
-        """After a successful poster fetch, no .tmp file should remain."""
         from unittest.mock import MagicMock, patch
 
         from mediaman.web.routes.poster import sign_poster_url
@@ -531,7 +529,7 @@ class TestPosterCacheAtomicWrite:
 
 
 class TestPosterTimeoutFallback:
-    """H17 — a slow or failing poster fetch returns 404, not an exception."""
+    """A slow or failing poster fetch returns 404, not an exception."""
 
     _KEY = "0123456789abcdef" * 4
 
@@ -584,11 +582,6 @@ class TestPosterTimeoutFallback:
             r = client.get(signed)
 
         assert r.status_code == 404
-
-
-# ---------------------------------------------------------------------------
-# Sidecar mime, LRU cap, public rate limit, tmp cleanup (Domain 03 19-22)
-# ---------------------------------------------------------------------------
 
 
 class TestPosterPublicRateLimit:

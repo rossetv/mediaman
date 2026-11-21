@@ -34,20 +34,13 @@ def conn(db_path):
     return c
 
 
-# ---------------------------------------------------------------------------
-# validate_session must not acquire the writer lock for ordinary read-only requests
-# ---------------------------------------------------------------------------
-
-
 class TestValidateSessionReadOnlyByDefault:
     def test_repeated_validation_skips_writer_within_throttle(self, conn):
         """Two validations within the refresh interval must not write twice.
 
-        Regression: previously every validate_session call opened
-        ``BEGIN IMMEDIATE`` and wrote ``last_used_at`` whenever the
-        throttle had elapsed. With the read-only-by-default refactor
-        the throttle still gates the write, but a second validation in
-        the same minute must not hit the writer at all.
+        validate_session is read-only by default: the throttle gates the
+        ``last_used_at`` write, and a second validation in the same
+        minute must not hit the writer at all.
         """
         token = create_session(conn, "alice", user_agent="ua", client_ip="1.2.3.4")
         # First call: refresh window has just passed creation, so a
@@ -112,11 +105,6 @@ class TestValidateSessionReadOnlyByDefault:
         assert row is None
 
 
-# ---------------------------------------------------------------------------
-# _hash_token
-# ---------------------------------------------------------------------------
-
-
 class TestHashToken:
     def test_produces_sha256_hex(self):
         result = _hash_token("mytoken")
@@ -124,11 +112,6 @@ class TestHashToken:
 
     def test_different_tokens_different_hashes(self):
         assert _hash_token("tok1") != _hash_token("tok2")
-
-
-# ---------------------------------------------------------------------------
-# _client_fingerprint
-# ---------------------------------------------------------------------------
 
 
 class TestClientFingerprint:
@@ -158,11 +141,6 @@ class TestClientFingerprint:
         assert "unknown" in fp
 
 
-# ---------------------------------------------------------------------------
-# create_session
-# ---------------------------------------------------------------------------
-
-
 class TestCreateSession:
     def test_returns_64_hex_chars(self, conn):
         token = create_session(conn, "alice")
@@ -188,11 +166,6 @@ class TestCreateSession:
         create_session(conn, "alice", user_agent="UA", client_ip="1.1.1.1")
         row = conn.execute("SELECT fingerprint FROM admin_sessions").fetchone()
         assert row["fingerprint"] == ""
-
-
-# ---------------------------------------------------------------------------
-# validate_session
-# ---------------------------------------------------------------------------
 
 
 class TestValidateSession:
@@ -238,7 +211,7 @@ class TestFingerprintFailsClosedWithoutRequest:
     default ``request_supplied=False``) cannot verify the binding, so a
     bound session is rejected rather than silently passed — closing the
     fail-open path where a stolen cookie replayed without a request would
-    bypass the binding (§1.11).
+    bypass the binding.
     """
 
     def test_bound_session_rejected_when_no_request_supplied(self, conn, monkeypatch):
@@ -280,11 +253,6 @@ class TestFingerprintFailsClosedWithoutRequest:
         )
 
 
-# ---------------------------------------------------------------------------
-# destroy_session
-# ---------------------------------------------------------------------------
-
-
 class TestDestroySession:
     def test_destroys_existing_session(self, conn):
         token = create_session(conn, "alice")
@@ -294,11 +262,6 @@ class TestDestroySession:
     def test_destroy_nonexistent_token_is_silent(self, conn):
         # Must not raise — idempotent cleanup.
         destroy_session(conn, "a" * 64)
-
-
-# ---------------------------------------------------------------------------
-# destroy_all_sessions_for
-# ---------------------------------------------------------------------------
 
 
 class TestDestroyAllSessionsFor:
@@ -323,11 +286,6 @@ class TestDestroyAllSessionsFor:
         assert validate_session(conn, alice_token) == "alice"
 
 
-# ---------------------------------------------------------------------------
-# list_sessions_for
-# ---------------------------------------------------------------------------
-
-
 class TestListSessionsFor:
     def test_returns_metadata_for_active_sessions(self, conn):
         create_session(conn, "alice", client_ip="10.0.0.1")
@@ -347,13 +305,8 @@ class TestListSessionsFor:
         assert sessions[0]["created_at"] >= sessions[1]["created_at"]
 
 
-# ---------------------------------------------------------------------------
-# H-4: session destruction must also revoke matching reauth tickets
-# ---------------------------------------------------------------------------
-
-
 class TestSessionDestructionRevokesReauth:
-    """H-4: every path that deletes a session row must also drop the matching
+    """Every path that deletes a session row must also drop the matching
     reauth ticket — the previous code left the ticket alive until expiry, so
     a stolen cookie + ticket pair stayed replayable after logout / idle
     expiry / fingerprint mismatch.
@@ -421,18 +374,13 @@ class TestSessionDestructionRevokesReauth:
         assert has_recent_reauth(conn, t2, "alice") is False
 
 
-# ---------------------------------------------------------------------------
-# Audit: strict fingerprint mode must differ from loose
-# ---------------------------------------------------------------------------
-
-
 class TestStrictFingerprintMode:
-    """Audit: ``strict`` was silently identical to ``loose`` — both bucketed
+    """``strict`` was silently identical to ``loose`` — both bucketed
     IPs and truncated UA hashes.  Strict mode now uses the FULL IP and the
     FULL SHA-256 UA hash so a stolen cookie replayed from a sibling /24
     or with a single User-Agent character changed is caught.
 
-    Trade-offs documented in :data:`session_store._VALID_FINGERPRINT_MODES`:
+    Trade-offs documented in session_store._VALID_FINGERPRINT_MODES:
     strict is intolerant of CGNAT IP rotation and any UA churn.
     """
 
@@ -512,13 +460,8 @@ class TestStrictFingerprintMode:
         assert result == "alice"
 
 
-# ---------------------------------------------------------------------------
-# Audit: expires_at must be parsed to datetime, not string-compared
-# ---------------------------------------------------------------------------
-
-
 class TestExpiresAtParsing:
-    """Audit: ISO-8601 string ordering is fragile across format drift —
+    """ISO-8601 string ordering is fragile across format drift —
     e.g. trailing ``Z`` vs ``+00:00``.  ``expires_at`` comparisons must
     parse to ``datetime`` first.
     """
@@ -545,7 +488,7 @@ class TestExpiresAtParsing:
         assert validate_session(conn, token) == "alice"
 
     def test_session_with_corrupt_expiry_is_rejected(self, conn):
-        """B1 regression: a corrupt/unparseable ``expires_at`` must FAIL
+        """A corrupt/unparseable ``expires_at`` must FAIL
         CLOSED — the session is treated as expired, deleted, and
         ``validate_session`` returns ``None``.
 
@@ -569,7 +512,7 @@ class TestExpiresAtParsing:
         assert remaining == 0
 
     def test_session_with_empty_expiry_is_rejected(self, conn):
-        """An empty-string ``expires_at`` also fails closed (B1)."""
+        """An empty-string ``expires_at`` also fails closed."""
         token = create_session(conn, "alice")
         conn.execute(
             "UPDATE admin_sessions SET expires_at = '' WHERE token_hash = ?",
@@ -579,15 +522,10 @@ class TestExpiresAtParsing:
         assert validate_session(conn, token) is None
 
 
-# ---------------------------------------------------------------------------
-# Audit: atomic session-and-reauth delete
-# ---------------------------------------------------------------------------
-
-
 class TestAtomicSessionAndReauthDelete:
-    """Audit: ``_delete_session_with_commit`` used to commit the session
-    delete and then call reauth-revoke in a swallowed try/except.  If the
-    revoke failed, the session was gone but the ticket survived.  Now both
+    """``_delete_session_with_commit`` must not commit the session
+    delete and then revoke reauth in a swallowed try/except, or a failed
+    revoke would leave the ticket alive.  Both
     deletes happen inside one ``BEGIN IMMEDIATE`` so a failure on either
     side rolls both back.
     """
@@ -636,7 +574,7 @@ class TestAtomicSessionAndReauthDelete:
         authenticated" for that request and the next request retries
         cleanly.
 
-        WP-C3: ``_try_delete_session`` now catches ``sqlite3.Error`` only,
+        ``_try_delete_session`` catches ``sqlite3.Error`` only,
         so the failure simulated here must be a DB error (lock
         contention is the only thing the swallow legitimately
         contemplates). A non-DB exception is a bug and is asserted to
@@ -660,15 +598,9 @@ class TestAtomicSessionAndReauthDelete:
         assert validate_session(conn, token) is None
 
 
-# ---------------------------------------------------------------------------
-# WP-C3: audit/cleanup swallows must be operator-visible, not DEBUG-hidden,
-# and the eviction-path catches must be DB-only so a real bug fails closed.
-# ---------------------------------------------------------------------------
-
-
 class TestSwallowedFailuresAreVisible:
-    """WP-C3: several best-effort writes in ``session_store`` previously
-    logged a swallowed failure at ``logger.debug(..., exc_info=True)``.
+    """Several best-effort writes in ``session_store`` must not
+    log a swallowed failure at ``logger.debug(..., exc_info=True)``.
     DEBUG is disabled in production, so those failures were invisible —
     including the audit-log write for a session destruction, a required
     audit event. The swallow stays (these writes are genuinely
@@ -676,10 +608,10 @@ class TestSwallowedFailuresAreVisible:
     """
 
     def test_destroy_session_audit_failure_rolls_back_fail_closed(self, conn, monkeypatch):
-        """L9 regression: a failing audit write inside ``destroy_session``
+        """A failing audit write inside ``destroy_session``
         must FAIL CLOSED.
 
-        Session revocation is a REQUIRED audit event (§7.5). The audit row
+        Session revocation is a REQUIRED audit event. The audit row
         is now written by ``security_event_or_raise`` inside the same
         ``BEGIN IMMEDIATE`` as the session delete, so a failed audit insert
         rolls the whole transaction back: the ``sqlite3.Error`` propagates
@@ -704,7 +636,7 @@ class TestSwallowedFailuresAreVisible:
         assert validate_session(conn, token) == "alice"
 
     def test_z_suffixed_expired_row_is_swept(self, conn):
-        """M2 regression: an expired row stored with a ``Z`` suffix (format
+        """An expired row stored with a ``Z`` suffix (format
         drift) must still be removed by the lexicographic ``expires_at < ?``
         sweep, which compares against the canonical ``+00:00`` ``now_iso``.
         """
@@ -802,8 +734,8 @@ class TestSwallowedFailuresAreVisible:
 
 
 class TestEvictionPathFailsClosedOnNonDbError:
-    """WP-C3: ``_try_delete_session`` previously caught ``Exception``,
-    so a programming error (bad import, ``TypeError``) on the
+    """``_try_delete_session`` must not catch ``Exception``,
+    or a programming error (bad import, ``TypeError``) on the
     security-critical session-eviction path was silently downgraded to a
     WARNING and the stolen/expired session was left alive — fail *open*.
     The catch is now ``sqlite3.Error`` only: a non-DB exception
@@ -858,13 +790,8 @@ class TestEvictionPathFailsClosedOnNonDbError:
         assert visible, "a swallowed sqlite3.Error on the eviction path must still log"
 
 
-# ---------------------------------------------------------------------------
-# Audit: monotonic cleanup throttle uses post-cleanup timestamp
-# ---------------------------------------------------------------------------
-
-
 class TestCleanupThrottleStampedAfterCompletion:
-    """Audit: the ``finally`` block stamped ``_last_cleanup_at`` with
+    """The ``finally`` block stamped ``_last_cleanup_at`` with
     ``mono`` — the value captured at function entry — instead of the
     moment the cleanup actually finished.  A slow sweep would let the
     next request fire another sweep almost immediately.
@@ -912,18 +839,13 @@ class TestCleanupThrottleStampedAfterCompletion:
         assert session_store._validate._last_cleanup_at <= after + 0.001
 
 
-# ---------------------------------------------------------------------------
-# Audit: SESSION_TOKEN_RE — anchors are redundant under fullmatch
-# ---------------------------------------------------------------------------
-
-
 class TestSessionTokenRegex:
     def test_pattern_has_no_redundant_anchors(self):
         from mediaman.web.auth import session_store
 
         # The compiled regex MUST NOT carry ``^...$`` anchors —
         # ``fullmatch`` already anchors implicitly.  This is cosmetic
-        # but the audit flagged it as wasted work on every request.
+        # but it is wasted work on every request.
         assert session_store._SESSION_TOKEN_RE.pattern == r"[0-9a-f]{64}"
 
     def test_fullmatch_still_rejects_extra_chars(self):
@@ -934,11 +856,6 @@ class TestSessionTokenRegex:
         assert _SESSION_TOKEN_RE.fullmatch("a" * 65) is None
         assert _SESSION_TOKEN_RE.fullmatch(" " + "a" * 64) is None
         assert _SESSION_TOKEN_RE.fullmatch("a" * 64) is not None
-
-
-# ---------------------------------------------------------------------------
-# Audit: list_sessions_for builds SessionMetadata explicitly
-# ---------------------------------------------------------------------------
 
 
 class TestListSessionsExplicitConstruction:
@@ -960,14 +877,9 @@ class TestListSessionsExplicitConstruction:
         }
 
 
-# ---------------------------------------------------------------------------
-# Audit: shared _hash_token module
-# ---------------------------------------------------------------------------
-
-
 class TestSharedHashTokenModule:
     """The canonical hash helper now lives in
-    :mod:`mediaman.auth._token_hashing` so session_store and reauth
+    mediaman.auth._token_hashing so session_store and reauth
     share one implementation.
     """
 
@@ -990,11 +902,6 @@ class TestSharedHashTokenModule:
         from mediaman.web.auth._token_hashing import hash_token
 
         assert hash_token("token-1") == hashlib.sha256(b"token-1").hexdigest()
-
-
-# ---------------------------------------------------------------------------
-# Session fingerprint binding
-# ---------------------------------------------------------------------------
 
 
 class TestSessionFingerprint:

@@ -1,10 +1,10 @@
 """Disk-usage and directory-size queries — the read-only side of storage.
 
 This module owns the non-destructive filesystem queries:
-:func:`get_aggregate_disk_usage` (multi-device usage roll-up) and
-:func:`get_directory_size` (recursive byte count). The destructive
-deletion operations live in :mod:`.deletion`; the delete-root allowlist
-validation lives in :mod:`._delete_roots`.
+``get_aggregate_disk_usage`` (multi-device usage roll-up) and
+``get_directory_size`` (recursive byte count). The destructive
+deletion operations live in ``deletion``; the delete-root allowlist
+validation lives in ``_delete_roots``.
 """
 
 from __future__ import annotations
@@ -59,7 +59,7 @@ def get_disk_usage_for_paths(paths: Iterable[str]) -> dict[str, int]:
     """Return combined disk usage across an explicit list of *paths*.
 
     Each underlying physical disk is counted once (see
-    :func:`_accumulate_unique_disks`).  Use this when the media libraries
+    ``_accumulate_unique_disks``).  Use this when the media libraries
     live on a known set of mount points (e.g. the configured per-library
     paths) rather than under a single base directory.
     """

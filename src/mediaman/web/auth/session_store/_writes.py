@@ -2,11 +2,11 @@
 
 Every function here opens (or wraps) a short ``BEGIN IMMEDIATE`` write
 transaction against ``admin_sessions``. The validate-session fast path
-in :mod:`._validate` stays read-only and only reaches for these helpers
+in `._validate` stays read-only and only reaches for these helpers
 on the rare state-changing branches (idle-expiry delete, fingerprint
 mismatch delete, ``last_used_at`` refresh, periodic expired-row sweep).
 The public surface (``create_session`` / ``destroy_session`` / …) lives
-in the package :mod:`__init__`.
+in the package `__init__`.
 
 The ``logger`` is bound to ``__package__`` so every record this module
 emits carries the canonical ``mediaman.web.auth.session_store`` name —
@@ -88,7 +88,6 @@ def _delete_session_with_commit(conn: sqlite3.Connection, token_hash: str) -> No
 
 
 def _refresh_last_used_with_commit(conn: sqlite3.Connection, token_hash: str, now_iso: str) -> None:
-    """Stamp last_used_at inside its own short write transaction."""
     _exec_with_commit(
         conn,
         "UPDATE admin_sessions SET last_used_at = ? WHERE token_hash = ?",
@@ -103,7 +102,7 @@ def _cleanup_expired_with_commit(conn: sqlite3.Connection, now_iso: str) -> None
     indefinitely with rows whose owning session is gone. The reauth sweep
     is best-effort — a failure here never aborts the session sweep.
 
-    M2: the ``expires_at < ?`` comparison is a LEXICOGRAPHIC string
+    The ``expires_at < ?`` comparison is a LEXICOGRAPHIC string
     compare, which only equals a chronological compare because every
     stored ``expires_at`` uses the identical canonical format
     ``now_utc().isoformat()`` → ``+00:00`` (no ``Z`` suffix, fixed offset
@@ -132,7 +131,7 @@ def _cleanup_expired_with_commit(conn: sqlite3.Connection, now_iso: str) -> None
 
 
 def _try_delete_session(conn: sqlite3.Connection, token_hash: str, *, reason: str) -> None:
-    """Best-effort wrapper around :func:`_delete_session_with_commit`.
+    """Best-effort wrapper around `_delete_session_with_commit`.
 
     The atomic delete-session-and-revoke-ticket operation can in
     principle raise (e.g. transient lock contention).  ``validate_session``

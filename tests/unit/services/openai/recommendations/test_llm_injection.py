@@ -1,4 +1,4 @@
-"""Tests for LLM prompt-injection mitigations (finding 38).
+"""Tests for LLM prompt-injection mitigations.
 
 Covers:
 - Previous titles are JSON-encoded inside the UNTRUSTED_PREVIOUS_TITLES block.
@@ -18,10 +18,6 @@ from mediaman.services.openai.recommendations.prompts import (
     _validate_llm_string,
     parse_recommendations,
 )
-
-# ---------------------------------------------------------------------------
-# _validate_llm_string
-# ---------------------------------------------------------------------------
 
 
 class TestValidateLlmString:
@@ -70,13 +66,12 @@ class TestValidateLlmString:
         assert len(result) == _LLM_TITLE_MAX_LEN
 
     def test_unicode_title_accepted(self):
-        """Unicode letters in titles are valid."""
         result = _validate_llm_string("アニメ", _LLM_TITLE_MAX_LEN, "title")
         assert result == "アニメ"
 
 
 class TestParseRecommendations:
-    """Stricter validation in parse_recommendations (finding 38)."""
+    """Stricter validation in parse_recommendations."""
 
     def test_control_char_in_title_item_skipped(self):
         items = [{"title": "Dune\x00Exploit", "media_type": "movie", "reason": "Good"}]

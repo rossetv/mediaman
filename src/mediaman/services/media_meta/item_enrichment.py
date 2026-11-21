@@ -14,14 +14,8 @@ if TYPE_CHECKING:
 
 
 def apply_tmdb_detail(item: dict[str, object], detail: TmdbDetail) -> None:
-    """Merge a :func:`TmdbClient.shape_detail` result into *item* in place.
-
-    Only overwrites existing keys when the detail has a non-falsy value
-    (so a partially-populated item keeps its existing data for any field
-    the detail payload doesn't have).  Called by both
-    :func:`enrich_item_with_tmdb` and
-    :func:`~mediaman.services.openai.recommendations.enrich.enrich_recommendations`
-    to avoid duplicating the same seven field assignments.
+    """Merge a shape_detail result into *item* in place, overwriting only where the detail
+    has a non-falsy value.
     """
     item["tagline"] = detail["tagline"]
     item["runtime"] = detail["runtime"]
@@ -38,11 +32,8 @@ def apply_tmdb_detail(item: dict[str, object], detail: TmdbDetail) -> None:
 def enrich_item_with_tmdb(
     item: dict[str, object], conn: sqlite3.Connection, secret_key: str
 ) -> None:
-    """Fetch TMDB search + details + OMDB ratings for a single item.
-
-    Thin wrapper around :class:`services.tmdb.TmdbClient` — fills gaps on
-    the item dict in place. On any client-level failure (missing token,
-    network error, no results) the item is left unchanged.
+    """Fetch TMDB search, details and OMDb ratings into *item* in place; the item is left
+    unchanged on any client-level failure.
     """
     from mediaman.services.media_meta.omdb import fetch_ratings
     from mediaman.services.media_meta.tmdb import TmdbClient
@@ -102,10 +93,8 @@ def enrich_item_with_tmdb(
 def enrich_redownload_item(
     item: dict[str, object], conn: sqlite3.Connection, secret_key: str
 ) -> None:
-    """Enrich a re-download item with rich metadata for the cinematic layout.
-
-    First checks the recommendations cache (fast, no API calls).
-    Falls back to TMDB + OMDB APIs if no recommendation record exists.
+    """Enrich *item* from the recommendations cache first (no API calls), falling back to
+    TMDB and OMDb.
     """
     title = item.get("title", "")
     media_type = item.get("media_type", "movie")

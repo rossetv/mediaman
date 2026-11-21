@@ -2,23 +2,19 @@
 
 Covers:
 - resolve_keep_decision raises ValueError (not AssertionError) when days is None
-  for a non-forever duration (L-05).
+  for a non-forever duration.
 - is_pending_unexpired uses simplified membership check — both None and 'pending'
-  are actionable; 'deleting' is not (M-04).
-- find_active_keep_action_by_id_and_token is absent from the public API (H-02).
+  are actionable; 'deleting' is not.
+- find_active_keep_action_by_id_and_token is absent from the public API.
 """
 
 from __future__ import annotations
 
 import pytest
 
-# ---------------------------------------------------------------------------
-# L-05: resolve_keep_decision must raise ValueError, not AssertionError
-# ---------------------------------------------------------------------------
-
 
 class TestResolveKeepDecisionValidation:
-    """L-05: domain validation must use ValueError, not assert."""
+    """Domain validation must use ValueError, not assert."""
 
     def test_raises_value_error_when_days_none_for_non_forever(self):
         from datetime import UTC, datetime
@@ -60,13 +56,8 @@ class TestResolveKeepDecisionValidation:
             pytest.fail("resolve_keep_decision raised AssertionError; must raise ValueError")
 
 
-# ---------------------------------------------------------------------------
-# M-04: is_pending_unexpired — membership check for delete_status
-# ---------------------------------------------------------------------------
-
-
 class TestIsPendingUnexpired:
-    """M-04: both None and 'pending' are actionable; 'deleting' is not."""
+    """Both None and 'pending' are actionable; 'deleting' is not."""
 
     def _make_action(self, *, delete_status, execute_at_offset_days=1):
         from datetime import UTC, datetime, timedelta
@@ -127,13 +118,8 @@ class TestIsPendingUnexpired:
         assert is_pending_unexpired(action, now) is False
 
 
-# ---------------------------------------------------------------------------
-# H-02: find_active_keep_action_by_id_and_token must be absent from public API
-# ---------------------------------------------------------------------------
-
-
 class TestDeadFunctionRemoved:
-    """H-02: the dead, HMAC-unverified lookup function must not be importable."""
+    """The dead, HMAC-unverified lookup function must not be importable."""
 
     def test_function_absent_from_package_all(self):
         from mediaman.services import scheduled_actions
@@ -155,11 +141,6 @@ class TestDeadFunctionRemoved:
             from mediaman.services.scheduled_actions import (  # noqa: F401
                 find_active_keep_action_by_id_and_token,
             )
-
-
-# ---------------------------------------------------------------------------
-# is_keep_token_consumed: shared replay-check helper used by both keep routes
-# ---------------------------------------------------------------------------
 
 
 class TestIsKeepTokenConsumed:

@@ -7,10 +7,6 @@ from mediaman.services.downloads.download_queue.classify import (
     build_search_hint,
 )
 
-# ---------------------------------------------------------------------------
-# build_search_hint
-# ---------------------------------------------------------------------------
-
 
 class TestBuildSearchHint:
     def test_searched_once(self):
@@ -44,11 +40,6 @@ class TestBuildSearchHint:
         result = build_search_hint(search_count=1, last_search_ts=0, added_at=added, now=now)
         # last_search_ts=0 is falsy → falls back to added_at
         assert "Added" in result
-
-
-# ---------------------------------------------------------------------------
-# build_arr_link
-# ---------------------------------------------------------------------------
 
 
 class TestBuildArrLink:
@@ -85,11 +76,6 @@ class TestBuildArrLink:
         arr = {"kind": "movie"}
         base_urls = {"radarr": "http://radarr.local"}
         assert build_arr_link(arr, base_urls) == ""
-
-
-# ---------------------------------------------------------------------------
-# TestSearchHintNextAttempt
-# ---------------------------------------------------------------------------
 
 
 class TestSearchHintNextAttempt:

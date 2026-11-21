@@ -237,7 +237,7 @@ class TestChangePassword:
     def test_change_password_per_actor_throttle_independent_of_ip(
         self, app_factory, authed_client, conn
     ):
-        """M-2: per-actor throttle fires on 30+ wrong attempts from one user.
+        """Per-actor throttle fires on 30+ wrong attempts from one user.
 
         The IP cap is the same shape, so this also exercises the AND
         composition — but here we verify the actor bucket trips first."""
@@ -260,7 +260,7 @@ class TestChangePassword:
     def test_change_password_per_ip_throttle_independent_of_actor(
         self, app_factory, authed_client, conn
     ):
-        """M-2: a single attacker IP cycling through users still hits the IP cap.
+        """A single attacker IP cycling through users still hits the IP cap.
 
         We can't easily change ``admin`` mid-test (the session is bound to
         it), so we simulate the per-IP exhaustion by clearing the per-actor
@@ -305,7 +305,7 @@ class TestListSessions:
     def test_sessions_response_does_not_leak_ip_or_fingerprint(
         self, app_factory, authed_client, conn
     ):
-        """Finding 14 / HIGH: ``issued_ip`` and ``fingerprint`` must NOT appear.
+        """``issued_ip`` and ``fingerprint`` must NOT appear.
 
         The fingerprint exposes the SHA-256 prefix of UA + the /24 of the
         original IP, which is exactly what an attacker holding a stolen
@@ -327,7 +327,7 @@ class TestListSessions:
         assert set(sessions[0].keys()) == {"created_at", "expires_at", "last_used_at"}
 
     def test_sessions_rate_limited_after_cap(self, app_factory, authed_client, conn):
-        """Finding 16 / MEDIUM: per-actor cap stops a cookie thief from
+        """Per-actor cap stops a cookie thief from
         polling this endpoint to detect the legitimate user signing in."""
         client = _client(app_factory, authed_client, conn)
 

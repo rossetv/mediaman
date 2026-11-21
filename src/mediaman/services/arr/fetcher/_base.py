@@ -1,6 +1,6 @@
 """Shared types, helpers, and card factory for the arr_fetcher package.
 
-The :func:`make_arr_card` factory is the single card constructor used by both
+The ``make_arr_card`` factory is the single card constructor used by both
 the Radarr and Sonarr fetcher modules.  ``_make_radarr_card`` and
 ``_make_sonarr_card`` remain as one-line shims in those modules so that
 existing test imports continue to work.
@@ -58,7 +58,7 @@ def clamp_progress(size: int, sizeleft: int) -> int:
 
 
 def _format_size_fields(size: int, sizeleft: int) -> tuple[str, str]:
-    """Return ``(size_str, done_str)`` formatted via :func:`~mediaman.core.format.format_bytes`.
+    """Return ``(size_str, done_str)`` formatted via ``format_bytes``.
 
     Both Radarr and Sonarr cards compute these fields identically; this helper
     keeps the formatting in one place so a future unit change touches one line.
@@ -77,9 +77,9 @@ def _format_size_fields(size: int, sizeleft: int) -> tuple[str, str]:
 
 @dataclass(frozen=True, slots=True)
 class FetchResult:
-    """Container returned by :func:`fetch_arr_queue_result`.
+    """Container returned by ``fetch_arr_queue_result``.
 
-    ``cards`` is the list of download cards (same content as :func:`fetch_arr_queue`).
+    ``cards`` is the list of download cards (same content as ``fetch_arr_queue``).
     ``errors`` is a list of human-readable error strings -- one per service that
     failed.  Empty when all fetches succeeded.  UI layers should surface these
     as a dismissible banner rather than hiding them silently.
@@ -90,8 +90,6 @@ class FetchResult:
 
 
 class _ArrEpisodeRequired(TypedDict):
-    """Fields that are always present on an episode entry at construction time."""
-
     size: int
     sizeleft: int
     label: str
@@ -103,9 +101,9 @@ class _ArrEpisodeRequired(TypedDict):
 
 
 class ArrEpisodeEntry(_ArrEpisodeRequired, total=False):
-    """A single episode entry within an :class:`ArrCard` (series cards only).
+    """A single episode entry within an ``ArrCard`` (series cards only).
 
-    The required fields in :class:`_ArrEpisodeRequired` are always populated
+    The required fields in ``_ArrEpisodeRequired`` are always populated
     when the entry is first built.  Optional fields are added later during
     aggregation:
 
@@ -120,8 +118,6 @@ class ArrEpisodeEntry(_ArrEpisodeRequired, total=False):
 
 
 class BaseArrCard(TypedDict):
-    """Fields guaranteed present on every download card."""
-
     kind: str  # 'movie' or 'series'
     dl_id: str
     title: str
@@ -130,11 +126,11 @@ class BaseArrCard(TypedDict):
 
 
 class ArrCard(BaseArrCard, total=False):
-    """A download card produced by :func:`fetch_arr_queue`.
+    """A download card produced by ``fetch_arr_queue``.
 
     Both movie and series cards share this shape; series cards additionally
     carry an ``episodes`` list.  ``total=False`` allows partial construction
-    as cards are built up incrementally. The five fields in :class:`BaseArrCard`
+    as cards are built up incrementally. The five fields in ``BaseArrCard``
     are always present; all others are optional.
     """
 

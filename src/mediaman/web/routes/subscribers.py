@@ -1,7 +1,5 @@
-"""Subscriber management API endpoints (admin only).
-
-No separate page -- subscribers are managed from the Settings page.
-Provides list, add, and remove operations against the subscribers table.
+"""Subscriber management API endpoints (admin only). There is no separate page; subscribers are
+managed from the Settings page.
 """
 
 from __future__ import annotations
@@ -45,8 +43,6 @@ from mediaman.web.responses import respond_err, respond_ok
 
 
 class _SendNewsletterBody(BaseModel):
-    """Body shape for POST /api/newsletter/send."""
-
     recipients: list[str] = []
 
 
@@ -75,14 +71,10 @@ def _resolve_newsletter_recipients(
 ) -> tuple[list[str], int]:
     """Resolve the requested recipient list to deliverable subscriber emails.
 
-    Normalises the raw request list (lower-cased, stripped, non-strings
-    dropped), intersects it with the *active* subscribers so the endpoint
-    can only ever mail an opted-in address, then filters each candidate
-    on CRLF-injection and email-format validity.
-
-    Returns ``(recipients, rejected)`` where ``rejected`` counts candidates
-    that survived the subscriber intersection but failed the CRLF/format
-    check — that count feeds the ``newsletter.sent`` audit detail.
+    The raw list is normalised, intersected with the active subscribers so the endpoint can
+    only mail an opted-in address, then filtered for CRLF injection and email format.
+    Returns (recipients, rejected); rejected counts candidates that passed the intersection
+    but failed that check, and feeds the newsletter.sent audit detail.
     """
     requested = {str(r).lower().strip() for r in raw_recipients if isinstance(r, str)}
     if not requested:
@@ -105,7 +97,6 @@ def _resolve_newsletter_recipients(
 
 @router.get("/api/subscribers")
 def api_list_subscribers(username: str = Depends(get_current_admin)) -> JSONResponse:
-    """Return all subscribers as JSON."""
     conn = get_db()
     subs = list_subscribers(conn)
     return JSONResponse(
@@ -129,11 +120,9 @@ def api_add_subscriber(
     email: str = Form(...),
     username: str = Depends(get_current_admin),
 ) -> JSONResponse:
-    """Add a new subscriber.
-
-    The SELECT-then-INSERT race is closed inside the repository
-    function ``try_add_subscriber`` (BEGIN IMMEDIATE + unique-index
-    fallback); the route only translates outcomes into HTTP responses.
+    """Add a new subscriber. The SELECT-then-INSERT race is closed in the repository's
+    try_add_subscriber (BEGIN IMMEDIATE plus unique-index fallback); the route only maps
+    outcomes to HTTP responses.
     """
     if not _SUBSCRIBER_WRITE_LIMITER.check(username):
         logger.warning("subscriber.add_throttled user=%s", username)
@@ -172,7 +161,6 @@ def api_remove_subscriber(
     subscriber_id: int,
     username: str = Depends(get_current_admin),
 ) -> JSONResponse:
-    """Remove a subscriber by ID."""
     if not _SUBSCRIBER_WRITE_LIMITER.check(username):
         logger.warning("subscriber.remove_throttled user=%s", username)
         return respond_err(
@@ -203,7 +191,6 @@ def api_send_newsletter(
     body: _SendNewsletterBody,
     admin: str = Depends(get_current_admin),
 ) -> JSONResponse:
-    """Manually send the newsletter to selected recipients."""
     from mediaman.services.mail.newsletter import send_newsletter
 
     conn = get_db()
@@ -268,7 +255,6 @@ def api_send_newsletter(
 def _render_result(
     request: Request, message: str, *, success: bool, status_code: int = 200
 ) -> HTMLResponse:
-    """Render the unsubscribe result page via the Jinja template."""
     templates = cast(Jinja2Templates, request.app.state.templates)
     return templates.TemplateResponse(
         request,
@@ -279,16 +265,13 @@ def _render_result(
 
 
 def _generic_invalid_response(request: Request) -> HTMLResponse:
-    """Return a uniform invalid link response."""
     return _render_result(request, "This unsubscribe link is no longer valid.", success=False)
 
 
 @router.get("/unsubscribe", response_class=HTMLResponse)
 def unsubscribe_page(request: Request, token: str = "", email: str = "") -> HTMLResponse:
-    """Show unsubscribe confirmation page.
-
-    Accepts token= only -- the email address is derived from the
-    validated token payload.
+    """Show the unsubscribe confirmation page. Accepts token= only; the email address is
+    derived from the validated token payload.
     """
     config = request.app.state.config
 
@@ -322,12 +305,9 @@ def unsubscribe_confirm(
     token: str = Form(default=""),
     email: str = Form(default=""),
 ) -> HTMLResponse:
-    """Process the unsubscribe after user confirmation.
-
-    CSRF-exempt: this route is HMAC-token-authenticated (the token rides
-    in the form body) and gets submitted from email clients where the
-    browser's Origin is whichever webmail host the recipient happens to
-    use.
+    """Process the unsubscribe after confirmation. CSRF-exempt: the route is
+    HMAC-token-authenticated (the token rides in the form body) and submitted from email
+    clients whose Origin is whichever webmail host the recipient uses.
     """
     config = request.app.state.config
 

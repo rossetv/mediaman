@@ -205,9 +205,9 @@ class TestSessionToken:
 
 
 class TestCanaryNoReseedOnTamper:
-    """C26: is_canary_valid must NOT re-seed when other encrypted rows
-    exist but the canary row is missing. Previously it re-seeded,
-    self-erasing the tamper signal after one run."""
+    """is_canary_valid must NOT re-seed when other encrypted rows
+    exist but the canary row is missing. Re-seeding would erase the
+    tamper signal after one run."""
 
     def test_missing_canary_with_encrypted_rows_returns_false(self, conn, secret_key):
         # Seed a non-canary encrypted setting.
@@ -261,7 +261,7 @@ class TestDecryptValueRejectsGarbage:
 
 
 class TestCiphertextCap:
-    """H3: per-call ciphertext cap is enforced by decrypt_value."""
+    """The per-call ciphertext cap is enforced by decrypt_value."""
 
     def test_oversized_ciphertext_rejected(self, secret_key, conn):
         """Ciphertexts that exceed _MAX_CIPHERTEXT_LEN must be rejected."""
@@ -290,7 +290,7 @@ class TestCiphertextCap:
 
 
 class TestSaltCache:
-    """H4: salt is cached per-DB-path, avoiding repeated DB reads."""
+    """The salt is cached per DB path, avoiding repeated DB reads."""
 
     def test_salt_cached_after_first_call(self, conn):
         """Subsequent calls to _load_or_create_salt return cached value without DB hit."""
@@ -321,8 +321,8 @@ class TestSaltCache:
 
 
 class TestValidateSignedNarrowedException:
-    """C7 / C34: the bare-except in _validate_signed was replaced with
-    a narrow tuple. Non-dict JSON must also be rejected up front."""
+    """_validate_signed catches a narrow tuple of exceptions, not a bare
+    except. Non-dict JSON must also be rejected up front."""
 
     def test_non_dict_payload_rejected(self):
         """A JSON-array or JSON-null payload must not slide through —
@@ -346,12 +346,12 @@ class TestValidateSignedNarrowedException:
 
 
 class TestSecretKeyEntropyHardened:
-    """The audit's HIGH finding on `_is_secret_key_strong`.
+    """`_is_secret_key_strong` must reject low-entropy keys.
 
-    The previous heuristic accepted 43-char ``[A-Za-z0-9_-]`` strings
+    A weaker heuristic would accept 43-char ``[A-Za-z0-9_-]`` strings
     with as few as 8 unique characters, which is far below the 256-bit
     entropy bar implied by the URL-safe shape. The hardened rule must
-    reject the audit's worked example and any structurally similar
+    reject the 43-char, 10-unique example and any structurally similar
     low-entropy input.
 
     # rationale: _is_secret_key_strong is a security-critical entropy
@@ -361,7 +361,7 @@ class TestSecretKeyEntropyHardened:
     """
 
     def test_rejects_audit_low_unique_43_char_case(self):
-        """The audit's example: 43 chars, 10 unique — must be refused."""
+        """A known weak example: 43 chars, 10 unique — must be refused."""
         bad = "abcdefghij" * 4 + "abc"  # 43 chars, 10 unique
         assert len(bad) == 43
         assert _is_secret_key_strong(bad) is False
@@ -435,7 +435,7 @@ class TestAesGcmAadStrict:
 
 
 class TestValidatePayloadCap:
-    """The audit's HIGH finding on the HMAC pre-image attack vector.
+    """The HMAC pre-image attack vector.
 
     ``_validate_signed`` must cap the decoded payload BEFORE computing
     HMAC-SHA256 over it. Otherwise an attacker can force HMAC over
@@ -446,7 +446,7 @@ class TestValidatePayloadCap:
     def test_oversized_payload_rejected_without_hmac_call(self, monkeypatch):
         """A 100 KB payload must short-circuit before ``_sign`` is invoked.
 
-        We patch :func:`_sign` to raise — if the cap fires correctly,
+        We patch ``_sign()`` to raise — if the cap fires correctly,
         the patched function is never called. If the cap is missing,
         the AssertionError below fires.
         """
@@ -500,12 +500,12 @@ class TestValidatePayloadCap:
 
 
 class TestExpFieldBoolRejection:
-    """The audit's MEDIUM finding on the ``exp`` type check.
+    """The ``exp`` type check.
 
     ``bool`` is a subclass of ``int`` in Python, so a payload of
     ``{"exp": True}`` would pass ``isinstance(exp, (int, float))``
-    and coerce to ``1`` — a UNIX timestamp far in the past. The fix
-    explicitly rejects bool first.
+    and coerce to ``1`` — a UNIX timestamp far in the past. The check
+    therefore rejects bool first.
     """
 
     def test_exp_true_rejected(self, secret_key):
@@ -545,7 +545,7 @@ class TestExpFieldBoolRejection:
 
 
 class TestCanaryFailureAudits:
-    """The audit's MEDIUM finding on is_canary_valid audit logging.
+    """is_canary_valid audit logging.
 
     When the canary fails (key mismatch / DB tamper), an audit row
     must be written so an operator's audit trail captures the event.
@@ -555,7 +555,7 @@ class TestCanaryFailureAudits:
         is_canary_valid(conn, secret_key)  # seed
         # Fail with a different valid-shape key; supply the audit callback so
         # the failure reason is written to audit_log (audit writing was moved
-        # out of crypto/ to the caller layer — see §2.2 leaf-package rule).
+        # out of crypto/ to the caller layer).
         ok = is_canary_valid(
             conn,
             "fedcba9876543210" * 4,
@@ -575,7 +575,7 @@ class TestCanaryFailureAudits:
         ct = encrypt_value("api-key", secret_key, conn=conn)
         insert_settings(conn, plex_token=ct, encrypted=1, updated_at="2026-01-01")
 
-        # Supply the audit callback — see §2.2 leaf-package rule.
+        # Supply the audit callback.
         ok = is_canary_valid(conn, secret_key, on_failure=_make_canary_audit_callback(conn))
         assert ok is False
 
@@ -588,7 +588,7 @@ class TestCanaryFailureAudits:
 
 
 class TestSaltCacheBounded:
-    """mediaman is single-process (CODE_GUIDELINES §1.12), so the salt
+    """mediaman is single-process, so the salt
     cache only ever needs a single entry. Opening a second DB must
     overwrite the previous entry rather than grow the cache.
     """
@@ -617,7 +617,7 @@ class TestSaltCacheBounded:
 
 
 class TestRaceFreeSaltSeed:
-    """The audit's MEDIUM finding on the salt-seed race.
+    """The salt-seed race.
 
     Two workers seeing the absent salt and racing to INSERT must both
     end up reading the same persisted value. ``INSERT OR IGNORE``
@@ -650,9 +650,9 @@ class TestRaceFreeSaltSeed:
 
 
 class TestCiphertextCapTightened:
-    """The audit's MEDIUM finding on ``_MAX_CIPHERTEXT_LEN``.
+    """The ``_MAX_CIPHERTEXT_LEN`` cap.
 
-    Settings rows are KB-scale; 1 MiB was generous. The cap is now
+    Settings rows are KB-scale, so 1 MiB would be generous. The cap is
     64 KiB, which is comfortably above the largest legitimate value.
     """
 
@@ -669,10 +669,6 @@ class TestCiphertextCapTightened:
         ct = encrypt_value(plaintext, secret_key, conn=conn)
         assert decrypt_value(ct, secret_key, conn=conn) == plaintext
 
-
-# ---------------------------------------------------------------------------
-# HMAC token domain separation
-# ---------------------------------------------------------------------------
 
 _DOMAIN_KEY = "0123456789abcdef" * 4  # 64 hex chars, 16 unique — passes entropy check
 
@@ -730,11 +726,6 @@ class TestTokenLengthCap:
         assert validate_download_token("A" * 10_000, _DOMAIN_KEY) is None
 
 
-# ---------------------------------------------------------------------------
-# AES-GCM AAD binding (prevents ciphertext row swap)
-# ---------------------------------------------------------------------------
-
-
 class TestAesGcmAad:
     def test_aad_binding_roundtrip(self, db_path):
         from mediaman.crypto import decrypt_value, encrypt_value
@@ -760,11 +751,6 @@ class TestAesGcmAad:
         # the ``plex_token`` row into, say, ``openai_api_key``.
         with pytest.raises(InvalidTag):
             decrypt_value(ct, _DOMAIN_KEY, conn=conn, aad=b"openai_api_key")
-
-
-# ---------------------------------------------------------------------------
-# Unsubscribe token
-# ---------------------------------------------------------------------------
 
 
 class TestUnsubscribeToken:
@@ -845,7 +831,7 @@ class TestDownloadTokenOptionalEmail:
 
 
 class TestDecryptValueRejectsMalformedBase64:
-    """H3: a malformed-base64 ciphertext must surface as the documented
+    """A malformed-base64 ciphertext must surface as the documented
     ``CryptoInputError``, not an undocumented ``binascii.Error`` escaping
     past callers that catch the contract.
     """
@@ -868,7 +854,7 @@ class TestDecryptValueRejectsMalformedBase64:
 
 
 class TestDecryptValueMissingSaltSource:
-    """M1: a v2-shaped ciphertext with no salt source is a config error and
+    """A v2-shaped ciphertext with no salt source is a config error and
     must raise a distinct ``ValueError`` (matching ``encrypt_value``), not a
     misleading ``InvalidTag``.
     """
@@ -887,7 +873,7 @@ class TestDecryptValueMissingSaltSource:
 
 
 class TestSubkeyCacheDoesNotPinPlaintextKey:
-    """H1: the per-purpose sub-key cache must be keyed on a SHA-256 digest
+    """The per-purpose sub-key cache must be keyed on a SHA-256 digest
     of the master secret, never the raw plaintext key, so the secret is not
     held as a long-lived dict key.
     """
@@ -923,7 +909,7 @@ class TestSubkeyCacheDoesNotPinPlaintextKey:
 
 
 class TestExpFieldRejectsNonFinite:
-    """M4: a token whose ``exp`` is ``Infinity`` / ``NaN`` / a huge float
+    """A token whose ``exp`` is ``Infinity`` / ``NaN`` / a huge float
     must be rejected — ``json.loads`` parses those by default and they would
     otherwise make a legitimately-issued token effectively immortal.
     """
@@ -948,7 +934,7 @@ class TestExpFieldRejectsNonFinite:
 
 
 class TestSaltVanishedAfterFirstRunInsert:
-    """M2: if the salt row vanishes between the first-run INSERT and the
+    """If the salt row vanishes between the first-run INSERT and the
     re-read, ``_load_or_create_salt`` must raise ``CryptoError`` rather than
     dereferencing ``None``.
     """

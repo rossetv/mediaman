@@ -1,12 +1,6 @@
-"""Shared TMDB shaping, caching, and ratings-enrichment helpers.
-
-This module hosts the cross-handler state and the helper functions used by
-both ``page.py`` (the ``GET /api/search`` and ``GET /api/search/discover``
-endpoints) and ``detail.py``. The handlers in those modules call into here
-for normalisation, Arr-state annotation, and the parallel OMDb ratings
-fan-out. All module-level singletons (rate limiters, in-memory caches,
-the enrichment thread-pool) live here so the route modules stay focused
-on request/response shaping.
+"""Shared TMDB shaping, caching and ratings-enrichment helpers for page.py and detail.py. All
+module-level singletons (rate limiters, in-memory caches, the enrichment thread pool) live
+here so the route modules stay focused on request/response shaping.
 """
 
 from __future__ import annotations
@@ -51,7 +45,7 @@ _MAX_QUERY_LEN = 100
 _DISCOVER_CACHE_MAX_ENTRIES = 32
 
 # Per-process TMDB discover shelf cache; must be process-global to serve
-# cache hits across requests in the same worker without a DB round-trip (§8.5).
+# cache hits across requests in the same worker without a DB round-trip.
 _discover_cache: dict[str, tuple[float, list[dict[str, object]]]] = {}
 _discover_cache_lock = threading.Lock()
 
@@ -62,19 +56,10 @@ def _fetch_discover_shelf(
     inject_media_type: str | None,
     page: int,
 ) -> list[dict[str, object]]:
-    """Fetch one page of a discover shelf, served from a TTL cache.
-
-    On a cache hit within :data:`_DISCOVER_TMDB_TTL_SECONDS` the cached
-    list is returned untouched. On a miss the page is fetched via
-    *fetch_fn*, has ``media_type`` stamped onto each item when
-    *inject_media_type* is set (the popular-movies/TV endpoints don't
-    return it), and is written back under ``f"{shelf_key}?page={page}"``.
-    The cache is bounded to :data:`_DISCOVER_CACHE_MAX_ENTRIES`; on
-    overflow it is cleared wholesale — the TTL means stale entries would
-    refresh on the next read anyway, so a coarse clear is acceptable.
-
-    Lives here rather than in ``page.py`` because the cache and lock it
-    touches are module-level singletons owned by this module.
+    """Fetch one page of a discover shelf from a TTL cache, stamping media_type on each item
+    when inject_media_type is set (the popular endpoints omit it). On overflow the cache is
+    cleared wholesale: the TTL makes stale entries refresh anyway, so a coarse clear is
+    acceptable. Lives here because the cache and lock are this module's singletons.
     """
     cache_key = f"{shelf_key}?page={page}"
     now = time.monotonic()
@@ -98,11 +83,8 @@ def _fetch_discover_shelf(
 
 @lru_cache(maxsize=1)
 def _get_executor() -> ThreadPoolExecutor:
-    """Return the shared ratings-enrichment executor, creating it on first call.
-
-    Using ``lru_cache`` avoids starting 6 OS threads at import time (which
-    would fire in every test that imports this module). The executor is
-    created once and reused for the lifetime of the process.
+    """Return the shared ratings-enrichment executor, created on first call; lru_cache avoids
+    starting 6 OS threads at import time in every test that imports this module.
     """
     return ThreadPoolExecutor(max_workers=6, thread_name_prefix="search_enrich")
 
@@ -152,7 +134,6 @@ def _normalise_tmdb_item(item: dict[str, object]) -> dict[str, object] | None:
 
 
 def _annotate_states(results: list[dict[str, object]], request: Request) -> None:
-    """Delegate Arr-cache-build and download-state annotation to the service layer (§2.7)."""
     conn = get_db()
     secret_key = request.app.state.config.secret_key
     annotate_download_states(results, conn, secret_key)
@@ -175,7 +156,6 @@ _RatingsFetchResult = tuple[tuple[int, str], list[dict[str, object]], dict[str, 
 
 
 def _apply_ratings(group: list[dict[str, object]], rt: str | None, imdb: str | None) -> None:
-    """Stamp RT / IMDb ratings onto every result dict in *group*."""
     for item in group:
         if rt:
             item["rt_rating"] = rt
@@ -188,12 +168,6 @@ def _partition_cached(
     rows: list[RatingsCacheRow],
     cutoff: str,
 ) -> list[_RatingsKeyGroup]:
-    """Split groups into cache hits (applied in place) and misses (returned).
-
-    For each ``(key, group)`` a fresh-enough cache row has its ratings
-    applied to the group immediately; everything else is collected as a
-    miss for the OMDb fan-out.
-    """
     misses: list[_RatingsKeyGroup] = []
     for key, group in by_key.items():
         cached = next(
@@ -209,10 +183,9 @@ def _partition_cached(
 def _fetch_ratings_for_group(
     key_group: _RatingsKeyGroup, omdb_key: str | None
 ) -> _RatingsFetchResult:
-    """Fetch OMDb ratings for one miss group; runs on the enrichment pool.
-
-    Returns ``(key, group, data)`` where *data* is the ratings dict (empty
-    on any fetch failure — a single bad lookup must not abort the fan-out).
+    """Fetch OMDb ratings for one miss group on the enrichment pool. Returns (key, group,
+    data); data is empty on any fetch failure so a single bad lookup cannot abort the
+    fan-out.
     """
     key, group = key_group
     probe = group[0]
@@ -234,13 +207,9 @@ def _fetch_ratings_for_group(
 def _drain_futures(
     futures: list[Future[_RatingsFetchResult]], now_iso: str
 ) -> list[tuple[int, str, str | None, str | None, str | None, str]]:
-    """Collect completed ratings futures within the wall-clock budget.
-
-    Applies each completed result to its group and returns the rows to
-    batch-write to the cache. The ``as_completed(timeout=...)`` budget is
-    the wall-clock bound; on ``TimeoutError`` anything not done is dropped
-    silently — but cached results from the misses that *did* complete are
-    still returned so they're warm for the next call.
+    """Collect completed ratings futures within the wall-clock budget and return the rows to
+    batch-write to the cache. On TimeoutError unfinished futures are dropped silently, but
+    results from the misses that did complete are still returned so they are warm next time.
     """
     pending_writes: list[tuple[int, str, str | None, str | None, str | None, str]] = []
     try:

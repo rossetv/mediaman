@@ -12,8 +12,8 @@ services:
       - MEDIAMAN_BIND_HOST=${MEDIAMAN_BIND_HOST:-0.0.0.0}
       - MEDIAMAN_TRUSTED_PROXIES=${MEDIAMAN_TRUSTED_PROXIES:-}
       # Colon-separated list of filesystem roots inside which mediaman may
-      # delete files. Required for deletion to work; fails closed if unset.
-      # Example: MEDIAMAN_DELETE_ROOTS=/media:/media2
+      # delete files. Required for scheduled deletion; fails closed if unset.
+      # Example: MEDIAMAN_DELETE_ROOTS=/media/movies:/media/tv
       - MEDIAMAN_DELETE_ROOTS=${MEDIAMAN_DELETE_ROOTS:-}
       - TZ=${TZ:-UTC}
     volumes:

@@ -1,20 +1,14 @@
-"""Public keep page — token-authenticated snooze for scheduled deletions.
+"""Public keep page: token-authenticated snooze for scheduled deletions.
 
-The "forever" keep lives on a separate authenticated, CSRF-protected endpoint
-(POST /api/keep/{token}/forever) so that privileged action requires a valid
-admin session rather than being accepted on the CSRF-exempt public route.
+The "forever" keep lives on a separate authenticated, CSRF-protected endpoint (POST
+/api/keep/{token}/forever) so the privileged action needs an admin session rather than the
+CSRF-exempt public route.
 
-The guarded UPDATE requires action='scheduled_deletion',
-delete_status='pending', token_used=0, and execute_at >= now() so that
-expired or already-processed rows cannot be snoozed.
-
-Only the SHA-256 token hash is written to ``scheduled_actions`` for new snooze
-rows.  Lookups use ``token_hash`` (joined with signed action id) instead of
-the raw token so the plaintext never touches the database.
-
-The shared verification, parsing, and guarded-UPDATE helpers live in
-:mod:`mediaman.services.scheduled_actions` — this file is now thin glue
-between FastAPI and that service.
+The guarded UPDATE requires action='scheduled_deletion', delete_status='pending',
+token_used=0 and execute_at >= now(), so expired or processed rows cannot be snoozed. Only
+the SHA-256 token hash is stored, and lookups use token_hash, so the plaintext never touches
+the database. Verification, parsing and the guarded UPDATE live in
+mediaman.services.scheduled_actions.
 """
 
 from __future__ import annotations
@@ -74,19 +68,16 @@ def _consume_keep_token_and_apply(
     apply: Callable[[], int],
     audit_detail: str,
 ) -> JSONResponse | None:
-    """Run the shared, security-sensitive consume-then-apply keep sequence.
+    """Run the shared consume-then-apply keep sequence.
 
-    Both the public snooze and the admin "forever" routes consume the keep
-    token, run their guarded UPDATE, and write one audit row inside a single
-    transaction so either all three land or none do (§9.7, H-01). The only
-    thing that differs is the guarded UPDATE itself and the audit detail, so
-    those are injected via *apply* and *audit_detail* while this helper owns
-    the token-consume flow once.
+    The public snooze and the admin "forever" routes both consume the keep token, run their
+    guarded UPDATE and write one audit row in a single transaction, so all three land or
+    none do. Only the UPDATE and audit detail differ, so they are injected via apply and
+    audit_detail.
 
-    Returns a 409 ``Response`` when the token was already consumed (concurrent
-    replay) or the guarded UPDATE matched no row (the action advanced between
-    the pre-flight check and the write); returns ``None`` on success so the
-    caller can build its own success response.
+    Returns a 409 Response when the token was already consumed (concurrent replay) or the
+    guarded UPDATE matched no row (the action advanced since the pre-flight check); None on
+    success.
     """
     consumed = False
     applied_rowcount = 0
@@ -109,7 +100,6 @@ def _consume_keep_token_and_apply(
 
 @router.get("/keep/{token}", response_class=HTMLResponse)
 def keep_page(request: Request, token: str) -> HTMLResponse:
-    """Render the keep page. Three states: active, already-kept, expired."""
     conn = get_db()
     templates = cast(Jinja2Templates, request.app.state.templates)
     config = request.app.state.config
@@ -180,32 +170,21 @@ def keep_page(request: Request, token: str) -> HTMLResponse:
 def keep_submit(request: Request, token: str, duration: str = Form(default="")) -> Response:
     """Apply a snooze via the keep page.
 
-    CSRF-exempt: this route is HMAC-token-authenticated and gets clicked
-    through from email clients where the browser's Origin is whichever
-    webmail host the recipient happens to use.  The exemption is opt-in
-    via the explicit ``_CSRF_EXEMPT_ROUTES`` allowlist in
-    :mod:`mediaman.web` — adding a sibling ``POST /keep/...`` will NOT
-    silently inherit the exemption.
+    CSRF-exempt: the route is HMAC-token-authenticated and clicked from email clients, where
+    the browser's Origin is whichever webmail host the recipient uses. The exemption is
+    opt-in via _CSRF_EXEMPT_ROUTES in mediaman.web, so a sibling POST /keep/... route does
+    not inherit it.
 
-    Token invalidation strategy:
+    Token invalidation:
 
-    1. HMAC-verify the token first — forged tokens never touch the DB.
-    2. Attempt to INSERT the token hash into ``keep_tokens_used``.  If
-       the insert is suppressed the token was already consumed → 409.
-    3. Update the scheduled action guarded by ``token_used=0`` — the
-       ``rowcount`` check is a second defence against a concurrent POST
-       racing step 2.
+    1. HMAC-verify first, so forged tokens never touch the DB.
+    2. INSERT the token hash into keep_tokens_used; a suppressed insert means already
+      consumed (409).
+    3. Update the scheduled action guarded by token_used=0; the rowcount check is a second
+      defence against a POST racing step 2.
 
-    ``duration='forever'`` is rejected here and must be submitted to
-    ``POST /api/keep/{token}/forever`` instead (admin-only, CSRF-protected),
-    ensuring the privileged action requires a valid admin session.
-
-    The guarded UPDATE requires action='scheduled_deletion',
-    delete_status='pending', and execute_at >= now so an expired or
-    non-pending row cannot be acted upon.
-
-    Error bodies are intentionally non-informative: "invalid_or_expired"
-    and "already_processed" reveal nothing about internal state.
+    duration='forever' is rejected here and must go to POST /api/keep/{token}/forever
+    (admin-only, CSRF-protected). Error bodies are deliberately non-informative.
     """
     conn = get_db()
     config = request.app.state.config
@@ -230,13 +209,13 @@ def keep_submit(request: Request, token: str, duration: str = Form(default="")) 
 
     # Pre-flight replay check: if the token hash is already in keep_tokens_used,
     # reject immediately with 409 so a sequential replay (after the scheduled_action
-    # row's action has been updated) still gets the correct status code (H-01).
+    # row's action has been updated) still gets the correct status code.
     if is_keep_token_consumed(conn, token_hash(token)):
         return respond_err("already_processed", status=409)
 
     # Pre-flight: confirm the action is pending and the deadline has not
     # passed before entering the write transaction — avoids an empty write
-    # on the "obviously expired" path (H-01).
+    # on the "obviously expired" path.
     if not is_pending_unexpired(verified, now):
         return respond_err("invalid_or_expired", status=400)
 
@@ -272,15 +251,10 @@ def keep_forever(
 ) -> JSONResponse:
     """Apply the 'forever' (protected_forever) keep action.
 
-    This endpoint is admin-only and CSRF-protected (it is not in the
-    CSRF-exempt prefix list).  The public /keep/{token} POST no longer
-    accepts duration='forever' — it returns 400 to any caller that tries.
-
-    Forever-keep lives on a dedicated authenticated route so the privileged
-    action requires a valid admin session.  The UPDATE is guarded by action,
-    delete_status, token_used, and execute_at, matching the regular snooze path.
-    The token is consumed by recording its hash in keep_tokens_used so replays
-    are rejected even if the scheduled_actions row is updated concurrently.
+    Admin-only and CSRF-protected (not in the CSRF-exempt list); the public POST
+    /keep/{token} returns 400 for duration='forever'. The UPDATE is guarded like the snooze
+    path, and the token hash is recorded in keep_tokens_used so replays are rejected even if
+    the scheduled_actions row changes concurrently.
     """
     conn = get_db()
     config = request.app.state.config
@@ -297,11 +271,11 @@ def keep_forever(
     now = now_utc()
 
     # Pre-flight replay check: if the token hash is already in keep_tokens_used,
-    # reject immediately with 409 before the is_pending_unexpired check (H-01).
+    # reject immediately with 409 before the is_pending_unexpired check.
     if is_keep_token_consumed(conn, token_hash(token)):
         return respond_err("already_processed", status=409)
 
-    # Pre-flight expiry check before entering the write transaction (H-01).
+    # Pre-flight expiry check before entering the write transaction.
     if not is_pending_unexpired(verified, now):
         return respond_err("invalid_or_expired", status=400)
 

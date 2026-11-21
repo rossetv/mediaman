@@ -18,11 +18,6 @@ from mediaman.services.openai.recommendations.enrich import enrich_recommendatio
 _SECRET_KEY = "x" * 64
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture
 def conn(db_path):
     return init_db(str(db_path))
@@ -73,11 +68,6 @@ def _mock_tmdb(search_return=None, card_return=None, detail_return=None):
     cls.shape_card.return_value = card_return or _shape_card()
     cls.shape_detail.return_value = _shape_detail_empty()
     return cls, inst
-
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
 
 
 class TestEnrichRecommendations:
@@ -140,7 +130,6 @@ class TestEnrichRecommendations:
         assert rec["rating"] == 7.5
 
     def test_rec_without_title_skipped(self, conn):
-        """A recommendation dict with no title must be skipped without raising."""
         cls, _inst = _mock_tmdb(search_return=None)
         with (
             patch("mediaman.services.media_meta.tmdb.TmdbClient", cls),
@@ -151,7 +140,6 @@ class TestEnrichRecommendations:
             enrich_recommendations([rec], conn, _SECRET_KEY)  # must not raise
 
     def test_trailer_url_updated_with_year(self, conn):
-        """When TMDB yields a year, trailer_url is rebuilt with title + year."""
         card = _shape_card(year=2021)
         cls, _inst = _mock_tmdb(search_return={"id": 1, "title": "Dune"}, card_return=card)
         with (
@@ -164,7 +152,7 @@ class TestEnrichRecommendations:
         assert "2021" in rec["trailer_url"]
 
     def test_zero_tmdb_rating_not_overwritten_by_imdb_fallback(self, conn):
-        """F-01: a TMDB rating of 0.0 must not be replaced by the IMDb fallback.
+        """A TMDB rating of 0.0 must not be replaced by the IMDb fallback.
 
         ``not 0.0`` is True in Python; the old guard ``if not s.get("rating")``
         would fire and overwrite a valid zero-score with the IMDb value.
@@ -187,7 +175,6 @@ class TestEnrichRecommendations:
         assert rec["rating"] == 0.0
 
     def test_none_tmdb_rating_uses_imdb_fallback(self, conn):
-        """F-01: when TMDB has no rating (None), the IMDb fallback must fire."""
         card = _shape_card()
         card["rating"] = None
         cls, _inst = _mock_tmdb(search_return={"id": 1, "title": "X"}, card_return=card)

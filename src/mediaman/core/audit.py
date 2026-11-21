@@ -3,11 +3,11 @@
 Writes structured records to the ``audit_log`` table. Two distinct write
 families exist:
 
-**Media-action auditing** (:func:`log_audit`)
+**Media-action auditing** (log_audit)
     Records deletions, snoozes, and other media-item mutations.  The
     ``space_reclaimed_bytes`` column is ``NULL`` when no space was freed.
 
-**Security-event auditing** (:func:`security_event`, :func:`security_event_or_raise`)
+**Security-event auditing** (security_event, security_event_or_raise)
     Records authentication and privilege events with a ``sec:`` prefix on
     the ``action`` column so they are easy to filter independently of media
     actions.
@@ -19,11 +19,11 @@ deliberate: the audit row must land in the *same* transaction as the
 business mutation it records.  Callers are responsible for committing
 (or rolling back) after both the business row and the audit row have been
 written.  If the audit INSERT fails and the caller is using
-:func:`security_event_or_raise`, the exception propagates so the caller's
+security_event_or_raise, the exception propagates so the caller's
 transaction is aborted — ensuring we never have a "the mutation happened
 but no one knows" situation.
 
-The sole exception is :func:`security_event` (best-effort path), which
+The sole exception is security_event (best-effort path), which
 *does* call ``conn.commit()`` after the INSERT because it is used for
 low-stakes events (login.success, session.destroy) that are not part of a
 wider transaction.
@@ -43,14 +43,14 @@ logger = logging.getLogger(__name__)
 #: CR/LF would let a caller forge log-line boundaries or inject spoofed
 #: ``actor=``/``ip=`` fields a later log-grep would attribute to the
 #: system; NUL truncates C-string log consumers. Mirrors the header-
-#: injection guard in :mod:`mediaman.core.email_validation`.
+#: injection guard in mediaman.core.email_validation.
 _AUDIT_INJECT_CHARS = ("\r", "\n", "\0")
 
 
 def _strip_audit_field(value: str) -> str:
     """Remove CR/LF/NUL from a free-form audit field to prevent log injection.
 
-    The audit log is operator-facing forensic evidence (§7.5, §10.10).
+    The audit log is operator-facing forensic evidence.
     ``actor``/``ip``/string ``detail`` values can originate from
     semi-trusted callers; stripping line-boundary and NUL characters
     stops a caller forging fields or splitting a record into two.
@@ -75,7 +75,7 @@ def log_audit(
         conn: Open SQLite connection.
         media_item_id: The media item ID (or a surrogate like a title string).
             By convention, ``"_security"`` is used for security events
-            written via :func:`security_event` / :func:`security_event_or_raise`.
+            written via security_event / security_event_or_raise.
         action: Short action label, e.g. ``"deleted"``, ``"snoozed"``.
         detail: Human-readable detail string.
         space_bytes: Optional value for the ``space_reclaimed_bytes`` column;
@@ -128,7 +128,7 @@ def _insert_security_event(
 ) -> None:
     """Execute the ``audit_log`` INSERT for a security event.
 
-    Shared by :func:`security_event` and :func:`security_event_or_raise`.
+    Shared by security_event and security_event_or_raise.
     Does not commit and does not catch exceptions — both of those
     concerns belong to the caller.
     """
@@ -164,7 +164,7 @@ def security_event(
 
     Failures to write are logged but not raised — audit-logging
     failures must not break the user-facing flow. Use
-    :func:`security_event_or_raise` when you need fail-closed
+    security_event_or_raise when you need fail-closed
     behaviour for high-impact mutations.
     """
     try:
@@ -184,7 +184,7 @@ def security_event_or_raise(
 ) -> None:
     """Insert a security audit row inside the caller's transaction.
 
-    Differences vs. :func:`security_event`:
+    Differences vs. security_event:
 
     * Does NOT swallow exceptions — any DB error propagates so the
       caller's wider transaction can be rolled back.

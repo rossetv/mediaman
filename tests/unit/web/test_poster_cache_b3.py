@@ -1,4 +1,4 @@
-"""Tests for the poster cache GC counter thread-safety fix (finding B3).
+"""Tests for the poster cache GC counter thread-safety fix.
 
 Verifies that maybe_sweep_cache resets the GC counter under the correct lock
 so concurrent increments from other threads cannot tear the counter state.
@@ -27,10 +27,9 @@ def _reset_cache_state():
 
 
 class TestGcCounterReset:
-    """GC counter reset must be guarded by _cache_gc_counter_lock (B3)."""
+    """GC counter reset must be guarded by _cache_gc_counter_lock."""
 
     def test_counter_reset_to_zero_after_sweep(self, tmp_path: Path):
-        """Counter is zero after maybe_sweep_cache runs a sweep."""
         # Prime the counter to trigger a sweep.
         with cache_mod._cache_gc_counter_lock:
             cache_mod._cache_gc_counter = cache_mod._CACHE_GC_RECHECK_EVERY

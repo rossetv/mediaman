@@ -1,20 +1,9 @@
-"""Redownload route, request schema, and the rate-limiter singleton.
+"""Redownload route (POST /api/media/redownload), its request schema and rate-limiter
+singleton.
 
-The ``POST /api/media/redownload`` handler lives here together with the
-request schema and the per-admin rate limiter; the barrel module
-re-exports the public names so existing test patch targets
-(``mediaman.web.routes.library_api.foo``) keep working.
-
-The flow is split across three private sibling modules to stay under the
-size ceiling:
-
-* :mod:`._redownload_match` — the lookup matcher and audit-ID picker
-  shared by both Arr branches (re-exported here so
-  ``...library_api.redownload._pick_lookup_match`` keeps working).
-* :mod:`._redownload_radarr` — the Radarr add-and-record + try-redownload
-  branch helpers.
-* :mod:`._redownload_sonarr` — the Sonarr add-and-record + try-redownload
-  branch helpers.
+The barrel re-exports the public names so existing test patch targets keep working. The flow
+is split across ._redownload_match (shared matcher and audit-ID picker, re-exported here),
+._redownload_radarr and ._redownload_sonarr.
 """
 
 from __future__ import annotations
@@ -46,15 +35,12 @@ _REDOWNLOAD_LIMITER = ActionRateLimiter(
 
 
 class _RedownloadRequest(BaseModel):
-    """Body schema for ``POST /api/media/redownload``.
+    """Body schema for POST /api/media/redownload.
 
-    ``extra="forbid"`` rejects unknown keys with HTTP 422 instead of
-    silently ignoring them.  The title is bounded at 4096 chars so an
-    over-length payload is refused at the wire layer; the handler further
-    truncates to 256 chars (matching the historic behaviour) so existing
-    clients that send slightly over-length titles continue to work.
-    Sane integer bounds are applied on the ID fields so an attacker cannot
-    smuggle in a negative or wildly large value.
+    extra="forbid" rejects unknown keys with a 422. The title is bounded at 4096 chars so
+    oversize payloads are refused at the wire layer, and the handler truncates to 256 so
+    clients sending slightly long titles keep working. ID fields have integer bounds so a
+    negative or huge value cannot get in.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -69,10 +55,8 @@ class _RedownloadRequest(BaseModel):
 def _validate_redownload_request(
     body: _RedownloadRequest,
 ) -> tuple[str, int | None, int | None, int | None, str | None] | JSONResponse:
-    """Normalise + validate a redownload payload.
-
-    Returns the tuple ``(title, year, tmdb_id, tvdb_id, imdb_id)`` on
-    success, or a 400 ``JSONResponse`` describing what is missing.
+    """Normalise and validate a redownload payload. Returns (title, year, tmdb_id, tvdb_id,
+    imdb_id), or a 400 JSONResponse describing what is missing.
     """
     title = body.title.strip()[:256]
     year = body.year
@@ -107,7 +91,6 @@ def api_media_redownload(
     body: _RedownloadRequest,
     username: str = Depends(get_current_admin),
 ) -> JSONResponse:
-    """Re-download a deleted media item via Radarr or Sonarr."""
     # Late import: the barrel re-exports build_radarr_from_db /
     # build_sonarr_from_db, and tests patch those names at the barrel
     # module path. A top-level ``from ...library_api import …`` here would

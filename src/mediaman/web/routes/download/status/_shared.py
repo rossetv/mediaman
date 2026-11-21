@@ -1,17 +1,11 @@
-"""Numeric coercion and formatting helpers shared by the status projections.
-
-These are the leaf helpers used by both the Radarr (:mod:`._radarr`) and
-Sonarr (:mod:`._sonarr`) status-projection modules — none of them touch the
-network or the database, so they live apart from the projection logic that
-does. ``_format_timeleft`` is additionally re-exported from the package
-barrel because the unit tests exercise it directly.
+"""Leaf helpers shared by the Radarr and Sonarr status projections; none touch the network or
+the database.
 """
 
 from __future__ import annotations
 
 
 def _format_timeleft(timeleft: str) -> str:
-    """Convert HH:MM:SS timeleft string to a human-readable eta string."""
     if not timeleft:
         return ""
     parts = timeleft.split(":")
@@ -29,14 +23,9 @@ def _format_timeleft(timeleft: str) -> str:
 
 
 def _safe_int(value: object) -> int:
-    """Coerce *value* to a non-negative int, defaulting to 0.
-
-    Defends against Arr responses that return ``size`` / ``sizeleft`` as
-    strings or null. Previously ``size_total > 0`` raised ``TypeError``
-    on a string operand and crashed the handler.
-
-    Accepts ``int``/``float`` directly and parses ``str`` numerals;
-    everything else (including ``None`` and ``bool``) resolves to 0.
+    """Coerce value to a non-negative int, defaulting to 0. Arr responses may carry size fields
+    as strings or null; ints, floats and numeric strings are accepted, everything else
+    (including None and bool) is 0.
     """
     if isinstance(value, bool):
         # ``bool`` is a subclass of ``int`` so ``int(True)`` is valid,
@@ -56,12 +45,8 @@ def _safe_int(value: object) -> int:
 
 
 def _safe_progress(size_total: int, size_left: int) -> int:
-    """Return a download progress percentage clamped to ``[0, 100]``.
-
-    Without the clamp a misreported ``sizeleft`` larger than ``size``
-    (or a negative ``sizeleft``) would yield an out-of-range progress
-    value that breaks the progress-bar template — a UI hazard rather
-    than a data corruption issue, but still worth defending against.
+    """Return download progress clamped to [0, 100]; a misreported sizeleft would otherwise
+    break the progress-bar template.
     """
     if size_total <= 0:
         return 0

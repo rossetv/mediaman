@@ -1,15 +1,9 @@
 """Download-queue sub-functions: NZBGet parsing and unmatched-NZB accumulation.
 
-WHAT: Stateless helpers used by the orchestrator in ``__init__.py``:
-
-- :func:`parse_nzb_queue`       — normalises raw NZBGet entries for matching.
-- :func:`build_arr_items`       — matches Arr cards to NZBGet entries and builds items.
-- :func:`add_unmatched_nzb_items` — appends manual NZBGet grabs with no Arr card.
-
-WHY: Keeping these helpers here reduces ``__init__.py`` line count while leaving all
-     monkeypatched names (``fetch_arr_queue``, ``build_nzbget_from_db``,
-     ``maybe_trigger_search``, ``record_verified_completions``) in the package root
-     where the test suite patches them.
+Stateless helpers used by the orchestrator in __init__.py. They live here to keep
+__init__.py small while the monkeypatched names (fetch_arr_queue, build_nzbget_from_db,
+maybe_trigger_search, record_verified_completions) stay in the package root, where the
+tests patch them.
 """
 
 from __future__ import annotations
@@ -43,7 +37,6 @@ def _build_unmatched_arr_item_bound(
     arr: ArrCard,
     arr_base_urls_map: dict[str, str],
 ) -> DownloadItem:
-    """Bind deep-link helpers and build an unmatched-arr download card."""
     return _build_unmatched_arr_item_fn(
         arr,
         arr_base_urls_map,
@@ -55,10 +48,8 @@ def _build_unmatched_arr_item_bound(
 def parse_nzb_queue(
     nzb_queue: list[dict[str, object]],
 ) -> list[dict[str, object]]:
-    """Parse raw NZBGet queue entries into normalised dicts for matching.
-
-    Each entry carries a ``_matched`` flag (initially False) so the
-    arr-matching phase can claim entries without modifying the source list.
+    """Parse raw NZBGet entries into normalised dicts with a _matched flag (initially
+    False), so matching can claim entries without modifying the source list.
     """
     from mediaman.services.downloads.download_format import looks_like_series_nzb, parse_clean_title
 
@@ -97,11 +88,9 @@ def _find_best_nzb_match(
     nzb_parsed: list[dict[str, object]],
     normalise_for_match: Callable[[str], str],
 ) -> dict[str, object] | None:
-    """Return the unmatched NZB entry with the largest remaining size that matches *arr_candidates*.
-
-    Prefers the entry with the most data left to download so that a partially
-    downloaded pack is preferred over an older completed one still in the queue.
-    Returns ``None`` when no candidate matches.
+    """Return the unmatched NZB entry matching *arr_candidates* with the most data left to
+    download, so a partly downloaded pack beats an older completed one; None if none
+    match.
     """
     best_remain = -1.0
     matched_nzb = None
@@ -128,11 +117,8 @@ def _mark_series_nzb_matches(
     nzb_parsed: list[dict[str, object]],
     normalise_for_match: Callable[[str], str],
 ) -> None:
-    """Mark all NZB entries that match *arr_candidates* as ``_matched=True`` in place.
-
-    Used after the primary match to claim sibling NZBs for the same series
-    (e.g. individual episode files when a series pack is the primary match)
-    so they are not also picked up as standalone unmatched items.
+    """Mark NZB entries matching *arr_candidates* as _matched=True, claiming sibling NZBs
+    (e.g. episodes when a pack is the primary match) so they are not shown as unmatched.
     """
     for nzb in nzb_parsed:
         if nzb["_matched"]:
@@ -152,16 +138,12 @@ def build_arr_items(
     secret_key: str,
     trigger_search: Callable[..., None],
 ) -> tuple[list[DownloadItem], list[DownloadItem]]:
-    """Match arr cards to NZBGet entries and build simplified queue items.
+    """Match arr cards to NZBGet entries and build queue items, returning (items,
+    upcoming_items). Matched NZB entries are marked _matched=True in place.
 
-    Returns ``(items, upcoming_items)``.  NZBGet entries that match an arr
-    card are marked ``_matched=True`` in place so the caller can identify
-    unmatched (manual) NZBGet entries afterwards.
-
-    ``trigger_search`` is passed in from the caller (``__init__.py``) so it
-    resolves to the module-level name there — which means monkeypatch.setattr
-    on ``mediaman.services.downloads.download_queue.maybe_trigger_search``
-    correctly intercepts calls even though the matching logic lives here.
+    *trigger_search* is passed in from __init__.py so it resolves to the module-level
+    name there, letting a monkeypatch of download_queue.maybe_trigger_search intercept
+    calls.
     """
     from mediaman.services.downloads.download_format import (
         build_item,
@@ -234,7 +216,6 @@ def add_unmatched_nzb_items(
     nzb_parsed: list[dict[str, object]],
     download_rate: int,
 ) -> None:
-    """Append unmatched NZBGet entries (manual grabs with no arr card) to *items* in place."""
     from mediaman.core.format import format_bytes
     from mediaman.services.downloads.download_format import build_item, format_eta, map_state
 

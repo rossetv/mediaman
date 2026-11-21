@@ -25,7 +25,6 @@ logger = logging.getLogger(__name__)
 
 
 def _fetch_watch_history(conn: sqlite3.Connection) -> list[dict[str, object]]:
-    """Query the DB for the 50 most recently watched items, normalising media_type."""
     rows = conn.execute("""
         SELECT DISTINCT mi.title, mi.media_type, mi.last_watched_at
         FROM media_items mi
@@ -46,7 +45,6 @@ def _fetch_watch_history(conn: sqlite3.Connection) -> list[dict[str, object]]:
 
 
 def _fetch_plex_ratings(plex_client: PlexClient | None) -> list[PlexRatedItem]:
-    """Return user ratings from Plex, or an empty list if unavailable."""
     if plex_client is None:
         return []
     try:
@@ -59,7 +57,6 @@ def _fetch_plex_ratings(plex_client: PlexClient | None) -> list[PlexRatedItem]:
 
 
 def _fetch_previous_titles(conn: sqlite3.Connection, now: datetime) -> list[str]:
-    """Return distinct suggestion titles from the last 30 days (deduplication input)."""
     cutoff_30d = (now - timedelta(days=30)).strftime("%Y-%m-%d")
     # batch_id is always a fixed-width "YYYY-MM-DD" string (set by `today`
     # in refresh_recommendations), so lexical >= equals chronological >= here.
@@ -77,14 +74,11 @@ def _insert_recommendations(
     now_iso: str,
     manual: bool,
 ) -> int:
-    """Delete the appropriate batch and INSERT all recommendations inside one transaction.
-
-    The DELETE + INSERT loop is wrapped in ``with conn:`` so SQLite rolls back
-    to the pre-DELETE state on any exception (§9.7). The caller must not wrap
-    this in a second ``with conn:`` block.
+    """Delete the appropriate batch and insert all recommendations in one transaction. with
+    conn: rolls back on any exception, so the caller must not wrap it in another.
     """
     inserted = 0
-    with conn:  # rolls back DELETE + any partial INSERTs on exception (§9.7)
+    with conn:  # rolls back DELETE + any partial INSERTs on exception
         if manual:
             conn.execute("DELETE FROM suggestions WHERE batch_id = ?", (today,))
         else:
@@ -136,17 +130,11 @@ def refresh_recommendations(
     *,
     secret_key: str,
 ) -> int:
-    """Fetch watch history, generate both trending and personal recommendations.
+    """Fetch watch history and generate trending and personal recommendations; returns the
+    count generated.
 
-    Args:
-        conn: DB connection.
-        plex_client: Plex client for watch history and ratings.
-        manual: When True (user-triggered refresh), replace only today's batch.
-            When False (scheduled), keep historical batches and prune rows older
-            than 90 days.
-        secret_key: Encryption key for reading API credentials from DB settings.
-
-    Returns the total number of recommendations generated.
+    manual=True replaces only today's batch; scheduled runs keep historical batches and
+    prune rows older than 90 days.
     """
     now = now_utc()
     today = now.strftime("%Y-%m-%d")

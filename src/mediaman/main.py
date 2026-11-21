@@ -1,6 +1,6 @@
 """Mediaman application entry point.
 
-Thin CLI wrapper around :mod:`mediaman.app_factory`. All application
+Thin CLI wrapper around mediaman.app_factory. All application
 logic — ``create_app()``, ``lifespan()``, and the bootstrap helpers —
 lives in ``app_factory`` so this module stays a slim entry point that
 uvicorn and the ``mediaman`` console script target.
@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 
 def cli_main() -> None:
-    """CLI entry point — run the server or handle subcommands."""
     if len(sys.argv) > 1 and sys.argv[1] == "create-user":
         sys.argv = sys.argv[1:]
         from mediaman.web.auth.cli import create_user_cli
@@ -57,7 +56,7 @@ def cli_main() -> None:
     # direct peer is in ``forwarded_allow_ips``. The second rewrite is a
     # rate-limit-bypass footgun, so only enable proxy_headers when the
     # operator has EXPLICITLY set ``MEDIAMAN_TRUSTED_PROXIES`` to a
-    # non-wildcard value (see :func:`mediaman.bootstrap.validators.sanitise_trusted_proxies`).
+    # non-wildcard value (see mediaman.bootstrap.validators.sanitise_trusted_proxies).
     if trusted_proxies:
         uvicorn.run(
             app,

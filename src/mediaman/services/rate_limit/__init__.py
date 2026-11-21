@@ -19,7 +19,7 @@ Public surface
 
 Note: the ``rate_limit`` decorator is intentionally NOT re-exported here.
 It is FastAPI-coupled (uses ``Request`` and ``respond_err`` from the web
-layer) and therefore lives in :mod:`mediaman.web.middleware.rate_limit`.
+layer) and therefore lives in ``mediaman.web.middleware.rate_limit``.
 Import it directly from that module using the full dotted path.
 """
 

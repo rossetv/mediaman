@@ -19,10 +19,6 @@ from mediaman.web.routes.search import (
 )
 from mediaman.web.routes.search.download import _resolve_admin_email
 
-# ---------------------------------------------------------------------------
-# Unit tests for _resolve_admin_email
-# ---------------------------------------------------------------------------
-
 
 @pytest.fixture
 def conn(tmp_path) -> sqlite3.Connection:
@@ -43,11 +39,6 @@ def test_resolve_admin_email_returns_address_when_set(conn: sqlite3.Connection) 
 
 def test_resolve_admin_email_returns_none_for_unknown_admin(conn: sqlite3.Connection) -> None:
     assert _resolve_admin_email(conn, "ghost") is None
-
-
-# ---------------------------------------------------------------------------
-# Integration-style tests: submit movie via API, check notification rows
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture

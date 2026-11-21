@@ -1,9 +1,9 @@
 """Deletion-lifecycle SQL on ``scheduled_actions`` and re-exports for protection/snooze.
 
-# rationale: protection/snooze reads live in :mod:`_protection`; this module
+# rationale: protection/snooze reads live in _protection; this module
 # owns the deletion-lifecycle mutations (DeletionRow, fetch/mark/delete helpers)
 # and re-exports the protection names so callers that import from
-# :mod:`scheduled_actions` continue to work unmodified.
+# scheduled_actions continue to work unmodified.
 
 ``DeletionRow`` and the fetch/mark/delete helpers are kept here because
 they form one tight concept: the shape of a row being deleted, how to
@@ -66,9 +66,9 @@ __all__ = [
 class DeletionRow:
     """A pending or stuck deletion joined with its ``media_items`` row.
 
-    Returned by :func:`fetch_pending_deletions` and
-    :func:`fetch_stuck_deletions` so the deletion executor consumes typed
-    attributes instead of a raw :class:`sqlite3.Row`. Both queries select
+    Returned by fetch_pending_deletions and
+    fetch_stuck_deletions so the deletion executor consumes typed
+    attributes instead of a raw sqlite3.Row. Both queries select
     the same column set; columns a given query does not logically need
     (``action`` for the pending path, the *arr ids for the stuck path)
     are still selected so the dataclass shape is uniform — the executor
@@ -88,7 +88,6 @@ class DeletionRow:
 
 
 def _row_to_deletion_row(row: sqlite3.Row) -> DeletionRow:
-    """Map a joined ``scheduled_actions``/``media_items`` row to a :class:`DeletionRow`."""
     return DeletionRow(
         id=row["id"],
         media_item_id=row["media_item_id"],
@@ -101,11 +100,6 @@ def _row_to_deletion_row(row: sqlite3.Row) -> DeletionRow:
         sonarr_id=row["sonarr_id"],
         season_number=row["season_number"],
     )
-
-
-# ---------------------------------------------------------------------------
-# Deletion lifecycle — fetch, mark, delete
-# ---------------------------------------------------------------------------
 
 
 def fetch_stuck_deletions(conn: sqlite3.Connection) -> list[DeletionRow]:
@@ -130,7 +124,6 @@ def fetch_stuck_deletions(conn: sqlite3.Connection) -> list[DeletionRow]:
 
 
 def fetch_pending_deletions(conn: sqlite3.Connection, now_iso: str) -> list[DeletionRow]:
-    """Return all pending deletions whose grace period has elapsed."""
     rows = conn.execute(
         "SELECT sa.id, sa.media_item_id, sa.action, mi.file_path, mi.file_size_bytes, "
         "mi.radarr_id, mi.sonarr_id, mi.season_number, mi.title, mi.plex_rating_key "
@@ -153,7 +146,6 @@ def mark_delete_status(conn: sqlite3.Connection, action_id: int, status: str) ->
 
 
 def delete_scheduled_action(conn: sqlite3.Connection, action_id: int) -> None:
-    """Remove a row from ``scheduled_actions``."""
     conn.execute("DELETE FROM scheduled_actions WHERE id = ?", (action_id,))
 
 
@@ -162,7 +154,7 @@ def delete_actions_for_media_items(conn: sqlite3.Connection, ids: list[str]) -> 
 
     Owned by this module because ``scheduled_actions`` is this
     repository's table-group. The scanner's delete phase calls this
-    *before* :func:`media_items.delete_media_items` while holding the
+    *before* media_items.delete_media_items while holding the
     same transaction at the call site, so the two DELETEs stay atomic
     and a crash between them cannot orphan a ``scheduled_actions`` row
     against a deleted ``media_items`` row. This function therefore opens
@@ -173,7 +165,7 @@ def delete_actions_for_media_items(conn: sqlite3.Connection, ids: list[str]) -> 
     for start in range(0, len(ids), 500):
         chunk = ids[start : start + 500]
         placeholders = ",".join("?" * len(chunk))
-        # rationale: §9.6 IN-clause batching — only "?" placeholders interpolated; every value is bound
+        # rationale: IN-clause batching — only "?" placeholders interpolated; every value is bound
         conn.execute(  # nosec B608
             f"DELETE FROM scheduled_actions WHERE media_item_id IN ({placeholders})",
             tuple(chunk),
@@ -184,7 +176,7 @@ def count_pending_deletions(conn: sqlite3.Connection) -> int:
     """Return the number of pending ``scheduled_deletion`` rows.
 
     Counts only rows whose token has not yet been used — the same set
-    :func:`clear_pending_deletions` sweeps. Snoozes and protect-forever
+    clear_pending_deletions sweeps. Snoozes and protect-forever
     rows are not counted.
     """
     return int(
@@ -215,7 +207,7 @@ def clear_pending_deletions(
     delete rolls back — we never end up with rows removed but no audit
     trail (the audit insert and the delete are atomic by design; neither
     commits without the other). The count read is delegated to
-    :func:`count_pending_deletions` so the count is independently
+    count_pending_deletions so the count is independently
     callable.
     """
     with conn:

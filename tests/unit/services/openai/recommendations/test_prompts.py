@@ -9,10 +9,6 @@ from mediaman.services.openai.recommendations.prompts import (
     strip_season_suffix,
 )
 
-# ---------------------------------------------------------------------------
-# strip_season_suffix
-# ---------------------------------------------------------------------------
-
 
 class TestStripSeasonSuffix:
     def test_colon_season_n(self):
@@ -36,11 +32,6 @@ class TestStripSeasonSuffix:
 
     def test_case_insensitive(self):
         assert strip_season_suffix("Euphoria: SEASON 3") == "Euphoria"
-
-
-# ---------------------------------------------------------------------------
-# sanitise_plex_string
-# ---------------------------------------------------------------------------
 
 
 class TestSanitisePlexString:
@@ -74,11 +65,6 @@ class TestSanitisePlexString:
         assert sanitise_plex_string(precomposed) == sanitise_plex_string(decomposed)
 
 
-# ---------------------------------------------------------------------------
-# parse_recommendations
-# ---------------------------------------------------------------------------
-
-
 class TestParseRecommendations:
     def test_valid_items_normalised(self):
         items = [{"title": "Inception", "media_type": "movie", "reason": "Mind-bending."}]
@@ -109,7 +95,6 @@ class TestParseRecommendations:
         assert result[0]["media_type"] == "movie"
 
     def test_reason_truncated_to_max_len(self):
-        """Reasons beyond the maximum length are truncated (finding 38)."""
         from mediaman.services.openai.recommendations.prompts import _LLM_REASON_MAX_LEN
 
         long_reason = "x" * (_LLM_REASON_MAX_LEN + 200)

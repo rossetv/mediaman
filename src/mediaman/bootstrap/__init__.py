@@ -9,10 +9,10 @@ Re-exports the public bootstrap API so callers can use either form:
 
 All names are re-exported unchanged from their canonical homes:
 
-- :mod:`mediaman.bootstrap.db` — DB open, migrations, ``app.state``
-- :mod:`mediaman.bootstrap.crypto` — AES canary, legacy-ciphertext migration
-- :mod:`mediaman.bootstrap.scan_jobs` — scheduler start/stop
-- :mod:`mediaman.bootstrap.data_dir` — data-dir writability probe
+- mediaman.bootstrap.db — DB open, migrations, ``app.state``
+- mediaman.bootstrap.crypto — AES canary, legacy-ciphertext migration
+- mediaman.bootstrap.scan_jobs — scheduler start/stop
+- mediaman.bootstrap.data_dir — data-dir writability probe
 """
 
 from __future__ import annotations

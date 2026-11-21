@@ -22,8 +22,8 @@ from mediaman.core.scheduled_action_kinds import (
 class KeepDecision:
     """Resolved outcome of a keep-duration choice.
 
-    ``action`` is one of :data:`ACTION_PROTECTED_FOREVER` /
-    :data:`ACTION_SNOOZED`.  ``execute_at`` is the ISO UTC deadline for
+    ``action`` is one of ``ACTION_PROTECTED_FOREVER`` /
+    ``ACTION_SNOOZED``.  ``execute_at`` is the ISO UTC deadline for
     a finite snooze, ``None`` for forever.  ``snooze_duration_days`` is
     the integer day count for a finite snooze, ``None`` for forever.
     """
@@ -36,14 +36,12 @@ class KeepDecision:
 def resolve_keep_decision(duration: str, *, days: int | None, now: datetime) -> KeepDecision:
     """Resolve the keep-duration ladder once.
 
-    Two route handlers previously duplicated this if/else chain:
-    ``web/routes/library_api/__init__.py`` (``api_media_keep``) and
-    ``web/routes/kept.py`` (``api_keep_show``).  ``duration`` must be a
-    value already validated against :data:`VALID_KEEP_DURATIONS`;
+    ``duration`` must be a
+    value already validated against ``VALID_KEEP_DURATIONS``;
     ``days`` is the integer day count from the same lookup
     (``VALID_KEEP_DURATIONS[duration]``) — ``None`` only when
     ``duration == "forever"``.  Passing them separately rather than
-    importing :data:`VALID_KEEP_DURATIONS` here keeps Ring-2 services
+    importing ``VALID_KEEP_DURATIONS`` here keeps Ring-2 services
     free of any Ring-3 ``web.models`` dependency.
     """
     if duration == "forever":
@@ -61,7 +59,7 @@ def resolve_keep_decision(duration: str, *, days: int | None, now: datetime) -> 
 class VerifiedKeepAction:
     """A ``scheduled_actions`` row joined with its parent ``media_items`` row.
 
-    Returned by :func:`~mediaman.services.scheduled_actions.lookup_verified_action`
+    Returned by ``lookup_verified_action``
     so the keep routes consume typed attributes rather than raw
     ``sqlite3.Row`` string keys (per the repository-returns-dataclasses
     standard).  The field order mirrors the shared SELECT column list: all

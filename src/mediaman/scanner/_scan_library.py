@@ -1,14 +1,14 @@
-"""Per-library scan helpers — extracted from :mod:`engine` so the
-orchestrator stays under the 500-line file ceiling.
+"""Per-library scan helpers — extracted from engine so the
+orchestrator stays small.
 
 These helpers are *module-level functions* that take the
-:class:`mediaman.scanner.engine.ScanEngine` as their first argument and
+mediaman.scanner.engine.ScanEngine as their first argument and
 read/write its state through attributes. They are not free functions
 in the API sense — they are the engine's per-library body lifted out
 of the class so the orchestration shell remains scannable.
 
 The per-library transaction discipline is unchanged: the orchestrator
-in :meth:`ScanEngine.run_scan` issues a ``self._conn.commit()`` after
+in ScanEngine.run_scan issues a ``self._conn.commit()`` after
 each library's helper returns, so a SIGKILL mid-scan can still only
 roll back the in-flight library. The helpers themselves do not commit.
 """
@@ -45,12 +45,12 @@ class ScanDecision(enum.Enum):
     states onto ``str | None`` (``"schedule_deletion"``, the ``"_skip"``
     guard sentinel, and ``None`` for an evaluator early-skip), which forced
     the caller to comment-explain which was which and risked a future
-    evaluator string colliding with the guard sentinel (M1 / §4.3).
+    evaluator string colliding with the guard sentinel.
 
-    * :attr:`SCHEDULE` — the item is eligible; schedule a deletion.
-    * :attr:`SKIP_GUARD` — a protection / already-scheduled guard fired
+    * SCHEDULE — the item is eligible; schedule a deletion.
+    * SKIP_GUARD — a protection / already-scheduled guard fired
       before the evaluator ran.
-    * :attr:`SKIP_EVAL` — the evaluator declined (too new, watched
+    * SKIP_EVAL — the evaluator declined (too new, watched
       recently, or an evaluator early-skip such as a kept show).
     """
 
@@ -63,9 +63,9 @@ class ScanDecision(enum.Enum):
 class _GuardSets:
     """Per-library protection / already-scheduled lookup sets.
 
-    Built once per library by :func:`_build_guard_sets` so the hot
+    Built once per library by _build_guard_sets so the hot
     per-item loop does ZERO ``scheduled_actions`` SELECTs for the
-    protection and already-scheduled guards (§13.3 — the previous code
+    protection and already-scheduled guards (the previous code
     issued up to three of those SELECTs per item). ``already_scheduled``
     is mutable: when an item is freshly scheduled mid-loop it is added so
     a later item sharing the same ``plex_rating_key`` observes it, exactly
@@ -80,9 +80,9 @@ class _GuardSets:
 def _build_guard_sets(conn: sqlite3.Connection, media_ids: list[str]) -> _GuardSets:
     """Batch-load the protection and already-scheduled sets for a library.
 
-    Replaces the per-item :func:`repository.is_protected` and
-    :func:`repository.is_already_scheduled` round trips with two
-    ``IN (...)`` queries (§13.3). The active-ness rules in the two
+    Replaces the per-item repository.is_protected and
+    repository.is_already_scheduled round trips with two
+    ``IN (...)`` queries. The active-ness rules in the two
     repository helpers match the per-item predicates byte-for-byte, so
     the protection decision is identical before and after batching.
     """
@@ -104,10 +104,10 @@ def scan_items(
     """Shared iteration skeleton for movie and TV scan passes.
 
     Builds the per-library protection / already-scheduled guard sets in
-    two batched queries up front (§13.3), then iterates *fetched* items,
+    two batched queries up front, then iterates *fetched* items,
     upserts each one, applies the common protection/schedule guards via
-    :func:`_evaluate_scan_item`, then routes the per-item ``decision``
-    through :func:`_apply_scan_decision`. The two callers differ only in
+    _evaluate_scan_item, then routes the per-item ``decision``
+    through _apply_scan_decision. The two callers differ only in
     *media_type_fn* (selects the media type string) and *evaluate_fn*
     (returns ``"schedule_deletion"``, a skip marker, or ``None`` for an
     evaluator-driven early skip such as the TV show-kept check).
@@ -115,7 +115,7 @@ def scan_items(
     *seen_keys*, when provided, accumulates Plex rating keys so orphan
     detection can exclude them later.
     """
-    # §13.3: one batched query per guard, built before the loop — the
+    # One batched query per guard, built before the loop — the
     # protection state of an item cannot change under the per-item
     # ``media_items`` upserts, so a single up-front read is identical to
     # the old per-item SELECTs.
@@ -162,17 +162,17 @@ def _evaluate_scan_item(
 ) -> tuple[str, ScanDecision]:
     """Upsert one item and return ``(media_id, decision)``.
 
-    The returned :class:`ScanDecision` makes the three outcomes explicit:
-    :attr:`~ScanDecision.SKIP_GUARD` when the protection / already-scheduled
-    guards fire (no evaluator call), :attr:`~ScanDecision.SCHEDULE` when the
+    The returned ScanDecision makes the three outcomes explicit:
+    ScanDecision.SKIP_GUARD when the protection / already-scheduled
+    guards fire (no evaluator call), ScanDecision.SCHEDULE when the
     evaluator returns ``"schedule_deletion"``, and
-    :attr:`~ScanDecision.SKIP_EVAL` for any other evaluator result
+    ScanDecision.SKIP_EVAL for any other evaluator result
     (``"skip"`` or ``None`` — e.g. the TV show-kept early skip).
 
     The protection and already-scheduled guards are answered from the
-    pre-built *guards* sets — no per-item ``scheduled_actions`` SELECT
-    (§13.3). The ``media_items`` upsert below cannot change either
-    guard's answer because neither guard reads ``media_items``.
+    pre-built *guards* sets — no per-item ``scheduled_actions`` SELECT.
+    The ``media_items`` upsert below cannot change either guard's answer
+    because neither guard reads ``media_items``.
     """
     conn = engine._conn
     item = f.item
@@ -201,7 +201,7 @@ def _apply_scan_decision(
 ) -> None:
     """Schedule a deletion for *media_id* and bump the summary counter.
 
-    Only ever called for a :attr:`ScanDecision.SCHEDULE` item — skips are
+    Only ever called for a ScanDecision.SCHEDULE item — skips are
     handled by the caller — so this branches solely on dry-run mode and
     re-entry status.
 
@@ -237,11 +237,11 @@ def scan_movie_library(
 ) -> None:
     """Scan a single movie library: fetch, upsert, evaluate, schedule."""
     # Phase 1: pull items + watch histories from Plex (no DB writes,
-    # no lock). See :meth:`ScanEngine.sync_library` for rationale.
+    # no lock). See ScanEngine.sync_library for rationale.
     fetched = engine._fetcher.fetch_library_items(library_id)
     # An item whose watch history could not be fetched is still present in
     # Plex — record its key as seen so orphan removal never prunes it on a
-    # scan that merely failed to fetch its history (R7-H1).
+    # scan that merely failed to fetch its history.
     if seen_keys is not None:
         seen_keys.update(fetched.skipped_keys)
 
@@ -279,16 +279,16 @@ def scan_tv_library(
     Honours the show-kept protection: every season belonging to a kept
     show is skipped before evaluation.
     """
-    # Phase 1: network fetch (see :meth:`ScanEngine.sync_library`).
+    # Phase 1: network fetch (see ScanEngine.sync_library).
     fetched = engine._fetcher.fetch_library_items(library_id)
     conn = engine._conn
     # A season whose watch history could not be fetched is still present in
     # Plex — record its key as seen so orphan removal never prunes it on a
-    # scan that merely failed to fetch its history (R7-H1).
+    # scan that merely failed to fetch its history.
     if seen_keys is not None:
         seen_keys.update(fetched.skipped_keys)
 
-    # §13.3-style batching for the show-kept guard. The previous code called
+    # Batching for the show-kept guard. The previous code called
     # repository.is_show_kept() once per season, issuing one ``kept_shows``
     # SELECT — plus, on the not-kept path, one DELETE — for every season in the
     # library (O(seasons) round trips against a one-row-per-show table).

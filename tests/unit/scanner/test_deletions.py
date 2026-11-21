@@ -47,11 +47,6 @@ def _insert_pending_deletion(conn, *, media_id="m1", execute_at=None):
     )
 
 
-# ---------------------------------------------------------------------------
-# dry_run
-# ---------------------------------------------------------------------------
-
-
 class TestDryRun:
     def test_dry_run_does_not_delete_file(self, conn, tmp_path):
         real_file = tmp_path / "film.mkv"
@@ -80,11 +75,6 @@ class TestDryRun:
         assert row["action"] == "dry_run_skip"
 
 
-# ---------------------------------------------------------------------------
-# no allowed roots
-# ---------------------------------------------------------------------------
-
-
 class TestNoAllowedRoots:
     def test_skips_deletion_when_roots_not_configured(self, conn, tmp_path, monkeypatch):
         # Ensure no roots in DB or env.
@@ -102,11 +92,6 @@ class TestNoAllowedRoots:
 
         assert result["deleted"] == 0
         assert real_file.exists()
-
-
-# ---------------------------------------------------------------------------
-# successful deletion
-# ---------------------------------------------------------------------------
 
 
 class TestSuccessfulDeletion:
@@ -200,11 +185,6 @@ class TestSuccessfulDeletion:
         assert real_file.exists()
 
 
-# ---------------------------------------------------------------------------
-# recover_stuck_deletions
-# ---------------------------------------------------------------------------
-
-
 class TestRecoverStuckDeletions:
     def test_resets_to_pending_when_file_present(self, conn, tmp_path):
         real_file = tmp_path / "stuck.mkv"
@@ -264,7 +244,7 @@ class TestRecoverStuckDeletions:
         recover_stuck_deletions(conn)
 
     def test_file_gone_outside_roots_does_not_fabricate_audit(self, conn, tmp_path, monkeypatch):
-        """M5: a 'deleting' row whose file is absent but whose stored path is
+        """A 'deleting' row whose file is absent but whose stored path is
         OUTSIDE the configured delete roots must NOT be completed as a
         deletion — mediaman could never have removed it, so writing a
         'deleted N bytes' audit row would corrupt the audit trail and the
@@ -303,7 +283,7 @@ class TestRecoverStuckDeletions:
         assert audit is None
 
     def test_file_gone_with_empty_path_does_not_fabricate_audit(self, conn, monkeypatch):
-        """M5: an empty stored path is never within any root, so the
+        """An empty stored path is never within any root, so the
         file-absent branch must not complete a deletion off it either.
         """
         monkeypatch.delenv("MEDIAMAN_DELETE_ROOTS", raising=False)
@@ -329,11 +309,6 @@ class TestRecoverStuckDeletions:
             "SELECT action FROM audit_log WHERE media_item_id='m5' AND action='deleted'"
         ).fetchone()
         assert audit is None
-
-
-# ---------------------------------------------------------------------------
-# Plex-derived root-path defence
-# ---------------------------------------------------------------------------
 
 
 class TestPlexCraftedRootPath:
@@ -392,17 +367,12 @@ class TestPlexCraftedRootPath:
         assert (outside / "important.txt").exists()
 
 
-# ---------------------------------------------------------------------------
-# empty file_path parking (R7-M1)
-# ---------------------------------------------------------------------------
-
-
 class TestEmptyFilePathParking:
     def test_empty_path_is_parked_with_audit_and_does_not_livelock(
         self, conn, tmp_path, monkeypatch
     ):
         """A pending deletion whose ``file_path`` is empty must not cycle
-        forever between 'deleting' and 'pending' (R7-M1).
+        forever between 'deleting' and 'pending'.
 
         ``delete_path("")`` always refuses and recovery always resets it to
         pending, so without intervention the row livelocks invisibly. The
@@ -445,16 +415,11 @@ class TestEmptyFilePathParking:
         assert audit["action"] == "delete_failed_permanent"
 
 
-# ---------------------------------------------------------------------------
-# dry-run never mutates state via recovery (R7-L1)
-# ---------------------------------------------------------------------------
-
-
 class TestDryRunDoesNotRecover:
     def test_dry_run_does_not_mutate_stuck_deletions(self, conn, tmp_path, monkeypatch):
         """A dry-run preview must mutate nothing — including not running
         stuck-deletion recovery, which commits real state changes and audit
-        rows (R7-L1).
+        rows.
 
         A row left in the 'deleting' state must be untouched after a dry-run
         execute; only a live pass may reconcile it.

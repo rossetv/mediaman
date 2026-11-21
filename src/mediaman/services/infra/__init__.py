@@ -20,7 +20,7 @@ primitives that every other service package depends on.
 
 Public surface
 --------------
-§1.7 says the package ``__init__.py`` is the public surface.  All callers
+The package ``__init__.py`` is the public surface.  All callers
 **must** import from ``mediaman.services.infra`` directly:
 
     >>> from mediaman.services.infra import get_string_setting, SafeHTTPError

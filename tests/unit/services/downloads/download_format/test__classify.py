@@ -11,10 +11,6 @@ from mediaman.services.downloads.download_format import (
     map_state,
 )
 
-# ---------------------------------------------------------------------------
-# extract_poster_url
-# ---------------------------------------------------------------------------
-
 
 class TestExtractPosterUrl:
     def test_returns_remote_url_for_poster(self):
@@ -43,11 +39,6 @@ class TestExtractPosterUrl:
         assert extract_poster_url(images) == ""
 
 
-# ---------------------------------------------------------------------------
-# classify_movie_upcoming
-# ---------------------------------------------------------------------------
-
-
 class TestClassifyMovieUpcoming:
     def _movie(self, *, monitored=True, has_file=False, is_available=False, **dates) -> dict:
         m = {
@@ -59,7 +50,6 @@ class TestClassifyMovieUpcoming:
         return m
 
     def test_available_movie_not_upcoming(self):
-        """A movie that is already available should not be upcoming."""
         is_up, label = classify_movie_upcoming(self._movie(is_available=True))
         assert is_up is False
         assert label == ""
@@ -73,7 +63,6 @@ class TestClassifyMovieUpcoming:
         assert is_up is False
 
     def test_upcoming_with_digital_release(self):
-        """A future digital release should produce a 'Releases …' label."""
         is_up, label = classify_movie_upcoming(self._movie(digitalRelease="2099-12-25T00:00:00Z"))
         assert is_up is True
         assert "Releases" in label
@@ -90,11 +79,6 @@ class TestClassifyMovieUpcoming:
         assert is_up is True
         # Should fall back to "Not yet released" because the date exceeds _MAX_FUTURE_YEARS
         assert label == "Not yet released"
-
-
-# ---------------------------------------------------------------------------
-# classify_series_upcoming
-# ---------------------------------------------------------------------------
 
 
 class TestClassifySeriesUpcoming:
@@ -125,7 +109,6 @@ class TestClassifySeriesUpcoming:
         assert "Premieres" in label
 
     def test_series_with_aired_episodes_not_upcoming(self):
-        """If episodes have already aired, the series is not upcoming."""
         eps = [{"airDateUtc": "2000-01-01T00:00:00Z"}]
         is_up, _label = classify_series_upcoming(self._series(status="continuing"), eps)
         assert is_up is False
@@ -141,11 +124,6 @@ class TestClassifySeriesUpcoming:
         assert isinstance(is_up, bool)
 
 
-# ---------------------------------------------------------------------------
-# map_state
-# ---------------------------------------------------------------------------
-
-
 class TestMapState:
     def test_no_nzbget_match_returns_searching(self):
         assert map_state(None, has_nzbget_match=False) == "searching"
@@ -158,11 +136,6 @@ class TestMapState:
 
     def test_pp_state_returns_almost_ready(self):
         assert map_state("PP_PROCESS", has_nzbget_match=True) == "almost_ready"
-
-
-# ---------------------------------------------------------------------------
-# map_arr_status
-# ---------------------------------------------------------------------------
 
 
 class TestMapArrStatus:
@@ -183,11 +156,6 @@ class TestMapArrStatus:
 
     def test_empty_strings_return_searching(self):
         assert map_arr_status("") == "searching"
-
-
-# ---------------------------------------------------------------------------
-# map_episode_state
-# ---------------------------------------------------------------------------
 
 
 class TestMapEpisodeState:

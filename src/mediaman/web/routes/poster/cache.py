@@ -1,37 +1,18 @@
 """Filesystem cache helpers for the poster proxy.
 
-Posters are cached to ``MEDIAMAN_DATA_DIR/poster_cache/`` on first fetch
-and served from disk on subsequent requests, avoiding repeated round-trips
-to Plex or TMDB CDN.
+Path safety: cache filenames are the full SHA-256 hash of the rating_key, so no
+user-supplied string reaches the filesystem (no path traversal or filename injection).
 
-Path safety
------------
-Cache filenames are derived from the Plex ``rating_key`` via a full
-SHA-256 hash (64 hex characters), so no user-supplied string ever lands
-directly on the filesystem.  This eliminates path-traversal and filename-
-injection risks regardless of the rating_key format.
+Sidecar mime files: each image has a .mime sidecar recording the upstream Content-Type.
+Without it cache hits would be served as image/jpeg, breaking PNG/WebP under
+X-Content-Type-Options: nosniff. The sidecar is written atomically and swept with the image.
 
-Sidecar mime files
-------------------
-Each cached image is accompanied by a ``.mime`` sidecar file that records
-the upstream ``Content-Type``.  Without this, cache hits would always be
-served as ``image/jpeg`` — breaking PNG/WebP entries under
-``X-Content-Type-Options: nosniff``.  The sidecar is written atomically
-alongside the image and is swept with it during LRU eviction.
+Atomic writes: image and sidecar use tempfile.NamedTemporaryFile plus os.replace, so readers
+never see a partial write. If os.replace fails, callers must unlink the orphan temp file.
 
-Atomic writes
--------------
-Both the image and the sidecar are written via ``tempfile.NamedTemporaryFile``
-+ ``os.replace``.  This guarantees that concurrent readers never see a
-partial write.  If ``os.replace`` fails after the temp file has been
-created, callers are responsible for unlinking the orphan temp file.
-
-Module state
-------------
-The cache directory and the LRU sweep counter are module-level so a
-single FastAPI worker pays the directory walk at most once per
-``_CACHE_GC_RECHECK_EVERY`` writes.  Tests reset ``_cache_dir`` to
-``None`` between runs.
+Module state: the cache directory and LRU sweep counter are module-level so one worker pays
+the directory walk at most once per _CACHE_GC_RECHECK_EVERY writes. Tests reset _cache_dir
+to None.
 """
 
 from __future__ import annotations
@@ -80,13 +61,9 @@ _cache_dir: Path | None = None
 
 
 def get_cache_dir(data_dir: str) -> Path:
-    """Return (and lazily create) the poster cache directory.
-
-    The lifespan in ``main.py`` calls this at startup so the directory
-    exists before any request arrives. The lazy-init guard keeps subsequent
-    per-request calls cheap (a module-level attribute check rather than a
-    filesystem stat) while remaining safe if called before startup completes
-    in tests or CLI contexts.
+    """Return (and lazily create) the poster cache directory. The lifespan calls it at startup;
+    the lazy guard keeps per-request calls cheap and stays safe in tests or CLI contexts
+    that run before startup.
     """
     global _cache_dir
     if _cache_dir is None:
@@ -98,7 +75,6 @@ def get_cache_dir(data_dir: str) -> Path:
 
 
 def _sweep_oldest(entries: list[tuple[float, int, Path]], total: int) -> None:
-    """Delete oldest entries until total bytes drop under 90% of the cap."""
     entries.sort(key=lambda e: e[0])
     target = int(_CACHE_DIR_MAX_BYTES * 0.9)
     for _mtime, size, path in entries:
@@ -109,7 +85,7 @@ def _sweep_oldest(entries: list[tuple[float, int, Path]], total: int) -> None:
             total -= size
             # Unlink the sidecar unconditionally — the pattern
             # ``<name>.<ext>.mime`` applies to any extension so future
-            # WebP / PNG entries are covered without an extension guard (L5).
+            # WebP / PNG entries are covered without an extension guard.
             sidecar = path.with_suffix(path.suffix + ".mime")
             try:
                 sidecar.unlink()
@@ -124,7 +100,6 @@ def _sweep_oldest(entries: list[tuple[float, int, Path]], total: int) -> None:
 
 
 def _bump_gc_counter() -> bool:
-    """Increment the throttled-sweep counter and return True when it tripped."""
     global _cache_gc_counter
     with _cache_gc_counter_lock:
         _cache_gc_counter += 1
@@ -134,17 +109,12 @@ def _bump_gc_counter() -> bool:
 
 
 def maybe_sweep_cache(cache_dir: Path) -> None:
-    """Opportunistically delete oldest cache entries when over the cap.
+    """Opportunistically delete oldest cache entries (by mtime) until the total is under 90% of
+    _CACHE_DIR_MAX_BYTES.
 
-    Called from the cache-write path. The sweep walks the directory
-    once, sums up sizes, and — if total exceeds
-    :data:`_CACHE_DIR_MAX_BYTES` — deletes oldest-mtime files until the
-    total is back under 90% of the cap.
-
-    The walk is guarded by a non-blocking lock so concurrent writers
-    don't stampede the same directory; if another thread is already
-    sweeping, we skip and return.  The throttled counter means the
-    expensive walk only runs once per ``_CACHE_GC_RECHECK_EVERY`` writes.
+    The walk holds a non-blocking lock so concurrent writers do not stampede the directory
+    (another sweeper means skip), and a throttled counter runs it once per
+    _CACHE_GC_RECHECK_EVERY writes.
     """
     if not _bump_gc_counter():
         return
@@ -153,7 +123,7 @@ def maybe_sweep_cache(cache_dir: Path) -> None:
     # Reset the counter under its own lock so concurrent increments from
     # other threads (which only acquire _cache_gc_counter_lock) cannot tear
     # the reset.  The GC lock is already held here, preventing a second
-    # concurrent sweep from racing the counter reset (B3).
+    # concurrent sweep from racing the counter reset.
     with _cache_gc_counter_lock:
         global _cache_gc_counter
         _cache_gc_counter = 0
@@ -191,13 +161,9 @@ def write_poster_cache(
     content: bytes,
     content_type: str,
 ) -> None:
-    """Write poster content to disk atomically, then trigger an LRU sweep.
-
-    Writes to a temp file in the same directory (guaranteeing same
-    filesystem), then ``os.replace`` into place so another reader cannot
-    see a partial write.  On failure after the temp file was written,
-    the temp must be removed explicitly — leaving it would orphan disk
-    space until the next sweep.
+    """Write poster content atomically (temp file in the same directory, then os.replace), then
+    trigger an LRU sweep. On failure the temp file is removed explicitly, or it would orphan
+    disk space until the next sweep.
     """
     temp_path: str | None = None
     try:
@@ -229,27 +195,12 @@ ALLOWED_IMAGE_MIMES: frozenset[str] = frozenset(
 
 
 def read_sidecar_mime(cache_path: Path) -> str:
-    """Return the mime type recorded for a cached poster, or ``image/jpeg``.
+    """Return the mime type recorded for a cached poster, or image/jpeg.
 
-    The sidecar file lives at ``<cache_path>.mime`` (e.g.
-    ``abc123.jpg.mime``) and contains a plain ASCII string such as
-    ``image/png``.
-
-    Falls back to ``image/jpeg`` when the sidecar:
-
-    * does not exist (legacy entries written before sidecar support),
-    * is empty or longer than 64 bytes (malformed / truncated write),
-    * names a mime type that is not in :data:`ALLOWED_IMAGE_MIMES`
-      (defensive: never trust sidecar content unconditionally — a
-      compromised cache write could otherwise inject a hostile
-      Content-Type).
-
-    Args:
-        cache_path: Absolute path to the cached image file.
-
-    Returns:
-        A safe mime type string, always one of :data:`ALLOWED_IMAGE_MIMES`
-        or ``"image/jpeg"``.
+    Falls back to image/jpeg when the sidecar (<cache_path>.mime) is missing (legacy
+    entries), empty or over 64 bytes (malformed write), or names a type outside
+    ALLOWED_IMAGE_MIMES. Sidecar content is never trusted unconditionally: a compromised
+    cache write could otherwise inject a hostile Content-Type.
     """
     sidecar = cache_path.with_suffix(cache_path.suffix + ".mime")
     try:
@@ -264,23 +215,10 @@ def read_sidecar_mime(cache_path: Path) -> str:
 
 
 def write_sidecar_mime(cache_path: Path, mime: str) -> None:
-    """Atomically persist the served mime type alongside *cache_path*.
-
-    Mirrors the temp-file + ``os.replace`` pattern used for the image
-    bytes.  The sidecar is written to a ``.mime.tmp`` temp file in the
-    same directory (guaranteeing same filesystem), then renamed into place.
-
-    Failure is non-fatal: if the sidecar cannot be written, the next
-    cache hit falls back to ``image/jpeg``, which is the safe default.
-    Callers should not raise on failure from this function.
-
-    Args:
-        cache_path: Absolute path to the cached image file.
-        mime:       The mime type to persist.  If not in
-                    :data:`ALLOWED_IMAGE_MIMES`, ``"image/jpeg"`` is stored
-                    instead — the allow-list is enforced at write time so
-                    the sidecar can never contain a hostile value even if
-                    the caller passes through an unchecked upstream header.
+    """Atomically persist the served mime type alongside cache_path (temp file in the same
+    directory, then rename). Failure is non-fatal: the next cache hit falls back to
+    image/jpeg. A mime outside ALLOWED_IMAGE_MIMES is stored as image/jpeg, so an unchecked
+    upstream header can never put a hostile value in the sidecar.
     """
     sidecar = cache_path.with_suffix(cache_path.suffix + ".mime")
     safe = mime if mime in ALLOWED_IMAGE_MIMES else "image/jpeg"

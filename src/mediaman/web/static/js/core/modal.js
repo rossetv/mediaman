@@ -89,7 +89,7 @@
     function close() {
       if (!modalEl) return;
       /* Remove the fallback ESC listener on teardown to prevent listener
-         accumulation across multiple open/close cycles (R8-L3). */
+         accumulation across multiple open/close cycles. */
       if (_escHandler) {
         document.removeEventListener('keydown', _escHandler);
         _escHandler = null;
@@ -118,12 +118,11 @@
       if (typeof opts.onOpen === 'function') opts.onOpen(payload);
     }
 
-    /* ── Backdrop click ── */
     modalEl.addEventListener('click', function (e) {
       if (e.target === modalEl) close();
     });
 
-    /* ── ESC key — fall back if ModalA11y isn't loaded ──
+    /* ESC key: fall back if ModalA11y isn't loaded.
      * Only act on ESC when this specific modal is currently visible —
      * avoids closing a hidden modal (wasteful) and avoids two
      * setupDetail-managed modals on the same page from each handling
@@ -142,12 +141,10 @@
       document.addEventListener('keydown', _escHandler);
     }
 
-    /* ── Register with ModalA11y so it owns the ESC / focus-trap ── */
     if (useModalA11y && global.ModalA11y && modalEl.id) {
       global.ModalA11y.register(modalEl.id, close);
     }
 
-    /* ── Wire [data-close-modal] buttons inside the modal ── */
     var closeBtns = modalEl.querySelectorAll('[data-close-modal]');
     for (var i = 0; i < closeBtns.length; i++) {
       closeBtns[i].addEventListener('click', close);

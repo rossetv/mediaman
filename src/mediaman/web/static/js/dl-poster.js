@@ -3,7 +3,7 @@
  *
  * Reads the URL from data-bg-url on .dl-hero-bg elements and applies it via
  * element.style.setProperty('background-image', 'url(' + JSON.stringify(url) + ')')
- * rather than server-side CSS string injection (H67).
+ * rather than server-side CSS string injection.
  *
  * Also handles the JS-built hero card in download.html (buildHeroCard).
  */

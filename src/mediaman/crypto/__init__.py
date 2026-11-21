@@ -1,12 +1,12 @@
-"""Encryption and HMAC-token signing — facade over :mod:`aes` and :mod:`tokens`.
+"""Encryption and HMAC-token signing — facade over aes and tokens.
 
-Callers import every symbol from :mod:`mediaman.crypto`.
+Callers import every symbol from mediaman.crypto.
 
-Allowed dependencies: :mod:`cryptography` (AESGCM, HKDF), stdlib :mod:`hmac`,
-:mod:`hashlib`, :mod:`secrets`, and :mod:`mediaman.core` (time helpers only).
-Forbidden: no DB access beyond canary/salt rows (via :mod:`mediaman.crypto.aes`
-only), no logging of key material, no imports from :mod:`mediaman.services` or
-:mod:`mediaman.web`.
+Allowed dependencies: cryptography (AESGCM, HKDF), stdlib hmac,
+hashlib, secrets, and mediaman.core (time helpers only).
+Forbidden: no DB access beyond canary/salt rows (via mediaman.crypto.aes
+only), no logging of key material, no imports from mediaman.services or
+mediaman.web.
 """
 
 from __future__ import annotations

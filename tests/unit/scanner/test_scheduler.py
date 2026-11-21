@@ -115,7 +115,7 @@ def test_module_level_scheduler_ref_is_set_after_start(mock_cls):
 @patch("apscheduler.schedulers.background.BackgroundScheduler")
 def test_start_scheduler_called_twice_does_not_create_two_schedulers(mock_cls):
     """Calling start_scheduler a second time must return the existing instance
-    and must not instantiate a second BackgroundScheduler (C17: idempotent start)."""
+    and must not instantiate a second BackgroundScheduler (idempotent start)."""
     mock_instance = MagicMock()
     mock_cls.return_value = mock_instance
 
@@ -127,9 +127,6 @@ def test_start_scheduler_called_twice_does_not_create_two_schedulers(mock_cls):
     assert mock_cls.call_count == 1
     # start() must also have been called exactly once.
     mock_instance.start.assert_called_once()
-
-
-# ── Domain 05: misfire_grace_time and connection cleanup ───────────────────
 
 
 @patch("apscheduler.schedulers.background.BackgroundScheduler")
@@ -161,7 +158,7 @@ def test_every_job_has_misfire_grace_time(mock_cls):
 def test_stop_scheduler_closes_tracked_db_connections(mock_cls):
     """``stop_scheduler`` must close every connection opened by job lambdas.
 
-    Regression for Domain 05: ``cleanup_recent_downloads`` and
+    Regression: ``cleanup_recent_downloads`` and
     ``trigger_pending_searches`` lambdas open a thread-local DB
     connection on first fire, and previously nothing closed them at
     shutdown — every reload leaked file descriptors and write
@@ -214,11 +211,8 @@ def test_stop_scheduler_continues_if_one_close_raises(mock_cls):
     good_conn.close.assert_called_once_with()
 
 
-# ── H61: bind host resolution ───────────────────────────────────────────────
-
-
 class TestResolveBindHost:
-    """H61: MEDIAMAN_BIND_HOST controls the uvicorn bind address."""
+    """MEDIAMAN_BIND_HOST controls the uvicorn bind address."""
 
     def test_defaults_to_localhost(self, monkeypatch):
         monkeypatch.delenv("MEDIAMAN_BIND_HOST", raising=False)
@@ -239,11 +233,8 @@ class TestResolveBindHost:
         assert _resolve_bind_host() == "127.0.0.1"
 
 
-# ── Finding 3: single-worker enforcement ────────────────────────────────────
-
-
 class TestEnforceSingleWorker:
-    """Finding 3: refuse to start with WORKERS > 1 in any of the env vars
+    """Refuse to start with WORKERS > 1 in any of the env vars
     that uvicorn (or our launchers) might respect."""
 
     def test_no_env_var_is_a_noop(self, monkeypatch):
@@ -299,11 +290,8 @@ class TestEnforceSingleWorker:
         enforce_single_worker()  # must not raise
 
 
-# ── Finding 28: cli_main bind-host fallback ─────────────────────────────────
-
-
 class TestConfigBindHostUnsetMeansResolve:
-    """Finding 28: when MEDIAMAN_BIND_HOST is unset, load_config() leaves
+    """When MEDIAMAN_BIND_HOST is unset, load_config() leaves
     bind_host empty so cli_main can defer to _resolve_bind_host()."""
 
     def test_unset_env_yields_empty_bind_host(self, monkeypatch):
@@ -323,11 +311,8 @@ class TestConfigBindHostUnsetMeansResolve:
         assert cfg.bind_host == "10.0.0.1"
 
 
-# ── H64: scan_time validation ────────────────────────────────────────────────
-
-
 class TestValidateScanTime:
-    """H64: scan_time must be validated as a proper HH:MM 24-hour time."""
+    """``scan_time`` must be validated as a proper HH:MM 24-hour time."""
 
     def test_valid_times_parse_correctly(self):
         from mediaman.bootstrap.validators import validate_scan_time as _validate_scan_time

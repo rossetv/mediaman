@@ -4,7 +4,7 @@ Owns the first step of startup: ensure the data directory is writable, open
 the bootstrap connection, register it for repository-level lookups, and
 attach the resolved config plus connection to ``app.state``.
 
-The data-dir writability helpers live in :mod:`mediaman.bootstrap.data_dir`.
+The data-dir writability helpers live in mediaman.bootstrap.data_dir.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ def bootstrap_db(app: FastAPI, config: Config) -> None:
     Side effects on ``app.state``:
 
     - ``app.state.config`` — the resolved config object.
-    - ``app.state.db`` — the bootstrap :class:`sqlite3.Connection`.
+    - ``app.state.db`` — the bootstrap sqlite3.Connection.
     - ``app.state.db_path`` — absolute path of the DB file.
     """
     from mediaman.db import init_db, set_connection

@@ -2,7 +2,7 @@
  * downloads.js — page entry point for /downloads.
  *
  * Polls /api/downloads on a 2 s cadence and updates the hero / queue /
- * upcoming / recent grid in place. After Phase 8B the heavy lifting
+ * upcoming / recent grid in place. The heavy lifting
  * lives in:
  *   - downloads/build_dom.js     — DOM helpers + placeholder builders
  *   - downloads/render_hero.js   — patch the hero card in place
@@ -32,7 +32,6 @@
   function renderRow()    { return MM.downloads.renderRow; }
   function renderRecent() { return MM.downloads.renderRecent; }
 
-  /* ── Main update ── */
   function update(data) {
     var dom = buildDom();
     var heroContainer = document.getElementById('dl-hero-container');
@@ -138,7 +137,6 @@
     renderRecent().updateRecent(recentContainer, data.recent);
   }
 
-  /* ── Episode toggle ── */
   document.addEventListener('click', function (e) {
     var toggle = e.target.closest('[data-v="ep-toggle"]');
     if (!toggle) return;

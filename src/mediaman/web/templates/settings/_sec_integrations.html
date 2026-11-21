@@ -6,7 +6,6 @@
 
 {% call c.setg_block("setg-integrations", "Integrations", "External services Mediaman talks to") %}
 
-  {# ===== PLEX ===== #}
   {{ c.service_card("plex", "P", "plex", "Plex",
       "Media server connection for library scanning and watch history.",
       fields=[
@@ -26,7 +25,6 @@
       ],
       settings=settings) }}
 
-  {# ===== SONARR ===== #}
   {{ c.service_card("sonarr", "S", "sonarr", "Sonarr",
       "TV show management — used for unmonitoring and re-downloading.",
       fields=[
@@ -45,7 +43,6 @@
       ],
       settings=settings) }}
 
-  {# ===== RADARR ===== #}
   {{ c.service_card("radarr", "R", "radarr", "Radarr",
       "Movie management — used for unmonitoring and re-downloading.",
       fields=[
@@ -64,7 +61,6 @@
       ],
       settings=settings) }}
 
-  {# ===== NZBGET ===== #}
   {{ c.service_card("nzbget", "N", "nzbget", "NZBGet",
       "Download client for re-downloading deleted media.",
       fields=[
@@ -85,7 +81,6 @@
       ],
       settings=settings) }}
 
-  {# ===== MAILGUN ===== #}
   {{ c.service_card("mailgun", "M", "mailgun", "Email (Mailgun)",
       "Newsletter delivery for deletion notifications.",
       fields=[
@@ -102,7 +97,6 @@
       ],
       settings=settings) }}
 
-  {# ===== OPENAI ===== #}
   {{ c.service_card("openai", "AI", "openai", "OpenAI",
       "Powers AI media recommendations.",
       fields=[
@@ -121,7 +115,6 @@
       ],
       settings=settings) }}
 
-  {# ===== TMDB ===== #}
   {{ c.service_card("tmdb", "T", "tmdb", "TMDB",
       "Poster images for media recommendations.",
       fields=[
@@ -135,7 +128,6 @@
       ],
       settings=settings) }}
 
-  {# ===== OMDB ===== #}
   {{ c.service_card("omdb", "O", "omdb", "OMDB",
       "Rotten Tomatoes ratings for media recommendations.",
       fields=[

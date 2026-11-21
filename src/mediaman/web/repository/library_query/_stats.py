@@ -16,7 +16,6 @@ from mediaman.web.repository.library_query._query import (
 
 
 def count_movies(conn: sqlite3.Connection) -> int:
-    """Return the count of movie rows in ``media_items``."""
     row = conn.execute(
         "SELECT COUNT(*) AS n FROM media_items WHERE media_type = 'movie'"
     ).fetchone()
@@ -24,7 +23,6 @@ def count_movies(conn: sqlite3.Connection) -> int:
 
 
 def count_tv_shows(conn: sqlite3.Connection) -> int:
-    """Return the count of distinct TV shows (grouped by show_rating_key/show_title)."""
     # rationale: placeholders is purely "?" * len(TV_SEASON_TYPES) — no user value ever enters the SQL text
     placeholders = ",".join("?" * len(TV_SEASON_TYPES))
     row = conn.execute(
@@ -39,7 +37,6 @@ def count_tv_shows(conn: sqlite3.Connection) -> int:
 
 
 def count_anime_shows(conn: sqlite3.Connection) -> int:
-    """Return the count of distinct anime shows (grouped by show_rating_key/show_title)."""
     # rationale: placeholders is purely "?" * len(ANIME_SEASON_TYPES) — no user value ever enters the SQL text
     placeholders = ",".join("?" * len(ANIME_SEASON_TYPES))
     row = conn.execute(
@@ -56,8 +53,8 @@ def count_anime_shows(conn: sqlite3.Connection) -> int:
 def count_stale(conn: sqlite3.Connection, *, age_cutoff: str, watch_cutoff: str) -> int:
     """Return the count of stale *display items* — stale movies plus stale shows.
 
-    Counts in the same unit as :func:`count_movies` + :func:`count_tv_shows`
-    + :func:`count_anime_shows` (and the library ``stale`` filter): movies
+    Counts in the same unit as `count_movies` + `count_tv_shows`
+    + `count_anime_shows` (and the library ``stale`` filter): movies
     are counted per row, but TV/anime seasons are grouped into one entry per
     show via ``COALESCE(show_rating_key, show_title)``.
 
@@ -66,7 +63,7 @@ def count_stale(conn: sqlite3.Connection, *, age_cutoff: str, watch_cutoff: str)
     "Stale" number exceed the total item count (a logically impossible
     ``266 of 138``).  A show is stale when it has at least one stale season,
     mirroring the ``stale`` filter's per-row WHERE + GROUP BY in
-    :func:`mediaman.web.repository.library_query._query._build_cte_sql`.
+    `mediaman.web.repository.library_query._query._build_cte_sql`.
     """
     # rationale: placeholders are purely "?" * len(...) — no user value enters the SQL text
     season_placeholders = ",".join("?" * len(ALL_SEASON_TYPES))
@@ -91,6 +88,5 @@ def count_stale(conn: sqlite3.Connection, *, age_cutoff: str, watch_cutoff: str)
 
 
 def sum_total_size_bytes(conn: sqlite3.Connection) -> int:
-    """Return the total file_size_bytes across all media items (0 when empty)."""
     row = conn.execute("SELECT SUM(file_size_bytes) AS n FROM media_items").fetchone()
     return int(row["n"] or 0)

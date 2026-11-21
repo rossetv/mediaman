@@ -1,6 +1,6 @@
 """Taxonomy guard: ip_resolver must not import fastapi at runtime.
 
-This test documents the §2.6 compliance fix: ``services/rate_limit/ip_resolver``
+This test documents a fix: ``services/rate_limit/ip_resolver``
 previously imported ``fastapi.Request`` unconditionally, coupling the services
 layer to the web stack.  The module must remain importable in a Python process
 where ``fastapi`` is absent (or blocked) — e.g. scheduled jobs, CLI scripts.

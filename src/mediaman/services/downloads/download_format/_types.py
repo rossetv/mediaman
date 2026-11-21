@@ -19,13 +19,10 @@ DOWNLOAD_STATE_LABELS: dict[str, str] = {
 
 
 def state_label(state: str) -> str:
-    """Return the user-visible label for a download state, or the state itself if unknown."""
     return DOWNLOAD_STATE_LABELS.get(state, state)
 
 
 class DownloadItem(TypedDict):
-    """A single item on the downloads page, as returned by build_item()."""
-
     id: str
     title: str
     media_type: str
