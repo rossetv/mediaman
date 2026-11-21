@@ -30,6 +30,7 @@ from mediaman.scanner.repository.scheduled_actions import (
     claim_due_deletion,
     claim_due_deletions_under,
     fetch_media_held_outside_pass,
+    is_latest_audit,
 )
 from mediaman.services.arr.base import ArrError
 from mediaman.services.infra import (
@@ -503,13 +504,13 @@ class DeletionExecutor:
                 path,
                 names,
             )
-            log_audit(
-                self._conn,
-                row.media_item_id,
-                "delete_refused",
+            detail = (
                 f"Not deleted: {row.title} — {path} also holds media that is not "
-                f"due for deletion ({names})",
+                f"due for deletion ({names})"
             )
+            # The refusal repeats every pass until something changes; audit it once.
+            if not is_latest_audit(self._conn, row.media_item_id, "delete_refused", detail):
+                log_audit(self._conn, row.media_item_id, "delete_refused", detail)
             return False
         if not mounted:
             logger.error(

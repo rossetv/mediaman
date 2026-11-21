@@ -914,3 +914,50 @@ class TestDiskChecksOutsideWriteLock:
         recover_stuck_deletions(conn)
 
         assert len(seen) == 2 and not any(seen)
+
+
+class TestRefusalAudit:
+    def _flat_show(self, conn, tmp_path, monkeypatch, *, kept):
+        root = tmp_path / "tv"
+        show = root / "Show"
+        show.mkdir(parents=True)
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        for number in (1, *kept):
+            (show / f"Show - s0{number}e01.mkv").write_bytes(b"x")
+            insert_media_item(
+                conn,
+                id=f"s{number}",
+                title="Show",
+                plex_rating_key=f"s{number}",
+                media_type="season",
+                season_number=number,
+                file_path=str(show),
+            )
+        _due_row(conn, "s1")
+        return show
+
+    def test_a_row_refused_on_every_pass_is_audited_once(self, conn, tmp_path, monkeypatch):
+        self._flat_show(conn, tmp_path, monkeypatch, kept=[2])
+
+        DeletionExecutor(conn=conn).execute()
+        DeletionExecutor(conn=conn).execute()
+
+        assert _audits(conn, "s1") == ["delete_refused"]
+
+    def test_a_refusal_for_a_new_reason_is_audited_again(self, conn, tmp_path, monkeypatch):
+        show = self._flat_show(conn, tmp_path, monkeypatch, kept=[2])
+        DeletionExecutor(conn=conn).execute()
+        (show / "Show - s03e01.mkv").write_bytes(b"x")
+        insert_media_item(
+            conn,
+            id="s3",
+            title="Show",
+            plex_rating_key="s3",
+            media_type="season",
+            season_number=3,
+            file_path=str(show),
+        )
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert _audits(conn, "s1") == ["delete_refused", "delete_refused"]

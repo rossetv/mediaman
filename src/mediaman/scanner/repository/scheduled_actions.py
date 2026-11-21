@@ -59,6 +59,7 @@ __all__ = [
     "fetch_stuck_deletions",
     "has_expired_snooze",
     "is_already_scheduled",
+    "is_latest_audit",
     "is_protected",
     "is_show_kept",
     "is_show_kept_pure",
@@ -225,6 +226,15 @@ def claim_due_deletions_under(
         for row in candidates
         if _at_or_under(row.file_path, path) and claim_due_deletion(conn, row.id, now_iso)
     ]
+
+
+def is_latest_audit(conn: sqlite3.Connection, media_item_id: str, action: str, detail: str) -> bool:
+    """Return True if the newest audit entry for *media_item_id* is *action* with *detail*."""
+    row = conn.execute(
+        "SELECT action, detail FROM audit_log WHERE media_item_id = ? ORDER BY id DESC LIMIT 1",
+        (media_item_id,),
+    ).fetchone()
+    return row is not None and (row["action"], row["detail"]) == (action, detail)
 
 
 def mark_delete_status(conn: sqlite3.Connection, action_id: int, status: str) -> None:
