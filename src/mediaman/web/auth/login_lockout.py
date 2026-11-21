@@ -419,6 +419,18 @@ def record_success(conn: sqlite3.Connection, username: str) -> None:
     conn.commit()
 
 
+def clear_unlocked_login_failures(conn: sqlite3.Connection, username: str) -> None:
+    """Clear *username*'s login failure counter unless the login is locked.
+
+    For a password proved outside the login form (re-auth, password
+    change): it ends a streak of typos, but must not lift a lock that
+    someone else's guesses set.
+    """
+    key = login_key(username)
+    if not is_locked_out(conn, key):
+        record_success(conn, key)
+
+
 def admin_unlock(conn: sqlite3.Connection, username: str) -> bool:
     """Clear the login and re-auth failure counters and locks for *username*.
 

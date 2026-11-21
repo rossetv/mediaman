@@ -260,6 +260,27 @@ class TestVerifyReauthPassword:
         ).fetchone()
         assert ns_row is None
 
+    def test_login_lock_does_not_block_reauth(self, conn):
+        from mediaman.web.auth.password_hash import authenticate
+
+        for _ in range(5):
+            authenticate(conn, "alice", "wrong")
+
+        assert verify_reauth_password(conn, "alice", "correct-password-99") is True
+
+    def test_failure_does_not_add_to_login_lock(self, conn):
+        from mediaman.web.auth.password_hash import authenticate
+
+        for _ in range(5):
+            authenticate(conn, "alice", "wrong")
+
+        verify_reauth_password(conn, "alice", "wrong")
+
+        plain = conn.execute(
+            "SELECT failure_count FROM login_failures WHERE username = ?", ("alice",)
+        ).fetchone()
+        assert plain["failure_count"] == 5
+
 
 class TestMaxAgeClamp:
     def test_negative_max_age_is_clamped_to_zero(self, conn, freezer):

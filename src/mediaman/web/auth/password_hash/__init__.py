@@ -11,7 +11,8 @@ The package holds three concepts, one private module each:
   ``user_must_change_password``, ``set_must_change_password``) plus the
   `UserExistsError` / `UserRecord` vocabulary.
 * `._authenticate` — the credential-verification path
-  (``authenticate`` and its short-circuit / bcrypt-verify helpers).
+  (``authenticate``, the bare ``verify_password`` check, and their
+  short-circuit / bcrypt-verify helpers).
 * `._change_password` — password rotation (``change_password`` and
   its pre-/post-transaction guard helpers).
 
@@ -51,7 +52,7 @@ versa) would lock everyone out.
 from __future__ import annotations
 
 from mediaman.web.auth._password_hash_helpers import BCRYPT_ROUNDS
-from mediaman.web.auth.password_hash._authenticate import authenticate
+from mediaman.web.auth.password_hash._authenticate import authenticate, verify_password
 from mediaman.web.auth.password_hash._change_password import change_password
 from mediaman.web.auth.password_hash._user_crud import (
     UserExistsError,
@@ -78,4 +79,5 @@ __all__ = [
     "set_must_change_password",
     "set_user_email",
     "user_must_change_password",
+    "verify_password",
 ]

@@ -181,8 +181,7 @@ class TestAuthenticateIntegration:
         """The locked short-circuit must bump the counter
         regardless of ``record_failures`` so the escalation bands
         (5 → 10 → 15) stay reachable on EVERY path — including callers that
-        pass ``record_failures=False`` (``verify_reauth_password``,
-        ``_authorise_password_change``).
+        pass ``record_failures=False``.
 
         Previously a ``record_failures=False`` attempt against a locked
         account returned ``False`` without incrementing, stalling the

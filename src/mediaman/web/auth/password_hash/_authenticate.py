@@ -1,9 +1,11 @@
 """The credential-verification path.
 
-Owns `authenticate` and its two private helpers. The "constant
-time across the meaningful branches" property — a real-username probe
-and a fake-username probe burn the same bcrypt latency — is implemented
-here: see `_verify_credentials_against_db`'s dummy bcrypt cycle.
+Owns `authenticate` (the login check, gated by the login lockout) and
+`verify_password` (the bare password check behind it, which re-auth and
+password change use with their own counter). The "constant time across
+the meaningful branches" property — a real-username probe and a
+fake-username probe burn the same bcrypt latency — is implemented here:
+see `verify_password`'s dummy bcrypt cycle.
 
 User CRUD lives in `._user_crud`; password rotation in
 `._change_password`.
@@ -40,8 +42,7 @@ def _short_circuit_authenticate(
     of *record_failures* — so the escalation thresholds
     (5 → 10 → 15 failures → 15 min / 1 h / 24 h) remain reachable on
     every authentication path, including callers that pass
-    ``record_failures=False`` (``verify_reauth_password``,
-    ``_authorise_password_change``). See ``test_login_lockout.py``.
+    ``record_failures=False``. See ``test_login_lockout.py``.
     The *record_failures* flag governs only the bcrypt-verify path's
     decision to count a wrong-password attempt; once an account is
     already locked, counting the continued hammering is what keeps the
@@ -71,6 +72,24 @@ def _short_circuit_authenticate(
     return None
 
 
+def verify_password(conn: sqlite3.Connection, username: str, password: str) -> bool:
+    """Check *password* against the stored hash for *username*.
+
+    Reads and writes no failure counter and ignores any lock: callers
+    bring their own. Burns a constant-time dummy bcrypt cycle on the
+    "user not found" path so a real-username probe and a fake-username
+    probe take ~the same wall time — timing cannot enumerate valid
+    usernames.
+    """
+    row = conn.execute(
+        "SELECT password_hash FROM admin_users WHERE username=?", (username,)
+    ).fetchone()
+    if row is None:
+        bcrypt.checkpw(_prepare_bcrypt_input(password), _get_dummy_hash())
+        return False
+    return bcrypt.checkpw(_prepare_bcrypt_input(password), row["password_hash"].encode())
+
+
 def _verify_credentials_against_db(
     conn: sqlite3.Connection,
     username: str,
@@ -78,30 +97,14 @@ def _verify_credentials_against_db(
     *,
     record_failures: bool,
 ) -> bool:
-    """Do the bcrypt-verify dance against the stored hash for *username*.
-
-    Burns a constant-time dummy bcrypt cycle on the "user not found"
-    path so a real-username probe and a fake-username probe take ~the
-    same wall time — timing cannot enumerate valid usernames.
-    """
+    """Run `verify_password` and update the login failure counter."""
     from mediaman.web.auth.login_lockout import login_key, record_failure, record_success
 
-    key = login_key(username)
-    row = conn.execute(
-        "SELECT password_hash FROM admin_users WHERE username=?", (username,)
-    ).fetchone()
-
-    if row is None:
-        bcrypt.checkpw(_prepare_bcrypt_input(password), _get_dummy_hash())
-        if record_failures:
-            record_failure(conn, key)
-        return False
-
-    ok = bcrypt.checkpw(_prepare_bcrypt_input(password), row["password_hash"].encode())
+    ok = verify_password(conn, username, password)
     if ok:
-        record_success(conn, key)
+        record_success(conn, login_key(username))
     elif record_failures:
-        record_failure(conn, key)
+        record_failure(conn, login_key(username))
     return ok
 
 

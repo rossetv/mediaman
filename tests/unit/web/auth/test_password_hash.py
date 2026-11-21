@@ -20,6 +20,7 @@ from mediaman.web.auth.password_hash import (
     list_users,
     set_must_change_password,
     user_must_change_password,
+    verify_password,
 )
 from mediaman.web.auth.reauth import REAUTH_LOCKOUT_PREFIX
 
@@ -127,6 +128,27 @@ class TestChangePassword:
         change_password(conn, "alice", "old-pass", "new-pass", enforce_policy=False)
 
         assert user_must_change_password(conn, "alice") is False
+
+    def test_change_succeeds_while_login_is_locked(self, conn):
+        create_user(conn, "alice", "old-pass", enforce_policy=False)
+        for _ in range(5):
+            authenticate(conn, "alice", "wrong")
+
+        ok = change_password(conn, "alice", "old-pass", "new-pass", enforce_policy=False)
+
+        assert ok is True
+
+    def test_wrong_old_password_does_not_add_to_login_lock(self, conn):
+        create_user(conn, "alice", "old-pass", enforce_policy=False)
+        for _ in range(5):
+            authenticate(conn, "alice", "wrong")
+
+        change_password(conn, "alice", "wrong-old", "new-pass", enforce_policy=False)
+
+        row = conn.execute(
+            "SELECT failure_count FROM login_failures WHERE username = ?", ("alice",)
+        ).fetchone()
+        assert row["failure_count"] == 5
 
 
 class TestMustChangePassword:
@@ -367,19 +389,19 @@ class TestChangePasswordFailureLogging:
 
 
 class TestChangePasswordTOCTOU:
-    def test_user_deleted_between_authenticate_and_update(self, conn):
-        """If the user is deleted between authenticate() returning True
-        and the UPDATE running, change_password() must roll back and
+    def test_user_deleted_between_password_check_and_update(self, conn):
+        """If the user is deleted between the old-password check returning
+        True and the UPDATE running, change_password() must roll back and
         return False — not silently claim success."""
         create_user(conn, "alice", "correct-old", enforce_policy=False)
 
-        # Race: delete the user *during* authenticate() but before the
-        # UPDATE. We do that by patching authenticate to side-effect
+        # Race: delete the user *during* the password check but before
+        # the UPDATE. We do that by patching the check to side-effect
         # the deletion just before returning True.
-        original_authenticate = authenticate
+        original_verify = verify_password
 
-        def authenticate_then_delete(c, u, p, *, record_failures=True):
-            result = original_authenticate(c, u, p, record_failures=record_failures)
+        def verify_then_delete(c, u, p):
+            result = original_verify(c, u, p)
             if result and u == "alice":
                 # Race in: deletion happens before our caller's UPDATE.
                 c.execute("DELETE FROM admin_users WHERE username = ?", (u,))
@@ -387,8 +409,8 @@ class TestChangePasswordTOCTOU:
             return result
 
         with patch(
-            "mediaman.web.auth.password_hash._change_password.authenticate",
-            side_effect=authenticate_then_delete,
+            "mediaman.web.auth.password_hash._change_password.verify_password",
+            side_effect=verify_then_delete,
         ):
             ok = change_password(conn, "alice", "correct-old", "new-pass-2", enforce_policy=False)
         assert ok is False
@@ -431,11 +453,10 @@ class TestChangePasswordCounterCleanupCatchNarrowed:
     exception is a bug in ``record_success`` and must propagate rather
     than being silently swallowed.
 
-    ``record_success`` is also called by ``authenticate`` on the
-    success path *before* the cleanup site, so the patches below raise
-    only for the re-auth namespace — that is the key the
-    post-transaction cleanup call passes, never the login key the
-    ``authenticate`` path uses.
+    ``record_success`` is also called by ``authenticate`` on a login
+    success, so the patches below raise only for the re-auth namespace —
+    that is the key the post-transaction cleanup call passes, never the
+    login key ``authenticate`` uses.
     """
 
     @staticmethod

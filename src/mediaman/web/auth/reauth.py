@@ -143,9 +143,11 @@ def verify_reauth_password(
 
     * Repeated wrong-password attempts at the reauth endpoint trip the
       same escalating 5/10/15 thresholds as the login endpoint.
-    * The plain-login counter for ``admin`` is NOT bumped — otherwise an
-      attacker with a session cookie could lock the legitimate user out of
-      the login flow without ever knowing the password.
+    * The plain-login counter for ``admin`` is never bumped and a login
+      lockout never blocks re-auth — otherwise an attacker with a session
+      cookie could lock the legitimate user out of the login flow without
+      ever knowing the password, and an attacker hammering the login form
+      could lock a live session out of re-auth.
     * The re-auth lock blocks reauth attempts *only*; the user can still
       sign in normally if their session expires.
 
@@ -155,11 +157,12 @@ def verify_reauth_password(
     client.
     """
     from mediaman.web.auth.login_lockout import (
+        clear_unlocked_login_failures,
         is_locked_out,
         record_failure,
         record_success,
     )
-    from mediaman.web.auth.password_hash import authenticate
+    from mediaman.web.auth.password_hash import verify_password
 
     namespace = reauth_key(admin)
 
@@ -190,8 +193,9 @@ def verify_reauth_password(
         )
         return False
 
-    if authenticate(conn, admin, password, record_failures=False):
+    if verify_password(conn, admin, password):
         record_success(conn, namespace)
+        clear_unlocked_login_failures(conn, admin)
         return True
 
     record_failure(conn, namespace)
