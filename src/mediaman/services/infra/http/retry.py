@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import email.utils
 import logging
+import math
 import random
 import time
 from collections.abc import Callable
@@ -93,7 +94,7 @@ def _retry_after_seconds(value: str | None) -> float | None:
     Accepts both the integer-seconds form (``"30"``) and the HTTP-date form
     (RFC 7231 §7.1.1.1).  Returns the delay capped to
     ``_RETRY_AFTER_MAX_SECONDS``.  Returns ``None`` for missing or
-    unparseable values.
+    unparseable values, including ``nan``; ``inf`` is capped like any large value.
     """
     if not value:
         return None
@@ -103,6 +104,8 @@ def _retry_after_seconds(value: str | None) -> float | None:
     # Integer-seconds form first — it's the common case.
     try:
         seconds = float(raw)
+        if math.isnan(seconds):
+            return None
         if seconds < 0:
             return 0.0
         return min(seconds, _RETRY_AFTER_MAX_SECONDS)
