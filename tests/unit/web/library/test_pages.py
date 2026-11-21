@@ -157,3 +157,7 @@ class TestFinding35BulkKeepResponseOk:
         remove_all = remove_all[: remove_all.index("var _pendingDeleteId")]
         assert ".catch(function () { failed.push(" in remove_all
         assert "if (failed.length)" in remove_all
+        keep = body[body.index("function confirmKeepDialog") :]
+        keep = keep[: keep.index("function removeAllKeeps")]
+        assert ".catch(function () { failed.push(" in keep
+        assert "if (failed.length)" in keep
