@@ -198,3 +198,23 @@ def test_row_whose_keep_link_has_expired_hides_the_button_and_logs_the_row(conn,
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert any(str(action_id) in m for m in warnings)
     assert not any(legacy in m for m in warnings)
+
+
+@pytest.mark.parametrize(
+    ("column", "value"),
+    [
+        ("delete_status", "deleting"),
+        ("execute_at", (datetime.now(UTC) - timedelta(hours=2)).isoformat()),
+    ],
+    ids=["being_deleted", "overdue"],
+)
+def test_row_the_keep_page_would_refuse_is_listed_without_a_keep_button(conn, column, value):
+    _schedule(conn, grace_days=14)
+    assert len(_KEEP_HREF.findall(_send(conn, manual=True))) == 1
+    conn.execute(f"UPDATE scheduled_actions SET {column} = ?", (value,))
+    conn.commit()
+
+    html = _send(conn, manual=True)
+
+    assert "Test Movie" in html
+    assert "/keep/" not in html

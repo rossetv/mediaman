@@ -8,6 +8,7 @@ from datetime import datetime
 
 from mediaman.crypto import sign_poster_url
 from mediaman.crypto.tokens import rebuild_keep_token, validate_keep_token
+from mediaman.services.scheduled_actions import parse_execute_at
 
 from ._time import _parse_days_ago
 from ._types import ScheduledNewsletterItem
@@ -15,8 +16,18 @@ from ._types import ScheduledNewsletterItem
 logger = logging.getLogger(__name__)
 
 
-def _keep_url(row: sqlite3.Row, base_url: str, secret_key: str) -> str:
-    """Return the row's /keep link, or "" (no Keep button) when its token cannot be rebuilt or has expired."""
+def _keep_url(row: sqlite3.Row, now: datetime, base_url: str, secret_key: str) -> str:
+    """Return the row's /keep link, or "" (no Keep button) when the keep page would refuse it.
+
+    That is a row past its deadline or already being deleted, or one whose token cannot be
+    rebuilt or has expired.
+    """
+    # Same rule as is_pending_unexpired (the action is already scheduled_deletion here).
+    if parse_execute_at(row["execute_at"], default=now) < now or row["delete_status"] not in (
+        None,
+        "pending",
+    ):
+        return ""
     try:
         token = rebuild_keep_token(
             media_item_id=row["media_item_id"],
@@ -76,7 +87,7 @@ def _build_scheduled_card(
         "file_size_bytes": row["file_size_bytes"] or 0,
         "added_days_ago": added_days_ago,
         "last_watched_info": last_watched_info,
-        "keep_url": _keep_url(row, base_url, secret_key),
+        "keep_url": _keep_url(row, now, base_url, secret_key),
         "is_reentry": bool(row["is_reentry"]),
         "_action_id": row["id"],
     }
@@ -98,7 +109,7 @@ def _load_scheduled_items(
     if mark_notified:
         rows = conn.execute(
             "SELECT sa.id, sa.media_item_id, sa.scheduled_at, sa.execute_at, sa.token_hash, "
-            "sa.is_reentry, "
+            "sa.is_reentry, sa.delete_status, "
             "mi.title, mi.media_type, mi.season_number, mi.plex_rating_key, mi.file_size_bytes, "
             "mi.added_at, mi.last_watched_at "
             "FROM scheduled_actions sa "
@@ -108,7 +119,7 @@ def _load_scheduled_items(
     else:
         rows = conn.execute(
             "SELECT sa.id, sa.media_item_id, sa.scheduled_at, sa.execute_at, sa.token_hash, "
-            "sa.is_reentry, "
+            "sa.is_reentry, sa.delete_status, "
             "mi.title, mi.media_type, mi.season_number, mi.plex_rating_key, mi.file_size_bytes, "
             "mi.added_at, mi.last_watched_at "
             "FROM scheduled_actions sa "
