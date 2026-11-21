@@ -105,6 +105,11 @@ class TestGetIntSetting:
     def test_falls_back_when_missing(self, conn):
         assert get_int_setting(conn, "nope", default=9) == 9
 
+    @pytest.mark.parametrize("stored", ["Infinity", "-Infinity", "1e999", "NaN"])
+    def test_falls_back_on_non_finite(self, conn, stored):
+        _put(conn, "count", stored)
+        assert get_int_setting(conn, "count", default=5) == 5
+
 
 class TestGetStringSetting:
     def test_coerces_non_string(self, conn):
