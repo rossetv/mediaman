@@ -194,6 +194,15 @@ def _execute_paged_query(
     return rows, total
 
 
+def _outranks(new: tuple[str, str | None], prev: tuple[str, str | None]) -> bool:
+    """True when *new* protects longer than *prev*: forever, then the later snooze."""
+    if prev[0] == ACTION_PROTECTED_FOREVER:
+        return False
+    if new[0] == ACTION_PROTECTED_FOREVER:
+        return True
+    return (new[1] or "") > (prev[1] or "")
+
+
 def _fetch_protection_maps(
     conn: sqlite3.Connection,
     rows: list[sqlite3.Row],
@@ -203,10 +212,20 @@ def _fetch_protection_maps(
     Returns ``(sa_map, ks_map)`` keyed by media_item_id and show_rating_key
     respectively.  Both maps hold ``(action, execute_at)`` tuples.
     """
-    item_ids = [r["id"] for r in rows]
     show_rkeys = {r["show_rating_key"] for r in rows if r["show_rating_key"]}
+    grouped = [r for r in rows if r["show_rating_key"] and r["display_type"] != "movie"]
+    shows = {r["show_rating_key"]: r["id"] for r in grouped}
+    show_row_ids = set(shows.values())
+    item_ids = [r["id"] for r in rows if r["id"] not in show_row_ids]
 
+    # A show row is keyed by its lowest season id, but any season's keep protects it.
     sa_map: dict[str, tuple[str, str | None]] = {}
+
+    def _record(key: str, action: str, execute_at: str | None) -> None:
+        prev = sa_map.get(key)
+        if prev is None or _outranks((action, execute_at), prev):
+            sa_map[key] = (action, execute_at)
+
     if item_ids:
         # rationale: ph is purely "?" * len(item_ids) — no user value ever enters the SQL text
         ph = ",".join("?" * len(item_ids))
@@ -217,9 +236,18 @@ def _fetch_protection_maps(
             f"AND action IN ('protected_forever', 'snoozed')",
             item_ids,
         ).fetchall():
-            prev = sa_map.get(sa["media_item_id"])
-            if prev is None or prev[0] != ACTION_PROTECTED_FOREVER:
-                sa_map[sa["media_item_id"]] = (sa["action"], sa["execute_at"])
+            _record(sa["media_item_id"], sa["action"], sa["execute_at"])
+    if shows:
+        # rationale: ph is purely "?" * len(shows) — no user value ever enters the SQL text
+        ph = ",".join("?" * len(shows))
+        for sa in conn.execute(
+            f"SELECT COALESCE(mi.show_rating_key, mi.show_title) AS grp, sa.action, sa.execute_at "
+            f"FROM scheduled_actions sa JOIN media_items mi ON mi.id = sa.media_item_id "
+            f"WHERE COALESCE(mi.show_rating_key, mi.show_title) IN ({ph}) AND sa.token_used = 0 "
+            f"AND sa.action IN ('protected_forever', 'snoozed')",
+            list(shows),
+        ).fetchall():
+            _record(str(shows[sa["grp"]]), sa["action"], sa["execute_at"])
 
     ks_map: dict[str, tuple[str, str | None]] = {}
     if show_rkeys:

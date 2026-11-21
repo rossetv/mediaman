@@ -260,6 +260,82 @@ class TestFetchLibrary:
         assert total == 1
         assert items[0]["title"] == "Protected"
 
+    def test_show_row_is_protected_when_a_later_season_is_kept(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_tv_season(conn, "a1", "Show", "rk1", season=1)
+        _insert_tv_season(conn, "a2", "Show", "rk1", season=2)
+        insert_scheduled_action(
+            conn,
+            media_item_id="a2",
+            action="protected_forever",
+            scheduled_at=_now_iso(),
+            token="tok-a2",
+            token_used=False,
+        )
+        for kwargs in ({}, {"media_type": "kept"}):
+            items, _ = fetch_library(conn, **kwargs)
+            assert len(items) == 1
+            assert items[0]["protected"] is True
+            assert items[0]["protection_label"] == "Kept forever"
+
+    def test_show_without_rating_key_is_protected_when_a_later_season_is_kept(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_tv_season(conn, "a1", "Show", None, season=1)
+        _insert_tv_season(conn, "a2", "Show", None, season=2)
+        insert_scheduled_action(
+            conn,
+            media_item_id="a2",
+            action="protected_forever",
+            scheduled_at=_now_iso(),
+            token="tok-a2",
+            token_used=False,
+        )
+        items, _ = fetch_library(conn)
+        assert items[0]["protected"] is True
+
+    def test_forever_keep_outranks_a_snooze_on_another_season(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_tv_season(conn, "a1", "Show", "rk1", season=1)
+        _insert_tv_season(conn, "a2", "Show", "rk1", season=2)
+        future = (datetime.now(UTC) + timedelta(days=10)).isoformat()
+        insert_scheduled_action(
+            conn,
+            media_item_id="a1",
+            action="snoozed",
+            execute_at=future,
+            token="tok-a1",
+            token_used=False,
+        )
+        insert_scheduled_action(
+            conn,
+            media_item_id="a2",
+            action="protected_forever",
+            scheduled_at=_now_iso(),
+            token="tok-a2",
+            token_used=False,
+        )
+        items, _ = fetch_library(conn)
+        assert items[0]["protection_label"] == "Kept forever"
+
+    def test_show_stays_unprotected_when_another_show_has_a_kept_season(self, db_path):
+        conn = init_db(str(db_path))
+        set_connection(conn)
+        _insert_tv_season(conn, "a1", "Alpha", "rk1")
+        _insert_tv_season(conn, "b1", "Beta", "rk2")
+        insert_scheduled_action(
+            conn,
+            media_item_id="b1",
+            action="protected_forever",
+            scheduled_at=_now_iso(),
+            token="tok-b1",
+            token_used=False,
+        )
+        items, _ = fetch_library(conn)
+        assert {i["title"]: i["protected"] for i in items} == {"Alpha": False, "Beta": True}
+
     def test_percent_sign_literal_search(self, db_path):
         """LIKE metachar '%' is escaped so it only matches items with a literal '%'."""
         conn = init_db(str(db_path))
