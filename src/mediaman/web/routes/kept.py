@@ -2,8 +2,7 @@
 
 Handles items shielded from deletion: protected_forever or snoozed with a future execute_at.
 The show-level keep routes live in mediaman.web.routes.kept_show, whose sub-router is
-mounted here; _resolve_show_rating_key is re-exported so the historic test import target
-keeps working.
+mounted here; _resolve_show_rating_key is re-exported so tests can import it from here.
 """
 
 from __future__ import annotations
@@ -33,7 +32,7 @@ from mediaman.web.repository.kept import (
     fetch_show_title,
 )
 from mediaman.web.repository.kept import (
-    resolve_show_rating_key as _resolve_show_rating_key,  # noqa: F401 — backwards-compat re-export for tests
+    resolve_show_rating_key as _resolve_show_rating_key,  # noqa: F401 — re-exported so tests can import it
 )
 from mediaman.web.repository.library_query import ANIME_SEASON_TYPES, TV_SEASON_TYPES
 from mediaman.web.responses import respond_err, respond_ok

@@ -1,12 +1,7 @@
 """Pydantic models for web API request/response validation.
 
-Historically this lived in a single ``models.py`` module. It was split
-into a package as the surface grew due to hardening requirements pushing
-``SettingsUpdate`` past 200 LOC on its own. All public symbols are
-re-exported from this package's ``__init__`` so that
-``from mediaman.web.models import X`` continues to work for every
-caller — see ``tests/unit/web/test_models_hardening.py`` and the
-``mediaman.web.routes.*`` modules for the existing import surface.
+All public symbols are re-exported from this package's ``__init__`` so
+that ``from mediaman.web.models import X`` works for every caller.
 """
 
 from __future__ import annotations
@@ -14,7 +9,7 @@ from __future__ import annotations
 # Private re-exports — these are imported by callers outside the
 # package (``_API_KEY_RE`` by ``mediaman.web.routes.settings`` and
 # ``_reject_crlf`` by ``tests/unit/web/test_models_hardening.py``).
-# Keeping them here preserves the historical import surface.
+# They are re-exported here so those callers import them from the package.
 from ._common import _API_KEY_RE as _API_KEY_RE
 from ._common import ACTION_PROTECTED_FOREVER as ACTION_PROTECTED_FOREVER
 from ._common import ACTION_SCHEDULED_DELETION as ACTION_SCHEDULED_DELETION

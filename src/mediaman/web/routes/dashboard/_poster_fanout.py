@@ -16,10 +16,10 @@ logger = logging.getLogger(__name__)
 #: Callers elsewhere that use w300 keep their own URL deliberately distinct.
 _TMDB_POSTER_BASE_URL = "https://image.tmdb.org/t/p/w200"
 
-# Outer wall-clock budget for the parallel poster fan-out. Previously
-# 5s timeout × 10 misses serially produced a 50s page render in the
-# worst case. We fan out to a small thread pool and bound the whole
-# batch to 6s; anything slower drops to "" so the page still renders promptly.
+# Outer wall-clock budget for the parallel poster fan-out. 5s timeout × 10
+# misses serially would be a 50s page render in the worst case. We fan out to a
+# small thread pool and bound the whole batch to 6s; anything slower drops to ""
+# so the page still renders promptly.
 _POSTER_FANOUT_BUDGET_SECONDS = 6.0
 _POSTER_FANOUT_WORKERS = 4
 

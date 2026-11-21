@@ -363,7 +363,7 @@ class TestKeepSubmitTokenInvalidation:
         assert body["error"] == "already_processed"
 
 
-def _insert_scheduled_action_findings(
+def _insert_scheduled_action_at_offset(
     conn: sqlite3.Connection,
     media_id: str = "mi1",
     action: str = "scheduled_deletion",
@@ -382,7 +382,7 @@ def _insert_scheduled_action_findings(
     )
 
 
-def _make_keep_app_findings(app_factory, conn: sqlite3.Connection):
+def _make_keep_app_with_test_secret(app_factory, conn: sqlite3.Connection):
     """Stand up a minimal keep-router app using the module-level test secret."""
     mock_templates = MagicMock()
     mock_templates.TemplateResponse.side_effect = lambda req, tmpl, ctx: HTMLResponse(
@@ -399,15 +399,15 @@ def _make_keep_app_findings(app_factory, conn: sqlite3.Connection):
     return app, TestClient(app, raise_server_exceptions=True)
 
 
-class TestFinding12ForeverEndpointSeparation:
+class TestForeverEndpointSeparation:
     """Forever must be refused on the public keep POST."""
 
     def test_forever_duration_rejected_on_public_post(self, app_factory, conn):
         _insert_media_item(conn)
-        action_id = _insert_scheduled_action_findings(conn)
+        action_id = _insert_scheduled_action_at_offset(conn)
         token = _make_keep_token(conn, "mi1", action_id)
 
-        _, client = _make_keep_app_findings(app_factory, conn)
+        _, client = _make_keep_app_with_test_secret(app_factory, conn)
         resp = client.post(f"/keep/{token}", data={"duration": "forever"})
 
         assert resp.status_code == 400
@@ -426,24 +426,24 @@ class TestFinding12ForeverEndpointSeparation:
     def test_unauthenticated_forever_returns_401(self, app_factory, conn):
         """Un-authed POST to /api/keep/{token}/forever must return 401."""
         _insert_media_item(conn)
-        action_id = _insert_scheduled_action_findings(conn)
+        action_id = _insert_scheduled_action_at_offset(conn)
         token = _make_keep_token(conn, "mi1", action_id)
 
-        _, client = _make_keep_app_findings(app_factory, conn)
+        _, client = _make_keep_app_with_test_secret(app_factory, conn)
         resp = client.post(f"/api/keep/{token}/forever")
         assert resp.status_code == 401
 
 
-class TestFinding13KeepDeadlineCheck:
+class TestKeepDeadlineCheck:
     """Keep_submit must reject rows that have expired or are not pending."""
 
     def test_expired_action_returns_400(self, app_factory, conn):
         """A keep POST where execute_at is in the past must return 400."""
         _insert_media_item(conn)
-        action_id = _insert_scheduled_action_findings(conn, execute_at_offset_days=-1)
+        action_id = _insert_scheduled_action_at_offset(conn, execute_at_offset_days=-1)
         token = _make_keep_token(conn, "mi1", action_id)
 
-        _, client = _make_keep_app_findings(app_factory, conn)
+        _, client = _make_keep_app_with_test_secret(app_factory, conn)
         resp = client.post(f"/keep/{token}", data={"duration": "30 days"})
 
         assert resp.status_code == 400
@@ -453,10 +453,10 @@ class TestFinding13KeepDeadlineCheck:
     def test_non_pending_delete_status_returns_400(self, app_factory, conn):
         """A row with delete_status='deleting' must be refused."""
         _insert_media_item(conn)
-        action_id = _insert_scheduled_action_findings(conn, delete_status="deleting")
+        action_id = _insert_scheduled_action_at_offset(conn, delete_status="deleting")
         token = _make_keep_token(conn, "mi1", action_id)
 
-        _, client = _make_keep_app_findings(app_factory, conn)
+        _, client = _make_keep_app_with_test_secret(app_factory, conn)
         resp = client.post(f"/keep/{token}", data={"duration": "30 days"})
 
         assert resp.status_code == 400
@@ -466,10 +466,10 @@ class TestFinding13KeepDeadlineCheck:
     def test_non_deletion_action_returns_400(self, app_factory, conn):
         """A keep POST against a 'snoozed' action (not 'scheduled_deletion') must fail."""
         _insert_media_item(conn)
-        action_id = _insert_scheduled_action_findings(conn, action="snoozed")
+        action_id = _insert_scheduled_action_at_offset(conn, action="snoozed")
         token = _make_keep_token(conn, "mi1", action_id)
 
-        _, client = _make_keep_app_findings(app_factory, conn)
+        _, client = _make_keep_app_with_test_secret(app_factory, conn)
         resp = client.post(f"/keep/{token}", data={"duration": "30 days"})
 
         assert resp.status_code == 400
@@ -479,22 +479,22 @@ class TestFinding13KeepDeadlineCheck:
     def test_valid_pending_action_succeeds(self, app_factory, conn):
         """A valid keep POST against a pending scheduled_deletion must succeed."""
         _insert_media_item(conn)
-        action_id = _insert_scheduled_action_findings(conn)
+        action_id = _insert_scheduled_action_at_offset(conn)
         token = _make_keep_token(conn, "mi1", action_id)
 
-        _, client = _make_keep_app_findings(app_factory, conn)
+        _, client = _make_keep_app_with_test_secret(app_factory, conn)
         resp = client.post(f"/keep/{token}", data={"duration": "30 days"})
 
         assert resp.status_code in (200, 302, 307)
 
 
-class TestFinding16KeepTokenHash:
+class TestKeepTokenHash:
     """Token hash helpers and insert-only-hash logic."""
 
     def test_lookup_verified_action_returns_row_when_token_matches(self, conn):
         """lookup_verified_action must return the row when HMAC is valid and conditions are met."""
         _insert_media_item(conn)
-        action_id = _insert_scheduled_action_findings(conn)
+        action_id = _insert_scheduled_action_at_offset(conn)
         token = _make_keep_token(conn, "mi1", action_id)
 
         row = lookup_verified_action(conn, token, SECRET)
@@ -514,7 +514,7 @@ class TestFinding16KeepTokenHash:
             file_path="/f",
             file_size_bytes=999,
         )
-        action_id = _insert_scheduled_action_findings(conn)
+        action_id = _insert_scheduled_action_at_offset(conn)
         token = _make_keep_token(conn, "mi1", action_id)
 
         row = lookup_verified_action(conn, token, SECRET)
@@ -536,7 +536,7 @@ class TestFinding16KeepTokenHash:
         from mediaman.crypto import generate_keep_token
 
         _insert_media_item(conn)
-        action_id = _insert_scheduled_action_findings(conn)
+        action_id = _insert_scheduled_action_at_offset(conn)
         # Mint a token with a different secret — HMAC check must reject it
         wrong_token = generate_keep_token(
             media_item_id="mi1",

@@ -40,11 +40,10 @@ _BASE = "https://api.themoviedb.org/3"
 
 # Module-level client cache.
 #
-# ``TmdbClient.from_db`` was previously called per request, which built a
-# brand-new ``requests.Session`` every time.  That meant every call paid
-# DNS + TLS handshake costs against ``api.themoviedb.org`` instead of
-# reusing the connection pool.  We cache one client per (token, timeout)
-# pair so multiple callers share the same session.
+# Building a ``TmdbClient`` per request would create a brand-new
+# ``requests.Session`` each time, paying DNS + TLS handshake costs against
+# ``api.themoviedb.org`` instead of reusing the connection pool.  We cache one
+# client per (token, timeout) pair so multiple callers share the same session.
 #
 # Max size: 4 entries — one per timeout variant with headroom for token
 # rotation (the old token's entry ages out as soon as the new one is used).
@@ -274,8 +273,8 @@ class TmdbClient:
             return None
 
     # The implementations live in _tmdb_shapes; they are re-bound
-    # here as static methods so the historical ``TmdbClient.shape_card`` /
-    # ``TmdbClient.shape_detail`` call sites (and the test monkeypatches
-    # that target them) keep working unchanged.
+    # here as static methods so ``TmdbClient.shape_card`` /
+    # ``TmdbClient.shape_detail`` call sites (and test monkeypatches
+    # that target them) work.
     shape_card = staticmethod(shape_card)
     shape_detail = staticmethod(shape_detail)

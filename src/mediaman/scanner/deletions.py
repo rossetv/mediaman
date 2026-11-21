@@ -331,7 +331,7 @@ def _log_root_unavailable(row: DeletionRow, path: str) -> None:
 class DeletionExecutor:
     """Executes pending deletions whose grace period has elapsed.
 
-    Encapsulates the previously in-engine ``execute_deletions`` loop:
+    Runs the deletion loop:
     allowlist read, stuck-state recovery, two-phase on-disk rm, audit
     logging, and best-effort Radarr/Sonarr unmonitor calls.
 

@@ -48,7 +48,7 @@ _DOWNLOAD_LIMITER_GET = RateLimiter(max_attempts=30, window_seconds=60)
 
 # Per-service Arr-state cache.
 #
-# Each GET /download/{token} previously issued four outbound HTTP calls
+# Each GET /download/{token} would otherwise issue four outbound HTTP calls
 # (Radarr movies + queue, Sonarr series + queue) on every render. With
 # one valid public token, an attacker driving the rate limit (30 req/min)
 # would multiply that into 120 outbound requests/min/IP — effectively a

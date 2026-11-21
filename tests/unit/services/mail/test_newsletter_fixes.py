@@ -26,7 +26,7 @@ _DELETED_AT = (_NOW - timedelta(days=2)).isoformat()
 _REDOWNLOAD_AT = (_NOW - timedelta(days=1)).isoformat()
 
 
-class TestF01RedownloadFilterWorks:
+class TestRedownloadFilterWorks:
     """_build_redownload_index must key by media_item_id / plex_rating_key
     so that re-downloaded items are correctly excluded from the deleted-items list.
     """
@@ -146,7 +146,7 @@ class TestF01RedownloadFilterWorks:
         )
 
 
-class TestF07EmptyRecipientsNotFallthrough:
+class TestEmptyRecipientsNotFallthrough:
     """Passing recipients=[] must send to nobody, not to all subscribers."""
 
     _PATCH_STORAGE = "mediaman.services.infra.storage.get_aggregate_disk_usage"
@@ -172,17 +172,17 @@ class TestF07EmptyRecipientsNotFallthrough:
     def _add_scheduled_item(self, conn) -> None:
         insert_media_item(
             conn,
-            id="mi-f07",
-            title="F07 Test Movie",
-            plex_rating_key="rk-f07",
-            file_path="/media/f07.mkv",
+            id="mi-movie",
+            title="Test Movie",
+            plex_rating_key="rk-movie",
+            file_path="/media/movie.mkv",
             file_size_bytes=1_000_000,
         )
         insert_scheduled_action(
             conn,
-            media_item_id="mi-f07",
+            media_item_id="mi-movie",
             action="scheduled_deletion",
-            token="tok-f07",
+            token="tok-movie",
             token_used=False,
             notified=False,
         )

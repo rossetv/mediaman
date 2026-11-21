@@ -22,7 +22,7 @@ from starlette.responses import Response
 
 from mediaman.scanner.runner import DAY_SETTING_DEFAULTS, DAY_SETTING_RANGES, get_day_setting
 from mediaman.services.arr.build import (
-    build_plex_from_db as build_plex_from_db,  # re-exported for flat-import back-compat
+    build_plex_from_db as build_plex_from_db,  # re-exported: callers import it from this package
 )
 from mediaman.services.infra import ConfigDecryptError
 from mediaman.services.infra import (
@@ -37,7 +37,7 @@ from mediaman.web.repository.settings import (
     load_settings as _load_settings,
 )
 
-# Submodule imports — re-exported so the old flat module path still works.
+# Submodule imports — re-exported so they resolve from this package.
 # Tests monkeypatch attributes on this module object; everything they touch
 # must live or be re-imported here.
 from mediaman.web.routes.settings.api import (
@@ -56,7 +56,7 @@ from mediaman.web.routes.settings.secrets import (
     ALL_KEYS as _ALL_KEYS,
 )
 from mediaman.web.routes.settings.secrets import (
-    SECRET_FIELDS as SECRET_FIELDS,  # re-exported for test imports
+    SECRET_FIELDS as SECRET_FIELDS,  # re-exported so tests can import it from this package
 )
 from mediaman.web.routes.settings.secrets import (
     SENSITIVE_KEYS as SENSITIVE_KEYS,

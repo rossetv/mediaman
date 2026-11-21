@@ -41,8 +41,8 @@ This package decomposes the former single ``client.py`` along the seam the
 
 This module is the public barrel: ``SafeHTTPClient``, ``SafeHTTPError``, and
 the patch-seam names (``_dispatch``, ``resolve_safe_outbound_url``, ``time``)
-are re-exported here so every name previously importable from
-``mediaman.services.infra.http.client`` stays importable from that exact path.
+are re-exported here so every name resolves from
+``mediaman.services.infra.http.client`` itself.
 
 Patchability note
 -----------------

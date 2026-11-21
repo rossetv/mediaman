@@ -987,7 +987,7 @@ class TestCspDirectives:
         assert "frame-ancestors 'none'" in _CSP
 
 
-class TestFinding20CspImgSrc:
+class TestCspImgSrc:
     """CSP img-src must not allow arbitrary https: images."""
 
     def test_csp_does_not_allow_arbitrary_https(self):

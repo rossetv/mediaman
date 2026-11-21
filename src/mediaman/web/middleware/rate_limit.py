@@ -1,9 +1,9 @@
 """``@rate_limit`` decorator for FastAPI route handlers.
 
-Moved from ``mediaman.services.rate_limit.decorator`` because the decorator
+Lives in ``web/`` because the decorator
 is inherently FastAPI-coupled: it extracts the ``Request`` object from the
 handler's arguments and calls ``mediaman.web.responses.respond_err`` to
-return a 429 JSON response.  Placing it in ``services/`` violated the
+return a 429 JSON response.  Placing it in ``services/`` would break the
 rule that services may not import from ``web/``.
 
 The non-FastAPI building blocks (``RateLimiter``, ``ActionRateLimiter``,

@@ -435,7 +435,7 @@ class TestSecretKeyEntropyHardened:
     # requires a full DB + AES round-trip that obscures boundary behaviour.
     """
 
-    def test_rejects_audit_low_unique_43_char_case(self):
+    def test_rejects_43_char_key_with_ten_unique_chars(self):
         """A known weak example: 43 chars, 10 unique — must be refused."""
         bad = "abcdefghij" * 4 + "abc"  # 43 chars, 10 unique
         assert len(bad) == 43
@@ -630,8 +630,7 @@ class TestCanaryFailureAudits:
         is_canary_valid(conn, secret_key)  # seed
         _store_secret(conn, "plex_token", "tok", secret_key)
         # Fail with a different valid-shape key; supply the audit callback so
-        # the failure reason is written to audit_log (audit writing was moved
-        # out of crypto/ to the caller layer).
+        # the failure reason is written to audit_log.
         ok = is_canary_valid(
             conn,
             "fedcba9876543210" * 4,

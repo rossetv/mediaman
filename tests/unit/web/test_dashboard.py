@@ -155,7 +155,7 @@ class TestApiDashboardReclaimedChart:
         assert isinstance(weeks[0]["reclaimed"], str)
 
 
-class TestFinding34DashboardRedownload:
+class TestDashboardRedownload:
     """The redownload button must pass media_item_id and media_type."""
 
     def test_dashboard_item_includes_media_type(self, app_factory, authed_client, conn):

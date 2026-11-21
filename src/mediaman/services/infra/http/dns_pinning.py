@@ -188,9 +188,9 @@ def ensure_hook_installed() -> None:
         # ``_patched_getaddrinfo`` itself into ``_ORIG_GETADDRINFO``.
         _ORIG_GETADDRINFO = replacement
         socket.getaddrinfo = _patched_getaddrinfo
-        # Propagate the updated delegate to the back-compat shim module so
+        # Propagate the updated delegate to the ``http_client`` module so
         # that ``sys.modules["...http_client"]._ORIG_GETADDRINFO`` stays
-        # current.  The shim imports ``_ORIG_GETADDRINFO`` as a static
+        # current.  It imports ``_ORIG_GETADDRINFO`` as a static
         # binding; without this update, ``_patched_getaddrinfo``'s
         # sys.modules lookup would return the stale original resolver.
         _hc = sys.modules.get(_DNS_PINNING_MODULE)

@@ -117,10 +117,10 @@ def _parse_proxy_env(env_var: str) -> list[IPv4Network | IPv6Network]:
             continue
         if trusts_every_address(net):
             logger.critical(
-                "%s contains %r, which matches every address; refusing to "
-                "trust any proxy. Set explicit CIDR ranges instead — it "
-                "would allow spoofed forwarded headers from any peer and "
-                "bypass per-IP rate limiting.",
+                "%s contains %r, which matches every address; discarding "
+                "the whole list for client-IP resolution. A catch-all is "
+                "never accepted: list explicit proxy IPs or CIDR ranges "
+                "instead.",
                 env_var,
                 token,
             )

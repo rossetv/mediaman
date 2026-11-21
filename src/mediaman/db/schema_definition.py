@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS scheduled_actions (
     scheduled_at TEXT NOT NULL,
     execute_at TEXT,
     -- TODO(mediaman): token is retained for legacy rows not yet migrated to
-    -- token_hash-only storage (§10.2).  Once all rows carry token_hash and
+    -- token_hash-only storage.  Once all rows carry token_hash and
     -- the raw-token fallback lookup path is retired, this column can be dropped.
     token TEXT UNIQUE,
     token_used INTEGER NOT NULL DEFAULT 0,

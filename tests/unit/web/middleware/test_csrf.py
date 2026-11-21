@@ -438,7 +438,7 @@ class TestCSRFErrorResponseContent:
         assert b"CSRF" in resp.content
 
 
-class TestFinding11CSRFNoOriginWithCookie:
+class TestCsrfNoOriginWithCookie:
     """Unsafe requests with session cookie but no Origin must be rejected."""
 
     def _app(self):

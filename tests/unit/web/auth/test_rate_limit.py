@@ -343,7 +343,7 @@ class TestGetClientIp:
         assert get_client_ip(FakeRequest()) == "unknown"
 
 
-class TestGetClientIpH7:
+class TestGetClientIpProxyChain:
     def test_chain_only_innermost_proxy_trusted(self, monkeypatch):
         """Proxy chain A → B → client where only B is trusted.
 

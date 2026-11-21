@@ -1,5 +1,7 @@
-"""Media delete pipeline (POST /api/media/{id}/delete), split out of the package barrel. The barrel mounts this router and re-exports _DELETE_LIMITER so
-the historic test patch targets keep working.
+"""Media delete pipeline (POST /api/media/{id}/delete), split out of the package barrel.
+
+The barrel mounts this router and re-exports _DELETE_LIMITER so tests can patch
+it at the barrel.
 """
 
 from __future__ import annotations

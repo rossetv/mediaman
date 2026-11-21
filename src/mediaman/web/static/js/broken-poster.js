@@ -1,11 +1,8 @@
 /* eslint-disable no-var */
 /*
- * Replacement for the inline ``onerror="this.dataset.broken=''"`` handler
- * that previously lived on every poster ``<img>`` tag.  The CSP3
- * tightening (commit fd4f44a) drops ``'unsafe-inline'`` from
- * ``script-src``, which means inline event-handler attributes such as
- * ``onerror=`` no longer fire.  Move the same single-line fallback to a
- * delegated handler here.
+ * Delegated handler that sets ``data-broken`` on a poster ``<img>`` that fails
+ * to load.  The CSP drops ``'unsafe-inline'`` from ``script-src``, so an inline
+ * ``onerror=`` attribute would not fire.
  *
  * Markup contract: any ``<img>`` that should opt into the
  * "data-broken when load fails" CSS treatment must carry a

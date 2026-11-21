@@ -56,7 +56,7 @@ class TestInitDb:
         assert enabled == 1
 
     def test_init_db_closes_connection_on_schema_error(self, db_path, monkeypatch):
-        """B-02: if schema application fails, init_db must close the connection.
+        """If schema application fails, init_db must close the connection.
 
         A leaked file descriptor would accumulate on repeated boot-crash-retry
         loops. We inject invalid DDL via the SCHEMA constant so executescript

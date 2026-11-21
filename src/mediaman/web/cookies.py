@@ -5,10 +5,8 @@ cookie: the canonical ``max_age``, the helper that writes the cookie with
 the agreed attributes, and the ``is_request_secure`` resolver that decides
 whether the ``Secure`` flag should be set on a given request.
 
-Centralising the secure-cookie decision here avoids the previous drift
-between `mediaman.web.routes.auth` (the original home) and the three
-other route modules that needed the same answer (force-password-change,
-users.passwords, users.sessions).  All four call sites now import
+Centralising the secure-cookie decision here keeps the auth, force-password-change,
+users.passwords and users.sessions routes on one answer; all four import
 `is_request_secure` from this module.
 
 Allowed dependencies: `mediaman.services.rate_limit` for the
