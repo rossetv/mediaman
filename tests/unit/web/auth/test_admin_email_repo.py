@@ -115,7 +115,6 @@ class TestSetUserEmailAuditInTransaction:
         assert '"cleared":true' in row["detail"]
 
     def test_no_audit_row_without_actor(self, conn: sqlite3.Connection) -> None:
-        """set_user_email without audit_actor writes no audit row."""
         set_user_email(conn, "rossetv", "ops@example.com")
         row = conn.execute(
             "SELECT * FROM audit_log WHERE action = 'sec:user.email_updated'"

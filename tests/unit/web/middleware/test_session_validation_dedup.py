@@ -1,4 +1,4 @@
-"""H6 regression: a cookie-bearing request must validate its session ONCE.
+"""A cookie-bearing request must validate its session ONCE.
 
 The ``ForcePasswordChangeMiddleware`` and the route dependency
 (``get_current_admin`` / ``resolve_page_session``) both need the resolved

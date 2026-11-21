@@ -1,5 +1,3 @@
-"""Tests for session management."""
-
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -164,7 +162,6 @@ class TestDeleteUser:
         assert [u["username"] for u in list_users(conn)] == ["alice"]
 
     def test_deletes_user_sessions(self, conn):
-        """Deleting a user also destroys any of their active sessions."""
         create_user(conn, "alice", "pass", enforce_policy=False)
         create_user(conn, "bob", "pass", enforce_policy=False)
         token = create_session(conn, "bob")
@@ -176,7 +173,7 @@ class TestDeleteUser:
 
 
 class TestStrictTokenShape:
-    """H2: validate_session must only accept exactly 64 hex chars."""
+    """Validate_session must only accept exactly 64 hex chars."""
 
     def test_accepts_canonical_token(self, conn):
         create_user(conn, "alice", "pw", enforce_policy=False)
@@ -202,7 +199,7 @@ class TestStrictTokenShape:
 
 
 class TestCreateSessionStopsWritingRawToken:
-    """H8: the raw token must not land in the ``token`` column.
+    """The raw token must not land in the ``token`` column.
 
     The legacy column is still written (schema NOT NULL + PK constraints
     require a value) but with the token *hash*, not the live credential.
@@ -223,7 +220,7 @@ class TestCreateSessionStopsWritingRawToken:
 
 
 class TestCreateUserIntegrityErrorNarrowing:
-    """C36: only UNIQUE on username maps to "already exists". Other
+    """Only UNIQUE on username maps to "already exists". Other
     IntegrityErrors (FK, NOT NULL, CHECK) must propagate."""
 
     def test_duplicate_raises_user_exists_error(self, conn):
@@ -279,7 +276,7 @@ class TestCreateUserIntegrityErrorNarrowing:
 
 
 class TestChangePasswordDoesNotLockSelf:
-    """H9: mistyping your own current password 5 times in the change-
+    """Mistyping your own current password 5 times in the change-
     password form must not lock you out of your own account."""
 
     def test_repeated_wrong_old_password_does_not_lock(self, conn):
@@ -331,7 +328,7 @@ class TestChangePasswordDoesNotLockSelf:
 
 
 class TestValidateSessionTransactional:
-    """C35: expired sessions are swept with strict ``<`` inside a
+    """Expired sessions are swept with strict ``<`` inside a
     BEGIN IMMEDIATE transaction."""
 
     def test_session_at_exact_expiry_still_accepted(self, conn):
@@ -358,7 +355,7 @@ class TestValidateSessionTransactional:
 
 
 class TestFingerprintModeOff:
-    """C8: MEDIAMAN_FINGERPRINT_MODE=off disables the binding check."""
+    """MEDIAMAN_FINGERPRINT_MODE=off disables the binding check."""
 
     def test_off_mode_skips_mismatch_rejection(self, conn, monkeypatch):
         monkeypatch.setenv("MEDIAMAN_FINGERPRINT_MODE", "off")

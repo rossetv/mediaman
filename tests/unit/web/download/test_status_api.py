@@ -58,7 +58,6 @@ class TestDownloadStatusAPI:
         reset_download_caches()
 
     def test_status_returns_new_shape_fields(self, db_path, secret_key):
-        """GET /api/download/status returns the new item shape with state field."""
         conn = init_db(str(db_path))
         app = _make_download_app(conn, secret_key)
         create_user(conn, "admin", "password1234", enforce_policy=False)

@@ -1,4 +1,4 @@
-"""Tests for :mod:`mediaman.web.routes.library.api`.
+"""Tests for mediaman.web.routes.library.api.
 
 Covers GET /api/library and the _pick_lookup_match helper.
 The delete/keep/redownload endpoints are already covered in
@@ -35,8 +35,6 @@ def _insert_movie(conn, media_id: str, title: str = "Test Movie") -> None:
 
 
 class TestPickLookupMatch:
-    """Unit tests for the _pick_lookup_match helper."""
-
     def test_empty_lookup_returns_error(self):
         _, err = _pick_lookup_match(
             [], title="Dune", year=2021, tmdb_id=None, tvdb_id=None, imdb_id=None
@@ -130,8 +128,6 @@ class TestPickLookupMatch:
 
 
 class TestApiLibraryList:
-    """GET /api/library endpoint tests."""
-
     @pytest.fixture(autouse=True)
     def _reset_limiters(self):
         _DELETE_LIMITER.reset()

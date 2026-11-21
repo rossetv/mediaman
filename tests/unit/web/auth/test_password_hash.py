@@ -28,11 +28,6 @@ def conn(db_path):
     return init_db(str(db_path))
 
 
-# ---------------------------------------------------------------------------
-# create_user
-# ---------------------------------------------------------------------------
-
-
 class TestCreateUser:
     def test_creates_user_record(self, conn):
         create_user(conn, "alice", "pass", enforce_policy=False)
@@ -79,11 +74,6 @@ class TestCreateUser:
         assert row["must_change_password"] == 0
 
 
-# ---------------------------------------------------------------------------
-# authenticate
-# ---------------------------------------------------------------------------
-
-
 class TestAuthenticate:
     def test_correct_credentials_return_true(self, conn):
         create_user(conn, "alice", "correct-pass", enforce_policy=False)
@@ -99,11 +89,6 @@ class TestAuthenticate:
 
     def test_empty_username_returns_false(self, conn):
         assert authenticate(conn, "", "pass") is False
-
-
-# ---------------------------------------------------------------------------
-# change_password
-# ---------------------------------------------------------------------------
 
 
 class TestChangePassword:
@@ -143,11 +128,6 @@ class TestChangePassword:
         assert user_must_change_password(conn, "alice") is False
 
 
-# ---------------------------------------------------------------------------
-# user_must_change_password / set_must_change_password
-# ---------------------------------------------------------------------------
-
-
 class TestMustChangePassword:
     def test_flag_starts_false(self, conn):
         create_user(conn, "alice", "pass", enforce_policy=False)
@@ -168,11 +148,6 @@ class TestMustChangePassword:
         assert user_must_change_password(conn, "nobody") is False
 
 
-# ---------------------------------------------------------------------------
-# list_users
-# ---------------------------------------------------------------------------
-
-
 class TestListUsers:
     def test_returns_all_users_in_order(self, conn):
         create_user(conn, "alice", "p1", enforce_policy=False)
@@ -191,11 +166,6 @@ class TestListUsers:
         conn.execute("DELETE FROM admin_users")
         conn.commit()
         assert list_users(conn) == []
-
-
-# ---------------------------------------------------------------------------
-# delete_user
-# ---------------------------------------------------------------------------
 
 
 class TestDeleteUser:
@@ -231,14 +201,9 @@ class TestDeleteUser:
         assert delete_user(conn, 99999, current_username="alice") is False
 
 
-# ---------------------------------------------------------------------------
-# Bcrypt 72-byte truncation defence (FINDINGS Domain 01: D01-1, D01-9)
-# ---------------------------------------------------------------------------
-
-
 class TestLongPasswordEntropyPreserved:
     """Bcrypt silently truncates inputs to 72 bytes; the SHA-256 pre-hash
-    in :func:`_prepare_bcrypt_input` must defeat that so two passwords
+    in _prepare_bcrypt_input must defeat that so two passwords
     differing only in their bytes 73+ remain distinguishable."""
 
     def test_two_passwords_differing_after_byte_72_are_distinguishable(self, conn):
@@ -306,11 +271,6 @@ class TestLongPasswordEntropyPreserved:
         assert authenticate(conn, "alice", "Cafe-different-789") is False
 
 
-# ---------------------------------------------------------------------------
-# Empty-username DoS short-circuit (FINDINGS Domain 01: D01-2)
-# ---------------------------------------------------------------------------
-
-
 class TestEmptyUsernameShortCircuit:
     """An empty username must return False without burning a bcrypt
     round, otherwise an unauthenticated attacker can stream
@@ -327,11 +287,6 @@ class TestEmptyUsernameShortCircuit:
         # micro-second range. We don't measure here (CI noise) — the
         # mock-based test above is the load-bearing assertion.
         assert authenticate(conn, "", "any") is False
-
-
-# ---------------------------------------------------------------------------
-# Locked-account short-circuit (FINDINGS Domain 01: D01-4)
-# ---------------------------------------------------------------------------
 
 
 class TestLockedAccountSkipsBcrypt:
@@ -394,11 +349,6 @@ class TestLockedAccountSkipsBcrypt:
         assert row["failure_count"] == 10
 
 
-# ---------------------------------------------------------------------------
-# change_password failure logging (FINDINGS Domain 01: D01-5)
-# ---------------------------------------------------------------------------
-
-
 class TestChangePasswordFailureLogging:
     def test_wrong_old_password_logs_warning(self, conn, caplog):
         import logging
@@ -414,11 +364,6 @@ class TestChangePasswordFailureLogging:
         for r in records:
             assert "wrong-old" not in r.getMessage()
             assert "new-pass" not in r.getMessage()
-
-
-# ---------------------------------------------------------------------------
-# change_password TOCTOU (FINDINGS Domain 01: D01-6)
-# ---------------------------------------------------------------------------
 
 
 class TestChangePasswordTOCTOU:
@@ -454,12 +399,6 @@ class TestChangePasswordTOCTOU:
         assert row is None
 
 
-# ---------------------------------------------------------------------------
-# change_password reauth ticket revocation inside the transaction
-# (FINDINGS Domain 01: D01-7)
-# ---------------------------------------------------------------------------
-
-
 class TestChangePasswordReauthInsideTransaction:
     def test_reauth_tickets_dropped_on_password_change(self, conn):
         """Reauth tickets keyed by the user's old session must be
@@ -485,14 +424,9 @@ class TestChangePasswordReauthInsideTransaction:
         assert ticket_row is None
 
 
-# ---------------------------------------------------------------------------
-# Best-effort counter-cleanup catch is narrowed to sqlite3.Error
-# ---------------------------------------------------------------------------
-
-
 class TestChangePasswordCounterCleanupCatchNarrowed:
     """The post-transaction ``record_success`` counter cleanup in
-    :func:`change_password` is best-effort: a ``sqlite3.Error`` is
+    change_password is best-effort: a ``sqlite3.Error`` is
     swallowed (the password has already changed), but any non-DB
     exception is a bug in ``record_success`` and must propagate rather
     than being silently swallowed.
@@ -555,14 +489,9 @@ class TestChangePasswordCounterCleanupCatchNarrowed:
         assert authenticate(conn, "alice", "new-pass") is True
 
 
-# ---------------------------------------------------------------------------
-# Best-effort reauth-cleanup catch in delete_user is narrowed to sqlite3.Error
-# ---------------------------------------------------------------------------
-
-
 class TestDeleteUserReauthCleanupCatchNarrowed:
     """The post-transaction ``revoke_all_reauth_for`` cleanup in
-    :func:`delete_user` is best-effort: a ``sqlite3.Error`` is swallowed
+    delete_user is best-effort: a ``sqlite3.Error`` is swallowed
     (the user row is already gone), but any non-DB exception is a bug
     and must propagate rather than being silently swallowed."""
 

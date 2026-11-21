@@ -1,5 +1,3 @@
-"""Tests for delete-intent persistence and reconciliation (finding 24)."""
-
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -35,8 +33,6 @@ def _app(app_factory, conn):
 
 
 class TestRecordDeleteIntent:
-    """Unit tests for the delete-intent DB helpers."""
-
     def test_record_creates_pending_row(self, conn):
         intent_id = _record_delete_intent(conn, "m1", "radarr", 101)
         row = conn.execute("SELECT * FROM delete_intents WHERE id = ?", (intent_id,)).fetchone()
@@ -87,7 +83,6 @@ class TestDeleteIntentPersistence:
         assert all(row["completed_at"] is not None for row in all_intents)
 
     def test_intent_completed_after_successful_delete(self, app_factory, authed_client, conn):
-        """After a successful delete the intent row is marked completed."""
         _insert_movie(conn)
         app = _app(app_factory, conn)
         client = authed_client(app, conn)
@@ -130,8 +125,6 @@ class TestDeleteIntentPersistence:
 
 
 class TestReconcilePendingDeleteIntents:
-    """Unit tests for the reconcile helper (finding 24)."""
-
     @pytest.fixture(autouse=True)
     def _reset_limiter(self):
         _DELETE_LIMITER.reset()

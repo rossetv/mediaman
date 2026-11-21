@@ -1,5 +1,3 @@
-"""Tests for the ``mediaman-create-user`` CLI."""
-
 from __future__ import annotations
 
 import io
@@ -21,7 +19,7 @@ class TestCreateUserCli:
     """Verify the create-user CLI matches the README's "no flags" example."""
 
     def test_username_optional_prompts_interactively(self, monkeypatch, tmp_path, capsys):
-        """``mediaman-create-user`` with no flags must prompt — finding 19."""
+        """``mediaman-create-user`` with no flags must prompt."""
         _enable_config(monkeypatch, tmp_path)
         monkeypatch.setattr(sys, "argv", ["mediaman-create-user"])
 
@@ -140,7 +138,7 @@ class TestCreateUserCli:
         assert "already exists" in err
 
     def test_config_error_exits_cleanly(self, monkeypatch, tmp_path, capsys):
-        """A missing MEDIAMAN_SECRET_KEY prints an actionable error — finding 21."""
+        """A missing MEDIAMAN_SECRET_KEY prints an actionable error."""
         # Deliberately do NOT call _enable_config — load_config() will raise.
         monkeypatch.delenv("MEDIAMAN_SECRET_KEY", raising=False)
         monkeypatch.setattr(

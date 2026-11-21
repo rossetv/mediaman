@@ -1,6 +1,6 @@
 """Tests for the search-trigger throttle and scheduler job.
 
-Covers :mod:`mediaman.services.arr.search_trigger`:
+Covers mediaman.services.arr.search_trigger:
 - maybe_trigger_search: fires only when item is stale, released, not matched
 - backoff curve advances through doubling steps
 - trigger_pending_searches: iterates arr items, handles failures, partial-missing pass
@@ -215,7 +215,6 @@ class TestSearchTriggerThrottle:
         mock_radarr.search_movie.assert_not_called()
 
     def test_series_triggers_search_series(self, monkeypatch, freezer):
-        """A stale TV series item must trigger a Sonarr series search."""
         import time
 
         mock_sonarr = MagicMock()

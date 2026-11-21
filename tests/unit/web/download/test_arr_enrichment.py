@@ -1,6 +1,6 @@
 """Tests for fetch_arr_queue enrichment logic.
 
-Covers :func:`mediaman.services.arr.fetcher.fetch_arr_queue`:
+Covers mediaman.services.arr.fetcher.fetch_arr_queue:
 - upcoming movies are included regardless of added date
 - stalled/released movies are included regardless of added date
 - arr_id and release_label are propagated correctly

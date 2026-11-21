@@ -1,4 +1,4 @@
-"""Tests for :mod:`mediaman.web.routes.download.confirm`.
+"""Tests for mediaman.web.routes.download.confirm.
 
 Covers the GET /download/{token} confirmation page:
   - valid token → confirm state
@@ -47,8 +47,6 @@ def _valid_token(
 
 
 class TestValidateYoutubeId:
-    """Direct unit tests for the validate_youtube_id helper."""
-
     def test_valid_11_char_id_returned(self):
         """A valid 11-character URL-safe base64 ID is returned unchanged."""
         assert validate_youtube_id("dQw4w9WgXcQ") == "dQw4w9WgXcQ"
@@ -112,7 +110,6 @@ class TestDownloadPageConfirm:
         assert ctx["item"]["title"] == "Dune"
 
     def test_invalid_token_renders_expired_state(self, app_factory, conn, templates_stub):
-        """GET with a tampered/invalid token renders the expired state."""
         app = app_factory(confirm_router, conn=conn, state_extras={"templates": templates_stub})
         client = TestClient(app)
 
@@ -164,13 +161,8 @@ class TestDownloadPageConfirm:
         assert "Sci-Fi" in ctx["item"]["genres_list"]
 
 
-# ---------------------------------------------------------------------------
-# Trailer (HMAC) key validation rejects missing, malformed, and expired keys
-# ---------------------------------------------------------------------------
-
-
 class TestFinding19TrailerKeyValidation:
-    """Finding 19: trailer key must be exactly 11 URL-safe base64 characters."""
+    """Trailer key must be exactly 11 URL-safe base64 characters."""
 
     def _validate(self, key: str) -> bool:
         return validate_youtube_id(key) is not None

@@ -1,5 +1,3 @@
-"""Tests for persistent per-username login lockout."""
-
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -134,11 +132,11 @@ class TestLockExpiry:
         assert is_locked_out(conn, "alice") is False
 
     def test_corrupt_locked_until_is_treated_as_still_locked(self, conn):
-        """M4 regression: a NON-EMPTY but unparseable ``locked_until``
+        """A NON-EMPTY but unparseable ``locked_until``
         fails CLOSED — the account is treated as STILL LOCKED.
 
         An attacker who can corrupt the stored value must not be able to
-        escape the lock by garbling it. Mirrors the session-store B1 fix.
+        escape the lock by garbling it.
         """
         for _ in range(5):
             record_failure(conn, "alice")
@@ -154,7 +152,7 @@ class TestLockExpiry:
     def test_null_locked_until_is_not_locked(self, conn):
         """A NULL ``locked_until`` (counted failures but no active lock) is
         the legitimate not-locked state — it must NOT be swept up by the
-        M4 fail-closed branch, which only fires on a non-empty corrupt
+        fail-closed branch, which only fires on a non-empty corrupt
         value.
         """
         record_failure(conn, "alice")  # counts 1, locked_until stays NULL
@@ -180,7 +178,7 @@ class TestAuthenticateIntegration:
         assert authenticate(conn, "alice", "correct-password-123") is False
 
     def test_locked_account_records_failure_even_with_record_failures_false(self, conn):
-        """H2 regression: the locked short-circuit must bump the counter
+        """The locked short-circuit must bump the counter
         regardless of ``record_failures`` so the escalation bands
         (5 → 10 → 15) stay reachable on EVERY path — including callers that
         pass ``record_failures=False`` (``verify_reauth_password``,
@@ -287,7 +285,7 @@ class TestEscalatingLockoutWindows:
 
 
 class TestAuthenticateKeepsCountingWhileLocked:
-    """C6: the 5-failure wall must not freeze the counter — otherwise
+    """The 5-failure wall must not freeze the counter — otherwise
     the 10/15 escalation windows are unreachable."""
 
     def test_counter_keeps_climbing_while_locked(self, conn, freezer):
@@ -321,7 +319,7 @@ class TestAuthenticateKeepsCountingWhileLocked:
 
 
 class TestConcurrentRecordFailure:
-    """C25: record_failure must be atomic under parallel writes.
+    """Record_failure must be atomic under parallel writes.
 
     The previous read-modify-write lost increments around the 5/10
     boundary — two threads reading failure_count=4 both wrote back
@@ -381,7 +379,7 @@ class TestConcurrentRecordFailure:
 
 
 class TestAuthenticateRecordFailuresFlag:
-    """H9: change_password must not lock the user out of their own account."""
+    """Change_password must not lock the user out of their own account."""
 
     def test_record_failures_false_does_not_lock(self, conn):
         create_user(conn, "alice", "correct-password-123", enforce_policy=False)
@@ -426,7 +424,7 @@ class TestAuthenticateRecordFailuresFlag:
 
 
 class TestNoExtendWhileLocked:
-    """M21: while an account is locked, sub-threshold failures must not
+    """While an account is locked, sub-threshold failures must not
     slide ``locked_until`` forwards.
 
     Otherwise an unauthenticated attacker keeps the legitimate user
@@ -458,7 +456,7 @@ class TestNoExtendWhileLocked:
 
     def test_locked_account_still_blocks_correct_password(self, conn):
         """Existing semantics preserved — a locked account refuses even
-        the correct password (M21 fix only stops the WINDOW being
+        the correct password (only stops the WINDOW being
         extended, not the lock being effective)."""
         create_user(conn, "alice", "correct-password-99", enforce_policy=False)
         for _ in range(5):
@@ -515,7 +513,7 @@ class TestAdminUnlock:
         assert cleared is False
 
     def test_unlock_is_case_sensitive(self, conn):
-        """M9: the lockout key is the verbatim username — NOT lowercased —
+        """The lockout key is the verbatim username — NOT lowercased —
         so it stays aligned with the case-sensitive ``admin_users.username``
         lookup. ``admin_unlock`` therefore only clears the EXACT-case key.
 

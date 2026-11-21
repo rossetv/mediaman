@@ -1,5 +1,3 @@
-"""Tests for the reauth module — recent-reauth tickets and verify path."""
-
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -29,11 +27,6 @@ def conn(db_path):
     return c
 
 
-# ---------------------------------------------------------------------------
-# reauth_window_seconds
-# ---------------------------------------------------------------------------
-
-
 class TestReauthWindow:
     def test_default_is_five_minutes(self, monkeypatch):
         monkeypatch.delenv("MEDIAMAN_REAUTH_WINDOW_SECONDS", raising=False)
@@ -54,11 +47,6 @@ class TestReauthWindow:
     def test_garbage_falls_back(self, monkeypatch):
         monkeypatch.setenv("MEDIAMAN_REAUTH_WINDOW_SECONDS", "not-a-number")
         assert reauth_window_seconds() == 300
-
-
-# ---------------------------------------------------------------------------
-# grant / has / revoke
-# ---------------------------------------------------------------------------
 
 
 class TestGrantHasRevoke:
@@ -145,7 +133,6 @@ class TestGrantHasRevoke:
         assert has_recent_reauth(conn, token, "alice", max_age_seconds=60) is False
 
     def test_revoke_all_for_user(self, conn):
-        """revoke_all_reauth_for drops every ticket for the named user."""
         for i in range(3):
             grant_recent_reauth(conn, f"{i}" * 64, "alice")
         # And one for bob — should be untouched.
@@ -161,13 +148,8 @@ class TestGrantHasRevoke:
         assert bob_count == 1
 
 
-# ---------------------------------------------------------------------------
-# H-4: revoke_reauth_by_hash and cleanup_expired_reauth
-# ---------------------------------------------------------------------------
-
-
 class TestRevokeReauthByHash:
-    """H-4: session-destruction sites only have a token hash on hand."""
+    """Session-destruction sites only have a token hash on hand."""
 
     def test_revoke_by_hash_deletes_matching_ticket(self, conn):
         token = "ses-tok-h4-1"
@@ -198,7 +180,7 @@ class TestRevokeReauthByHash:
 
 
 class TestCleanupExpiredReauth:
-    """H-4: a periodic sweep stops dead tickets piling up."""
+    """A periodic sweep stops dead tickets piling up."""
 
     def test_sweeps_only_past_expiry(self, conn):
         future = (datetime.now(UTC) + timedelta(seconds=300)).isoformat()
@@ -226,11 +208,6 @@ class TestCleanupExpiredReauth:
             for row in conn.execute("SELECT session_token_hash FROM reauth_tickets")
         }
         assert remaining == {"hash-fresh"}
-
-
-# ---------------------------------------------------------------------------
-# verify_reauth_password — feeds the reauth-namespace lockout
-# ---------------------------------------------------------------------------
 
 
 class TestVerifyReauthPassword:
@@ -286,7 +263,7 @@ class TestVerifyReauthPassword:
 
 class TestMaxAgeClamp:
     def test_negative_max_age_is_clamped_to_zero(self, conn, freezer):
-        """M7: a negative ``max_age_seconds`` is clamped to 0 (strictest),
+        """A negative ``max_age_seconds`` is clamped to 0 (strictest),
         NOT treated as an unbounded/garbage window.
 
         With the clock frozen the ticket's age is exactly 0, so a window
@@ -308,7 +285,7 @@ class TestMaxAgeClamp:
 
 
 class TestUsernameReuseCannotInheritTicket:
-    """H3: a reauth ticket is bound to ``session_token_hash`` + the
+    """A reauth ticket is bound to ``session_token_hash`` + the
     (reusable) username string, not an immutable user id. The guarantee
     that a *reused* username cannot inherit a prior user's ticket rests on
     every user-deletion / session-purge path revoking the tickets by

@@ -1,4 +1,4 @@
-"""Tests for :mod:`mediaman.web.routes.download.submit`.
+"""Tests for mediaman.web.routes.download.submit.
 
 Covers POST /download/{token}:
   - invalid/expired token → 410
@@ -221,7 +221,6 @@ class TestDownloadSubmitMovie:
             assert digest not in _USED_TOKENS
 
     def test_notification_recorded_on_success(self, app_factory, conn, secret_key):
-        """A successful submit records a download notification in the DB."""
         app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
         token = _make_token(secret_key, title="Dune", media_type="movie", tmdb_id=42)
@@ -315,7 +314,6 @@ class TestDownloadSubmitTV:
         assert resp.json()["ok"] is False
 
     def test_sonarr_not_configured_returns_503(self, app_factory, conn, secret_key):
-        """When Sonarr is not configured, TV submit returns 503."""
         app = _app(app_factory, conn)
         client = TestClient(app, raise_server_exceptions=True)
         token = _make_token(secret_key, media_type="tv", tmdb_id=42)
@@ -327,7 +325,7 @@ class TestDownloadSubmitTV:
 
 
 class TestDownloadSubmitRefusesMissingTmdbId:
-    """Finding 15 (H-1): public submit must refuse tokens without a stable TMDB id.
+    """Public submit must refuse tokens without a stable TMDB id.
 
     The previous behaviour fell back to ``client.lookup_by_term(title)`` and
     enqueued the first match — an ambiguous or remade title could route the

@@ -27,7 +27,6 @@ class TestRecentDownloadsTable:
         assert "recent_downloads" in tables
 
     def test_recent_downloads_columns(self, db_path):
-        """recent_downloads has the expected columns."""
         conn = init_db(str(db_path))
         cols = [r[1] for r in conn.execute("PRAGMA table_info(recent_downloads)").fetchall()]
         assert "dl_id" in cols

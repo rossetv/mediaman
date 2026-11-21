@@ -1,5 +1,3 @@
-"""Tests for the shared password strength policy."""
-
 from __future__ import annotations
 
 from mediaman.web.auth.password_policy import (
@@ -10,7 +8,7 @@ from mediaman.web.auth.password_policy import (
 
 
 class TestCommonPasswordsDataFile:
-    """H5: common passwords are loaded from the data file, not an inline tuple."""
+    """Common passwords are loaded from the data file, not an inline tuple."""
 
     def test_common_passwords_is_frozenset(self):
         from mediaman.web.auth.password_policy import _COMMON_PASSWORDS
@@ -110,8 +108,7 @@ class TestPasswordIssues:
 
 
 class TestPasswordMaxLength:
-    """Hard byte cap protects against megabyte-scale password DoS
-    (FINDINGS Domain 01: D01-3)."""
+    """Hard byte cap protects against megabyte-scale password DoS."""
 
     def test_two_megabyte_password_rejected(self):
         # 2 MB of ASCII — far above the 1024-byte cap.
@@ -151,8 +148,7 @@ class TestPasswordMaxLength:
 
 class TestUnicodeNormalisation:
     """NFKC normalisation must be applied so visually-identical strings
-    in different encodings are treated as equal (FINDINGS Domain 01:
-    D01-9)."""
+    in different encodings are treated as equal."""
 
     def test_precomposed_and_decomposed_equivalent(self):
         # Build the two byte sequences explicitly so the source-file

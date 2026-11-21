@@ -1,4 +1,4 @@
-"""Tests for :mod:`mediaman.web.routes.library._query`.
+"""Tests for mediaman.web.routes.library._query.
 
 Direct unit tests against fetch_library, fetch_stats, and the private
 helper functions (days_ago, type_css, protection_label). No HTTP
@@ -69,11 +69,6 @@ def _insert_tv_season(
     )
 
 
-# ---------------------------------------------------------------------------
-# Helper function unit tests
-# ---------------------------------------------------------------------------
-
-
 class TestTypeCss:
     def test_movie_returns_type_mov(self):
         assert type_css("movie") == "type-mov"
@@ -129,11 +124,6 @@ class TestProtectionLabel:
         # Should say "1 day" (not "1 days")
         assert label is not None
         assert "days" not in label or "1 day" in label
-
-
-# ---------------------------------------------------------------------------
-# fetch_library
-# ---------------------------------------------------------------------------
 
 
 class TestFetchLibrary:
@@ -291,11 +281,6 @@ class TestFetchLibrary:
         titles = {i["title"] for i in items}
         assert "foo_bar" in titles
         assert "fooXbar" not in titles
-
-
-# ---------------------------------------------------------------------------
-# fetch_stats
-# ---------------------------------------------------------------------------
 
 
 class TestFetchStats:

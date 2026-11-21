@@ -1,6 +1,6 @@
-"""Comprehensive tests for :mod:`mediaman.web.middleware.csrf`.
+"""Comprehensive tests for mediaman.web.middleware.csrf.
 
-Covers the full CSRF defence surface of :class:`CSRFOriginMiddleware`:
+Covers the full CSRF defence surface of CSRFOriginMiddleware:
 
 - Exempt-routes allowlist (which paths bypass the Origin/Referer check).
 - Origin header checks: matches, mismatch, missing, malformed.
@@ -10,7 +10,7 @@ Covers the full CSRF defence surface of :class:`CSRFOriginMiddleware`:
 - Edge cases: session cookie present without Origin, no cookie without
   Origin, empty Origin value.
 
-:mod:`tests.unit.web.test_security_headers` already has brief smoke
+tests.unit.web.test_security_headers already has brief smoke
 tests wired through ``register_security_middleware``.  The tests here go
 deeper — they target the middleware class directly so they are insulated
 from the middleware stack ordering and can exercise the internal logic
@@ -27,10 +27,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from mediaman.web.middleware.csrf import CSRFOriginMiddleware
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _make_app(*, post_path: str = "/api/thing", extra_routes: dict | None = None) -> FastAPI:
@@ -75,11 +71,6 @@ def _make_app(*, post_path: str = "/api/thing", extra_routes: dict | None = None
     return app
 
 
-# ---------------------------------------------------------------------------
-# HTTP method gating: safe methods bypass the CSRF check entirely
-# ---------------------------------------------------------------------------
-
-
 class TestSafeMethodsBypass:
     """GET, HEAD, and OPTIONS are never state-changing; the middleware must
     pass them through without examining Origin or Referer."""
@@ -109,11 +100,6 @@ class TestSafeMethodsBypass:
         client.cookies.set("session_token", "some-token")
         resp = client.get("/api/thing", headers={"Origin": "https://evil.example.com"})
         assert resp.status_code == 200
-
-
-# ---------------------------------------------------------------------------
-# Mutating methods: POST / PUT / PATCH / DELETE all enforced
-# ---------------------------------------------------------------------------
 
 
 class TestMutatingMethodsEnforced:
@@ -147,14 +133,7 @@ class TestMutatingMethodsEnforced:
         assert resp.status_code == 200
 
 
-# ---------------------------------------------------------------------------
-# Origin header checks
-# ---------------------------------------------------------------------------
-
-
 class TestOriginHeaderChecks:
-    """Direct tests of the Origin header comparison logic."""
-
     def test_matching_origin_allowed(self):
         """``Origin: http://testserver`` on a request to ``testserver`` passes."""
         client = TestClient(_make_app())
@@ -218,11 +197,6 @@ class TestOriginHeaderChecks:
         assert resp.status_code == 200
 
 
-# ---------------------------------------------------------------------------
-# Referer header fallback (used when Origin is absent)
-# ---------------------------------------------------------------------------
-
-
 class TestRefererHeaderFallback:
     """When no ``Origin`` header is present the middleware falls back to
     ``Referer``.  The Referer is a full URL; the middleware extracts the
@@ -282,11 +256,6 @@ class TestRefererHeaderFallback:
         assert resp.status_code == 403
 
 
-# ---------------------------------------------------------------------------
-# Missing Origin / Referer — non-browser vs. cookie-carrying
-# ---------------------------------------------------------------------------
-
-
 class TestMissingOriginBehaviour:
     """The middleware distinguishes between two missing-header cases:
 
@@ -326,11 +295,6 @@ class TestMissingOriginBehaviour:
             headers={"Origin": "https://attacker.example.com"},
         )
         assert resp.status_code == 403
-
-
-# ---------------------------------------------------------------------------
-# Exempt-routes allowlist
-# ---------------------------------------------------------------------------
 
 
 class TestExemptRoutesAllowlist:
@@ -446,11 +410,6 @@ class TestExemptRoutesAllowlist:
         assert resp.status_code == 200
 
 
-# ---------------------------------------------------------------------------
-# Response content — error bodies carry the CSRF sentinel
-# ---------------------------------------------------------------------------
-
-
 class TestCSRFErrorResponseContent:
     """403 responses from the CSRF middleware must include the ``CSRF:`` prefix
     in the body so callers (and monitoring) can distinguish CSRF rejections
@@ -479,13 +438,8 @@ class TestCSRFErrorResponseContent:
         assert b"CSRF" in resp.content
 
 
-# ---------------------------------------------------------------------------
-# CSRF finding 11: no-Origin with session cookie
-# ---------------------------------------------------------------------------
-
-
 class TestFinding11CSRFNoOriginWithCookie:
-    """Finding 11: unsafe requests with session cookie but no Origin must be rejected."""
+    """Unsafe requests with session cookie but no Origin must be rejected."""
 
     def _app(self):
         from mediaman.web import register_security_middleware
@@ -500,13 +454,12 @@ class TestFinding11CSRFNoOriginWithCookie:
         return TestClient(app)
 
     def test_no_origin_no_cookie_allowed(self):
-        """Non-browser client (no cookie, no origin) should be allowed through."""
         client = self._app()
         resp = client.post("/api/thing")
         assert resp.status_code == 200
 
     def test_no_origin_with_session_cookie_rejected(self):
-        """Finding 11: POST with a session_token cookie but no Origin must return 403."""
+        """POST with a session_token cookie but no Origin must return 403."""
         from mediaman.web import register_security_middleware
 
         app = FastAPI()
@@ -553,11 +506,6 @@ class TestFinding11CSRFNoOriginWithCookie:
         client.cookies.set("session_token", "some-session")
         resp = client.post("/keep/testtoken")
         assert resp.status_code == 200
-
-
-# ---------------------------------------------------------------------------
-# CSRF Origin port normalisation (round-2 hardening)
-# ---------------------------------------------------------------------------
 
 
 class TestCsrfPortNormalisation:
@@ -668,13 +616,8 @@ class TestCsrfExemptPrefix:
         )
 
 
-# ---------------------------------------------------------------------------
-# H4 — empty/unresolvable host fails closed for cookie-authenticated requests
-# ---------------------------------------------------------------------------
-
-
 class TestEmptyExpectedHostFailsClosed:
-    """H4: if the request's own host cannot be resolved (empty netloc) or
+    """If the request's own host cannot be resolved (empty netloc) or
     the Origin/Referer is malformed, two empty strings must NOT compare
     equal as a "match". A cookie-authenticated state-changing request in
     that situation is rejected, never waved through.
@@ -712,13 +655,8 @@ class TestEmptyExpectedHostFailsClosed:
         assert resp.status_code == 200
 
 
-# ---------------------------------------------------------------------------
-# H5 — scheme tightening on HTTPS requests with a session cookie
-# ---------------------------------------------------------------------------
-
-
 class TestSchemeTighteningOnHttps:
-    """H5: when a session cookie is present AND the request resolves as
+    """When a session cookie is present AND the request resolves as
     HTTPS, the Origin/Referer scheme must also be HTTPS — closing the
     same-host scheme-downgrade hole — WITHOUT breaking the documented
     reverse-proxy http case (request resolves as http → host-only).
@@ -759,13 +697,8 @@ class TestSchemeTighteningOnHttps:
         assert resp.status_code == 200
 
 
-# ---------------------------------------------------------------------------
-# M10 — exempt-route matcher is anchored (function-level pin, §10.11)
-# ---------------------------------------------------------------------------
-
-
 class TestExemptMatcherIsAnchored:
-    """M10: pin the ``_csrf_route_is_exempt`` matcher directly so the
+    """Pin the ``_csrf_route_is_exempt`` matcher directly so the
     ``^.../[^/]+$`` anchoring (single-segment only, no nested paths) is
     guaranteed independently of the middleware wiring.
     """
