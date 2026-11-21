@@ -327,7 +327,7 @@ class TestOrphanGuardTwoScanConfirmation:
 
 
 class TestOrphanGuardPerLibraryConfirmation:
-    """M2: confirmation is PER LIBRARY. ``remove_orphans`` must only prune a
+    """Confirmation is PER LIBRARY. ``remove_orphans`` must only prune a
     library on a suspicious scan if THAT specific library was already pending
     from the previous run (a second consecutive suspicious look at it). A
     library that is merely *part of* a larger previously-pending set, but is

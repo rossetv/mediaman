@@ -179,7 +179,7 @@ class TestDaysAgo:
 
 
 class TestRelativeDayLabel:
-    """M5: behaviour must be unchanged after removing the control-flow assert.
+    """Relative day labels.
 
     Covers every branch: same-day, tomorrow, future, past-with-producer,
     and past-without-producer (collapses to ``today``).
@@ -240,8 +240,8 @@ class TestRelativeDayLabel:
 
 
 class TestTitleFromAuditDetailNoMatch:
-    """L6: docstring now states a non-empty no-match echoes the (capped)
-    input rather than returning ``"Unknown"`` — lock that behaviour.
+    """A non-empty no-match echoes the (capped) input rather than
+    returning ``"Unknown"``.
     """
 
     def test_empty_returns_unknown(self):

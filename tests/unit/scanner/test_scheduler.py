@@ -115,7 +115,7 @@ def test_module_level_scheduler_ref_is_set_after_start(mock_cls):
 @patch("apscheduler.schedulers.background.BackgroundScheduler")
 def test_start_scheduler_called_twice_does_not_create_two_schedulers(mock_cls):
     """Calling start_scheduler a second time must return the existing instance
-    and must not instantiate a second BackgroundScheduler (C17: idempotent start)."""
+    and must not instantiate a second BackgroundScheduler (idempotent start)."""
     mock_instance = MagicMock()
     mock_cls.return_value = mock_instance
 

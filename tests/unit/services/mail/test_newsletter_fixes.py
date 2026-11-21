@@ -1,4 +1,4 @@
-"""Behaviour tests for review-wave fixes applied to the newsletter service.
+"""Behaviour tests for the newsletter service.
 
 Each test class is named after the behaviour it exercises, with a brief
 description of the correctness property being verified.

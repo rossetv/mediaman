@@ -847,7 +847,7 @@ class TestSessionTokenRegex:
 
         # The compiled regex MUST NOT carry ``^...$`` anchors —
         # ``fullmatch`` already anchors implicitly.  This is cosmetic
-        # but the audit flagged it as wasted work on every request.
+        # but it is wasted work on every request.
         assert session_store._SESSION_TOKEN_RE.pattern == r"[0-9a-f]{64}"
 
     def test_fullmatch_still_rejects_extra_chars(self):

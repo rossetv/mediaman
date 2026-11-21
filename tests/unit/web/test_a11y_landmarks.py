@@ -184,8 +184,7 @@ def test_detail_modal_labelled_by_visible_title():
 
 def test_search_inline_script_renders_modal_title_as_h2():
     """Search.html's modal-render must build an
-    <h2 id="detail-modal-title"> so aria-labelledby resolves. After the
-    Phase 8 split the detail-modal rendering lives in
+    <h2 id="detail-modal-title"> so aria-labelledby resolves. The detail-modal rendering lives in
     static/js/search/detail_modal.js; search.html must load that sub-module
     before search.js so the h2 is still guaranteed to be built."""
     search = _tpl("search.html")

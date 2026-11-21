@@ -141,7 +141,7 @@ class TestConstructorValidation:
 
 
 class TestDelayFloatValidation:
-    """L4: NaN/inf/negative delay floats must be rejected at construction so
+    """NaN/inf/negative delay floats must be rejected at construction so
     they cannot poison the scheduler's ``min()`` sleep math later.
     """
 

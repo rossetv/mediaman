@@ -88,7 +88,7 @@ def test_accepts_address_at_exact_limit() -> None:
 
 
 def test_length_cap_is_measured_in_octets_not_code_points() -> None:
-    """L7: the RFC 5321 cap is octets, so a multibyte local part that is
+    """The RFC 5321 cap is octets, so a multibyte local part that is
     under 320 *characters* but over 320 *octets* must still be rejected.
     """
     # "é" is 2 UTF-8 octets. 200 of them = 400 octets but only ~212 chars.

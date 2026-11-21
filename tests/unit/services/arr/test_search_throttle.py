@@ -221,7 +221,7 @@ class TestThrottleDbPersistence:
 class TestPerArrInstanceFanOutCap:
     """The documented per-arr-instance throttle is enforced on the primary path.
 
-    B2: two distinct stuck items on the same arr instance must fire only ONE
+    Two distinct stuck items on the same arr instance must fire only ONE
     search within ``_PER_ARR_THROTTLE_SECONDS``. The same item must still
     advance along its own per-item backoff. Abandon (clear_throttle with a
     service) resets the per-instance cap so an immediate re-monitor can search.

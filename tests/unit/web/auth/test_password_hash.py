@@ -292,8 +292,7 @@ class TestEmptyUsernameShortCircuit:
 class TestLockedAccountSkipsBcrypt:
     """When the account is already locked, authenticate() must skip the
     bcrypt round. record_failure() is still called so the escalation
-    thresholds (5/10/15 → 15min/1h/24h) remain reachable — see C6 in
-    test_login_lockout.py."""
+    thresholds (5/10/15 → 15min/1h/24h) remain reachable."""
 
     def test_locked_account_skips_bcrypt_call(self, conn):
         from mediaman.web.auth.login_lockout import record_failure

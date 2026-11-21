@@ -115,7 +115,7 @@ class TestUpsertMediaItem:
         assert "2023-06-15" in row["added_at"]
 
     def test_conflict_refreshes_plex_library_id(self, conn):
-        """M4: a Plex section re-org moves an item between libraries. The
+        """A Plex section re-org moves an item between libraries. The
         ON CONFLICT update must refresh ``plex_library_id`` so the orphan
         guard's universe (``count_items_in_libraries`` /
         ``fetch_ids_in_libraries``) attributes the item to its new library
@@ -137,7 +137,7 @@ class TestUpsertMediaItem:
         assert repository.count_items_in_libraries(conn, [1]) == 0
 
     def test_conflict_refreshes_show_title_and_season_number(self, conn):
-        """M4: corrected upstream season metadata (``show_title`` /
+        """Corrected upstream season metadata (``show_title`` /
         ``season_number``) must propagate on conflict rather than stick at
         the stale first-seen value.
         """
@@ -488,7 +488,7 @@ class TestCleanupExpiredSnoozes:
         )
 
     def test_expired_consumed_snooze_still_marks_reentry_on_next_scan(self, conn):
-        """H1: the cleanup sweep must NOT delete an expired *consumed*
+        """The cleanup sweep must NOT delete an expired *consumed*
         (``token_used = 1``) snooze. That row is the sole re-entry signal
         read by ``has_expired_snooze``; deleting it would silently make
         re-entry detection never fire for any item whose snooze lapsed

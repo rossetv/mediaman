@@ -244,7 +244,7 @@ class TestRecoverStuckDeletions:
         recover_stuck_deletions(conn)
 
     def test_file_gone_outside_roots_does_not_fabricate_audit(self, conn, tmp_path, monkeypatch):
-        """M5: a 'deleting' row whose file is absent but whose stored path is
+        """A 'deleting' row whose file is absent but whose stored path is
         OUTSIDE the configured delete roots must NOT be completed as a
         deletion — mediaman could never have removed it, so writing a
         'deleted N bytes' audit row would corrupt the audit trail and the
@@ -283,7 +283,7 @@ class TestRecoverStuckDeletions:
         assert audit is None
 
     def test_file_gone_with_empty_path_does_not_fabricate_audit(self, conn, monkeypatch):
-        """M5: an empty stored path is never within any root, so the
+        """An empty stored path is never within any root, so the
         file-absent branch must not complete a deletion off it either.
         """
         monkeypatch.delenv("MEDIAMAN_DELETE_ROOTS", raising=False)

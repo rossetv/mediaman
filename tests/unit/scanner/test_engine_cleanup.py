@@ -28,7 +28,7 @@ def mock_plex():
 
 
 class TestOrphanGuard:
-    """C31: a scan returning zero (or near-zero) items must not be
+    """A scan returning zero (or near-zero) items must not be
     trusted as authoritative — refuse orphan removal and log why."""
 
     def _populate_items(self, conn, lib_id, n):
