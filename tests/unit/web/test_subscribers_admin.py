@@ -341,6 +341,7 @@ class TestSendNewsletterOutcome:
 
         assert resp.status_code == 200
         assert resp.json()["sent_to"] == 1
+        assert resp.json()["failed"] == 1
         assert '"sent_to":1' in self._audit_rows(conn)[0]["detail"]
 
     def test_nothing_to_send_is_a_success_that_says_so_with_no_audit(self, authed_client, app):

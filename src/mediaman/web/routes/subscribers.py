@@ -261,7 +261,10 @@ def api_send_newsletter(
         ip=get_client_ip(request),
         detail={"sent_to": result.sent, "rejected": rejected},
     )
-    return respond_ok({"sent_to": result.sent})
+    reply: dict[str, object] = {"sent_to": result.sent}
+    if result.sent < result.attempted:
+        reply["failed"] = result.attempted - result.sent
+    return respond_ok(reply)
 
 
 def _render_result(
