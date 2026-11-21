@@ -1,16 +1,12 @@
 [build-system]
-# setuptools >=84.2.1 is sufficient for src layout + package-data discovery.
-# PEP 639 SPDX licence fields (license = "MIT" flat string) require >=77;
-# leave the classic { text = "MIT" } form until we pin setuptools >=77.
-# TODO: bump to setuptools>=77 and adopt PEP 639 + setuptools-scm for
-#       version management once CI lockfile is in place.
+# TODO: adopt PEP 639 (license = "MIT") and setuptools-scm for the version;
+#       setuptools>=84.2.1 already supports both.
 requires = ["setuptools>=84.2.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "mediaman"
-# Keep a literal version for now; bump here and in src/mediaman/__init__.py
-# together. TODO: switch to setuptools-scm + dynamic = ["version"].
+# Bump here and in the fallback in src/mediaman/__init__.py together.
 version = "0.1.0"
 description = "Self-hosted media lifecycle management for Plex, with scanner, newsletter, and admin web UI."
 readme = "README.md"
