@@ -30,7 +30,7 @@ from starlette.responses import Response
 # lands the fallback prevents a CSP violation on every page render.
 #
 # Templates expose the nonce via ``request.state.csp_nonce`` (set by
-# :class:`SecurityHeadersMiddleware`).  Any future inline ``<script>``
+# `SecurityHeadersMiddleware`).  Any future inline ``<script>``
 # that genuinely has to stay inline must add
 # ``nonce="{{ request.state.csp_nonce }}"`` to the tag.
 #
@@ -102,12 +102,12 @@ def _build_csp(nonce: str) -> str:
 
 # Backward-compatible representative CSP value for tests and tooling
 # that need a static string snapshot of the policy.  The placeholder
-# obviously is not a real per-request value — call :func:`_build_csp`
+# obviously is not a real per-request value — call `_build_csp`
 # for the runtime header.
 _CSP = _build_csp("placeholder")
 
 # Always-on headers applied to every response.  CSP is added per-request
-# in :class:`SecurityHeadersMiddleware` because the nonce changes on
+# in `SecurityHeadersMiddleware` because the nonce changes on
 # every dispatch.
 _STATIC_HEADERS: dict[str, str] = {
     "X-Frame-Options": "DENY",
@@ -198,7 +198,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("Content-Security-Policy", _build_csp(nonce))
         # Hide server banner (FastAPI/uvicorn leaks nothing sensitive,
         # but there's no reason to advertise). ``setdefault`` for
-        # consistency with every other header here (L2) — a handler that
+        # consistency with every other header here — a handler that
         # deliberately set its own ``Server`` value is left untouched.
         response.headers.setdefault("Server", "mediaman")
         # Cache-Control: no-store, private on every authenticated response

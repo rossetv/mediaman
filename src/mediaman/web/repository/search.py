@@ -1,7 +1,7 @@
 """Repository functions for the search route's ratings-cache reads/writes.
 
-Owns the :class:`ratings_cache` SQL surface used by
-:mod:`mediaman.web.routes.search._enrichment` when annotating TMDB
+Owns the `ratings_cache` SQL surface used by
+`mediaman.web.routes.search._enrichment` when annotating TMDB
 search results with the OMDb rating cache.
 """
 
@@ -13,8 +13,6 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class RatingsCacheRow:
-    """A single row from the ``ratings_cache`` table."""
-
     tmdb_id: int
     media_type: str
     imdb_rating: str | None

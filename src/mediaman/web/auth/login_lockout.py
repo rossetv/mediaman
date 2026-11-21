@@ -5,7 +5,7 @@
 # is comfortably under the 500-line ceiling and owns exactly one concept.
 """Persistent per-username login lockout.
 
-The existing rate limiter in :mod:`mediaman.web.auth.rate_limit` is per-IP
+The existing rate limiter in `mediaman.web.auth.rate_limit` is per-IP
 and in-memory. An attacker rotating through IPs (cheap on any cloud
 provider) can brute-force a known username without ever tripping it,
 and restarting the process wipes the counter.
@@ -73,7 +73,6 @@ _LOCK_RULES: tuple[tuple[int, int], ...] = (
 
 
 def _window_for_count(count: int) -> int | None:
-    """Return the lock-duration in minutes for *count*, or None if no lock applies."""
     for threshold, minutes in _LOCK_RULES:
         if count >= threshold:
             return minutes
@@ -95,8 +94,8 @@ def _iso(dt: datetime) -> str:
 
 #: Per-connection guard so the ``CREATE TABLE IF NOT EXISTS`` backstop
 #: runs at most ONCE per distinct connection object instead of on every
-#: auth operation (M6). Production schema is created by ``init_db``
-#: (§9.1/§9.11); this DDL is only a backstop for tests / legacy DBs that
+#: auth operation. Production schema is created by ``init_db``;
+#: this DDL is only a backstop for tests / legacy DBs that
 #: spin up a bare connection without running migrations. ``id(conn)`` is
 #: stable for the lifetime of the connection and the set is bounded by
 #: the small number of live connections, so this never leaks meaningfully.
@@ -106,10 +105,10 @@ _ENSURED_TABLE_CONN_IDS: set[int] = set()
 def _ensure_table(conn: sqlite3.Connection) -> None:
     """Create the login_failures table if it isn't there yet (once per conn).
 
-    The migration in :mod:`mediaman.db` creates this in production, but
+    The migration in `mediaman.db` creates this in production, but
     tests and legacy DBs may skip the migration — so keep a cheap local
     backstop. To avoid re-issuing a write-locking ``CREATE TABLE`` DDL on
-    every authenticated request (M6), the DDL runs at most once per
+    every authenticated request, the DDL runs at most once per
     distinct connection.
     """
     if id(conn) in _ENSURED_TABLE_CONN_IDS:
@@ -157,7 +156,7 @@ def is_locked_out(conn: sqlite3.Connection, username: str) -> bool:
     # but no active lock" state — not locked.
     if not raw_locked_until:
         return False
-    # Strict parse + fail-closed (M4): a NON-EMPTY but unparseable
+    # Strict parse + fail-closed: a NON-EMPTY but unparseable
     # ``locked_until`` is treated as STILL LOCKED, consistent with the
     # session-store B1 fix. An attacker who could corrupt the stored value
     # must not be able to escape the lock by garbling it.
@@ -245,11 +244,6 @@ def _ensure_first_failure(
     now_iso: str,
     first_failure: datetime | None,
 ) -> datetime:
-    """Backfill first_failure_at when the UPSERT UPDATE branch left it unset.
-
-    Fresh row — first_failure wasn't set by the UPSERT's UPDATE
-    branch. (The INSERT branch already populated it.)
-    """
     if first_failure is None:
         conn.execute(
             "UPDATE login_failures SET first_failure_at = ? WHERE username = ?",
@@ -364,7 +358,7 @@ def record_failure(conn: sqlite3.Connection, username: str) -> int | None:
 
     The *username* is used verbatim as the lockout key — NOT lowercased —
     so the counter aligns with the case-sensitive ``admin_users.username``
-    lookup at the authentication boundary (see :func:`is_locked_out`).
+    lookup at the authentication boundary (see `is_locked_out`).
     """
     if not username:
         return None
@@ -386,7 +380,7 @@ def record_success(conn: sqlite3.Connection, username: str) -> None:
     """Clear the failure counter after a successful login.
 
     The *username* is used verbatim — matching the key written by
-    :func:`record_failure` and looked up by :func:`is_locked_out`.
+    `record_failure` and looked up by `is_locked_out`.
     """
     if not username:
         return
@@ -429,11 +423,11 @@ def admin_unlock_with_audit(
 ) -> bool:
     """Clear *target_username*'s lock and audit-log the unlock atomically.
 
-    Wraps :func:`admin_unlock` and :func:`security_event_or_raise` in a
+    Wraps `admin_unlock` and `security_event_or_raise` in a
     single ``BEGIN IMMEDIATE`` block so the unlock and the audit row
     land together — if the audit insert fails, the unlock rolls back.
     Returns the value of
-    :func:`admin_unlock` so the caller knows whether there was a lock
+    `admin_unlock` so the caller knows whether there was a lock
     to clear.
     """
     with conn:

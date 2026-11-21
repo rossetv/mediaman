@@ -72,7 +72,6 @@ class DiskThresholds(BaseModel):
     @field_validator("thresholds")
     @classmethod
     def validate_thresholds(cls, v: dict[str, int]) -> dict[str, int]:
-        """Validate each threshold entry: reject CRLF in paths and enforce 0–100 range."""
         for path, pct in v.items():
             _reject_crlf(path)
             if not isinstance(pct, int) or not (0 <= pct <= 100):
@@ -96,9 +95,6 @@ class SettingsUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    # ------------------------------------------------------------------
-    # Plex
-    # ------------------------------------------------------------------
     plex_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
     plex_public_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
     plex_token: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
@@ -107,57 +103,33 @@ class SettingsUpdate(BaseModel):
         Field(max_length=128),
     ] = None
 
-    # ------------------------------------------------------------------
-    # Sonarr
-    # ------------------------------------------------------------------
     sonarr_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
     sonarr_public_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
     sonarr_api_key: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
 
-    # ------------------------------------------------------------------
-    # Radarr
-    # ------------------------------------------------------------------
     radarr_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
     radarr_public_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
     radarr_api_key: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
 
-    # ------------------------------------------------------------------
-    # NZBGet
-    # ------------------------------------------------------------------
     nzbget_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
     nzbget_public_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
     nzbget_username: Annotated[str | None, Field(max_length=128)] = None
     nzbget_password: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
 
-    # ------------------------------------------------------------------
-    # Mailgun
-    # ------------------------------------------------------------------
     mailgun_domain: Annotated[str | None, Field(max_length=_HOST_MAX)] = None
     mailgun_api_key: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
     mailgun_from_address: Annotated[str | None, Field(max_length=_MAX_EMAIL_LEN)] = None
 
-    # ------------------------------------------------------------------
-    # TMDB
-    # ------------------------------------------------------------------
     tmdb_api_key: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
     tmdb_read_token: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
 
-    # ------------------------------------------------------------------
-    # OpenAI
-    # ------------------------------------------------------------------
     openai_api_key: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
     openai_web_search_enabled: bool | None = None
     # Allowlisted model identifier; validated by ``validate_openai_model``.
     openai_model: Annotated[str | None, Field(max_length=32)] = None
 
-    # ------------------------------------------------------------------
-    # OMDb
-    # ------------------------------------------------------------------
     omdb_api_key: Annotated[str | None, Field(max_length=_SECRET_MAX)] = None
 
-    # ------------------------------------------------------------------
-    # General / scheduling
-    # ------------------------------------------------------------------
     base_url: Annotated[str | None, Field(max_length=_URL_MAX)] = None
     # ``scan_day`` is a weekday name ("monday"…); a 16-char cap covers
     # case variants and a leading slug prefix without admitting any
@@ -187,14 +159,7 @@ class SettingsUpdate(BaseModel):
     # refusing an OOM-aimed payload of millions of bogus keys.
     disk_thresholds: Annotated[dict[str, Any] | None, Field(max_length=256)] = None
 
-    # ------------------------------------------------------------------
-    # Stuck searches
-    # ------------------------------------------------------------------
     auto_abandon_enabled: bool | None = None
-
-    # ------------------------------------------------------------------
-    # Field-level validators
-    # ------------------------------------------------------------------
 
     @field_validator(
         "plex_url",
@@ -210,7 +175,6 @@ class SettingsUpdate(BaseModel):
     )
     @classmethod
     def validate_url_fields(cls, v: object) -> object:
-        """Validate that URL fields are http(s) and contain no CR/LF."""
         if isinstance(v, str):
             return _validate_url(v)
         return v
@@ -229,7 +193,6 @@ class SettingsUpdate(BaseModel):
     )
     @classmethod
     def validate_api_key_fields(cls, v: object) -> object:
-        """Restrict secret fields to ASCII printable, max 200 chars, no CR/LF."""
         if isinstance(v, str):
             return _validate_api_key(v)
         return v
@@ -245,7 +208,6 @@ class SettingsUpdate(BaseModel):
     )
     @classmethod
     def validate_plain_string_fields(cls, v: object) -> object:
-        """Reject CR/LF in plain string fields (header-injection defence)."""
         if isinstance(v, str):
             _reject_crlf(v)
         elif isinstance(v, list):
@@ -277,7 +239,6 @@ class SettingsUpdate(BaseModel):
     @field_validator("scan_timezone", mode="before")
     @classmethod
     def validate_timezone(cls, v: object) -> object:
-        """Validate that *v* is a non-empty IANA timezone name."""
         if v is None:
             return v
         if not isinstance(v, str) or not v.strip():

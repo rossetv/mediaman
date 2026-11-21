@@ -1,15 +1,15 @@
 """Password re-authentication helpers.
 
-:func:`grant_recent_reauth` / :func:`has_recent_reauth` issue and check a
+`grant_recent_reauth` / `has_recent_reauth` issue and check a
 short-lived, server-side "recent reauth" ticket bound to the caller's
 session token hash. Privilege-establishing endpoints (admin creation,
 sensitive settings, admin unlock, password change) call
-:func:`has_recent_reauth` to demand that the caller has reauthenticated
+`has_recent_reauth` to demand that the caller has reauthenticated
 within the last ``REAUTH_WINDOW_SECONDS`` window. The ticket is keyed on
 the session's token-hash so:
 
-* Routes that destroy or rotate a session call :func:`revoke_reauth`
-  or :func:`revoke_all_reauth_for` so the ticket dies with the
+* Routes that destroy or rotate a session call `revoke_reauth`
+  or `revoke_all_reauth_for` so the ticket dies with the
   session. Stranded rows for sessions destroyed via other paths are
   harmless — they expire on their own and the SHA-256 token-hash
   primary key makes accidental reuse by a fresh session vanishingly
@@ -18,7 +18,7 @@ the session's token-hash so:
   reauth granted to a different session.
 * Restarts and multi-worker deployments share one source of truth.
 
-Failed reauth attempts feed the existing :mod:`mediaman.web.auth.login_lockout`
+Failed reauth attempts feed the existing `mediaman.web.auth.login_lockout`
 counter under a ``reauth:<username>`` namespace so an attacker who steals a
 session cookie cannot mount an offline-style password oracle against the
 reauth endpoint either — the same escalating lockout that gates plain
@@ -55,7 +55,7 @@ _DEFAULT_REAUTH_WINDOW_SECONDS = 300
 _REAUTH_WINDOW_ENV = "MEDIAMAN_REAUTH_WINDOW_SECONDS"
 
 #: Lockout namespace prefix used when feeding failed reauth attempts into
-#: :mod:`mediaman.web.auth.login_lockout`. Keeps reauth failures separate from
+#: `mediaman.web.auth.login_lockout`. Keeps reauth failures separate from
 #: real login failures so the username's plain-login counter is not also
 #: tripped by a session-bound brute-force against reauth.
 REAUTH_LOCKOUT_PREFIX = "reauth:"
@@ -64,7 +64,7 @@ REAUTH_LOCKOUT_PREFIX = "reauth:"
 def reauth_window_seconds() -> int:
     """Return the configured reauth window in seconds.
 
-    Falls back to :data:`_DEFAULT_REAUTH_WINDOW_SECONDS` when the env var
+    Falls back to `_DEFAULT_REAUTH_WINDOW_SECONDS` when the env var
     is unset, blank, or non-numeric. A value below 30 s is clamped up — the
     UX of a sub-30-second window is awful and there's no security benefit
     short of "session is stolen *and* the attacker is racing the user in
@@ -89,27 +89,27 @@ def _now() -> datetime:
 
 
 #: Per-connection guard: the ``CREATE TABLE IF NOT EXISTS`` backstop runs
-#: at most ONCE per distinct connection (M6) instead of on every reauth
-#: grant/check/revoke. Production schema is created by ``init_db``
-#: (§9.1/§9.11); this DDL only backstops tests / legacy bare connections.
+#: at most ONCE per distinct connection instead of on every reauth
+#: grant/check/revoke. Production schema is created by ``init_db``;
+#: this DDL only backstops tests / legacy bare connections.
 _ENSURED_TABLE_CONN_IDS: set[int] = set()
 
 
 def _ensure_table(conn: sqlite3.Connection) -> None:
     """Create the reauth_tickets table if it isn't there (once per conn).
 
-    The migration block in :mod:`mediaman.db.schema` creates it in
+    The migration block in `mediaman.db.schema` creates it in
     production, but tests spinning up a fresh connection may skip
     migrations on legacy paths — so keep a cheap idempotent backstop. To
     avoid re-issuing a write-locking ``CREATE TABLE`` on every reauth
-    operation (M6), the DDL runs at most once per distinct connection.
+    operation, the DDL runs at most once per distinct connection.
 
     The table does NOT carry a SQL foreign key to ``admin_sessions``
     because ``admin_sessions`` is keyed on the raw token while this table
     is keyed on its SHA-256 hash, so a CASCADE relation is awkward to
     express.  Instead, every session-destruction site explicitly calls
-    :func:`revoke_reauth` (logout, password change) or
-    :func:`revoke_reauth_by_hash` (idle-expiry, fingerprint mismatch,
+    `revoke_reauth` (logout, password change) or
+    `revoke_reauth_by_hash` (idle-expiry, fingerprint mismatch,
     expired-row sweep) so the ticket is removed in lockstep with the
     session row.  The ``expires_at`` field is a backstop for any path
     we missed; the SHA-256 primary key makes accidental reuse by a
@@ -141,7 +141,7 @@ def verify_reauth_password(
     counter for *admin*.
 
     On failure: returns False and records the failure into
-    :mod:`mediaman.web.auth.login_lockout` under the ``reauth:<admin>``
+    `mediaman.web.auth.login_lockout` under the ``reauth:<admin>``
     namespace. This means:
 
     * Repeated wrong-password attempts at the reauth endpoint trip the
@@ -217,8 +217,8 @@ def grant_recent_reauth(
     * The plaintext token never appears in this table.
     * Session-destruction sites (logout, idle-expiry, fingerprint
       mismatch, expired-row sweep, bulk revocation on password change)
-      explicitly delete the matching ticket via :func:`revoke_reauth` /
-      :func:`revoke_reauth_by_hash` / :func:`revoke_all_reauth_for`,
+      explicitly delete the matching ticket via `revoke_reauth` /
+      `revoke_reauth_by_hash` / `revoke_all_reauth_for`,
       so the marker dies in lockstep with the session it was bound to.
 
     Idempotent: re-granting before the previous ticket expires extends
@@ -269,7 +269,7 @@ def has_recent_reauth(
         return False
     if max_age_seconds is None:
         max_age_seconds = reauth_window_seconds()
-    # Clamp a negative per-call window to 0 (M7) — the strictest possible.
+    # Clamp a negative per-call window to 0 — the strictest possible.
     # A negative value is meaningless as an "age" and would otherwise make
     # ``now - granted > timedelta(seconds=max_age_seconds)`` reject every
     # ticket; clamping to 0 makes the intent ("require a brand-new ticket")
@@ -324,7 +324,7 @@ def revoke_reauth_by_hash(conn: sqlite3.Connection, token_hash: str) -> None:
     Owns its own commit — used by callers that are NOT already inside
     an open transaction (logout, password-change, etc).  Callers that
     are in a transaction (the session-store atomic-delete path) must
-    use :func:`revoke_reauth_by_hash_in_tx` instead.
+    use `revoke_reauth_by_hash_in_tx` instead.
     """
     if not token_hash:
         return
@@ -337,7 +337,7 @@ def revoke_reauth_by_hash(conn: sqlite3.Connection, token_hash: str) -> None:
 
 
 def revoke_reauth_by_hash_in_tx(conn: sqlite3.Connection, token_hash: str) -> None:
-    """In-transaction variant of :func:`revoke_reauth_by_hash`.
+    """In-transaction variant of `revoke_reauth_by_hash`.
 
     Identical body but does NOT call ``commit()`` — the caller is
     expected to have already opened a ``BEGIN IMMEDIATE`` and will

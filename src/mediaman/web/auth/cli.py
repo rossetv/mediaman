@@ -1,5 +1,3 @@
-"""CLI commands for admin user management."""
-
 from __future__ import annotations
 
 import argparse
@@ -86,7 +84,7 @@ def _preflight_data_dir(config: Config) -> Path:
     ``chown`` hint instead of an opaque sqlite traceback when the bind
     mount is owned by the wrong uid. Exits the process with status 1 on
     a writability or creation failure; otherwise returns the data-dir
-    :class:`~pathlib.Path`.
+    `pathlib.Path`.
     """
     data_dir = Path(config.data_dir)
     try:

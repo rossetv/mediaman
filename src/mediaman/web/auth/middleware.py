@@ -8,29 +8,29 @@ Exports four FastAPI/callable dependency functions that all callers should
 prefer over raw ``validate_session`` calls — they guarantee fingerprint
 binding (User-Agent + client IP) is consistently applied:
 
-:func:`get_current_admin`
+`get_current_admin`
     Strict dependency: returns the username string or raises ``401``.
     Use in endpoints that must be authenticated.
 
-:func:`get_optional_admin`
+`get_optional_admin`
     Soft dependency: returns username or ``None``, never raises.
     Use in endpoints that adjust their response for authenticated
     vs. anonymous visitors (e.g. HTMX partials with extra controls).
 
-:func:`get_optional_admin_from_token`
+`get_optional_admin_from_token`
     Non-FastAPI variant of the above; accepts a raw token string and
-    an optional :class:`starlette.requests.Request`.  Used in routes
+    an optional `starlette.requests.Request`.  Used in routes
     that extract the cookie manually before the dependency injection
     layer runs.
 
-:func:`resolve_page_session`
+`resolve_page_session`
     Page-route helper that returns ``(username, conn)`` on success or a
     ``RedirectResponse("/login", 302)`` for unauthenticated callers.
     Centralises the cookie → ``validate_session`` → redirect dance every
     page handler needs.
 
-:func:`is_admin`
-    Convenience predicate over :func:`get_optional_admin_from_token` that
+`is_admin`
+    Convenience predicate over `get_optional_admin_from_token` that
     pulls the ``session_token`` cookie off the request itself.  Used by
     page-rendering routes that toggle admin-only UI affordances on or off
     without rejecting anonymous callers (keep and kept).
@@ -68,7 +68,7 @@ def resolve_cached_session(
     Without this cache that is two full ``validate_session`` passes — two
     SELECTs, two potential ``last_used_at`` writes, two fingerprint
     computations — and, worse, a fingerprint-eviction race if the two
-    call sites feed different inputs (H6).
+    call sites feed different inputs.
 
     The cache key is the raw token: if the same request somehow carries a
     different token at the second call site the cache is bypassed and a
@@ -130,7 +130,7 @@ def get_optional_admin(
 
     ``request`` is required so fingerprint + client-IP binding can be
     checked. Callers that want to skip the Request dependency can use
-    :func:`get_optional_admin_from_token` directly with a raw token.
+    `get_optional_admin_from_token` directly with a raw token.
     """
     return get_optional_admin_from_token(session_token, request=request)
 

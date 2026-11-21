@@ -6,14 +6,14 @@ the agreed attributes, and the ``is_request_secure`` resolver that decides
 whether the ``Secure`` flag should be set on a given request.
 
 Centralising the secure-cookie decision here avoids the previous drift
-between :mod:`mediaman.web.routes.auth` (the original home) and the three
+between `mediaman.web.routes.auth` (the original home) and the three
 other route modules that needed the same answer (force-password-change,
 users.passwords, users.sessions).  All four call sites now import
-:func:`is_request_secure` from this module.
+`is_request_secure` from this module.
 
-Allowed dependencies: :mod:`mediaman.services.rate_limit` for the
+Allowed dependencies: `mediaman.services.rate_limit` for the
 trusted-proxy CIDR helpers, plus FastAPI / Starlette primitives.  Must NOT
-import from :mod:`mediaman.web.routes` or :mod:`mediaman.web.auth` — those
+import from `mediaman.web.routes` or `mediaman.web.auth` — those
 layers import from here.
 """
 
@@ -31,10 +31,6 @@ from mediaman.services.rate_limit import peer_is_trusted, trusted_proxies
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Session cookie
-# ---------------------------------------------------------------------------
-
 # Single source of truth for the session-cookie max_age. Duplicating 86400
 # across auth.py / users.py / force_password_change.py created a silent
 # drift risk where one file was updated and the others weren't.
@@ -42,7 +38,6 @@ SESSION_COOKIE_MAX_AGE: int = 86400  # 24 hours
 
 
 def set_session_cookie(response: Response, token: str, *, secure: bool) -> None:
-    """Set the session cookie on *response* with canonical options."""
     response.set_cookie(
         "session_token",
         token,
@@ -53,18 +48,13 @@ def set_session_cookie(response: Response, token: str, *, secure: bool) -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# Secure-cookie scheme resolver
-# ---------------------------------------------------------------------------
-
-
 @lru_cache(maxsize=1)
 def _secure_cookie_override() -> str | None:
     """Return the resolved value of ``MEDIAMAN_FORCE_SECURE_COOKIES``.
 
     Cached at first call: the env var is read once and not re-checked
     on every request.  Tests that mutate the env mid-process must call
-    :func:`_secure_cookie_override.cache_clear` to invalidate.
+    `_secure_cookie_override.cache_clear` to invalidate.
 
     Returns ``"true"``, ``"false"``, or ``None`` (meaning "not set" /
     fall through to scheme detection).

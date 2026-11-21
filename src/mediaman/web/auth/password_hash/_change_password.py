@@ -1,19 +1,19 @@
-"""Password rotation — :func:`change_password` and its guards.
+"""Password rotation — `change_password` and its guards.
 
 Splits the rotation into three parts so the ``with conn:`` block in
-:func:`change_password` stands alone and its "all these writes share
+`change_password` stands alone and its "all these writes share
 one transaction" rationale is literally true of what remains:
 
-* :func:`_authorise_password_change` — the pre-transaction guard
+* `_authorise_password_change` — the pre-transaction guard
   sequence (reauth-lockout check, old-password verification, new-
   password policy). Runs before anything is written.
-* :func:`change_password` — the transactional UPDATE + session purge +
+* `change_password` — the transactional UPDATE + session purge +
   reauth-ticket purge + audit, plus TOCTOU handling.
-* :func:`_clear_reauth_failure_counter` — the best-effort post-
+* `_clear_reauth_failure_counter` — the best-effort post-
   transaction failure-counter cleanup.
 
-User CRUD lives in :mod:`._user_crud`; the credential-verification
-path in :mod:`._authenticate`.
+User CRUD lives in `._user_crud`; the credential-verification
+path in `._authenticate`.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ def _authorise_password_change(
     *,
     enforce_policy: bool,
 ) -> bool:
-    """Run the pre-transaction guard sequence for :func:`change_password`.
+    """Run the pre-transaction guard sequence for `change_password`.
 
     Returns True when the rotation may proceed, False when it is
     rejected (the reauth namespace is locked, or the old password is
@@ -93,7 +93,7 @@ def _authorise_password_change(
 def _clear_reauth_failure_counter(conn: sqlite3.Connection, namespace: str, username: str) -> None:
     """Best-effort clear of the ``reauth:<username>`` failure counter.
 
-    Called outside :func:`change_password`'s transaction so a counter
+    Called outside `change_password`'s transaction so a counter
     write failure never blocks a successful rotation. We are already
     past the bcrypt+UPDATE so the worst that happens here is a stale
     1-2 entry sitting around.
@@ -133,7 +133,7 @@ def change_password(
     user no longer exists (TOCTOU), or the reauth namespace is locked.
 
     Wrong-old-password attempts are recorded into the
-    ``reauth:<username>`` namespace of :mod:`mediaman.web.auth.login_lockout`
+    ``reauth:<username>`` namespace of `mediaman.web.auth.login_lockout`
     so a stolen session cannot turn this endpoint into an offline-style
     password oracle — the same escalating 5/10/15 thresholds that gate
     plain login also gate ``change_password``. The plain-login counter
@@ -148,7 +148,7 @@ def change_password(
     the entire rotation rolls back — we never have a "the password
     changed but no audit trail exists" outcome.
 
-    TOCTOU: between :func:`authenticate` returning True and the UPDATE
+    TOCTOU: between `authenticate` returning True and the UPDATE
     landing, the user could be deleted by another worker. We detect
     that via ``cursor.rowcount`` and roll back with ``return False``
     rather than silently claim success.

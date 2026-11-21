@@ -3,7 +3,7 @@
 Covers the per-route SQL that backs:
 
 * ``used_download_tokens`` — the persistent single-use store backing
-  :mod:`mediaman.web.routes.download._tokens` (the in-memory LRU cache
+  `mediaman.web.routes.download._tokens` (the in-memory LRU cache
   itself stays in the route module — it is process state, not SQL).
 * ``recent_downloads`` — short-window cache of ``ready`` items used as a
   fallback during status polling when the Arr API lags.
@@ -22,8 +22,6 @@ from mediaman.core.time import now_utc
 
 @dataclass(frozen=True)
 class RecentDownload:
-    """A row from ``recent_downloads`` keyed by ``dl_id``."""
-
     dl_id: str
     title: str
     poster_url: str
@@ -31,8 +29,6 @@ class RecentDownload:
 
 @dataclass(frozen=True)
 class SuggestionEnrichment:
-    """Enrichment columns fetched from ``suggestions`` for the confirm page."""
-
     poster_url: str | None
     year: int | None
     description: str | None
@@ -69,19 +65,16 @@ def claim_download_token(conn: sqlite3.Connection, *, digest: str, exp: int) -> 
 
 
 def release_download_token(conn: sqlite3.Connection, digest: str) -> None:
-    """Delete *digest* from ``used_download_tokens``."""
     conn.execute("DELETE FROM used_download_tokens WHERE token_hash = ?", (digest,))
     conn.commit()
 
 
 def purge_expired_download_tokens(conn: sqlite3.Connection, *, now_iso: str) -> None:
-    """Delete every ``used_download_tokens`` row whose ``expires_at`` is past."""
     conn.execute("DELETE FROM used_download_tokens WHERE expires_at < ?", (now_iso,))
     conn.commit()
 
 
 def fetch_recent_download(conn: sqlite3.Connection, dl_id: str) -> RecentDownload | None:
-    """Return the cached ``recent_downloads`` row for ``dl_id`` or None."""
     row = conn.execute(
         "SELECT dl_id, title, poster_url FROM recent_downloads WHERE dl_id = ?",
         (dl_id,),
@@ -98,7 +91,6 @@ def fetch_recent_download(conn: sqlite3.Connection, dl_id: str) -> RecentDownloa
 def fetch_suggestion_enrichment(
     conn: sqlite3.Connection, suggestion_id: int
 ) -> SuggestionEnrichment | None:
-    """Return the enrichment columns from ``suggestions`` for the given id."""
     row = conn.execute(
         "SELECT poster_url, year, description, reason, rating, rt_rating, "
         "tagline, runtime, genres, cast_json, director, trailer_key, "

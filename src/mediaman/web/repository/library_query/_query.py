@@ -1,7 +1,7 @@
 """Core library query pipeline — CTE SQL, pagination, protection maps.
 
 Builds the library-page CTE SQL, executes the paginated count + SELECT, loads
-protection maps, and assembles the final result via :mod:`._display`.
+protection maps, and assembles the final result via `._display`.
 """
 
 from __future__ import annotations
@@ -13,10 +13,6 @@ from mediaman.core.scheduled_action_kinds import ACTION_PROTECTED_FOREVER
 from mediaman.core.time import now_utc
 from mediaman.services.infra import get_int_setting
 from mediaman.web.repository.library_query._display import _shape_rows
-
-# ---------------------------------------------------------------------------
-# Shared constants — used by both library.py and library_api/__init__.py.
-# ---------------------------------------------------------------------------
 
 VALID_SORTS = {
     "added_desc",
@@ -118,7 +114,7 @@ def _build_cte_sql(where_sql: str, sort: str) -> tuple[str, str]:
     # rationale: where_sql contains only ?-placeholder fragments and constant
     # identifiers — no user values enter the SQL text; values go in `params`.
     # ``order`` is resolved from ``_CTE_SORT`` via .get() with a hardcoded
-    # default — no user value enters the SQL text (§9.6 sanctioned pattern).
+    # default — no user value enters the SQL text.
     cte_sql = f"""
     WITH filtered AS (
         SELECT * FROM media_items {where_sql}
@@ -177,7 +173,6 @@ def _execute_paged_query(
     page: int,
     per_page: int,
 ) -> tuple[list[sqlite3.Row], int]:
-    """Execute the count + paginated SELECT and return (rows, total)."""
     # rationale: kept_where is a closed literal ternary (" WHERE is_kept = 1" or ""); order is
     # resolved from _CTE_SORT via .get() with a hardcoded default — no user value enters the SQL text
     kept_where = " WHERE is_kept = 1" if kept_filter else ""
@@ -238,7 +233,7 @@ def _fetch_protection_maps(
     return sa_map, ks_map
 
 
-# rationale: §9.5 permits a repository returning ``list[dict]`` at a documented
+# rationale: a repository may return ``list[dict]`` at a documented
 # template-feeding boundary. ``mediaman.web.routes.library.library_page`` passes
 # these display-ready dicts straight onto the ``library.html`` Jinja template as
 # ``items``; the keys are shaped for that template (``type_css``, ``type_label``,
@@ -252,15 +247,6 @@ def fetch_library(
     page: int = 1,
     per_page: int = 20,
 ) -> tuple[list[dict[str, object]], int]:
-    """Query media_items and return (items, total_count).
-
-    Pipeline:
-    1. Build the WHERE clause from search/filter inputs.
-    2. Build the display CTE SQL and ORDER BY expression.
-    3. Execute the count + paginated SELECT.
-    4. Load scheduled_actions / kept_shows protection data.
-    5. Convert raw rows into display-ready dicts.
-    """
     where_sql, params, kept_filter = _build_where_clause(conn, q, media_type)
     cte_sql, order = _build_cte_sql(where_sql, sort)
     rows, total = _execute_paged_query(conn, cte_sql, order, params, kept_filter, page, per_page)

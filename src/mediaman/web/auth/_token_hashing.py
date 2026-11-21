@@ -1,6 +1,6 @@
 """Shared SHA-256 token hashing for session and reauth bookkeeping.
 
-Both :mod:`mediaman.web.auth.session_store` and :mod:`mediaman.web.auth.reauth`
+Both `mediaman.web.auth.session_store` and `mediaman.web.auth.reauth`
 need to derive the at-rest hash of a session token in order to look up
 or revoke the matching row.  Historically each module carried its own
 private ``_hash_token`` helper with an identical SHA-256 implementation.

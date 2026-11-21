@@ -20,8 +20,6 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class PosterArrIds:
-    """The Arr-side identifiers for a media_items row keyed by Plex rating key."""
-
     title: str
     media_type: str
     radarr_id: int | None
@@ -44,7 +42,6 @@ class StoredPlexCredentials:
 
 
 def fetch_arr_ids(conn: sqlite3.Connection, rating_key: str) -> PosterArrIds | None:
-    """Return the media_items row keyed by ``rating_key`` for poster fallback."""
     row = conn.execute(
         "SELECT title, media_type, radarr_id, sonarr_id FROM media_items WHERE id = ?",
         (rating_key,),
@@ -60,7 +57,6 @@ def fetch_arr_ids(conn: sqlite3.Connection, rating_key: str) -> PosterArrIds | N
 
 
 def fetch_plex_credentials(conn: sqlite3.Connection) -> StoredPlexCredentials | None:
-    """Return the stored Plex URL + token, or None when either is missing."""
     url_row = conn.execute("SELECT value FROM settings WHERE key='plex_url'").fetchone()
     token_row = conn.execute(
         "SELECT value, encrypted FROM settings WHERE key='plex_token'"

@@ -1,20 +1,19 @@
 """Validate-session phase helpers.
 
-:func:`mediaman.web.auth.session_store.validate_session` is on every
+`mediaman.web.auth.session_store.validate_session` is on every
 authenticated request, so it is decomposed into ordered phases: read the
 row, check idle expiry, check the fingerprint, refresh ``last_used_at``,
 and opportunistically sweep expired rows. Each phase is one function
-here; the public ``validate_session`` in the package :mod:`__init__`
+here; the public ``validate_session`` in the package `__init__`
 calls them in order and is the only caller.
 
 Phases 1-3 are read-only by default — only the idle/mismatch eviction
-branches reach for a writer lock, via :mod:`._writes`. Phases 4-5 are
+branches reach for a writer lock, via `._writes`. Phases 4-5 are
 the throttled write paths.
 
 The expired-row sweep throttle (``_last_cleanup_at`` and friends) lives
-here because :func:`_maybe_sweep_expired` is its only reader and writer;
-it is process-wide module-level state guarded by ``_cleanup_lock`` per
-§8.5. The ``logger`` is bound to ``__package__`` so records carry the
+here because `_maybe_sweep_expired` is its only reader and writer;
+it is process-wide module-level state guarded by ``_cleanup_lock``. The ``logger`` is bound to ``__package__`` so records carry the
 canonical ``mediaman.web.auth.session_store`` name.
 """
 
@@ -130,7 +129,7 @@ def _fingerprint_mismatch(
     A read-only comparison by default; only the mismatch branch reaches
     for the writer lock to evict the bound session.
 
-    Fails closed (§1.11) against the no-request bypass: when fingerprint
+    Fails closed against the no-request bypass: when fingerprint
     mode is enabled AND the row carries a stored fingerprint, but the
     validation was driven WITHOUT a request (``request_supplied=False``,
     the ``request=None`` overload), the binding cannot be verified — so
@@ -213,7 +212,7 @@ def _maybe_sweep_expired(conn: sqlite3.Connection, now_iso: str) -> None:
     """Phase 5: opportunistic expired-row sweep gated to ≤ once per minute.
 
     Invariant: stamp ``_last_cleanup_at`` with the moment the cleanup
-    FINISHED, not the moment :func:`validate_session` was entered.
+    FINISHED, not the moment `validate_session` was entered.
     Otherwise a slow sweep would let the next request fire another sweep
     almost immediately after this one returned, defeating the
     once-per-minute throttle.

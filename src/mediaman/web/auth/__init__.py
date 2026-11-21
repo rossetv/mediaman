@@ -1,6 +1,6 @@
 """Web authentication package.
 
-Relocated from :mod:`mediaman.auth` (the old package was removed). This
+Relocated from `mediaman.auth` (the old package was removed). This
 package owns all web-specific authentication concerns: sessions,
 login lockout, password hashing and policy, reauth tickets, and rate limiting.
 
@@ -8,7 +8,7 @@ Depends on: anything below ``web/`` in the package tree.
 
 Forbidden elsewhere: this is the **only** package permitted to ``import bcrypt``
 or to read/write the ``admin_users``, ``admin_sessions``, ``login_failures``,
-and ``reauth_tickets`` tables (§2.7). All other packages must treat these as
+and ``reauth_tickets`` tables. All other packages must treat these as
 opaque implementation details of this package.
 """
 

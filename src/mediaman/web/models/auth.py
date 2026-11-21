@@ -35,7 +35,7 @@ class KeepRequest(BaseModel):
     """Snooze-or-keep submission body.
 
     ``duration`` is one of a fixed vocabulary; the
-    :data:`VALID_KEEP_DURATIONS` set bounds the value space and the
+    `VALID_KEEP_DURATIONS` set bounds the value space and the
     field-level cap keeps the payload bounded even when the value is
     not in the allowlist (e.g. an attacker probing with garbage).
     """
@@ -47,7 +47,6 @@ class KeepRequest(BaseModel):
     @field_validator("duration")
     @classmethod
     def validate_duration(cls, v: str) -> str:
-        """Reject any ``duration`` value that is not in the ``VALID_KEEP_DURATIONS`` allowlist."""
         if v not in VALID_KEEP_DURATIONS:
             raise ValueError(f"Duration must be one of: {set(VALID_KEEP_DURATIONS)}")
         return v

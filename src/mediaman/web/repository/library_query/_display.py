@@ -16,7 +16,6 @@ from mediaman.core.time import now_utc, parse_iso_strict_utc, parse_iso_utc
 
 
 def days_ago(dt_str: str | None) -> str:
-    """Return 'N days ago' or '' given an ISO datetime string."""
     dt = parse_iso_utc(dt_str)
     if dt is None:
         return ""
@@ -27,7 +26,6 @@ def days_ago(dt_str: str | None) -> str:
 
 
 def type_css(media_type: str) -> str:
-    """Return the CSS class for a type badge."""
     if media_type in ("tv_season", "season", "tv"):
         return "type-tv"
     if media_type in ("anime_season", "anime"):
@@ -36,7 +34,6 @@ def type_css(media_type: str) -> str:
 
 
 def protection_label(sa_action: str | None, sa_execute_at: str | None) -> str | None:
-    """Return a human-friendly protection label, or None if not protected."""
     if sa_action is None:
         return None
     if sa_action == ACTION_PROTECTED_FOREVER:
@@ -47,7 +44,7 @@ def protection_label(sa_action: str | None, sa_execute_at: str | None) -> str | 
             return None
         # ``protection_label`` returns None for today/past dates rather
         # than a string, so we pre-filter and only invoke
-        # :func:`relative_day_label` on future deadlines.  The helper's
+        # `relative_day_label` on future deadlines.  The helper's
         # tomorrow case is the singular "1 more day"; its future arm
         # plural.
         now = now_utc()

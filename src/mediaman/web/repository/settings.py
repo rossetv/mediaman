@@ -4,10 +4,10 @@ Encapsulates every ``conn.execute`` against the ``settings`` table that
 the web route layer needs. The route handlers should never reach into
 the ``settings`` table directly — they call these functions instead,
 which means the encrypt-on-write / decrypt-on-read dance happens at the
-storage boundary as required by §9.9.
+storage boundary as required.
 
 The scanner has its own reader at
-:mod:`mediaman.scanner.repository.settings` for the narrow keys it
+`mediaman.scanner.repository.settings` for the narrow keys it
 consumes — that module deliberately stays small. This module is the
 counterpart for the settings UI, which writes the full key set and
 reads it back with secrets decrypted.
@@ -57,11 +57,6 @@ INTERNAL_KEYS: frozenset[str] = frozenset({"aes_kdf_salt", "aes_kdf_canary"})
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Reads
-# ---------------------------------------------------------------------------
-
-
 def fetch_encrypted_key_set(conn: sqlite3.Connection) -> set[str]:
     """Return the set of keys in the ``settings`` table that are stored encrypted.
 
@@ -91,7 +86,7 @@ def load_settings(
     Decryption errors are distinguished from "no value set":
 
     * If the row exists and is marked encrypted, but decryption fails,
-      raise :class:`ConfigDecryptError` so callers can show a meaningful
+      raise `ConfigDecryptError` so callers can show a meaningful
       banner instead of silently substituting ``""`` (which would be
       indistinguishable from a never-saved key — a regression hazard
       once an operator rotates ``MEDIAMAN_SECRET_KEY``).
@@ -139,13 +134,8 @@ def load_settings(
     return settings
 
 
-# ---------------------------------------------------------------------------
-# Writes
-# ---------------------------------------------------------------------------
-
-
 class _AuditKwargs(TypedDict, total=False):
-    """Keyword arguments forwarded to :func:`~mediaman.core.audit.security_event_or_raise`."""
+    """Keyword arguments forwarded to `mediaman.core.audit.security_event_or_raise`."""
 
     event: str
     actor: str
@@ -168,20 +158,20 @@ def write_settings(
     acquires ``BEGIN IMMEDIATE`` first so concurrent writers don't race
     on the secret-encryption-then-insert read-modify-write. Encryption
     is performed inside the block so plaintext never leaks back to the
-    caller; only ciphertext lands on disk (§9.9). When *audit* is
-    supplied, the row is appended via :func:`security_event_or_raise`
+    caller; only ciphertext lands on disk. When *audit* is
+    supplied, the row is appended via `security_event_or_raise`
     inside the same transaction so any audit failure rolls the entire
     settings write back — if the audit insert fails, the entire write rolls back.
 
     The shape of *audit* mirrors the keyword arguments of
-    :func:`mediaman.core.audit.security_event_or_raise` (``event``, ``actor``,
+    `mediaman.core.audit.security_event_or_raise` (``event``, ``actor``,
     ``ip``, ``detail``).
 
     Behaviour for each known key:
 
-    * Secret fields whose value is :data:`SECRET_PLACEHOLDER` or empty
+    * Secret fields whose value is `SECRET_PLACEHOLDER` or empty
       are skipped (no-op write — preserves the existing on-disk value).
-    * Secret fields whose value equals :data:`SECRET_CLEAR_SENTINEL`
+    * Secret fields whose value equals `SECRET_CLEAR_SENTINEL`
       cause the row to be deleted.
     * All other values are JSON-encoded for the non-secret rows and
       stored as plaintext.
@@ -194,7 +184,7 @@ def write_settings(
     # the secret/non-secret branches into separate helpers would either
     # require two passes over body_dict (extra work + duplicated key
     # filtering) or a third helper that takes both halves. Keeping the
-    # body short (one branch per kind) preserves the §9.9 contract that
+    # body short (one branch per kind) preserves the contract that
     # plaintext never escapes the repository.
     allowed = set(allowed_keys)
     with conn:

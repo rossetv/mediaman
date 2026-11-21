@@ -1,21 +1,21 @@
 """Admin session persistence, validation, and hardening — re-export barrel.
 
-Split from ``auth/session.py`` (R2). Owns the "how are sessions
+Owns the "how are sessions
 persisted and validated" concern; password hashing lives in
-:mod:`mediaman.web.auth.password_hash`.
+`mediaman.web.auth.password_hash`.
 
 This package was promoted from a single ``session_store.py`` module when
 it crossed the 500-line ceiling. The public surface — ``create_session``,
 ``validate_session``, ``destroy_session``, ``destroy_all_sessions_for``,
-``list_sessions_for`` and the :class:`SessionMetadata` projection — plus
+``list_sessions_for`` and the `SessionMetadata` projection — plus
 the constants tests read directly (``_SESSION_TOKEN_RE``,
 ``_HARD_EXPIRY_DAYS``) stay in this barrel. The private helpers moved to
 two responsibility modules:
 
-* :mod:`._writes` — the write-transaction helpers (``_exec_with_commit``,
+* `._writes` — the write-transaction helpers (``_exec_with_commit``,
   ``_delete_session_with_commit``, ``_refresh_last_used_with_commit``,
   ``_cleanup_expired_with_commit``, ``_try_delete_session``).
-* :mod:`._validate` — the ordered :func:`validate_session` phase helpers
+* `._validate` — the ordered `validate_session` phase helpers
   (``_fetch_session_row``, ``_idle_expired``, ``_fingerprint_mismatch``,
   ``_maybe_refresh_last_used``, ``_maybe_sweep_expired``) and the
   process-wide expired-row-sweep throttle state.
@@ -32,7 +32,7 @@ them from the canonical ``session_store`` path, and monkeypatches on
 ``session_store._fingerprint_mode`` / ``session_store._client_fingerprint``
 continue to intercept calls made inside this package. ``_hash_token`` is
 re-exported for the same reason — tests assert it is the one shared
-:func:`mediaman.web.auth._token_hashing.hash_token` object.
+`mediaman.web.auth._token_hashing.hash_token` object.
 """
 
 from __future__ import annotations
@@ -61,12 +61,12 @@ from mediaman.web.auth.session_store._validate import (
 from mediaman.web.auth.session_store._writes import _try_delete_session
 
 # The hard-expiry parse uses the STRICT parser
-# (:func:`mediaman.core.time.parse_iso_strict_utc`), matching the idle
+# (`mediaman.core.time.parse_iso_strict_utc`), matching the idle
 # path (``_parse_last_used``). All session timestamps are written by this
 # package via ``now.isoformat()`` (canonical ``+00:00``), so the lenient
 # foreign-timestamp parser is wrong here — and treating an unparseable
 # expiry as "no expiry" would fail OPEN (an immortal session). The
-# forensic ``_parse_last_used`` (in :mod:`._validate`) stays bespoke
+# forensic ``_parse_last_used`` (in `_validate`) stays bespoke
 # because it must log a warning when a stored timestamp is corrupt — a
 # side effect the generic parser deliberately does not perform.
 
@@ -98,7 +98,6 @@ def create_session(
     client_ip: str = "",
     ttl_seconds: int | None = None,
 ) -> str:
-    """Create a session and return the opaque token."""
     token = generate_session_token()
     token_hash = _hash_token(token)
     now = now_utc()
@@ -118,7 +117,7 @@ def create_session(
         mode,
         bool(fingerprint),
     )
-    # M3: the raw token is NEVER persisted (§10.2). The ``token`` PK column
+    # The raw token is NEVER persisted. The ``token`` PK column
     # stores the SHA-256 ``token_hash`` — the column is named ``token`` for
     # legacy-schema reasons (see the schema TODO) and ``token_hash`` is a
     # redundant duplicate kept only until the legacy PK can be renamed. Both
@@ -164,8 +163,7 @@ def validate_session(
     requests no longer blocks one another or competes with the
     scheduler for the WAL writer slot.
 
-    ``request_supplied`` is the fingerprint-binding fail-closed signal
-    (§1.11). When ``None`` (the default) it is inferred: a caller that
+    ``request_supplied`` is the fingerprint-binding fail-closed signal. When ``None`` (the default) it is inferred: a caller that
     passes either ``user_agent`` or ``client_ip`` is treated as having a
     request, and a caller that passes neither is treated as the
     no-request overload — so a fingerprint-bound session can never be
@@ -173,7 +171,7 @@ def validate_session(
     enforced. Callers driven by a live request that may legitimately lack
     both fields (a request with no UA *and* no resolvable IP) should pass
     ``request_supplied=True`` explicitly. See
-    :func:`._validate._fingerprint_mismatch`.
+    `._validate._fingerprint_mismatch`.
     """
     if not token or not _SESSION_TOKEN_RE.fullmatch(token):
         return None
@@ -243,7 +241,7 @@ def destroy_session(
     The username lookup, session delete, reauth-ticket delete AND the
     ``session.destroy`` audit row are wrapped in a single
     ``BEGIN IMMEDIATE`` transaction. Session revocation is a REQUIRED
-    audit event (§7.5), so the audit insert is now fail-closed via
+    audit event, so the audit insert is now fail-closed via
     ``security_event_or_raise``: if it fails, the whole transaction rolls
     back and the session delete is undone rather than leaving an
     audit-free logout. The caller sees the ``sqlite3.Error`` and can
@@ -327,7 +325,7 @@ class SessionMetadata(TypedDict):
         Client IP address recorded at session creation, stored for audit
         purposes only — not re-validated on subsequent requests.
     fingerprint:
-        Opaque string computed by :func:`_client_fingerprint` at session
+        Opaque string computed by `_client_fingerprint` at session
         creation.  Empty when fingerprint mode is ``"off"`` or no
         client context was available at creation time.
     """
@@ -340,7 +338,6 @@ class SessionMetadata(TypedDict):
 
 
 def list_sessions_for(conn: sqlite3.Connection, username: str) -> list[SessionMetadata]:
-    """Return metadata about the active sessions owned by *username*."""
     rows = conn.execute(
         "SELECT created_at, expires_at, last_used_at, issued_ip, fingerprint "
         "FROM admin_sessions WHERE username = ? ORDER BY created_at DESC",

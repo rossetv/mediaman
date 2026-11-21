@@ -1,9 +1,9 @@
 """Shared constants, regexes, and validation helpers for the models package.
 
 These primitives are imported by every other module in
-:mod:`mediaman.web.models`; nothing in this file is itself a Pydantic
+`mediaman.web.models`; nothing in this file is itself a Pydantic
 model.  Keeping them isolated lets the per-domain submodules
-(:mod:`auth`, :mod:`settings`, :mod:`subscribers`) stay focused on the
+(`auth`, `settings`, `subscribers`) stay focused on the
 shapes they declare.
 """
 
@@ -59,9 +59,6 @@ _SECRET_MAX = 1024
 #: to 256 for a comfortable margin.
 _HOST_MAX = 256
 
-# ---------------------------------------------------------------------------
-# Keep duration vocabulary — maps canonical long-form label to days (None = forever)
-# ---------------------------------------------------------------------------
 
 VALID_KEEP_DURATIONS: dict[str, int | None] = {
     "7 days": 7,
@@ -70,9 +67,6 @@ VALID_KEEP_DURATIONS: dict[str, int | None] = {
     "forever": None,
 }
 
-# ---------------------------------------------------------------------------
-# Shared validation helpers
-# ---------------------------------------------------------------------------
 
 #: Compiled once; used by the CRLF validator on every string field.
 #: Includes NUL (\x00) because a stray null byte in a value that is

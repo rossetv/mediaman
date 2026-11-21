@@ -2,7 +2,7 @@
 
 Owns the narrow concern of resolving a numeric user ID to a username for
 route handlers.  All bcrypt-bound operations (create, authenticate,
-change-password, delete) live in :mod:`mediaman.web.auth.password_hash`.
+change-password, delete) live in `mediaman.web.auth.password_hash`.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ def find_username_by_user_id(conn: sqlite3.Connection, user_id: int) -> str | No
     """Return the username for *user_id*, or None if no such user exists.
 
     The single sanctioned reader of ``admin_users.username`` outside the
-    bcrypt-bound helpers in ``password_hash`` (§2.7.4: auth owns the users
+    bcrypt-bound helpers in ``password_hash`` (auth owns the users
     table; route handlers go through this module).
     """
     row = conn.execute(

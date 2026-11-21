@@ -3,10 +3,10 @@
 The intent log opens before the external Arr call and closes after the
 local DB cleanup so a crash between those two events can be reconciled
 at startup.  The internal helpers here
-(:func:`_record_delete_intent`, :func:`_complete_delete_intent`,
-:func:`_fail_delete_intent`) are used directly by the route layer in
-:mod:`mediaman.web.routes.library_api`; the startup reconciler is wired
-in :mod:`mediaman.app_factory`.
+(`_record_delete_intent`, `_complete_delete_intent`,
+`_fail_delete_intent`) are used directly by the route layer in
+`mediaman.web.routes.library_api`; the startup reconciler is wired
+in `mediaman.app_factory`.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ def _record_delete_intent(
     Must be called *before* the external Radarr/Sonarr delete so that a
     crash between the external call and the local DB cleanup can be
     detected and reconciled on startup via
-    :func:`reconcile_pending_delete_intents`.
+    `reconcile_pending_delete_intents`.
     """
     now = now_utc().isoformat()
     with conn:
@@ -44,7 +44,6 @@ def _record_delete_intent(
 
 
 def _complete_delete_intent(conn: sqlite3.Connection, intent_id: int) -> None:
-    """Mark a delete intent as successfully completed."""
     with conn:
         conn.execute(
             "UPDATE delete_intents SET completed_at = ? WHERE id = ?",
@@ -77,7 +76,7 @@ def _reconcile_one_intent(conn: sqlite3.Connection, intent_id: int, media_item_i
             media_item_id,
         )
         return True
-    # rationale: §6.4 site 4 (cold-start) — reconciler runs at startup and
+    # rationale: cold-start — reconciler runs at startup and
     # processes the whole intent backlog; every error must roll back the
     # current intent's transaction and record the failure so the next
     # startup retries without crashing the boot sequence.
@@ -110,7 +109,7 @@ def reconcile_pending_delete_intents(conn: sqlite3.Connection) -> int:
 
     Accepts an explicit connection rather than acquiring one via
     ``get_db()`` so startup wiring can pass the connection it already
-    holds and tests can use a fixture connection (M-04).
+    holds and tests can use a fixture connection.
 
     Returns the number of intents resolved during this call.
     """
