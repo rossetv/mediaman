@@ -2,8 +2,7 @@
 
 Handles items shielded from deletion: protected_forever or snoozed with a future execute_at.
 The show-level keep routes live in mediaman.web.routes.kept_show, whose sub-router is
-mounted here; _resolve_show_rating_key is re-exported so the historic test import target
-keeps working.
+mounted here; _resolve_show_rating_key is re-exported so tests can import it from here.
 """
 
 from __future__ import annotations

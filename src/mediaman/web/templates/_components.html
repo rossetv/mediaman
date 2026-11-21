@@ -29,8 +29,8 @@
    `icon` for a trusted SVG string (caller must pass a literal only).
    `id`, `aria_label`, `title` are escaped attribute strings; `disabled` is a
    boolean that also sets `aria-disabled="true"` for AT users.
-   Note: `attrs` (raw HTML string) and `sub` (raw HTML) have been removed to
-   prevent XSS — use explicit parameters or `data_attrs` dict instead.
+   Note: there is no raw-HTML `attrs` or `sub` parameter (XSS) — use explicit
+   parameters or the `data_attrs` dict instead.
 
    SECURITY: `{{ label }}` is NOT marked |safe and is therefore
    auto-escaped by Jinja's autoescape (enabled for .html via
@@ -70,8 +70,8 @@
 
 {# Filter pill — segmented bar. `on` highlights, variant tints the active state.
    `href` sets the link destination when tag="a". `data_attrs` is a dict of
-   data-* attributes that are auto-escaped; the old `attrs` raw-HTML parameter
-   has been removed to prevent XSS. #}
+   data-* attributes that are auto-escaped; there is no raw-HTML `attrs`
+   parameter (XSS). #}
 {% macro fpill(label, on=false, variant="", tag="button", href="", data_attrs=none) -%}
   {%- set classes = ["fpill"] -%}
   {%- if variant %}{% set _ = classes.append("fpill--" ~ variant) %}{% endif -%}
@@ -177,7 +177,7 @@
 
 
 {# Toggle switch — checkbox with id, optional `on` for default state.
-   The old `attrs` raw-HTML parameter has been removed to prevent XSS. #}
+   There is no raw-HTML `attrs` parameter (XSS). #}
 {% macro tog(id, on=false) -%}
   <span class="tog {% if on %}on{% endif %}" data-toggle role="switch" tabindex="0" aria-checked="{{ 'true' if on else 'false' }}" data-target="{{ id }}"></span>
   <input type="hidden" id="{{ id }}" value="{{ 'true' if on else 'false' }}">
@@ -185,7 +185,7 @@
 
 
 {# Plain input — `.inp` style. Wrap with a label externally.
-   The old `attrs` raw-HTML parameter has been removed to prevent XSS.
+   There is no raw-HTML `attrs` parameter (XSS).
    Pass `autocomplete` or `required` explicitly if needed. #}
 {% macro inp(id, value="", placeholder="", type="text", autocomplete="", required=false) -%}
   <input class="inp" id="{{ id }}" name="{{ id }}" type="{{ type }}" value="{{ value }}" placeholder="{{ placeholder }}"

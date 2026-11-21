@@ -1,8 +1,7 @@
 """Shared redownload helpers: lookup matching and audit-ID selection.
 
 Used by both the Radarr and Sonarr branches, so they live in a dependency-free module to
-avoid an import cycle with .redownload. redownload re-exports both names so the historic
-patch targets keep working.
+avoid an import cycle with .redownload. redownload re-exports both names so tests can patch them there.
 """
 
 from __future__ import annotations

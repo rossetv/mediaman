@@ -32,9 +32,9 @@ The package is split into:
 * ``disk_usage`` — the read-only queries ``get_aggregate_disk_usage``
   and ``get_directory_size``.
 
-This module is the public barrel: every name previously importable from
-``mediaman.services.infra.storage`` (including the private helpers and
-constants the tests reach for) stays importable from that exact path.
+This module is the public barrel: every name, including the private helpers
+and constants the tests reach for, is importable from
+``mediaman.services.infra.storage`` itself.
 
 Lives under ``services/infra/`` because it is shared plumbing that every
 service package depends on; it must not grow business logic.

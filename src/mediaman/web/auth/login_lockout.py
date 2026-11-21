@@ -45,9 +45,8 @@ Concurrency
 ``record_failure`` uses ``INSERT ... ON CONFLICT DO UPDATE`` inside a
 ``BEGIN IMMEDIATE`` transaction so two concurrent failed logins from
 different worker threads cannot race on the read-modify-write and
-collide on the 5 / 10 / 15 threshold. Previously the module did
-``SELECT then UPDATE`` which lost increments around the threshold and
-delayed (or entirely skipped) the escalation.
+collide on the 5 / 10 / 15 threshold; a ``SELECT then UPDATE`` would lose
+increments and delay (or skip) the escalation.
 """
 
 from __future__ import annotations

@@ -73,7 +73,7 @@ class TestMaybeRecordCompletionsLockDiscipline:
             dq._maybe_record_completions(MagicMock(), current_map={}, secret_key="test-key")
 
         assert lock_held_during_io["value"] is False, (
-            "state lock was held across record_verified_completions — C20 regression"
+            "state lock was held across record_verified_completions"
         )
 
         # Cleanup

@@ -4,8 +4,7 @@
    accessible click target; action buttons (Trailer, Download) sit above
    the overlay on a higher z-index. Nesting real <button>/<a> elements
    inside an outer <button> would be invalid HTML — the parser implicitly
-   closes the outer button, which previously caused the grid layout to
-   explode on /recommended. #}
+   closes the outer button, which breaks the grid layout. #}
 {%- import "_components.html" as c -%}
 {%- set _state = item.download_state if item.download_state else ('queued' if item.downloaded_at else '') -%}
 {%- set _sub -%}

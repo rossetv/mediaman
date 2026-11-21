@@ -408,8 +408,7 @@ def download_submit(request: Request, token: str) -> JSONResponse:
         # missing root folder / quality profile, ``ArrUpstreamError`` from a
         # malformed upstream response). ``ValueError`` covers the
         # ``add_movie(tmdb_id <= 0)`` / ``add_series(tvdb_id <= 0)`` argument
-        # guards. Both were previously swallowed by ``except Exception:`` —
-        # narrowing too aggressively here would let them propagate and
+        # guards. Both must be caught here: letting them propagate would
         # leave the consumed token stranded, permanently burning the
         # user's one-shot link with no recovery path. ``KeyboardInterrupt``
         # and ``SystemExit`` derive from ``BaseException`` and are not

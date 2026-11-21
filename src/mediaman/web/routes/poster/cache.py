@@ -29,9 +29,8 @@ logger = logging.getLogger(__name__)
 # Cache posters for 7 days (response header) — browser won't re-request
 CACHE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 
-# Soft cap for the on-disk poster cache. The directory was previously
-# unbounded — a long-lived install would let it grow until the data
-# volume filled. 500 MiB is generous (a poster averages ~80 KiB, so
+# Soft cap for the on-disk poster cache. Unbounded, a long-lived install
+# would let it grow until the data volume filled. 500 MiB is generous (a poster averages ~80 KiB, so
 # this caps at roughly 6,500 posters) but keeps disk pressure
 # predictable. Cleanup is opportunistic: once total size exceeds the
 # cap, the writer deletes oldest files by mtime until usage is back

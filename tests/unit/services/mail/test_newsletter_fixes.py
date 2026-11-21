@@ -173,7 +173,7 @@ class TestF07EmptyRecipientsNotFallthrough:
         insert_media_item(
             conn,
             id="mi-f07",
-            title="F07 Test Movie",
+            title="Test Movie",
             plex_rating_key="rk-f07",
             file_path="/media/f07.mkv",
             file_size_bytes=1_000_000,

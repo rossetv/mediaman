@@ -12,8 +12,7 @@ from __future__ import annotations
 import re
 
 # Action-type constants are canonical in mediaman.core.scheduled_action_kinds;
-# re-exported here for backwards compatibility — existing importers of
-# ``mediaman.web.models`` continue to work without modification.
+# re-exported here for importers of ``mediaman.web.models``.
 from mediaman.core.scheduled_action_kinds import (
     ACTION_PROTECTED_FOREVER as ACTION_PROTECTED_FOREVER,
 )

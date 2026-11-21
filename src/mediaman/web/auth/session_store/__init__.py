@@ -8,7 +8,7 @@ The public surface — ``create_session``,
 ``validate_session``, ``destroy_session``, ``destroy_all_sessions_for``,
 ``list_sessions_for`` and the `SessionMetadata` projection — plus
 the constants tests read directly (``_SESSION_TOKEN_RE``,
-``_HARD_EXPIRY_DAYS``) stay in this barrel. The private helpers moved to
+``_HARD_EXPIRY_DAYS``) stay in this barrel. The private helpers live in
 two responsibility modules:
 
 * `._writes` — the write-transaction helpers (``_exec_with_commit``,

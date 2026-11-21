@@ -3,8 +3,7 @@
 Split out of mediaman.web.routes.kept. Owns the two
 show-keep routes, their body schema, the rating-key resolution that closes the IDOR risk,
 the season-ownership check and the season action-row builder. The kept package mounts this
-router and re-exports _resolve_show_rating_key so the historic test import target keeps
-working.
+router and re-exports _resolve_show_rating_key so tests can import it from there.
 """
 
 from __future__ import annotations

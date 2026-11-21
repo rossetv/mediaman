@@ -62,9 +62,8 @@ from mediaman.web.routes.poster.fetch import safe_mime as _safe_mime  # noqa: F4
 
 __all__ = [
     # Public names this barrel re-exports for callers.
-    # The private names formerly listed here (_POSTER_HTTP, _fetch_arr_poster,
-    # etc.) are patched by tests via their absolute module paths, not via this
-    # barrel, so they do not belong in __all__.
+    # Private names (_POSTER_HTTP, _fetch_arr_poster, etc.) are patched by
+    # tests via their absolute module paths, so they stay out of __all__.
     "proxy_poster",
     "router",
     "sign_poster_url",

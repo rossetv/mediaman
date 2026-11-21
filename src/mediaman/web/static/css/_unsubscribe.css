@@ -59,7 +59,7 @@
 /* Result message */
 .unsub-msg {
   font-size: 15px;
-  color: rgba(255,255,255,0.6); /* literal rgba; intentionally deviates from tokens to match the public-facing visuals */
+  color: rgba(255,255,255,0.6); /* literal rgba; intentionally deviates from tokens */
   line-height: 1.5;
 }
 
@@ -76,7 +76,7 @@
   cursor: pointer;
   margin-right: 12px;
 }
-/* Literal rgba values below intentionally deviate from tokens to match the public-facing visuals exactly. */
+/* Literal rgba values below intentionally deviate from tokens. */
 .unsub-btn-cancel {
   padding: 12px 24px;
   border-radius: var(--r-pill);

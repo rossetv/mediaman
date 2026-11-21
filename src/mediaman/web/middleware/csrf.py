@@ -30,12 +30,10 @@ _CSRF_PROTECTED_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE", "TRACE", 
 # the browser-supplied Origin is whichever webmail host the recipient
 # happens to use.
 #
-# Switching from a prefix-based exemption (the original design) to an
-# explicit (method, regex) allowlist closes a sharp edge: previously a
-# *new* POST added under one of the exempt prefixes (``/download/...``,
-# ``/keep/...``, ``/unsubscribe/...``) would silently inherit the
-# exemption with no compile-time signal.  Adding a new exempt route
-# now requires editing this list, which is reviewable and grep-able.
+# An explicit (method, regex) allowlist rather than a prefix exemption: a
+# *new* POST under ``/download/...``, ``/keep/...`` or ``/unsubscribe/...``
+# must not silently inherit the exemption.  Adding an exempt route means
+# editing this list, which is reviewable and grep-able.
 #
 # Patterns are anchored with ``^`` and ``$`` and use ``[^/]+`` to match
 # a single token segment — they will NOT match nested paths like
@@ -78,16 +76,14 @@ def _normalise_origin(value: str, default_scheme: str | None = None) -> tuple[st
     Two correctness fixes over the previous prefix-stripping logic:
 
     1. **IPv6** — ``urlsplit("https://[2001:db8::1]:443").hostname``
-       returns ``"2001:db8::1"`` cleanly.  The previous
-       ``rsplit(":", 1)[0]`` chopped the trailing ``::1`` off and
-       produced ``"[2001:db8"`` (corrupted host that couldn't match
-       anything).
-    2. **Non-default ports** — ``https://example.com:8443`` previously
-       failed the ``endswith(":443")`` check and survived as
-       ``"example.com:8443"``, never matching ``"example.com"``.  The
-       new logic only strips the port when it equals the *default* for
-       the scheme; non-default ports are preserved so a request on
-       ``:8443`` requires an Origin on ``:8443`` (correct).
+       returns ``"2001:db8::1"`` cleanly; ``rsplit(":", 1)[0]`` would chop
+       the trailing ``::1`` off and produce ``"[2001:db8"``, a corrupted
+       host that can't match anything.
+    2. **Non-default ports** — ``https://example.com:8443`` would fail an
+       ``endswith(":443")`` check and stay ``"example.com:8443"``, never
+       matching ``"example.com"``.  The port is stripped only when it equals
+       the *default* for the scheme; non-default ports are preserved so a
+       request on ``:8443`` requires an Origin on ``:8443``.
 
     *default_scheme* lets a caller normalise a bare netloc (no
     ``scheme://`` prefix) by supplying the scheme to assume.  When the
