@@ -7,7 +7,7 @@ import sqlite3
 from datetime import datetime
 
 from mediaman.crypto import sign_poster_url
-from mediaman.crypto.tokens import rebuild_keep_token
+from mediaman.crypto.tokens import rebuild_keep_token, validate_keep_token
 
 from ._time import _parse_days_ago
 from ._types import ScheduledNewsletterItem
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 def _keep_url(row: sqlite3.Row, base_url: str, secret_key: str) -> str:
-    """Return the row's /keep link, or "" (no Keep button) when its token cannot be rebuilt."""
+    """Return the row's /keep link, or "" (no Keep button) when its token cannot be rebuilt or has expired."""
     try:
         token = rebuild_keep_token(
             media_item_id=row["media_item_id"],
@@ -28,7 +28,8 @@ def _keep_url(row: sqlite3.Row, base_url: str, secret_key: str) -> str:
         )
     except (TypeError, ValueError):  # unparsable or missing dates
         token = None
-    if token is None:
+    # validate_keep_token also rejects a token whose exp has passed.
+    if token is None or validate_keep_token(token, secret_key) is None:
         logger.warning("newsletter.keep_link_unavailable action_id=%s", row["id"])
         return ""
     return f"{base_url}/keep/{token}"

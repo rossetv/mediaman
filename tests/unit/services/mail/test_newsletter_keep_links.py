@@ -166,3 +166,35 @@ def test_unrebuildable_row_hides_keep_button_and_logs_the_row(conn, caplog):
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert any(str(action_id) in m for m in warnings)
     assert not any("tok-not-signed" in m for m in warnings)
+
+
+def test_row_whose_keep_link_has_expired_hides_the_button_and_logs_the_row(conn, caplog):
+    scheduled_at = datetime.now(UTC) - timedelta(days=40)
+    execute_at = scheduled_at + timedelta(days=60)
+    action_id = insert_scheduled_action(
+        conn,
+        media_item_id="mi1",
+        scheduled_at=scheduled_at.isoformat(),
+        execute_at=execute_at.isoformat(),
+        token="placeholder",
+    )
+    legacy = generate_keep_token(
+        media_item_id="mi1",
+        action_id=action_id,
+        expires_at=int((scheduled_at + timedelta(days=30)).timestamp()),
+        secret_key=_SECRET_KEY,
+    )
+    conn.execute(
+        "UPDATE scheduled_actions SET token = NULL, token_hash = ? WHERE id = ?",
+        (hashlib.sha256(legacy.encode()).hexdigest(), action_id),
+    )
+    conn.commit()
+
+    with caplog.at_level(logging.WARNING, logger="mediaman.services.mail.newsletter"):
+        html = _send(conn)
+
+    assert "Test Movie" in html
+    assert "/keep/" not in html
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(str(action_id) in m for m in warnings)
+    assert not any(legacy in m for m in warnings)
