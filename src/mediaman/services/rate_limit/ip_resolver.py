@@ -57,6 +57,19 @@ logger = logging.getLogger(__name__)
 _UNKNOWN_PEER = "unknown"
 
 
+def _unmap_network(net: IPv4Network | IPv6Network) -> IPv4Network | IPv6Network:
+    """Rewrite an IPv4-mapped IPv6 network (prefix >= 96) as its IPv4 equivalent.
+
+    Peers are unmapped before the trust check, so a mapped-form entry would
+    otherwise never match.
+    """
+    if isinstance(net, IPv6Network) and net.prefixlen >= 96:
+        mapped = net.network_address.ipv4_mapped
+        if mapped is not None:
+            return IPv4Network((mapped, net.prefixlen - 96))
+    return net
+
+
 def _parse_proxy_env(env_var: str) -> list[IPv4Network | IPv6Network]:
     """Parse a comma-separated CIDR/IP list from *env_var*.
 
@@ -84,7 +97,7 @@ def _parse_proxy_env(env_var: str) -> list[IPv4Network | IPv6Network]:
             )
             return []
         try:
-            networks.append(ipaddress.ip_network(token, strict=False))
+            networks.append(_unmap_network(ipaddress.ip_network(token, strict=False)))
         except ValueError:
             logger.warning(
                 "%s contains invalid CIDR/IP entry %r; skipping. Fix the "

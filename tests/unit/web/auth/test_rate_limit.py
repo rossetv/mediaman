@@ -684,3 +684,24 @@ class TestIpv4MappedClients:
             client = type("C", (), {"host": "::ffff:192.0.2.1"})()
 
         assert get_client_ip(FakeRequest()) == "::ffff:192.0.2.1"
+
+    @pytest.mark.parametrize("peer", ["::ffff:10.0.0.1", "10.0.0.1"])
+    def test_mapped_form_trusted_proxy_entry_matches_mapped_and_plain_peers(
+        self, monkeypatch, peer
+    ):
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "::ffff:10.0.0.0/104")
+
+        class FakeRequest:
+            headers = {"x-forwarded-for": "1.2.3.4"}
+            client = type("C", (), {"host": peer})()
+
+        assert get_client_ip(FakeRequest()) == "1.2.3.4"
+
+    def test_mapped_form_trusted_proxy_entry_does_not_match_outside_its_range(self, monkeypatch):
+        monkeypatch.setenv("MEDIAMAN_TRUSTED_PROXIES", "::ffff:10.0.0.0/104")
+
+        class FakeRequest:
+            headers = {"x-forwarded-for": "1.2.3.4"}
+            client = type("C", (), {"host": "192.0.2.1"})()
+
+        assert get_client_ip(FakeRequest()) == "192.0.2.1"

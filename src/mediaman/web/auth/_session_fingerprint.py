@@ -4,6 +4,8 @@ import hashlib
 import ipaddress
 import os
 
+from mediaman.services.rate_limit.ip_resolver import unmap_ipv4
+
 _FINGERPRINT_MODE_ENV = "MEDIAMAN_FINGERPRINT_MODE"
 #: Supported fingerprint modes.  Each one trades resilience against
 #: legitimate client churn for binding strength:
@@ -76,7 +78,7 @@ def _client_fingerprint(
         prefix = "unknown"
     else:
         try:
-            addr = ipaddress.ip_address(client_ip)
+            addr = unmap_ipv4(ipaddress.ip_address(client_ip))
         except ValueError:
             prefix = "unknown"
         else:
@@ -86,9 +88,7 @@ def _client_fingerprint(
                     prefix = str(addr)
                 else:
                     prefix = str(
-                        ipaddress.ip_network(
-                            f"{client_ip}/{ipv6_prefix}", strict=False
-                        ).network_address
+                        ipaddress.ip_network(f"{addr}/{ipv6_prefix}", strict=False).network_address
                     )
             else:
                 ipv4_prefix = bucket_cfg["ipv4_prefix"]
@@ -96,8 +96,6 @@ def _client_fingerprint(
                     prefix = str(addr)
                 else:
                     prefix = str(
-                        ipaddress.ip_network(
-                            f"{client_ip}/{ipv4_prefix}", strict=False
-                        ).network_address
+                        ipaddress.ip_network(f"{addr}/{ipv4_prefix}", strict=False).network_address
                     )
     return f"{ua_hash}:{prefix}"
