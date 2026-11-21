@@ -122,7 +122,12 @@ class ScrubFilter(logging.Filter):
             return self._scrub(value)
         if value is None or isinstance(value, int | float):
             return value
-        text = str(value)
+        try:
+            text = str(value)
+        except (
+            Exception
+        ):  # rationale: a raising __str__ must not stop the other args being scrubbed
+            return _Scrubbed(_UNPRINTABLE_ARG, _UNPRINTABLE_ARG)
         try:
             rep = repr(value)
         except (
@@ -185,6 +190,9 @@ class ScrubFilter(logging.Filter):
         return new_filter
 
 
+_UNPRINTABLE_ARG = "<unprintable log argument>"
+
+
 class _Scrubbed:
     """Stand-in log argument holding an object's scrubbed ``str()`` and ``repr()``."""
 
@@ -208,21 +216,29 @@ _REDACTED_TOKEN = "***"
 # Slash runs and case are ignored because the credential is still usable
 # through those spellings.
 _TOKEN_PATH_RE = re.compile(r"^((?:/+api)?/+keep/+|/+download/+)[^/?#]+", re.IGNORECASE)
-_TOKEN_PARAM_RE = re.compile(r"([?&])([^=&#]*)(=)[^&#]*")
 _TOKEN_NAME_RE = re.compile(r"[\w.-]*token|sig|api_?key", re.IGNORECASE)
 
 
-def _redact_param(m: re.Match[str]) -> str:
-    # The query string is decoded before use, so a name may be percent-encoded.
-    if _TOKEN_NAME_RE.fullmatch(unquote_plus(m.group(2))):
-        return m.group(1) + m.group(2) + m.group(3) + _REDACTED_TOKEN
-    return m.group(0)
+def _redact_query(query: str) -> str:
+    """Return *query* with the value of every token-like parameter masked.
+
+    It is split the way Starlette reads it: on ``&``, then each part on its
+    first ``=``.  The name is matched decoded, because the app decodes it.
+    """
+    parts = query.split("&")
+    for i, part in enumerate(parts):
+        name, sep, _ = part.partition("=")
+        if sep and _TOKEN_NAME_RE.fullmatch(unquote_plus(name)):
+            parts[i] = name + sep + _REDACTED_TOKEN
+    return "&".join(parts)
 
 
 def _redact_request_target(target: str) -> str:
     """Return *target* (a path with optional query) with its credentials masked."""
     target = _TOKEN_PATH_RE.sub(lambda m: m.group(1) + _REDACTED_TOKEN, target)
-    return _TOKEN_PARAM_RE.sub(_redact_param, target)
+    path, sep, query = target.partition("?")
+    query, hash_sep, fragment = query.partition("#")
+    return path + sep + _redact_query(query) + hash_sep + fragment
 
 
 class AccessLogFilter(logging.Filter):

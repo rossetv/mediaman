@@ -6,10 +6,11 @@ import io
 import logging
 import logging.config
 import threading
+import time
 
 import pytest
 
-from mediaman.core.scrub_filter import ScrubFilter, install_root_filter
+from mediaman.core.scrub_filter import AccessLogFilter, ScrubFilter, install_root_filter
 
 
 def _make_record(msg: str, args: tuple | None = None) -> logging.LogRecord:
@@ -286,6 +287,18 @@ class TestPercentRArgs:
         f.filter(record)
         assert record.getMessage() == "broken token=***REDACTED*** then ***REDACTED***"
 
+    def test_raising_str_does_not_stop_other_args_being_scrubbed(self) -> None:
+        class Broken:
+            def __str__(self) -> str:
+                raise RuntimeError("no str")
+
+        f = ScrubFilter(secrets=["str-secret-91"])
+        record = _make_record("%s then %s", args=(Broken(), "str-secret-91"))
+        f.filter(record)
+        message = record.getMessage()
+        assert "str-secret-91" not in message
+        assert message.endswith("then ***REDACTED***")
+
     def test_secret_only_in_repr_is_scrubbed_for_percent_r(self) -> None:
         class Client:
             def __str__(self) -> str:
@@ -371,6 +384,30 @@ class TestServerLogs:
             '%s - "%s %s HTTP/%s" %d', "10.0.0.1:5000", "GET", "/downloads?page=2", "1.1", 200
         )
         assert 'GET /downloads?page=2 HTTP/1.1" 200' in server_logs[0].getvalue()
+
+    @pytest.mark.parametrize(
+        ("target", "logged"),
+        [
+            ("/x?token=s1&token=s2", "/x?token=***&token=***"),
+            ("/x?a=1&&sig=s1;b=2", "/x?a=1&&sig=***"),
+            ("/x?%zz=1&apikey=s1#frag", "/x?%zz=1&apikey=***#frag"),
+            ("/x?token&page=2", "/x?token&page=2"),
+        ],
+    )
+    def test_access_log_query_is_read_like_the_app_reads_it(self, target, logged) -> None:
+        record = _make_record("%s", args=(target,))
+        AccessLogFilter().filter(record)
+        assert record.args == (logged,)
+
+    @pytest.mark.parametrize(
+        "target",
+        ["?" * 100_000, "/keep/abc?" + "?a" * 50_000, "/x?" + "&" * 100_000],
+    )
+    def test_access_log_redaction_is_fast_on_a_huge_target(self, target) -> None:
+        record = _make_record("%s", args=(target,))
+        start = time.perf_counter()
+        AccessLogFilter().filter(record)
+        assert time.perf_counter() - start < 0.5
 
     def test_uvicorn_error_traceback_is_scrubbed(self, server_logs) -> None:
         try:
