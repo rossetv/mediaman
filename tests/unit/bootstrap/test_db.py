@@ -160,3 +160,25 @@ def test_lifespan_logs_an_old_database_without_a_traceback_and_exits(monkeypatch
     [record] = [r for r in caplog.records if r.levelno == logging.CRITICAL]
     assert "schema version 35" in record.getMessage()
     assert record.exc_info is None
+
+
+def test_bootstrap_db_does_not_log_initialised_when_the_database_is_refused(
+    monkeypatch, tmp_path, caplog
+):
+    import logging
+    import sqlite3
+    from types import SimpleNamespace
+
+    from mediaman.bootstrap.db import bootstrap_db
+    from mediaman.db.connection import SchemaTooOldError
+
+    conn = sqlite3.connect(tmp_path / "mediaman.db")
+    conn.execute("PRAGMA user_version=35")
+    conn.close()
+
+    with caplog.at_level(logging.INFO), pytest.raises(SchemaTooOldError):
+        bootstrap_db(
+            SimpleNamespace(state=SimpleNamespace()), SimpleNamespace(data_dir=str(tmp_path))
+        )
+
+    assert "DB initialised" not in caplog.text

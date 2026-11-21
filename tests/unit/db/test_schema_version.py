@@ -66,3 +66,32 @@ def test_a_database_at_or_past_v36_opens(db_path, version):
 
     assert conn.execute("SELECT username FROM admin_users").fetchone()[0] == "admin"
     assert conn.execute("PRAGMA user_version").fetchone()[0] == version
+
+
+def test_check_schema_version_ignores_a_missing_file_and_creates_nothing(db_path):
+    connection.check_schema_version(str(db_path))
+
+    assert not db_path.exists()
+
+
+@pytest.mark.parametrize("version", [0, 36, 40])
+def test_check_schema_version_passes_version_zero_and_36_plus(db_path, version):
+    _stamped_db(db_path, version)
+
+    connection.check_schema_version(str(db_path))
+
+
+def test_check_schema_version_refuses_an_old_wal_database_without_changing_it(db_path):
+    conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("CREATE TABLE t (x)")
+    conn.execute("PRAGMA user_version=35")
+    conn.commit()
+    conn.close()
+    before = db_path.read_bytes()
+
+    with pytest.raises(connection.SchemaTooOldError, match="version 35"):
+        connection.check_schema_version(str(db_path))
+
+    # SQLite may leave empty -wal/-shm files beside a WAL database it reads.
+    assert db_path.read_bytes() == before

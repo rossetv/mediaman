@@ -24,6 +24,7 @@ import socket
 import sqlite3
 import threading
 from datetime import timedelta
+from pathlib import Path
 
 from mediaman.core.time import now_iso, now_utc
 
@@ -72,6 +73,23 @@ def _refuse_old_schema(db_path: str, version: int) -> None:
     )
 
 
+def check_schema_version(db_path: str) -> None:
+    """Raise ``SchemaTooOldError`` if the file at ``db_path`` is stamped 1-35.
+
+    Opens the file read-only, so nothing is written. A missing file is a
+    new install and passes.
+    """
+    path = Path(db_path)
+    if not path.exists():
+        return
+    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    try:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+    finally:
+        conn.close()
+    _refuse_old_schema(db_path, version)
+
+
 def init_db(db_path: str) -> sqlite3.Connection:
     """Initialise the database, creating tables if needed.
 
@@ -83,9 +101,9 @@ def init_db(db_path: str) -> sqlite3.Connection:
         SchemaTooOldError: The database was last upgraded to a schema
             before v36. Nothing is written to it.
     """
+    check_schema_version(db_path)
     conn = sqlite3.connect(db_path)
     try:
-        _refuse_old_schema(db_path, conn.execute("PRAGMA user_version").fetchone()[0])
         _configure_connection(conn)
         _set_db_path(db_path)
         conn.executescript(SCHEMA)
