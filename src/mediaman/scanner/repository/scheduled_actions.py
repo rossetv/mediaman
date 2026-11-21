@@ -307,14 +307,15 @@ def delete_actions_for_media_items(conn: sqlite3.Connection, ids: list[str]) -> 
 def count_pending_deletions(conn: sqlite3.Connection) -> int:
     """Return the number of pending ``scheduled_deletion`` rows.
 
-    Counts only rows whose token has not yet been used — the same set
-    clear_pending_deletions sweeps. Snoozes and protect-forever
-    rows are not counted.
+    Counts only rows whose token has not yet been used and whose removal is
+    not running now — the same set clear_pending_deletions sweeps.
+    Snoozes and protect-forever rows are not counted.
     """
     return int(
         conn.execute(
             "SELECT COUNT(*) FROM scheduled_actions "
-            "WHERE action='scheduled_deletion' AND token_used=0"
+            "WHERE action='scheduled_deletion' AND token_used=0 "
+            "  AND delete_status IS NOT 'deleting'"
         ).fetchone()[0]
     )
 
@@ -330,7 +331,9 @@ def clear_pending_deletions(
     Returns the number of rows removed so callers can surface the count
     in their HTTP response. Snoozes and protect-forever rows are
     untouched — this only sweeps pending deletions whose token has not
-    yet been used.
+    yet been used. A row the deletion pass is removing right now is left
+    alone: its files go whatever the row says, so clearing it would report
+    a deletion cancelled that still happens.
 
     Audit-in-transaction: when *audit_actor* is supplied, a
     ``sec:scan.cleared`` row is written inside the same
@@ -346,7 +349,9 @@ def clear_pending_deletions(
         conn.execute("BEGIN IMMEDIATE")
         cleared = count_pending_deletions(conn)
         conn.execute(
-            "DELETE FROM scheduled_actions WHERE action='scheduled_deletion' AND token_used=0"
+            "DELETE FROM scheduled_actions "
+            "WHERE action='scheduled_deletion' AND token_used=0 "
+            "  AND delete_status IS NOT 'deleting'"
         )
         if audit_actor is not None:
             from mediaman.core.audit import security_event_or_raise

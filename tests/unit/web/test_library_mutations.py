@@ -405,6 +405,31 @@ class TestMediaKeep:
         ).fetchone()
         assert sa["action"] == "protected_forever"
 
+    def test_keep_while_the_item_is_being_deleted_is_refused(
+        self, app_factory, authed_client, conn
+    ):
+        """The removal goes on regardless, so the keep must not claim success."""
+        _insert_movie(conn)
+        insert_scheduled_action(
+            conn,
+            media_item_id="m1",
+            action="scheduled_deletion",
+            token="tok-m1",
+            token_used=False,
+            delete_status="deleting",
+        )
+        client = authed_client(_app(app_factory, conn), conn)
+
+        resp = client.post("/api/media/m1/keep", data={"duration": "forever"})
+
+        assert resp.status_code == 409
+        assert "being deleted" in resp.json()["message"]
+        rows = conn.execute(
+            "SELECT action, delete_status FROM scheduled_actions WHERE media_item_id='m1'"
+        ).fetchall()
+        assert [tuple(r) for r in rows] == [("scheduled_deletion", "deleting")]
+        assert conn.execute("SELECT 1 FROM audit_log WHERE media_item_id='m1'").fetchone() is None
+
 
 class TestMediaRedownload:
     def test_redownload_requires_auth(self, app_factory, conn):

@@ -35,6 +35,7 @@ from mediaman.web.repository.kept import (
     set_protected_state,
     upsert_kept_show,
 )
+from mediaman.web.repository.library_api import DeletionInProgress
 from mediaman.web.responses import respond_err, respond_ok
 
 logger = logging.getLogger(__name__)
@@ -193,23 +194,30 @@ def api_keep_show(
 
     # The show-keep upsert, seasons write, and audit row share one transaction
     # so a DB failure in any step rolls the whole thing back atomically.
-    with conn:
-        upsert_kept_show(
-            conn,
-            show_rating_key=resolved_key,
-            show_title=show_title,
-            action=decision.action,
-            execute_at=decision.execute_at,
-            snooze_duration=duration,
-            created_at=now_iso_str,
-        )
-        set_protected_state(conn, to_update=to_update, to_insert=to_insert)
-        log_audit(
-            conn,
-            resolved_key,
-            "kept_show",
-            f"Show '{show_title}' kept ({duration}) by {admin}",
-            actor=admin,
+    try:
+        with conn:
+            upsert_kept_show(
+                conn,
+                show_rating_key=resolved_key,
+                show_title=show_title,
+                action=decision.action,
+                execute_at=decision.execute_at,
+                snooze_duration=duration,
+                created_at=now_iso_str,
+            )
+            set_protected_state(conn, to_update=to_update, to_insert=to_insert)
+            log_audit(
+                conn,
+                resolved_key,
+                "kept_show",
+                f"Show '{show_title}' kept ({duration}) by {admin}",
+                actor=admin,
+            )
+    except DeletionInProgress:
+        return respond_err(
+            "deletion_in_progress",
+            status=409,
+            message="A season of this show is being deleted right now",
         )
 
     logger.info("Kept show %s (%s) -- %s by %s", resolved_key, show_title, duration, admin)

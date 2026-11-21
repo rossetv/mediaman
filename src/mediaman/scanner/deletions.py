@@ -27,6 +27,7 @@ from mediaman.core.time import now_utc
 from mediaman.scanner import repository
 from mediaman.scanner.repository import DeletionRow
 from mediaman.scanner.repository.scheduled_actions import (
+    DELETION_ACTION,
     claim_due_deletion,
     claim_due_deletions_under,
     fetch_media_held_outside_pass,
@@ -62,6 +63,9 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
     scheduler on startup. For each row marked ``deleting`` we check
     whether the on-disk file is still present:
 
+    * Not a ``scheduled_deletion`` (a keep or snooze written over the row)
+      -> it was never meant to be removed, so whatever the disk shows it is
+      never booked deleted. Reset to ``pending``.
     * File absent **and** the stored path was within the configured
       delete roots -> the rm completed but the follow-up bookkeeping was
       never committed. Convert to a normal ``deleted`` cleanup: write the
@@ -92,6 +96,16 @@ def recover_stuck_deletions(conn: sqlite3.Connection) -> None:
     allowed_roots = repository.read_delete_allowed_roots_setting(conn)
 
     for row in rows:
+        if row.action != DELETION_ACTION:
+            logger.warning(
+                "engine.delete.recover id=%s action=%r — not a scheduled deletion, "
+                "reverting status to 'pending' without booking it deleted",
+                row.id,
+                row.action,
+            )
+            repository.mark_delete_status(conn, row.id, "pending")
+            conn.commit()
+            continue
         file_path = row.file_path or ""
         file_present = bool(file_path) and os.path.lexists(file_path)
         if file_present:
@@ -154,7 +168,9 @@ def _delete_file_on_disk(
     """Attempt to delete the on-disk file; return True on success.
 
     On any error the row is left in the appropriate state and False is
-    returned so the caller can ``continue`` to the next row.  All
+    returned so the caller can ``continue`` to the next row. A failed removal
+    goes back to ``pending``: the pass reads its rows once, so the next pass
+    retries it, and ``deleting`` keeps meaning a removal running now.  All
     try/except branches are contained here so no except clause is ever
     stranded in a different scope from its try.
     """
@@ -193,19 +209,17 @@ def _delete_file_on_disk(
     except (PermissionError, OSError) as exc:
         # Likely permanent without operator intervention
         # (read-only filesystem, ACL refusal, low-level I/O
-        # error, IsADirectoryError, etc.). Leave the row in
-        # 'deleting' state so a subsequent run can inspect via
-        # recover_stuck_deletions (file present → reset to
-        # pending; file gone → mark deleted), and emit an
-        # explicit audit entry now so the failure is visible
-        # to the operator without waiting for the next scan.
+        # error, IsADirectoryError, etc.). Audit it now so the
+        # failure is visible to the operator without waiting
+        # for the next scan.
         logger.exception(
             "engine.delete.permanent_failure id=%s path=%r — "
-            "leaving row in 'deleting' state for next run "
-            "to inspect (file may need manual intervention)",
+            "resetting row to 'pending' for the next run to "
+            "retry (file may need manual intervention)",
             row.id,
             row.file_path,
         )
+        repository.mark_delete_status(conn, row.id, "pending")
         log_audit(
             conn,
             row.media_item_id,
@@ -216,15 +230,15 @@ def _delete_file_on_disk(
         return False
     except Exception as exc:
         # Unexpected exception type. Log + audit and treat as
-        # permanent so the operator can investigate; leave the
-        # row in 'deleting' for recovery to reconcile.
+        # permanent so the operator can investigate.
         logger.exception(
             "engine.delete.unexpected_failure id=%s path=%r — "
-            "leaving row in 'deleting' state for next run to "
-            "inspect (programming error or unhandled exception)",
+            "resetting row to 'pending' for the next run to "
+            "retry (programming error or unhandled exception)",
             row.id,
             row.file_path,
         )
+        repository.mark_delete_status(conn, row.id, "pending")
         log_audit(
             conn,
             row.media_item_id,

@@ -30,6 +30,14 @@ class NotFound(Exception):
     """
 
 
+class DeletionInProgress(Exception):
+    """Raised when a keep targets a row the deletion pass is removing right now.
+
+    The removal goes on whatever the row says, so accepting the keep would
+    report the item kept while its files are deleted.
+    """
+
+
 @dataclass(frozen=True)
 class MediaDeleteSnapshot:
     """Captured media_items row used to drive the delete flow.
@@ -73,6 +81,8 @@ def apply_keep_in_tx(
     Raises:
         NotFound: when the target media_items row does not exist. The
             ``with conn:`` block rolls back any partial writes.
+        DeletionInProgress: when the item's row is being deleted right now;
+            nothing is written.
     """
     # ``with conn:`` commits on normal exit and rolls back on exception;
     # BEGIN IMMEDIATE here preserves write-lock semantics.
@@ -83,16 +93,19 @@ def apply_keep_in_tx(
             raise NotFound(media_id)
 
         existing = conn.execute(
-            "SELECT id FROM scheduled_actions WHERE media_item_id = ? AND token_used = 0",
+            "SELECT id, delete_status FROM scheduled_actions "
+            "WHERE media_item_id = ? AND token_used = 0",
             (media_id,),
-        ).fetchone()
+        ).fetchall()
+        if any(row["delete_status"] == "deleting" for row in existing):
+            raise DeletionInProgress(media_id)
 
         if existing:
             conn.execute(
                 "UPDATE scheduled_actions "
                 "SET action=?, execute_at=?, snoozed_at=?, snooze_duration=?, token_used=0 "
                 "WHERE id=?",
-                (action, execute_at, now_iso, snooze_label, existing["id"]),
+                (action, execute_at, now_iso, snooze_label, existing[0]["id"]),
             )
         else:
             conn.execute(

@@ -36,6 +36,7 @@ from mediaman.web.repository.delete_intents import (
     reconcile_pending_delete_intents,
 )
 from mediaman.web.repository.library_api import (
+    DeletionInProgress,
     NotFound,
     apply_keep_in_tx,
 )
@@ -156,6 +157,10 @@ def api_media_keep(
         )
     except NotFound:
         return respond_err("not_found", status=404)
+    except DeletionInProgress:
+        return respond_err(
+            "deletion_in_progress", status=409, message="This item is being deleted right now"
+        )
 
     logger.info("Media item %s protected for %s by %s", media_id, snooze_label, username)
 

@@ -175,6 +175,39 @@ class TestKeepShowIdorDefence:
         ).fetchone()
         assert rows["n"] == 2
 
+    def test_keep_while_a_season_is_being_deleted_changes_nothing(
+        self, app_factory, authed_client, conn
+    ):
+        _insert_season(conn, "m-A1", "rk-show-A", "Kingdom", season=1)
+        _insert_season(conn, "m-A2", "rk-show-A", "Kingdom", season=2)
+        for media_id, status in (("m-A1", "pending"), ("m-A2", "deleting")):
+            insert_scheduled_action(
+                conn,
+                media_item_id=media_id,
+                action="scheduled_deletion",
+                token=f"tok-{media_id}",
+                token_used=False,
+                delete_status=status,
+            )
+        client = authed_client(app_factory(kept_router, conn=conn), conn)
+
+        resp = client.post(
+            "/api/show/rk-show-A/keep",
+            json={"duration": "forever", "season_ids": ["m-A1", "m-A2"]},
+        )
+
+        assert resp.status_code == 409
+        assert "being deleted" in resp.json()["message"]
+        rows = conn.execute(
+            "SELECT media_item_id, action, delete_status FROM scheduled_actions "
+            "ORDER BY media_item_id"
+        ).fetchall()
+        assert [tuple(r) for r in rows] == [
+            ("m-A1", "scheduled_deletion", "pending"),
+            ("m-A2", "scheduled_deletion", "deleting"),
+        ]
+        assert conn.execute("SELECT 1 FROM kept_shows").fetchone() is None
+
 
 class TestResolveShowRatingKey:
     """Helper unit tests."""

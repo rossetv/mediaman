@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import cast
 
+from mediaman.web.repository.library_api import DeletionInProgress
 from mediaman.web.repository.library_query import ALL_SEASON_TYPES
 
 logger = logging.getLogger(__name__)
@@ -316,13 +317,21 @@ def set_protected_state(
     ``to_update`` rows: (action, execute_at, snoozed_at, snooze_duration, id)
     ``to_insert`` rows: (media_item_id, action, scheduled_at, execute_at,
                          token, created_at, snooze_duration)
+
+    Raises:
+        DeletionInProgress: when a row to update is being deleted right now
+            (or went with a removal that just finished). The caller's
+            transaction must roll back, so nothing changes.
     """
     if to_update:
-        conn.executemany(
+        cursor = conn.executemany(
             "UPDATE scheduled_actions SET action = ?, execute_at = ?, "
-            "snoozed_at = ?, snooze_duration = ? WHERE id = ?",
+            "snoozed_at = ?, snooze_duration = ? "
+            "WHERE id = ? AND delete_status IS NOT 'deleting'",
             to_update,
         )
+        if cursor.rowcount != len(to_update):
+            raise DeletionInProgress()
     if to_insert:
         conn.executemany(
             "INSERT INTO scheduled_actions "

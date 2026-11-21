@@ -1072,3 +1072,150 @@ class TestRefusalAudit:
         DeletionExecutor(conn=conn).execute()
 
         assert _audits(conn, "s1") == ["delete_refused", "delete_refused"]
+
+
+class TestKeepAndClearAroundARemoval:
+    """A keep or clear must never report a result the deletion pass then undoes."""
+
+    @pytest.fixture
+    def movie(self, conn, tmp_path, monkeypatch):
+        root = tmp_path / "movies"
+        folder = root / "Movie"
+        folder.mkdir(parents=True)
+        (folder / "Movie.mkv").write_bytes(b"x")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        insert_media_item(conn, id="m1", plex_rating_key="m1", file_path=str(folder))
+        _due_row(conn, "m1")
+        return folder
+
+    def _row(self, conn):
+        row = conn.execute(
+            "SELECT action, delete_status FROM scheduled_actions WHERE media_item_id='m1'"
+        ).fetchone()
+        return None if row is None else (row["action"], row["delete_status"])
+
+    def _failing_pass(self, conn, monkeypatch, error):
+        calls = []
+
+        def fail(path, *, allowed_roots):
+            calls.append(path)
+            raise error
+
+        with monkeypatch.context() as patch:
+            patch.setattr("mediaman.scanner.deletions.delete_path", fail)
+            DeletionExecutor(conn=conn).execute()
+        return calls
+
+    @pytest.mark.parametrize("keep", [_keep_forever, _keep_show], ids=["library", "show"])
+    def test_keep_while_the_files_are_being_removed_is_refused(
+        self, conn, db_path, monkeypatch, movie, keep
+    ):
+        from mediaman.scanner import deletions
+        from mediaman.web.repository.library_api import DeletionInProgress
+
+        other = init_db(str(db_path))
+        real = deletions.delete_path
+        seen = {}
+
+        def remove(path, *, allowed_roots):
+            try:
+                keep(other, "m1")
+                seen["keep"] = "accepted"
+            except DeletionInProgress:
+                seen["keep"] = "refused"
+            seen["row"] = self._row(other)
+            real(path, allowed_roots=allowed_roots)
+
+        monkeypatch.setattr(deletions, "delete_path", remove)
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert seen == {"keep": "refused", "row": ("scheduled_deletion", "deleting")}
+        assert not movie.exists()
+
+    @pytest.mark.parametrize(
+        "error", [PermissionError("read-only"), OSError("i/o"), RuntimeError("bug")]
+    )
+    def test_a_failed_removal_goes_back_to_pending_and_the_next_pass_retries(
+        self, conn, monkeypatch, movie, error
+    ):
+        calls = self._failing_pass(conn, monkeypatch, error)
+
+        assert len(calls) == 1
+        assert self._row(conn) == ("scheduled_deletion", "pending")
+        assert _audits(conn, "m1") == ["delete_failed_permanent"]
+        assert movie.exists()
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert not movie.exists()
+        assert self._row(conn) is None
+
+    def test_keep_after_a_failed_removal_saves_the_media(self, conn, monkeypatch, movie):
+        self._failing_pass(conn, monkeypatch, PermissionError("read-only"))
+
+        _keep_forever(conn, "m1")
+        DeletionExecutor(conn=conn).execute()
+
+        assert movie.exists()
+        assert self._row(conn) == ("protected_forever", "pending")
+        assert "deleted" not in _audits(conn, "m1")
+
+    def test_clear_while_the_files_are_being_removed_leaves_that_row(
+        self, conn, db_path, monkeypatch, movie
+    ):
+        from mediaman.scanner import deletions
+        from mediaman.scanner.repository import clear_pending_deletions
+
+        insert_media_item(conn, id="later", plex_rating_key="later", file_path=f"{movie}2")
+        _insert_pending_deletion(
+            conn, media_id="later", execute_at=(datetime.now(UTC) + timedelta(days=3)).isoformat()
+        )
+        other = init_db(str(db_path))
+        real = deletions.delete_path
+        seen = {}
+
+        def remove(path, *, allowed_roots):
+            seen["cleared"] = clear_pending_deletions(other)
+            seen["row"] = self._row(other)
+            real(path, allowed_roots=allowed_roots)
+
+        monkeypatch.setattr(deletions, "delete_path", remove)
+
+        DeletionExecutor(conn=conn).execute()
+
+        assert seen == {"cleared": 1, "row": ("scheduled_deletion", "deleting")}
+        assert _actions(conn, "later") == []
+
+    def test_clear_after_a_failed_removal_cancels_the_retry(self, conn, monkeypatch, movie):
+        from mediaman.scanner.repository import clear_pending_deletions
+
+        self._failing_pass(conn, monkeypatch, PermissionError("read-only"))
+
+        assert clear_pending_deletions(conn) == 1
+        DeletionExecutor(conn=conn).execute()
+
+        assert movie.exists()
+        assert self._row(conn) is None
+        assert "deleted" not in _audits(conn, "m1")
+
+    def test_recovery_never_books_a_kept_row_deleted(self, conn, tmp_path, monkeypatch):
+        root = tmp_path / "movies"
+        root.mkdir()
+        (root / "Other.mkv").write_bytes(b"x")
+        monkeypatch.setenv("MEDIAMAN_DELETE_ROOTS", str(root))
+        insert_media_item(conn, id="m1", plex_rating_key="m1", file_path=str(root / "Gone.mkv"))
+        insert_scheduled_action(
+            conn,
+            media_item_id="m1",
+            action="protected_forever",
+            token="tok-m1",
+            execute_at=None,
+            token_used=False,
+            delete_status="deleting",
+        )
+
+        recover_stuck_deletions(conn)
+
+        assert self._row(conn) == ("protected_forever", "pending")
+        assert _audits(conn, "m1") == []
