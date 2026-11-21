@@ -128,6 +128,11 @@ def is_canary_valid(
 ) -> bool:
     """Verify the AES key can decrypt a stored canary value.
 
+    When the canary no longer decrypts (the key changed), it is rewritten
+    under *secret_key* only if every other encrypted setting decrypts
+    with that key; otherwise the check fails and logs which settings
+    still need re-entering or clearing.
+
     Args:
         conn:       Open SQLite connection.
         secret_key: Master ``MEDIAMAN_SECRET_KEY``.
@@ -180,15 +185,7 @@ def is_canary_valid(
             aad=_CANARY_SETTING_KEY.encode(),
         )
     except (InvalidTag, ValueError, CryptoInputError):
-        return _fail_canary(
-            conn,
-            on_failure,
-            "canary_decrypt_invalid_tag",
-            "AES key mismatch — existing encrypted settings can no longer be "
-            "decrypted. The secret key likely changed since the last run. "
-            "Rotate all encrypted settings (API keys, tokens) by re-entering "
-            "them on the Settings page.",
-        )
+        return _reseal_canary_or_fail(conn, secret_key, on_failure)
 
     if decrypted != _CANARY_PLAINTEXT:
         return _fail_canary(
@@ -200,6 +197,66 @@ def is_canary_valid(
             "them on the Settings page.",
         )
 
+    return True
+
+
+def _reseal_canary_or_fail(
+    conn: sqlite3.Connection,
+    secret_key: str,
+    on_failure: collections.abc.Callable[[str], None] | None,
+) -> bool:
+    """Rewrite the canary under *secret_key* if every secret reads under it.
+
+    The canary no longer decrypts, so the key changed. Once every
+    encrypted setting has been re-entered or cleared under the new key,
+    scans can read all their credentials again and the canary is
+    rewritten. While any one still fails, the canary is left alone and
+    the check fails, naming those settings (never their values).
+    """
+    # The cached salt may belong to a database swapped in under the same
+    # path; re-read it so the probe and any rewrite use this DB's salt.
+    cache_key = _get_db_path(conn)
+    if cache_key:
+        _salt_cache_pop(cache_key)
+
+    rows = conn.execute(
+        "SELECT key, value FROM settings WHERE encrypted=1 AND key != ? ORDER BY key",
+        (_CANARY_SETTING_KEY,),
+    ).fetchall()
+    unreadable = []
+    for row in rows:
+        try:
+            decrypt_value(row["value"], secret_key, conn=conn, aad=row["key"].encode())
+        except (InvalidTag, ValueError, CryptoInputError):
+            unreadable.append(row["key"])
+
+    if unreadable:
+        return _fail_canary(
+            conn,
+            on_failure,
+            "canary_decrypt_invalid_tag",
+            "AES key mismatch — MEDIAMAN_SECRET_KEY changed and these encrypted "
+            f"settings cannot be decrypted with it: {', '.join(map(repr, unreadable))}. "
+            "Put the previous MEDIAMAN_SECRET_KEY back, or re-enter or clear each "
+            "of these settings on the Settings page, then restart mediaman — the "
+            "key is checked only at startup.",
+        )
+
+    ciphertext = encrypt_value(
+        _CANARY_PLAINTEXT,
+        secret_key,
+        conn=conn,
+        aad=_CANARY_SETTING_KEY.encode(),
+    )
+    conn.execute(
+        "UPDATE settings SET value=?, updated_at=? WHERE key=?",
+        (ciphertext, _now_iso(), _CANARY_SETTING_KEY),
+    )
+    conn.commit()
+    logger.warning(
+        "MEDIAMAN_SECRET_KEY changed; every encrypted setting decrypts with the "
+        "new key, so the AES canary was rewritten under it."
+    )
     return True
 
 

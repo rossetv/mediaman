@@ -222,9 +222,10 @@ def bootstrap_scheduling(app: FastAPI, config: Config) -> bool:
         if not canary_ok:
             raise SchedulerStartupRefused(
                 "Refusing to start scheduler: AES canary check failed. "
-                "Fix MEDIAMAN_SECRET_KEY (or re-enter encrypted settings) "
-                "and restart. The web UI is still accessible so an admin "
-                "can investigate."
+                "Put the previous MEDIAMAN_SECRET_KEY back, or re-enter or "
+                "clear the encrypted settings the AES key mismatch warning "
+                "names, then restart. The web UI is still accessible so an "
+                "admin can investigate."
             )
 
         _recover_stuck_deletions_at_boot(conn)
